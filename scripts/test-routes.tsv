@@ -1,0 +1,65 @@
+# Which suites a changed path can affect: <zsh glob><TAB><selectors>. scripts/test-select.sh reads
+# this table; scripts/test-test-select.sh pins it. A path takes the union of every row it matches,
+# and a path no row matches selects `everything`, so a new kind of file errs towards running more.
+# `*` crosses `/`, so `*.md` is markdown at any depth and `daemon/*` everything under daemon/.
+#
+# Selectors: everything, toolchain, daemon, target:<Target>, suite:<Target>.<Suite>, none
+# (`none` is for paths no test reads; it adds nothing, so a path that only matches it runs nothing).
+#
+# A row is here because a test reads the path, so the cross-reads are rows too: the wire fixtures
+# and the daemon's delivery module are read by Swift suites, the hooks by the status line shim's
+# tests, the Info.plist by the release feed's. Keep a new reader in step with its row here.
+#
+# OperatorEvalTests reads daemon/aitermd and daemon/tools but is opt-in and spends quota, so no
+# row selects it.
+#
+# scripts/test-test-select.sh fails when a test reads outside its own target and is not accounted for
+# here, so a new cross-read cannot fall out of the routing unnoticed. It looks for Swift files that
+# use `#file` or `#filePath` and daemon tests that climb out of daemon/. A Swift reader is accounted for by a
+# `suite:<Target>.<File>` on a row above, or by its name on a `# reads only its own target:` or
+# `# opt-in, reads outside its target:` line; a daemon reader by `<test file>=<path it reads>` on the
+# `# daemon readers outside daemon/:` line, where a row above must route that path to daemon.
+# Add the name when a new test only reads its own target's files; add a row when it reads another's.
+# reads only its own target: PaletteDistinctionTests CoreFoldersTests OperatorPlanToolsTests
+# opt-in, reads outside its target: OperatorEvalTests
+# daemon readers outside daemon/: test_statusline_shim.py=hooks/claude-statusline-shim.sh test_grok_statusline_shim.py=hooks/grok-statusline-shim.sh test_pi_extension.py=hooks/pi-aiterm-status.ts
+
+# The daemon, and what the Swift suites read from it.
+daemon/*	daemon
+daemon/tests/wire/*	daemon suite:AiTermCoreTests.WireContractTests
+daemon/aitermd/delivery.py	daemon suite:AiTermCoreTests.OperatorTimingTests
+hooks/*	daemon suite:AiTermCoreTests.StatusLineShimTests
+
+# Swift sources: each target is built into the ones above it, and the test support is shared.
+# The manifest is the toolchain guard's too: it loads it with the pinned Swift and fails on a warning.
+app/Sources/AiTermCore/*	target:AiTermCoreTests target:AiTermUITests target:AiTermTests
+app/Tests/AiTermTestSupport/*	target:AiTermCoreTests target:AiTermUITests target:AiTermTests
+app/Tests/AiTermTestWindowHook/*	target:AiTermCoreTests target:AiTermUITests target:AiTermTests
+app/Package.swift	toolchain target:AiTermCoreTests target:AiTermUITests target:AiTermTests
+app/Sources/AiTermUI/*	target:AiTermUITests target:AiTermTests
+app/Sources/AiTerm/*	target:AiTermTests suite:AiTermUITests.DesignRulesTests
+app/Sources/AiTerm/Resources/Info.plist	suite:AiTermCoreTests.ReleaseFeedTests
+
+# A test target's own files.
+app/Tests/AiTermCoreTests/*	target:AiTermCoreTests
+app/Tests/AiTermUITests/*	target:AiTermUITests
+app/Tests/AiTermTests/*	target:AiTermTests
+
+# The toolchain and the test runner themselves: a change here can break any suite.
+scripts/swift.sh	toolchain everything
+.swift-version	toolchain everything
+scripts/test-swift-toolchain.sh	toolchain everything
+scripts/fixtures/*	toolchain everything
+scripts/test.sh	toolchain everything
+scripts/test-select.sh	toolchain everything
+scripts/test-routes.tsv	toolchain everything
+scripts/test-test-select.sh	toolchain everything
+
+# Nothing a test reads.
+docs/*	none
+*.md	none
+.superpowers/*	none
+*.png	none
+.github/*	none
+LICENSE	none
+.gitignore	none

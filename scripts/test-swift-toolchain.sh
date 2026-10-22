@@ -60,11 +60,15 @@ fi
 
 # Exercise the runner without a real build: empty, unfinished, failed and nonzero runs
 # must fail even when the compiler process reports success. Avoid recursing through this guard.
+# A fixture run keeps no logs (AITERM_TEST_LOGS_KEEP=0): the failures here are meant, and the runs
+# that do not set TMPDIR would otherwise leave them in the user's temp directory on every guard run.
 if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
     "$ROOT/scripts/fixtures/check-bundle-verifier.sh"
     (
         runner_logs="$(mktemp -d -t aiterm-runner-fixture)"
         trap 'rm -rf "$runner_logs"' EXIT
+        export AITERM_TEST_LOGS_KEEP=0
+        logs_before=(${TMPDIR:-/tmp}/aiterm-test.*(N/))
         for result in passed zero incomplete failed nonzero; do
             runner_status=0
             TMPDIR="$runner_logs/" TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER=1 AITERM_FIXTURE_TEST_RUN="$result" \
@@ -99,6 +103,136 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
             fi
         done
         wait
+
+        # The default suite runs what the changed paths can affect, which AITERM_TEST_PATHS names in
+        # place of git. The fixtures write what was called to $calls: the Swift fixture its arguments,
+        # this pytest the word `pytest`. Its distinct status proves the daemon's tests were reached,
+        # and stops the run before their lint, which needs the venv a fresh worktree lacks.
+        calls="$runner_logs/calls"
+        pytest="$runner_logs/pytest"
+        print -rl -- '#!/bin/zsh' 'print pytest >>"$AITERM_FIXTURE_CALLS"' 'exit 73' >"$pytest"
+        chmod +x "$pytest"
+        # changed_case <name> <expected status> <expected calls> <paths> [test.sh arguments…]
+        changed_case() {
+            local name="$1" want_status="$2" want_calls="$3" paths="$4"
+            shift 4
+            : >"$calls"
+            runner_status=0
+            AITERM_TEST_PATHS="$paths" AITERM_FIXTURE_CALLS="$calls" TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER=1 \
+                SWIFT="$ROOT/scripts/fixtures/swift-test-run.sh" PYTEST="$pytest" \
+                "$ROOT/scripts/test.sh" "$@" >"$bad_output" 2>&1 || runner_status=$?
+            if [[ "$runner_status" != "$want_status" || "$(<"$calls")" != "$want_calls" ]]; then
+                print -u2 "changed suite, $name: status $runner_status (expected $want_status), called '$(<"$calls")' (expected '$want_calls')"
+                sed -n '1,30p' "$bad_output" >&2
+                exit 1
+            fi
+        }
+        changed_case "docs only" 0 '' docs/x.md
+        grep -Fq "Nothing to test: only docs/x.md changed." "$bad_output" || {
+            print -u2 "expected a docs-only change to say there is nothing to test"
+            sed -n '1,30p' "$bad_output" >&2
+            exit 1
+        }
+        changed_case "no paths" 0 '' ''
+        grep -Fxq "Nothing changed in AITERM_TEST_PATHS." "$bad_output" || {
+            print -u2 "expected an empty AITERM_TEST_PATHS to say it names nothing"
+            sed -n '1,30p' "$bad_output" >&2
+            exit 1
+        }
+        changed_case "daemon code" 73 pytest daemon/aitermd/x.py
+        if grep -Fq "test selector guard passed" "$bad_output"; then
+            print -u2 "expected a fixture run to leave the reader guard to the run that started it"
+            sed -n '1,30p' "$bad_output" >&2
+            exit 1
+        fi
+        # A run that is no fixture runs the reader guard whatever it picked, here only the daemon.
+        : >"$calls"
+        runner_status=0
+        env -u TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER AITERM_TEST_PATHS=daemon/aitermd/x.py AITERM_FIXTURE_CALLS="$calls" \
+            SWIFT="$ROOT/scripts/fixtures/swift-test-run.sh" PYTEST="$pytest" \
+            "$ROOT/scripts/test.sh" >"$bad_output" 2>&1 || runner_status=$?
+        if [[ "$runner_status" != 73 || "$(<"$calls")" != pytest ]] || ! grep -Fq "test selector guard passed" "$bad_output"; then
+            print -u2 "expected a daemon-only change to run the reader guard before the daemon's tests (status $runner_status)"
+            sed -n '1,30p' "$bad_output" >&2
+            exit 1
+        fi
+        changed_case "app code" 0 'swift test --filter ^AiTermUITests\.DesignRulesTests/ --filter ^AiTermTests\.' \
+            app/Sources/AiTerm/X.swift
+        grep -Fq "app/Sources/AiTerm/X.swift" "$bad_output" || {
+            print -u2 "expected the selection to name the path that picked it"
+            sed -n '1,30p' "$bad_output" >&2
+            exit 1
+        }
+        changed_case "docs only, with swift test arguments" 0 'swift test --filter fixture' docs/x.md -- --filter fixture
+        # A filtered run must reach every host its selectors name and finish every suite they name.
+        for result in nosuite onehost; do
+            AITERM_FIXTURE_TEST_RUN="$result" changed_case "app code, $result" 1 \
+                'swift test --filter ^AiTermUITests\.DesignRulesTests/ --filter ^AiTermTests\.' app/Sources/AiTerm/X.swift
+        done
+
+        # A git that finds the merge base but then fails to list the changes must stop the run: going
+        # on with what it did list could test nothing and still pass.
+        mkdir -p "$runner_logs/broken-git"
+        print -rl -- '#!/bin/zsh' \
+            'case " $* " in' \
+            '    *" merge-base "*) print 0000000000000000000000000000000000000000 ;;' \
+            '    *" diff "*) print -u2 "fatal: broken git fixture"; exit 128 ;;' \
+            "    *) exec $(whence -p git) \"\$@\" ;;" \
+            'esac' >"$runner_logs/broken-git/git"
+        chmod +x "$runner_logs/broken-git/git"
+        : >"$calls"
+        runner_status=0
+        env -u AITERM_TEST_PATHS PATH="$runner_logs/broken-git:$PATH" AITERM_FIXTURE_CALLS="$calls" \
+            TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER=1 SWIFT="$ROOT/scripts/fixtures/swift-test-run.sh" PYTEST="$pytest" \
+            "$ROOT/scripts/test.sh" >"$bad_output" 2>&1 || runner_status=$?
+        if [[ "$runner_status" != 1 || -s "$calls" ]] || ! grep -Fq "could not list the changes since main" "$bad_output"; then
+            print -u2 "expected a failing git diff to stop the run (status $runner_status, called '$(<"$calls")')"
+            sed -n '1,30p' "$bad_output" >&2
+            exit 1
+        fi
+
+        # Without a main to compare with, nothing says what changed, so everything runs: a scratch
+        # repository with these scripts and no main branch gets as far as the daemon's tests.
+        repo="$runner_logs/repo"
+        mkdir -p "$repo/app" "$repo/daemon"
+        cp -R "$ROOT/scripts" "$repo/"
+        cp "$ROOT/.swift-version" "$repo/"
+        cp "$ROOT/app/Package.swift" "$repo/app/"
+        git -C "$repo" init -q -b trunk
+        git -C "$repo" add -A
+        git -C "$repo" -c user.name=fixture -c user.email=fixture@invalid -c commit.gpgsign=false \
+            commit -q --no-verify -m fixture
+        : >"$calls"
+        runner_status=0
+        env -u AITERM_TEST_PATHS AITERM_FIXTURE_CALLS="$calls" TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER=1 \
+            SWIFT="$repo/scripts/fixtures/swift-test-run.sh" PYTEST="$pytest" \
+            "$repo/scripts/test.sh" >"$bad_output" 2>&1 || runner_status=$?
+        if [[ "$runner_status" != 73 || "$(<"$calls")" != pytest ]] || ! grep -Fxq "  everything" "$bad_output"; then
+            print -u2 "expected a checkout with no main to select everything (status $runner_status)"
+            sed -n '1,30p' "$bad_output" >&2
+            exit 1
+        fi
+
+        # A route the runner cannot act on stops the run; skipping it would test less than it says.
+        for row in $'bad/*\tfrobnicate' $'bad/*\ttarget:NoSuchTests' $'bad/*\tsuite:AiTermTests' 'bad/*'; do
+            cp "$ROOT/scripts/test-routes.tsv" "$repo/scripts/test-routes.tsv"
+            print -r -- "$row" >>"$repo/scripts/test-routes.tsv"
+            runner_status=0
+            AITERM_TEST_PATHS=bad/x TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER=1 SWIFT="$repo/scripts/fixtures/swift-test-run.sh" \
+                PYTEST="$pytest" "$repo/scripts/test.sh" >"$bad_output" 2>&1 || runner_status=$?
+            if [[ "$runner_status" != 1 ]] || ! grep -Fq "test-routes.tsv" "$bad_output"; then
+                print -u2 "expected the route '${row//$'\t'/<TAB>}' to stop the run (status $runner_status)"
+                sed -n '1,30p' "$bad_output" >&2
+                exit 1
+            fi
+        done
+
+        logs_after=(${TMPDIR:-/tmp}/aiterm-test.*(N/))
+        leaked=(${logs_after:|logs_before})
+        if (( ${#leaked} )); then
+            print -u2 "the runner's fixture runs left their logs behind: ${(j:, :)leaked}"
+            exit 1
+        fi
     )
 fi
 
@@ -108,7 +242,7 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_AGGREGATE:-0}" == "1" ]]; then
 fi
 
 aggregate_output="$(mktemp)"
-if AITERM_FIXTURE_SWIFT_VERSION="$OLDER_VERSION" SWIFT="$OTHER_SWIFT" PYTEST=false "$ROOT/scripts/test.sh" >"$aggregate_output" 2>&1; then
+if AITERM_FIXTURE_SWIFT_VERSION="$OLDER_VERSION" SWIFT="$OTHER_SWIFT" PYTEST=false "$ROOT/scripts/test.sh" all >"$aggregate_output" 2>&1; then
     print -u2 "expected the aggregate command to reject Swift $OLDER_VERSION"
     exit 1
 fi
@@ -120,7 +254,7 @@ grep -Fq "AiTerm requires Swift $PINNED_VERSION. Found: $OLDER_VERSION" "$aggreg
 
 normal_output="$(mktemp)"
 trap 'rm -f "$bad_output" "$aggregate_output" "$normal_output"' EXIT
-if ! SWIFT="$GOOD_SWIFT" PYTEST=/usr/bin/true "$ROOT/scripts/test.sh" >"$normal_output" 2>&1; then
+if ! SWIFT="$GOOD_SWIFT" PYTEST=/usr/bin/true "$ROOT/scripts/test.sh" all >"$normal_output" 2>&1; then
     print -u2 "expected the aggregate command to pass with the pinned Swift toolchain"
     sed -n '1,80p' "$normal_output" >&2
     exit 1

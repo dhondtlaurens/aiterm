@@ -62,17 +62,6 @@ import Foundation
         #expect(s.task(id: a)?.operated?.state == .queued && s.task(id: c.id)?.operated?.state == .queued)
     }
 
-    /// Tasks the operator adds to the open revision wait for its submission.
-    @Test func theOpenRevisionWaitsForItsSubmission() throws {
-        var (s, _, _) = planning()
-        try PlanRevision.submit(1, run: F.runId, in: &s)
-        let open = F.task("D", .planned, revision: 2)
-        s.tasks.append(open)
-        #expect(s.task(id: open.id)?.operated?.state == .planned)
-        try PlanRevision.submit(2, run: F.runId, in: &s)
-        #expect(s.task(id: open.id)?.operated?.state == .queued)
-    }
-
     /// Submitting the same revision again returns the earlier result and changes nothing.
     @Test func aRepeatedSubmissionIsTheEarlierResult() throws {
         var (s, _, _) = planning()

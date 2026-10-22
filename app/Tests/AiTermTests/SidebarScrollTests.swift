@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
-import AiTermTestSupport
+@testable import AiTermTestSupport
 @testable import AiTermCore
 @testable import AiTerm
 
@@ -33,17 +33,19 @@ struct SidebarScrollTests {
         window.contentView = host
         window.orderFront(nil)
         defer { window.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
 
         func table(in view: NSView) -> NSTableView? {
             if let table = view as? NSTableView { return table }
             return view.subviews.lazy.compactMap { table(in: $0) }.first
         }
+        settle(host, describing: "the sidebar's table") { table(in: host) != nil }
         let list = try #require(table(in: host))
         let last = try #require(controller.state.terminals.last)
         controller.workspace.mutate { $0.updateProject(id: last.projectId) { $0.collapsed = false } }
         controller.focus.browse(.terminal(last.id))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        settle(host, describing: "the last terminal's row scrolled into view") {
+            list.numberOfRows == 42 && list.visibleRect.contains(list.rect(ofRow: list.numberOfRows - 1))
+        }
 
         // The last terminal is the last row. Not `selectedRow`: a selection set from the model
         // reaches the table's own `selectedRow` only later, if at all.

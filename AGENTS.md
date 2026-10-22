@@ -25,4 +25,10 @@ Swift is written.
 - Build and test through `scripts/swift.sh` and `scripts/test.sh`, which pin swiftly's Swift 6.4.
   Never invoke `swift` directly. `scripts/test.sh` runs one at a time machine-wide and queues
   behind any other worktree's run, so start it in the background rather than under a short timeout.
+  - While iterating: `scripts/test.sh swift -- --filter <Suite>`; for the daemon, `pytest -k <expr>`
+    from `daemon/` with its venv (`daemon/.venv/bin/pytest`).
+  - Before each commit: plain `scripts/test.sh`. It runs only what the branch's changes can affect
+    and says what it picked; a docs-only branch exits at once.
+  - Once before merging to `main`: `scripts/test.sh all`, the full suite.
+  - Test windows are hidden (transparent, click-through), so a visible one is a bug.
 - The app is dark-only.

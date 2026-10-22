@@ -6,13 +6,6 @@ import Testing
 @Suite(.blocking) struct RemoteResolverTests {
     private func makeRepo() throws -> String { try GitFixture.makeRepo(prefix: "rr-") }
 
-    @Test func followsARemoteAddedAfterTheFirstLookup() throws {
-        let repo = try makeRepo(), git = GitRunner.hermetic(), resolver = RemoteResolver(git: .hermetic())
-        #expect(resolver.remote(for: repo) == .remote(nil))
-        try git.run(["remote", "add", "origin", "git@gitlab.example.com:group/app.git"], in: repo)
-        #expect(resolver.remote(for: repo) == .remote("git@gitlab.example.com:group/app.git"))
-    }
-
     @Test func followsARemoteUrlBeingChanged() throws {
         let repo = try makeRepo(), git = GitRunner.hermetic(), resolver = RemoteResolver(git: .hermetic())
         try git.run(["remote", "add", "origin", "git@example.com:app.git"], in: repo)
@@ -40,7 +33,8 @@ import Testing
     }
 
     /// The cache is revalidated by the config file's timestamp — the file `git remote add` rewrites
-    /// — so a new remote is picked up without running git for every project on every refresh.
+    /// — so a remote added after the first lookup is picked up without running git for every
+    /// project on every refresh.
     @Test func cachedAnswerIsReusedUntilTheConfigChanges() throws {
         let repo = try makeRepo(), git = GitRunner.hermetic()
         let counting = CountingGitRunner()

@@ -126,25 +126,9 @@ extension AppControllerTests {
     }
 
     /// Unsaved work is asked about before the window closes, so keeping the task leaves the agent
-    /// running in it.
-    @Test func keepingATaskWithUnsavedWorkLeavesItsWindowOpen() async throws {
-        let fixture = try CheckoutFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove", "Keep Task"))
-        defer { fixture.cleanUp() }
-        let controller = fixture.controller
-        let server = RecordingDaemon()
-        defer { controller.shutdown() }
-        controller.helper.setDaemonClient(server)
-        try "draft\n".write(toFile: fixture.task.worktreePath + "/notes.txt", atomically: true, encoding: .utf8)
-
-        await controller.confirmRemove(task: fixture.task)?.value
-
-        #expect(server.closedWindowIds.isEmpty)
-        #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath + "/notes.txt"))
-        #expect(controller.state.tasks == [fixture.task])
-    }
-
-    /// Keep Task is the default and the safe choice both: ↩ and ⎋ keep it, and the button that
-    /// deletes is the plain grey one beside it.
+    /// running in it. Keep Task is the default and the safe choice both: ↩ (the Keep Task button
+    /// itself, to the controller) and ⎋ keep it, and the button that deletes is the plain grey one
+    /// beside it.
     @Test func returnAndEscapeBothKeepATaskWithUnsavedWork() async throws {
         for key in ["↩", "⎋"] {
             let prompter = ScriptedPrompter(answering: "Remove", key)
@@ -160,6 +144,8 @@ extension AppControllerTests {
 
             let asked = try #require(prompter.asked.last)
             #expect(asked.buttons == ["Keep Task", "Delete Changes and Remove"])
+            // ↩ and ⎋ answer by position, so the prompter never checks that Keep Task can be pressed.
+            #expect(!asked.unavailable.contains("Keep Task"), "Keep Task can be pressed")
             #expect(!asked.defaultDeletes)
             #expect(server.closedWindowIds.isEmpty, "\(key) keeps the task")
             #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath + "/notes.txt"))

@@ -134,7 +134,8 @@ Needs Swift 6.4 through [Swiftly](https://www.swift.org/install/macos/)
 (`swiftly install --use 6.4`); the Command Line Tools compiler is not supported.
 
     scripts/run-dev.sh    # build build/AiTerm.app and open it in place of the installed one
-    scripts/test.sh       # daemon and Swift test suites
+    scripts/test.sh       # the daemon and Swift suites this branch's changes can affect
+    scripts/test.sh all   # every suite
 
 A local build is a dev build: a DEV pill on its Dock icon, and no self-update. More in
 [scripts/README.md](scripts/README.md); how it works in [docs/architecture.md](docs/architecture.md)

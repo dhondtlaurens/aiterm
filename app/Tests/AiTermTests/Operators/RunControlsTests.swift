@@ -336,6 +336,7 @@ import Testing
         #expect(world.daemon.requests("window.createTask").isEmpty)
     }
 
+    /// Neither the window's own reopening nor a click on the ended operation's row opens it again.
     @Test func anEndedOperationIsNotReopened() async throws {
         let (world, run, _) = try makeWorld()
         try await world.controller.end(run: run.id)
@@ -680,14 +681,6 @@ import Testing
         #expect(daemon.requests("window.createTask").isEmpty)
         #expect(daemon.requests("operator.revoke").count == 2, "End's, and the one for the token registered since")
         #expect(world.run(id)?.state == .stopped && world.controller.activeRun == nil)
-    }
-
-    @Test func aClickOnAnEndedOperationNeverReopensIt() async throws {
-        let (world, run, _) = try makeWorld()
-        try await world.controller.end(run: run.id)
-        world.show([])
-        await world.controller.reopenOperator(run: run.id)
-        #expect(world.daemon.requests("window.createTask").isEmpty)
     }
 
     @Test func aClickOnAnOfflineOperationResumesItInFront() async throws {

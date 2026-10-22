@@ -2,23 +2,23 @@ import Testing
 @testable import AiTermCore
 @testable import AiTerm
 
+/// The Mac card in Settings › Integrations. Backpack is no longer a tab, and a missing Mac
+/// permission does not pull Settings onto Integrations: the tabs and the one Settings opens on are
+/// `HarnessSettingsLayoutTests`' (`tabsAreFour`, `settingsOpensWhereSomethingIsBroken`).
 @MainActor
 struct MacSettingsCardTests {
     private func setup(_ sleep: Bool, _ location: Bool) -> BackpackSetup {
         BackpackSetup(sleepRule: sleep, location: location, network: nil)
     }
 
+    /// A network is the sheet's business now: a card without one is still Ready, as the first case
+    /// says (`setup` names none).
     @Test func theStatusSaysWhatIsMissing() {
         #expect(MacCardPresentation.status(setup(true, true)) == SettingsStatus(.ready, "Ready for backpack mode"))
         #expect(MacCardPresentation.status(setup(false, true)) == SettingsStatus(.attention, "Backpack mode needs lid sleep"))
         #expect(MacCardPresentation.status(setup(true, false)) == SettingsStatus(.attention, "Backpack mode needs network discovery"))
         #expect(MacCardPresentation.status(setup(false, false))
                 == SettingsStatus(.attention, "Backpack mode needs lid sleep and network discovery"))
-    }
-
-    /// A network is the sheet's business now: a card without one is still Ready.
-    @Test func aMissingNetworkIsNotTheCardsConcern() {
-        #expect(MacCardPresentation.status(BackpackSetup(sleepRule: true, location: true, network: nil)).tone == .ready)
     }
 
     @Test func theStepsAreTheMissingOnesInOrder() {
@@ -32,16 +32,5 @@ struct MacSettingsCardTests {
 
     @Test func theReadyCardSaysWhatTheModeDoes() {
         #expect(MacCardPresentation.summary == "Backpack mode keeps the Mac awake with the lid closed and finds your iPhone’s hotspot. AiTerm never reads where you are. Remove takes the lid-sleep rule out again.")
-    }
-
-    /// Backpack is no longer a tab: Agents, Operator, Integrations, Interface on ⌘1–⌘4.
-    @Test func settingsHasFourTabs() {
-        #expect(SettingsTab.allCases == [.agents, .operator, .integrations, .interface])
-        #expect(SettingsTab.interface.key == "4")
-    }
-
-    /// A missing Mac permission does not pull Settings onto Integrations; iTerm2 still does.
-    @Test func theOpeningRuleIsUnchanged() {
-        #expect(SettingsTab.opening(iterm: .connected(version: "3.7.2"), serviceTestFailed: false) == .agents)
     }
 }

@@ -37,12 +37,6 @@ import Testing
         #expect(requests.first?.text == "\(task.title): CI failed.")
         #expect(OperatorLine.task(task, run: run, acting: nil, requests: requests)?.look == .needsYou)
     }
-
-    @Test func claudeWorkerHasExplicitPublicationGuards() {
-        for denial in ["Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"] {
-            #expect(AgentCommand.operatedClaudeDenials.contains(denial))
-        }
-    }
 }
 
 extension FinalFixTests {

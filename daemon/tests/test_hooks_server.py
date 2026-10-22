@@ -111,11 +111,15 @@ async def test_post_routes_deliver_body(server):
     assert received == [("/hook/claude", {"hook_event_name": "Stop"}), ("/statusline", {"model": {"id": "x"}})]
 
 
-async def test_codex_hook_forwards_the_inherited_iterm_session_id(server):
+@pytest.mark.parametrize("path,event,tab", [
+    ("/hook/codex", "SubagentStart", "w0t0p0:child"),
+    ("/hook/pi", "agent_start", "w0t0p0:pi"),
+])
+async def test_a_route_forwards_the_inherited_iterm_session_id(server, path, event, tab):
     srv, received = server
-    assert await http(srv.port, "POST", "/hook/codex", {"hook_event_name": "SubagentStart"}, iterm_session_id="w0t0p0:child") == 200
+    assert await http(srv.port, "POST", path, {"hook_event_name": event}, iterm_session_id=tab) == 200
     await received.delivered(1)
-    assert received == [("/hook/codex", {"hook_event_name": "SubagentStart", "_aiterm_iterm_session_id": "w0t0p0:child"})]
+    assert received == [(path, {"hook_event_name": event, "_aiterm_iterm_session_id": tab})]
 
 
 async def test_a_client_supplied_iterm_session_id_without_the_header_is_dropped(server):
@@ -148,13 +152,6 @@ async def test_an_unusable_content_length_is_a_400(server, length):
     assert int((await asyncio.wait_for(r.readline(), 2)).split()[1]) == 400
     w.close()
     assert received == []
-
-
-async def test_pi_route_forwards_the_inherited_iterm_session_id(server):
-    srv, received = server
-    assert await http(srv.port, "POST", "/hook/pi", {"hook_event_name": "agent_start"}, iterm_session_id="w0t0p0:pi") == 200
-    await received.delivered(1)
-    assert received == [("/hook/pi", {"hook_event_name": "agent_start", "_aiterm_iterm_session_id": "w0t0p0:pi"})]
 
 
 @pytest.mark.parametrize("path", sorted(hooks_server.ROUTES - {"/mcp"}))
@@ -354,31 +351,21 @@ async def test_expect_100_continue_gets_interim_response_then_200(server):
     assert ("/hook/claude", {"hook_event_name": "Stop"}) in received
 
 
-async def test_oversized_body_is_rejected_with_413():
+@pytest.mark.parametrize("head", [
+    b"POST /statusline HTTP/1.1\r\nContent-Length: 2000000\r\n\r\n",
+    b"POST /hook/pi HTTP/1.1\r\nX-AiTerm-Hook: 1\r\nContent-Length: 2000000\r\n\r\n",
+], ids=["statusline", "pi"])
+async def test_oversized_body_is_rejected_with_413(head):
     """Test that Content-Length exceeding MAX_BODY is rejected with 413."""
     srv = HookServer(port=0)
     await srv.start()
     try:
         r, w = await asyncio.open_connection("127.0.0.1", srv.port)
-        # Send headers with oversized Content-Length
-        w.write(b"POST /statusline HTTP/1.1\r\nContent-Length: 2000000\r\n\r\n")
+        w.write(head)
         await w.drain()
         status_line = await asyncio.wait_for(r.readline(), 2)
         status = int(status_line.split()[1])
         assert status == 413, f"Expected 413 for oversized body, got {status}"
-        w.close()
-    finally:
-        await srv.stop()
-
-
-async def test_pi_oversized_body_is_rejected_with_413():
-    srv = HookServer(port=0)
-    await srv.start()
-    try:
-        r, w = await asyncio.open_connection("127.0.0.1", srv.port)
-        w.write(b"POST /hook/pi HTTP/1.1\r\nX-AiTerm-Hook: 1\r\nContent-Length: 2000000\r\n\r\n")
-        await w.drain()
-        assert int((await asyncio.wait_for(r.readline(), 2)).split()[1]) == 413
         w.close()
     finally:
         await srv.stop()

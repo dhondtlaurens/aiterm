@@ -81,13 +81,25 @@ Set `SWIFT=/path/to/swift` only for a complete toolchain of that version.
 
 Runs the daemon and app suites through the supported toolchain:
 
-    scripts/test.sh                                          # everything: what a commit needs
+    scripts/test.sh                                          # what this branch's changes can affect: what a commit needs
+    scripts/test.sh all                                      # every suite: once before merging to main
     scripts/test.sh daemon                                   # the daemon's tests and lint only
     scripts/test.sh swift                                    # the Swift tests only
     scripts/test.sh swift -- --filter DesignRulesTests       # one suite; anything after -- goes to swift test
 
-Arguments after `--` with no suite named (`scripts/test.sh -- --filter X`) run `all`, the daemon's
-suite included.
+The default suite, `changed`, takes the paths the checkout changed since it left `main` (its
+commits, staged and unstaged edits, new files), turns them into suites with `test-select.sh` and
+the table in `test-routes.tsv`, which says why each path goes where, and prints what it picked and
+which paths picked it before it runs them. A change no test reads, such as docs, runs nothing and
+exits at once; a path the table does not know, or a checkout with no `main` to compare with, runs
+everything. `AITERM_TEST_PATHS`, one path per line, names the changed paths in place of git. A run
+that waited for the lock picks again, since files may have changed while it waited, and prints
+the new pick if it moved.
+
+Arguments after `--` go to `swift test`, so `daemon` takes none. With no suite named
+(`scripts/test.sh -- --filter X`) the suite is `changed`: the arguments replace the Swift tests it
+picked, and run even when it picked none, while the daemon and the toolchain guard run only if the
+changes picked them.
 
 Only one run goes at a time on the machine, whichever worktree it starts in. Agents test in parallel,
 and tests with timeouts fail under the load of several builds and test hosts at once, so a run that
@@ -98,13 +110,17 @@ kernel releases it however the run ends, a killed one included. Runs the script 
 it (`AITERM_TEST_LOCK_HELD`) rather than waiting for themselves. A waiting run can outlast a tool's
 command timeout, so an agent should start the suite in the background.
 
-The command runs the portable toolchain guard, and checks the toolchain the suites will build with
-(a `SWIFT` override included), before the Swift suites — and, unless it runs only `daemon`, before
-the daemon's — so a toolchain of the wrong version fails fast instead of producing opaque compiler
-errors. On its first run, it creates `daemon/.venv` and
-installs the daemon package with its test and lint dependencies (the `dev` extra). Set
-`PYTHON=/path/to/python3` to use a specific Python 3.11+ interpreter, or `PYTEST=/path/to/pytest`
-to use an existing test runner.
+Two guards run before the suites. The toolchain guard, `test-swift-toolchain.sh`, checks the
+toolchain the suites will build with (a `SWIFT` override included) and exercises the runner
+against a fake one, so a toolchain of the wrong version fails fast instead of producing opaque
+compiler errors. `all` and `swift` always run it, `changed` only when it runs everything or the
+changes reach the toolchain, `app/Package.swift` or the runner, and `daemon` never. The reader
+guard, `test-test-select.sh`, pins the table's routes and fails on a test that reads files outside
+its own target with no row to say so; it runs before every run that tests anything, in a few seconds.
+
+On its first run, the script creates `daemon/.venv` and installs the daemon package with its test
+and lint dependencies (the `dev` extra). Set `PYTHON=/path/to/python3` to use a specific Python
+3.11+ interpreter, or `PYTEST=/path/to/pytest` to use an existing test runner.
 
 After pytest it lints the daemon: `mypy aitermd tests tools`, then `ruff check aitermd tests tools`. The tests
 are type-checked too, so `FakeIterm` must keep matching the `ItermPort` it stands in for. The lint
@@ -120,6 +136,11 @@ closing "Test run with N tests … passed" line. A run narrowed with arguments a
 hosts that cannot be known beforehand, so it is green when at least one host finished, at least one test ran, and every
 one that finished passed; a filter that matches nothing fails. On a failure the logs are kept, and the
 script prints where.
+
+Test windows are hidden. The test process loads a hook (`app/Tests/AiTermTestWindowHook`, never
+linked into the app) that makes every window it orders in transparent and click-through, so a run
+neither draws over your apps nor takes your clicks; tests type and read pixels without the window
+server. A test that needs a window on screen opts it out with `keepVisible`.
 
 Runtime Python versions are pinned in `daemon/pyproject.toml`; the bundle installs that package
 directly so development and release do not maintain different dependency lists.

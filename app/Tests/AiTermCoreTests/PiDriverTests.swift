@@ -38,15 +38,14 @@ import Testing
         #expect(try String(contentsOf: url, encoding: .utf8) == current)
     }
 
-    /// Schema 2 relays pi-subagents' background agents, so a schema-1 install reads as out of date
-    /// and Settings offers to update it.
-    @Test func aSchemaOneInstallIsOutdated() throws {
-        #expect(PiDriver.state(of: ownedSource(version: 1), expected: nil) == .outdated)
-    }
-
-    /// Schema 6 removes token collection, so an older install is offered an update.
-    @Test func aSchemaFiveInstallIsOutdated() {
-        #expect(PiDriver.state(of: ownedSource(version: 5), expected: nil) == .outdated)
+    /// Each older schema reads as out of date, and Settings offers to update it. Schema 2 relays
+    /// pi-subagents' background agents, so a schema-1 install is outdated. Schema 4 is written with
+    /// the daemon's port, where the schema-3 file had it spelled out: a schema-3 install still posts
+    /// to the port it was written with, until Repair writes the daemon's. Schema 6 removes token
+    /// collection, so a schema-5 install is offered an update.
+    @Test(arguments: [1, 3, 5])
+    func anOlderSchemaInstallIsOutdated(version: Int) {
+        #expect(PiDriver.state(of: ownedSource(version: version), expected: nil) == .outdated)
     }
 
     /// Schema 3 forwards `session_start`'s reason and keeps the last ctx in `relay`, so a schema-2
@@ -144,13 +143,6 @@ import Testing
         #expect(throws: HarnessDriverError.self) { try driver(home).install() }
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == missing.path)
         #expect(!FileManager.default.fileExists(atPath: missing.path))
-    }
-
-    /// Schema 4 is written with the daemon's port, where the schema-3 file had it spelled out, so
-    /// a schema-3 install reads as out of date: it still posts to the port it was written with,
-    /// until Repair writes the daemon's.
-    @Test func aSchemaThreeInstallIsOutdated() throws {
-        #expect(PiDriver.state(of: ownedSource(version: 3), expected: nil) == .outdated)
     }
 
     /// The extension is installed with the daemon's port in place of its placeholder, and a file

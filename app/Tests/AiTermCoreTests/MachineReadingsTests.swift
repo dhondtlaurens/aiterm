@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct MachineReadingsTests {
     private let gigabyte: UInt64 = 1 << 30
@@ -82,13 +83,17 @@ import Testing
     }
 
     /// The live sensor reads this Mac without a subprocess: two samples a moment apart give a share
-    /// and a memory figure inside their ranges.
-    @Test func theLiveSensorReadsThisMac() throws {
+    /// and a memory figure inside their ranges. The kernel does not move its tick counters at every
+    /// look: they stood still for up to a second at a time here, so two samples a fixed 0.2 s apart
+    /// often read the same ticks and no share. The second is taken once they have moved.
+    @Test func theLiveSensorReadsThisMac() async throws {
         let sensor = LiveMachineSensor()
-        let first = sensor.sample()
-        Thread.sleep(forTimeInterval: 0.2)
-        let second = sensor.sample()
-        let earlier = try #require(first.cpu)
+        let earlier = try #require(sensor.sample().cpu)
+        var second = MachineSample.unknown
+        await eventually(describing: "the CPU tick counters to move") {
+            second = sensor.sample()
+            return second.cpu != earlier
+        }
         let busy = try #require(second.cpu?.busyPercent(since: earlier))
         #expect((0...100).contains(busy))
         let used = try #require(second.memory?.percent)

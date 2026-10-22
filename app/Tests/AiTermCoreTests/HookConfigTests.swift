@@ -30,10 +30,14 @@ import Foundation
         #expect(originalAgain == nil, "shim already installed: nothing to save")
     }
 
-    @Test func testClaudeMergeFromEmptyFile() throws {
-        let (data, original) = try ClaudeSettings.merge(nil, hookURL: "u", shimPath: "s")
+    /// No file (`nil`) and an empty one (as opposed to a malformed one) both merge from an empty
+    /// object: every event AiTerm manages, and no original status line to keep.
+    @Test(arguments: [nil, Data()] as [Data?])
+    func testClaudeMergeFromNoOrEmptySettingsStartsEmpty(_ settings: Data?) throws {
+        let (data, original) = try ClaudeSettings.merge(settings, hookURL: "u", shimPath: "s")
         let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         #expect((obj["hooks"] as! [String: Any]).count == 8)
+        #expect(ClaudeSettings.events.count == 8)
         #expect(original == nil)
     }
 
@@ -308,13 +312,6 @@ import Foundation
         }
         #expect(nonObjectError as? ClaudeSettings.Unmergeable == ClaudeSettings.Unmergeable(reason: "is not a JSON object"),
                 "a JSON array is not a settings object and must raise a typed error")
-    }
-
-    @Test func testClaudeMergeFromEmptyDataStillStartsEmpty() throws {
-        let (data, original) = try ClaudeSettings.merge(Data(), hookURL: "u", shimPath: "s")
-        let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        #expect((obj["hooks"] as! [String: Any]).count == ClaudeSettings.events.count, "empty (as opposed to malformed) settings data still merges from an empty object")
-        #expect(original == nil)
     }
 
     // MARK: - A moved app bundle must not make the shim recurse into itself
@@ -690,7 +687,18 @@ import Foundation
 
     // MARK: - The Claude merge refuses what it cannot merge
 
-    private func refusal(_ settings: String, key: String) throws {
+    /// A value the merge cannot read is refused and the file left untouched, not replaced: a hooks
+    /// value that is no object, an event that is no array of objects, a status line that is no
+    /// object, and one malformed element beside Emdash's entry, which used to void the whole array,
+    /// Emdash's valid entries with it.
+    @Test(arguments: [
+        (#"{"hooks": ["something"], "model": "opus"}"#, "hooks"),
+        (#"{"hooks": {"Stop": "echo done"}}"#, "hooks.Stop"),
+        (#"{"hooks": {"Notification": [{"matcher": "", "hooks": [{"type": "command", "command": "/e/hook.sh", "_emdash": true}]}, 7]}}"#,
+         "hooks.Notification"),
+        (#"{"statusLine": "~/bin/line.sh"}"#, "statusLine"),
+    ])
+    func aValueTheMergeCannotReadIsRefusedNotReplaced(settings: String, key: String) throws {
         let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
         let file = home.appendingPathComponent(".claude/settings.json")
         try settings.write(to: file, atomically: true, encoding: .utf8)
@@ -701,24 +709,6 @@ import Foundation
         #expect(throws: HarnessDriverError.refused(path: "~/.claude/settings.json", reason: reason)) { try driver.install() }
         #expect(try String(contentsOf: file, encoding: .utf8) == settings, "refused means untouched")
         #expect(!FileManager.default.fileExists(atPath: file.appendingPathExtension("aiterm-backup").path))
-    }
-
-    @Test func aHooksValueThatIsNotAnObjectIsRefusedNotReplaced() throws {
-        try refusal(#"{"hooks": ["something"], "model": "opus"}"#, key: "hooks")
-    }
-
-    @Test func anEventThatIsNotAnArrayOfObjectsIsRefusedNotReplaced() throws {
-        try refusal(#"{"hooks": {"Stop": "echo done"}}"#, key: "hooks.Stop")
-    }
-
-    /// One malformed element used to void the whole array, Emdash's valid entries with it.
-    @Test func aMalformedElementBesideEmdashsEntryIsRefusedNotDropped() throws {
-        try refusal(#"{"hooks": {"Notification": [{"matcher": "", "hooks": [{"type": "command", "command": "/e/hook.sh", "_emdash": true}]}, 7]}}"#,
-                    key: "hooks.Notification")
-    }
-
-    @Test func aStatusLineThatIsNotAnObjectIsRefusedNotReplaced() throws {
-        try refusal(#"{"statusLine": "~/bin/line.sh"}"#, key: "statusLine")
     }
 
     /// JSON's `null` says the key is unset, which is how a tool that clears a value writes it: the

@@ -46,15 +46,6 @@ import Testing
         #expect(try git.run(["rev-parse", "refs/heads/feat/pluto-231"], in: origin) == sha, "origin keeps its commit")
     }
 
-    @Test func theDefaultBranchIsNeverPushed() throws {
-        let (path, origin, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
-        let mainBefore = try git.run(["rev-parse", "refs/heads/main"], in: origin)
-        #expect(throws: PublishRefusal.defaultBranch("main")) {
-            try Repository(path, git: git).push(sha, as: "main", defaultBranch: "main")
-        }
-        #expect(try git.run(["rev-parse", "refs/heads/main"], in: origin) == mainBefore)
-    }
-
     @Test(arguments: ["main", "Main", "MAIN", "refs/heads/main", "refs/heads/Main", "HEAD", "head"])
     func noSpellingOfTheDefaultBranchIsPushed(spelling: String) throws {
         let (path, origin, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
@@ -161,30 +152,30 @@ import Testing
         return other
     }
 
-    @Test func aSecondUrlOnOriginIsRefusedAndNothingIsPushedToEither() throws {
-        let (path, origin, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
-        let other = try elsewhere()
-        try git.run(["config", "--add", "remote.origin.url", other], in: path)
-        let refusal = #expect(throws: PublishRefusal.self) { try Repository(path, git: git).push(sha, as: "feat/pluto-231", defaultBranch: "main") }
-        guard case .pushDestination = refusal else { Issue.record("got \(String(describing: refusal))"); return }
-        #expect(try git.run(["for-each-ref"], in: other) == "")
-        #expect(try git.ask(["rev-parse", "--verify", "--quiet", "refs/heads/feat/pluto-231"], in: origin, none: [1]) == nil)
+    /// A setting on the checkout that sends a push somewhere besides origin's own URL.
+    enum Detour: CaseIterable, Sendable {
+        /// A second `remote.origin.url`: a push goes to both.
+        case secondURL
+        /// `remote.origin.pushurl`: a push goes there instead.
+        case pushURL
+        /// `url.<other>.pushInsteadOf` naming origin: a push is rewritten there.
+        case pushInsteadOf
+
+        /// The `git config` arguments that set it, sending the push to `other`.
+        func config(other: String, origin: String) -> [String] {
+            switch self {
+            case .secondURL: ["config", "--add", "remote.origin.url", other]
+            case .pushURL: ["config", "remote.origin.pushurl", other]
+            case .pushInsteadOf: ["config", "url.\(other).pushInsteadOf", origin]
+            }
+        }
     }
 
-    @Test func aPushUrlOnOriginIsRefusedAndNothingIsPushed() throws {
+    @Test(arguments: Detour.allCases)
+    func aPushThatWouldGoElsewhereIsRefusedAndNothingIsPushedToEither(_ detour: Detour) throws {
         let (path, origin, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
         let other = try elsewhere()
-        try git.run(["config", "remote.origin.pushurl", other], in: path)
-        let refusal = #expect(throws: PublishRefusal.self) { try Repository(path, git: git).push(sha, as: "feat/pluto-231", defaultBranch: "main") }
-        guard case .pushDestination = refusal else { Issue.record("got \(String(describing: refusal))"); return }
-        #expect(try git.run(["for-each-ref"], in: other) == "")
-        #expect(try git.ask(["rev-parse", "--verify", "--quiet", "refs/heads/feat/pluto-231"], in: origin, none: [1]) == nil)
-    }
-
-    @Test func aPushInsteadOfThatMovesThePushIsRefusedAndNothingIsPushed() throws {
-        let (path, origin, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
-        let other = try elsewhere()
-        try git.run(["config", "url.\(other).pushInsteadOf", origin], in: path)
+        try git.run(detour.config(other: other, origin: origin), in: path)
         let refusal = #expect(throws: PublishRefusal.self) { try Repository(path, git: git).push(sha, as: "feat/pluto-231", defaultBranch: "main") }
         guard case .pushDestination = refusal else { Issue.record("got \(String(describing: refusal))"); return }
         #expect(try git.run(["for-each-ref"], in: other) == "")
@@ -224,20 +215,13 @@ import Testing
         #expect(try git.run(["for-each-ref", "--format=%(refname) %(objectname)"], in: origin) == before)
     }
 
-    @Test func aBranchThatIsAnotherNameForAnotherOnOriginIsRefused() throws {
+    /// A branch that is another name for another on origin is refused, and the symref is found
+    /// whatever protocol the checkout's configuration asks for (`nil` sets none).
+    @Test(arguments: [nil, "0"] as [String?])
+    func aBranchThatIsAnotherNameForAnotherOnOriginIsRefused(protocolVersion: String?) throws {
         let (path, origin, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
         try git.run(["symbolic-ref", "refs/heads/alias", "refs/heads/main"], in: origin)
-        let mainBefore = try git.run(["rev-parse", "refs/heads/main"], in: origin)
-        #expect(throws: PublishRefusal.symbolicBranch("alias")) {
-            try Repository(path, git: git).push(sha, as: "alias", defaultBranch: "main")
-        }
-        #expect(try git.run(["rev-parse", "refs/heads/main"], in: origin) == mainBefore)
-    }
-
-    @Test func aRemoteSymrefIsFoundWhateverProtocolTheConfigurationAsksFor() throws {
-        let (path, origin, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
-        try git.run(["symbolic-ref", "refs/heads/alias", "refs/heads/main"], in: origin)
-        try git.run(["config", "protocol.version", "0"], in: path)
+        if let protocolVersion { try git.run(["config", "protocol.version", protocolVersion], in: path) }
         let mainBefore = try git.run(["rev-parse", "refs/heads/main"], in: origin)
         #expect(throws: PublishRefusal.symbolicBranch("alias")) {
             try Repository(path, git: git).push(sha, as: "alias", defaultBranch: "main")

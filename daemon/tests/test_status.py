@@ -114,20 +114,13 @@ def test_reset_turn_forgets_the_current_turn(eng):
     assert reg.get("s1").state == "done"
 
 
-def test_model_signal_sets_model_without_touching_state(eng):
+@pytest.mark.parametrize("field,value", [("model", "claude-opus-5"), ("reasoning", "high")])
+def test_a_metadata_signal_sets_its_field_without_touching_state(eng, field, value):
     engine, reg = eng
     engine.apply_event("s1", hook("working"))
-    assert engine.apply_metadata("s1", model="claude-opus-5") == ["s1"]
-    assert reg.get("s1").model == "claude-opus-5" and reg.get("s1").state == "working"
-    assert engine.apply_metadata("s1", model="claude-opus-5") == []
-
-
-def test_reasoning_signal_sets_reasoning_without_touching_state(eng):
-    engine, reg = eng
-    engine.apply_event("s1", hook("working"))
-    assert engine.apply_metadata("s1", reasoning="high") == ["s1"]
-    assert reg.get("s1").reasoning == "high" and reg.get("s1").state == "working"
-    assert engine.apply_metadata("s1", reasoning="high") == []
+    assert engine.apply_metadata("s1", **{field: value}) == ["s1"]
+    assert getattr(reg.get("s1"), field) == value and reg.get("s1").state == "working"
+    assert engine.apply_metadata("s1", **{field: value}) == []
 
 
 def test_claude_file_status_mapping(eng):

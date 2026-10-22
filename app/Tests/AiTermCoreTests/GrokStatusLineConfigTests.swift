@@ -48,17 +48,6 @@ import Testing
         #expect(GrokStatusLineConfig.merge(text, shimPath: shim) == nil)
     }
 
-    @Test(arguments: [
-        "[ui]\nstatus_line = { type = \"builtin\" }\n",
-        "[ui]\nstatus_line.type = \"builtin\"\n",
-        "ui.status_line.type = \"builtin\"\n",
-        "[ui.status_line]\ntype = \"fancy\"\n",
-    ])
-    func leavesLayoutsItCannotEditAlone(text: String) {
-        #expect(GrokStatusLineConfig.state(text, shimPath: shim) == .unsupportedLayout)
-        #expect(GrokStatusLineConfig.merge(text, shimPath: shim) == nil)
-    }
-
     /// What a TOML parser such as Grok's (or Python's `tomllib`) counts as declaring `path`: its
     /// own header, an assignment to it, or a dotted key through it. Two declarations fail the
     /// whole file ("Cannot declare ('ui', 'status_line') twice").
@@ -71,9 +60,14 @@ import Testing
         }
     }
 
-    /// Every way to write the status line other than one plain `[ui.status_line]` table, and
-    /// every file where appending that table would declare it twice, is left alone.
+    /// Every way to write the status line other than one plain `[ui.status_line]` table (a type
+    /// AiTerm does not know included), and every file where appending that table would declare it
+    /// twice, is left alone.
     @Test(arguments: [
+        "[ui]\nstatus_line = { type = \"builtin\" }\n",
+        "[ui]\nstatus_line.type = \"builtin\"\n",
+        "ui.status_line.type = \"builtin\"\n",
+        "[ui.status_line]\ntype = \"fancy\"\n",
         "[ui]\n\"status_line\" = { type = \"command\", command = \"x\" }\n",
         "ui . status_line.type = \"command\"\n",
         "\"ui\".status_line.type = \"command\"\n",

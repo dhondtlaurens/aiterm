@@ -5,6 +5,7 @@ import socket
 import signal
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -100,12 +101,25 @@ def test_importing_main_does_not_pull_in_the_iterm2_dependency():
 
 
 class Watched:
-    """An IdleWatchdog over a client count the test sets, checking every 20 ms."""
+    """An IdleWatchdog over a client count the test sets, checking every 20 ms. Its clock runs
+    `ahead` of the real one by what the test sets, and it counts the checks it makes, so a test
+    that shows it holds off puts the idle timeout far behind it and waits for checks rather than
+    for the timeout to pass by the wall clock."""
 
     def __init__(self, idle_exit_seconds=0.15):
-        self.clients, self.idled = 0, asyncio.Event()
+        self.clients, self.idled, self.ahead, self.checks = 0, asyncio.Event(), 0.0, 0
         self.task = asyncio.get_running_loop().create_task(
-            IdleWatchdog(lambda: self.clients, idle_exit_seconds, self.idled.set, check_seconds=0.02).run())
+            IdleWatchdog(self._count, idle_exit_seconds, self.idled.set, check_seconds=0.02,
+                         monotonic=lambda: time.monotonic() + self.ahead).run())
+
+    def _count(self):
+        self.checks += 1
+        return self.clients
+
+    async def checked(self, times):
+        """Returns once the watchdog has made `times` more checks, or has fired and made its last."""
+        target = self.checks + times
+        await wait_until(lambda: self.checks >= target or self.idled.is_set())
 
 
 @pytest.fixture
@@ -132,8 +146,9 @@ async def test_idle_watchdog_fires_when_no_client_ever_connects(watched):
 async def test_idle_watchdog_does_not_fire_while_a_client_is_connected(watched):
     w = watched()
     w.clients = 1
-    with pytest.raises(asyncio.TimeoutError):
-        await asyncio.wait_for(w.idled.wait(), 0.5)
+    await w.checked(1)
+    w.ahead = 3600  # an hour on, the app attached all along
+    await w.checked(3)
     assert not w.idled.is_set()
 
 
@@ -142,7 +157,9 @@ async def test_idle_watchdog_fires_after_the_last_client_leaves(watched):
     # while that app is attached, and only then start counting down again.
     w = watched()
     w.clients = 1
-    await asyncio.sleep(0.3)
+    await w.checked(1)
+    w.ahead = 3600
+    await w.checked(3)
     assert not w.idled.is_set()
     w.clients = 0
     await asyncio.wait_for(w.idled.wait(), 2)

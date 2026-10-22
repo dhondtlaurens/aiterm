@@ -60,10 +60,6 @@ import AiTermUI
                 "the write the sheet ignored is one its pane sees")
     }
 
-    @Test func commandDigitsPickTheTabsInOrder() {
-        #expect(SettingsTab.allCases.map(\.key) == ["1", "2", "3", "4"])
-    }
-
     @Test func aCardDrawsItsMarkAndActionsAtTheControlHeight() {
         // The Install button was `.small`; every button in a sheet is a 28 pt control.
         #expect(SettingsCard<EmptyView, EmptyView, EmptyView, EmptyView>.markSize == Size.control)

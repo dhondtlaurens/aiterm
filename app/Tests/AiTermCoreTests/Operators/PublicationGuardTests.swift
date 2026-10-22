@@ -63,16 +63,11 @@ import Testing
         #expect(refusal(w, task, run) == "PLUTO-231's parent was accepted again on another commit: have its worker rebase, accept it again, then finish it.")
     }
 
-    @Test func theDefaultBranchIsNeverPublished() {
+    /// The default branch is compared as the push compares it: case-folded and without `refs/heads/`.
+    @Test(arguments: ["feat/pluto-231", "Feat/PLUTO-231", "refs/heads/feat/pluto-231"])
+    func theDefaultBranchIsNeverPublished(_ defaultBranch: String) {
         let (w, task, run) = world()
-        #expect(refusal(w, task, run, defaultBranch: "feat/pluto-231") == "PLUTO-231's branch is the default branch, which AiTerm never pushes to.")
-    }
-
-    @Test func theDefaultBranchIsComparedCaseFoldedAndWithoutRefsHeads() {
-        let (w, task, run) = world()
-        for spelling in ["Feat/PLUTO-231", "refs/heads/feat/pluto-231"] {
-            #expect(refusal(w, task, run, defaultBranch: spelling) == "PLUTO-231's branch is the default branch, which AiTerm never pushes to.", "\(spelling)")
-        }
+        #expect(refusal(w, task, run, defaultBranch: defaultBranch) == "PLUTO-231's branch is the default branch, which AiTerm never pushes to.")
     }
 
     @Test func aTaskWithNoBranchIsRefused() {

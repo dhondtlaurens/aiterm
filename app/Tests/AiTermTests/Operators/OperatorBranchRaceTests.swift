@@ -66,25 +66,17 @@ final class HeldBranchesGit: GitRunning {
         #expect(world.state.tasks.count == 2)
     }
 
-    @Test func aPauseWhileTheBranchesAreReadStopsTheTask() async throws {
+    /// A Pause or an End that lands while the branches are read: the call says which, and makes no task.
+    @Test(arguments: [(OperatorRunState.paused, "The person paused this broadcast. Wait until they resume it."),
+                      (.stopped, "This broadcast has ended; its tools no longer act.")])
+    func aPauseOrAnEndWhileTheBranchesAreReadStopsTheTask(_ change: OperatorRunState, _ refusal: String) async throws {
         let git = HeldBranchesGit()
         let (world, run) = try makeWorld(git)
         let call = create(world, run, "PLUTO-231/api")
         #expect(await eventually(describing: "the call to be reading the branches") { git.waiting == 1 })
-        world.workspace.mutate { $0.updateRun(id: run.id) { $0.intent = .paused; $0.state = .paused } }
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.intent = change; $0.state = change } }
         git.open()
-        #expect(await call.value.message == "The person paused this broadcast. Wait until they resume it.")
-        #expect(world.state.tasks.isEmpty)
-    }
-
-    @Test func anEndWhileTheBranchesAreReadStopsTheTask() async throws {
-        let git = HeldBranchesGit()
-        let (world, run) = try makeWorld(git)
-        let call = create(world, run, "PLUTO-231/api")
-        #expect(await eventually(describing: "the call to be reading the branches") { git.waiting == 1 })
-        world.workspace.mutate { $0.updateRun(id: run.id) { $0.intent = .stopped; $0.state = .stopped } }
-        git.open()
-        #expect(await call.value.message == "This broadcast has ended; its tools no longer act.")
+        #expect(await call.value.message == refusal)
         #expect(world.state.tasks.isEmpty)
     }
 }

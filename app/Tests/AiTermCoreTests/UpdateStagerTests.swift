@@ -38,16 +38,12 @@ import Testing
         try expectNothingLeft(in: dir, keeping: ["0.3.0"])
     }
 
-    @Test func rejectsWrongIdentifier() throws {
+    /// An app with another identifier, or with a version that is not the release's, is not the
+    /// update.
+    @Test(arguments: [("com.someone.else", "0.3.0"), ("com.test.aiterm", "0.2.9")])
+    func rejectsAnAppThatIsNotTheRelease(identifier: String, version appVersion: String) throws {
         let dir = try workspace(); defer { try? FileManager.default.removeItem(at: dir) }
-        let dmg = try image(dir, identifier: "com.someone.else")
-        #expect(throws: UpdateError.unverified) { _ = try stager.stage(dmg: dmg, version: version, in: dir.appendingPathComponent("Updates")) }
-        try expectNothingLeft(in: dir)
-    }
-
-    @Test func rejectsVersionThatIsNotTheRelease() throws {
-        let dir = try workspace(); defer { try? FileManager.default.removeItem(at: dir) }
-        let dmg = try image(dir, version: "0.2.9")
+        let dmg = try image(dir, identifier: identifier, version: appVersion)
         #expect(throws: UpdateError.unverified) { _ = try stager.stage(dmg: dmg, version: version, in: dir.appendingPathComponent("Updates")) }
         try expectNothingLeft(in: dir)
     }

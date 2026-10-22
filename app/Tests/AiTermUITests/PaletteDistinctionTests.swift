@@ -162,21 +162,18 @@ struct PaletteDistinctionTests {
     /// `rowHoverSolid` exists because a wash can't correctly occlude what's behind it — it has to be
     /// the opaque composite of `rowHover` painted over `sidebar`. This measures that relationship
     /// through `ColorProbe`, to one 8-bit step per channel, so a hardcoded or stale `rowHoverSolid`
-    /// fails here rather than only showing up as a hover halo.
+    /// fails here rather than only showing up as a hover halo. The Operator row's rings, at rest and
+    /// hovered, are on the same rule: its wash, and its hover's, composited over the sidebar.
     ///
     /// Both sides are resolved live, in-process, through `ColorProbe` — never against a literal
     /// hex — because dynamic `NSColor`s can resolve to different absolute values depending on the
     /// host process (a plain command-line tool vs. a test bundle); what must hold everywhere is
-    /// that `rowHoverSolid` tracks `rowHover` composited over `sidebar`, not any fixed number.
-    @Test func rowHoverSolidIsRowHoverCompositedOverSidebar() {
-        expectComposite(Palette.rowHoverSolid, of: Palette.rowHover, named: "rowHoverSolid")
-    }
-
-    /// The Operator row's rings, at rest and hovered, on the same rule: its wash, and its hover's, composited
-    /// over the sidebar.
-    @Test func theOperatorRowsSolidsAreItsWashesCompositedOverSidebar() {
-        expectComposite(Palette.operatorRowSolid, of: Palette.operatorRow, named: "operatorRowSolid")
-        expectComposite(Palette.operatorRowHoveredSolid, of: Palette.badgeHovered, named: "operatorRowHoveredSolid")
+    /// that each solid tracks its wash composited over `sidebar`, not any fixed number.
+    @Test(arguments: [("rowHoverSolid", Palette.rowHoverSolid, Palette.rowHover),
+                      ("operatorRowSolid", Palette.operatorRowSolid, Palette.operatorRow),
+                      ("operatorRowHoveredSolid", Palette.operatorRowHoveredSolid, Palette.badgeHovered)])
+    func aSolidIsItsWashCompositedOverSidebar(name: String, solid: Color, wash: Color) {
+        expectComposite(solid, of: wash, named: name)
     }
 
     private func expectComposite(_ solid: Color, of washColor: Color, named name: String) {

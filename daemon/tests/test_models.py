@@ -23,16 +23,15 @@ def test_frame_from_json():
     assert (f.x, f.y, f.w, f.h) == (324, 36.5, 1104, 852)
 
 
-def test_frame_rejects_a_numeric_string():
+@pytest.mark.parametrize("field,bad", [
     # Stricter than float(), deliberately: the app always encodes a frame's coordinates as numbers.
+    ("x", "324"),
+    ("w", float("inf")), ("w", float("-inf")), ("w", float("nan")), ("w", True), ("w", False), ("w", None),
+    ("x", 10**1000),
+], ids=["numeric-string", "inf", "-inf", "nan", "True", "False", "None", "too-large-an-integer"])
+def test_frame_rejects_what_is_not_a_finite_number(field, bad):
     with pytest.raises(ValueError):
-        Frame.from_json({"x": "324", "y": 36, "w": 1104, "h": 852})
-
-
-@pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan"), True, False, None])
-def test_frame_rejects_what_is_not_a_finite_number(bad):
-    with pytest.raises(ValueError):
-        Frame.from_json({"x": 324, "y": 36, "w": bad, "h": 852})
+        Frame.from_json({"x": 324, "y": 36, "w": 1104, "h": 852} | {field: bad})
 
 
 def test_classify_agent_uses_basename_of_first_token():
@@ -95,8 +94,3 @@ def test_grok_is_classified(command_line):
                                           "grok-1.0.44", "grok-macos-", "grok-v1-macos-aarch64"])
 def test_grok_lookalikes_stay_shell(command_line):
     assert classify_agent(command_line) == "shell"
-
-
-def test_frame_rejects_an_integer_too_large_for_a_coordinate():
-    with pytest.raises(ValueError):
-        Frame.from_json({"x": 10**1000, "y": 0, "w": 100, "h": 100})

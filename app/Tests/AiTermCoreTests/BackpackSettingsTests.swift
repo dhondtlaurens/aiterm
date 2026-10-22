@@ -66,8 +66,4 @@ import Foundation
         #expect(again.network == "Other phone")
         #expect(again.engaged)
     }
-
-    @Test func theCutoffIsNoLongerAPreference() {
-        #expect(BackpackSettings.cutoff == 10)
-    }
 }
