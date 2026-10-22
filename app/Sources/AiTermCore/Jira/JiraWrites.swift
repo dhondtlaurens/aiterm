@@ -1,7 +1,37 @@
 import Foundation
 
-/// The Jira writes behind the Operator's Jira slice (spec §5): create a ticket, move it, link two.
-/// Comments are not here: a comment messages people.
+/// A person Jira can assign a ticket to.
+public struct JiraUser: Equatable, Sendable {
+    public let accountId: String, displayName: String, email: String?
+    public init(accountId: String, displayName: String, email: String?) { self.accountId = accountId; self.displayName = displayName; self.email = email }
+}
+
+/// Who an edit assigns the ticket to. `unassigned` is Jira's `{"accountId": null}`; it is not called `none`, which
+/// `JiraEdit.assignee`'s optional would read as no change.
+public enum JiraAssignee: Equatable, Sendable {
+    case me, unassigned
+    /// A name or an email, which must match exactly one assignable user.
+    case query(String)
+}
+
+/// What `jira_edit` changes (spec §L); a field left nil, or a list left empty, stays as it is. `fixVersions` is the
+/// whole list the ticket ends with, so an empty one clears them; an empty `description` clears it too.
+public struct JiraEdit: Equatable, Sendable {
+    public var summary: String?, description: String?
+    public var labelsAdd: [String], labelsRemove: [String]
+    public var priority: String?
+    public var fixVersions: [String]?
+    public var assignee: JiraAssignee?
+    public init(summary: String? = nil, description: String? = nil, labelsAdd: [String] = [], labelsRemove: [String] = [],
+                priority: String? = nil, fixVersions: [String]? = nil, assignee: JiraAssignee? = nil) {
+        self.summary = summary; self.description = description; self.labelsAdd = labelsAdd; self.labelsRemove = labelsRemove
+        self.priority = priority; self.fixVersions = fixVersions; self.assignee = assignee
+    }
+    public var isEmpty: Bool { self == JiraEdit() }
+}
+
+/// The Jira writes behind the Operator's Jira slice (spec §5, §L): create a ticket, move it, link two, edit one, and
+/// comment on one.
 extension JiraClient {
     /// A ticket of `type` in `project`, its `description` in ADF, under `parent` when it is a sub-task or
     /// belongs to an epic; its key.
@@ -43,6 +73,62 @@ extension JiraClient {
             "type": ["name": type], "outwardIssue": ["key": try Self.validKey(key)], "inwardIssue": ["key": try Self.validKey(other)],
         ])
         try await perform(req)
+    }
+
+    /// Changes the fields of `key` that `fields` names, with `PUT /rest/api/3/issue/{key}`. The labels go as add and remove
+    /// operations, so the ticket's others stay. An assignee is looked up first (`me` through `/myself`, a name through
+    /// the project's assignable users, which must name exactly one); `beforeWrite` runs after that, right before the
+    /// request, and its error stops it.
+    public func edit(key: String, fields: JiraEdit, beforeWrite: @Sendable () async throws -> Void = {}) async throws {
+        let path = "/rest/api/3/issue/\(try Self.validKey(key))"
+        guard !fields.isEmpty else { throw JiraError.refused(status: 400, detail: "An edit needs at least one field to change.") }
+        var sent: [String: Any] = [:], update: [String: Any] = [:]
+        if let summary = fields.summary { sent["summary"] = summary }
+        if let description = fields.description {
+            sent["description"] = description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? NSNull() : ADFText.document(description)
+        }
+        if let priority = fields.priority { sent["priority"] = ["name": priority] }
+        if let versions = fields.fixVersions { sent["fixVersions"] = versions.map { ["name": $0] } }
+        let labels = fields.labelsAdd.map { ["add": $0] } + fields.labelsRemove.map { ["remove": $0] }
+        if !labels.isEmpty { update["labels"] = labels }
+        switch fields.assignee {
+        case nil: break
+        case .unassigned: sent["assignee"] = ["accountId": NSNull()]
+        case .me: sent["assignee"] = ["accountId": try await decode(Account.self, request(path: "/rest/api/3/myself")).accountId]
+        case .query(let query): sent["assignee"] = ["accountId": try await assignee(matching: query, forTicket: key).accountId]
+        }
+        try await beforeWrite()
+        var req = request(path: path); req.httpMethod = "PUT"
+        req.httpBody = try JSONSerialization.data(withJSONObject: update.isEmpty ? ["fields": sent] : ["fields": sent, "update": update])
+        try await perform(req)
+    }
+
+    /// The users of `project` a ticket can be assigned to whose name or email matches `query`.
+    public func assignable(project: String, query: String) async throws -> [JiraUser] {
+        try await decode([Lenient<AssignableUser>].self, request(path: "/rest/api/3/user/assignable/search", queryItems: [
+            URLQueryItem(name: "project", value: project), URLQueryItem(name: "query", value: query),
+        ])).compactMap(\.value).map { JiraUser(accountId: $0.accountId, displayName: $0.displayName, email: $0.emailAddress) }
+    }
+
+    /// The one assignable user of `ticket`'s project that `query` matches; no one, or several, is Jira's 400 in our words,
+    /// the several named so the caller can say which.
+    private func assignee(matching query: String, forTicket ticket: String) async throws -> JiraUser {
+        let project = String(ticket.prefix { $0 != "-" })
+        let users = try await assignable(project: project, query: query)
+        if users.count == 1, let only = users.first { return only }
+        guard !users.isEmpty else { throw JiraError.refused(status: 400, detail: "No assignable user in \(project) matches “\(query)”.") }
+        let named = users.prefix(5).map { user in user.email.map { "\(user.displayName) (\($0))" } ?? user.displayName }.joined(separator: ", ")
+        throw JiraError.refused(status: 400, detail: "“\(query)” matches more than one assignable user: \(named)\(users.count > 5 ? ", …" : ""). Name one by email.")
+    }
+
+    /// Comments `body`, in ADF, on `key`; the comment's id. `beforeWrite` is as `edit`'s.
+    public func comment(key: String, body: String, beforeWrite: @Sendable () async throws -> Void = {}) async throws -> String {
+        let path = "/rest/api/3/issue/\(try Self.validKey(key))/comment"
+        guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw JiraError.refused(status: 400, detail: "A comment needs text.") }
+        try await beforeWrite()
+        var req = request(path: path); req.httpMethod = "POST"
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["body": ADFText.document(body)])
+        return try await writeDecode(CommentCreated.self, req).id
     }
 
     /// A write whose answer is an empty 2xx (a transition and a link answer 204).
@@ -90,6 +176,20 @@ extension JiraClient {
 }
 
 private struct Created: Decodable { var key: String }
+private struct CommentCreated: Decodable { var id: String }
+private struct Account: Decodable { var accountId: String }
+
+/// `/user/assignable/search`: one entry; one that is not one drops alone.
+private struct AssignableUser: Decodable {
+    var accountId: String, displayName: String, emailAddress: String?
+    init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: Key.self)
+        accountId = try fields.decode(String.self, forKey: .accountId)
+        displayName = fields.lenient(String.self, forKey: .displayName) ?? accountId
+        emailAddress = fields.lenient(String.self, forKey: .emailAddress)
+    }
+    private enum Key: String, CodingKey { case accountId, displayName, emailAddress }
+}
 
 /// `/issue/{key}?fields=status`: the status it is in.
 private struct Current: Decodable {

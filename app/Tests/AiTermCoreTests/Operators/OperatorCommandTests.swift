@@ -224,7 +224,9 @@ import Foundation
         // Raised to 475 for the shell: its hard limit and the one mechanics rule that says how the gate's answers are met.
         // Raised to 500 for the one rule that workerAsks and changedAfterAcceptance come on tasks in any state (spec §J).
         // Raised to 520 for the one rule that a question showing answeredInWindow may already be answered (spec §I).
-        #expect(words(largest()) <= today + 520, "\(words(largest())) words")
+        // Raised to 525 for the PM lines (spec §L): search before jira_create, and what jira_board, jira_sprint, jira_edit and
+        // jira_comment are for. Twelve words were trimmed elsewhere (the role's example, the dash rule's aside) to keep it to five.
+        #expect(words(largest()) <= today + 525, "\(words(largest())) words")
     }
 
     /// reviewQuiet, the list of reviews with nothing waiting, says what to do with it: the Done decides, and finish_task ends it.
@@ -324,6 +326,16 @@ import Foundation
         let talk = section("## Talking to the person", of: OperatorCommand.brief(run: F.run(), projects: []))
         #expect(talk.contains("Jira writes, involving people on a merge request and merging are what the slices govern."))
         #expect(talk.contains("Leave undone what a slice doesn't allow, and don't ask for it"))
+    }
+
+    /// With the Jira slice on the Operator is told to look before it files, and that the PM tools are its (spec §L); with it
+    /// off, Jira is read-only and the brief names no write.
+    @Test func theBriefTellsTheOperatorToSearchBeforeItFilesAndWhatItsPMToolsAre() {
+        let on = OperatorCommand.brief(run: F.run(slices: Slices(jira: true, review: false, merge: false)), projects: [])
+        #expect(on.contains("Search existing tickets with jira_search before jira_create."))
+        #expect(on.contains("jira_board, jira_sprint, jira_edit and jira_comment serve PM work on its tickets."))
+        let off = OperatorCommand.brief(run: F.run(slices: Slices.none), projects: [])
+        #expect(!off.contains("jira_edit") && !off.contains("jira_comment") && !off.contains("jira_create"))
     }
 
     @Test func theBriefStatesTheBacklogRuleAndReportFind() {

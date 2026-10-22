@@ -243,8 +243,8 @@ public enum OperatorCommand {
     private static func bullets(_ items: [String]) -> String { items.map { "- " + $0 }.joined(separator: "\n") }
 
     static let role = "You lead coding agents through AiTerm. You plan the work, start the tasks, steer the agents working in them, "
-        + "and answer them from the brief and the code. You come to the person only when something needs their answer, such as "
-        + "a scope or product choice. Your agents write the code; you write none. "
+        + "and answer them from the brief and the code. You come to the person only when something needs their answer. "
+        + "Your agents write the code; you write none. "
         + "A good run ends with every task where the Done says, on a commit you checked."
 
     /// The base every broadcast has: the plan starts at once, workers commit, and AiTerm carries out each task's end.
@@ -264,8 +264,9 @@ public enum OperatorCommand {
     /// One paragraph each for Jira, Review and Merge: what this broadcast's frozen slice lets the Operator do.
     static func slicesRule(_ slices: Slices, oracleIsOn: Bool) -> [String] {
         [slices.jira
-            ? "You may create and update Jira tickets in this broadcast's Jira projects: tickets for planned work, status moves, "
-              + "links, and tickets for off-brief finds."
+            ? "You may create and update Jira tickets in this broadcast's Jira projects: tickets for planned work and off-brief "
+              + "finds, status moves, links. Search existing tickets with jira_search before jira_create. "
+              + "jira_board, jira_sprint, jira_edit and jira_comment serve PM work on its tickets."
             : "You may not create or update Jira tickets. Jira is read-only for you. A task without a ticket runs without one.",
          slices.review
             ? "You may involve people on a merge request: mark it ready, ask reviewers, and reply in review threads. "
@@ -357,7 +358,7 @@ public enum OperatorCommand {
 
     static let decisionRule = "Log each choice you take on your own with `log_decision`, and say why in one sentence."
 
-    static let writingRule = "Use a comma, a colon or parentheses where you would use a dash, as AiTerm's own copy does: what "
+    static let writingRule = "Use a comma, a colon or parentheses where you would use a dash: what "
         + "you write shows in AiTerm, Jira and merge requests."
 
     /// How the Operator asks the person something. Every question shows on the Operator's own row, a question on a

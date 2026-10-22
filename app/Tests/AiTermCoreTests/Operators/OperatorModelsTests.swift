@@ -123,6 +123,19 @@ import Foundation
         #expect(try roundTrip(run) == run)
     }
 
+    /// The comments `jira_comment` posted are kept by their key, and a run that posted none saves as it did before.
+    @Test func whatJiraCommentPostedIsKeptByItsKeyAndLeftOutWhileEmpty() throws {
+        var run = OperatorRun(id: UUID(), name: "Comment", profile: profile, prompt: "b", createdAt: Date(timeIntervalSince1970: 0))
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        func keys(_ run: OperatorRun) throws -> Dictionary<String, Any>.Keys {
+            try #require(try JSONSerialization.jsonObject(with: encoder.encode(run)) as? [String: Any]).keys
+        }
+        #expect(!(try keys(run)).contains("jiraCommented"))
+        run.jiraCommented = ["c1": "10042"]
+        #expect(try keys(run).contains("jiraCommented"))
+        #expect(try roundTrip(run) == run)
+    }
+
     /// A launch saved before AiTerm recorded its window reads as one still opening.
     @Test func aLaunchSavedBeforeItsWindowWasRecordedReadsAsStillOpening() throws {
         let read = try JSONDecoder().decode(LaunchAttempt.self, from: Data(#"{"number":2,"requestedAt":40}"#.utf8))

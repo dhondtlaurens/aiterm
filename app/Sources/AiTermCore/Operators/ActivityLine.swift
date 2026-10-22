@@ -27,6 +27,8 @@ public enum ActivityLine {
             let sprint = arguments["sprint"]?.intValue.map(String.init) ?? text("sprint")
             if sprint.lowercased() == "backlog" { words = ("Moved \(cut(tickets)) to the backlog", "move \(cut(tickets)) to the backlog") }
             else { words = ("Put \(cut(tickets)) in sprint \(sprint)", "put \(cut(tickets)) in sprint \(sprint)") }
+        case "jira_edit": words = ("Edited \(text("ticket"))", "edit \(text("ticket"))")
+        case "jira_comment": words = ("Commented on \(text("ticket"))", "comment on \(text("ticket"))")
         case "create_task": words = ("Added \(text("title")) to the plan", "add \(text("title")) to the plan")
         case "update_task": words = ("Changed \(named)’s plan", "change \(named)’s plan")
         case "submit_plan": words = ("Submitted the plan", "submit the plan")

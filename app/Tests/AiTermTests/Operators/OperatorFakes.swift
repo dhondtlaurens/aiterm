@@ -185,6 +185,8 @@ final class FakeJira: OperatorJira {
         case link(key: String, to: String, type: String)
         case sprint(tickets: [String], sprint: Int)
         case backlog(tickets: [String])
+        case edit(key: String, fields: JiraEdit)
+        case comment(key: String, body: String)
     }
     let tickets: [JiraTicket]
     /// Every write answers Jira's 500 while this is set.
@@ -272,6 +274,19 @@ final class FakeJira: OperatorJira {
         if let hook = beforeSprintWrite.withLock({ $0 }) { await hook() }
         try await beforeWrite()
         try record(.backlog(tickets: tickets))
+    }
+    /// Awaited inside an edit or a comment, before its last check: a test changes the operation with it.
+    let beforeEditWrite = Mutex<(@Sendable () async -> Void)?>(nil)
+    func edit(key: String, fields: JiraEdit, beforeWrite: @Sendable () async throws -> Void) async throws {
+        if let hook = beforeEditWrite.withLock({ $0 }) { await hook() }
+        try await beforeWrite()
+        try record(.edit(key: key, fields: fields))
+    }
+    func comment(key: String, body: String, beforeWrite: @Sendable () async throws -> Void) async throws -> String {
+        if let hook = beforeEditWrite.withLock({ $0 }) { await hook() }
+        try await beforeWrite()
+        try record(.comment(key: key, body: body))
+        return "c\(writes.count)"
     }
     private func record(_ write: Write) throws {
         if let error = failing.withLock({ $0 }) { throw error }

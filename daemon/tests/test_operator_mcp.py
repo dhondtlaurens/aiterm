@@ -136,9 +136,10 @@ def test_memory_wins_over_a_file(tmp_path):
 
 
 CONTRACT_TOOLS = {"run_status", "jira_search", "jira_board", "jira_create", "jira_move", "jira_link", "jira_sprint",
-                  "create_task", "update_task", "submit_plan", "read_task", "message_task", "open_tab", "mark_task",
-                  "resume_task", "retry_task", "finish_task", "ask_you", "resolve_question", "report_find", "report_snag",
-                  "log_decision", "leave_for_you", "review_task", "request_review", "reply_thread", "find_user", "write_summary"}
+                  "jira_edit", "jira_comment", "create_task", "update_task", "submit_plan", "read_task", "message_task",
+                  "open_tab", "mark_task", "resume_task", "retry_task", "finish_task", "ask_you", "resolve_question",
+                  "report_find", "report_snag", "log_decision", "leave_for_you", "review_task", "request_review",
+                  "reply_thread", "find_user", "write_summary"}
 
 
 def test_the_tools_are_the_contracts():
@@ -202,6 +203,12 @@ def test_the_values_are_the_apps():
     assert required["jira_move"] == {"key", "status"} and required["jira_link"] == {"key", "to", "type"}
     assert required["jira_sprint"] == {"key", "tickets", "sprint"} and required["jira_board"] == set()
     assert properties["jira_board"] == {} and properties["jira_sprint"]["tickets"]["type"] == "array"
+    assert required["jira_edit"] == {"key", "ticket"} and required["jira_comment"] == {"key", "ticket", "body"}
+    assert set(properties["jira_edit"]) == {"key", "ticket", "summary", "description", "labelsAdd", "labelsRemove", "priority",
+                                            "fixVersions", "assignee"}
+    for name in ("labelsAdd", "labelsRemove", "fixVersions"):
+        assert properties["jira_edit"][name]["type"] == "array" and properties["jira_edit"][name]["items"] == {"type": "string"}
+    assert set(properties["jira_comment"]) == {"key", "ticket", "body"}
 
 
 def test_open_tab_adds_a_worker_tab_to_a_running_task_by_key():
@@ -266,12 +273,14 @@ def test_finish_task_says_what_it_did_to_the_draft():
     assert "draftNote" in {tool["name"]: tool for tool in TOOLS}["finish_task"]["description"]
 
 
-def test_the_jira_writes_say_what_the_slice_governs_and_there_is_no_comment_tool():
+def test_the_jira_writes_say_what_the_slice_governs_and_comments_are_one_of_them():
     tools = {tool["name"]: tool for tool in TOOLS}
-    for name in ("jira_create", "jira_move", "jira_link", "jira_sprint"):
+    for name in ("jira_create", "jira_move", "jira_link", "jira_sprint", "jira_edit", "jira_comment"):
         assert "Jira slice" in tools[name]["description"]
     assert "needs no slice" in tools["jira_board"]["description"]
-    assert not [name for name in tools if "comment" in name]
+    # A comment messages people, so it is a write of the slice like the others, and says so.
+    assert [name for name in tools if "comment" in name] == ["jira_comment"]
+    assert "same key again posts nothing" in tools["jira_comment"]["description"]
 
 
 def test_the_review_tools_say_what_the_slice_governs():

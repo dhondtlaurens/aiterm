@@ -2,11 +2,11 @@ import Foundation
 import CryptoKit
 import AiTermCore
 
-/// The Jira slice (spec §5): `jira_create`, `jira_move`, `jira_link` and `jira_sprint`, and the filing of off-brief finds. A
-/// write is refused unless the broadcast's frozen slice allows it, and is kept to the broadcast's Jira
-/// projects. Each is read fresh right before it is sent, after any read that came first: none goes while the
-/// operation is paused, offline or ended. Comments are not here: a comment messages people. `jira_board` only reads
-/// (spec §L), so it needs no slice.
+/// The Jira slice (spec §5, §L): `jira_create`, `jira_move`, `jira_link`, `jira_sprint`, `jira_edit` and `jira_comment`, and
+/// the filing of off-brief finds. A write is refused unless the broadcast's frozen slice allows it, and is kept to the
+/// broadcast's Jira projects. Each is read fresh right before it is sent, after any read that came first: none goes
+/// while the operation is paused, offline or ended. A comment messages people, so it is a write of the slice like the rest.
+/// `jira_board` only reads, so it needs no slice.
 extension OperatorToolHandler {
     private static let sliceOff = "The Jira slice is off for this broadcast."
     private static let notConnected = "Jira isn’t connected in AiTerm’s Settings › Integrations."
@@ -187,6 +187,69 @@ extension OperatorToolHandler {
             throw ToolRefusal("Jira didn’t answer within \(Int(budget.components.seconds)) s, so the tickets may or may not have moved; call jira_sprint again with the same key, which is safe to repeat.")
         case .failure(let error): throw error
         }
+    }
+
+    /// Changes fields of a ticket of the broadcast's Jira projects (spec §L). Setting the same values again changes nothing,
+    /// so a repeat needs no record. At least one field must name a change.
+    func jiraEdit(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        _ = try call.string("key")
+        let ticket = try inScope(ticket: try call.string("ticket"), of: run)
+        let fields = try editFields(call)
+        guard !fields.isEmpty else {
+            throw ToolRefusal("jira_edit needs at least one of summary, description, labelsAdd, labelsRemove, priority, fixVersions or assignee.")
+        }
+        try requireSlice(in: run, otherwise: "Edit \(ticket)")
+        try jiraWritable(run.id)
+        let jira = try connectedJira()
+        let runId = run.id
+        // An assignee is looked up first: the edit is checked again after it, right before it is sent.
+        try await jira.edit(key: ticket, fields: fields, beforeWrite: { @MainActor [weak self] in
+            guard let self else { throw ToolRefusal("AiTerm is closing; nothing more is written.") }
+            try self.jiraWritable(runId)
+        })
+        return ["ticket": .string(ticket), "edited": true]
+    }
+
+    /// Comments on a ticket of the broadcast's Jira projects (spec §L). The same key again posts nothing; the key is kept
+    /// only once the comment is posted, so a failed call may be made again.
+    func jiraComment(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        let callKey = try call.string("key")
+        if let id = run.jiraCommented[callKey] {
+            return ["commentId": .string(id), "commented": false, "note": "The first call with this key already posted it."]
+        }
+        let ticket = try inScope(ticket: try call.string("ticket"), of: run), body = try call.string("body")
+        try requireSlice(in: run, otherwise: "Comment on \(ticket)")
+        try jiraWritable(run.id)
+        let jira = try connectedJira()
+        let runId = run.id
+        let id = try await jira.comment(key: ticket, body: body, beforeWrite: { @MainActor [weak self] in
+            guard let self else { throw ToolRefusal("AiTerm is closing; nothing more is written.") }
+            try self.jiraWritable(runId)
+        })
+        mutate(in: runId) { $0.updateRun(id: runId) { $0.jiraCommented[callKey] = id } }
+        _ = workspace.flush()
+        return ["ticket": .string(ticket), "commentId": .string(id), "commented": true]
+    }
+
+    /// The edit a call names: a list that is not a list of text is refused, an empty description clears it.
+    private func editFields(_ call: ToolCall) throws(ToolRefusal) -> JiraEdit {
+        func texts(_ name: String) throws(ToolRefusal) -> [String]? {
+            guard let value = call.arguments[name], value != .null else { return nil }
+            guard let items = value.arrayValue, items.allSatisfy({ $0.stringValue != nil }) else {
+                throw ToolRefusal("jira_edit’s `\(name)` is a list of text.")
+            }
+            return items.compactMap { $0.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        }
+        var edit = JiraEdit(summary: call.optionalString("summary"), description: call.arguments["description"]?.stringValue,
+                            labelsAdd: try texts("labelsAdd") ?? [], labelsRemove: try texts("labelsRemove") ?? [],
+                            priority: call.optionalString("priority"), fixVersions: try texts("fixVersions"))
+        switch call.optionalString("assignee")?.lowercased() {
+        case nil: break
+        case "me": edit.assignee = .me
+        case "none": edit.assignee = .unassigned
+        default: edit.assignee = .query(call.optionalString("assignee") ?? "")
+        }
+        return edit
     }
 
     /// `sprint` as a sprint’s id or `backlog`.

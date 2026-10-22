@@ -238,6 +238,26 @@ TOOLS: tuple[dict[str, Any], ...] = (
            "sprint": {"type": ["integer", "string"],
                       "description": "The sprint's id from jira_board, or backlog to take the tickets out of their sprints."}},
           ("key", "tickets", "sprint")),
+    _tool("jira_edit", "Edits a ticket of one of the broadcast's Jira projects: its summary, description, labels (added and "
+          "removed, the others stay), priority, fix versions or assignee. Name at least one. Refused unless the broadcast's "
+          "Jira slice is on, and outside its Jira projects; AiTerm then leaves it for the person. Setting the same values "
+          "again changes nothing, so call again after a lost reply.",
+          {"key": _KEY, "ticket": _text("The ticket's key, such as PAY-231."),
+           "summary": _text("The new title."),
+           "description": _text("The new description, in plain text; it replaces the old one, and an empty one clears it."),
+           "labelsAdd": {"type": "array", "items": {"type": "string"}, "description": "Labels to add."},
+           "labelsRemove": {"type": "array", "items": {"type": "string"}, "description": "Labels to remove."},
+           "priority": _text("The priority's name, such as High."),
+           "fixVersions": {"type": "array", "items": {"type": "string"},
+                           "description": "The version names the ticket ends with, replacing its fix versions; empty clears them."},
+           "assignee": _text("me, none, or a name or email that matches exactly one person Jira can assign the ticket to; "
+                             "several matches are refused with their names.")},
+          ("key", "ticket")),
+    _tool("jira_comment", "Comments on a ticket of one of the broadcast's Jira projects. A comment reaches the ticket's "
+          "watchers, so write it for them. Refused unless the broadcast's Jira slice is on, and outside its Jira projects; "
+          "AiTerm then leaves it for the person. The same key again posts nothing, so call again with it after a lost reply.",
+          {"key": _KEY, "ticket": _text("The ticket's key, such as PAY-231."), "body": _text("The comment, in plain text.")},
+          ("key", "ticket", "body")),
     _tool("create_task", "Adds an unstarted task to the open plan revision, in one of the broadcast's projects. The same key "
           "in this broadcast returns the task already made. Once the first plan is submitted, additions past a quarter of its "
           "size need the Oracle's yes. One the Oracle refuses, or any past that limit with the Oracle off, is refused and "

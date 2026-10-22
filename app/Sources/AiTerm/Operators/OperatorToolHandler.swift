@@ -49,6 +49,9 @@ protocol OperatorJira: Sendable {
     func columns(board: Int) async throws -> [JiraColumn]
     func addToSprint(_ sprint: Int, tickets: [String], beforeWrite: @Sendable () async throws -> Void) async throws
     func moveToBacklog(tickets: [String], beforeWrite: @Sendable () async throws -> Void) async throws
+    /// `jira_edit` and `jira_comment` (spec §L); `beforeWrite` as above. A comment answers its id.
+    func edit(key: String, fields: JiraEdit, beforeWrite: @Sendable () async throws -> Void) async throws
+    func comment(key: String, body: String, beforeWrite: @Sendable () async throws -> Void) async throws -> String
 }
 
 extension JiraClient: OperatorJira {}
@@ -170,7 +173,7 @@ final class OperatorToolHandler {
     static let mutating: Set<String> = ["create_task", "update_task", "submit_plan", "message_task", "open_tab", "mark_task", "resume_task",
                                         "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "leave_for_you", "report_find", "report_snag",
                                         "write_summary",
-                                        "jira_create", "jira_move", "jira_link", "jira_sprint", "review_task", "request_review", "reply_thread"]
+                                        "jira_create", "jira_move", "jira_link", "jira_sprint", "jira_edit", "jira_comment", "review_task", "request_review", "reply_thread"]
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
          waker: OperatorWaker, tabs: TabOpener) {
@@ -278,6 +281,8 @@ final class OperatorToolHandler {
         case "jira_link": return try await jiraLink(call, in: run)
         case "jira_board": return try await jiraBoard(in: run)
         case "jira_sprint": return try await jiraSprint(call, in: run)
+        case "jira_edit": return try await jiraEdit(call, in: run)
+        case "jira_comment": return try await jiraComment(call, in: run)
         case "ask_you": return try askYou(call, in: run)
         case "resolve_question": return try resolveQuestion(call, in: run)
         case "leave_for_you": return try leaveForYou(call, in: run)

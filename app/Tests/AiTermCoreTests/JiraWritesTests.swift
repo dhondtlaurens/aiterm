@@ -3,7 +3,7 @@ import Foundation
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-/// The Jira writes the Operator's Jira slice allows (spec §5): create, move, link. Never a comment.
+/// The Jira writes the Operator's Jira slice allows (spec §5, §L): create, move, link, edit and comment.
 @Suite struct JiraWritesTests {
     let config = JiraConfig(siteURL: URL(string: "https://example.atlassian.net")!, email: "me@example.com", token: "tok")
 
@@ -147,5 +147,148 @@ import Foundation
             try await JiraClient(config: config, session: stub.session).transition(key: "PAY-231", to: "Done", beforeWrite: { throw Paused() })
         }
         #expect(stub.requests.map { $0.httpMethod ?? "" } == ["GET", "GET"], "read, then nothing posted")
+    }
+
+    // -- edit and comment (spec §L) ---------------------------------------------------------------
+
+    @Test func anEditSendsLabelsAsOperationsAndTheDescriptionAsADF() async throws {
+        let stub = StubSession { _ in (204, Data()) }
+        let edit = JiraEdit(summary: "New title", description: "First.\n\nSecond", labelsAdd: ["web", "urgent"], labelsRemove: ["old"],
+                            priority: "High", fixVersions: ["1.4", "1.5"])
+        try await JiraClient(config: config, session: stub.session).edit(key: "PAY-9", fields: edit)
+        let request = try #require(stub.lastRequest)
+        #expect(stub.requests.count == 1, "nothing is read when no assignee is named")
+        #expect(request.httpMethod == "PUT" && request.url?.path == "/rest/api/3/issue/PAY-9")
+        let sent = try body(request)
+        let fields = try #require(sent["fields"] as? [String: Any])
+        #expect(fields["summary"] as? String == "New title")
+        #expect((fields["priority"] as? [String: String]) == ["name": "High"])
+        #expect((fields["fixVersions"] as? [[String: String]]) == [["name": "1.4"], ["name": "1.5"]])
+        #expect(fields["assignee"] == nil && fields["labels"] == nil, "labels are operations, not a replacement")
+        let description = try #require(fields["description"] as? [String: Any])
+        #expect(description["type"] as? String == "doc" && ADFText.plain(description) == "First.\n\nSecond")
+        let update = try #require(sent["update"] as? [String: Any])
+        let labels = try #require(update["labels"] as? [[String: String]])
+        #expect(labels == [["add": "web"], ["add": "urgent"], ["remove": "old"]])
+    }
+
+    @Test func anEditSendsOnlyWhatItNames() async throws {
+        let stub = StubSession { _ in (204, Data()) }
+        try await JiraClient(config: config, session: stub.session).edit(key: "PAY-9", fields: JiraEdit(labelsRemove: ["old"]))
+        let sent = try body(stub.lastRequest)
+        #expect((sent["fields"] as? [String: Any])?.isEmpty == true)
+        #expect((sent["update"] as? [String: Any])?["labels"] as? [[String: String]] == [["remove": "old"]])
+        let none = StubSession { _ in (204, Data()) }
+        try await JiraClient(config: config, session: none.session).edit(key: "PAY-9", fields: JiraEdit(summary: "s", fixVersions: []))
+        let fields = try #require(try body(none.lastRequest)["fields"] as? [String: Any])
+        #expect((fields["fixVersions"] as? [Any])?.isEmpty == true, "an empty list of versions clears them")
+        #expect(try body(none.lastRequest)["update"] == nil)
+    }
+
+    @Test func anEmptyDescriptionClearsIt() async throws {
+        let stub = StubSession { _ in (204, Data()) }
+        try await JiraClient(config: config, session: stub.session).edit(key: "PAY-9", fields: JiraEdit(description: "  "))
+        let fields = try #require(try body(stub.lastRequest)["fields"] as? [String: Any])
+        #expect(fields["description"] is NSNull)
+    }
+
+    @Test func anEditWithNothingInItNeverReachesTheNetwork() async throws {
+        let stub = StubSession { _ in (204, Data()) }
+        #expect(JiraEdit().isEmpty && !JiraEdit(fixVersions: []).isEmpty && !JiraEdit(assignee: .unassigned).isEmpty)
+        await #expect(throws: JiraError.refused(status: 400, detail: "An edit needs at least one field to change.")) {
+            try await JiraClient(config: config, session: stub.session).edit(key: "PAY-9", fields: JiraEdit())
+        }
+        await #expect(throws: JiraError.refused(status: 400, detail: "PAY-1/../x isn’t a Jira ticket key.")) {
+            try await JiraClient(config: config, session: stub.session).edit(key: "PAY-1/../x", fields: JiraEdit(summary: "s"))
+        }
+        #expect(stub.requests.isEmpty)
+    }
+
+    @Test func assigneeMeUsesMyself() async throws {
+        let stub = StubSession { request in
+            request.url?.path == "/rest/api/3/myself" ? (200, Data(#"{"accountId":"acc-me","displayName":"Me"}"#.utf8)) : (204, Data())
+        }
+        try await JiraClient(config: config, session: stub.session).edit(key: "PAY-9", fields: JiraEdit(assignee: .me))
+        #expect(stub.requests.map { ($0.httpMethod ?? "") + " " + ($0.url?.path ?? "") } == ["GET /rest/api/3/myself", "PUT /rest/api/3/issue/PAY-9"])
+        let fields = try #require(try body(stub.lastRequest)["fields"] as? [String: Any])
+        #expect((fields["assignee"] as? [String: String]) == ["accountId": "acc-me"])
+    }
+
+    @Test func noAssigneeSendsANullAccount() async throws {
+        let stub = StubSession { _ in (204, Data()) }
+        try await JiraClient(config: config, session: stub.session).edit(key: "PAY-9", fields: JiraEdit(assignee: .unassigned))
+        let fields = try #require(try body(stub.lastRequest)["fields"] as? [String: Any])
+        let assignee = try #require(fields["assignee"] as? [String: Any])
+        #expect(assignee["accountId"] is NSNull && stub.requests.count == 1)
+    }
+
+    @Test func aNamedAssigneeIsTheOneUserWhoMatches() async throws {
+        let stub = StubSession { request in
+            request.url?.path == "/rest/api/3/user/assignable/search"
+                ? (200, Data(#"[{"accountId":"acc-sofie","displayName":"Sofie Jacobs","emailAddress":"sofie@example.com"},{"nope":1}]"#.utf8))
+                : (204, Data())
+        }
+        try await JiraClient(config: config, session: stub.session).edit(key: "PAY-9", fields: JiraEdit(assignee: .query("sofie")))
+        let search = try #require(stub.requests.first)
+        #expect(search.url?.query?.contains("project=PAY") == true && search.url?.query?.contains("query=sofie") == true, "the ticket's own project")
+        let fields = try #require(try body(stub.lastRequest)["fields"] as? [String: Any])
+        #expect(fields["assignee"] as? [String: String] == ["accountId": "acc-sofie"])
+    }
+
+    @Test func anAmbiguousAssigneeIsRefusedWithTheCandidates() async throws {
+        let stub = StubSession { _ in
+            (200, Data(#"[{"accountId":"a","displayName":"Sofie Jacobs","emailAddress":"sj@example.com"},{"accountId":"b","displayName":"Sofie Peeters"}]"#.utf8))
+        }
+        let error = await #expect(throws: JiraError.self) {
+            try await JiraClient(config: config, session: stub.session).edit(key: "PAY-9", fields: JiraEdit(summary: "s", assignee: .query("sofie")))
+        }
+        #expect(error == .refused(status: 400, detail: "“sofie” matches more than one assignable user: Sofie Jacobs (sj@example.com), Sofie Peeters. Name one by email."))
+        #expect(stub.requests.count == 1 && stub.lastRequest?.httpMethod == "GET", "nothing was written")
+        let none = StubSession { _ in (200, Data("[]".utf8)) }
+        await #expect(throws: JiraError.refused(status: 400, detail: "No assignable user in PAY matches “nobody”.")) {
+            try await JiraClient(config: config, session: none.session).edit(key: "PAY-9", fields: JiraEdit(assignee: .query("nobody")))
+        }
+    }
+
+    @Test func assignableReadsUsers() async throws {
+        let stub = StubSession { _ in (200, Data(#"[{"accountId":"a","displayName":"Sofie","emailAddress":"s@example.com"},{"accountId":"b","displayName":"Bram"}]"#.utf8)) }
+        let users = try await JiraClient(config: config, session: stub.session).assignable(project: "PAY", query: "s")
+        #expect(users == [JiraUser(accountId: "a", displayName: "Sofie", email: "s@example.com"), JiraUser(accountId: "b", displayName: "Bram", email: nil)])
+        #expect(stub.lastRequest?.httpMethod == "GET" && stub.lastRequest?.url?.path == "/rest/api/3/user/assignable/search")
+    }
+
+    @Test func anEditStopsWhenItsLastCheckRefuses() async throws {
+        struct Paused: Error {}
+        let stub = StubSession { _ in (200, Data(#"{"accountId":"acc-me"}"#.utf8)) }
+        await #expect(throws: Paused.self) {
+            try await JiraClient(config: config, session: stub.session).edit(key: "PAY-9", fields: JiraEdit(assignee: .me), beforeWrite: { throw Paused() })
+        }
+        #expect(stub.requests.map { $0.httpMethod ?? "" } == ["GET"], "read, then nothing put")
+    }
+
+    @Test func aCommentIsSentAsADF() async throws {
+        let stub = StubSession { _ in (201, Data(#"{"id":"10042","self":"https://example.atlassian.net/rest/api/3/issue/PAY-9/comment/10042"}"#.utf8)) }
+        let id = try await JiraClient(config: config, session: stub.session).comment(key: "PAY-9", body: "Shipped in 1.4.\n\nSee the MR.")
+        #expect(id == "10042")
+        let request = try #require(stub.lastRequest)
+        #expect(request.httpMethod == "POST" && request.url?.path == "/rest/api/3/issue/PAY-9/comment")
+        let document = try #require(try body(request)["body"] as? [String: Any])
+        #expect(document["type"] as? String == "doc" && document["version"] as? Int == 1)
+        #expect(ADFText.plain(document) == "Shipped in 1.4.\n\nSee the MR.")
+    }
+
+    @Test func aBlankCommentOrAKeyThatIsNoKeyNeverReachesTheNetwork() async throws {
+        let stub = StubSession { _ in (201, Data(#"{"id":"1"}"#.utf8)) }
+        await #expect(throws: JiraError.refused(status: 400, detail: "A comment needs text.")) {
+            _ = try await JiraClient(config: config, session: stub.session).comment(key: "PAY-9", body: " \n ")
+        }
+        await #expect(throws: JiraError.refused(status: 400, detail: "x isn’t a Jira ticket key.")) {
+            _ = try await JiraClient(config: config, session: stub.session).comment(key: "x", body: "hi")
+        }
+        struct Paused: Error {}
+        await #expect(throws: Paused.self) {
+            _ = try await JiraClient(config: config, session: stub.session).comment(key: "PAY-9", body: "hi", beforeWrite: { throw Paused() })
+        }
+        #expect(stub.requests.isEmpty)
     }
 }

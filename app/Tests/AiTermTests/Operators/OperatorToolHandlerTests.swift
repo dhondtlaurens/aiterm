@@ -440,6 +440,106 @@ import Testing
         #expect(jira.writes.isEmpty && world.run(run.id)?.jiraSprinted.isEmpty == true)
     }
 
+    // -- jira_edit and jira_comment (spec §L) --------------------------------------------------------
+
+    func edit(_ ticket: String = "PLUTO-1", _ more: [String: JSONValue] = ["summary": "A better title"], key: String = "e1") -> JSONValue {
+        .object(["key": .string(key), "ticket": .string(ticket)].merging(more) { _, new in new })
+    }
+
+    @Test func jiraEditChangesTheNamedFields() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let answer = await world.call(run.id, "jira_edit", edit("pluto-1", [
+            "summary": "A better title", "description": "Why.", "labelsAdd": ["web", " "], "labelsRemove": ["old"], "priority": "High",
+            "fixVersions": ["1.4"], "assignee": "Me"]))
+        #expect(answer.value?["edited"] == true && answer.value?["ticket"] == "PLUTO-1")
+        #expect(jira.writes == [.edit(key: "PLUTO-1", fields: JiraEdit(summary: "A better title", description: "Why.", labelsAdd: ["web"],
+                                                                      labelsRemove: ["old"], priority: "High", fixVersions: ["1.4"], assignee: .me))])
+        let named = await world.call(run.id, "jira_edit", edit("PLUTO-2", ["assignee": "sofie@example.com", "fixVersions": [], "description": ""], key: "e2"))
+        #expect(named.value?["edited"] == true)
+        #expect(jira.writes.last == .edit(key: "PLUTO-2", fields: JiraEdit(description: "", fixVersions: [], assignee: .query("sofie@example.com"))))
+        _ = await world.call(run.id, "jira_edit", edit("PLUTO-3", ["assignee": "none"], key: "e3"))
+        #expect(jira.writes.last == .edit(key: "PLUTO-3", fields: JiraEdit(assignee: .unassigned)))
+    }
+
+    @Test func anEmptyEditIsRefused() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let needs = "jira_edit needs at least one of summary, description, labelsAdd, labelsRemove, priority, fixVersions or assignee."
+        #expect(await world.call(run.id, "jira_edit", edit("PLUTO-1", [:])).message == needs)
+        #expect(await world.call(run.id, "jira_edit", edit("PLUTO-1", ["summary": " ", "labelsAdd": [], "priority": " "])).message == needs)
+        #expect(await world.call(run.id, "jira_edit", edit("PLUTO-1", ["labelsAdd": "web"])).message == "jira_edit’s `labelsAdd` is a list of text.")
+        #expect(await world.call(run.id, "jira_edit", ["ticket": "PLUTO-1", "summary": "s"]).message == "jira_edit needs `key`.")
+        #expect(jira.writes.isEmpty)
+    }
+
+    @Test func jiraEditAndCommentNeedTheSlice() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: false)
+        let world = try makeWorld(run, jira: jira)
+        let off = "The Jira slice is off for this broadcast."
+        #expect(await world.call(run.id, "jira_edit", edit()).message == off)
+        #expect(await world.call(run.id, "jira_comment", ["key": "c1", "ticket": "PLUTO-1", "body": "Done."]).message == off)
+        #expect(jira.writes.isEmpty && world.run(run.id)?.jiraCommented.isEmpty == true)
+        #expect(world.run(run.id)?.leftForYou == ["Edit PLUTO-1: the Jira slice is off.", "Comment on PLUTO-1: the Jira slice is off."])
+    }
+
+    @Test func stayInScope() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let outside = "PAY-9 isn’t in this broadcast’s Jira projects: PLUTO, WEB."
+        #expect(await world.call(run.id, "jira_edit", edit("PAY-9")).message == outside)
+        #expect(await world.call(run.id, "jira_comment", ["key": "c1", "ticket": "PAY-9", "body": "Hi."]).message == outside)
+        #expect(await world.call(run.id, "jira_edit", edit("not a key")).message == "not a key isn’t a Jira ticket key like PLUTO-231.")
+        #expect(jira.writes.isEmpty)
+        let off = jiraRun(slice: false)
+        let offWorld = try makeWorld(off, jira: jira)
+        #expect(await offWorld.call(off.id, "jira_edit", edit("PAY-9")).message == outside)
+        #expect(offWorld.run(off.id)?.leftForYou.isEmpty == true, "a ticket outside is no slice matter")
+    }
+
+    @Test func jiraCommentPostsAndIsSafeToRepeat() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let first = await world.call(run.id, "jira_comment", ["key": "c1", "ticket": "pluto-1", "body": " Shipped in 1.4. "])
+        #expect(first.value?["commented"] == true && first.value?["commentId"] == "c1" && first.value?["ticket"] == "PLUTO-1")
+        let again = await world.call(run.id, "jira_comment", ["key": "c1", "ticket": "PLUTO-2", "body": "Another."])
+        #expect(again.value?["commented"] == false && again.value?["commentId"] == "c1")
+        #expect(jira.writes == [.comment(key: "PLUTO-1", body: "Shipped in 1.4.")], "one comment for one key")
+        #expect(world.run(run.id)?.jiraCommented == ["c1": "c1"])
+        #expect(try world.workspace.file.load().run(id: run.id)?.jiraCommented == ["c1": "c1"])
+        // A failed post records nothing: the same key may try again.
+        jira.failWrites()
+        #expect(await world.call(run.id, "jira_comment", ["key": "c2", "ticket": "PLUTO-1", "body": "Two."]).message == "Jira returned an error (HTTP 500). Try again.")
+        #expect(world.run(run.id)?.jiraCommented == ["c1": "c1"])
+        jira.failWrites(false)
+        #expect(await world.call(run.id, "jira_comment", ["key": "c2", "ticket": "PLUTO-1", "body": "Two."]).value?["commented"] == true)
+        #expect(await world.call(run.id, "jira_comment", ["key": "c3", "ticket": "PLUTO-1"]).message == "jira_comment needs `body`.")
+    }
+
+    @Test func jiraEditAndCommentAreCheckedAgainJustBeforeTheWrite() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        jira.beforeEditWrite.withLock { $0 = { @Sendable in await MainActor.run { world.workspace.mutate { $0.updateRun(id: run.id) { $0.profile.slices.jira = false } } } } }
+        let off = "The Jira slice is off for this broadcast."
+        #expect(await world.call(run.id, "jira_edit", edit()).message == off)
+        #expect(await world.call(run.id, "jira_comment", ["key": "c1", "ticket": "PLUTO-1", "body": "Hi."]).message == off)
+        #expect(jira.writes.isEmpty && world.run(run.id)?.jiraCommented.isEmpty == true)
+    }
+
+    @Test func jiraEditAndCommentWithoutJiraSayWhere() async throws {
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run)
+        let none = "Jira isn’t connected in AiTerm’s Settings › Integrations."
+        #expect(await world.call(run.id, "jira_edit", edit()).message == none)
+        #expect(await world.call(run.id, "jira_comment", ["key": "c1", "ticket": "PLUTO-1", "body": "Hi."]).message == none)
+    }
+
     @Test func jiraMoveToTheStatusItIsInSucceedsWithoutATransition() async throws {
         let jira = FakeJira()
         jira.put("PLUTO-231", in: "Done")
