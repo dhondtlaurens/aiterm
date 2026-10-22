@@ -14,8 +14,9 @@ struct ReadmeDesktop: View {
     let tabs: Int
 
     /// Its own workspace — a home folder, then aiterm under Personal and acme under Work, two tasks
-    /// each, one of them a review, and the Mac in Backpack Mode — so the fixture the regression set
-    /// shares stays small. Hosted only: `ImageRenderer` never materialises a `List`.
+    /// each, one of them a review, a broadcast driving two more of acme's, and the Mac in Backpack
+    /// Mode — so the fixture the regression set shares stays small. Hosted only: `ImageRenderer`
+    /// never materialises a `List`.
     /// `scripts/readme-picture.sh` draws it to `docs/desktop.png`, and `scripts/release.sh` refuses
     /// to release while the committed picture differs from what this draws.
     static var snapshot: Snapshot {
@@ -54,7 +55,14 @@ struct ReadmeDesktop: View {
         let quantize = task(acme, "Quantize the ranking model to int8", "feat/ml-412-int8-quantization", .pi, "m1", jira: "ML-412")
         let release = task(acme, "Release new marketing website", "release/marketing-website", .codex, "m2", jira: "WEB-221",
                            review: MergeRequestRef(iid: 87, title: "Release new marketing website", url: "https://example/!87"))
-        let tasks = [refactor, orphan, quantize, release]
+        // The Operator busy on two tasks of its own, built as the Operator's images build theirs: the
+        // weights at work, `Operator watching`, and the flag's Codex asking to run npm install, waiting on you.
+        let scene = OperatorScene(projects: [acme])
+        let weights = scene.task(UUID(), "Tune the ranking weights", jira: "ML-415", .working)
+        let flag = scene.task(UUID(), "Flag the new ranking", jira: "ML-416", agent: .codex, .working)
+        let broadcast = scene.run(.active, name: "Ranking v2", prompt: "ship ML-415 and ML-416, the new ranking", review: nil,
+                                  done: nil, planned: 2, questions: [scene.prompt("Codex asks to run npm install", on: flag.id)])
+        let tasks = [refactor, orphan, quantize, release, weights, flag]
 
         let onDisk = WorkspaceScan(
             branchByCwd: Dictionary(uniqueKeysWithValues: tasks.map { ($0.worktreePath, $0.branch) } + [("/r", "main")]),
@@ -62,7 +70,8 @@ struct ReadmeDesktop: View {
             missingCheckouts: [], removedTasks: [], remotes: [:],
             // The review has just been checked out, so it sits on its branch and draws no diff.
             diffByTask: [refactor.id: DiffStat(added: 212, removed: 148), orphan.id: DiffStat(added: 18, removed: 6),
-                         quantize.id: DiffStat(added: 96, removed: 31)])
+                         quantize.id: DiffStat(added: 96, removed: 31), weights.id: DiffStat(added: 41, removed: 17),
+                         flag.id: DiffStat(added: 23, removed: 2)])
         let controller = Fixture.emptyController(scan: onDisk)
         controller.workspace.mutate { state in
             state.append(project: home)
@@ -71,6 +80,7 @@ struct ReadmeDesktop: View {
             state.append(divider: SidebarDivider(id: UUID(), name: "Work"))
             state.append(project: acme)
             state.tasks = tasks
+            state.runs = [broadcast]
         }
         controller.live.sessions = [
             // The selected task: Claude Code in front, its context the footer's `ctx` row.
@@ -80,6 +90,9 @@ struct ReadmeDesktop: View {
             Fixture.session("r4", "m1", quantize.id, "pi", "working", 0, cwd: quantize.worktreePath, active: true),
             Fixture.session("r5", "m2", release.id, "codex", "needsInput", 0, cwd: release.worktreePath, active: true),
             Fixture.session("r6", "m2", release.id, "claude", "idle", 1, cwd: release.worktreePath),
+            Fixture.session("r7", weights.windowId ?? "", weights.id, "claude", "working", 0, cwd: weights.worktreePath, active: true),
+            Fixture.session("r8", flag.windowId ?? "", flag.id, "codex", "needsInput", 0, cwd: flag.worktreePath, active: true),
+            Fixture.session("r9", "operator-window", broadcast.id, "claude", "working", 0, cwd: here, active: true),
         ].compactMap { $0 }
         controller.checkouts.seedSnapshotFixture(onDisk)
         controller.live.usage = Fixture.usage("""
@@ -96,8 +109,9 @@ struct ReadmeDesktop: View {
         return (controller, refactor)
     }
 
-    /// The windows' size, as they were on the 1512 × 982 pt desktop the picture used to sit on.
-    static let windowHeight: CGFloat = 862, windowsWidth: CGFloat = 1300, gap: CGFloat = 12
+    /// The windows' size: as wide as they were on the 1512 × 982 pt desktop the picture used to sit
+    /// on, and tall enough for the broadcast's rows above every project's.
+    static let windowHeight: CGFloat = 990, windowsWidth: CGFloat = 1300, gap: CGFloat = 12
     /// The transparent margin around the windows, the same on every side and wide enough that
     /// `DesktopWindow`'s shadow has faded out before the picture's edge.
     static let margin: CGFloat = 48
