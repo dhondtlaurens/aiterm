@@ -657,7 +657,9 @@ extension AppController {
                      scan: @escaping CheckoutMonitor.Scanner = {
                          WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
                      }) -> AppController {
-        AppController(store: store, preferences: preferences, harnessHome: harnessHome, claudeConfig: claudeConfig, bundledResourcesURL: bundledResourcesURL,
+        // git with the login shell's PATH, so the hooks it runs (a lefthook pre-push) find Homebrew's node.
+        let git = GitRunner(searchPath: { LoginShellLocator.shared.knownPath })
+        return AppController(store: store, preferences: preferences, harnessHome: harnessHome, claudeConfig: claudeConfig, bundledResourcesURL: bundledResourcesURL,
                       locateAgents: locateAgents, findPython: { PythonLocator.find() },
                       jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
                       gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,
@@ -670,8 +672,8 @@ extension AppController {
                       machineSensor: machineSensor,
                       peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2),
                       toastLifetime: .seconds(10), closedWindowHold: ClosedWindowTriage.hold, now: { .now },
-                      git: GitRunner(), scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval,
-                      operatorPorts: .live(home: harnessHome, git: GitRunner(), jiraSettings: { JiraSettings.load() }, claudeConfig: claudeConfig))
+                      git: git, scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval,
+                      operatorPorts: .live(home: harnessHome, git: git, jiraSettings: { JiraSettings.load() }, claudeConfig: claudeConfig))
     }
 
     /// AiTerm brought forward for Remove's question about a window the person closed in iTerm2. macOS's

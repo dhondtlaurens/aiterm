@@ -56,6 +56,8 @@ class SessionRegistry:
                 info.context_percent = old.context_percent
                 info.cli_version = old.cli_version
                 info.conversation_id = old.conversation_id
+                info.background = old.background
+                info.your_prompt = old.your_prompt
             if info != old:
                 self._sessions[r.session_id] = info
                 diff.changed.append(r.session_id)
@@ -96,6 +98,16 @@ class SessionRegistry:
         if s is None or s.state == state:
             return False
         s.state = state
+        # A turn ended: the prompt you typed for it is spent.
+        if state in ("done", "idle"):
+            s.your_prompt = None
+        return True
+
+    def set_your_prompt(self, session_id: str, prompt: str | None) -> bool:
+        s = self._sessions.get(session_id)
+        if s is None or s.your_prompt == prompt:
+            return False
+        s.your_prompt = prompt
         return True
 
     def set_agent_cwd(self, session_id: str, cwd: str | None) -> bool:
@@ -110,6 +122,13 @@ class SessionRegistry:
         if s is None or not conversation or s.conversation_id == conversation:
             return False
         s.conversation_id = conversation
+        return True
+
+    def set_background(self, session_id: str, work: tuple[str, ...]) -> bool:
+        s = self._sessions.get(session_id)
+        if s is None or s.background == work:
+            return False
+        s.background = work
         return True
 
     def set_context(self, session_id: str, percent: int | None) -> bool:

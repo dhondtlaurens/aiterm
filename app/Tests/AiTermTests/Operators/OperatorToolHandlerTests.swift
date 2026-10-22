@@ -437,7 +437,7 @@ import Testing
         let task = workingTask(in: run)
         let world = try makeWorld(run, tasks: [task])
         let onTask = await world.call(run.id, "ask_you", ["key": "a", "question": "Stuck?", "task": "T1"])
-        #expect(onTask.value?["note"] == "This task now shows waiting on the person, and Waiting on you opens its worker’s terminal.")
+        #expect(onTask.value?["note"] == "Your row in the sidebar now shows waiting on the person, naming this task, and they answer in this chat. The task waits: it isn't ready to accept and isn't watched for stalls until you resolve the question.")
         #expect(await world.call(run.id, "ask_you", ["key": "b", "question": "Which scope?"]).value?["note"] == nil)
     }
 

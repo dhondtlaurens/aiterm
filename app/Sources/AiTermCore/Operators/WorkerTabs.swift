@@ -28,6 +28,10 @@ public struct WorkerTab: Equatable, Sendable {
     /// window is gone, an extra tab that was closed).
     public var status: SessionState? { isOpening ? .working : session?.state }
 
+    /// What it left running in the background when its turn ended (`SessionInfo.background`), which wakes it again;
+    /// nothing while its turn is under way.
+    public var background: [String] { status == .idle || status == .done ? session?.background ?? [] : [] }
+
     /// An extra tab that opened and is listed no more: closed, and never opened again. A first worker is never closed
     /// here; its window comes back on your click.
     public var isClosed: Bool { key != nil && session == nil && !isOpening }
@@ -56,11 +60,13 @@ public extension TaskItem {
     }
 
     /// Whether its result waits for the Operator to accept it, its workers as `sessions` list them: working, and
-    /// every worker ended its turn (`RunStatus.isReadyForAcceptance`).
+    /// every worker ended its turn with nothing left running in the background (`RunStatus.isReadyForAcceptance`).
+    /// A question it waits on you for (`waitingOnYou`) holds it too, as `run_status` says.
     func isReadyForAcceptance(in sessions: [SessionInfo]) -> Bool {
-        guard let operated else { return false }
-        let workers = workerTabs(in: sessions).map(\.status)
-        return RunStatus.isReadyForAcceptance(operated, live: workers[0], extraTabs: Array(workers.dropFirst()))
+        guard let operated, !operated.flags.contains(.waitingOnYou) else { return false }
+        let tabs = workerTabs(in: sessions), workers = tabs.map(\.status)
+        return RunStatus.isReadyForAcceptance(operated, live: workers[0], extraTabs: Array(workers.dropFirst()),
+                                              background: tabs.flatMap(\.background))
     }
 
     /// The tab a click on its row brings forward (P5 A, 21 Oct 2026), its tabs as `sessions` list them: the worker tab

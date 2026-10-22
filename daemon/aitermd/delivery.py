@@ -300,11 +300,19 @@ class Deliverer:
         self._monotonic, self._sleep = monotonic, sleep
         self._locks: dict[str, asyncio.Lock] = {}
         self._ownership: dict[str, int] = {}
+        # When text was last pasted into each session: a prompt it submits soon after is AiTerm's, not yours.
+        self._pasted: dict[str, float] = {}
 
     def forget_session(self, session_id: str) -> None:
-        """What a closed session leaves behind: its turn lock and its ownership generation."""
+        """What a closed session leaves behind: its turn lock, its ownership generation and its last paste."""
         self._locks.pop(session_id, None)
         self._ownership.pop(session_id, None)
+        self._pasted.pop(session_id, None)
+
+    def delivered_within(self, session_id: str, now: float, seconds: float) -> bool:
+        """Whether AiTerm pasted text into the session within `seconds` of `now`."""
+        at = self._pasted.get(session_id)
+        return at is not None and 0 <= now - at <= seconds
 
     def set_ownership(self, session_id: str, ownership: int) -> None:
         """The task's ownership generation, which a takeover increments (session.setOwnership): a
@@ -357,6 +365,7 @@ class Deliverer:
                 return _refused(again)
             session, policy = again  # a verdict that changed to paste-only meanwhile keeps the Enter back
         try:
+            self._pasted[session_id] = self._monotonic()
             await self.iterm.send_text(session_id, PASTE_START + body + PASTE_END)
         except KeyError:
             return _refused(Refusal("sessionClosed", "the session has closed"))

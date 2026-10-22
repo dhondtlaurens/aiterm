@@ -1204,6 +1204,75 @@ async def test_a_stop_listing_no_running_subagent_ends_the_turn(stack, tmp_path)
     assert svc.registry.get(sid).state == "done"
 
 
+async def test_a_turn_that_ends_with_background_work_says_what_still_runs(stack, tmp_path):
+    """A Claude turn that ends while a background shell runs is paused, not done: the session says what still runs,
+    until its next turn starts, and the next Stop says what runs then."""
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    sid = it.windows[wid]["sessions"][0]
+    await it.user_runs(sid, "claude", job_pid=935)
+    files.root.mkdir(parents=True)
+    (files.root / "935.json").write_text(json.dumps({"pid": 935, "sessionId": "c5", "cwd": "/wt", "status": "busy", "updatedAt": 1}))
+    await svc.tick()
+    base = {"session_id": "c5", "cwd": "/wt", "transcript_path": str(tmp_path / "c5.jsonl")}
+    await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
+    await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "Stop", "background_tasks": [
+        {"id": "b1", "type": "shell", "status": "running", "description": "the gate", "command": "npm run test:run"}]})
+    session = svc.registry.get(sid)
+    assert (session.state, session.background) == ("done", ("npm run test:run",))
+    assert session.to_json()["background"] == ["npm run test:run"]
+    await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
+    assert svc.registry.get(sid).background == ()
+    await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "Stop", "background_tasks": []})
+    assert (svc.registry.get(sid).state, svc.registry.get(sid).background) == ("done", ())
+
+
+async def test_a_prompt_you_type_into_a_worker_is_yours_until_its_turn_ends(make_service, tmp_path):
+    """A prompt submitted right after you pressed Return in that tab is yours, by its first line, until the turn it
+    started ends. The conversation's first prompt is AiTerm's launch prompt, even right after a Return (the folder-trust
+    dialog's), and so is one AiTerm just delivered."""
+    now = [500.0]
+    svc = make_service(monotonic=lambda: now[0])
+    await svc.start()
+    it, files = svc.iterm, svc.claude_files
+    r, w = await asyncio.open_unix_connection(svc.rpc.path)
+    try:
+        wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+        sid = it.windows[wid]["sessions"][0]
+        await it.user_runs(sid, "claude", job_pid=936)
+        files.root.mkdir(parents=True)
+        (files.root / "936.json").write_text(json.dumps({"pid": 936, "sessionId": "c6", "cwd": "/wt", "status": "busy", "updatedAt": 1}))
+        await svc.tick()
+        base = {"session_id": "c6", "cwd": "/wt", "transcript_path": str(tmp_path / "c6.jsonl")}
+
+        async def prompt(text):
+            await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit", "prompt": text})
+            return svc.registry.get(sid).your_prompt
+
+        async def stop():
+            await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "Stop", "background_tasks": []})
+
+        await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "SessionStart", "source": "startup"})
+        await it.user_types(sid, "\r")
+        assert await prompt("Ticket FE-1784: Dependency updates, minor group.") is None, "the launch prompt"
+        await stop()
+
+        now[0] += 60
+        await it.user_types(sid, "\r")
+        assert await prompt("Fix the language switch inline here\n(keep it minimal)") == "Fix the language switch inline here"
+        assert svc.registry.get(sid).to_json()["yourPrompt"] == "Fix the language switch inline here"
+        await stop()
+        assert svc.registry.get(sid).your_prompt is None, "the turn it started ended"
+
+        now[0] += 60
+        await it.user_types(sid, "\r")
+        now[0] += 30
+        assert await prompt("Commit, then stop.") is None, "a Return long before is not this prompt"
+        await stop()
+    finally:
+        w.close()
+
+
 async def test_a_turn_with_nothing_deferred_reads_no_transcript(stack, tmp_path, monkeypatch):
     svc, it, files, r, w = stack
     wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]

@@ -157,6 +157,9 @@ class StatusEngine:
             kind = "done"
         turn.hook_at = self._clock()
         released: list[str] = []
+        # What the session waits on once its turn ends, said by the Stop; a new turn waits on nothing yet.
+        if (work := ev.background_work if kind == "done" else () if kind == "working" else None) is not None:
+            released += [session_id] if self.reg.set_background(session_id, work) else []
         if kind == "done" and (running_subagents := ev.running_subagents) is not None:
             # A child the Stop no longer lists is gone, SubagentStop or not; the last one lands a
             # completion an earlier turn deferred, before this one lands its own.
@@ -368,7 +371,8 @@ class StatusEngine:
     def agent_exited(self, session_id: str) -> list[str]:
         self.reset_turn(session_id)
         self._trust_prompts.discard(session_id)
-        return [session_id] if self.reg.set_state(session_id, "idle") else []
+        cleared = self.reg.set_background(session_id, ())
+        return [session_id] if self.reg.set_state(session_id, "idle") or cleared else []
 
     def mark_seen(self, task_id: str) -> list[str]:
         sessions = self.reg.for_task(task_id)

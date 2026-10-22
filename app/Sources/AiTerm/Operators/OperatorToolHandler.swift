@@ -466,7 +466,7 @@ final class OperatorToolHandler {
     private static func askAnswer(_ question: OperatorQuestion) -> JSONValue {
         var answer = questionAnswer(question)
         if question.task != nil, question.resolution == nil, case .object(var fields) = answer {
-            fields["note"] = "This task now shows waiting on the person, and Waiting on you opens its worker’s terminal."
+            fields["note"] = "Your row in the sidebar now shows waiting on the person, naming this task, and they answer in this chat. The task waits: it isn't ready to accept and isn't watched for stalls until you resolve the question."
             answer = .object(fields)
         }
         return answer

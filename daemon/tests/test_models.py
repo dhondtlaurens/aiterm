@@ -70,7 +70,7 @@ def test_session_info_json_is_camel_case_and_drops_job_pid():
         "agent": "claude", "model": "claude-opus-5", "reasoning": None,
         "state": "working", "title": "✳ Claude Code", "cwd": "/repo",
         "agentCwd": "/repo/.worktrees/x", "active": False, "contextPercent": None,
-        "conversationId": None, "terminalId": None, "tabKey": None,
+        "conversationId": None, "terminalId": None, "tabKey": None, "background": [], "yourPrompt": None,
     }
 
 

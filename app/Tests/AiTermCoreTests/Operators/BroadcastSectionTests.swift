@@ -148,25 +148,39 @@ import Testing
 
     /// Its line is its own session's (`OperatorLine.session`), in each state, and its mark follows the line.
     @Test func theOperatorsRowSpeaksForItsOwnSessionAlone() throws {
-        // One of its own questions, the broadcast's and no task's: it asks you in its window.
+        // One of its own questions, the broadcast's and no task's: waiting on you (1A, 22 Oct 2026).
         let run = run(questions: [OperatorUIFixtures.question("which currency format?", task: nil)])
         let asked = try section(state(run)).operatorRow
-        #expect(asked.line == OperatorLine("asks you in its window", look: .needsYou))
+        #expect(asked.line.text == "waiting on you" && asked.line.look == .needsYou)
         #expect(asked.status == .needsInput)
 
-        // A task's prompt and a question about a task are that task's: the Operator's row goes on with its act.
+        // A task's prompt is that task's: the Operator's row goes on with its act.
         let busy = self.run()
         let drawer = task("Cart drawer", run: busy.id, .working)
-        var asking = busy
-        asking.questions = [OperatorUIFixtures.question("retry policy?", task: drawer.id)]
         let acting = OperatorActs(runs: [busy.id: .init(act: .answering, task: "Cart drawer")])
-        let row = try section(state(asking, [drawer]), sessions: [tab(drawer, .needsInput)], acting: acting).operatorRow
+        let row = try section(state(busy, [drawer]), sessions: [tab(drawer, .needsInput)], acting: acting).operatorRow
         #expect(row.line == OperatorLine("answering Claude · Cart drawer", look: .acting))
         #expect(row.status == .working)
 
-        // Its own tab waiting on input: it asks you in its window, over its act.
+        // A question about a task is the Operator's, answered in its window (2A, 22 Oct 2026): its row names the task,
+        // and the task's row goes on with its own line.
+        var asking = busy
+        asking.questions = [OperatorUIFixtures.question("retry policy?", task: drawer.id)]
+        let about = try section(state(asking, [drawer]), sessions: [tab(drawer, .working)], acting: acting)
+        #expect(about.operatorRow.line.text == "waiting on you · Cart drawer" && about.operatorRow.status == .needsInput)
+        #expect(about.tasks.first?.operatorLine?.look != .needsYou && about.tasks.first?.status == .working)
+        // Its worker stopped on the answer is not ready for the Operator, as run_status says: it waits on you.
+        var stopped = drawer
+        stopped.operated?.flags = [.waitingOnYou]
+        let waiting = try section(state(asking, [stopped]), sessions: [tab(stopped, .done)])
+        #expect(waiting.tasks.first?.operatorLine?.text == "Operator watching")
+        var twice = asking
+        twice.questions.append(OperatorUIFixtures.question("which currency format?", task: nil))
+        #expect(try section(state(twice, [drawer])).operatorRow.line.text == "waiting on you · 2 questions")
+
+        // Its own tab waiting on input: waiting on you, over its act.
         let prompted = try section(state(busy, [drawer]), sessions: [operatorTab(busy, .needsInput)], acting: acting).operatorRow
-        #expect(prompted.line == OperatorLine("asks you in its window", look: .needsYou))
+        #expect(prompted.line == OperatorLine("waiting on you", look: .needsYou))
         #expect(prompted.status == .needsInput)
 
         // Its session at work with no act of AiTerm's: working, spinning.

@@ -289,6 +289,29 @@ final class MergeClock: Sendable {
         #expect(operated(s)?.publication?.pushedSHA == nil)
     }
 
+    /// A pre-push hook that refuses: the answer says what the hook said, and the task records it, so
+    /// its row says `blocked` rather than `opening the MR`. The next finish_task clears it and pushes.
+    @Test func aPushTheHookRefusedIsRecordedInTheHooksWords() async throws {
+        let s = try setUp(end: .draftMR)
+        let hook = URL(fileURLWithPath: s.path).appendingPathComponent(".git/hooks/pre-push")
+        try "#!/bin/sh\necho 'lefthook: running pre-push'\necho 'sh: npm: command not found' >&2\nexit 1\n"
+            .write(to: hook, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
+        let result = await s.finisher.finish(s.task)
+        let why = "The pre-push hook refused the push of feat/pluto-231: sh: npm: command not found"
+        #expect(result.result == "failed")
+        #expect(result.reason == why)
+        #expect(operated(s)?.publication?.problem == why)
+        #expect(try StateStore(url: s.store.file.url).load().task(id: s.task)?.operated?.publication?.problem == why, "saved")
+        let task = try #require(s.store.state.task(id: s.task)), run = try #require(s.store.state.run(id: s.run))
+        #expect(OperatorLine.task(task, run: run, acting: nil, requests: [])?.look == .needsYou)
+
+        try FileManager.default.removeItem(at: hook)
+        let again = await s.finisher.finish(s.task)
+        #expect(again.result == "published")
+        #expect(operated(s)?.publication?.problem == nil)
+    }
+
     @Test func aHostThatIsNotConnectedIsRefusedBeforeAnythingIsPushed() async throws {
         let s = try setUp(end: .draftMR, connect: { _ in throw MergeRequestSearch.Unavailable.notConnected(.gitLab) })
         let result = await s.finisher.finish(s.task)

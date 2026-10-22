@@ -182,17 +182,19 @@ import Testing
 
         #expect(cards["Payment provider switch"]?.opens == .taskWindow(permission.id), "a permission prompt: the task's window")
         #expect(cards["Payment provider switch"]?.line?.text == "waiting on you")
-        #expect(cards["Retry failed payments"]?.opens == .operatorWindow, "a question: the Operator's window")
-        #expect(cards["Retry failed payments"]?.line?.text == "waiting on you")
+        // A question the Operator asks about a task is the Operator's row's (2A, 22 Oct 2026): the card goes on with its task.
+        #expect(cards["Retry failed payments"]?.opens == .taskWindow(question.id), "a question: the Operator's row's, not the card's")
+        #expect(cards["Retry failed payments"]?.line?.text == "Operator watching")
         #expect(cards["Address autocomplete"]?.opens == .operatorWindow, "blocked: the Operator's window")
         #expect(cards["Shipping step"]?.opens == .sidebarBanner(issue: "issue-7"), "AiTerm's problem: the banner's Notice")
         #expect(cards["Shipping step"]?.line?.text == "blocked · The rebase conflicted")
         #expect(cards["Cart drawer"]?.opens == .taskWindow(working.id), "a started task: its window")
         #expect(cards["Order summary copy"]?.opens == .nothing, "a Todo task has nothing to open")
-        for title in ["Payment provider switch", "Retry failed payments", "Address autocomplete", "Shipping step"] {
+        for title in ["Payment provider switch", "Address autocomplete", "Shipping step"] {
             #expect(cards[title]?.needsYou == true, "\(title) needs you")
         }
         #expect(cards["Cart drawer"]?.needsYou == false && cards["Order summary copy"]?.needsYou == false)
+        #expect(cards["Retry failed payments"]?.needsYou == false)
 
         // The Operator acting on a card says so there.
         let acting = OperatorActs(tasks: [working.id: .answering], runs: [asking.id: .init(act: .answering, task: "PAY-231")])
