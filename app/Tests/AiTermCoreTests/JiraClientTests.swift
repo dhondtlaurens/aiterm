@@ -24,6 +24,15 @@ import Synchronization
         #expect(JiraClient.confined(#"summary ~ "a ORDER BY b""#, to: scope) == #"project in ("PLUTO") AND (summary ~ "a ORDER BY b")"#)
     }
 
+    /// The request's own timeout is an idle one: a Jira that keeps trickling bytes never reaches it. The app's client
+    /// gives every request a whole deadline too, inside `jira_search`'s budget, so a search cannot outlast it.
+    @Test func searchHasAResourceDeadline() {
+        let client = JiraClient(config: config)
+        #expect(client.session.configuration.timeoutIntervalForResource <= 20)
+        #expect(client.session.configuration.timeoutIntervalForResource == JiraClient.resourceDeadline)
+        #expect(JiraClient.resourceDeadline <= OperatorTiming.jiraSearchBudget)
+    }
+
     @Test func testMyOpenIssuesParsesAndAuthenticates() async throws {
         let page = try JSONSerialization.data(withJSONObject: ["issues": [issue]])
         let stub = StubSession { _ in (200, page) }

@@ -51,7 +51,19 @@ public enum JiraError: Error, Equatable, LocalizedError {
 
 public struct JiraClient: Sendable {
     let config: JiraConfig, session: URLSession
-    public init(config: JiraConfig, session: URLSession = .shared) { self.config = config; self.session = session }
+    public init(config: JiraConfig, session: URLSession = JiraClient.liveSession) { self.config = config; self.session = session }
+
+    /// The whole time one request may take, in seconds: no more than the Operator's `jira_search` budget, which is inside the
+    /// daemon's wait for the app (`JiraClientTests` holds the two together; Jira names no Operators type).
+    public static let resourceDeadline: TimeInterval = 20
+
+    /// The app's session for Jira. A request's own timeout (`HTTPJSON.request`'s 15 s) is an idle one, which a reply that keeps
+    /// trickling never reaches, so each request also has `resourceDeadline`.
+    public static let liveSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForResource = resourceDeadline
+        return URLSession(configuration: configuration)
+    }()
     public var siteURL: URL { config.siteURL }
 
     public static let openIssuesJQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"

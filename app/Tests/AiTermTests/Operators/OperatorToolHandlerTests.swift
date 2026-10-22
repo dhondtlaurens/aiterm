@@ -177,6 +177,24 @@ import Testing
         #expect(jira.searches.map(\.jql) == ["sprint in openSprints()"])
     }
 
+    /// A search Jira holds for 40 s is answered inside the daemon's wait for the app (`OperatorTiming.operatorRequestTimeout`),
+    /// with why, rather than left to the daemon's "AiTerm isn't answering". The refusal is the budget's, given while the
+    /// search was still held; no wall clock is checked, since a full run's main-actor tests can delay any main-actor answer.
+    @Test func aSlowJiraSearchAnswersBeforeTheDaemonGivesUp() async throws {
+        #expect(OperatorTiming.jiraSearchBudget == 20 && OperatorTiming.jiraSearchBudget < OperatorTiming.operatorRequestTimeout)
+        let jira = FakeJira()
+        jira.searchHold.withLock { $0 = { try? await Task.sleep(for: .seconds(40)) } }
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { ports in
+            #expect(ports.jiraSearchBudget == .seconds(OperatorTiming.jiraSearchBudget))
+            ports.jira = { jira }
+            ports.jiraSearchBudget = .seconds(1)
+        }
+        let answer = await world.call(run.id, "jira_search", ["jql": "project = PLUTO"])
+        #expect(answer.message == "Jira didn’t answer within 1 s; try a narrower JQL.")
+        #expect(jira.searches.count == 1)
+    }
+
     @Test func jiraSearchWithoutJiraSaysWhere() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)

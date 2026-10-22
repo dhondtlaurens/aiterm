@@ -25,6 +25,9 @@ public enum OperatorTiming {
     public static let agentReviewTimeout: TimeInterval = 900
     /// How long the daemon waits for the app's reply to a forwarded tool call.
     public static let operatorRequestTimeout: TimeInterval = 30
+    /// App only: seconds `jira_search` waits for Jira before it answers that Jira didn't, inside `operatorRequestTimeout`. The
+    /// app's Jira client ends each request by then too (`JiraClient.resourceDeadline`).
+    public static let jiraSearchBudget: TimeInterval = 20
     /// A launch attempt older than this with no tagged session may be launched again (spec §11).
     public static let launchAdoptAfter: TimeInterval = 60
     /// M3, app only: how often `finish_task` asks the host whether a `merge` task's MR is mergeable.

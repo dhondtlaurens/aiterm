@@ -11,8 +11,8 @@ extension OperatorToolHandler {
         case state(MergeRequestState), note(String)
     }
 
-    /// The host did not answer within the limit.
-    private struct HostSilent: Error {}
+    /// The host, or Jira for `jira_search`, did not answer within the limit (`within`).
+    struct NoAnswer: Error {}
 
     /// Fills `mergeRequest`, or `mergeRequestNote`, on every task of `status` that has a request, asking the hosts together.
     func fillMergeRequests(_ status: inout RunStatus) async {
@@ -52,24 +52,24 @@ extension OperatorToolHandler {
             hostStates[url] = (ports.now(), state)
             return .state(state)
         case .failure(let error):
-            let why = error is HostSilent ? "the host did not answer in \(Int(limit.components.seconds)) seconds"
+            let why = error is NoAnswer ? "the host did not answer in \(Int(limit.components.seconds)) seconds"
                 : (error as? ToolRefusal)?.message ?? error.localizedDescription
             return .note("AiTerm couldn’t read its \(CodeHost(webURL: url).reference(number)) on the host: \(why)")
         }
     }
 
-    /// `work`, or `HostSilent` when it has not ended within `limit`. The race is between two tasks started here, not a task
+    /// `work`, or `NoAnswer` when it has not ended within `limit`. The race is between two tasks started here, not a task
     /// group, so a host call that ignores cancellation is left behind instead of holding the answer up.
-    private static func within<Value: Sendable>(_ limit: Duration, _ work: @escaping @MainActor @Sendable () async throws -> Value) async -> Result<Value, any Error> {
+    static func within<Value: Sendable>(_ limit: Duration, _ work: @escaping @MainActor @Sendable () async throws -> Value) async -> Result<Value, any Error> {
         let (finished, report) = AsyncStream<Result<Value, any Error>>.makeStream()
         let working = Task { @MainActor in
             do { report.yield(.success(try await work())) } catch { report.yield(.failure(error)) }
         }
         let timer = Task {
             try await Task.sleep(for: limit)
-            report.yield(.failure(HostSilent()))
+            report.yield(.failure(NoAnswer()))
         }
-        var first: Result<Value, any Error> = .failure(HostSilent())
+        var first: Result<Value, any Error> = .failure(NoAnswer())
         for await result in finished { first = result; break }
         working.cancel()
         timer.cancel()

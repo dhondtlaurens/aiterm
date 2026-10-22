@@ -13,6 +13,8 @@ struct OperatorPorts {
     var notifications: any OperatorNotifications
     /// The Jira client `jira_search` runs through, while Settings has one.
     var jira: @Sendable () -> (any OperatorJira)? = { nil }
+    /// How long `jira_search` waits for Jira before it answers that Jira didn't (`OperatorTiming.jiraSearchBudget`).
+    var jiraSearchBudget: Duration = .seconds(OperatorTiming.jiraSearchBudget)
     /// The Oracle's runner.
     var secondOpinion: SecondOpinionRunner = .unavailable
     /// The runner of `review_task`'s agent reviews: the Oracle's recipe in a task's worktree.

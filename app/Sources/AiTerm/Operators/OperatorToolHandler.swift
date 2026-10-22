@@ -364,7 +364,16 @@ final class OperatorToolHandler {
         guard !scope.isEmpty else {
             throw ToolRefusal("None of this broadcast’s projects is linked to a Jira project, so there is nothing jira_search may search.")
         }
-        let tickets = try await jira.search(jql: jql, in: scope)
+        // A Jira slower than the budget is said inside the daemon's wait for the app (`OperatorTiming.operatorRequestTimeout`),
+        // so the Operator reads why instead of "AiTerm isn't answering"; the search is cancelled.
+        let budget = ports.jiraSearchBudget
+        let tickets: [JiraTicket]
+        switch await Self.within(budget, { try await jira.search(jql: jql, in: scope) }) {
+        case .success(let found): tickets = found
+        case .failure(let error) where error is NoAnswer:
+            throw ToolRefusal("Jira didn’t answer within \(Int(budget.components.seconds)) s; try a narrower JQL.")
+        case .failure(let error): throw error
+        }
         return .array(tickets.map { ticket in
             ["key": .string(ticket.key), "summary": .string(ticket.summary), "status": ticket.status.map(JSONValue.string) ?? .null,
              "type": ticket.issueType.map(JSONValue.string) ?? .null, "url": .string(ticket.url),
