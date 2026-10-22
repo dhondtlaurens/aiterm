@@ -47,6 +47,8 @@ import Foundation
         #expect(line("shell", ["command": "npm install"]) == "Ran `npm install`")
         #expect(ActivityLine.line(tool: "shell", arguments: ["command": "npm run deploy"], task: nil, outcome: .challenged)
                 == "The Oracle stopped `npm run deploy`")
+        #expect(ActivityLine.line(tool: "shell", arguments: ["command": "npm run deploy"], task: nil, outcome: .refused)
+                == "run `npm run deploy`")
     }
 
     /// A call that did not go through says what was asked, in the imperative; one answered from the first keeps

@@ -11,6 +11,28 @@ extension OperatorToolHandler {
     /// The request the hook's command comes as: no tool of the Operator's, so it never calls it itself.
     static let gateTool = "gate_command"
 
+    /// The gate's answer to `request`: denied for a broadcast AiTerm no longer has, else `gate(_:in:)`'s.
+    func gate(_ request: OperatorRequest) async -> JSONValue {
+        let call = ToolCall(tool: request.tool, arguments: request.arguments)
+        guard let id = UUID(uuidString: request.runId), let run = state.run(id: id) else {
+            return Self.gateAnswer("deny", Self.goneReason, rewrite: nil)
+        }
+        return await gate(call, in: run)
+    }
+
+    static let goneReason = "This broadcast is no longer in AiTerm."
+
+    /// Why the broadcast's shell no longer acts, if it doesn't: gone, or ended. The person's choice to let a command run
+    /// when the Oracle can't answer is about the Oracle, never about an ended broadcast, so these deny.
+    private func ended(_ id: UUID) -> String? {
+        guard let run = state.run(id: id) else { return Self.goneReason }
+        return run.state == .stopped || run.intent == .stopped ? "This broadcast has ended; its shell no longer acts." : nil
+    }
+
+    private static func gateAnswer(_ decision: String, _ reason: String, rewrite: String?) -> JSONValue {
+        ["decision": .string(decision), "reason": .string(reason), "rewrite": rewrite.map(JSONValue.string) ?? .null]
+    }
+
     /// The gate's answer, as the daemon turns it into the hook's: `decision` allow or deny, `reason` said to the
     /// Operator, and `rewrite` the command to run instead, for a read that would show a secret.
     func gate(_ call: ToolCall, in run: OperatorRun) async -> JSONValue {
@@ -21,11 +43,12 @@ extension OperatorToolHandler {
         // The answer, written to the activity log with `logged` as its reason: the answer's own unless given, nil for none.
         func answer(_ decision: String, _ reason: String, rewrite: String? = nil, tool: String = "shell",
                     outcome: ActivityEntry.Outcome = .ok, logged: String?? = .none) -> JSONValue {
-            let value: JSONValue = ["decision": .string(decision), "reason": .string(reason), "rewrite": rewrite.map(JSONValue.string) ?? .null]
+            let value = Self.gateAnswer(decision, reason, rewrite: rewrite)
             recordGate(call, tool: tool, task: task, in: run.id, outcome: outcome, result: value, reason: logged ?? reason)
             return value
         }
 
+        if let ended = ended(run.id) { return answer("deny", ended, outcome: .refused) }
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
         let folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let worktrees = state.tasks(inRun: run.id).map(\.worktreePath).filter { !$0.isEmpty }
@@ -50,6 +73,8 @@ extension OperatorToolHandler {
         onActing(consulting, true)
         let verdict = await ports.secondOpinion.challenge(opinion, prompt: prompt, runFolder: folder, projects: projects)
         onActing(consulting, false)
+        // The Oracle may take minutes: a broadcast that ended meanwhile runs nothing and asks nothing.
+        if let ended = ended(run.id) { return answer("deny", ended, outcome: .refused) }
         let critique: String
         switch verdict {
         case .unchallenged(let why): return answer("allow", "unchallenged: \(why)")
@@ -64,8 +89,9 @@ extension OperatorToolHandler {
             let said = why.isEmpty ? "it writes product code." : Self.asSentence(why)
             return answer("deny", "The Oracle: \(said) Send this to a worker with message_task.", outcome: .challenged)
         case .escalate(let why):
-            guard state.run(id: run.id) != nil else { return answer("deny", "This broadcast is no longer in AiTerm.", outcome: .challenged) }
             let key = openGateQuestion(request, why: why, task: task?.id, in: run.id)
+            // As after ask_you: the person is notified of the question, and what it holds waits.
+            onChange(run.id)
             return answer("deny", "The Oracle stopped this and asked the person (question \(key)). Wait for their answer, then "
                           + "resolve_question with allow.", outcome: .challenged,
                           logged: .some("The Oracle: \(why.isEmpty ? "the person decides." : Self.asSentence(why)) It asked you (question \(key))."))

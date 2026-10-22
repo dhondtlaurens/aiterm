@@ -192,6 +192,9 @@ final class OperatorToolHandler {
 
     /// The answer, and how the call went, which the activity log keeps.
     func respond(_ request: OperatorRequest) async -> (ToolAnswer, ActivityEntry.Outcome) {
+        // A shell command is the gate's alone: never a tool, a challenge or a replayed message. It answers an ended
+        // broadcast itself, with a deny rather than an error, which the hook would let run.
+        if request.tool == Self.gateTool { return (.result(await gate(request)), .ok) }
         guard let id = UUID(uuidString: request.runId), let run = state.run(id: id) else {
             return (.error("This broadcast is no longer in AiTerm."), .refused)
         }
@@ -200,8 +203,6 @@ final class OperatorToolHandler {
         let activity = activity(for: call, in: id)
         if let activity { onActing(activity, true) }
         defer { if let activity { onActing(activity, false) } }
-        // A shell command is the gate's alone: never a tool, a challenge or a replayed message.
-        if call.tool == Self.gateTool { return (.result(await gate(call, in: run)), .ok) }
         do {
             if let recorded = try replayedMessage(call, in: run) { return (.result(recorded), .repeated) }
             if let instead = try await challengeGate(call, in: run) {

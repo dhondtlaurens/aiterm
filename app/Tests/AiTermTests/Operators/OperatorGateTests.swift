@@ -91,7 +91,11 @@ import Testing
 
     @Test func anAskOpensAQuestionOnTheTaskWhoseWorktreeHoldsTheCommand() async throws {
         let (world, run, task) = try makeWorld(runner: .answering("ASK: it reaches the staging database."))
+        var changed: [UUID] = []
+        let runChanged = world.controller.tools.onChange
+        world.controller.tools.onChange = { changed.append($0); runChanged($0) }
         let answer = await gate(world, run, "npm run migrate", in: worktree + "/packages/api")
+        #expect(changed == [run.id], "the run changed, as after ask_you: what the question holds waits")
         #expect(answer["decision"] == "deny")
         #expect(answer["reason"] == "The Oracle stopped this and asked the person (question gate-1). Wait for their answer, then resolve_question with allow.")
         let question = try #require(world.run(run.id)?.questions.first)
@@ -105,6 +109,8 @@ import Testing
         #expect(requests.map(\.kind) == [.question] && requests.first?.key == "gate-1" && requests.first?.taskId == task.id)
         let row = SidebarModel.operatorRow(current, tasks: world.state.tasks(inRun: run.id), acting: .none, requests: requests, sessions: [])
         #expect(row.line.look == .needsYou && row.line.text.hasPrefix("waiting on you") && row.line.text.contains("Task A"))
+        // And the person is notified of it, as of any question the Operator asks.
+        #expect(world.notifications.posted.map(\.body) == ["The Operator asks: \(question.text)"])
         // A second ASK gets the next key.
         _ = await gate(world, run, "npm run seed", in: project.path)
         #expect(world.run(run.id)?.questions.map(\.id) == ["gate-1", "gate-2"])
@@ -183,6 +189,35 @@ import Testing
         #expect(await gate(world, run, "npm install", in: worktree)["decision"] == "allow")
         let recorded = try #require(await entries(world, run).first)
         #expect(recorded.tool == "shell" && recorded.outcome == .ok && recorded.reason?.contains("unchallenged") == true)
+    }
+
+    /// An ended broadcast's shell runs nothing: its command is denied, never let through as an Oracle that can't answer.
+    @Test func anEndedBroadcastRunsNothing() async throws {
+        let asked = Asked()
+        let (world, run, _) = try makeWorld(runner: answering("YES", asked))
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.state = .stopped } }
+        let answer = await gate(world, run, "npm run deploy", in: worktree)
+        #expect(answer["decision"] == "deny" && answer["reason"] == "This broadcast has ended; its shell no longer acts.")
+        #expect(asked.count == 0 && world.run(run.id)?.questions.isEmpty == true)
+        let recorded = try #require(await entries(world, run).first)
+        #expect(recorded.tool == "shell" && recorded.outcome == .refused && recorded.line == "run `npm run deploy`")
+
+        let gone = await world.call(UUID(), "gate_command", ["command": "npm run deploy", "directory": .string(worktree)])
+        #expect(gone.value?["decision"] == "deny" && gone.value?["reason"] == "This broadcast is no longer in AiTerm.")
+    }
+
+    @Test func aBroadcastStoppedWhileTheOracleJudgesRunsNothingAndAsksNothing() async throws {
+        let asked = Asked(), latch = OracleGate()
+        let (world, run, task) = try makeWorld(runner: .answering("ASK: it deploys.", gate: latch, receivePrompt: { asked.record($0) }))
+        let pending = Task { await gate(world, run, "npm run deploy", in: worktree) }
+        while asked.count == 0 { try await Task.sleep(for: .milliseconds(5)) }
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.intent = .stopped } }
+        await latch.open()
+        let answer = await pending.value
+        #expect(answer["decision"] == "deny" && answer["reason"] == "This broadcast has ended; its shell no longer acts.")
+        #expect(world.run(run.id)?.questions.isEmpty == true)
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+        #expect(world.notifications.posted.isEmpty)
     }
 
     @Test func theOperatorCannotAskWithAGateKey() async throws {

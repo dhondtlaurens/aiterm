@@ -45,10 +45,12 @@ public enum ActivityLine {
         case "log_decision": words = ("Decided: \(text("text"))", "decide: \(text("text"))")
         case "write_summary": words = ("Wrote the summary", "write the summary")
         case "shell_read": words = ("Read `\(text("command"))`", "read `\(text("command"))`")
-        case "shell": words = ("Ran `\(text("command"))`", "The Oracle stopped `\(text("command"))`")
+        case "shell": words = ("Ran `\(text("command"))`", "run `\(text("command"))`")
         default: words = (tool, tool)
         }
         switch outcome {
+        // A shell command did not go through because the Oracle stopped it (spec §A.3).
+        case .challenged where tool == "shell": return "The Oracle stopped `\(text("command"))`"
         case .challenged, .refused, .failed: return words.asked
         case .repeated: return words.done
         case .ok:
