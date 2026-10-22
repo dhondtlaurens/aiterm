@@ -14,6 +14,8 @@ public protocol MergeRequestPublishing: Sendable {
     func existingRequest(from source: String) async throws -> MergeRequest?
     func createRequest(from source: String, into target: String, title: String, description: String, draft: Bool) async throws -> MergeRequest
     func readiness(of number: Int) async throws -> MergeReadiness
+    /// What the host says of `request` now: draft, pipeline, mergeability, approvals and head (`MergeRequestState`). Read only.
+    func state(of request: MergeRequest) async throws -> MergeRequestState
     /// `.merged` when it merged, `.blocked` when the host refused; throws only when it could not be asked.
     func merge(_ number: Int, at sha: String) async throws -> MergeReadiness
     func retarget(_ number: Int, to target: String) async throws
@@ -68,6 +70,9 @@ struct GitHubPublisher: MergeRequestPublishing {
         try await client.createPullRequest(repo: repo, source: source, target: target, title: title, body: description, draft: draft)
     }
     func readiness(of number: Int) async throws -> MergeReadiness { try await client.mergeReadiness(repo: repo, number: number) }
+    func state(of request: MergeRequest) async throws -> MergeRequestState {
+        try await client.mergeRequestState(repo: repo, number: request.iid, url: request.url)
+    }
     func merge(_ number: Int, at sha: String) async throws -> MergeReadiness { try await client.merge(repo: repo, number: number, sha: sha) }
     func retarget(_ number: Int, to target: String) async throws { try await client.retarget(repo: repo, number: number, to: target) }
     func markReady(_ number: Int, beforeWrite: @Sendable () async throws -> Void) async throws {
@@ -93,6 +98,9 @@ struct GitLabPublisher: MergeRequestPublishing {
         try await client.createMergeRequest(project: project, source: source, target: target, title: title, description: description, draft: draft)
     }
     func readiness(of number: Int) async throws -> MergeReadiness { try await client.mergeReadiness(project: project, iid: number) }
+    func state(of request: MergeRequest) async throws -> MergeRequestState {
+        try await client.mergeRequestState(project: project, iid: request.iid, url: request.url)
+    }
     func merge(_ number: Int, at sha: String) async throws -> MergeReadiness { try await client.merge(project: project, iid: number, sha: sha) }
     func retarget(_ number: Int, to target: String) async throws { try await client.retarget(project: project, iid: number, to: target) }
     func markReady(_ number: Int, beforeWrite: @Sendable () async throws -> Void) async throws {

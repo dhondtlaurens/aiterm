@@ -71,9 +71,18 @@ public struct TaskPublisher: Sendable {
     let repository: Repository
     let host: any MergeRequestPublishing
     let now: @Sendable () -> Date
+    /// Told what this advance did to the request's draft state, as it happens (`DraftEvent`).
+    let noted: @Sendable (DraftEvent) -> Void
 
-    public init(repository: Repository, host: any MergeRequestPublishing, now: @escaping @Sendable () -> Date = Date.init) {
-        self.repository = repository; self.host = host; self.now = now
+    /// What an advance did to the request's draft state, for `finish_task` to say (`TaskFinisher.Result.draftNote`): the request
+    /// was opened (as a draft or not), found a draft and left one, or taken out of draft to merge it.
+    public enum DraftEvent: Equatable, Sendable {
+        case opened(draft: Bool), leftDraft, markedReady
+    }
+
+    public init(repository: Repository, host: any MergeRequestPublishing, now: @escaping @Sendable () -> Date = Date.init,
+                noted: @escaping @Sendable (DraftEvent) -> Void = { _ in }) {
+        self.repository = repository; self.host = host; self.now = now; self.noted = noted
     }
 
     /// A recheck that refused inside a host call, right before its write.
@@ -168,11 +177,14 @@ public struct TaskPublisher: Sendable {
                     return .refused("\(branch) already has an open request into \(open.targetBranch), not \(target): \(open.url). AiTerm never publishes through it as it is: retarget it to \(target) or close it, then call finish_task again.")
                 }
                 request = open
+                if open.draft { noted(.leftDraft) }
             } else {
+                let draft = operated.end == .draftMR || context.forReview
                 request = try await host.createRequest(from: branch, into: target,
                                                        title: Self.title(of: task),
                                                        description: Self.description(of: task, run: context.run, acceptance: acceptance),
-                                                       draft: operated.end == .draftMR || context.forReview)
+                                                       draft: draft)
+                noted(.opened(draft: draft))
             }
             number = request.iid
             publication.mergeRequestNumber = request.iid
@@ -211,15 +223,18 @@ public struct TaskPublisher: Sendable {
         if answer == .blocked(MergeReadiness.draftReason), let live = try await host.existingRequest(from: branch), live.iid == number, live.draft {
             let head = try await BackgroundWork.run { try repository.originTip(of: branch) } ?? ""
             guard let threads = try? await host.threads(of: number) else {
+                noted(.leftDraft)
                 return try await blocked(publication, PublicationGuard.unreadThreads(request), record)
             }
             if let why = PublicationGuard.mergeFloor(head: head, acceptedSHA: sha, threads: threads, request: request) {
+                noted(.leftDraft)
                 return try await blocked(publication, why, record)
             }
             if let why = await recheck() { return .refused(why) }
             try await host.markReady(number, beforeWrite: {
                 if let why = await recheck() { throw Refused(reason: why) }
             })
+            noted(.markedReady)
             answer = try await host.readiness(of: number)
         }
         guard case .ready(let head) = answer else { return try await settle(answer, sha: sha, key: operated.key, branch: branch, expectedTarget: defaultBranch, publication, record) }

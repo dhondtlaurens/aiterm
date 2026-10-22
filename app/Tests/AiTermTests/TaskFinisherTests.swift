@@ -96,7 +96,7 @@ final class MergeClock: Sendable {
         let s = try setUp(end: .draftMR)
         let result = await s.finisher.finish(s.task)
         #expect(result == TaskFinisher.Result(result: "published", reason: nil, mergeRequest: FakeMergeHost.url,
-                                              pushedSHA: s.sha, merged: false, mergedSHA: nil))
+                                              pushedSHA: s.sha, merged: false, mergedSHA: nil, draftNote: "MR !12 opened as a draft"))
         #expect(operated(s)?.state == .published)
         #expect(s.store.state.task(id: s.task)?.mr == MergeRequestRef(iid: 12, title: "PLUTO-231", url: FakeMergeHost.url))
         #expect(try git.run(["rev-parse", "refs/heads/feat/pluto-231"], in: s.origin) == s.sha)
@@ -104,8 +104,48 @@ final class MergeClock: Sendable {
         #expect(saved.task(id: s.task)?.operated?.publication?.mergeRequestNumber == 12, "each step is on disk")
         #expect(saved.task(id: s.task)?.operated?.state == .published)
         let again = await s.finisher.finish(s.task)
-        #expect(again == result, "a repeat is answered from the record")
+        var recorded = result
+        recorded.draftNote = nil
+        #expect(again == recorded, "a repeat is answered from the record, which did nothing to the draft")
         #expect(s.host.log.filter { $0.hasPrefix("create") }.count == 1)
+    }
+
+    /// `finish_task` says what it did to the request's draft state, so the Operator needn't ask the host.
+    @Test func finishSaysWhetherTheDraftChanged() async throws {
+        let draft = try setUp(end: .draftMR)
+        #expect(await draft.finisher.finish(draft.task).draftNote == "MR !12 opened as a draft")
+
+        // A merge end opens a request that is ready, and waits for the host.
+        let merge = try setUp(end: .merge)
+        let opened = await merge.finisher.finish(merge.task)
+        #expect(opened.result == "waitingToMerge" && opened.draftNote == "MR !12 opened, ready")
+
+        // A draft the host already has, which nothing else stops, is marked ready to merge it.
+        let ready = try setUp(end: .merge)
+        ready.host.update {
+            $0.existing = MergeRequest(iid: 12, title: "PLUTO-231", sourceBranch: "feat/pluto-231", targetBranch: "main", author: "aiterm",
+                                       state: "opened", draft: true, url: FakeMergeHost.url)
+            $0.readiness = [.blocked(MergeReadiness.draftReason), .ready(head: ready.sha)]
+        }
+        #expect(await ready.finisher.finish(ready.task).draftNote == "MR !12 marked ready")
+
+        // One that threads keep a draft is left one.
+        let kept = try setUp(end: .merge)
+        kept.host.update {
+            $0.existing = MergeRequest(iid: 12, title: "PLUTO-231", sourceBranch: "feat/pluto-231", targetBranch: "main", author: "aiterm",
+                                       state: "opened", draft: true, url: FakeMergeHost.url)
+            $0.readiness = [.blocked(MergeReadiness.draftReason)]
+            $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this")]
+        }
+        let blocked = await kept.finisher.finish(kept.task)
+        #expect(blocked.result == "blocked" && blocked.draftNote == "MR !12 left as a draft")
+        #expect(kept.host.log.contains { $0.hasPrefix("ready") } == false)
+    }
+
+    @Test func aGitHubRequestIsNumberedWithAHash() {
+        #expect(TaskFinisher.draftNote(.opened(draft: true), request: "https://github.com/octocat/hello/pull/88", number: 88) == "MR #88 opened as a draft")
+        #expect(TaskFinisher.draftNote(.markedReady, request: "https://git.example.net/web/acme-web/-/merge_requests/7", number: 7) == "MR !7 marked ready")
+        #expect(TaskFinisher.draftNote(nil, request: FakeMergeHost.url, number: 12) == nil)
     }
 
     /// The host is the one the push goes to: origin's, never the branch's upstream remote.
@@ -358,8 +398,8 @@ final class MergeClock: Sendable {
         #expect(past.result == "published" && past.pushedSHA == s.sha)
         #expect(try git.run(["rev-parse", "refs/heads/feat/pluto-231"], in: s.origin) == s.sha)
         #expect(operated(s)?.publication?.lastPushFailure == nil, "a push that landed leaves no failure to judge")
-        // Asked again, its reply lost: what was done, not a refusal.
-        #expect(await s.finisher.finish(s.task, noVerify: true) == past)
+        // Asked again, its reply lost: what was done, not a refusal. (The note says what a call did to the draft: this one did nothing.)
+        #expect(await s.finisher.finish(s.task, noVerify: true) == past.withoutDraftNote)
     }
 
     /// The hook's refusal holds for the commit it refused: one accepted since must be pushed without noVerify first.
@@ -427,7 +467,7 @@ final class MergeClock: Sendable {
         s.finisher.resumeWatching()
         #expect(s.finisher.watching.isEmpty)
         let again = await s.finisher.finish(s.task)
-        #expect(again == result, "a repeat answers what happened")
+        #expect(again == result.withoutDraftNote, "a repeat answers what happened")
         #expect(!s.host.log.contains { $0.hasPrefix("merge") })
     }
 
@@ -477,6 +517,11 @@ final class MergeClock: Sendable {
         #expect(operated(s)?.state == .accepted)
         #expect(s.store.state.run(id: s.run)?.leftForYou.isEmpty == true)
     }
+}
+
+extension TaskFinisher.Result {
+    /// What it answered, less what that call did to the request's draft state: a repeat of a call did nothing to it.
+    var withoutDraftNote: Self { var copy = self; copy.draftNote = nil; return copy }
 }
 
 /// finish_task through the operator's tool and the controller: the publisher and the merge sleep are

@@ -43,6 +43,10 @@ public enum OperatorTiming {
     /// Minutes a task may sit in review with nothing waiting (no open thread, no worker's question or change) before
     /// `run_status` lists it under `reviewQuiet` and wakes the Operator, who decides against the Done whether it is over (spec §K).
     public static let reviewQuietMinutes = 5
+    /// App only: seconds `run_status` and `read_task` wait for a code host to say what it thinks of a task's request before
+    /// they answer without it, and how long that reading is kept per request.
+    public static let hostReadTimeout: TimeInterval = 8
+    public static let hostReadCache: TimeInterval = 30
 }
 
 /// What this build of the operator supports (spec §13). A plan asking for more — a draft MR

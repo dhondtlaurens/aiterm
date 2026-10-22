@@ -38,6 +38,10 @@ struct OperatorPorts {
     var publisher: @Sendable (RemoteInfo) throws -> any MergeRequestPublishing = { remote in
         try MergeRequestPublisher.publisher(for: remote, gitLab: GitLabSettings.load(), gitHub: GitHubSettings.load())
     }
+    /// How long the host's view of a task's request is waited for (`OperatorTiming.hostReadTimeout`) and kept (`hostReadCache`):
+    /// what `run_status` and `read_task` show of each request.
+    var hostTimeout: Duration = .seconds(OperatorTiming.hostReadTimeout)
+    var hostCache: TimeInterval = OperatorTiming.hostReadCache
     /// The merge watch's wait between polls.
     var mergeSleep: @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
     /// The clock a publication reads — its bounded wait, its two ready reads apart.

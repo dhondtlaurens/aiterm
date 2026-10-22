@@ -229,6 +229,60 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         return world.daemon.requests("session.deliver").filter { $0.params["wake"] as? Bool == true }.compactMap { $0.params["text"] as? String }
     }
 
+    // MARK: - The host's view of each request (`run_status`, `read_task`)
+
+    func line(_ answer: ToolAnswer) throws -> JSONValue {
+        try #require(answer.value?["tasks"]?.arrayValue?.first)
+    }
+
+    @Test func runStatusShowsEachPublishedTasksMergeRequest() async throws {
+        let r = try await reviewed(.inReview)
+        r.host.update {
+            $0.state = MergeRequestState(iid: 12, url: FakeMergeHost.url, draft: true, pipeline: "failed", mergeable: "ci_must_pass",
+                                         approvedBy: ["alice"], head: r.sha)
+        }
+        let shown = try line(await r.world.call(r.run.id, "run_status"))
+        #expect(shown["mergeRequest"] == ["iid": 12, "url": .string(FakeMergeHost.url), "draft": true, "pipeline": "failed",
+                                          "mergeable": "ci_must_pass", "approvedBy": ["alice"], "head": .string(r.sha)])
+        #expect(shown["mergeRequestNote"] == nil)
+        // Read again within 30 seconds, it is the last reading: the host is not asked twice.
+        _ = await r.world.call(r.run.id, "run_status")
+        #expect(r.host.log.filter { $0.hasPrefix("state") } == ["state 12"])
+        // And asking changes nothing the Operator is woken for.
+        #expect(await wakes(r.world) == [])
+    }
+
+    @Test func aTaskWithNoRequestShowsNoneAndAsksNoHost() async throws {
+        let r = try await reviewed(.working)
+        let shown = try line(await r.world.call(r.run.id, "run_status"))
+        #expect(shown["mergeRequest"] == nil && shown["mergeRequestNote"] == nil)
+        #expect(r.host.log.isEmpty)
+    }
+
+    @Test func aHostThatDoesntAnswerLeavesANote() async throws {
+        let r = try await reviewed(.inReview) { $0.hostTimeout = .milliseconds(500) }
+        r.host.update { $0.beforeState = { try? await Task.sleep(for: .seconds(60)) } }
+        let answer = await r.world.call(r.run.id, "run_status")
+        let shown = try line(answer)
+        #expect(answer.message == nil && shown["mergeRequest"] == nil, "run_status does not fail for it")
+        #expect(shown["mergeRequestNote"]?.stringValue?.hasPrefix("AiTerm couldn’t read its !12 on the host: the host did not answer in") == true)
+        #expect(shown["key"] == "A", "the rest of the line is there")
+
+        // A host that refuses says why, and is asked again next time: a failure is not kept.
+        r.host.update { $0.beforeState = nil; $0.stateError = URLError(.notConnectedToInternet) }
+        let refused = try line(await r.world.call(r.run.id, "run_status"))
+        #expect(refused["mergeRequestNote"]?.stringValue?.contains("on the host: ") == true)
+        r.host.update { $0.stateError = nil }
+        #expect(try line(await r.world.call(r.run.id, "run_status"))["mergeRequest"]?["draft"] == false)
+    }
+
+    @Test func readTaskReviewShowsTheRequestToo() async throws {
+        let r = try await reviewed(.inReview)
+        r.host.update { $0.approvals = ["alice"] }
+        let read = try #require(await r.world.call(r.run.id, "read_task", ["task": "A", "what": "review"]).value)
+        #expect(read["mergeRequest"]?["iid"] == 12 && read["mergeRequest"]?["approvedBy"] == ["alice"])
+    }
+
     @Test func peopleNeedTheReviewSlice() async throws {
         let r = try await reviewed(.inReview)
         r.host.update { $0.users = [HostUser(username: "jan", name: "Jan Peeters")] }

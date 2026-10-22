@@ -108,6 +108,21 @@ import Testing
         }
     }
 
+    /// What the Operator reads of a request (`run_status`): draft, pipeline, GitLab's own mergeability word, approvals.
+    @Test func gitLabStateReadsDraftPipelineMergeabilityAndApprovals() async throws {
+        let json = Self.status(detailed: "ci_must_pass", pipeline: "failed").replacingOccurrences(of: #""draft":false"#, with: #""draft":true"#)
+        let (client, stub) = makeClient { request in
+            if request.url?.path.hasSuffix("/approvals") == true { return (200, Data(#"{"approved_by":[{"user":{"username":"alice"}}]}"#.utf8)) }
+            return (200, Data(json.utf8))
+        }
+        let request = MergeRequest(iid: 12, title: "PLUTO-231", sourceBranch: "feat/pluto-231-add-gift-card", targetBranch: "main", author: nil,
+                                   state: "opened", draft: false, url: "https://git.example.net/web/acme-web/-/merge_requests/12")
+        let state = try await GitLabPublisher(client: client, project: "web/acme-web").state(of: request)
+        #expect(state == MergeRequestState(iid: 12, url: request.url, draft: true, pipeline: "failed", mergeable: "ci_must_pass",
+                                           approvedBy: ["alice"], head: Self.head))
+        #expect(stub.requests.count == 2 && stub.requests.contains { $0.url?.path.hasSuffix("/12/approvals") == true })
+    }
+
     @Test func itIsMergedAtTheAcceptedCommit() async throws {
         let answer = Self.status(state: "merged", detailed: "not_open", pipeline: "success")
         let (client, stub) = makeClient { _ in (200, Data(answer.utf8)) }

@@ -171,6 +171,31 @@ import Testing
         }
     }
 
+    /// What the Operator reads of a pull request (`run_status`): draft, the checks as one word, GitHub's `mergeable_state`, approvals.
+    @Test func gitHubStateReadsDraftChecksMergeabilityAndApprovals() async throws {
+        func state(runs: String, statuses: String = Self.statuses([]), draft: Bool = true, mergeableState: String = "draft") async throws -> MergeRequestState {
+            let (client, _) = makeClient { request in
+                let path = request.url?.path ?? ""
+                if path.hasSuffix("/check-runs") { return (200, Data(runs.utf8)) }
+                if path.hasSuffix("/status") { return (200, Data(statuses.utf8)) }
+                if path.hasSuffix("/reviews") {
+                    return (200, Data((Self.page(request) == 1 ? #"[{"user":{"login":"alice"},"state":"APPROVED"}]"# : "[]").utf8))
+                }
+                return (200, Data(Self.pull(draft: draft, mergeableState: mergeableState).utf8))
+            }
+            let request = MergeRequest(iid: 88, title: "PLUTO-231", sourceBranch: "feat/pluto-231", targetBranch: "main", author: nil,
+                                       state: "open", draft: false, url: "https://github.com/octocat/hello/pull/88")
+            return try await GitHubPublisher(client: client, repo: "octocat/hello").state(of: request)
+        }
+        let failing = try await state(runs: Self.runs([("test", "completed", "success"), ("lint", "completed", "failure")]))
+        #expect(failing == MergeRequestState(iid: 88, url: "https://github.com/octocat/hello/pull/88", draft: true, pipeline: "failure",
+                                             mergeable: "draft", approvedBy: ["alice"], head: Self.head))
+        #expect(try await state(runs: Self.runs([("test", "completed", "success"), ("lint", "in_progress", nil)])).pipeline == "pending")
+        #expect(try await state(runs: Self.green, draft: false, mergeableState: "clean").pipeline == "success")
+        #expect(try await state(runs: Self.green, statuses: Self.statuses([("ci/jenkins", "failure")])).pipeline == "failure")
+        #expect(try await state(runs: Self.runs([])).pipeline == nil, "no checks at all is no pipeline")
+    }
+
     /// Neutral, skipped and action-required checks are not passes, and a check or status still pending is
     /// not done: none of them reads ready, whatever `mergeable_state` says.
     @Test func aCheckThatIsNotAPassIsNeverGreen() async throws {

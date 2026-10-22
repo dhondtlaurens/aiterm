@@ -38,6 +38,22 @@ public struct MergeRequest: Equatable, Sendable, Identifiable {
     public var reference: String { host.reference(iid) }
 }
 
+/// What the host says of one request now, as the Operator reads it in `run_status` and `read_task` (spec §11): whether it is
+/// still a draft, its pipeline (GitLab's `head_pipeline.status`; on GitHub the checks as one word: `success`, `failure`,
+/// `pending`, nil when there are none), the host's own word for whether it can merge (GitLab's `detailed_merge_status`,
+/// GitHub's `mergeable_state`), who approved it, and the head commit all of that is about.
+public struct MergeRequestState: Codable, Equatable, Sendable {
+    public var iid: Int, url: String, draft: Bool
+    public var pipeline: String?
+    public var mergeable: String
+    public var approvedBy: [String]
+    public var head: String?
+    public init(iid: Int, url: String, draft: Bool, pipeline: String?, mergeable: String, approvedBy: [String], head: String?) {
+        self.iid = iid; self.url = url; self.draft = draft; self.pipeline = pipeline
+        self.mergeable = mergeable; self.approvedBy = approvedBy; self.head = head
+    }
+}
+
 /// How many of a merge or pull request's review threads are resolved, of all of them: GitLab's
 /// resolvable discussions, GitHub's review threads. A plain comment or a system note cannot be
 /// resolved and is not one. A count, not a sentence: the app words it.

@@ -23,6 +23,11 @@ final class FakeMergeHost: MergeRequestPublishing {
         var createFails = false
         /// The host opens it, then the answer is lost.
         var loseCreateReply = false
+        /// What the host says of the request (`state(of:)`); nil: built from `existing` (its draft flag) and `approvals`.
+        var state: MergeRequestState?
+        /// Thrown by `state(of:)` instead, or awaited inside it after it is logged: a host that errors, or never answers.
+        var stateError: (any Error)?
+        var beforeState: (@Sendable () async -> Void)?
         /// The request's review threads and approvals, as the Review slice reads them.
         var threads: [ReviewThread] = []
         var approvals: [String] = []
@@ -87,6 +92,16 @@ final class FakeMergeHost: MergeRequestPublishing {
         calls.withLock { $0.append("readiness \(number)") }
         return script.withLock { s in
             s.readiness.count > 1 ? s.readiness.removeFirst() : (s.readiness.first ?? .waiting("its pipeline is running"))
+        }
+    }
+
+    func state(of request: MergeRequest) async throws -> MergeRequestState {
+        calls.withLock { $0.append("state \(request.iid)") }
+        if let hold = script.withLock({ $0.beforeState }) { await hold() }
+        if let error = script.withLock({ $0.stateError }) { throw error }
+        return script.withLock { s in
+            s.state ?? MergeRequestState(iid: request.iid, url: request.url, draft: s.existing?.draft ?? request.draft, pipeline: nil,
+                                         mergeable: "mergeable", approvedBy: s.approvals, head: nil)
         }
     }
 

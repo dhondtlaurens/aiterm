@@ -146,6 +146,16 @@ public struct GitLabClient: Sendable {
                       notFound: .projectNotFound(project)).readiness
     }
 
+    /// The request as the Operator reads it (`MergeRequestState`): the same read as `mergeReadiness` and who approved it,
+    /// asked together. `mergeable` is GitLab's `detailed_merge_status` as it says it, `state` when it gives none.
+    public func mergeRequestState(project: String, iid: Int, url: String) async throws -> MergeRequestState {
+        async let status = get(MergeStatusPayload.self, path: Self.requestsPath(project) + "/\(iid)", notFound: .projectNotFound(project))
+        async let approved = approvals(project: project, iid: iid)
+        let (read, by) = try await (status, approved)
+        return MergeRequestState(iid: iid, url: url, draft: read.draft ?? false, pipeline: read.headPipeline?.status,
+                                 mergeable: read.detailedMergeStatus ?? read.state ?? "unknown", approvedBy: by, head: read.sha)
+    }
+
     /// Merges it at `sha`, the accepted commit: GitLab refuses (409) when the branch's head is any
     /// other. Only `sha` is sent — never auto-merge on a pipeline, squash or deleting the source
     /// branch. A refusal is `.blocked`, with GitLab's status; only a failure to ask throws. GitLab may

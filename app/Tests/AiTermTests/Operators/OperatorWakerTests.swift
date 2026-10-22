@@ -61,6 +61,20 @@ import Testing
         #expect(hand.requested == 0 && lines.isEmpty)
     }
 
+    /// What a host says of a task's request is filled in by `run_status` alone: the run reads without it, and the difference is no news.
+    @Test func whatTheHostSaysOfARequestIsNoNews() async throws {
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .inReview)
+        var read = RunStatus.build(state: OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), run: run.id, revision: 1, live: [:])!
+        let plain = read
+        read.tasks[0].mergeRequest = MergeRequestState(iid: 12, url: FakeMergeHost.url, draft: true, pipeline: "failed", mergeable: "ci_must_pass",
+                                                       approvedBy: [], head: nil)
+        waker.acknowledged(read, of: run.id)
+        waker.observe(plain, of: run.id)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(hand.requested == 0 && lines.isEmpty)
+    }
+
     @Test func aBurstOfChangesIsOneLineSayingHowMany() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
         waker.acknowledged(status(questions: 0), of: run.id)

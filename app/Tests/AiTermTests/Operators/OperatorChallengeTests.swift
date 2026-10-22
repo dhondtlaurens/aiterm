@@ -301,8 +301,15 @@ extension OperatorChallengeTests {
             #expect(try originTip(p) == p.sha, "pushed past the hook")
             #expect(publication(p)?.conditionsHeld == nil, "a yes on the hook is no yes on a merge")
             // The same call again, its reply lost: what was done, with no Oracle run.
-            #expect(await p.world.call(p.run.id, "finish_task", ["task": "A", "noVerify": true,
-                                                                 "reason": "Ran npm ci in the worktree; npm is still not found."]) == answer)
+            let again = await p.world.call(p.run.id, "finish_task", ["task": "A", "noVerify": true,
+                                                                     "reason": "Ran npm ci in the worktree; npm is still not found."])
+            // Less the draft note: a call says what it did to the request's draft state, and the repeat did nothing.
+            func withoutNote(_ answer: ToolAnswer) -> JSONValue? {
+                guard case .object(var fields)? = answer.value else { return answer.value }
+                fields["draftNote"] = nil
+                return .object(fields)
+            }
+            #expect(withoutNote(again) == withoutNote(answer))
             #expect(p.prompts.list.count == 1)
         }
 

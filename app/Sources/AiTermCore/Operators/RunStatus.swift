@@ -210,6 +210,11 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var youAreDriving: Bool?
         /// That prompt's first line.
         public var yourPrompt: String?
+        /// What the host says of its request now: draft, pipeline, mergeability, approvals. Not built here: the `run_status`
+        /// tool reads the host, off the main thread, and fills it in; nil for a task with no request, or when the host did not answer.
+        public var mergeRequest: MergeRequestState?
+        /// Why `mergeRequest` is nil for a task that has a request: the host did not answer in time, or refused.
+        public var mergeRequestNote: String?
         public init(id: UUID, key: String, title: String, project: String, agent: AgentKind, model: String,
                     state: OperatedState, end: TaskEnd, revision: Int, live: LiveState? = nil, branch: String,
                     lastCommit: String? = nil, summary: String? = nil, dependsOn: [Dependency] = [],

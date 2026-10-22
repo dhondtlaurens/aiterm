@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import AiTermCore
 
 /// `finish_task` (spec §6, M3), as the app runs it: `TaskPublisher` carries the task's end forward,
@@ -22,11 +23,14 @@ final class TaskFinisher {
         var pushedSHA: String?
         var merged: Bool
         var mergedSHA: String?
+        /// What this call did to the request's draft state, in a few plain words (`MR !12 opened as a draft`, `opened, ready`,
+        /// `left as a draft`, `marked ready`): so the Operator needn't ask the host. Nil when this call did nothing to it.
+        var draftNote: String?
 
         init(result: String, reason: String? = nil, mergeRequest: String? = nil, pushedSHA: String? = nil,
-             merged: Bool = false, mergedSHA: String? = nil) {
+             merged: Bool = false, mergedSHA: String? = nil, draftNote: String? = nil) {
             self.result = result; self.reason = reason; self.mergeRequest = mergeRequest
-            self.pushedSHA = pushedSHA; self.merged = merged; self.mergedSHA = mergedSHA
+            self.pushedSHA = pushedSHA; self.merged = merged; self.mergedSHA = mergedSHA; self.draftNote = draftNote
         }
 
         init(_ publication: TaskPublication?, result: String, reason: String?) {
@@ -34,6 +38,13 @@ final class TaskFinisher {
             self.init(result: result, reason: reason, mergeRequest: publication.mergeRequestURL,
                       pushedSHA: publication.pushedSHA, merged: publication.merged, mergedSHA: publication.mergedSHA)
         }
+    }
+
+    /// The last thing an advance did to the request's draft state, written from the publisher's task and read after it.
+    private final class DraftNews: Sendable {
+        private let event = Mutex<TaskPublisher.DraftEvent?>(nil)
+        func record(_ new: TaskPublisher.DraftEvent) { event.withLock { $0 = new } }
+        var last: TaskPublisher.DraftEvent? { event.withLock { $0 } }
     }
 
     /// A step done but not saved: nothing more is done outside this machine.
@@ -247,7 +258,8 @@ final class TaskFinisher {
         // Read fresh: the checks above awaited git.
         guard let current = context(of: id) else { return Result(result: "refused", reason: PublicationGuard.gone) }
         let ownership = current.operated.ownership, accepted = current.operated.acceptance?.resultSHA ?? ""
-        let publisher = TaskPublisher(repository: repository, host: host, now: now)
+        let drafted = DraftNews()
+        let publisher = TaskPublisher(repository: repository, host: host, now: now, noted: { drafted.record($0) })
         do {
             let outcome = try await publisher.advance(
                 TaskPublisher.Context(task: current.task, run: current.run, parent: current.parent,
@@ -261,7 +273,12 @@ final class TaskFinisher {
                     guard let self else { throw NotSaved() }
                     try self.record(publication, for: id, ownership: ownership)
                 })
-            return apply(outcome, to: id, forReview: TaskPublisher.Context.entersReview(current.operated, run: current.run))
+            var result = apply(outcome, to: id, forReview: TaskPublisher.Context.entersReview(current.operated, run: current.run))
+            // A request that is a draft by the plan and opened earlier, with no news this call, is still one.
+            let planned = current.operated.end == .draftMR || TaskPublisher.Context.entersReview(current.operated, run: current.run)
+            result.draftNote = Self.draftNote(drafted.last ?? (planned ? .leftDraft : nil), request: result.mergeRequest,
+                                              number: store.state.task(id: id)?.operated?.publication?.mergeRequestNumber)
+            return result
         } catch is NotSaved {
             return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: Self.notSavedReason)
         } catch {
@@ -272,6 +289,18 @@ final class TaskFinisher {
             }
             recordFailure(why, on: id, hookSaid: (error as? GitError).flatMap(Self.hookRefusal).map { ($0, accepted) })
             return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: why)
+        }
+    }
+
+    /// `event` in the words `Result.draftNote` says: `MR !12 opened as a draft`, with `#12` on GitHub. Nil without a request.
+    static func draftNote(_ event: TaskPublisher.DraftEvent?, request url: String?, number: Int?) -> String? {
+        guard let event, let url, let number else { return nil }
+        let reference = CodeHost(webURL: url).reference(number)
+        switch event {
+        case .opened(draft: true): return "MR \(reference) opened as a draft"
+        case .opened(draft: false): return "MR \(reference) opened, ready"
+        case .leftDraft: return "MR \(reference) left as a draft"
+        case .markedReady: return "MR \(reference) marked ready"
         }
     }
 

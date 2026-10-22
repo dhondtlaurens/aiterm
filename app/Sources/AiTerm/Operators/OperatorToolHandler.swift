@@ -89,6 +89,8 @@ final class OperatorToolHandler {
     struct ReviewRequestKey: Hashable { let repository: String?; let number: Int }
     struct ReviewWaiter { let id: UUID; let continuation: CheckedContinuation<Void, any Error> }
     var reviewAssignments: [ReviewRequestKey: [ReviewWaiter]] = [:]
+    /// What each host last said of a request, by its URL, kept for `OperatorPorts.hostCache` (`hostState(of:)`).
+    var hostStates: [String: (at: Date, state: MergeRequestState)] = [:]
     /// The agent reviews running now, by task: one in a task's record but not here was lost with AiTerm's restart.
     var runningReviews: [UUID: Task<Void, Never>] = [:]
     /// The latest agent review, for a test to await. Set by `OperatorToolHandler+Review.swift`.
@@ -310,7 +312,8 @@ final class OperatorToolHandler {
     // -- reading -------------------------------------------------------------------------------
     /// The snapshot, numbered by the per-run counter here: the same content keeps its revision,
     /// anything changed gets the next one. It carries what each installed agent may run, its model list read
-    /// off the main actor; the rest is read after that, as it is when the answer goes.
+    /// off the main actor, and what each host says of its tasks' requests (`fillMergeRequests`); the rest is read
+    /// after that, as it is when the answer goes.
     private func runStatus(_ run: OperatorRun) async throws -> JSONValue {
         let delivery = await deliveryStatus()
         var agents = await agentChoices()
@@ -319,6 +322,7 @@ final class OperatorToolHandler {
             throw ToolRefusal("This broadcast is no longer in AiTerm.")
         }
         content.run.agents = Dictionary(agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
+        await fillMergeRequests(&content)
         let previous = numbered[run.id]
         let revision = previous?.content == content ? previous?.revision ?? 1 : (previous?.revision ?? 0) + 1
         numbered[run.id] = (content, revision)

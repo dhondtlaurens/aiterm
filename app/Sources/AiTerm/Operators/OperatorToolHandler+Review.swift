@@ -159,6 +159,12 @@ extension OperatorToolHandler {
     func reviewReading(_ task: TaskItem, in run: OperatorRun) async throws -> JSONValue {
         guard let operated = task.operated else { throw ToolRefusal("\(task.title) isn’t this broadcast’s.") }
         var answer: [String: JSONValue] = ["agentReview": operated.agentReview.map { Self.reviewAnswer($0, started: false) } ?? .null]
+        // What the host says of its request now, for a task that has one in any state, not only in review.
+        switch await hostState(of: task) {
+        case .state(let state)?: answer["mergeRequest"] = try JSONValue(encoding: state)
+        case .note(let note)?: answer["mergeRequestNote"] = .string(note)
+        case nil: break
+        }
         guard let number = operated.publication?.mergeRequestNumber, operated.state == .inReview || operated.peopleReview != nil else {
             return .object(answer)
         }
@@ -393,7 +399,7 @@ extension OperatorToolHandler {
 
     /// The host of the task's request, refused unless the project's origin still resolves to the repository it was
     /// opened in.
-    private func reviewHost(of task: TaskItem, request publication: TaskPublication?) async throws -> any MergeRequestPublishing {
+    func reviewHost(of task: TaskItem, request publication: TaskPublication?) async throws -> any MergeRequestPublishing {
         let host = try await reviewHost(of: task)
         if let publication, let why = PublicationGuard.otherRepository(publication, repository: host.repository) { throw ToolRefusal(why) }
         return host

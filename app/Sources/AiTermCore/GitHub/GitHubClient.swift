@@ -205,6 +205,28 @@ public struct GitHubClient: Sendable {
         }
     }
 
+    /// The pull request as the Operator reads it (`MergeRequestState`). `mergeable` is GitHub's `mergeable_state`
+    /// (`merged` or `closed` once it is); `pipeline` is its checks as one word, nil when a list was not read to its end
+    /// or there are no checks at all: a failed check first, then one still running, else `success`.
+    public func mergeRequestState(repo: String, number: Int, url: String) async throws -> MergeRequestState {
+        async let read = get(PullStatusPayload.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
+        async let approved = approvals(repo: repo, number: number)
+        let (pull, by) = try await (read, approved)
+        let commit = "/repos/\(repo)/commits/\(pull.head.sha)"
+        var pipeline: String?
+        if let runs = try await listed(CheckRunsPayload.self, path: commit + "/check-runs", repo: repo),
+           let statuses = try await listed(CombinedStatusPayload.self, path: commit + "/status", repo: repo), !runs.isEmpty || !statuses.isEmpty {
+            let failed = runs.contains { $0.status == "completed" && ["failure", "timed_out", "startup_failure", "cancelled", "action_required"].contains($0.conclusion ?? "") }
+                || statuses.contains { $0.state == "failure" || $0.state == "error" }
+            let done = runs.allSatisfy { $0.status == "completed" && $0.conclusion != nil && $0.conclusion != "stale" }
+                && statuses.allSatisfy { $0.state == "success" }
+            pipeline = failed ? "failure" : done ? "success" : "pending"
+        }
+        let mergeable = pull.merged == true ? "merged" : pull.state == "open" ? pull.mergeableState ?? "unknown" : "closed"
+        return MergeRequestState(iid: number, url: url, draft: pull.draft ?? false, pipeline: pipeline, mergeable: mergeable,
+                                 approvedBy: by, head: pull.head.sha)
+    }
+
     /// Every item of a paged list that reports its own `total`, a page of 100 at a time. HTTPJSON shows no
     /// headers and a short page proves nothing, so it reads until it holds `total` items or a page is empty,
     /// and nil — not a partial list — when that is fewer, or `listedPages` pages did not reach it.
