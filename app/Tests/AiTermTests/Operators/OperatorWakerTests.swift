@@ -345,6 +345,38 @@ import Testing
         #expect(lines == ["[AiTerm] you may have answered one question in its worker's window, call run_status"])
     }
 
+    /// A review with nothing waiting wakes the Operator with a keyless line, once per task per review: the same review going
+    /// loud and quiet again, or the status read again, never repeats it; a new review of the task does (spec §K).
+    @Test func itWakesOncePerReview() async throws {
+        let waker = makeWaker(), quietLine = "[AiTerm] one task is in review with nothing waiting, call run_status"
+        var task = OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .inReview)
+        func status(began: Double, threads: [String: Bool] = [:], minutes: Double) -> RunStatus {
+            task.operated?.peopleReview = PeopleReview(threads: threads, startedAt: Date(timeIntervalSince1970: began))
+            return RunStatus.build(state: OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), run: run.id,
+                                   revision: 1, live: [:], now: Date(timeIntervalSince1970: began + minutes * 60))!
+        }
+        func settle() async { await waker.lastCoalesce?.value; await waker.lastSend?.value }
+        waker.acknowledged(status(began: 0, minutes: 4), of: run.id)
+        waker.observe(status(began: 0, minutes: 5), of: run.id)
+        await settle()
+        #expect(lines == [quietLine])
+        waker.observe(status(began: 0, minutes: 5), of: run.id)
+        waker.observe(status(began: 0, minutes: 6), of: run.id)
+        await settle()
+        #expect(lines == [quietLine], "the same status again is no news")
+        // The Operator looked; a reviewer opens a thread and resolves it, and the same review is quiet again.
+        waker.acknowledged(status(began: 0, minutes: 7), of: run.id)
+        waker.observe(status(began: 0, threads: ["t1": false], minutes: 8), of: run.id)
+        waker.observe(status(began: 0, threads: ["t1": true], minutes: 9), of: run.id)
+        await settle()
+        #expect(lines.filter { $0 == quietLine }.count == 1, "no second line for the same review: \(lines)")
+        // A new review of the task has its own start.
+        waker.acknowledged(status(began: 1000, minutes: 1), of: run.id)
+        waker.observe(status(began: 1000, minutes: 5), of: run.id)
+        await settle()
+        #expect(lines.filter { $0 == quietLine }.count == 2)
+    }
+
     /// The turn lines are plain: no digit, no one-letter word (`isPlain`, the daemon's `wake_text_problem`).
     @Test func theTurnLinesArePlain() {
         for reason in OperatorWaker.turnReasons {
@@ -354,6 +386,8 @@ import Testing
         #expect(OperatorWaker.turnReasons == ["one worker asks something", "one task changed after acceptance",
                                               "one task finished with no commit",
                                               "you may have answered one question in its worker's window"])
+        #expect(OperatorWaker.isPlain(OperatorWaker.reviewQuietReason))
+        #expect(OperatorWaker.reviewQuietReason == "one task is in review with nothing waiting")
     }
 
     // -- what a wake line may carry ----------------------------------------------------------------

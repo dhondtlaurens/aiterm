@@ -292,17 +292,18 @@ final class OperatorController {
     /// The run as `run_status` would show it now, numbered 0: the waker compares content.
     func status(of run: OperatorRun) -> RunStatus? {
         Self.status(of: run.id, state: workspace.state, sessions: live.sessions, revision: 0,
-                    usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turns.readings, quiet: quiet.quiet)
+                    usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turns.readings, quiet: quiet.quiet, now: ports.now())
     }
 
     /// `run_status`'s snapshot: the run from the workspace, each task's live facts from its worker's tab and what its
     /// worker's last ended turn left (`WorkerTurnReader.readings`). `usage` is each agent's weekly percent
-    /// (`SidebarModel.weeklyUsage`). `quiet` is the tasks whose working worker's transcript went quiet (`WorkerQuietWatch`).
+    /// (`SidebarModel.weeklyUsage`). `quiet` is the tasks whose working worker's transcript went quiet (`WorkerQuietWatch`); `now` is what a quiet review (spec §K) is measured against.
     static func status(of run: UUID, state: AppState, sessions: [SessionInfo], revision: Int,
-                       usage: [AgentKind: Int] = [:], turns: [UUID: WorkerTurnReader.Reading], quiet: Set<UUID> = []) -> RunStatus? {
+                       usage: [AgentKind: Int] = [:], turns: [UUID: WorkerTurnReader.Reading], quiet: Set<UUID> = [],
+                       now: Date = Date()) -> RunStatus? {
         RunStatus.build(state: state, run: run, revision: revision,
                         live: liveFacts(of: run, state: state, sessions: sessions, turns: turns, quiet: quiet),
-                        runLive: RunLiveFacts(weeklyUsage: usage))
+                        runLive: RunLiveFacts(weeklyUsage: usage), now: now)
     }
 
     /// What the tabs say of each of the run's tasks: each worker tab's live status (`WorkerTab`), and the prompt
@@ -681,6 +682,8 @@ final class OperatorController {
     func reconcileTick() {
         // The code hosts are read whether or not iTerm2's tabs are known: a wake waits for the Operator's tab.
         reviewWatcher.poll()
+        // Time alone can make a review quiet (spec §K): what `run_status` would show is read again on every tick.
+        observeRuns()
         // A summary overdue while AiTerm was not running, or whose wait went with it, is given up on here.
         for run in runs where run.state == .complete { giveUpOnSummary(run.id) }
         guard reconciler.synced else { return }

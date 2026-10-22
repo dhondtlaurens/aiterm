@@ -247,7 +247,8 @@ public struct AgentReviewResult: Codable, Equatable, Sendable {
 /// People's review of a task's request (spec §5, the Review slice): who was asked, and what AiTerm last
 /// read of the request, so only news wakes the Operator: each thread by its id with whether it was
 /// resolved, each thread's last note (its author and a hash of its text), and who approved. `ended` is the
-/// Operator's second `finish_task`, which ended the review.
+/// Operator's second `finish_task`, which ended the review. `startedAt` is when the task went into review, which the
+/// quiet review (spec §K) is measured from; nil for a review recorded before it was kept.
 public struct PeopleReview: Codable, Equatable, Sendable {
     public var reviewers: [String]
     public var threads: [String: Bool]
@@ -255,13 +256,15 @@ public struct PeopleReview: Codable, Equatable, Sendable {
     public var notes: [String: String]
     public var approvals: [String]
     public var ended: Bool
+    public var startedAt: Date?
 
     public init(reviewers: [String] = [], threads: [String: Bool] = [:], notes: [String: String] = [:], approvals: [String] = [],
-                ended: Bool = false) {
+                ended: Bool = false, startedAt: Date? = nil) {
         self.reviewers = reviewers; self.threads = threads; self.notes = notes; self.approvals = approvals; self.ended = ended
+        self.startedAt = startedAt
     }
 
-    private enum CodingKeys: String, CodingKey { case reviewers, threads, notes, approvals, ended }
+    private enum CodingKeys: String, CodingKey { case reviewers, threads, notes, approvals, ended, startedAt }
 
     /// Every field may be missing.
     public init(from decoder: Decoder) throws {
@@ -271,6 +274,7 @@ public struct PeopleReview: Codable, Equatable, Sendable {
         notes = try c.decodeIfPresent([String: String].self, forKey: .notes) ?? [:]
         approvals = try c.decodeIfPresent([String].self, forKey: .approvals) ?? []
         ended = try c.decodeIfPresent(Bool.self, forKey: .ended) ?? false
+        startedAt = try c.decodeIfPresent(Date.self, forKey: .startedAt)
     }
 }
 

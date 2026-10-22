@@ -297,7 +297,7 @@ final class OperatorToolHandler {
 
     func currentStatus(of run: OperatorRun) -> RunStatus? {
         OperatorController.status(of: run.id, state: state, sessions: live.sessions, revision: 0,
-                                  usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turnReadings(), quiet: quietTasks())
+                                  usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turnReadings(), quiet: quietTasks(), now: ports.now())
     }
 
     /// The task an operator names in `key`, in this run.

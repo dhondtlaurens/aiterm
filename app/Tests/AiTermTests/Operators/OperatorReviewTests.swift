@@ -419,6 +419,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         let first = await r.world.call(r.run.id, "finish_task", ["task": "A"])
         #expect(first.value?["result"] == "inReview")
         #expect(r.world.task(r.task.id)?.operated?.state == .inReview)
+        #expect(r.world.task(r.task.id)?.operated?.peopleReview?.startedAt != nil, "the quiet review is measured from here (spec §K)")
         #expect(r.host.log.contains("create feat/a → main draft"))
         #expect(r.world.run(r.run.id)?.state == .active, "a broadcast with a task in review is not complete")
         // Its agent fixes the feedback: steered while in review.

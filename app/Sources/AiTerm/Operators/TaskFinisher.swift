@@ -404,7 +404,9 @@ final class TaskFinisher {
             store.mutate { state in
                 state.updateOperated(id) { task in
                     task.state = .inReview
-                    if task.peopleReview == nil { task.peopleReview = PeopleReview() }
+                    var review = task.peopleReview ?? PeopleReview()
+                    if review.startedAt == nil { review.startedAt = now() }
+                    task.peopleReview = review
                 }
             }
             _ = store.flush()

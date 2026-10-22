@@ -40,6 +40,9 @@ public enum OperatorTiming {
     /// App only: minutes a worker whose session says working may go with no growth in its transcript before AiTerm reads it
     /// `working?` and lists it as uncertain (spec §H), on a task in any state: the daemon's state may have stuck.
     public static let liveQuietMinutes = 2
+    /// Minutes a task may sit in review with nothing waiting (no open thread, no worker's question or change) before
+    /// `run_status` lists it under `reviewQuiet` and wakes the Operator, who decides against the Done whether it is over (spec §K).
+    public static let reviewQuietMinutes = 5
 }
 
 /// What this build of the operator supports (spec §13). A plan asking for more — a draft MR

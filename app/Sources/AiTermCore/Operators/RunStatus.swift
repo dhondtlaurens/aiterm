@@ -146,7 +146,10 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     /// People's review of a task's request, as AiTerm last read it: who was asked, its threads, who approved.
     public struct PeopleReviewLine: Encodable, Equatable, Sendable {
         public var reviewers: [String], unresolvedThreads: Int, resolvedThreads: Int, approvals: [String]
+        /// When the task went into review.
+        public var startedAt: Date?
         public init(_ review: PeopleReview) {
+            startedAt = review.startedAt
             reviewers = review.reviewers
             unresolvedThreads = review.threads.values.filter { !$0 }.count
             resolvedThreads = review.threads.values.filter { $0 }.count
@@ -266,14 +269,19 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         /// Working tasks whose worker ended its turn with no commit past where its work starts (spec §E): not ready; mark it
         /// noChange or steer it.
         public var finishedWithoutCommit: [String]
+        /// InReview tasks with nothing waiting (spec §K): no unresolved thread, no worker's question and no change after
+        /// acceptance, for `OperatorTiming.reviewQuietMinutes` since the review began. The Operator decides against the Done
+        /// whether the review is over; AiTerm doesn't read the Done.
+        public var reviewQuiet: [String]
         public init(questionsWaiting: [Question] = [], promptsWaitingOnYou: [String] = [], readyForAcceptance: [String] = [],
                     background: [String] = [], possiblyStalled: [String] = [], uncertain: [String] = [], branchDrift: [String] = [],
-                    workerAsks: [WorkerAsk] = [], changedAfterAcceptance: [String] = [], finishedWithoutCommit: [String] = []) {
+                    workerAsks: [WorkerAsk] = [], changedAfterAcceptance: [String] = [], finishedWithoutCommit: [String] = [],
+                    reviewQuiet: [String] = []) {
             self.questionsWaiting = questionsWaiting; self.promptsWaitingOnYou = promptsWaitingOnYou
             self.readyForAcceptance = readyForAcceptance; self.background = background; self.possiblyStalled = possiblyStalled
             self.uncertain = uncertain; self.branchDrift = branchDrift
             self.workerAsks = workerAsks; self.changedAfterAcceptance = changedAfterAcceptance
-            self.finishedWithoutCommit = finishedWithoutCommit
+            self.finishedWithoutCommit = finishedWithoutCommit; self.reviewQuiet = reviewQuiet
         }
     }
 
@@ -287,15 +295,16 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         self.revision = revision; self.run = run; self.tasks = tasks; self.obligations = obligations
     }
 
-    /// The snapshot of `run` in `state`; nil for a run the workspace does not have.
+    /// The snapshot of `run` in `state` as of `now`, which the quiet review is measured against; nil for a run the workspace
+    /// does not have.
     public static func build(state: AppState, run id: UUID, revision: Int, live: [UUID: TaskLiveFacts],
-                             runLive: RunLiveFacts = RunLiveFacts()) -> RunStatus? {
+                             runLive: RunLiveFacts = RunLiveFacts(), now: Date = Date()) -> RunStatus? {
         guard let run = state.run(id: id) else { return nil }
         let items = state.tasks(inRun: id)
         let keys = Dictionary(items.compactMap { item in item.operated.map { (item.id, $0.key) } }, uniquingKeysWith: { first, _ in first })
         var lines: [TaskLine] = []
         var prompts: [String] = [], ready: [String] = [], background: [String] = [], stalled: [String] = [], uncertain: [String] = [], drift: [String] = []
-        var asks: [WorkerAsk] = [], changed: [String] = [], noCommit: [String] = []
+        var asks: [WorkerAsk] = [], changed: [String] = [], noCommit: [String] = [], reviewQuiet: [String] = []
         for item in items {
             guard let o = item.operated else { continue }
             let facts = live[item.id] ?? TaskLiveFacts()
@@ -315,7 +324,9 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             let turn = facts.turnEnded && !o.takenOver && o.state != .stopped
             let asking = turn && WorkerTurn.endsWithQuestion(facts.lastMessage)
             if asking, let message = facts.lastMessage { asks.append(WorkerAsk(key: o.key, question: WorkerTurn.question(message))) }
-            if turn, facts.changedAfterAcceptance, [.accepted, .inReview, .published].contains(o.state) { changed.append(o.key) }
+            let moved = turn && facts.changedAfterAcceptance && [.accepted, .inReview, .published].contains(o.state)
+            if moved { changed.append(o.key) }
+            if !asking, !moved, isReviewQuiet(o, now: now) { reviewQuiet.append(o.key) }
             let tabPrompts = facts.tabs.filter { $0.waitingPrompt != nil }.map { "\(o.key)/\($0.key)" }
             if facts.waitingPrompt != nil || !tabPrompts.isEmpty {
                 // Only a prompt open in a terminal is listed: the task's key stands for its first worker's prompt.
@@ -345,7 +356,17 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                              answeredInWindow: $0.answeredInWindow)
                 },
                 promptsWaitingOnYou: prompts, readyForAcceptance: ready, background: background, possiblyStalled: stalled, uncertain: uncertain,
-                branchDrift: drift, workerAsks: asks, changedAfterAcceptance: changed, finishedWithoutCommit: noCommit))
+                branchDrift: drift, workerAsks: asks, changedAfterAcceptance: changed, finishedWithoutCommit: noCommit,
+                reviewQuiet: reviewQuiet))
+    }
+
+    /// A review of yours to end, not yours: in review, not ended, not taken over, no unresolved thread, and begun at least
+    /// `OperatorTiming.reviewQuietMinutes` before `now`. What else waits (a worker's question, work after acceptance) the
+    /// caller rules out.
+    private static func isReviewQuiet(_ task: OperatedTask, now: Date) -> Bool {
+        guard task.state == .inReview, !task.takenOver, let review = task.peopleReview, !review.ended,
+              let began = review.startedAt else { return false }
+        return !review.threads.values.contains(false) && now.timeIntervalSince(began) >= TimeInterval(OperatorTiming.reviewQuietMinutes) * 60
     }
 
     /// A working task whose every worker ended its turn, idle at its prompt or done, with nothing left running in the

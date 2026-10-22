@@ -329,4 +329,50 @@ import Foundation
         let status = try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: [a.id: TaskLiveFacts(status: .working, quiet: true)]))
         #expect(status.obligations.uncertain == ["A"])
     }
+
+    // -- a review with nothing waiting (spec §K) -------------------------------------------------------
+
+    /// One inReview task, B, whose review began at `began` and has `threads` (id: resolved), as of `now`.
+    private func inReview(began: Date?, threads: [String: Bool] = [:], now: Date, facts: TaskLiveFacts = TaskLiveFacts(status: .idle),
+                          ended: Bool = false) throws -> RunStatus {
+        var b = F.task("B", .inReview)
+        b.operated?.peopleReview = PeopleReview(threads: threads, ended: ended, startedAt: began)
+        return try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1, live: [b.id: facts], now: now))
+    }
+
+    /// A review whose threads are all resolved, or that has none, and that began `reviewQuietMinutes` ago, has nothing waiting:
+    /// the Operator decides against the Done whether it is over. Not before; not without a start to measure from.
+    @Test func aQuietReviewIsListedAfterFiveMinutes() throws {
+        let began = F.epoch, wait = TimeInterval(OperatorTiming.reviewQuietMinutes) * 60
+        #expect(OperatorTiming.reviewQuietMinutes == 5)
+        #expect(try inReview(began: began, now: began.addingTimeInterval(wait - 1)).obligations.reviewQuiet.isEmpty, "not yet")
+        #expect(try inReview(began: began, now: began.addingTimeInterval(wait)).obligations.reviewQuiet == ["B"])
+        #expect(try inReview(began: began, threads: ["t1": true], now: began.addingTimeInterval(wait)).obligations.reviewQuiet == ["B"],
+                "a resolved thread waits on nobody")
+        #expect(try inReview(began: nil, now: began.addingTimeInterval(wait * 10)).obligations.reviewQuiet.isEmpty, "no start, no clock")
+        let status = try inReview(began: began, now: began)
+        #expect(status.tasks[0].peopleReview?.startedAt == began, "run_status shows when the review began")
+    }
+
+    /// Anything waiting on someone keeps it off: an unresolved thread, a worker's question, work after acceptance; so does a
+    /// review already ended, a task you took over, or one that is not in review.
+    @Test func aThreadKeepsItOffTheList() throws {
+        let began = F.epoch, late = began.addingTimeInterval(3600)
+        #expect(try inReview(began: began, threads: ["t1": false], now: late).obligations.reviewQuiet.isEmpty)
+        #expect(try inReview(began: began, threads: ["t1": true, "t2": false], now: late).obligations.reviewQuiet.isEmpty)
+        let asking = TaskLiveFacts(status: .idle, lastMessage: "Should I push again?")
+        #expect(try inReview(began: began, now: late, facts: asking).obligations.reviewQuiet.isEmpty, "a worker's question")
+        let moved = TaskLiveFacts(status: .idle, changedAfterAcceptance: true)
+        #expect(try inReview(began: began, now: late, facts: moved).obligations.reviewQuiet.isEmpty, "work after acceptance")
+        #expect(try inReview(began: began, now: late, ended: true).obligations.reviewQuiet.isEmpty, "a review already ended")
+        var b = F.task("B", .inReview)
+        b.operated?.peopleReview = PeopleReview(startedAt: began)
+        b.operated?.takenOver = true
+        let taken = try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1, live: [:], now: late))
+        #expect(taken.obligations.reviewQuiet.isEmpty, "yours")
+        var accepted = F.task("C", .accepted)
+        accepted.operated?.peopleReview = PeopleReview(startedAt: began)
+        let other = try #require(RunStatus.build(state: F.state(F.run(), [accepted]), run: F.runId, revision: 1, live: [:], now: late))
+        #expect(other.obligations.reviewQuiet.isEmpty)
+    }
 }

@@ -773,6 +773,7 @@ async def test_a_wake_line_that_a_prompt_could_read_as_an_answer_is_refused(rig,
     # A worker's turn (the app's OperatorWaker.turnReasons): the kind of news, never the task's key.
     "[AiTerm] one worker asks something, call run_status", "[AiTerm] one task changed after acceptance, call run_status",
     "[AiTerm] one task finished with no commit, call run_status",
+    "[AiTerm] one task is in review with nothing waiting, call run_status",
     "[AiTerm] you may have answered one question in its worker's window, call run_status",
 ])
 def test_plain_wake_lines_pass(text):

@@ -412,9 +412,9 @@ public enum OperatorCommand {
                 + "open, wait and try again later, doing nothing else: nothing takes effect until it is back.",
             "A task listed under branchDrift in run_status committed off its task branch, the only branch AiTerm reads: have "
                 + "its worker bring the work onto it with message_task before you accept, or block the task.",
-            "workerAsks and changedAfterAcceptance can appear on tasks in any state: read the worker's question or the change "
-                + "before you act on the task.",
+            "workerAsks and changedAfterAcceptance can appear on tasks in any state: read the question or the change before you act.",
             "A question showing answeredInWindow may already be answered: check, then resolve it.",
+            "reviewQuiet: if the broadcast's Done says the MR is the end, call finish_task to end the review and move the ticket.",
             tabRule,
             shellRule,
         ]

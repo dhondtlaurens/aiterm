@@ -28,6 +28,9 @@ final class OperatorWaker {
         var reason: Reason?
         /// What a worker's ended turn brought, when that is all the news since the Operator last looked (`turnReason`).
         var turn: String?
+        /// The reviews the Operator was told have nothing waiting, or saw so in `run_status`, by task and the start of its review
+        /// (`quietReviews`): each is news once.
+        var quietReviews: Set<String> = []
         var generation = UUID()
         var armed: Task<Void, Never>?, retrying: Task<Void, Never>?
         var sending: Snapshot?
@@ -74,11 +77,16 @@ final class OperatorWaker {
         let status = Self.content(status), wake = state(for: run)
         guard status != wake.lastSeen else { return }
         wake.lastSeen = status
-        guard let seen = wake.acknowledgedStatus else { wake.acknowledgedStatus = status; return }
+        guard let seen = wake.acknowledgedStatus else { wake.acknowledgedStatus = status; _ = newQuietReviews(in: status, wake); return }
         // A worker's ended turn says which kind of news it brought (spec §J), while it is the only news since.
         wake.turn = Self.turnReason(from: seen, to: status)
+        let quiet = newQuietReviews(in: status, wake)
         guard status != seen else { return }
         wake.updates += 1
+        // A review with nothing waiting (spec §K) is its own line while it is the only news since.
+        if quiet, wake.updates == 1, wake.reason == nil, Self.withoutQuietReviews(status) == Self.withoutQuietReviews(seen) {
+            wake.reason = Reason(text: Self.reviewQuietReason, colon: false)
+        }
         arm(run, wake)
     }
 
@@ -88,6 +96,7 @@ final class OperatorWaker {
         wake.clearPending()
         wake.acknowledgedStatus = status
         wake.lastSeen = status
+        _ = newQuietReviews(in: status, wake)
         cleared?(run)
     }
 
@@ -125,6 +134,7 @@ final class OperatorWaker {
         wake.clearPending()
         wake.acknowledgedStatus = nil
         wake.lastSeen = nil
+        wake.quietReviews = []
         wake.isForgotten = true
         if wake.sending == nil { wakes[run] = nil }
         cleared?(run)
@@ -177,6 +187,30 @@ final class OperatorWaker {
             return rest
         }
         return rest(now) == rest(was) && seen.run == status.run ? turnReasons[kind] : nil
+    }
+
+    /// The line for a review with nothing waiting (spec §K): the kind of news, never the task's key (as `turnReasons`).
+    static let reviewQuietReason = "one task is in review with nothing waiting"
+
+    /// Whether `status` lists a review the Operator was not told of, once per task per review (its start): one that went loud
+    /// and quiet again is not new. Remembers what it lists, and forgets a review that is over.
+    private func newQuietReviews(in status: RunStatus, _ wake: WakeState) -> Bool {
+        func token(_ task: RunStatus.TaskLine) -> String? {
+            task.peopleReview?.startedAt.map { "\(task.id.uuidString)|\($0.timeIntervalSince1970)" }
+        }
+        let open = Set(status.tasks.filter { $0.state == .inReview }.compactMap(token))
+        wake.quietReviews.formIntersection(open)
+        let quiet = Set(status.tasks.filter { status.obligations.reviewQuiet.contains($0.key) }.compactMap(token))
+        let fresh = !quiet.isSubset(of: wake.quietReviews)
+        wake.quietReviews.formUnion(quiet)
+        return fresh
+    }
+
+    /// `status` with no review listed as quiet: what is left when that is the news.
+    private static func withoutQuietReviews(_ status: RunStatus) -> RunStatus {
+        var status = status
+        status.obligations.reviewQuiet = []
+        return status
     }
 
     /// Whether `text` may go into a wake line: no digit and no one-letter word, which a menu opening as the

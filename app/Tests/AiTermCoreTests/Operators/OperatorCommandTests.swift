@@ -227,6 +227,12 @@ import Foundation
         #expect(words(largest()) <= today + 520, "\(words(largest())) words")
     }
 
+    /// reviewQuiet, the list of reviews with nothing waiting, says what to do with it: the Done decides, and finish_task ends it.
+    @Test func theBriefSaysWhatReviewQuietMeans() {
+        let brief = largest()
+        #expect(brief.contains("reviewQuiet: if the broadcast's Done says the MR is the end, call finish_task to end the review and move the ticket."))
+    }
+
     /// Strong words are kept for the hard limits, so they keep their weight; every other rule says what to do.
     /// The Instructions are the person's own words and may say anything.
     @Test func neverAndForbiddenSitOnlyInTheHardLimits() {
