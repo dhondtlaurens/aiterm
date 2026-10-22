@@ -395,26 +395,18 @@ struct TaskRowView: View {
                     } else if !folded {
                         // Ticket, merge request, editor, then the branch — the badges in the order they
                         // are reached for, the branch last because it is the one thing that truncates.
-                        // Quiet badges carry no box, so `Space.gap` is what keeps them apart.
-                        HStack(spacing: scale(Space.gap)) {
-                            if let ticket = badges.ticket {
-                                Badge(ticket.label, icon: .brand(Palette.jira), help: ticket.help,
-                                      style: .quiet, action: ticket.url.map { url in { ExternalApps.open(link: url) } })
-                            }
-                            if let mr = badges.mergeRequest {
-                                Badge(mr.label, icon: .brand((mr.host ?? .gitLab).brand), help: mr.help, suffix: mr.threads,
-                                      style: .quiet, accessibilityLabel: mr.accessibilityLabel,
-                                      action: mr.url.map { url in { ExternalApps.open(link: url) } })
-                            }
-                            // "Absent, not disabled": no VS Code, no badge. Off its base it extends to
-                            // `+12 −3` unless Settings has turned that off, the base named only in the
-                            // tooltip; either way a click opens the worktree.
-                            if let task, ExternalApps.vscode != nil {
-                                Badge(icon: .brand(Palette.vscode), help: badges.editorHelp, diff: badges.diff, style: .quiet) {
-                                    ExternalApps.openInVSCode(path: task.worktreePath)
+                        // A badge never squeezes, so a row too narrow for all of them draws the fullest
+                        // fit that still leaves the status mark its slot (`TaskRowBadges.fits`), ahead of
+                        // the branch, which shortens in what is left.
+                        HStack(spacing: 0) {
+                            ViewThatFits(in: .horizontal) {
+                                // "Absent, not disabled": no VS Code, no badge.
+                                ForEach(badges.fits(editor: task != nil && ExternalApps.vscode != nil), id: \.self) { fit in
+                                    badgeLine(fit, of: badges, beforeBranch: !row.branch.name.isEmpty)
                                 }
                             }
-                            BranchLabelView(label: row.branch).layoutPriority(1)
+                            .layoutPriority(1)
+                            BranchLabelView(label: row.branch)
                         }
                         .transition(.opacity)
                     }
@@ -477,6 +469,31 @@ struct TaskRowView: View {
                     .disabled(!controller.canChangeWorkspace || removing)
             }
         }
+    }
+
+    /// One fit of the badge line. Quiet badges carry no box, so `Space.gap` is what keeps them apart,
+    /// and the last of them from the branch.
+    private func badgeLine(_ fit: TaskRowBadges.Fit, of badges: TaskRowBadges, beforeBranch: Bool) -> some View {
+        HStack(spacing: scale(Space.gap)) {
+            if fit.ticket, let ticket = badges.ticket {
+                Badge(ticket.label, icon: .brand(Palette.jira), help: ticket.help,
+                      style: .quiet, action: ticket.url.map { url in { ExternalApps.open(link: url) } })
+            }
+            if fit.mergeRequest, let mr = badges.mergeRequest {
+                Badge(mr.label, icon: .brand((mr.host ?? .gitLab).brand), help: mr.help, suffix: mr.threads,
+                      style: .quiet, accessibilityLabel: mr.accessibilityLabel,
+                      action: mr.url.map { url in { ExternalApps.open(link: url) } })
+            }
+            // Off its base it extends to `+12 −3` unless Settings has turned that off or the row is too
+            // narrow, the base named only in the tooltip, which keeps the counts; a click opens the worktree.
+            if fit.editor != .none, let task {
+                Badge(icon: .brand(Palette.vscode), help: badges.editorHelp, diff: fit.editor == .diff ? badges.diff : nil,
+                      style: .quiet) {
+                    ExternalApps.openInVSCode(path: task.worktreePath)
+                }
+            }
+        }
+        .padding(.trailing, beforeBranch && !fit.wearsNone ? scale(Space.gap) : 0)
     }
 }
 
@@ -854,6 +871,34 @@ struct TaskRowBadges: Equatable {
         }
         diff = details.diff ? row.diff.map { Badge.Diff(added: $0.stat.added, removed: $0.stat.removed) } : nil
         editorHelp = row.diff?.help ?? "Open in VS Code"
+    }
+
+    /// How a fit draws the VS Code badge: with its `+12 −3`, as the plain mark, or not at all.
+    enum Editor: Hashable { case diff, plain, none }
+
+    /// The badges one width of the row keeps.
+    struct Fit: Hashable {
+        var ticket: Bool, mergeRequest: Bool, editor: Editor
+        var wearsNone: Bool { !ticket && !mergeRequest && editor == .none }
+    }
+
+    /// The badge line at every width, fullest first, each fit giving up one more thing than the last:
+    /// the VS Code counts fold to the plain mark, then the editor, the merge request and the ticket drop
+    /// in turn, from the end of the line, so what is left reads in the same order. Only what the row
+    /// wears is given up, and the last fit wears nothing. `editor` is whether the row has a VS Code badge.
+    func fits(editor: Bool) -> [Fit] {
+        var fit = Fit(ticket: ticket != nil, mergeRequest: mergeRequest != nil,
+                      editor: !editor ? .none : diff == nil ? .plain : .diff)
+        var fits = [fit]
+        func giveUp(_ change: (inout Fit) -> Void) {
+            change(&fit)
+            if fit != fits.last { fits.append(fit) }
+        }
+        giveUp { if $0.editor == .diff { $0.editor = .plain } }
+        giveUp { $0.editor = .none }
+        giveUp { $0.mergeRequest = false }
+        giveUp { $0.ticket = false }
+        return fits
     }
 
     /// The count as the tooltip and VoiceOver say it: "2 of 5 threads resolved", "1 of 1 thread resolved".
