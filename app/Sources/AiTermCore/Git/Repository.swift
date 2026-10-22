@@ -126,6 +126,12 @@ public struct Repository: Sendable {
         try git.ask(["merge-base", "--is-ancestor", ancestor, commit], in: path, none: [1]) != nil
     }
 
+    /// The commit where `a` and `b` last shared history, the base a branch's own work is measured from; `nil` when they
+    /// share none (git's exit 1) or one is no ref here (a `fatal:`, 128). Anything else — a timeout — is thrown.
+    public func mergeBase(_ a: String, _ b: String) throws -> String? {
+        try git.ask(["merge-base", a, b], in: path, none: [1, 128])
+    }
+
     /// How many commits `to` has that `from` lacks; `nil` when git could not count them — it timed
     /// out, say — which is no count rather than none.
     func count(_ from: String, _ to: String) -> Int? {
@@ -136,14 +142,14 @@ public struct Repository: Sendable {
 
     /// Whether the repository has a remote called `origin`: git's answer is a failure (exit 2)
     /// when it has none. Any other failure — a timeout — is thrown, as no answer at all.
-    var hasOrigin: Bool {
+    public var hasOrigin: Bool {
         get throws { try git.ask(["remote", "get-url", "origin"], in: path, none: [2]) != nil }
     }
 
     /// `branch` fetched from origin into `origin/<branch>`. An explicit, forced refspec: `git fetch
     /// origin <branch>` updates the tracking ref only when `remote.origin.fetch` covers it, which a
     /// single-branch or shallow clone's does not.
-    func fetchFromOrigin(_ branch: String) throws {
+    public func fetchFromOrigin(_ branch: String) throws {
         try git.runRemote(["fetch", "--quiet", "origin", "+refs/heads/\(branch):refs/remotes/origin/\(branch)"], in: path)
     }
 

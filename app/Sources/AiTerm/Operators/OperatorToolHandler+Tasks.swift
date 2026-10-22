@@ -5,8 +5,26 @@ import AiTermCore
 /// from its conversation file, its branch's diff, the prompt it has open — what it says to it through
 /// the daemon's delivery, and the outcome it records. A task you took over refuses all but reading.
 extension OperatorToolHandler {
-    /// The most of a diff an answer carries.
+    /// The most of a diff a review's prompt carries; `read_task`'s own answer is a `DiffDigest`, which is smaller.
     static let diffLimit = 60_000
+
+    /// Where the task's own work starts (spec §9): a stacked task's parent's accepted commit, else where its branch left
+    /// origin's copy of its base branch, fetched first, so a local `main` that lags origin is not read back as the
+    /// worker's changes. A project with no origin, or one that has no such branch, is read from the task's own base.
+    /// A fetch that fails (offline) is not a refusal: origin's branch is read as it was last fetched.
+    func diffBase(of task: TaskItem, in run: OperatorRun) async throws -> String {
+        if let commit = RunScheduler.baseCommit(for: task.id, in: state)?.trimmingCharacters(in: .whitespacesAndNewlines), !commit.isEmpty {
+            return commit
+        }
+        let git = ports.git, path = task.worktreePath, named = task.baseBranch
+        return try await BackgroundWork.run {
+            let repository = Repository(path, git: git)
+            guard try repository.hasOrigin else { return named }
+            let branch = named.isEmpty ? repository.defaultBranch() : named
+            Log.git.attempt("Fetching \(branch) from origin in \(path)") { try repository.fetchFromOrigin(branch) }
+            return try repository.mergeBase("origin/" + branch, "HEAD") ?? named
+        }
+    }
 
     /// The worker's tab: the task's first worker, never one of the Operator's extra tabs (`TaskItem.firstWorker`).
     func workerTab(of task: TaskItem) -> SessionInfo? { task.firstWorker(in: live.sessions) }
@@ -52,18 +70,25 @@ extension OperatorToolHandler {
             guard task.hasCheckout else { throw ToolRefusal("\(key) hasn’t started: it has no worktree yet.") }
             // The committed work mark_task accepts: from where the branch left its base to HEAD, so a base that
             // moved on is not read back as the worker's changes; edits not yet committed are told apart.
-            let git = ports.git, path = task.worktreePath, base = task.baseBranch
-            let read: (commits: String, diff: String, uncommitted: String)
+            let git = ports.git, path = task.worktreePath
+            let read: (base: String, head: String, commits: String, stat: String, diff: String, uncommitted: String)
             do {
+                let base = try await diffBase(of: task, in: run)
                 read = try await BackgroundWork.run {
-                    (try git.run(["log", "--oneline", "\(base)..HEAD"], in: path), try git.run(["diff", "\(base)...HEAD"], in: path),
-                     try git.run(["status", "--porcelain"], in: path))
+                    (try git.run(["merge-base", base, "HEAD"], in: path), try git.run(["rev-parse", "HEAD"], in: path),
+                     try git.run(["log", "--oneline", "\(base)..HEAD"], in: path), try git.run(["diff", "--stat", "\(base)...HEAD"], in: path),
+                     try git.run(["diff", "\(base)...HEAD"], in: path), try git.run(["status", "--porcelain"], in: path))
                 }
             } catch {
-                throw ToolRefusal("AiTerm couldn’t read \(key)’s branch against \(base.isEmpty ? "its base" : base).")
+                throw ToolRefusal("AiTerm couldn’t read \(key)’s branch against \(task.baseBranch.isEmpty ? "its base" : task.baseBranch).")
             }
-            return ["commits": .string(read.commits), "diff": .string(String(read.diff.prefix(Self.diffLimit))),
-                    "truncated": .bool(read.diff.count > Self.diffLimit), "uncommitted": .string(read.uncommitted)]
+            let digest = DiffDigest.build(diff: read.diff)
+            let files = digest.files.map { file -> JSONValue in
+                ["path": .string(file.path), "patch": file.patch.map(JSONValue.string) ?? .null,
+                 "summary": file.summary.map(JSONValue.string) ?? .null, "truncated": .bool(file.truncated)]
+            }
+            return ["base": .string(read.base), "head": .string(read.head), "stat": .string(read.stat), "commits": .string(read.commits),
+                    "files": .array(files), "truncated": .bool(digest.truncated), "uncommitted": .string(read.uncommitted)]
         case "prompt":
             let worker = try self.worker(call, of: task)
             guard let tab = worker.session, !worker.isOpening else {

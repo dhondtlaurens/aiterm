@@ -717,4 +717,31 @@ extension OperatorReviewTests {
         #expect(seen.all.contains { $0.contains("Attack every assumption.") })
         #expect(!seen.all.contains { $0.contains("Wrong folder.") })
     }
+
+    /// The review reads what `read_task` with `what: diff` does: from where the branch left origin's default branch, not
+    /// from a local `main` that lags it.
+    @Test func theReviewReadsTheSameBase() async throws {
+        let seen = TaskFinisherTests.Recorded<String>()
+        let runner = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, arguments, _, _, _ in
+            for word in arguments { seen.append(word) }
+            return ProcessOutput(status: 0, stdout: #"{"result":"Sound."}"#, stderr: "", timedOut: false)
+        })
+        let r = try reviewed(.working) { $0.agentReviewer = runner }
+        let git = GitRunner.hermetic(), path = r.task.worktreePath
+        let origin = try git.run(["remote", "get-url", "origin"], in: path), clone = try GitFixture.folder("review-clone-")
+        try git.run(["clone", "-q", origin, clone], in: "/")
+        try "x\n".write(toFile: clone + "/origin-only.swift", atomically: true, encoding: .utf8)
+        try git.run(["add", "origin-only.swift"], in: clone)
+        try git.run(["commit", "-q", "-m", "Add origin-only.swift"], in: clone)
+        try git.run(["push", "-q", "origin", "main"], in: clone)
+        try git.run(["fetch", "-q", "origin"], in: path)
+        try git.run(["switch", "-q", "-c", "feat/b", "origin/main"], in: path)
+        try "y\n".write(toFile: path + "/mine.swift", atomically: true, encoding: .utf8)
+        try git.run(["add", "mine.swift"], in: path)
+        try git.run(["commit", "-q", "-m", "Add mine.swift"], in: path)
+        try #require(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review."]).value?["review"] == "started")
+        await r.world.controller.tools.lastReview?.value
+        let prompt = try #require(seen.all.first { $0.contains("Add mine.swift") })
+        #expect(prompt.contains("mine.swift") && !prompt.contains("origin-only"), "origin's own commit is not the worker's change")
+    }
 }

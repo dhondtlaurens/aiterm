@@ -28,6 +28,12 @@ import Testing
         return try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The patches an answer's `files` carry, joined; and the paths it lists.
+    func patches(_ answer: JSONValue) -> String {
+        (answer["files"]?.arrayValue ?? []).compactMap { $0["patch"]?.stringValue }.joined(separator: "\n")
+    }
+    func paths(_ answer: JSONValue) -> [String] { (answer["files"]?.arrayValue ?? []).compactMap { $0["path"]?.stringValue } }
+
     @Test func readTaskReadsTheLastReplyFromTheWorkersConversationFile() async throws {
         let (world, run, task) = try makeWorld()
         let file = world.ports.home.appendingPathComponent(".claude/projects/p/conv-1.jsonl")
@@ -45,9 +51,8 @@ import Testing
         try commit("moved-on.swift", in: project.path)
         try "draft\n".write(toFile: task.worktreePath + "/draft.swift", atomically: true, encoding: .utf8)
         let diff = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value)
-        #expect(diff["diff"]?.stringValue?.contains("login.swift") == true)
-        #expect(diff["diff"]?.stringValue?.contains("moved-on.swift") == false && diff["commits"]?.stringValue?.contains("moved-on") == false)
-        #expect(diff["diff"]?.stringValue?.contains("draft.swift") == false)
+        #expect(paths(diff) == ["login.swift"])
+        #expect(diff["commits"]?.stringValue?.contains("moved-on") == false)
         #expect(diff["uncommitted"]?.stringValue?.contains("draft.swift") == true)
         try FileManager.default.removeItem(atPath: task.worktreePath + "/draft.swift")
         #expect(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value?["uncommitted"] == "")
@@ -58,6 +63,58 @@ import Testing
         world.workspace.mutate { state in if let i = state.tasks.firstIndex(where: { $0.id == task.id }) { state.tasks[i].baseBranch = "no-such-base" } }
         #expect(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).message
                 == "AiTerm couldn’t read PLUTO-1’s branch against no-such-base.")
+    }
+
+    /// A world whose task works in the project's own checkout on `feat/x`, branched from `origin/main` after someone else
+    /// moved origin on, so the checkout's local `main` lags. `moved` is origin's `main`.
+    func makeWorldBehindOrigin() throws -> (world: OperatorWorld, run: OperatorRun, task: TaskItem, moved: String) {
+        let path = try GitFixture.makeRepo(prefix: "op-origin-"), origin = try GitFixture.folder("origin-"), clone = try GitFixture.folder("clone-")
+        try git.run(["init", "--bare", "-q", "--initial-branch=main", origin], in: "/")
+        try git.run(["remote", "add", "origin", origin], in: path)
+        try git.run(["push", "-q", "origin", "main"], in: path)
+        try git.run(["clone", "-q", origin, clone], in: "/")
+        let moved = try commit("origin-only.swift", in: clone)
+        try git.run(["push", "-q", "origin", "main"], in: clone)
+        try git.run(["fetch", "-q", "origin"], in: path)
+        try git.run(["switch", "-q", "-c", "feat/x", "origin/main"], in: path)
+        try commit("mine.swift", in: path)
+        #expect(try git.run(["rev-parse", "main"], in: path) != moved, "the checkout's own main is behind origin's")
+        let project = OperatorServiceFixtures.project(path: path)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
+        var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working, worktree: path, branch: "feat/x")
+        task.baseBranch = "main"
+        task.operated?.launch = LaunchAttempt(number: 1, requestedAt: Date())
+        task.operated?.ownership = 3
+        return (try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])), run, task, moved)
+    }
+
+    @Test func theDiffStartsAtOriginNotTheLocalMain() async throws {
+        let (world, run, _, moved) = try makeWorldBehindOrigin()
+        let diff = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value)
+        #expect(paths(diff) == ["mine.swift"], "origin's own commit is not the worker's change")
+        #expect(diff["base"] == .string(moved))
+        #expect(diff["head"]?.stringValue?.count == 40)
+        #expect(diff["commits"]?.stringValue?.contains("Add mine.swift") == true && diff["commits"]?.stringValue?.contains("origin-only") == false)
+        #expect(diff["stat"]?.stringValue?.contains("mine.swift") == true && diff["stat"]?.stringValue?.contains("origin-only") == false)
+        #expect(diff["truncated"] == false && diff["uncommitted"] == "")
+        #expect(diff["diff"] == nil, "the patches are in files")
+    }
+
+    @Test func aStackedTasksDiffStartsAtItsParentsAcceptedCommit() async throws {
+        let (world, run, task) = try makeWorld()
+        let accepted = try commit("parent.swift", in: task.worktreePath)
+        try commit("child.swift", in: task.worktreePath)
+        let project = try #require(world.state.project(id: task.projectId))
+        var parent = OperatorServiceFixtures.task(in: run, project: project, key: "PARENT", state: .accepted)
+        parent.operated?.acceptance = TaskAcceptance(resultSHA: accepted, prerequisiteSHAs: [], checkOutput: "ok", note: nil, at: Date(timeIntervalSince1970: 0))
+        world.workspace.mutate { state in
+            state.tasks.append(parent)
+            state.updateOperated(task.id) { $0.dependsOn = [TaskDependency(task: parent.id, kind: .code)] }
+        }
+        let diff = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value)
+        #expect(diff["base"] == .string(accepted))
+        #expect(paths(diff) == ["child.swift"], "the parent's own commit is not the child's change")
+        #expect(diff["commits"]?.stringValue?.contains("parent.swift") == false)
     }
 
     @Test func readingThePromptWithNoHelperIsRefusedNotAnsweredAsNoPrompt() async throws {
@@ -73,7 +130,7 @@ import Testing
         try commit("login.swift", in: task.worktreePath)
         let diff = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value)
         #expect(diff["commits"]?.stringValue?.contains("Add login.swift") == true)
-        #expect(diff["diff"]?.stringValue?.contains("login.swift") == true)
+        #expect(paths(diff) == ["login.swift"] && patches(diff).contains("+change"))
         #expect(diff["truncated"] == false)
         world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .needsInput)])
         world.daemon.prompts["w1"] = .permission

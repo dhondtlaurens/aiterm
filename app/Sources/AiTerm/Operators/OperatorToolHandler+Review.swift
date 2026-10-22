@@ -26,15 +26,18 @@ extension OperatorToolHandler {
         guard task.hasCheckout else { throw ToolRefusal("\(operated.key) hasn’t started: it has no worktree yet.") }
         let agent = try reviewer(call, for: task)
         if let review = operated.agentReview, review.isRunning, runningReviews[task.id] != nil { return Self.reviewAnswer(review, started: false) }
-        let git = ports.git, path = task.worktreePath, base = task.baseBranch
+        let git = ports.git, path = task.worktreePath
         let read: (head: String, commits: String, diff: String)
+        let base: String
         do {
+            // The base `read_task` reads from (`diffBase`), so the reviewer sees the change the Operator does.
+            base = try await diffBase(of: task, in: run)
             read = try await BackgroundWork.run {
                 (try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines),
                  try git.run(["log", "--oneline", "\(base)..HEAD"], in: path), try git.run(["diff", "\(base)...HEAD"], in: path))
             }
         } catch {
-            throw ToolRefusal("AiTerm couldn’t read \(operated.key)’s branch against \(base.isEmpty ? "its base" : base).")
+            throw ToolRefusal("AiTerm couldn’t read \(operated.key)’s branch against \(task.baseBranch.isEmpty ? "its base" : task.baseBranch).")
         }
         try recheck(task)
         if operated.state == .inReview, read.head != operated.acceptance?.resultSHA {
