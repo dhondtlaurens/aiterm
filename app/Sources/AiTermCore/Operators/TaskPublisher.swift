@@ -75,9 +75,10 @@ public struct TaskPublisher: Sendable {
     let noted: @Sendable (DraftEvent) -> Void
 
     /// What an advance did to the request's draft state, for `finish_task` to say (`TaskFinisher.Result.draftNote`): the request
-    /// was opened (as a draft or not), found a draft and left one, or taken out of draft to merge it.
+    /// was opened (as a draft or not), found a draft and left one, found one that is ready and left it (nothing to say), or
+    /// taken out of draft to merge it. Each comes from what the host said, never from the plan.
     public enum DraftEvent: Equatable, Sendable {
-        case opened(draft: Bool), leftDraft, markedReady
+        case opened(draft: Bool), leftDraft, leftReady, markedReady
     }
 
     public init(repository: Repository, host: any MergeRequestPublishing, now: @escaping @Sendable () -> Date = Date.init,
@@ -177,7 +178,7 @@ public struct TaskPublisher: Sendable {
                     return .refused("\(branch) already has an open request into \(open.targetBranch), not \(target): \(open.url). AiTerm never publishes through it as it is: retarget it to \(target) or close it, then call finish_task again.")
                 }
                 request = open
-                if open.draft { noted(.leftDraft) }
+                noted(open.draft ? .leftDraft : .leftReady)
             } else {
                 let draft = operated.end == .draftMR || context.forReview
                 request = try await host.createRequest(from: branch, into: target,

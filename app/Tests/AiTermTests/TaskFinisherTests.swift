@@ -142,6 +142,31 @@ final class MergeClock: Sendable {
         #expect(kept.host.log.contains { $0.hasPrefix("ready") } == false)
     }
 
+    /// The note comes from what the host says, never from the plan: a request found ready on a draft end is not a draft.
+    @Test func aRequestFoundReadyIsNeverSaidToBeLeftAsADraft() async throws {
+        let s = try setUp(end: .draftMR)
+        s.host.update {
+            $0.existing = MergeRequest(iid: 12, title: "PLUTO-231", sourceBranch: "feat/pluto-231", targetBranch: "main", author: "aiterm",
+                                       state: "opened", draft: false, url: FakeMergeHost.url)
+        }
+        let result = await s.finisher.finish(s.task)
+        #expect(result.result == "published" && result.draftNote == nil)
+        #expect(!s.host.log.contains { $0.hasPrefix("create") }, "the open request was adopted")
+    }
+
+    /// A call that failed after it marked the request ready still says so: the next call has nothing to say about it.
+    @Test func aFailedCallSaysWhatItDidToTheDraftBeforeItFailed() async throws {
+        let s = try setUp(end: .merge)
+        s.host.update {
+            $0.existing = MergeRequest(iid: 12, title: "PLUTO-231", sourceBranch: "feat/pluto-231", targetBranch: "main", author: "aiterm",
+                                       state: "opened", draft: true, url: FakeMergeHost.url)
+            $0.readiness = [.blocked(MergeReadiness.draftReason)]
+            $0.readinessFailsAfterReady = true
+        }
+        let failed = await s.finisher.finish(s.task)
+        #expect(failed.result == "failed" && failed.draftNote == "MR !12 marked ready")
+    }
+
     @Test func aGitHubRequestIsNumberedWithAHash() {
         #expect(TaskFinisher.draftNote(.opened(draft: true), request: "https://github.com/octocat/hello/pull/88", number: 88) == "MR #88 opened as a draft")
         #expect(TaskFinisher.draftNote(.markedReady, request: "https://git.example.net/web/acme-web/-/merge_requests/7", number: 7) == "MR !7 marked ready")

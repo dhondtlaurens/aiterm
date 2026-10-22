@@ -274,13 +274,12 @@ final class TaskFinisher {
                     try self.record(publication, for: id, ownership: ownership)
                 })
             var result = apply(outcome, to: id, forReview: TaskPublisher.Context.entersReview(current.operated, run: current.run))
-            // A request that is a draft by the plan and opened earlier, with no news this call, is still one.
-            let planned = current.operated.end == .draftMR || TaskPublisher.Context.entersReview(current.operated, run: current.run)
-            result.draftNote = Self.draftNote(drafted.last ?? (planned ? .leftDraft : nil), request: result.mergeRequest,
-                                              number: store.state.task(id: id)?.operated?.publication?.mergeRequestNumber)
+            result.draftNote = draftNote(drafted, of: id)
             return result
         } catch is NotSaved {
-            return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: Self.notSavedReason)
+            var failed = Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: Self.notSavedReason)
+            failed.draftNote = draftNote(drafted, of: id)
+            return failed
         } catch {
             let why = Self.failure(error, branch: branch)
             if let git = error as? GitError, Self.commandNotFound(git) {
@@ -288,8 +287,16 @@ final class TaskFinisher {
                 await BackgroundWork.run { forget() }
             }
             recordFailure(why, on: id, hookSaid: (error as? GitError).flatMap(Self.hookRefusal).map { ($0, accepted) })
-            return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: why)
+            var failed = Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: why)
+            failed.draftNote = draftNote(drafted, of: id)
+            return failed
         }
+    }
+
+    /// What this call did to the task's request, if anything: even one that failed afterwards opened or marked it ready first.
+    private func draftNote(_ news: DraftNews, of id: UUID) -> String? {
+        let publication = store.state.task(id: id)?.operated?.publication
+        return Self.draftNote(news.last, request: publication?.mergeRequestURL, number: publication?.mergeRequestNumber)
     }
 
     /// `event` in the words `Result.draftNote` says: `MR !12 opened as a draft`, with `#12` on GitHub. Nil without a request.
@@ -301,6 +308,7 @@ final class TaskFinisher {
         case .opened(draft: false): return "MR \(reference) opened, ready"
         case .leftDraft: return "MR \(reference) left as a draft"
         case .markedReady: return "MR \(reference) marked ready"
+        case .leftReady: return nil
         }
     }
 

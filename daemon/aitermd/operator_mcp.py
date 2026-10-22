@@ -202,7 +202,9 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "named task/tab, and a tab that was closed is marked closed and never opened again. "
           "Under run it also shows the off-brief finds, the snags you recorded with report_snag (so you don't record one "
           "twice after a restart), each agent's weekly use, and under agents each installed agent's models with its default "
-          "model and, under delivery, whether its workers can be messaged. Call it first after any restart or compaction."),
+          "model and, under delivery, whether its workers can be messaged. A task with a merge request shows what the host "
+          "says of it under mergeRequest (draft, pipeline, mergeable, approvedBy, head), or why it could not be read "
+          "under mergeRequestNote. Call it first after any restart or compaction."),
     _tool("jira_search", "Searches Jira, read-only, within the Jira projects linked to the broadcast's projects.",
           {"jql": _text("The JQL query.")}, ("jql",)),
     _tool("jira_create", "Creates a Jira ticket in one of the broadcast's Jira projects. Refused unless the broadcast's Jira slice "
@@ -327,7 +329,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "once, and only a yes to both acts. "
           "It answers result: published, inReview, waitingToMerge, blocked, refused or failed, with reason, mergeRequest, "
           "pushedSHA, merged and mergedSHA as far as they are known; refused and failed also say what was already "
-          "done. "
+          "done. draftNote says what this call did to the request's draft state (opened as a draft, opened ready, "
+          "left as a draft, marked ready), and is left out when it did nothing. "
           "Each step is recorded and calling again resumes at the next step: it never pushes or opens a request "
           "twice, and on a task that is done it answers what was done. A push that timed out may have landed: call "
           "finish_task again. A takeover stops a merge's waiting: call finish_task again once the task is handed "

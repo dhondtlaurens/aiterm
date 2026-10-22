@@ -257,6 +257,11 @@ def test_run_status_says_what_a_restarted_operator_needs():
     status = {tool["name"]: tool for tool in TOOLS}["run_status"]["description"]
     assert "snags you recorded" in status and "twice" in status
     assert "delivery" in status
+    assert "mergeRequest" in status and "mergeRequestNote" in status and "approvedBy" in status
+
+
+def test_finish_task_says_what_it_did_to_the_draft():
+    assert "draftNote" in {tool["name"]: tool for tool in TOOLS}["finish_task"]["description"]
 
 
 def test_the_jira_writes_say_what_the_slice_governs_and_there_is_no_comment_tool():
