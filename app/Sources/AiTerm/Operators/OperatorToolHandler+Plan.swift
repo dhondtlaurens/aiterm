@@ -39,7 +39,7 @@ extension OperatorToolHandler {
             throw ToolRefusal("The backlog reached its limit while AiTerm read this: call create_task again for the Oracle’s check.")
         }
         let ticket = draft.ticket, title = draft.title, brief = draft.brief
-        let branch = OperatedBranch.name(ticket: ticket, title: title,
+        let branch = OperatedBranch.name(ticket: ticket, title: title, issueType: draft.issueType,
                                          taken: OperatedBranch.taken(in: state, project: draft.project.id, repositoryBranches: repositoryBranches))
         var task = TaskItem(id: UUID(), projectId: draft.project.id, title: title, branch: branch, worktreePath: "", baseBranch: "",
                             jira: ticket.map { JiraRef(key: $0, summary: title, url: Self.ticketURL($0, in: draft.project)) },
@@ -90,7 +90,7 @@ extension OperatorToolHandler {
 
     /// What `create_task` asks for, checked against `run` as it is now: nothing is changed here.
     private struct NewTask {
-        var title: String, brief: String, ticket: String?
+        var title: String, brief: String, ticket: String?, issueType: String?
         var project: Project, agent: AgentKind, model: (model: String, reasoning: String?), end: TaskEnd
         var modelReason: String, agentPinned: Bool
         var dependencies: [TaskDependency]
@@ -108,7 +108,7 @@ extension OperatorToolHandler {
         try validateEnd(end, in: run, project: project, connected: connected)
         let pinned = call.arguments["agentPinned"]?.boolValue ?? false
         let warning = try deliveryWarning(for: agent, pinned: pinned, delivery: delivery)
-        return NewTask(title: title, brief: brief, ticket: call.optionalString("ticket"), project: project, agent: agent, model: model, end: end,
+        return NewTask(title: title, brief: brief, ticket: call.optionalString("ticket"), issueType: call.optionalString("issueType"), project: project, agent: agent, model: model, end: end,
                        modelReason: modelReason, agentPinned: pinned,
                        dependencies: try dependencies(call, in: run, project: project), deliveryWarning: warning)
     }

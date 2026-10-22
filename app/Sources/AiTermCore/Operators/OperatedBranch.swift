@@ -5,8 +5,17 @@ import Foundation
 /// titles that slug alike take the first of `-2`, `-3`… no other branch has, so every task gets a
 /// worktree and a branch of its own.
 public enum OperatedBranch {
-    public static func name(ticket: String?, title: String, type: BranchType = .feat, taken: Set<String>) -> String {
-        let base = "\(type.rawValue)/" + BranchNaming.branchSlug(key: ticket, summary: title)
+    /// The prefix of a task's branch: the Jira issue type the Operator gave, when it gave one (a `Story`
+    /// is `feat` whatever the title says), else what the title suggests.
+    public static func type(issueType: String?, title: String) -> BranchType {
+        let named = issueType?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return named.isEmpty ? BranchType(title: title) : BranchType(issueType: named)
+    }
+
+    /// `type`, when the caller fixes it, else `type(issueType:title:)`.
+    public static func name(ticket: String?, title: String, issueType: String? = nil, type: BranchType? = nil, taken: Set<String>) -> String {
+        let prefix = (type ?? Self.type(issueType: issueType, title: title)).rawValue
+        let base = "\(prefix)/" + BranchNaming.branchSlug(key: ticket, summary: title)
         var candidate = base, n = 1
         while taken.contains(candidate) { n += 1; candidate = "\(base)-\(n)" }
         return candidate

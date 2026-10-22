@@ -21,8 +21,20 @@ public enum BranchType: String, CaseIterable, Equatable, Sendable {
     public init(issueType: String?) {
         let name = (issueType ?? "").lowercased()
         func has(_ words: String...) -> Bool { words.contains { name.contains($0) } }
-        if has("bug", "defect", "incident") { self = .fix }
-        else if has("chore", "maintenance", "debt", "refactor", "doc") { self = .chore }
+        if has("bug", "defect", "incident", "fix") { self = .fix }
+        else if has("chore", "maintenance", "debt", "refactor", "doc", "dependenc", "upgrade", "bump") { self = .chore }
+        else { self = .feat }
+    }
+
+    /// The type a task's title suggests, for a task with no Jira issue type: maintenance words
+    /// (a dependency, an upgrade, a bump, a refactor) are `chore`, `fix` and `bug` are `fix`, and any
+    /// other title is feature work. Words are matched where they start, so `prefix` is not a fix, and
+    /// `fix` as a whole word, so `fixture` is not either.
+    public init(title: String) {
+        let name = title.lowercased()
+        func matches(_ patterns: String...) -> Bool { patterns.contains { name.range(of: "\\b" + $0, options: .regularExpression) != nil } }
+        if matches("dependenc", "upgrade", "bump", "update deps", "chore", "maintenance", "refactor") { self = .chore }
+        else if matches("(hot)?fix(es|ed|ing)?\\b", "bug") { self = .fix }
         else { self = .feat }
     }
 

@@ -17,9 +17,20 @@ public enum BranchNaming {
         return out
     }
 
-    /// The part of a task branch after its type: the ticket key, then the slugged summary.
+    /// The part of a task branch after its type: the ticket key, then the slugged summary. A summary
+    /// that opens with its own key (`FE-1783 Dependency updates`, as Jira titles often do) is not
+    /// said twice.
     public static func branchSlug(key: String?, summary: String) -> String {
-        [key?.lowercased(), slug(summary)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "-")
+        [key?.lowercased(), slug(withoutLeading(key, in: summary))].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "-")
+    }
+
+    /// `summary` less a leading copy of `key`: any case, and followed by a space, `:`, `-` or `–`
+    /// (or by nothing). `FE-17` does not open `FE-178 Vue`.
+    private static func withoutLeading(_ key: String?, in summary: String) -> String {
+        guard let key, !key.isEmpty, summary.lowercased().hasPrefix(key.lowercased()) else { return summary }
+        let rest = summary.dropFirst(key.count)
+        guard let next = rest.first else { return "" }
+        return " :-–".contains(next) ? String(rest) : summary
     }
 
     /// The worktree directory for `branch`, less its type: `feat/login` works in `.worktrees/login`.

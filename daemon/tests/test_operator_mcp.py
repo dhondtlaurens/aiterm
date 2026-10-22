@@ -315,6 +315,15 @@ def test_report_snag_is_about_aiterm_not_the_project():
     assert "report_find" in snag["description"] and "AiTerm itself" in snag["description"]
 
 
+def test_create_task_takes_an_issue_type_that_sets_the_branch_prefix():
+    create = next(tool for tool in TOOLS if tool["name"] == "create_task")["inputSchema"]
+    assert create["properties"]["issueType"]["type"] == "string" and "issueType" not in create["required"]
+    assert "Sets the branch prefix" in create["properties"]["issueType"]["description"]
+    for tool in TOOLS:
+        if "ticket" in tool["inputSchema"]["properties"] and tool["name"].startswith(("create_", "submit_")):
+            assert "issueType" in tool["inputSchema"]["properties"], tool["name"]
+
+
 def test_create_task_end_is_optional():
     create = next(tool for tool in TOOLS if tool["name"] == "create_task")["inputSchema"]
     assert "end" in create["properties"] and "end" not in create["required"]

@@ -10,6 +10,7 @@ import Testing
         ("New Feature", .feat), ("Improvement", .feat),
         ("Chore", .chore), ("Maintenance", .chore), ("Tech Debt", .chore), ("Technical debt", .chore),
         ("Refactor", .chore), ("Documentation", .chore), ("Performance", .feat),
+        ("Dependency", .chore), ("Dependencies", .chore), ("Upgrade", .chore), ("Bump", .chore), ("fix", .fix), ("feat", .feat),
     ])
     func testAJiraIssueTypeMapsToABranchType(issueType: String, expected: BranchType) {
         #expect(BranchType(issueType: issueType) == expected)
@@ -19,6 +20,16 @@ import Testing
         #expect(BranchType(issueType: "Spike") == .feat)
         #expect(BranchType(issueType: nil) == .feat)
         #expect(BranchType(issueType: "") == .feat)
+    }
+
+    @Test(arguments: [
+        ("FE-1783 Dependency updates: Vue and Vite", BranchType.chore), ("Upgrade checkout", .chore), ("Bump vite to 7", .chore),
+        ("Update deps", .chore), ("Chore: tidy", .chore), ("Scheduled maintenance", .chore), ("Refactor the cart", .chore),
+        ("Fix the cart total", .fix), ("Cart bug on Safari", .fix), ("Bugfix for login", .fix),
+        ("Shop banner", .feat), ("Prefix the order number", .feat), ("Add a fixture loader", .feat), ("", .feat),
+    ])
+    func testATitleSaysTheTypeWhenNoIssueTypeDoes(title: String, expected: BranchType) {
+        #expect(BranchType(title: title) == expected)
     }
 
     /// A branch typed or pasted whole splits into its type and the rest; an unknown prefix is not a

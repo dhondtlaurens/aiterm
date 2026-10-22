@@ -266,7 +266,9 @@ TOOLS: tuple[dict[str, Any], ...] = (
           {"key": _KEY, "title": _text("The task's title, as its row shows it."),
            "brief": _text("The worker's first prompt: everything it needs, since it sees nothing else."),
            "project": _text("The project it belongs to, one of the broadcast's, by name or by id from run_status."),
-           "ticket": _text("The Jira key it works, if any."), "agent": _AGENT, "model": _MODEL,
+           "ticket": _text("The Jira key it works, if any."),
+           "issueType": _text("The Jira issue type, or feat, fix or chore. Sets the branch prefix."),
+           "agent": _AGENT, "model": _MODEL,
            "modelReason": _text("Why this agent and model, in one line, as the task's card and the summary show it."),
            "agentPinned": {"type": "boolean", "description": "True when the person's words named this task's agent: it then "
                                                              "starts on that agent whatever its weekly use."},

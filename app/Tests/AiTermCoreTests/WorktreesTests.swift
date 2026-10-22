@@ -39,6 +39,14 @@ import Darwin
         #expect(BranchNaming.slug("Add graceful SIGTERM shutdown to the worker (drain in-flight tasks, fail-fast the rest)") == "add-graceful-sigterm-shutdown-to-the-worker-drai")
         #expect(BranchNaming.branchSlug(key: "WEB-5447", summary: "Add graceful SIGTERM") == "web-5447-add-graceful-sigterm")
         #expect(BranchNaming.branchSlug(key: nil, summary: "Sidebar avatars") == "sidebar-avatars")
+        // A summary that opens with its own key does not say it twice.
+        #expect(BranchNaming.branchSlug(key: "FE-1783", summary: "FE-1783 Dependency updates: Vue") == "fe-1783-dependency-updates-vue")
+        #expect(BranchNaming.branchSlug(key: "FE-1783", summary: "fe-1783: Vue") == "fe-1783-vue")
+        #expect(BranchNaming.branchSlug(key: "FE-1783", summary: "FE-1783 - Vue") == "fe-1783-vue")
+        #expect(BranchNaming.branchSlug(key: "FE-1783", summary: "FE-1783 – Vue") == "fe-1783-vue")
+        #expect(BranchNaming.branchSlug(key: "FE-1783", summary: "FE-1783") == "fe-1783")
+        #expect(BranchNaming.branchSlug(key: "FE-17", summary: "FE-178 Vue") == "fe-17-fe-178-vue", "only a whole key is dropped")
+        #expect(BranchNaming.branchSlug(key: "FE-1", summary: "Fix FE-1 links") == "fe-1-fix-fe-1-links", "only a leading copy")
     }
 
     @Test func testToplevelAndDefaultBranchWithoutRemote() throws {
