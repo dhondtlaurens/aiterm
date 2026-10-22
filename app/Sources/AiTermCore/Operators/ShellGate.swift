@@ -42,7 +42,7 @@ public enum ShellGate {
 
     /// The command as its words, one list per segment between `|`, `||`, `&&` and `;`, with quotes taken off
     /// and the harmless redirects dropped. Nil for anything that can run or write something this does not see:
-    /// an expansion (`$`, a backtick, and unquoted `{ } * ? [ !`, or a `~` that starts a word), a subshell, a control character (a
+    /// an expansion (`$`, a backtick, and unquoted `{ } * ? [ !`, a `~` or `=` that starts a word), a subshell, a control character (a
     /// newline, a tab), a non-ASCII character outside quotes, a backslash, a lone `&`, any other redirect, an
     /// unbalanced quote, or a segment with nothing in it. It walks unicode scalars, not characters: the
     /// shell parses bytes, and a combining mark after a quote or `;` would otherwise hide it.
@@ -83,6 +83,8 @@ public enum ShellGate {
                 continue
             }
             guard c.isASCII else { return nil }
+            // zsh, which runs these, expands a word that starts with `=` to the path of that command.
+            if c == "=", !inWord { return nil }
             switch c {
             case "'", "\"":
                 quote = c; inWord = true; quoted = true
@@ -220,6 +222,13 @@ public enum ShellGate {
         private static func digits(_ value: String) -> Bool { ShellGate.matches(value, #"^[0-9]+$"#) }
         private static func count(_ value: String) -> Bool { ShellGate.matches(value, #"^\+?[0-9]+$"#) }
         private static func get(_ value: String) -> Bool { value == "GET" }
+        /// A jq expression that does not mention `env` or `$ENV`, which would print the environment.
+        private static func jq(_ value: String) -> Bool { !ShellGate.matches(value, #"(?i)(^|[^A-Za-z0-9_])env($|[^A-Za-z0-9_])"#) }
+        private static func workspace(_ value: String) -> Bool { ShellGate.matches(value, #"^[A-Za-z0-9@][A-Za-z0-9@._/-]*$"#) }
+        private static func omit(_ value: String) -> Bool { ["dev", "optional", "peer"].contains(value) }
+        private static func auditLevel(_ value: String) -> Bool { ["info", "low", "moderate", "high", "critical", "none"].contains(value) }
+        /// A package, with or without a version or a field: `react`, `@scope/pkg@1`, `dist.tarball`.
+        private static func package(_ value: String) -> Bool { ShellGate.matches(value, #"^[A-Za-z0-9@][A-Za-z0-9@._/-]*$"#) }
         /// A remote or a branch: no `+`, no `:` (a refspec with a destination writes a local branch, a
         /// URL with `::` runs a helper) and no leading `-`.
         private static func plainName(_ value: String) -> Bool { ShellGate.matches(value, #"^[A-Za-z0-9][A-Za-z0-9._/-]*$"#) }
@@ -238,21 +247,28 @@ public enum ShellGate {
             }
             guard isInside(location), let subcommand = args.first else { return false }
             let rest = Array(args.dropFirst())
+            // A word that is a revision or a path cannot be told apart here, so each is held to the roots as a path
+            // from where git runs: `git diff /a /b` with both outside the repository turns into `--no-index` by itself.
+            let here = Judge(directory: location, roots: roots, resolve: resolve)
+            func inside(_ options: Options) -> Bool {
+                guard let parsed = options.parse(rest) else { return false }
+                return parsed.words.allSatisfy(here.isInside)
+            }
             switch subcommand {
             case "status":
-                return Options(switches: ["-s", "-b", "--short", "--branch", "--porcelain"]).parse(rest) != nil
+                return inside(Options(switches: ["-s", "-b", "--short", "--branch", "--porcelain"]))
             case "log", "show":
-                return Options(switches: ["--oneline", "--stat", "--name-only", "--name-status", "--graph", "--decorate", "--all", "-p", "--no-ext-diff"],
-                               values: ["-n": Judge.digits],
-                               patterns: [#"^-[0-9]+$"#, #"^--(format|pretty|since|until|author)=.+$"#]).parse(rest) != nil
+                return inside(Options(switches: ["--oneline", "--stat", "--name-only", "--name-status", "--graph", "--decorate", "--all", "-p", "--no-ext-diff"],
+                                      values: ["-n": Judge.digits],
+                                      patterns: [#"^-[0-9]+$"#, #"^--(format|pretty|since|until|author)=.+$"#]))
             case "diff":
-                return Options(switches: ["--stat", "--name-only", "--name-status", "--cached", "--staged", "--no-ext-diff"],
-                               patterns: [#"^-U[0-9]+$"#]).parse(rest) != nil
+                return inside(Options(switches: ["--stat", "--name-only", "--name-status", "--cached", "--staged", "--no-ext-diff"],
+                                      patterns: [#"^-U[0-9]+$"#]))
             case "rev-parse":
-                return Options(switches: ["--abbrev-ref", "--short", "--show-toplevel", "--verify", "--symbolic-full-name",
-                                          "--is-inside-work-tree", "--git-dir"]).parse(rest) != nil
+                return inside(Options(switches: ["--abbrev-ref", "--short", "--show-toplevel", "--verify", "--symbolic-full-name",
+                                                 "--is-inside-work-tree", "--git-dir"]))
             case "merge-base":
-                return Options(switches: ["--is-ancestor"]).parse(rest) != nil
+                return inside(Options(switches: ["--is-ancestor"]))
             case "branch":
                 var i = 0
                 while i < rest.count {
@@ -306,8 +322,9 @@ public enum ShellGate {
 
         /// A read subcommand's options: its switches and its flags with a value, `-R`/`--repo` besides.
         private static func listing(_ switches: [String], _ values: [String] = [], positionals: Int = 0) -> Options {
-            Options(switches: Set(switches), values: Dictionary(uniqueKeysWithValues: Set(values + ["-R", "--repo"]).map { ($0, Judge.anything) }),
-                    positionals: 0...positionals, positional: { !ShellGate.isOption($0) })
+            var checks: [String: (String) -> Bool] = [:]
+            for name in values + ["-R", "--repo"] { checks[name] = name == "--jq" || name == "-q" ? Judge.jq : Judge.anything }
+            return Options(switches: Set(switches), values: checks, positionals: 0...positionals, positional: { !ShellGate.isOption($0) })
         }
 
         /// `glab` and `gh`: a few read subcommands, and `api` as a GET of one path that sends nothing.
@@ -316,7 +333,7 @@ public enum ShellGate {
             let rest = Array(args.dropFirst())
             if group == "api" {
                 return Options(switches: ["-i", "--include", "--paginate"],
-                               values: ["--jq": Judge.anything, "-q": Judge.anything, "--hostname": Judge.anything,
+                               values: ["--jq": Judge.jq, "-q": Judge.jq, "--hostname": Judge.anything,
                                         "-X": Judge.get, "--method": Judge.get],
                                positionals: 1...1).parse(rest) != nil
             }
@@ -329,15 +346,22 @@ public enum ShellGate {
             let rest = Array(args.dropFirst())
             switch subcommand {
             case "-v", "--version": return rest.isEmpty
-            case "outdated", "ls", "list", "view": return true
+            case "outdated", "ls", "list":
+                // npm takes shortened option names and writes a log or a cache wherever one points: only these.
+                return Options(switches: ["--json", "--long", "--all", "--workspaces", "--parseable"],
+                               values: ["--depth": Judge.digits, "--workspace": Judge.workspace, "-w": Judge.workspace, "--omit": Judge.omit],
+                               positional: Judge.package).parse(rest) != nil
+            case "view":
+                return Options(switches: ["--json"], positionals: 1...3, positional: Judge.package).parse(rest) != nil
             case "audit":
-                return Options(switches: ["--json"], values: ["--audit-level": Judge.anything], positionals: 0...0).parse(rest) != nil
+                return Options(switches: ["--json"], values: ["--audit-level": Judge.auditLevel], positionals: 0...0).parse(rest) != nil
             case "config":
                 guard let action = rest.first else { return false }
-                if action == "list" { return true }
-                // A key that names a credential would print it.
+                if action == "list" { return Options(switches: ["--json", "-l"], positionals: 0...0).parse(Array(rest.dropFirst())) != nil }
+                // A key that names a credential would print it, and an option in its place would be taken as one.
                 let secret = ["token", "auth", "password", "secret", "key", "cert"]
-                return action == "get" && rest.count == 2 && !secret.contains { rest[1].lowercased().contains($0) }
+                return action == "get" && rest.count == 2 && ShellGate.matches(rest[1], #"^[A-Za-z0-9][A-Za-z0-9._-]*$"#)
+                    && !secret.contains { rest[1].lowercased().contains($0) }
             default: return false
             }
         }

@@ -132,6 +132,53 @@ import Testing
         }
     }
 
+    @Test func npmTakesOnlyTheOptionsNamedForItsReads() {
+        for command in ["npm ls --logs-dir=/tmp/x", "npm ls --logs-di=/tmp/x", "npm view react --cache=/tmp/c", "npm view react --cach=/tmp/c",
+                        "npm outdated --cache /tmp/c", "npm list --prefix /tmp", "npm ls --global", "npm ls -g", "npm ls --depth=x", "npm ls --omit=all",
+                        "npm ls --workspace=../x", "npm ls -w", "npm ls ../pkg", "npm ls /etc", "npm view", "npm view react --registry=http://x",
+                        "npm config list --logs-dir=/tmp/x", "npm config list -L", "npm config get --logs-dir=/tmp/x", "npm config get",
+                        "npm config get registry --cache=/tmp/c", "npm audit --audit-level=evil", "npm audit --cache=/tmp/c", "npm outdated --json --foo"] {
+            #expect(route(command) == .oracle, "\(command)")
+        }
+        for command in ["npm ls", "npm ls react", "npm ls --all --json --long --parseable", "npm list --depth=0", "npm outdated --workspaces",
+                        "npm outdated -w packages/a", "npm ls --workspace=a --omit=dev", "npm view react version", "npm view @scope/pkg@1.2 dist.tarball --json",
+                        "npm config list --json", "npm config list -l", "npm config get registry", "npm audit --json --audit-level=high"] {
+            #expect(route(command) == .read(rewrite: nil), "\(command)")
+        }
+    }
+
+    @Test func zshExpansionsAtTheStartOfAWordGoToTheOracle() {
+        for command in ["cat =ls", "=(ls)", "git status =cat", "git status | =cat", "cat (ls)", "cat package.json )", "diff =(ls) b", "git log -n =1"] {
+            #expect(route(command) == .oracle, "\(command)")
+        }
+        // Quoted, or inside a word, an equals sign is plain text.
+        #expect(route("git log --author='=x' --format=%H") == .read(rewrite: nil))
+        #expect(route("cat '=x'") == .read(rewrite: nil))
+    }
+
+    @Test func gitPathsAreHeldToTheRoots() {
+        for command in ["git diff /etc/hosts /etc/passwd", "git diff -- /etc/hosts", "git diff ../a ../b", "git log /Users/x/.ssh", "git show /etc/hosts",
+                        "git diff main -- ../../x", "git log -- /outside", "git -C /code/shop diff /etc/a /etc/b", "git status /etc", "git diff /code/shopfront/a /code/shopfront/b"] {
+            #expect(route(command) == .oracle, "\(command)")
+        }
+        #expect(route("git diff link other", resolve: { $0 == "/code/shop/link" ? "/Users/x/a" : $0 }) == .oracle)
+        for command in ["git diff /code/shop/a /code/shop/b", "git diff main..HEAD -- src/a.ts", "git log -- src", "git show HEAD:package.json", "git diff origin/main",
+                        "git -C /runs/R diff a b", "git log /runs/R/x"] {
+            #expect(route(command) == .read(rewrite: nil), "\(command)")
+        }
+    }
+
+    @Test func aJqExpressionThatReadsTheEnvironmentGoesToTheOracle() {
+        for command in ["gh api repos/a/b --jq env", "gh api repos/a/b --jq '$ENV.PATH'", "gh api repos/a/b -q '.x | env.HOME'", "gh api repos/a/b --jq=env",
+                        "gh api repos/a/b -q 'ENV'", "glab api projects/1 --jq '[env]'", "gh pr view 1 --json number --jq env", "gh pr list --jq '$ENV'",
+                        "gh run list -q '.[] | env'"] {
+            #expect(route(command) == .oracle, "\(command)")
+        }
+        for command in ["gh api repos/a/b --jq '.[].environment'", "gh api repos/a/b -q '.[].number'", "gh pr list --json number --jq '.[] | .number'"] {
+            #expect(route(command) == .read(rewrite: nil), "\(command)")
+        }
+    }
+
     @Test func pathsStayInsideTheBroadcast() {
         for command in ["cat ../../.ssh/id_rsa", "cat ~/.npmrc", "cat /etc/hosts", "cat ~root/x", "ls /", "cat package.json /etc/hosts",
                         "head -n 3 /etc/hosts", "cat /code/shop/../../etc/hosts", "cat *", "ls src/*.ts", "cat {a,b}",
