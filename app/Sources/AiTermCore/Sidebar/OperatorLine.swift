@@ -134,6 +134,12 @@ public struct OperatorLine: Equatable, Sendable {
             // The Operator holds it: the line moves with the row's mark, whether the agent works or the Operator
             // checks it next. The row's icon names the agent, so the line names the Operator.
             if !sessions.isEmpty, task.isReadyForAcceptance(in: sessions) { return OperatorLine(Count.ready.words, look: .acting) }
+            // Its turn ended with work running in the background, which wakes it again: still at work.
+            let background = task.workerTabs(in: sessions).flatMap(\.background)
+            if !background.isEmpty {
+                return OperatorLine(Count.working.words + " · in background", look: .acting,
+                                    tooltip: "Running in the background: " + background.joined(separator: ", "))
+            }
             let open = task.workerTabs(in: sessions).filter { !$0.isClosed }.count
             if open > 1 { return OperatorLine(Count.working.words + " · \(open) tabs", look: .acting) }
             return OperatorLine(Count.working.words, look: .acting)

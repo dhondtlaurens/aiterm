@@ -147,6 +147,21 @@ def test_a_claude_stop_lists_the_subagents_still_running(tasks, expected):
     assert parse_claude_hook(payload).running_subagents == expected
 
 
+def test_a_claude_stop_lists_the_background_work_still_running():
+    """What will wake the session again once it ends: a shell by its command, other work by its description. A
+    subagent is the turn's own (`running_subagents`), and work that has ended wakes nothing."""
+    tasks = [{"id": "a1", "type": "subagent", "status": "running", "description": "Fix it"},
+             {"id": "b1", "type": "shell", "status": "running", "description": "the gate", "command": "npm run test:run"},
+             {"id": "b2", "type": "shell", "status": "completed", "description": "lint", "command": "npm run lint"},
+             {"id": "m1", "type": "monitor", "status": "pending", "description": "CI on !46"}]
+    event = parse_claude_hook({**BASE, "hook_event_name": "Stop", "background_tasks": tasks})
+    assert event.background_work == ("npm run test:run", "CI on !46")
+    assert parse_claude_hook({**BASE, "hook_event_name": "Stop", "background_tasks": []}).background_work == ()
+    # An older Claude Code sends no list: nothing is known.
+    assert parse_claude_hook({**BASE, "hook_event_name": "Stop"}).background_work is None
+    assert parse_claude_hook({**BASE, "hook_event_name": "UserPromptSubmit", "background_tasks": tasks}).background_work is None
+
+
 def test_only_a_claude_stop_lists_running_subagents():
     tasks = {"background_tasks": []}
     assert parse_claude_hook({**BASE, "hook_event_name": "SubagentStop", "agent_id": "a1", **tasks}).running_subagents is None

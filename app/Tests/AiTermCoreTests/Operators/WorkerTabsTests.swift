@@ -28,6 +28,28 @@ import Testing
         return world.state.task(id: id)!
     }
 
+    /// What its workers left running in the background holds a task that ended its turn: it is not ready, its line
+    /// says `Operator watching · in background`, and only an ended turn's background counts.
+    @Test func backgroundWorkHoldsATaskThatEndedItsTurn() throws {
+        var world = OperatedWorld()
+        let id = world.addTask("T-1", run: world.addRun(), state: .working)
+        let task = try #require(world.state.task(id: id))
+        let runId = try #require(task.operated?.runId)
+        let run = try #require(world.state.run(id: runId))
+        var done = session("s1", task: task.id, state: .done)
+        done.background = ["npm run test:run"]
+        #expect(task.workerTabs(in: [done]).flatMap(\.background) == ["npm run test:run"])
+        #expect(!task.isReadyForAcceptance(in: [done]))
+        let line = try #require(OperatorLine.task(task, run: run, acting: nil, requests: [], sessions: [done]))
+        #expect(line.text == "Operator watching · in background" && line.look == .acting)
+        #expect(line.tooltip == "Running in the background: npm run test:run")
+        done.background = []
+        #expect(task.isReadyForAcceptance(in: [done]))
+        var working = session("s1", task: task.id, state: .working)
+        working.background = ["npm run dev"]
+        #expect(task.workerTabs(in: [working]).flatMap(\.background).isEmpty, "a turn under way waits on nothing yet")
+    }
+
     @Test func aTaskWithNoExtraTabHasItsFirstWorkerAlone() {
         let task = task([])
         let tabs = task.workerTabs(in: [session("s1", task: task.id)])

@@ -184,6 +184,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool("run_status", "The broadcast now, numbered by revision: every task with its state, live status, branch, last commit "
           "and a one-line summary, and what is open: questions waiting, prompts waiting on the person (a prompt open in a "
           "worker's terminal), tasks ready to accept, "
+          "tasks whose worker ended its turn with work still running in the background (under background; each task's "
+          "background lists the commands, and the worker wakes on its own when they end, so it is not ready yet), "
           "tasks possibly stalled, anything uncertain. A task with tabs added by open_tab lists every worker tab under tabs, "
           "its first worker as main, and is ready to accept only once every tab ended its turn; a prompt in an added tab is "
           "named task/tab, and a tab that was closed is marked closed and never opened again. "

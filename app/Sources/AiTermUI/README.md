@@ -316,8 +316,10 @@ with no done ring, and turns amber only when it needs you: its tab waiting on in
 Operator's words are plain verbs: accepting is its job, so only what you must do is amber. A task row's icon
 already names its agent, so wherever the Operator acts on a task its row names the Operator, never the agent
 (`Operator answering`, not `answering Codex` on a Codex row, which reads as Codex answering itself). Acting:
-`Operator watching` (the task's agent works; `Operator watching · 2 tabs` with several worker tabs open), `ready
-for the Operator` (every worker ended its turn: the Operator checks it next), the broadcast's `3 working` (`2
+`Operator watching` (the task's agent works; `Operator watching · 2 tabs` with several worker tabs open;
+`Operator watching · in background` once its turn ended with work still running in the background, which wakes it
+again, the commands on the tooltip), `ready for the Operator` (every worker ended its turn with nothing left running:
+the Operator checks it next), the broadcast's `3 working` (`2
 working · 1 to check` while some wait for the Operator; the words are `OperatorLine.Count`'s, on the header's
 tooltip and VoiceOver value, the folded chips and the board's band), and the acts: `loading the construct`, `consulting the Oracle`,
 `starting Claude`, `answering Claude`, `checking the work`, `reviewing with Codex`, `opening the MR`,

@@ -4,6 +4,7 @@
     "active": true,
     "agent": "shell",
     "agentCwd": null,
+    "background": [],
     "contextPercent": null,
     "conversationId": null,
     "cwd": "/repo/.worktrees/feat-wire",
