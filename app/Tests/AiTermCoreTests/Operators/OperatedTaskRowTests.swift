@@ -69,16 +69,16 @@ import Testing
         #expect(drawn.avatars == AvatarGroup(marks: [], overflow: 0))
     }
 
-    /// What waits on you is read from the broadcast's requests, as the notifications say them.
-    @Test func aQuestionOnTheTaskIsItsLine() throws {
+    /// What waits on you is read from the broadcast's requests, as the notifications say them; a question the Operator
+    /// asks about the task is its own row's (2A, 22 Oct 2026), so the task's line goes on with its worker.
+    @Test func aQuestionOnTheTaskIsTheOperatorsNotItsLine() throws {
         let footerId = UUID()
         let run = OperatorUIFixtures.run(questions: [OperatorUIFixtures.question("retry policy?", task: footerId)])
         let task = OperatorUIFixtures.task("Fix the /privacy footer link", id: footerId, agent: .codex, project: web.id,
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "footer", state: .working,
                                                                                   flags: [.waitingOnYou]))
         let line = row(task, run: run).operatorLine
-        #expect(line?.text == "waiting on you" && line?.look == .needsYou)
-        #expect(line?.tooltip == "The Operator asks: retry policy?")
+        #expect(line?.text == "Operator watching" && line?.look == .acting)
         let parent = OperatorUIFixtures.task("The signup block schema", jira: "PLUTO-231", project: web.id,
                                              operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-231", state: .accepted, sha: "4f2a91c"))
         let child = OperatorUIFixtures.task("t", project: web.id,

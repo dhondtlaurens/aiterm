@@ -184,7 +184,12 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool("run_status", "The broadcast now, numbered by revision: every task with its state, live status, branch, last commit "
           "and a one-line summary, and what is open: questions waiting, prompts waiting on the person (a prompt open in a "
           "worker's terminal), tasks ready to accept, "
-          "tasks possibly stalled, anything uncertain. A task with tabs added by open_tab lists every worker tab under tabs, "
+          "tasks whose worker ended its turn with work still running in the background (under background; each task's "
+          "background lists the commands, and the worker wakes on its own when they end, so it is not ready yet), "
+          "tasks possibly stalled, anything uncertain. A task whose worker the person is driving, by a prompt they typed "
+          "into its window themselves, says youAreDriving with yourPrompt, its first line, until that turn ends: leave that "
+          "worker alone meanwhile, and read its result afterwards as you would one of your own. "
+          "A task with tabs added by open_tab lists every worker tab under tabs, "
           "its first worker as main, and is ready to accept only once every tab ended its turn; a prompt in an added tab is "
           "named task/tab, and a tab that was closed is marked closed and never opened again. "
           "Under run it also shows the off-brief finds, the snags you recorded with report_snag (so you don't record one "
@@ -323,7 +328,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "They answer in this window; close it with resolve_question. The same key returns the open question.",
           {"key": _KEY, "question": _text("The question, complete on its own."),
            "task": _text("Only when that task's worker is itself stopped on the answer: the task, by its key or its id from "
-                         "run_status. The task then shows waiting on the person, and Waiting on you opens its worker's terminal. "
+                         "run_status. Your row then shows waiting on the person, naming the task, and the task waits for the answer: it "
+                         "isn't ready to accept and isn't watched for stalls until you resolve the question. "
                          "Left out for a question about your own next step, such as a reviewer's username, a scope choice or a "
                          "merge decision.")},
           ("key", "question")),

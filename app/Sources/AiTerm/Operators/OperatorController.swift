@@ -295,7 +295,9 @@ final class OperatorController {
                 }
             }
             if tab != nil || prompt != nil || !extra.isEmpty {
-                facts[task.id] = TaskLiveFacts(status: tab?.state, waitingPrompt: prompt, tabs: Array(extra))
+                facts[task.id] = TaskLiveFacts(status: tab?.state, waitingPrompt: prompt, tabs: Array(extra),
+                                               background: workers.flatMap(\.background),
+                                               yourPrompt: workers.lazy.compactMap { $0.session?.yourPrompt }.first)
             }
         }
         return facts

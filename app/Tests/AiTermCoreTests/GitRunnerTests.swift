@@ -90,6 +90,19 @@ import Testing
         #expect(env["GIT_OPTIONAL_LOCKS"] == "0" && env["GIT_TERMINAL_PROMPT"] == "0" && env["LC_MESSAGES"] == "C")
     }
 
+    /// The hooks git runs (a lefthook pre-push that runs `npm`) need the login shell's `PATH`, not
+    /// launchd's: a runner given one runs every command with it, over what it inherits but under its
+    /// own environment and a call's. Without one, the inherited `PATH` stands.
+    @Test func aRunnerRunsWithTheSearchPathItIsGiven() {
+        let inherited = ["PATH": "/usr/bin:/bin"]
+        let login = GitRunner(searchPath: { "/opt/homebrew/bin:/usr/bin:/bin" })
+        #expect(login.commandEnvironment(inheriting: inherited, extra: [:])["PATH"] == "/opt/homebrew/bin:/usr/bin:/bin")
+        #expect(login.commandEnvironment(inheriting: inherited, extra: ["PATH": "/call"])["PATH"] == "/call")
+        let own = GitRunner(environment: ["PATH": "/own"], searchPath: { "/opt/homebrew/bin" })
+        #expect(own.commandEnvironment(inheriting: inherited, extra: [:])["PATH"] == "/own")
+        #expect(GitRunner(searchPath: { nil }).commandEnvironment(inheriting: inherited, extra: [:])["PATH"] == "/usr/bin:/bin")
+    }
+
     /// git asking a remote that never answers, or an `ssh` waiting on a passphrase no one can
     /// type, must not hold a background thread forever. The timeout fails the command, in words
     /// a toast can show as they are.

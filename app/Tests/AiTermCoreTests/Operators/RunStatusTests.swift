@@ -158,6 +158,25 @@ import Foundation
         #expect(try twoTabs(first: .done, review: nil).0.obligations.readyForAcceptance == ["B"], "a closed extra tab is no worker")
     }
 
+    /// A worker that ended its turn with work still running in the background (Claude's Stop says what) is paused, not
+    /// done: Claude Code wakes it once that work ends. Its task is not ready to accept; it is listed under `background`,
+    /// with the commands its line says, so the Operator can tell a long test run from a stuck worker.
+    @Test func aWorkerWaitingOnBackgroundWorkIsNotReadyForAcceptance() throws {
+        let b = F.task("B", .working)
+        func status(_ background: [String]) throws -> RunStatus {
+            try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1,
+                                         live: [b.id: TaskLiveFacts(status: .done, background: background)]))
+        }
+        let waiting = try status(["npm run test:run"])
+        #expect(waiting.obligations.readyForAcceptance.isEmpty)
+        #expect(waiting.obligations.background == ["B"])
+        #expect(waiting.tasks[0].background == ["npm run test:run"])
+        let ended = try status([])
+        #expect(ended.obligations.readyForAcceptance == ["B"] && ended.obligations.background.isEmpty)
+        #expect(ended.tasks[0].background == nil)
+        #expect(!RunStatus.isReadyForAcceptance(F.operated("B", .working), live: .idle, background: ["CI on !46"]))
+    }
+
     @Test func readinessCountsEveryWorkerTab() {
         let working = F.operated("B", .working)
         #expect(RunStatus.isReadyForAcceptance(working, live: .idle))

@@ -143,6 +143,23 @@ import Testing
         #expect(status.obligations.readyForAcceptance.isEmpty)
     }
 
+    /// A prompt you typed into a worker yourself (`SessionInfo.yourPrompt`): `run_status` says you are driving it, by
+    /// your prompt's first line, until that turn ends, so the Operator leaves the worker alone and reads its result
+    /// afterwards. Its background work is listed beside it (Background work A).
+    @Test func runStatusSaysWhenYouAreDrivingAWorker() throws {
+        let (world, run, task) = try makeWorld()
+        var worker = OperatorServiceFixtures.session("s1", tag: task.id, state: .working)
+        worker.yourPrompt = "Fix the language switch inline here"
+        world.show([OperatorServiceFixtures.session("op", window: "wop", tag: run.id), worker])
+        let line = try #require(try status(world, run).tasks.first)
+        #expect(line.youAreDriving == true && line.yourPrompt == "Fix the language switch inline here")
+        worker.state = .done
+        worker.yourPrompt = nil
+        world.show([OperatorServiceFixtures.session("op", window: "wop", tag: run.id), worker])
+        let after = try #require(try status(world, run).tasks.first)
+        #expect(after.youAreDriving == nil && after.yourPrompt == nil)
+    }
+
     // -- prompts --------------------------------------------------------------------------------------
 
     /// A prompt open in the extra tab is a question waiting on you, on that tab: `run_status` names it, and it is

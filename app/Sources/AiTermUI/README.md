@@ -267,8 +267,8 @@ The Operator's row (`OperatorRowView`, an `OperatorRow` value) is always first u
 hovered, in `RowPill`'s pill, which selection replaces; its ground `Surface.washed` and `.washedHover`, so the
 avatar ring is `Palette.operatorRowSolid` and `operatorRowHoveredSolid`. Claude's `VendorMark` is its avatar,
 `Operator` its title, its line its own session's alone (`OperatorLine.session`: its act, `working`, `watching
-3 tasks` between its turns (`waiting for its tasks` with none at work), `asks you in its window`, `paused`, `window closed`; never a task's request nor
-what its tasks do) and its `StatusMark` trailing, following the line: amber while it asks, spinning while it
+3 tasks` between its turns (`waiting for its tasks` with none at work), `waiting on you` (`waiting on you · PAY-232`
+for its question about a task), `paused`, `window closed`; never a worker's request nor what its tasks do) and its `StatusMark` trailing, following the line: amber while it asks, spinning while it
 acts or works, the accent ring once the summary is written or AiTerm gave up waiting for it, else the idle ring. No project, ticket or branch line. It has an id of its own
 (`OperatorRow.id(of:)`), selected as `RowSelection.operation`, the header being `.broadcast` with the run's.
 ↑ ↓ peek at its window; a click or ↩ brings it to front with iTerm2, or reopens it in front when it is
@@ -316,8 +316,10 @@ with no done ring, and turns amber only when it needs you: its tab waiting on in
 Operator's words are plain verbs: accepting is its job, so only what you must do is amber. A task row's icon
 already names its agent, so wherever the Operator acts on a task its row names the Operator, never the agent
 (`Operator answering`, not `answering Codex` on a Codex row, which reads as Codex answering itself). Acting:
-`Operator watching` (the task's agent works; `Operator watching · 2 tabs` with several worker tabs open), `ready
-for the Operator` (every worker ended its turn: the Operator checks it next), the broadcast's `3 working` (`2
+`Operator watching` (the task's agent works; `Operator watching · 2 tabs` with several worker tabs open;
+`Operator watching · in background` once its turn ended with work still running in the background, which wakes it
+again, the commands on the tooltip), `ready for the Operator` (every worker ended its turn with nothing left running:
+the Operator checks it next), the broadcast's `3 working` (`2
 working · 1 to check` while some wait for the Operator; the words are `OperatorLine.Count`'s, on the header's
 tooltip and VoiceOver value, the folded chips and the board's band), and the acts: `loading the construct`, `consulting the Oracle`,
 `starting Claude`, `answering Claude`, `checking the work`, `reviewing with Codex`, `opening the MR`,
@@ -337,8 +339,9 @@ tests fail on main` and `blocked · the rebase conflicted` (the reason kept: no 
 (`OperatorLine.session`), nothing of its tasks but how many it watches: its act, `working`, `watching 3 tasks`
 between turns (`waiting for its tasks` with none at work), `writing the summary` (acting) once every task is done, then
 `done · summary ready` or `done`,
-`paused`, `asks you in its window` (needs you: its tab waits on input, or a question for the whole broadcast is
-open) and `window closed`; its mark follows the line, the idle ring between turns and amber when it needs you.
+`paused`, `waiting on you` (needs you: its tab waits on input, or one of its questions is open, answered in its
+window; a question about one task names it, `waiting on you · PAY-232`, several are counted, `waiting on you · 2
+questions`, and the task's own row goes on with its worker's line) and `window closed`; its mark follows the line, the idle ring between turns and amber when it needs you.
 A line is at most `OperatorLine.maxLength` (40) characters, its detail cut at a word. The group, its header and
 the Operator's row are values, `BroadcastSection`, `BroadcastRow` and `OperatorRow`
 (`AiTermCore/Sidebar/BroadcastRow.swift`).

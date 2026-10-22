@@ -38,6 +38,11 @@ class HookEvent:
     subagent_transcript: str | None = None
     # The subagents a Claude Stop's `background_tasks` says are still running; None when it cannot say.
     running_subagents: frozenset[str] | None = None
+    # The rest of the work a Claude Stop's `background_tasks` says is still in flight, which wakes the session
+    # again once it ends: a shell by its command, anything else by its description. None when it cannot say.
+    background_work: tuple[str, ...] | None = None
+    # What a UserPromptSubmit submitted, as the agent got it; None for every other event.
+    prompt: str | None = None
     # The harness's own name for the event (`hook_event_name`): a Codex thread's binding to its tab
     # depends on which event bound it (SessionResolver.bind).
     event_name: str | None = None
@@ -78,6 +83,24 @@ CLAUDE_MATCHABLE_TASK_TYPES = frozenset({"subagent", "shell", "monitor", "MCP ta
 CLAUDE_IN_FLIGHT_TASK_STATUSES = frozenset({"running", "pending"})
 
 
+def _claude_background_work(tasks: Any) -> tuple[str, ...] | None:
+    """What a Stop's `background_tasks` lists as in flight besides subagents: the shells, monitors and other work
+    Claude Code resumes the session for once each ends (a dev server left running among them). None when there is
+    no list to read."""
+    if not isinstance(tasks, list):
+        return None
+    work: list[str] = []
+    for task in tasks:
+        if not isinstance(task, dict) or _nonempty_string(task.get("type")) in (None, "subagent"):
+            continue
+        if _nonempty_string(task.get("status")) not in CLAUDE_IN_FLIGHT_TASK_STATUSES:
+            continue
+        said = _nonempty_string(task.get("command")) if task["type"] == "shell" else None
+        if (said := said or _nonempty_string(task.get("description"))) is not None:
+            work.append(said)
+    return tuple(work)
+
+
 def _claude_running_subagents(tasks: Any) -> frozenset[str] | None:
     """The agent ids of the subagents a Stop's `background_tasks` lists as in flight. None when the
     list cannot prove a counted child gone: it is absent (an older Claude Code, or a registry it could
@@ -103,6 +126,11 @@ def _session_start(p: dict[str, Any]) -> Transition | None:
     return None if p.get("source") == "compact" else "sessionStart"
 
 
+def _submitted(name: str, p: dict[str, Any]) -> str | None:
+    """The prompt a UserPromptSubmit submitted; None for any other event."""
+    return _nonempty_string(p.get("prompt")) if name == "UserPromptSubmit" else None
+
+
 def parse_claude_hook(p: dict[str, Any]) -> HookEvent | None:
     # Grok also runs ~/.claude/settings.json hooks. Its payload carries `hookEventName`, which Claude
     # never sends; today Grok refuses our http:// hooks, and this keeps a future Grok from counting as Claude.
@@ -120,10 +148,11 @@ def parse_claude_hook(p: dict[str, Any]) -> HookEvent | None:
         transcript = _claude_subagent_transcript(p, child[1]) if name == "SubagentStart" else None
         return HookEvent("claude", child[0], None, sid, cwd, child[1], subagent_transcript=transcript, event_name=name)
     if name == "Stop":
-        return HookEvent("claude", "done", None, sid, cwd, running_subagents=_claude_running_subagents(p.get("background_tasks")),
-                         event_name=name)
+        tasks = p.get("background_tasks")
+        return HookEvent("claude", "done", None, sid, cwd, running_subagents=_claude_running_subagents(tasks),
+                         background_work=_claude_background_work(tasks), event_name=name)
     if name in SIMPLE_EVENTS:
-        return HookEvent("claude", SIMPLE_EVENTS[name], None, sid, cwd, event_name=name)
+        return HookEvent("claude", SIMPLE_EVENTS[name], None, sid, cwd, event_name=name, prompt=_submitted(name, p))
     if name == "Notification":
         nt = _nonempty_string(p.get("notification_type"))
         if nt in NEEDS_INPUT_NOTIFICATIONS:
@@ -145,7 +174,8 @@ def parse_codex_hook(p: dict[str, Any]) -> HookEvent | None:
         child = _subagent(name, p)
         return HookEvent("codex", child[0], None, sid, cwd, child[1], iterm_session_id, event_name=name) if child else None
     if name in SIMPLE_EVENTS:
-        return HookEvent("codex", SIMPLE_EVENTS[name], model, sid, cwd, iterm_session_id=iterm_session_id, event_name=name)
+        return HookEvent("codex", SIMPLE_EVENTS[name], model, sid, cwd, iterm_session_id=iterm_session_id, event_name=name,
+                         prompt=_submitted(name, p))
     return None
 
 

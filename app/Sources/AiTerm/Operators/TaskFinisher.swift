@@ -210,7 +210,9 @@ final class TaskFinisher {
             }
             remote = ProviderDetector.detect(remoteUrl: origin, repoPath: path)
         } catch {
-            return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: GitError.displayReason(of: error))
+            let why = GitError.displayReason(of: error)
+            recordFailure(why, on: id)
+            return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: why)
         }
         let host: any MergeRequestPublishing
         do { host = try connect(remote) }
@@ -239,8 +241,24 @@ final class TaskFinisher {
         } catch is NotSaved {
             return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: Self.notSavedReason)
         } catch {
-            return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: Self.failure(error, branch: branch))
+            let why = Self.failure(error, branch: branch)
+            recordFailure(why, on: id)
+            return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: why)
         }
+    }
+
+    /// A publication that failed — a push its pre-push hook refused, a host that errored — recorded as the
+    /// task's problem and saved, so its line says `blocked` and why, not `opening the MR` for as long as it
+    /// waits for you. The next `finish_task` clears it (`TaskPublisher`).
+    private func recordFailure(_ why: String, on id: UUID) {
+        store.mutate { state in
+            state.updateOperated(id) {
+                var publication = $0.publication ?? TaskPublication()
+                publication.problem = why
+                $0.publication = publication
+            }
+        }
+        _ = store.flush()
     }
 
     /// A local merge end (spec §5): merged into the project's own checkout's default branch and recorded as published;
@@ -266,7 +284,9 @@ final class TaskFinisher {
         } catch is NotSaved {
             return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: Self.notSavedReason)
         } catch {
-            return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: GitError.displayReason(of: error))
+            let why = GitError.displayReason(of: error)
+            recordFailure(why, on: id)
+            return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: why)
         }
     }
 
@@ -445,6 +465,24 @@ final class TaskFinisher {
         if error is TaskPublisher.PushTimedOut || (error as? GitError).map({ $0.timedOut && $0.args.contains("push") }) == true {
             return "The push of \(branch) timed out, so the push may have landed; call finish_task again, which asks origin before it pushes."
         }
+        if let git = error as? GitError, let said = hookRefusal(git) {
+            return "The pre-push hook refused the push of \(branch): \(said)"
+        }
         return GitError.displayReason(of: error)
+    }
+
+    /// What a pre-push hook said when it refused a push, its last few lines; nil for any other failure. git
+    /// says only "failed to push some refs" then, and a push that reached origin prints `To <url>` first, so
+    /// one that failed without it never left this machine. The hook's own stderr says why; without any,
+    /// what it printed on stdout.
+    static func hookRefusal(_ error: GitError) -> String? {
+        guard error.args.contains("push"), !error.timedOut, error.stderr.contains("failed to push some refs"),
+              !error.stdout.split(separator: "\n").contains(where: { $0.hasPrefix("To ") }) else { return nil }
+        func said(_ text: String) -> [String] {
+            text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty && !$0.hasPrefix("error: failed to push some refs") }
+        }
+        let lines = said(error.stderr).isEmpty ? said(error.stdout) : said(error.stderr)
+        return lines.isEmpty ? "it said nothing" : lines.suffix(3).joined(separator: " ")
     }
 }

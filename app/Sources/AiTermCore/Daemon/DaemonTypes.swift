@@ -28,6 +28,13 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// first worker and from the task's other extra tabs, all tagged with the task. Nil for any other tab, and
     /// from a daemon too old to send it.
     public var tabKey: String? = nil
+    /// What its agent left running in the background when its last turn ended, which wakes it again (Claude's
+    /// `background_tasks`): a shell by its command, other work by its description. A turn ended with any is paused,
+    /// not finished. Empty once a new turn starts, and from a daemon too old to send it.
+    public var background: [String] = []
+    /// The first line of the prompt you typed into this tab yourself, for the turn it started: not one AiTerm launched
+    /// the agent with or delivered. Nil once that turn ends, for any other prompt, and from a daemon too old to send it.
+    public var yourPrompt: String? = nil
     public var id: String { sessionId }
     /// The task tag as the id it names. The app writes `uuidString`, but a tag read back from
     /// iTerm2 is a string, so it is compared as a UUID rather than by spelling.
@@ -62,6 +69,8 @@ extension SessionInfo {
         conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
         terminalId = try c.decodeIfPresent(String.self, forKey: .terminalId)
         tabKey = try c.decodeIfPresent(String.self, forKey: .tabKey)
+        background = try c.decodeIfPresent([String].self, forKey: .background) ?? []
+        yourPrompt = try c.decodeIfPresent(String.self, forKey: .yourPrompt)
     }
 }
 

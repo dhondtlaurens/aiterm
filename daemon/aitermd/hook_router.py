@@ -19,6 +19,12 @@ log = logging.getLogger(__name__)
 RETICK_SECONDS = 1.0
 
 
+def _first_line(prompt: str | None) -> str:
+    """A prompt as run_status names it: its first line with text, cut to 200 characters."""
+    line = next((line.strip() for line in (prompt or "").splitlines() if line.strip()), "")
+    return line[:200] or "a prompt you typed"
+
+
 class HookRouter:
     """Places each post on a tab through the resolver, applies it to the status engine or the
     usage store, and publishes what changed. Knows nothing of HTTP or of iTerm2."""
@@ -35,6 +41,11 @@ class HookRouter:
         self._last_tick_start = float("-inf")
         self._ticks: set[asyncio.Task[bool]] = set()
         self._stopped = False
+        # Whether the prompt a tab submits now is one you typed there: you just pressed Return in it and AiTerm
+        # pasted nothing into it meanwhile. The service sets it once its keystroke and delivery records exist.
+        self.typed_by_you: Callable[[str], bool] = lambda _sid: False
+        # The tabs whose conversation has submitted a prompt since it started: its first is AiTerm's launch prompt.
+        self._prompted: set[str] = set()
 
     async def stop(self) -> None:
         """End shared retry ticks, including those shielded from a cancelled HTTP caller."""
@@ -82,8 +93,20 @@ class HookRouter:
         starts_elsewhere = ev.kind == "sessionStart" and sid != direct
         if not starts_elsewhere:
             changed += self.status.apply_event(sid, ev)
+            if ev.kind == "sessionStart":
+                self._prompted.discard(sid)
+        if ev.event_name == "UserPromptSubmit" and not ev.nested:
+            changed += self._note_prompt(sid, ev.prompt)
         await self.publisher.session_changed(changed)
         return None
+
+    def _note_prompt(self, sid: str, prompt: str | None) -> list[str]:
+        """Records whether the prompt that started the tab's turn is yours (SessionInfo.your_prompt): never the first
+        of its conversation, which AiTerm launched it with, even right after a Return (a folder-trust dialog's)."""
+        first = sid not in self._prompted
+        self._prompted.add(sid)
+        yours = None if first or not self.typed_by_you(sid) else _first_line(prompt)
+        return [sid] if self.status.reg.set_your_prompt(sid, yours) else []
 
     async def _tick_for_unplaced(self) -> bool:
         """Waits for a tick that began after the caller's post arrived, so that a tab the registry

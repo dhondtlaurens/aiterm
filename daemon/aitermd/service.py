@@ -17,7 +17,7 @@ from .delivery import NOT_CHECKED, Deliverer, Verdict, read_policy
 from .hook_router import HookRouter
 from .hooks_server import HookServer
 from .iterm_bridge import ItermPort
-from .keystrokes import TypingGuard
+from .keystrokes import YOUR_PROMPT_SECONDS, TypingGuard
 from .offload import run_detached
 from .operator_mcp import OperatorRoute, OperatorTokens
 from .publisher import Publisher
@@ -92,6 +92,7 @@ class Service:
         self._monotonic = monotonic
         self.typing = TypingGuard(self.iterm.keystroke_epoch)
         self.deliverer = Deliverer(iterm, self.registry, delivery_policy or read_policy, self.typing, monotonic=monotonic)
+        self.hook_router.typed_by_you = self._typed_by_you
         # The operator's MCP server (Operators spec §5), on the hook server's port: its tool calls
         # are forwarded to the attached app, which answers them over this socket.
         # `operator_runs` is where the app keeps each run's token file, which a restarted daemon loads
@@ -271,6 +272,13 @@ class Service:
             await self.rpc.broadcast(protocol.WINDOW_ACTIVATED, {"windowId": window_id})
         except Exception:  # noqa: BLE001 - must not escape into the iTerm2 library's dispatch
             log.exception("on_window_activated failed for %s", window_id)
+
+    def _typed_by_you(self, session_id: str) -> bool:
+        """Whether the prompt the session submits now is one you typed: you pressed Return there within
+        YOUR_PROMPT_SECONDS, and AiTerm pasted nothing there within it."""
+        now = self._monotonic()
+        return (self.typing.submitted_within(session_id, now, YOUR_PROMPT_SECONDS)
+                and not self.deliverer.delivered_within(session_id, now, YOUR_PROMPT_SECONDS))
 
     async def _on_keystroke(self, session_id: str, characters: str, modifiers: frozenset[str]) -> None:
         # Only the moment and the key's effect on the input are kept (keystrokes.TypingGuard), and

@@ -326,17 +326,17 @@ public enum OperatorCommand {
     static let writingRule = "Use a comma, a colon or parentheses where you would use a dash, as AiTerm's own copy does: what "
         + "you write shows in AiTerm, Jira and merge requests."
 
-    /// How the Operator asks the person something. A question on a task marks that task waiting on you, and Waiting
-    /// on you brings its worker's terminal: one asked there about the Operator's own next step showed a tab where nothing
-    /// was asked. So a question is asked in the chat, listed with `ask_you`, and put on a task only for a stopped worker.
+    /// How the Operator asks the person something. Every question shows on the Operator's own row, a question on a
+    /// task naming it, and is answered in the chat (2A, 22 Oct 2026). A question on a task also holds that task: it is
+    /// not ready to accept and not watched for stalls. So a question is put on a task only for a stopped worker.
     /// Rule 2 says what `ask_you`'s `task` property says: keep the two in step.
     static let askRules = [
         "Ask the person in this chat first: one short question in your reply, on a line starting \"Question:\".",
         "Call ask_you with the same text, because the person may not be watching this chat. Give it a task only when that "
-            + "task's worker is itself stopped on the answer, because a question on a task makes Waiting on you open that "
-            + "worker's terminal. A question about your own next step, such as a reviewer's username, a scope choice or a merge "
+            + "task's worker is itself stopped on the answer, because a question on a task holds that task until you resolve "
+            + "it. A question about your own next step, such as a reviewer's username, a scope choice or a merge "
             + "decision, goes on no task.",
-        "When the person answers in this chat, call resolve_question at once, so Waiting on you stops showing it, AiTerm's "
+        "When the person answers in this chat, call resolve_question at once, so your row stops showing it, AiTerm's "
             + "question about a merge on the host included. AiTerm closes a worker prompt's question itself.",
         "When a worker waits on a permission prompt, tell the person in one line: only the person can grant "
             + "a permission.",
