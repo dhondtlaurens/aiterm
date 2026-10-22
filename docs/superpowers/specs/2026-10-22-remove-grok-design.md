@@ -42,7 +42,3 @@ card, daemon routes and parsers, tests and fixtures.
 - **Daemon mechanisms only Grok used go**: turn ids (`promptId`), nested-agent events, process
   title patterns, the Grok status-line route and parser, and the orphan settle for harnesses whose
   end-of-turn signal dies with a deleted cwd, if every remaining harness survives that.
-</content>
-</invoke>
-<invoke name="Bash">
-<parameter name="command">cd /Users/laurensdhondt/Sites/personal/aiterm/.worktrees/remove-grok-support-pi-is-the-path-for-other-pro && sed -n 380,420p daemon/aitermd/status.py; grep -n "Notification\|_notification_type\|notifications" daemon/aitermd/hook_events.py | head
