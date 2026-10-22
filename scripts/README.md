@@ -2,8 +2,8 @@
 
 ## `make-app.sh`
 
-Builds `build/AiTerm.app`, the only form of AiTerm that is fully functional (the daemon, Claude and Grok
-status-line shims and PI status extension are bundle resources).
+Builds `build/AiTerm.app`, the only form of AiTerm that is fully functional (the daemon, Claude
+status-line shim and PI status extension are bundle resources).
 
     scripts/make-app.sh
 
@@ -144,7 +144,7 @@ server. A test that needs a window on screen opts it out with `keepVisible`.
 
 Runtime Python versions are pinned in `daemon/pyproject.toml`; the bundle installs that package
 directly so development and release do not maintain different dependency lists.
-`scripts/test-app-bundle.sh` honors `PYTHON` and checks the executable, icon, all three hook resources
+`scripts/test-app-bundle.sh` honors `PYTHON` and checks the executable, icon, both hook resources
 against their source, bundled dependency versions from `daemon/pyproject.toml`,
 and strict code signature. Both signing and signature verification must succeed during a build.
 
@@ -163,10 +163,9 @@ What it produces:
     build/AiTerm.app/Contents/Resources/daemon/aitermd/        the daemon package
     build/AiTerm.app/Contents/Resources/daemon/<deps>          iterm2, websockets, protobuf (pip --target)
     build/AiTerm.app/Contents/Resources/hooks/claude-statusline-shim.sh
-    build/AiTerm.app/Contents/Resources/hooks/grok-statusline-shim.sh
     build/AiTerm.app/Contents/Resources/hooks/pi-aiterm-status.ts
 
-All three hook resources are copied from this repository while the app is built. AiTerm never
+Both hook resources are copied from this repository while the app is built. AiTerm never
 downloads executable integration code during installation or at runtime.
 
 The app launches the daemon with `PYTHONPATH=<Contents/Resources/daemon>`, so both `aitermd` and

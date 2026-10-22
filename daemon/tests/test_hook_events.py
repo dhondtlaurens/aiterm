@@ -1,8 +1,7 @@
 import pytest
 from aitermd.models import BackgroundJob, UsageWindow
 from aitermd.hook_events import (
-    StatusLine, parse_claude_hook, parse_codex_hook, parse_claude_statusline, parse_grok_hook, parse_grok_statusline,
-    parse_pi_hook,
+    parse_claude_hook, parse_codex_hook, parse_claude_statusline, parse_pi_hook,
 )
 
 BASE = {"session_id": "abc", "cwd": "/repo/.worktrees/x", "transcript_path": "/t.jsonl", "permission_mode": "default"}
@@ -254,7 +253,7 @@ def test_statusline_tolerates_malformed_fields():
 
 def test_statusline_carries_the_session_it_describes():
     tick = parse_claude_statusline({"session_id": "abc", "cwd": "/wt", "_aiterm_iterm_session_id": "w0t0p0:t"}, now=1)
-    assert (tick.session_id, tick.cwd, tick.iterm_session_id, tick.reasoning) == ("abc", "/wt", "w0t0p0:t", None)
+    assert (tick.session_id, tick.cwd, tick.iterm_session_id) == ("abc", "/wt", "w0t0p0:t")
 
 
 @pytest.mark.parametrize("bad", [{"not": "a string"}, ["m"], 7, ""])
@@ -324,147 +323,15 @@ def test_claude_and_codex_hooks_sanitize_string_fields(parser):
     assert parser({"hook_event_name": "SubagentStart", "agent_id": ""}) is None
 
 
-GROK_BASE = {"hookEventName": "stop", "sessionId": "g-1", "cwd": "/repo/.worktrees/x",
-             "workspaceRoot": "/repo/.worktrees/x", "timestamp": "2026-09-28T12:00:00Z",
-             "permissionMode": "default", "_aiterm_iterm_session_id": "w0t0p0:grok-tab"}
-
-
-@pytest.mark.parametrize("payload,kind", [
-    ({**GROK_BASE, "hook_event_name": "SessionStart", "source": "startup"}, "sessionStart"),
-    ({**GROK_BASE, "hook_event_name": "SessionStart", "source": "compact"}, None),
-    ({**GROK_BASE, "hook_event_name": "UserPromptSubmit", "promptId": "p1"}, "working"),
-    ({**GROK_BASE, "hook_event_name": "PostToolUse", "toolName": "run_terminal_command"}, "working"),
-    # A tool that failed to dispatch, or an MCP error: a tool ran all the same.
-    ({**GROK_BASE, "hook_event_name": "PostToolUseFailure", "toolName": "linear__save_issue"}, "working"),
-    # Grok's backstop for a turn that reported no end: it ends one still in flight, nothing else.
-    ({**GROK_BASE, "hook_event_name": "Notification", "notificationType": "idle_prompt"}, "settle"),
-    ({**GROK_BASE, "hook_event_name": "Notification", "notificationType": "permission_prompt"}, "needsInput"),
-    ({**GROK_BASE, "hook_event_name": "Notification", "notification_type": "permission_prompt"}, "needsInput"),
-    ({**GROK_BASE, "hook_event_name": "Stop", "reason": "end_turn", "backgroundTasks": []}, "done"),
-    ({**GROK_BASE, "hook_event_name": "Stop"}, "done"),
-    ({**GROK_BASE, "hook_event_name": "StopFailure", "error": "rate_limit"}, "done"),
-    ({**GROK_BASE, "hook_event_name": "StopCancelled", "reason": "user_interrupt"}, "done"),
-])
-def test_grok_hook_mapping(payload, kind):
-    ev = parse_grok_hook(payload)
-    assert ev is not None
-    assert (ev.agent, ev.kind, ev.session_id, ev.cwd, ev.iterm_session_id) == (
-        "grok", kind, "g-1", "/repo/.worktrees/x", "w0t0p0:grok-tab")
-
-
-@pytest.mark.parametrize("payload", [
-    {**GROK_BASE, "hook_event_name": "Stop", "reason": "channel_closed"},
-    {**GROK_BASE, "hook_event_name": "Stop", "reason": "shutdown"},
-    # Paused on a background subagent: the turn works on through its child, as Claude's does.
-    {**GROK_BASE, "hook_event_name": "Stop", "reason": "end_turn",
-     "backgroundTasks": [{"id": "t1", "type": "subagent", "status": "running", "agentType": "general"}]},
-    {**GROK_BASE, "hook_event_name": "Stop", "reason": "end_turn",
-     "backgroundTasks": [{"id": "t1", "type": "shell", "status": "running", "command": "npm run dev"},
-                         {"id": "t2", "type": "subagent"}]},
-    # A nested agent's own events are not the session's.
-    {**GROK_BASE, "hook_event_name": "StopCancelled", "reason": "max_turns", "subagentType": "explore"},
-    {**GROK_BASE, "hook_event_name": "UserPromptSubmit", "subagentType": "explore"},
-    {**GROK_BASE, "hook_event_name": "PostToolUse", "subagentType": "explore"},
-    {**GROK_BASE, "hook_event_name": "Notification", "notificationType": "idle_prompt", "subagentType": "explore"},
-    {**GROK_BASE, "hook_event_name": "Notification", "notificationType": "task_complete"},
-    {**GROK_BASE, "hook_event_name": "PreToolUse"},
-    {},
-    "not a dict",
-])
-def test_grok_hook_ignored(payload):
-    assert parse_grok_hook(payload) is None
-
-
-@pytest.mark.parametrize("tasks", [
-    # A dev server or a watcher never completes, so it would hold every later turn at working.
-    [{"id": "t1", "type": "shell", "status": "running", "command": "npm run dev"}],
-    [{"id": "t1", "type": "monitor", "status": "running", "description": "tail -f log"}],
-    # A child that has finished is not holding the turn.
-    [{"id": "t1", "type": "subagent", "status": "completed"}],
-    ["not an entry", {"type": ["subagent"]}],
-    "not a list",
-])
-def test_a_grok_stop_over_background_work_that_is_no_subagent_is_done(tasks):
-    # Grok's wake turns fire UserPromptSubmit, which puts the row back to working by itself.
-    ev = parse_grok_hook({**GROK_BASE, "hook_event_name": "Stop", "reason": "end_turn", "backgroundTasks": tasks})
-    assert ev is not None and ev.kind == "done"
-
-
-def test_grok_events_carry_their_turn():
-    start = parse_grok_hook({**GROK_BASE, "hook_event_name": "UserPromptSubmit", "promptId": "p1"})
-    tool = parse_grok_hook({**GROK_BASE, "hook_event_name": "PostToolUse", "promptId": "p1"})
-    end = parse_grok_hook({**GROK_BASE, "hook_event_name": "StopCancelled", "promptId": "p1"})
-    assert (start.turn_id, start.starts_turn) == ("p1", True)
-    assert (tool.turn_id, tool.starts_turn) == ("p1", False)
-    assert (end.turn_id, end.starts_turn) == ("p1", False)
-    # Session-scoped events carry none, and a malformed one is none.
-    assert parse_grok_hook({**GROK_BASE, "hook_event_name": "Notification", "notificationType": "idle_prompt"}).turn_id is None
-    assert parse_grok_hook({**GROK_BASE, "hook_event_name": "Stop", "promptId": ["p1"]}).turn_id is None
-
-
-def test_a_childs_permission_prompt_is_not_held_to_the_parents_turn():
-    ev = parse_grok_hook({**GROK_BASE, "hook_event_name": "Notification", "notificationType": "permission_prompt",
-                          "subagentType": "general", "promptId": "child-turn"})
-    assert ev.turn_id is None
-
-
-@pytest.mark.parametrize("marker", [None, ""])
-def test_an_empty_subagent_type_is_the_main_session(marker):
-    # Grok omits the key in the main session; an empty one must not silence every event.
-    assert parse_grok_hook({**GROK_BASE, "hook_event_name": "UserPromptSubmit", "subagentType": marker}).kind == "working"
-
-
-def test_a_childs_permission_prompt_still_needs_input():
-    # Grok waits on the user for a background subagent's permission prompt as for the session's own.
-    ev = parse_grok_hook({**GROK_BASE, "hook_event_name": "Notification", "notificationType": "permission_prompt",
-                          "subagentType": "general"})
-    assert ev is not None and ev.kind == "needsInput" and ev.session_id == "g-1"
-
-
-@pytest.mark.parametrize("parser", [parse_claude_hook, parse_codex_hook, parse_grok_hook, parse_pi_hook])
+@pytest.mark.parametrize("parser", [parse_claude_hook, parse_codex_hook, parse_pi_hook])
 @pytest.mark.parametrize("bad", [["Stop"], {"name": "Stop"}, 7, None])
 def test_a_type_confused_event_name_is_ignored_not_raised(parser, bad):
     assert parser({**BASE, "hook_event_name": bad}) is None
 
 
-@pytest.mark.parametrize("payload", [
-    {**GROK_BASE, "hook_event_name": "Stop", "reason": ["shutdown"]},
-    {**GROK_BASE, "hook_event_name": "Stop", "reason": {"why": "shutdown"}},
-])
-def test_grok_stop_with_a_type_confused_reason_is_a_turn_end(payload):
-    # Not a session-end reason Grok documents, so it reads as a reason Grok did not name.
-    assert parse_grok_hook(payload).kind == "done"
-
-
 @pytest.mark.parametrize("bad", [["permission_prompt"], {"type": "permission_prompt"}])
 def test_a_type_confused_notification_type_is_ignored(bad):
-    assert parse_grok_hook({**GROK_BASE, "hook_event_name": "Notification", "notificationType": bad}) is None
-    assert parse_grok_hook({**GROK_BASE, "hook_event_name": "Notification", "notification_type": bad}) is None
     assert parse_claude_hook({**BASE, "hook_event_name": "Notification", "notification_type": bad}) is None
-
-
-def test_claude_route_drops_grok_payloads():
-    # Grok loads ~/.claude/settings.json hooks by default. Its payload carries `hookEventName`,
-    # a key Claude never sends; were Grok ever to allow loopback HTTP, it must not count as Claude.
-    assert parse_claude_hook({**BASE, "hook_event_name": "Stop", "hookEventName": "stop"}) is None
-
-
-def test_grok_statusline_fields():
-    tick = parse_grok_statusline({
-        "session_id": "g-1", "cwd": "/wt", "model": {"id": "grok-4.7", "display_name": "Grok 4.7"},
-        "effort": {"level": "high"}, "context_window": {"used_percentage": 37, "context_window_size": 500000},
-        "_aiterm_iterm_session_id": "w0t0p0:tab-1"}, now=1)
-    # Grok sends no rate-limit summary, so a tick is never account usage.
-    assert tick == StatusLine(usage=None, session_id="g-1", cwd="/wt", iterm_session_id="w0t0p0:tab-1",
-                              model="grok-4.7", reasoning="high", context_percent=37)
-
-
-def test_grok_statusline_absent_fields_are_none():
-    # Grok omits what it cannot source; an absent context is unknown, never zero.
-    assert parse_grok_statusline({"session_id": "g-1"}, now=1) == StatusLine(None, "g-1", None, None, None, None, None)
-    assert parse_grok_statusline({"context_window": {"used_percentage": 140}}, now=1).context_percent == 100
-    assert parse_grok_statusline({"session_id": {"x": 1}, "model": {"id": 4}, "effort": {"level": []}}, now=1) == (
-        StatusLine(None, None, None, None, None, None, None))
 
 
 @pytest.mark.parametrize("parse,payload", [
@@ -473,7 +340,6 @@ def test_grok_statusline_absent_fields_are_none():
     (parse_claude_hook, {**BASE, "hook_event_name": "PostModelSwitch", "to_model": "m"}),
     (parse_codex_hook, {**BASE, "hook_event_name": "SessionStart"}),
     (parse_codex_hook, {**BASE, "hook_event_name": "Stop"}),
-    (parse_grok_hook, {"hook_event_name": "UserPromptSubmit", "sessionId": "g", "promptId": "p1"}),
     (parse_pi_hook, {**PI_BASE, "hook_event_name": "agent_start"}),
 ])
 def test_an_event_carries_the_name_its_harness_gave_it(parse, payload):
@@ -486,14 +352,6 @@ def test_a_hook_names_its_sessions_conversation():
     assert parse_claude_hook({**BASE, "hook_event_name": "UserPromptSubmit"}).conversation_id == "abc"
     assert parse_codex_hook({"hook_event_name": "Stop", "session_id": "thread-1", "cwd": "/wt"}).conversation_id == "thread-1"
     assert parse_pi_hook({**PI_BASE, "hook_event_name": "agent_start"}).conversation_id == "pi-session"
-    assert parse_grok_hook({**GROK_BASE, "hook_event_name": "UserPromptSubmit"}).conversation_id == "g-1"
-
-
-def test_a_nested_grok_agents_post_names_no_conversation():
-    # A child's permission prompt is the parent tab's state, but its sessionId is the child's own.
-    ev = parse_grok_hook({**GROK_BASE, "hook_event_name": "Notification", "notificationType": "permission_prompt",
-                          "subagentType": "general"})
-    assert ev is not None and ev.kind == "needsInput" and ev.nested and ev.conversation_id is None
 
 
 def test_a_subagents_start_and_stop_name_no_conversation():

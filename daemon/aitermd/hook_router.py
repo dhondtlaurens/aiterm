@@ -63,10 +63,10 @@ class HookRouter:
             usage = tick.usage
             if usage and (usage.five_hour or usage.seven_day or usage.spend) and self.usage.set(agent, usage):
                 await self.publisher.usage_changed()
-            if (tick.model or tick.reasoning or tick.context_percent is not None) and (
+            if (tick.model or tick.context_percent is not None) and (
                     sid := self._resolve_post(agent, tick.session_id, tick.cwd, tick.iterm_session_id)[0]):
                 await self.publisher.session_changed(self.status.apply_metadata(
-                    sid, model=tick.model, reasoning=tick.reasoning, context=tick.context_percent))
+                    sid, model=tick.model, context=tick.context_percent))
             return None
         # Tool text and Stop hooks are telemetry, never checkout-removal authority.
         # Leave shell commands intact; explicit cleanup belongs to the app's Remove action.
@@ -95,7 +95,7 @@ class HookRouter:
             changed += self.status.apply_event(sid, ev)
             if ev.kind == "sessionStart":
                 self._prompted.discard(sid)
-        if ev.event_name == "UserPromptSubmit" and not ev.nested:
+        if ev.event_name == "UserPromptSubmit":
             changed += self._note_prompt(sid, ev.prompt)
         await self.publisher.session_changed(changed)
         return None

@@ -1563,38 +1563,15 @@ async def test_the_window_activated_last_is_the_one_left_active(stack):
     assert it.windows[second]["active"] and not it.windows[first]["active"]
 
 
-async def _grok_tab_working_in(svc, r, w, cwd):
+async def _pi_tab_working_in(svc, r, w, cwd):
     wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": cwd, "title": "x", "frame": FRAME}))["result"]["windowId"]
     sid = svc.iterm.windows[wid]["sessions"][0]
-    await svc.iterm.user_runs(sid, "grok", job_pid=41)
+    await svc.iterm.user_runs(sid, "pi", job_pid=41)
     await svc.tick()
-    await svc.hook_router.handle_hook("/hook/grok", {"hook_event_name": "UserPromptSubmit", "sessionId": "g-1",
-                                                     "cwd": cwd, "_aiterm_iterm_session_id": sid})
+    await svc.hook_router.handle_hook("/hook/pi", {"hook_event_name": "agent_start", "session_id": "p-1",
+                                                   "cwd": cwd, "_aiterm_iterm_session_id": sid})
     assert svc.registry.get(sid).state == "working"
     return sid
-
-
-async def test_tick_settles_a_grok_tab_whose_worktree_vanished(make_service):
-    now, gone = [1000.0], set()
-    checked: list[str] = []
-
-    def missing(path):
-        checked.append(path)
-        return path in gone
-
-    svc = make_service(path_missing=missing, monotonic=lambda: now[0])
-    await svc.start()
-    r, w = await asyncio.open_unix_connection(svc.rpc.path)
-    try:
-        sid = await _grok_tab_working_in(svc, r, w, "/wt")
-        gone.add("/wt")
-        await svc.tick()                   # first seen missing
-        now[0] += 10
-        await svc.tick()
-        assert svc.registry.get(sid).state == "done"
-        assert set(checked) == {"/wt"}, "only the working agent's directory is checked"
-    finally:
-        w.close()
 
 
 async def test_an_agent_that_exits_leaves_the_row_idle_even_with_an_unseen_done(make_service):
@@ -1603,39 +1580,14 @@ async def test_an_agent_that_exits_leaves_the_row_idle_even_with_an_unseen_done(
     await svc.start()
     r, w = await asyncio.open_unix_connection(svc.rpc.path)
     try:
-        sid = await _grok_tab_working_in(svc, r, w, "/wt")
-        await svc.hook_router.handle_hook("/hook/grok", {"hook_event_name": "Stop", "sessionId": "g-1", "cwd": "/wt",
-                                                         "_aiterm_iterm_session_id": sid})
+        sid = await _pi_tab_working_in(svc, r, w, "/wt")
+        await svc.hook_router.handle_hook("/hook/pi", {"hook_event_name": "agent_settled", "session_id": "p-1", "cwd": "/wt",
+                                                       "_aiterm_iterm_session_id": sid})
         assert svc.registry.get(sid).state == "done"
         await svc.iterm.user_runs(sid, "-zsh", job_pid=42)
         await svc.tick()
         assert svc.registry.get(sid).state == "idle"
     finally:
-        w.close()
-
-
-async def test_a_directory_check_that_hangs_finds_nothing_missing(make_service, monkeypatch):
-    # A stat on a hung network mount blocks its thread; the tick, and every hook ack behind it, must not.
-    monkeypatch.setattr(service, "OFF_LOOP_CHECK_SECONDS", 0.05)
-    now, release, calls = [1000.0], threading.Event(), []
-
-    def hung(path):
-        calls.append(path)
-        release.wait(5)
-        return True
-
-    svc = make_service(path_missing=hung, monotonic=lambda: now[0])
-    await svc.start()
-    r, w = await asyncio.open_unix_connection(svc.rpc.path)
-    try:
-        sid = await _grok_tab_working_in(svc, r, w, "/wt")
-        for _ in range(3):
-            await asyncio.wait_for(svc.tick(), 1)
-            now[0] += 10
-        assert svc.registry.get(sid).state == "working"
-        assert len(calls) == 1, "no second check is started beside one still stuck"
-    finally:
-        release.set()
         w.close()
 
 
@@ -1840,21 +1792,6 @@ async def test_one_sessions_failing_corroboration_does_not_stop_the_others(stack
         await svc.tick()
     assert svc.registry.get(second).state == "working"
     assert any(first in rec.getMessage() for rec in caplog.records)
-
-
-async def test_a_directory_check_that_raises_finds_nothing_missing(make_service):
-    def broken(path):
-        raise PermissionError(path)
-
-    svc = make_service(path_missing=broken)
-    await svc.start()
-    r, w = await asyncio.open_unix_connection(svc.rpc.path)
-    try:
-        sid = await _grok_tab_working_in(svc, r, w, "/wt")
-        await svc.tick()
-        assert svc.registry.get(sid).state == "working"
-    finally:
-        w.close()
 
 
 async def test_an_off_loop_check_that_raises_answers_what_it_was_given_for_nothing(make_service, caplog):

@@ -130,7 +130,7 @@ import Testing
     @Test func theBundledFilesSpellTheSupportFolderAsAiTermPathsDoesAndNoPort() throws {
         let hooks = Self.shim.deletingLastPathComponent()
         let relative = AiTermPaths.supportDirectory(home: URL(fileURLWithPath: "/h")).path.replacingOccurrences(of: "/h/", with: "")
-        for name in ["claude-statusline-shim.sh", "grok-statusline-shim.sh"] {
+        for name in ["claude-statusline-shim.sh"] {
             let text = try String(contentsOf: hooks.appendingPathComponent(name), encoding: .utf8)
             #expect(text.contains("$HOME/\(relative)\""), "\(name) reads files from another folder than the app writes")
             #expect(text.contains(AiTermPaths.hookPortURL(home: URL(fileURLWithPath: "/h")).lastPathComponent))

@@ -10,10 +10,6 @@
         "policy": "off",
         "version": null
       },
-      "grok": {
-        "policy": "off",
-        "version": null
-      },
       "pi": {
         "policy": "auto",
         "version": "0.70.0"

@@ -195,38 +195,13 @@ async def test_a_pi_child_that_finishes_under_a_prompt_ends_the_turn_when_the_pr
     assert hooks.state(sid) == "done", "PI has no tick to end a turn left working"
 
 
-async def test_grok_hook_resolves_by_iterm_session_and_maps_state(tmp_path):
-    hooks = Hooks(tmp_path)
-    [sid] = hooks.tabs(("tab-1", "grok", 41))
-    await hooks.post("/hook/grok", {"hook_event_name": "UserPromptSubmit", "sessionId": "g-1", "cwd": "/elsewhere",
-                                    "_aiterm_iterm_session_id": "w0t0p0:tab-1"})
-    assert hooks.state(sid) == "working"
-    await hooks.post("/hook/grok", {"hook_event_name": "Stop", "reason": "end_turn", "sessionId": "g-1", "cwd": "/elsewhere",
-                                    "_aiterm_iterm_session_id": "w0t0p0:tab-1"})
-    assert hooks.state(sid) == "done"
-
-
-async def test_a_late_grok_stop_cancelled_does_not_end_the_next_turn(hooks):
-    [sid] = hooks.tabs(("tab-1", "grok", 41))
-    base = {"sessionId": "g-1", "cwd": "/wt", "_aiterm_iterm_session_id": "w0t0p0:tab-1"}
-    await hooks.post("/hook/grok", {**base, "hook_event_name": "UserPromptSubmit", "promptId": "p1"})
-    await hooks.post("/hook/grok", {**base, "hook_event_name": "UserPromptSubmit", "promptId": "p2"})
-    await hooks.post("/hook/grok", {**base, "hook_event_name": "StopCancelled", "reason": "user_interrupt", "promptId": "p1"})
-    assert hooks.state(sid) == "working"
-    await hooks.post("/hook/grok", {**base, "hook_event_name": "Stop", "reason": "end_turn", "promptId": "p2"})
-    assert hooks.state(sid) == "done"
-
-
-async def test_grok_statusline_sets_model_reasoning_and_context(tmp_path):
-    hooks = Hooks(tmp_path)
-    [sid] = hooks.tabs(("tab-1", "grok", 41))
-    await hooks.post("/statusline/grok", {
-        "session_id": "g-1", "cwd": "/wt", "model": {"id": "grok-4.7"}, "effort": {"level": "high"},
-        "context_window": {"used_percentage": 37}, "_aiterm_iterm_session_id": "w0t0p0:tab-1"})
-    s = hooks.registry.get(sid)
-    assert (s.model, s.reasoning, s.context_percent) == ("grok-4.7", "high", 37)
-    # Grok's status line carries no rate limits, so account usage is untouched.
-    assert hooks.usage.snapshot() == {"claude": None, "codex": None}
+async def test_a_grok_post_changes_no_session(hooks):
+    [sid] = hooks.tabs(("tab-1", "codex", 41))
+    for path in ("/hook/grok", "/statusline/grok"):
+        await hooks.post(path, {"hook_event_name": "UserPromptSubmit", "sessionId": "g-1", "cwd": "/wt",
+                                "model": {"id": "grok-4.7"}, "_aiterm_iterm_session_id": sid})
+    assert hooks.state(sid) == "idle" and hooks.registry.get(sid).model is None
+    assert hooks.events == []
 
 
 async def test_a_hook_from_an_agent_the_tick_has_not_yet_classified_is_retried_against_a_tick(hooks):
@@ -306,20 +281,10 @@ async def test_a_hook_placed_by_its_tab_id_names_the_tabs_conversation(hooks):
 async def test_a_hook_placed_by_its_directory_names_no_conversation(tmp_path):
     # A directory can be shared by sibling tabs: the conversation could be another tab's.
     hooks = Hooks(tmp_path)
-    [sid] = hooks.tabs(("tab-1", "grok", 41))
-    await hooks.post("/hook/grok", {"hook_event_name": "UserPromptSubmit", "sessionId": "g-1", "cwd": "/wt"})
+    [sid] = hooks.tabs(("tab-1", "codex", 41))
+    await hooks.post("/hook/codex", {"hook_event_name": "UserPromptSubmit", "session_id": "c-1", "cwd": "/wt"})
     assert hooks.state(sid) == "working"
     assert hooks.registry.get(sid).conversation_id is None
-
-
-async def test_a_grok_subagents_permission_prompt_leaves_the_tabs_conversation(hooks):
-    [sid] = hooks.tabs(("tab-1", "grok", 41))
-    base = {"cwd": "/wt", "_aiterm_iterm_session_id": "w0t0p0:tab-1"}
-    await hooks.post("/hook/grok", {**base, "hook_event_name": "UserPromptSubmit", "sessionId": "g-1"})
-    await hooks.post("/hook/grok", {**base, "hook_event_name": "Notification", "notificationType": "permission_prompt",
-                                    "sessionId": "g-child", "subagentType": "general"})
-    assert hooks.state(sid) == "needsInput"
-    assert hooks.registry.get(sid).conversation_id == "g-1"
 
 
 async def test_a_codex_subagents_start_and_stop_leave_the_tabs_conversation(hooks):

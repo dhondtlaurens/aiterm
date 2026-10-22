@@ -218,7 +218,7 @@ class HookServer:
 
     @staticmethod
     def _add_iterm_session(payload: dict[str, Any], headers: dict[str, str]) -> None:
-        # Codex, Grok and PI payloads identify their own session but not the terminal tab. Their
+        # Codex and PI payloads identify their own session but not the terminal tab. Their
         # hook process inherits iTerm's session ID, so carry it through as a trusted private field
         # -- which only the header may set.
         if iterm_session := headers.get("x-aiterm-iterm-session"):

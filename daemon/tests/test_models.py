@@ -1,20 +1,18 @@
 import pytest
 from aitermd.models import (
-    AGENT_BINARIES, END_OF_TURN_SURVIVES_CWD_LOSS, HARNESS_BY_AGENT, USAGE_VENDORS, Frame, SessionInfo, Usage,
+    AGENT_BINARIES, HARNESS_BY_AGENT, USAGE_VENDORS, Frame, SessionInfo, Usage,
     UsageWindow, classify_agent,
 )
 
 
 def test_the_harness_table_derives_what_each_agent_is():
-    assert AGENT_BINARIES == {"claude", "codex", "grok", "pi"}
-    # Grok's end of turn travels only on hooks spawned in the session's cwd.
-    assert END_OF_TURN_SURVIVES_CWD_LOSS == {"claude", "codex", "pi"}
+    assert AGENT_BINARIES == {"claude", "codex", "pi"}
     # Claude's posts are placed by the agent's pid, everyone else's by the tab the header names.
     assert {a: h.placement for a, h in HARNESS_BY_AGENT.items()} == {
-        "claude": "pid_file", "codex": "header", "grok": "header", "pi": "header"}
-    # Grok and PI have no tick signal: what their hooks say stands.
+        "claude": "pid_file", "codex": "header", "pi": "header"}
+    # PI has no tick signal: what its hooks say stands.
     assert {a: h.corroboration for a, h in HARNESS_BY_AGENT.items()} == {
-        "claude": "claude_file", "codex": "codex_title", "grok": None, "pi": None}
+        "claude": "claude_file", "codex": "codex_title", "pi": None}
     assert USAGE_VENDORS == ("claude", "codex")
 
 
@@ -78,19 +76,3 @@ def test_usage_json():
     u = Usage(UsageWindow(23, 1790172996), None, None, "max", 1789568196)
     assert u.to_json() == {"fiveHour": {"usedPercent": 23, "resetsAt": 1790172996}, "sevenDay": None, "spend": None, "plan": "max",
                            "updatedAt": 1789568196}
-
-
-@pytest.mark.parametrize("command_line", ["grok", "/Users/me/.grok/bin/grok --model grok-4.7", "Grok",
-                                          "/Users/me/.grok/downloads/grok-macos-aarch64 -m grok-4.7",
-                                          # The resolved name carries the version since 1.0.44, and the
-                                          # architecture on an Intel build.
-                                          "/Users/me/.grok/downloads/grok-1.0.44-macos-aarch64 -m grok-4.7",
-                                          "grok-macos-x86_64", "grok-2.1-macos-x86_64"])
-def test_grok_is_classified(command_line):
-    assert classify_agent(command_line) == "grok"
-
-
-@pytest.mark.parametrize("command_line", ["grokker", "node /x/grok-cli.js", "grep grok", "grok-cli",
-                                          "grok-1.0.44", "grok-macos-", "grok-v1-macos-aarch64"])
-def test_grok_lookalikes_stay_shell(command_line):
-    assert classify_agent(command_line) == "shell"

@@ -128,7 +128,7 @@ def test_an_idle_or_working_cli_screen_shows_its_input_box(agent, screen):
 
 @pytest.mark.parametrize("agent,screen", [
     ("claude", UNRECOGNISED), ("claude", "  \n"), ("codex", IDLE),  # Claude's ❯ is not Codex's ›
-    ("claude", "text then ❯ mid-line"), ("grok", IDLE), ("pi", CODEX_IDLE), ("shell", IDLE),
+    ("claude", "text then ❯ mid-line"), ("pi", CODEX_IDLE), ("shell", IDLE),
     # A menu's selected option is drawn with the same arrow: a menu no marker knows yet is no input box.
     ("codex", CODEX_HOOKS_REVIEW), ("claude", CLAUDE_TRUST),
 ])
@@ -136,7 +136,7 @@ def test_anything_else_shows_no_input_box(agent, screen):
     assert not shows_input_box(agent, screen)
 
 
-@pytest.mark.parametrize("agent", ["grok", "pi", "shell"])
+@pytest.mark.parametrize("agent", ["pi", "shell"])
 def test_a_harness_without_markers_never_shows_a_prompt(agent):
     assert open_prompt(agent, CLAUDE_PERMISSION + CODEX_PERMISSION) is None
 
@@ -164,7 +164,7 @@ def _policy_file(tmp_path, content):
     return path
 
 
-NOTHING_CHECKED = {"claude": ("off", None), "codex": ("off", None), "grok": ("off", None), "pi": ("off", None)}
+NOTHING_CHECKED = {"claude": ("off", None), "codex": ("off", None), "pi": ("off", None)}
 
 
 def test_paste_and_submit_safe_is_auto_and_paste_safe_alone_is_paste_only(tmp_path):
@@ -174,9 +174,17 @@ def test_paste_and_submit_safe_is_auto_and_paste_safe_alone_is_paste_only(tmp_pa
         # The delivery check's own iTerm2 entry is no harness: it is read past.
         "iterm": {"version": "3.7.5", "keystrokesPassThrough": True},
     })
-    assert load_policy(path) == {"claude": ("auto", "2.1.301"), "codex": ("pasteOnly", "0.160.0"), "grok": ("off", None),
+    assert load_policy(path) == {"claude": ("auto", "2.1.301"), "codex": ("pasteOnly", "0.160.0"),
                                  "pi": ("off", None)}
     assert load_policy(path)["claude"].version == "2.1.301"
+
+
+def test_an_entry_for_a_harness_that_is_gone_is_read_past(tmp_path):
+    # A policy file written before Grok Build was removed still lists it.
+    entry = {"version": "1.0.44", "pasteSafe": True, "submitSafe": True}
+    verdicts = load_policy(_policy_file(tmp_path, {"claude": {**entry, "version": "2.1.301"}, "grok": entry}))
+    assert set(verdicts) == {"claude", "codex", "pi"}
+    assert verdicts["claude"] == ("auto", "2.1.301")
 
 
 @pytest.mark.parametrize("entry", [
@@ -209,11 +217,10 @@ def test_the_policy_lives_in_application_support():
     assert delivery.POLICY_PATH == Path.home() / "Library" / "Application Support" / "AiTerm" / "delivery-policy.json"
 
 
-@pytest.mark.parametrize("agent", ["grok", "pi"])
-def test_a_harness_with_no_prompt_markers_stays_off_whatever_the_file_says(tmp_path, agent):
+def test_a_harness_with_no_prompt_markers_stays_off_whatever_the_file_says(tmp_path):
     # open_prompt sees nothing on such a harness's screen, which proves nothing: it must not fail open.
-    entry = {"version": "1.0.44", "pasteSafe": True, "submitSafe": True}
-    assert load_policy(_policy_file(tmp_path, {agent: entry}))[agent] == ("off", None)
+    entry = {"version": "0.1.0", "pasteSafe": True, "submitSafe": True}
+    assert load_policy(_policy_file(tmp_path, {"pi": entry}))["pi"] == ("off", None)
 
 
 class Clock:

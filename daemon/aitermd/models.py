@@ -1,19 +1,18 @@
 from __future__ import annotations
 import math
 import os
-import re
 import shlex
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+# "grok" stays only because the app's SessionAgent still names it (WireContractTests compares the two);
+# no harness row, route or parser serves it.
 AgentKind = Literal["claude", "codex", "grok", "pi", "shell"]
 State = Literal["idle", "working", "needsInput", "done"]
 # What a hook says happened to a turn. Metadata (model, reasoning, context, cwd) is not a kind: it
 # rides along on any event and is applied separately. `promptStart`/`promptEnd` bracket a PI input
-# prompt, which can open between turns as well as inside one. `settle` is a turn end reported late,
-# as a state rather than an event: it ends a turn still working or needing input, and leaves any
-# other state -- a done, seen or not -- alone.
-Transition = Literal["working", "needsInput", "done", "settle", "subagentStart", "subagentStop", "sessionStart",
+# prompt, which can open between turns as well as inside one.
+Transition = Literal["working", "needsInput", "done", "subagentStart", "subagentStop", "sessionStart",
                      "promptStart", "promptEnd"]
 
 @dataclass(frozen=True, slots=True)
@@ -23,8 +22,6 @@ class Harness:
     agent: AgentKind
     # The route its hooks post to (hook_events.HOOK_PARSERS parses each).
     hook_route: str
-    # Another process title the CLI runs under, matched in full against the case-folded basename.
-    title_pattern: re.Pattern[str] | None = None
     # How a hook post is placed on the tab it came from (SessionResolver.resolve_directly): by the tab
     # id it carries in X-AiTerm-iTerm-Session, or -- Claude's, which travel over HTTP from the agent
     # itself -- by the pid the agent's own session file names.
@@ -36,10 +33,6 @@ class Harness:
     # Whether it reports the account's rate limits, which the usage footer shows: Claude in its
     # status line, Codex in its rollout.
     reports_usage: bool = False
-    # Whether its end-of-turn signal reaches the daemon without a process spawned in the session's
-    # cwd. A harness without one is settled by the daemon once its cwd vanishes
-    # (StatusEngine.settle_orphans), and gets one only when its driver meets that bar.
-    end_of_turn_survives_cwd_loss: bool = False
     # The route its status-line shim posts to, if it has one (hook_events.STATUSLINE_PARSERS).
     statusline_route: str | None = None
     # Text that marks the CLI's folder-trust dialog on its screen, any one of them enough: it opens
@@ -63,7 +56,7 @@ class Harness:
 
 HARNESSES: tuple[Harness, ...] = (
     # HTTP hooks and a session file.
-    Harness("claude", "/hook/claude", placement="pid_file", corroboration="claude_file", end_of_turn_survives_cwd_loss=True,
+    Harness("claude", "/hook/claude", placement="pid_file", corroboration="claude_file",
             statusline_route="/statusline", reports_usage=True,
             # 2.1.299's option, and the dialog's question before it.
             trust_prompt=("Yes, I trust this folder", "Do you trust the files in this folder?"),
@@ -72,7 +65,7 @@ HARNESSES: tuple[Harness, ...] = (
             startup_prompt=("Yes, I trust this folder", "Do you trust the files in this folder?"),
             input_box=("❯",)),
     # `Stop` over MCP; the other hooks are spawned curl.
-    Harness("codex", "/hook/codex", corroboration="codex_title", end_of_turn_survives_cwd_loss=True, reports_usage=True,
+    Harness("codex", "/hook/codex", corroboration="codex_title", reports_usage=True,
             permission_prompt=("Would you like to run the following command?",),
             # 0.163's dialogs end on "enter confirm · esc skip" (its review of untrusted hooks) or
             # "enter select · esc back" (its /model picker).
@@ -81,20 +74,12 @@ HARNESSES: tuple[Harness, ...] = (
             startup_prompt=("Trust this folder?", "Skip until next version", "Update now"),
             update_prompt=("Update now", "Skip until next version"),
             input_box=("›",)),
-    # Spawned command hooks only. `~/.grok/bin/grok` is a symlink to the downloaded binary, and the
-    # process may be titled with the resolved name: versioned since 1.0.44
-    # (`grok-1.0.44-macos-aarch64`), and naming the architecture (`grok-macos-x86_64`).
-    Harness("grok", "/hook/grok", title_pattern=re.compile(r"grok(-\d+(\.\d+)*)?-macos-[a-z0-9_]+"),
-            statusline_route="/statusline/grok"),
     # An in-process extension.
-    Harness("pi", "/hook/pi", end_of_turn_survives_cwd_loss=True),
+    Harness("pi", "/hook/pi"),
 )
 
 HARNESS_BY_AGENT: dict[AgentKind, Harness] = {h.agent: h for h in HARNESSES}
 AGENT_BINARIES: frozenset[AgentKind] = frozenset(HARNESS_BY_AGENT)
-AGENT_TITLE_PATTERNS: tuple[tuple[re.Pattern[str], AgentKind], ...] = tuple(
-    (h.title_pattern, h.agent) for h in HARNESSES if h.title_pattern)
-END_OF_TURN_SURVIVES_CWD_LOSS: frozenset[AgentKind] = frozenset(h.agent for h in HARNESSES if h.end_of_turn_survives_cwd_loss)
 USAGE_VENDORS: tuple[AgentKind, ...] = tuple(h.agent for h in HARNESSES if h.reports_usage)
 # The payload field the hook server puts X-AiTerm-iTerm-Session in, and discards from a body: a
 # trusted private field, which only the header may set.
@@ -127,9 +112,6 @@ def classify_agent(command_line: str | None) -> AgentKind:
     name = os.path.basename(first).casefold()
     if name in AGENT_BINARIES:
         return name
-    for pattern, agent in AGENT_TITLE_PATTERNS:
-        if pattern.fullmatch(name):
-            return agent
     # PI's npm/Homebrew executable is a Node script. After its `#!/usr/bin/env node`
     # shebang is resolved, iTerm reports the real foreground command as
     # `.../node .../pi`, not as `pi`. Match that exact script basename only; an

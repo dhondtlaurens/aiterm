@@ -99,8 +99,7 @@ async def closed_by_server(r):
 
 
 def test_the_routes_derive_from_the_harness_table():
-    assert hooks_server.ROUTES == {"/hook/claude", "/hook/codex", "/hook/grok", "/hook/pi", "/mcp",
-                                   "/statusline", "/statusline/grok"}
+    assert hooks_server.ROUTES == {"/hook/claude", "/hook/codex", "/hook/pi", "/mcp", "/statusline"}
 
 
 async def test_post_routes_deliver_body(server):
@@ -130,17 +129,24 @@ async def test_a_client_supplied_iterm_session_id_without_the_header_is_dropped(
     assert received == [("/hook/codex", {"hook_event_name": "Stop"})]
 
 
-@pytest.mark.parametrize("path", ["/hook/grok", "/statusline/grok"])
-async def test_grok_routes_take_the_tab_from_the_header_over_the_body(server, path):
+@pytest.mark.parametrize("path", ["/hook/codex", "/hook/pi"])
+async def test_header_routes_take_the_tab_from_the_header_over_the_body(server, path):
     srv, received = server
     body = {"hook_event_name": "Stop", "_aiterm_iterm_session_id": "w0t0p0:forged"}
-    assert await http(srv.port, "POST", path, body, iterm_session_id="w0t0p0:grok-tab") == 200
+    assert await http(srv.port, "POST", path, body, iterm_session_id="w0t0p0:own-tab") == 200
     assert await http(srv.port, "POST", path, body) == 200
     await received.delivered(2)
     # Each post is delivered after its own reply, so the two can land in either order.
     assert len(received) == 2
-    assert (path, {"hook_event_name": "Stop", "_aiterm_iterm_session_id": "w0t0p0:grok-tab"}) in received
+    assert (path, {"hook_event_name": "Stop", "_aiterm_iterm_session_id": "w0t0p0:own-tab"}) in received
     assert (path, {"hook_event_name": "Stop"}) in received
+
+
+@pytest.mark.parametrize("path", ["/hook/grok", "/statusline/grok"])
+async def test_grok_is_not_served(server, path):
+    srv, received = server
+    assert await http(srv.port, "POST", path, {"hook_event_name": "Stop"}, iterm_session_id="w0t0p0:tab") == 404
+    assert received == []
 
 
 @pytest.mark.parametrize("length", [b"-5", b"abc", b"+3"])
@@ -227,7 +233,7 @@ async def test_unknown_path_bad_json_and_handler_error(server):
     assert await http(srv.port, "POST", "/hook/codex", {"boom": True}) == 200
 
 
-@pytest.mark.parametrize("path", ["/hook/claude", "/hook/codex", "/hook/grok", "/hook/pi", "/statusline/grok"])
+@pytest.mark.parametrize("path", ["/hook/claude", "/hook/codex", "/hook/pi", "/statusline"])
 async def test_every_hook_route_rejects_non_object_and_malformed_json(path, server):
     srv, _ = server
     assert await http(srv.port, "POST", path, ["not", "an", "object"]) == 400
@@ -238,7 +244,7 @@ async def test_every_hook_route_rejects_non_object_and_malformed_json(path, serv
     w.close()
 
 
-@pytest.mark.parametrize("path", ["/hook/claude", "/hook/codex", "/hook/grok", "/hook/pi", "/statusline", "/statusline/grok"])
+@pytest.mark.parametrize("path", ["/hook/claude", "/hook/codex", "/hook/pi", "/statusline"])
 async def test_missing_hook_header_is_404(path, server):
     srv, received = server
     assert await http(srv.port, "POST", path, {"hook_event_name": "Stop"}, header=False) == 404

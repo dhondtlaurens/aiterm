@@ -28,7 +28,7 @@ class SessionResolver:
 
     def resolve(self, agent: AgentKind, session_id: str | None, cwd: str | None,
                 iterm_session_id: str | None = None) -> str | None:
-        """Pid (Claude) or the tab id the hook itself carries (Codex, Grok, PI) first; then the tab this
+        """Pid (Claude) or the tab id the hook itself carries (Codex, PI) first; then the tab this
         conversation was pinned to earlier, while it still runs the same agent; then, as a
         heuristic, the directory. The pin is what survives an agent chdir'ing into a worktree:
         from then on the post's cwd matches no tab's shell directory."""
@@ -49,7 +49,7 @@ class SessionResolver:
     def resolve_directly(self, agent: AgentKind, session_id: str | None,
                          iterm_session_id: str | None = None) -> str | None:
         """The tab a post came from, by evidence rather than inference: the agent's own pid (Claude)
-        or the tab id the hook carries (Codex, Grok, PI). A pin or a directory match can be stale."""
+        or the tab id the hook carries (Codex, PI). A pin or a directory match can be stale."""
         if (harness := HARNESS_BY_AGENT.get(agent)) is None:
             return None
         if harness.placement == "pid_file":

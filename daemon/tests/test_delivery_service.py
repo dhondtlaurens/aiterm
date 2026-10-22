@@ -151,7 +151,7 @@ async def test_the_policy_names_every_harness_and_the_version_its_check_vouches_
     reply = await call("delivery.policy")
     assert reply["result"] == {"agents": {
         "claude": {"policy": "auto", "version": "2.1.301"}, "codex": {"policy": "off", "version": None},
-        "grok": {"policy": "off", "version": None}, "pi": {"policy": "off", "version": None}}}
+        "pi": {"policy": "off", "version": None}}}
     policy["codex"] = ("pasteOnly", "0.160.0")
     assert (await call("delivery.policy"))["result"]["agents"]["codex"] == {"policy": "pasteOnly", "version": "0.160.0"}
 

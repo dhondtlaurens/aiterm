@@ -155,7 +155,7 @@ def test_required_prompt_checks_must_run_and_pass(tmp_path, agent, missing, fail
     assert read_back(tmp_path, {agent: entry})[agent].policy == "off"
 
 
-@pytest.mark.parametrize("value", ["claude-code", "claude codex", "", " ", "claude,", "claude,grok"])
+@pytest.mark.parametrize("value", ["claude-code", "claude codex", "", " ", "claude,", "claude,gemini"])
 def test_invalid_agents_are_refused(value):
     with pytest.raises(ValueError, match="--agents claude,codex") as error:
         chosen_agents(value)

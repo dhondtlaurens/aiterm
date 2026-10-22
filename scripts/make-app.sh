@@ -39,8 +39,6 @@ find "$OUT/Contents/Resources/daemon" -name '__pycache__' -type d -prune -exec r
 cp "$ROOT/hooks/claude-statusline-shim.sh" "$OUT/Contents/Resources/hooks/"
 cp "$ROOT/hooks/pi-aiterm-status.ts" "$OUT/Contents/Resources/hooks/"
 chmod +x "$OUT/Contents/Resources/hooks/claude-statusline-shim.sh"
-cp "$ROOT/hooks/grok-statusline-shim.sh" "$OUT/Contents/Resources/hooks/"
-chmod +x "$OUT/Contents/Resources/hooks/grok-statusline-shim.sh"
 # Signed with "AiTerm Release" whenever that certificate is in the keychain, dev builds included: a
 # stable identity keeps macOS's iTerm2 automation permission and the Keychain's "Always Allow"
 # across rebuilds and updates, and is what an update is verified against. Without the certificate

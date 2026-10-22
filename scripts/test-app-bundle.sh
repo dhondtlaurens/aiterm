@@ -21,7 +21,7 @@ actual_icon="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$APP/Conten
 cmp -s "$SOURCE_ICON" "$BUNDLED_ICON" || { echo "bundled icon differs from source icon" >&2; exit 1; }
 
 [[ -x "$APP/Contents/MacOS/AiTerm" ]] || { echo "missing app executable" >&2; exit 1; }
-for hook in claude-statusline-shim.sh grok-statusline-shim.sh pi-aiterm-status.ts; do
+for hook in claude-statusline-shim.sh pi-aiterm-status.ts; do
     bundled="$APP/Contents/Resources/hooks/$hook"
     [[ -f "$bundled" ]] || { echo "missing bundled hook: $hook" >&2; exit 1; }
     if [[ "$hook" == *.sh && ! -x "$bundled" ]]; then

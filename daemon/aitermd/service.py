@@ -26,7 +26,7 @@ from .rpc_params import frame_param, guard, optional_param, param, require_iterm
 from .rpc_server import RpcServer
 from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
 from .sessions import SessionRegistry, SnapshotDiff
-from .status import StatusEngine, path_is_missing, shows_trust_prompt
+from .status import StatusEngine, shows_trust_prompt
 from .usage import UsageStore, parse_codex_rate_limits
 from .windows import WindowManager
 
@@ -43,8 +43,8 @@ def _logged(step: str) -> Iterator[None]:
 
 
 POLL_SECONDS = 2.0
-# How long a tick waits for a check it runs on a worker thread: the orphan directories, the subagent
-# transcripts, the Codex rollouts.
+# How long a tick waits for a check it runs on a worker thread: the subagent transcripts, the Codex
+# rollouts.
 OFF_LOOP_CHECK_SECONDS = 1.0
 # Both of a tick's Codex reads -- the account's rate limits and the sessions' context fill -- run
 # under this one off-loop name. They share CodexSessionFiles' caches, which nothing locks, so a read
@@ -62,15 +62,12 @@ class Service:
 
     def __init__(self, iterm: ItermPort, rpc: RpcServer, hooks: HookServer, claude_files: ClaudeSessionFiles,
                  clock: Callable[[], float], codex_files: CodexSessionFiles | None = None,
-                 supervisor: ItermSupervisor | None = None, path_missing: Callable[[str], bool] = path_is_missing,
-                 monotonic: Callable[[], float] = time.monotonic,
+                 supervisor: ItermSupervisor | None = None, monotonic: Callable[[], float] = time.monotonic,
                  delivery_policy: Callable[[], Mapping[AgentKind, Verdict]] | None = None,
                  operator_runs: Path | None = None):
         self.iterm, self.rpc, self.hooks = iterm, rpc, hooks
         # `clock` is the wall clock, in seconds. Fractional: the status engine stamps each hook with
         # it and compares the stamp with a session file's mtime, which a whole second would blur.
-        # `monotonic` times the orphan settle, and `path_missing` is its directory check, which runs
-        # on a worker thread: a stat on a hung network mount must not stall the daemon.
         self.claude_files, self.codex_files, self.clock = claude_files, codex_files, clock
         # Claude's folder as the app last named it, which a snapshot echoes as it was sent: the app compares
         # the strings, and pathlib would spell some paths otherwise ("a/./b" as "a/b").
@@ -109,7 +106,6 @@ class Service:
         # caller asked before another started and finished has nothing left to read.
         self._ticks_started = 0
         self._last_good_tick = 0
-        self._path_missing = path_missing
         self.subagent_transcripts = SubagentTranscripts()
         # Each off-loop check's latest run, by name, while its worker thread may still be running: a
         # thread stuck on a hung mount cannot be cancelled, so no second one is started beside it.
@@ -371,8 +367,6 @@ class Service:
             changed += await self._apply_trust_prompts(screens)
         with _logged("reading the Codex rollouts"):
             changed += await self._apply_codex_rollouts(threads)
-        with _logged("settling orphaned sessions"):
-            changed += self.status.settle_orphans(await self._missing_paths(self.status.orphan_paths()))
         with _logged("releasing dead subagents"):
             changed += self.status.release_dead_subagents(await self._subagent_tails(self.status.subagent_transcripts()))
 
@@ -455,14 +449,6 @@ class Service:
             self.registry.set_cli_version(session_id, version)
             changed += self.status.apply_metadata(session_id, context=context)
         return changed
-
-    async def _missing_paths(self, paths: set[str]) -> frozenset[str]:
-        """Which of `paths` are gone. A check that cannot answer finds nothing missing: a directory
-        it cannot see is not proof that a turn ended."""
-        if not paths:
-            return frozenset()
-        check = self._path_missing
-        return await self._off_loop("the directory check", lambda: frozenset(p for p in paths if check(p)), frozenset())
 
     async def _subagent_tails(self, paths: set[str]) -> dict[str, TranscriptTail]:
         """The end of each of `paths`, the transcripts of the children a deferred done waits on. Only

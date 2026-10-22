@@ -21,7 +21,7 @@ chmod +x "$fixture_dir/python"
 rc=0
 PYTHON="$fixture_dir/python" "$ROOT/scripts/test-app-bundle.sh" "$app" >"$fixture_dir/output" 2>&1 || rc=$?
 [[ "$rc" == 73 ]] || { print -u2 "bundle verifier ignored PYTHON (status $rc)"; cat "$fixture_dir/output" >&2; exit 1; }
-for hook in claude-statusline-shim.sh grok-statusline-shim.sh pi-aiterm-status.ts; do
+for hook in claude-statusline-shim.sh pi-aiterm-status.ts; do
     print 'stale bundled resource' >> "$app/Contents/Resources/hooks/$hook"
     rc=0
     PYTHON="$fixture_dir/python" "$ROOT/scripts/test-app-bundle.sh" "$app" >"$fixture_dir/output" 2>&1 || rc=$?

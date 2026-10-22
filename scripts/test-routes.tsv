@@ -22,7 +22,7 @@
 # Add the name when a new test only reads its own target's files; add a row when it reads another's.
 # reads only its own target: PaletteDistinctionTests CoreFoldersTests OperatorPlanToolsTests
 # opt-in, reads outside its target: OperatorEvalTests
-# daemon readers outside daemon/: test_statusline_shim.py=hooks/claude-statusline-shim.sh test_grok_statusline_shim.py=hooks/grok-statusline-shim.sh test_pi_extension.py=hooks/pi-aiterm-status.ts
+# daemon readers outside daemon/: test_statusline_shim.py=hooks/claude-statusline-shim.sh test_pi_extension.py=hooks/pi-aiterm-status.ts
 
 # The daemon, and what the Swift suites read from it.
 daemon/*	daemon

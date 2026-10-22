@@ -29,10 +29,6 @@ class HookEvent:
     iterm_session_id: str | None = None
     reasoning: str | None = None
     context_percent: int | None = None
-    # The turn the event belongs to (Grok's `promptId`), and whether the event starts it. A report
-    # for another turn is late and is ignored (StatusEngine.apply_event); None applies regardless.
-    turn_id: str | None = None
-    starts_turn: bool = False
     # Where a Claude SubagentStart's child writes its transcript: what the status engine reads when
     # the child's SubagentStop never comes.
     subagent_transcript: str | None = None
@@ -46,16 +42,13 @@ class HookEvent:
     # The harness's own name for the event (`hook_event_name`): a Codex thread's binding to its tab
     # depends on which event bound it (SessionResolver.bind).
     event_name: str | None = None
-    # A nested agent's own event (a Grok subagent's permission prompt): its state is the parent tab's,
-    # but its session id is the child's, so it names no conversation of that tab's.
-    nested: bool = False
 
     @property
     def conversation_id(self) -> str | None:
         """The conversation the post's tab runs, which a reopened window resumed: its session id,
-        unless the post is a nested agent's, or a subagent's start or stop in any harness (a Codex
-        child's carries its own thread id)."""
-        return None if self.nested or self.kind in ("subagentStart", "subagentStop") else self.session_id
+        unless the post is a subagent's start or stop in any harness (a Codex child's carries its own
+        thread id)."""
+        return None if self.kind in ("subagentStart", "subagentStop") else self.session_id
 
 
 def _subagent(name: str, p: dict[str, Any]) -> tuple[Transition, str] | None:
@@ -132,7 +125,7 @@ def _claude_running_subagents(tasks: Any) -> frozenset[str] | None:
 
 
 def _session_start(p: dict[str, Any]) -> Transition | None:
-    """A Claude, Codex or Grok SessionStart begins a new conversation — except after a compaction,
+    """A Claude or Codex SessionStart begins a new conversation — except after a compaction,
     which each reports as `source: "compact"` in the middle of a turn whose background subagents may
     still be running. That one carries only metadata: resetting the turn there would end it early."""
     return None if p.get("source") == "compact" else "sessionStart"
@@ -144,9 +137,7 @@ def _submitted(name: str, p: dict[str, Any]) -> str | None:
 
 
 def parse_claude_hook(p: dict[str, Any]) -> HookEvent | None:
-    # Grok also runs ~/.claude/settings.json hooks. Its payload carries `hookEventName`, which Claude
-    # never sends; today Grok refuses our http:// hooks, and this keeps a future Grok from counting as Claude.
-    if not isinstance(p, dict) or "hookEventName" in p:
+    if not isinstance(p, dict):
         return None
     name = _nonempty_string(p.get("hook_event_name"))
     sid, cwd = _nonempty_string(p.get("session_id")), _nonempty_string(p.get("cwd"))
@@ -244,86 +235,6 @@ def parse_pi_hook(p: dict[str, Any]) -> HookEvent | None:
     )
 
 
-GROK_EVENTS: dict[str, Transition] = {
-    "UserPromptSubmit": "working",
-    # A tool ran, so a permission prompt it waited on was answered: Grok's resume signal. A tool
-    # that failed to dispatch, or an MCP error, reports PostToolUseFailure instead.
-    "PostToolUse": "working",
-    "PostToolUseFailure": "working",
-    "StopFailure": "done",
-    "StopCancelled": "done",
-}
-# The `Notification` types AiTerm reads. `idle_prompt` is Grok's backstop for a turn that reported no
-# end -- a rewind, a cancel-and-send, a superseded turn, a stop gate at its continuation limit: it
-# fires about a minute after the session settles, on any turn end, so it settles rather than marks.
-GROK_NOTIFICATIONS: dict[str, Transition] = {"permission_prompt": "needsInput", "idle_prompt": "settle"}
-# `Stop` reasons that end the session rather than a turn.
-GROK_SESSION_END_REASONS = frozenset({"channel_closed", "shutdown"})
-
-
-# What a `backgroundTasks` entry's status says once its task is over. Grok lists in-flight tasks only,
-# so a subagent in any other status -- or none -- is still running.
-GROK_FINISHED_TASK_STATUSES = frozenset({"completed", "failed", "cancelled"})
-
-
-def _has_running_subagent(tasks: Any) -> bool:
-    """Whether a `Stop`'s `backgroundTasks` holds a subagent still running. Only a subagent holds the
-    turn, as a Claude child does: a shell task or a monitor -- a dev server, a watcher -- can run for
-    the rest of the session, and whatever wakes the session fires UserPromptSubmit anyway."""
-    return isinstance(tasks, list) and any(
-        isinstance(task, dict) and task.get("type") == "subagent"
-        and _nonempty_string(task.get("status")) not in GROK_FINISHED_TASK_STATUSES
-        for task in tasks)
-
-
-def _notification_type(p: dict[str, Any]) -> str | None:
-    # Grok's own camelCase key, or Claude's, which it also sends.
-    return _nonempty_string(p.get("notificationType")) or _nonempty_string(p.get("notification_type"))
-
-
-def parse_grok_hook(p: dict[str, Any]) -> HookEvent | None:
-    """Grok Build's command-hook payload: Claude's PascalCase `hook_event_name` beside Grok's own
-    camelCase fields. The iTerm session arrives as the X-AiTerm-iTerm-Session header.
-
-    A payload carrying `subagentType` is a nested agent's own event, which is not the session's --
-    except a permission prompt: a background child raises its own, and Grok waits on the user for it
-    all the same. The main session omits the key, so it is tested by value, not presence.
-
-    `promptId` names the turn an event belongs to, and is absent for session-scoped ones. A child's
-    is its own turn's, not the parent's, so its permission prompt carries none."""
-    if not isinstance(p, dict):
-        return None
-    name = _nonempty_string(p.get("hook_event_name"))
-    child = bool(p.get("subagentType"))
-    if child and not (name == "Notification" and _notification_type(p) == "permission_prompt"):
-        return None
-    kind: Transition | None
-    if name == "SessionStart":
-        kind = _session_start(p)
-    elif name in GROK_EVENTS:
-        kind = GROK_EVENTS[name]
-    elif name == "Notification":
-        kind = GROK_NOTIFICATIONS.get(_notification_type(p) or "")
-        if kind is None:
-            return None
-    elif name == "Stop":
-        if _nonempty_string(p.get("reason")) in GROK_SESSION_END_REASONS or _has_running_subagent(p.get("backgroundTasks")):
-            return None
-        kind = "done"
-    else:
-        return None
-    return HookEvent(
-        agent="grok", kind=kind, model=None,
-        session_id=_nonempty_string(p.get("sessionId")) or _nonempty_string(p.get("session_id")),
-        cwd=_nonempty_string(p.get("cwd")),
-        iterm_session_id=_nonempty_string(p.get(ITERM_SESSION_FIELD)),
-        turn_id=None if child else _nonempty_string(p.get("promptId")),
-        starts_turn=name == "UserPromptSubmit",
-        event_name=name,
-        nested=child,
-    )
-
-
 def _context_percent(p: dict[str, Any]) -> int | None:
     """`context_window.used_percentage`: how full *this conversation* is. Unlike the rate-limit
     windows it arrives from one session, so the service resolves that session and the status engine
@@ -337,14 +248,13 @@ def _context_percent(p: dict[str, Any]) -> int | None:
 
 class StatusLine(NamedTuple):
     """What one status-line tick tells the daemon: the session it describes, and facts that land in
-    different places -- account usage in the `UsageStore`, the model, reasoning and context fill on
-    the resolved session's task. Grok sends no rate-limit summary, so its `usage` is None."""
+    different places -- account usage in the `UsageStore`, the model and context fill on the resolved
+    session's task. `usage` is None when the payload carries no rate-limit summary."""
     usage: Usage | None
     session_id: str | None
     cwd: str | None
     iterm_session_id: str | None
     model: str | None
-    reasoning: str | None
     context_percent: int | None
 
 
@@ -359,15 +269,7 @@ def parse_claude_statusline(p: dict[str, Any], now: int) -> StatusLine:
         parse_claude_rate_limits(p.get("rate_limits"), now),
         _nonempty_string(p.get("session_id")), _nonempty_string(p.get("cwd")),
         _nonempty_string(p.get(ITERM_SESSION_FIELD)),
-        _object_field(p, "model", "id"), None, _context_percent(p),
-    )
-
-
-def parse_grok_statusline(p: dict[str, Any], now: int) -> StatusLine:
-    return StatusLine(
-        None, _nonempty_string(p.get("session_id")), _nonempty_string(p.get("cwd")),
-        _nonempty_string(p.get(ITERM_SESSION_FIELD)),
-        _object_field(p, "model", "id"), _object_field(p, "effort", "level"), _context_percent(p),
+        _object_field(p, "model", "id"), _context_percent(p),
     )
 
 
@@ -376,9 +278,9 @@ HookParser = Callable[[dict[str, Any]], HookEvent | None]
 StatusLineParser = Callable[[dict[str, Any], int], StatusLine]
 # Each harness's parsers. A route in models.HARNESSES without its parser here fails at import.
 _HOOK_PARSER: dict[AgentKind, HookParser] = {
-    "claude": parse_claude_hook, "codex": parse_codex_hook, "grok": parse_grok_hook, "pi": parse_pi_hook,
+    "claude": parse_claude_hook, "codex": parse_codex_hook, "pi": parse_pi_hook,
 }
-_STATUSLINE_PARSER: dict[AgentKind, StatusLineParser] = {"claude": parse_claude_statusline, "grok": parse_grok_statusline}
+_STATUSLINE_PARSER: dict[AgentKind, StatusLineParser] = {"claude": parse_claude_statusline}
 
 # The agent hook routes, each with the parser for its agent's payload.
 HOOK_PARSERS: dict[str, HookParser] = {h.hook_route: _HOOK_PARSER[h.agent] for h in HARNESSES}

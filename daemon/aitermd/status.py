@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import os
 import time
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from .claude_subagents import TranscriptTail
 from .hook_events import HookEvent
-from .models import END_OF_TURN_SURVIVES_CWD_LOSS, HARNESS_BY_AGENT, AgentKind, SessionInfo, State
+from .models import HARNESS_BY_AGENT, AgentKind, State
 from .sessions import SessionRegistry
 
 CLAUDE_FILE_STATUS: dict[str, State | None] = {
@@ -15,30 +14,12 @@ CLAUDE_FILE_STATUS: dict[str, State | None] = {
     "waiting": "needsInput", "idle": None, "shell": None,
 }
 
-# How long an agent's cwd must stay missing before the daemon ends its turn for it. Long enough for a
-# real `Stop` sent over a cwd-independent transport to land first.
-ORPHAN_SETTLE_SECONDS = 10.0
-
 # How long a Claude subagent's transcript may go unwritten, while its parent's turn waits on it, before
 # the child counts as dead. Claude's stream watchdog kills a child after 600 s without progress, but
 # that leaves an interruption in the transcript, which ends the child at once. Live children have gone
 # 28 minutes without a write -- a long generation, a stream retry -- so this only catches one that died
 # writing nothing at all.
 SUBAGENT_QUIET_SECONDS = 45 * 60.0
-
-
-def path_is_missing(path: str) -> bool:
-    """Whether a session's directory is really gone: removed (ENOENT), or a component of it is no
-    longer a directory (ENOTDIR). Any other failure -- EACCES on a TCC-protected folder, EIO, a
-    stale or unreachable network mount, a NUL in a path another process sent -- says nothing
-    about the directory, so it counts as present rather than force a turn to end."""
-    try:
-        os.stat(path)
-    except (FileNotFoundError, NotADirectoryError):
-        return True
-    except (OSError, ValueError):
-        return False
-    return False
 
 
 @dataclass(slots=True)
@@ -71,11 +52,6 @@ class Turn:
     # prompt over another, so how many are open is counted.
     before_prompt: State | None = None
     prompts_open: int = 0
-    # When the agent's cwd was first found missing, on the monotonic clock. A hook transport that
-    # spawns a process in that cwd can deliver nothing more, so settle_orphans ends the turn.
-    cwd_missing_since: float | None = None
-    # The turn the session is on, for a harness that names its turns (Grok's `promptId`).
-    turn_id: str | None = None
 
 
 def shows_trust_prompt(agent: AgentKind, screen: str) -> bool:
@@ -96,7 +72,8 @@ class StatusEngine:
                  monotonic: Callable[[], float] = time.monotonic):
         self.reg = registry
         # `clock` is the wall clock, which a hook's stamp must share with a session file's mtime;
-        # `monotonic` times the orphan window, which an NTP step must not shorten.
+        # `monotonic` times how long a subagent's transcript stays quiet, which an NTP step must
+        # not shorten.
         self._clock, self._monotonic = clock, monotonic
         self._turns: dict[str, Turn] = {}
         # The sessions whose row a folder-trust dialog holds at needs input. Not a turn's: the dialog
@@ -121,17 +98,11 @@ class StatusEngine:
 
     def _apply_event(self, session_id: str, ev: HookEvent) -> list[str]:
         """What a hook says happened to the session's turn (`ev.kind`; its metadata is
-        `apply_metadata`'s). `ev.turn_id` is the turn it reports on, when the harness names one (Grok's
-        `promptId`), and `ev.starts_turn` marks the hook that begins it: Grok dispatches a cancelled
-        turn's report off its command loop, so a report can arrive after the next turn has started.
-        `ev.subagent_transcript` is where a starting Claude child writes; `ev.running_subagents`, on a
-        Claude Stop, the children still running."""
-        if (kind := ev.kind) is None or (s := self.reg.get(session_id)) is None:
+        `apply_metadata`'s). `ev.subagent_transcript` is where a starting Claude child writes;
+        `ev.running_subagents`, on a Claude Stop, the children still running."""
+        if (kind := ev.kind) is None or self.reg.get(session_id) is None:
             return []
         turn = self._turn(session_id)
-        # The hook's transport still reaches the daemon, so the turn is not orphaned: a pending
-        # settle is cancelled, and a directory still missing starts a new window.
-        turn.cwd_missing_since = None
         if kind == "sessionStart":
             self.reset_turn(session_id)
             return []
@@ -143,18 +114,6 @@ class StatusEngine:
             return self._prompt_started(session_id)
         if kind == "promptEnd":
             return self._prompt_ended(session_id)
-        if (turn_id := ev.turn_id) is not None:
-            if ev.starts_turn:
-                turn.turn_id = turn_id
-            elif (current := turn.turn_id) != turn_id and (
-                    current is not None or (kind == "done" and s.state == "idle")):
-                # A report for another turn: an earlier one's, delivered late, or one never seen to
-                # start -- on an idle row, an interrupted bash-mode command's, which is no turn.
-                return []
-        if kind == "settle":
-            if s.state not in ("working", "needsInput"):
-                return []
-            kind = "done"
         turn.hook_at = self._clock()
         released: list[str] = []
         # What the session waits on once its turn ends, said by the Stop; a new turn waits on nothing yet.
@@ -381,40 +340,3 @@ class StatusEngine:
             if (turn := self._turns.get(s.session_id)) is not None and turn.before_prompt == "done":
                 turn.before_prompt = "idle"
         return [s.session_id for s in sessions if s.state == "done" and self.reg.set_state(s.session_id, "idle")]
-
-    @staticmethod
-    def _orphan_path(s: SessionInfo) -> str | None:
-        """The directory whose loss would orphan the session's turn, or None if nothing would: no
-        turn is in flight, or its harness's end of turn survives a removed cwd."""
-        if s.agent == "shell" or s.agent in END_OF_TURN_SURVIVES_CWD_LOSS or s.state not in ("working", "needsInput"):
-            return None
-        return s.agent_cwd or s.cwd or None
-
-    def orphan_paths(self) -> set[str]:
-        """The directories settle_orphans needs to know about: the caller checks them, off the event
-        loop, and passes the missing ones in."""
-        return {path for s in self.reg.all() if (path := self._orphan_path(s))}
-
-    def settle_orphans(self, missing: Collection[str]) -> list[str]:
-        """Ends the turn of an agent session whose working directory has been `missing` for
-        ORPHAN_SETTLE_SECONDS: an agent that merged and removed its own worktree. Forced past a
-        deferred completion, since no subagent hook can arrive either (spec §10b)."""
-        now, changed = self._monotonic(), []
-        for s in self.reg.all():
-            sid, path = s.session_id, self._orphan_path(s)
-            if path is None or path not in missing:
-                if (turn := self._turns.get(sid)) is not None:
-                    turn.cwd_missing_since = None
-                continue
-            turn = self._turn(sid)
-            if turn.cwd_missing_since is None:
-                turn.cwd_missing_since = now
-            if now - turn.cwd_missing_since < ORPHAN_SETTLE_SECONDS:
-                continue
-            # The children, the deferred done, the open prompts and the window go; what tells this
-            # conversation's reports from an earlier one's stays: the last hook's stamp, the spinner
-            # seen, the turn id.
-            self._turns[sid] = Turn(hook_at=turn.hook_at, spun=turn.spun, turn_id=turn.turn_id)
-            if self.reg.set_state(sid, "done"):
-                changed.append(sid)
-        return changed
