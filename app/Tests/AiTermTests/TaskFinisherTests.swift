@@ -351,12 +351,29 @@ final class MergeClock: Sendable {
         _ = try writeHook("#!/bin/sh\necho 'lefthook: running pre-push'\necho 'sh: npm: command not found' >&2\nexit 1\n", in: s)
         #expect(await s.finisher.finish(s.task).result == "failed")
         #expect(operated(s)?.publication?.lastPushFailure == "lefthook: running pre-push\nsh: npm: command not found")
+        #expect(operated(s)?.publication?.lastPushFailureSHA == s.sha, "the commit the hook refused")
         #expect(try StateStore(url: s.store.file.url).load().task(id: s.task)?.operated?.publication?.lastPushFailure != nil, "saved")
 
         let past = await s.finisher.finish(s.task, noVerify: true)
         #expect(past.result == "published" && past.pushedSHA == s.sha)
         #expect(try git.run(["rev-parse", "refs/heads/feat/pluto-231"], in: s.origin) == s.sha)
         #expect(operated(s)?.publication?.lastPushFailure == nil, "a push that landed leaves no failure to judge")
+        // Asked again, its reply lost: what was done, not a refusal.
+        #expect(await s.finisher.finish(s.task, noVerify: true) == past)
+    }
+
+    /// The hook's refusal holds for the commit it refused: one accepted since must be pushed without noVerify first.
+    @Test func aRefusalOfAnotherCommitIsNoReasonToSkipTheHook() async throws {
+        let s = try setUp(end: .draftMR)
+        let hook = try writeHook("#!/bin/sh\necho 'sh: npm: command not found' >&2\nexit 1\n", in: s)
+        #expect(await s.finisher.finish(s.task).result == "failed")
+        try git.run(["commit", "--allow-empty", "-q", "-m", "the fix"], in: s.path)
+        let head = try git.run(["rev-parse", "HEAD"], in: s.path)
+        s.store.mutate { $0.updateOperated(s.task) { $0.acceptance?.resultSHA = head } }
+        let refused = await s.finisher.finish(s.task, noVerify: true)
+        #expect(refused.result == "refused" && refused.reason == "Push without noVerify first, so the hook's output is known.")
+        #expect(try Repository(s.path, git: git).originTip(of: "feat/pluto-231") == nil)
+        try FileManager.default.removeItem(at: hook)
     }
 
     /// A hook that could not find its tool was run with a PATH that has since changed (an install, a

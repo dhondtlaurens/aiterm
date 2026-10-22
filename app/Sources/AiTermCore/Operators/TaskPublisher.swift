@@ -145,6 +145,7 @@ public struct TaskPublisher: Sendable {
             publication.readySince = nil
             // Landed: an earlier refusal is no longer anything to push past.
             publication.lastPushFailure = nil
+            publication.lastPushFailureSHA = nil
             try await record(publication)
         }
 

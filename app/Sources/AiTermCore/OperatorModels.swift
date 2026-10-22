@@ -89,25 +89,34 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     /// AiTerm kept it is not acted on.
     public var repository: String?
     /// What the pre-push hook said when it last refused the push (`GitError.pushReason`), kept for the Oracle to judge a
-    /// `finish_task` with `noVerify` by (spec §B); none until a push is refused, and cleared once one lands.
+    /// `finish_task` with `noVerify` by (spec §B); none until a push is refused, and cleared once one lands. It holds for
+    /// the commit it refused, `lastPushFailureSHA`, only (`pushFailure(for:)`).
     public var lastPushFailure: String?
+    public var lastPushFailureSHA: String?
+
+    /// What the hook said refusing the push of `sha`: nil when the last refusal was of another commit, or none was.
+    /// A commit accepted since was never run through the hook, so nothing is known yet to push it past.
+    public func pushFailure(for sha: String?) -> String? {
+        guard let sha, lastPushFailureSHA == sha else { return nil }
+        return lastPushFailure
+    }
 
     public init(pushedSHA: String? = nil, mergeRequestURL: String? = nil, mergeRequestNumber: Int? = nil,
                 targetBranch: String? = nil, waitingSince: Date? = nil, readySince: Date? = nil, merged: Bool = false,
                 mergedSHA: String? = nil, mergedHead: String? = nil, problem: String? = nil, conditionsHeld: String? = nil,
                 repository: String? = nil, leftForYou: Bool = false, waitingReason: String? = nil, mergeRefusal: String? = nil,
-                lastPushFailure: String? = nil) {
+                lastPushFailure: String? = nil, lastPushFailureSHA: String? = nil) {
         self.pushedSHA = pushedSHA; self.mergeRequestURL = mergeRequestURL; self.mergeRequestNumber = mergeRequestNumber
         self.targetBranch = targetBranch; self.waitingSince = waitingSince; self.readySince = readySince; self.merged = merged
         self.mergedSHA = mergedSHA; self.mergedHead = mergedHead; self.problem = problem; self.conditionsHeld = conditionsHeld
         self.mergeRefusal = mergeRefusal
         self.repository = repository; self.leftForYou = leftForYou; self.waitingReason = waitingReason
-        self.lastPushFailure = lastPushFailure
+        self.lastPushFailure = lastPushFailure; self.lastPushFailureSHA = lastPushFailureSHA
     }
 
     private enum CodingKeys: String, CodingKey {
         case pushedSHA, mergeRequestURL, mergeRequestNumber, targetBranch, waitingSince, readySince, merged, mergedSHA, mergedHead, problem
-        case conditionsHeld, repository, leftForYou, waitingReason, mergeRefusal, lastPushFailure
+        case conditionsHeld, repository, leftForYou, waitingReason, mergeRefusal, lastPushFailure, lastPushFailureSHA
     }
 
     /// Every field may be missing: a publication saved before the merge steps reads as not merged.
@@ -137,6 +146,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         leftForYou = try c.decodeIfPresent(Bool.self, forKey: .leftForYou) ?? false
         waitingReason = try c.decodeIfPresent(String.self, forKey: .waitingReason)
         lastPushFailure = try c.decodeIfPresent(String.self, forKey: .lastPushFailure)
+        lastPushFailureSHA = try c.decodeIfPresent(String.self, forKey: .lastPushFailureSHA)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -158,6 +168,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         try c.encode(leftForYou, forKey: .leftForYou)
         try c.encodeIfPresent(waitingReason, forKey: .waitingReason)
         try c.encodeIfPresent(lastPushFailure, forKey: .lastPushFailure)
+        try c.encodeIfPresent(lastPushFailureSHA, forKey: .lastPushFailureSHA)
     }
 }
 

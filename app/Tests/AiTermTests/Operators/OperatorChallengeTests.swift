@@ -300,6 +300,25 @@ extension OperatorChallengeTests {
             #expect(answer.value?["result"] == "published")
             #expect(try originTip(p) == p.sha, "pushed past the hook")
             #expect(publication(p)?.conditionsHeld == nil, "a yes on the hook is no yes on a merge")
+            // The same call again, its reply lost: what was done, with no Oracle run.
+            #expect(await p.world.call(p.run.id, "finish_task", ["task": "A", "noVerify": true,
+                                                                 "reason": "Ran npm ci in the worktree; npm is still not found."]) == answer)
+            #expect(p.prompts.list.count == 1)
+        }
+
+        /// A commit accepted after the hook refused another was never run through it: nothing is known to push it past.
+        @Test func aCommitAcceptedSinceTheRefusalNeedsItsOwnPushFirst() async throws {
+            let p = try pushing()
+            try await refusedPush(p)
+            let git = GitRunner.hermetic()
+            try git.run(["commit", "--allow-empty", "-q", "-m", "the fix"], in: p.path)
+            let head = try git.run(["rev-parse", "HEAD"], in: p.path)
+            p.world.workspace.mutate { $0.updateOperated(p.task.id) { $0.acceptance?.resultSHA = head } }
+            let answer = await p.world.call(p.run.id, "finish_task", ["task": "A", "noVerify": true])
+            #expect(answer.value?["result"] == "refused")
+            #expect(answer.value?["reason"] == "Push without noVerify first, so the hook's output is known.")
+            #expect(p.prompts.list.isEmpty, "the old commit's output is not judged for the new one")
+            #expect(try originTip(p) == nil)
         }
 
         /// Without a reason, what the Operator tried is its last shell commands in the task's worktree, as the activity log has them.
@@ -365,7 +384,7 @@ extension OperatorChallengeTests {
             let p = try pushing(end: .merge)
             p.world.workspace.mutate { $0.updateOperated(p.task.id) {
                 $0.publication = TaskPublication(problem: "The pre-push hook refused the push of feat/a: sh: npm: command not found",
-                                                 lastPushFailure: "sh: npm: command not found")
+                                                 lastPushFailure: "sh: npm: command not found", lastPushFailureSHA: p.sha)
             } }
             let answer = await p.world.call(p.run.id, "finish_task", ["task": "A", "noVerify": true])
             #expect(p.prompts.list.count == 1)

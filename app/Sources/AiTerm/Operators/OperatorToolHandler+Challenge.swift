@@ -41,11 +41,13 @@ extension OperatorToolHandler {
     }
 
     /// The task a `finish_task` with `noVerify` would push past its hook, and what the hook said when it refused the push
-    /// (`TaskPublication.lastPushFailure`). Nil for any other call, and for one the finisher refuses before it pushes
-    /// anything (no push refused yet, the broadcast not running), which costs no Oracle run.
+    /// of the commit accepted now (`TaskPublication.pushFailure(for:)`). Nil for any other call, for one with that commit
+    /// pushed already or its end done, which answers from the record, and for one the finisher refuses before it pushes
+    /// anything (no push of this commit refused yet, the broadcast not running): none costs an Oracle run.
     private func hookSkipAwaitingOracle(_ call: ToolCall, in run: OperatorRun) -> (task: TaskItem, said: String)? {
         guard call.tool == "finish_task", call.optionalBool("noVerify") == true, PublicationGuard.runRefusal(run) == nil,
-              let task = try? task(call, in: run), let said = task.operated?.publication?.lastPushFailure else { return nil }
+              let task = try? task(call, in: run), let operated = task.operated, TaskFinisher.stillToPush(operated),
+              let said = operated.publication?.pushFailure(for: operated.acceptance?.resultSHA) else { return nil }
         return (task, said)
     }
 

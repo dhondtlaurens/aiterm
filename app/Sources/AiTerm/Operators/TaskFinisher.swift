@@ -85,10 +85,12 @@ final class TaskFinisher {
 
     /// The operator's `finish_task`: clears a recorded problem and goes on from the saved steps. While its
     /// merge is watched it is one more poll, so asking again never starts the bounded wait over. `noVerify`
-    /// pushes past the repository's push hooks (spec §B), the Oracle having judged the call: only once a push
-    /// the hook refused showed what it says (`TaskPublication.lastPushFailure`).
+    /// pushes past the repository's push hooks (spec §B), the Oracle having judged the call: only once the hook
+    /// refused the push of the commit accepted now and showed what it says (`TaskPublication.pushFailure(for:)`).
+    /// A task with that commit pushed already, or done, answers from the record as any repeat does.
     func finish(_ id: UUID, noVerify: Bool = false) async -> Result {
-        if noVerify, let operated = store.state.task(id: id)?.operated, operated.publication?.lastPushFailure == nil {
+        if noVerify, let operated = store.state.task(id: id)?.operated, Self.stillToPush(operated),
+           operated.publication?.pushFailure(for: operated.acceptance?.resultSHA) == nil {
             return Result(operated.publication, result: "refused", reason: Self.noFailedPush)
         }
         return await run(id, restart: watchers[id] == nil, noVerify: noVerify)
@@ -96,6 +98,13 @@ final class TaskFinisher {
 
     /// Why a `noVerify` is refused before any push the hook refused.
     static let noFailedPush = "Push without noVerify first, so the hook's output is known."
+
+    /// Whether the accepted commit is still to be pushed: not on origin by AiTerm's record, and the task's end not done.
+    static func stillToPush(_ operated: OperatedTask) -> Bool {
+        let publication = operated.publication
+        return operated.state != .published && publication?.merged != true && publication?.leftForYou != true
+            && publication?.pushedSHA != operated.acceptance?.resultSHA
+    }
 
     /// At launch, and whenever an operation runs again — your Resume, its operator back from offline:
     /// watch every merge end (of `run`, or of every operation) that was waiting and is watchable. A task
@@ -261,7 +270,7 @@ final class TaskFinisher {
                 let forget = forgetLogin
                 await BackgroundWork.run { forget() }
             }
-            recordFailure(why, on: id, hookSaid: (error as? GitError).flatMap(Self.hookRefusal))
+            recordFailure(why, on: id, hookSaid: (error as? GitError).flatMap(Self.hookRefusal).map { ($0, accepted) })
             return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: why)
         }
     }
@@ -269,13 +278,13 @@ final class TaskFinisher {
     /// A publication that failed — a push its pre-push hook refused, a host that errored — recorded as the
     /// task's problem and saved, so its line says `blocked` and why, not `opening the MR` for as long as it
     /// waits for you. The next `finish_task` clears it (`TaskPublisher`). `hookSaid`, for a push the hook
-    /// refused, is kept as `lastPushFailure` for the Oracle to judge a `noVerify` by.
-    private func recordFailure(_ why: String, on id: UUID, hookSaid: String? = nil) {
+    /// refused, is kept as `lastPushFailure` with the commit it refused, for the Oracle to judge a `noVerify` by.
+    private func recordFailure(_ why: String, on id: UUID, hookSaid: (output: String, sha: String)? = nil) {
         store.mutate { state in
             state.updateOperated(id) {
                 var publication = $0.publication ?? TaskPublication()
                 publication.problem = why
-                if let hookSaid { publication.lastPushFailure = hookSaid }
+                if let hookSaid { publication.lastPushFailure = hookSaid.output; publication.lastPushFailureSHA = hookSaid.sha }
                 $0.publication = publication
             }
         }
