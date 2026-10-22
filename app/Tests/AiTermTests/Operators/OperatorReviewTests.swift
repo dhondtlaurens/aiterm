@@ -213,6 +213,9 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         let host = FakeMergeHost()
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), adjust: { ports in
             ports.publisher = { _ in host }
+            // The fake host answers at once: a long wait, so a loaded machine never turns its answer into a timeout. A test
+            // of the timeout itself sets a short one.
+            ports.hostTimeout = .seconds(600)
             adjust(&ports)
         })
         world.live.sessions = [OperatorServiceFixtures.session("operator", tag: run.id), OperatorServiceFixtures.session("worker", tag: task.id)]
@@ -259,6 +262,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         #expect(r.host.log.isEmpty)
     }
 
+    /// A host held for a minute against a wait of half a second: the note is the timeout's however loaded the machine is.
     @Test func aHostThatDoesntAnswerLeavesANote() async throws {
         let r = try await reviewed(.inReview) { $0.hostTimeout = .milliseconds(500) }
         r.host.update { $0.beforeState = { try? await Task.sleep(for: .seconds(60)) } }
@@ -267,11 +271,15 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         #expect(answer.message == nil && shown["mergeRequest"] == nil, "run_status does not fail for it")
         #expect(shown["mergeRequestNote"]?.stringValue?.hasPrefix("AiTerm couldn’t read its !12 on the host: the host did not answer in") == true)
         #expect(shown["key"] == "A", "the rest of the line is there")
+    }
 
-        // A host that refuses says why, and is asked again next time: a failure is not kept.
-        r.host.update { $0.beforeState = nil; $0.stateError = URLError(.notConnectedToInternet) }
-        let refused = try line(await r.world.call(r.run.id, "run_status"))
-        #expect(refused["mergeRequestNote"]?.stringValue?.contains("on the host: ") == true)
+    /// A host that refuses says why, and is asked again next time: a failure is not kept. On the fixture's long wait, so
+    /// neither answer can become a timeout under load.
+    @Test func aHostThatRefusesSaysWhyAndIsAskedAgain() async throws {
+        let r = try await reviewed(.inReview)
+        r.host.update { $0.stateError = URLError(.notConnectedToInternet) }
+        let refused = try #require(try line(await r.world.call(r.run.id, "run_status"))["mergeRequestNote"]?.stringValue)
+        #expect(refused.hasPrefix("AiTerm couldn’t read its !12 on the host: ") && !refused.contains("did not answer"))
         r.host.update { $0.stateError = nil }
         #expect(try line(await r.world.call(r.run.id, "run_status"))["mergeRequest"]?["draft"] == false)
     }

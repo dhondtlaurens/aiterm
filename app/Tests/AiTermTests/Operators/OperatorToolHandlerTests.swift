@@ -11,9 +11,13 @@ import Testing
     let project: Project
     init() { project = OperatorServiceFixtures.project(jira: [pluto]) }
 
+    /// The world these tests read Jira in. Its Jira budget is long: the fake answers at once, and a loaded machine (a full
+    /// run's main-actor tests) must never turn a read that succeeds into Jira not answering. The budget's own test sets a
+    /// short one of its own.
     func makeWorld(_ run: OperatorRun, jira: FakeJira? = nil) throws -> OperatorWorld {
         try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { ports in
             if let jira { ports.jira = { jira } }
+            ports.jiraSearchBudget = .seconds(600)
         }
     }
 
