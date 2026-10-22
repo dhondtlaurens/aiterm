@@ -2999,7 +2999,114 @@
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
     </div>
 
-    <p class="no-proposals">No open proposals.</p>
+
+    <div class="section op" id="p-background">
+      <p class="eyebrow proposal-flag">Proposal · Background work · 22 Oct 2026</p>
+      <h2>A worker that is still running a job in the background</h2>
+      <p class="why">A worker often ends its turn while a job it started in the background still runs: the test gate,
+        a Codex review. Claude Code takes the turn up again on its own once that job finishes. AiTerm reads the end of
+        the turn as the end of the work.</p>
+      <ol class="diagnosis">
+        <li><span><b>The row says the work is ready when it isn't.</b> The task's line turns to
+          <code>ready for the Operator</code>, and <code>run_status</code> lists it under
+          <code>readyForAcceptance</code>, while the gate is still running.</span></li>
+        <li><span><b>The Operator has stopped trusting it.</b> In the Dependency updates broadcast it reported this
+          seven times, on three tasks, and now reads the worker's last message before every acceptance instead.</span></li>
+        <li><span><b>Why it happens.</b> Claude's <code>Stop</code> hook lists the turn's <code>background_tasks</code>.
+          AiTerm keeps a row working for a subagent on that list, but not for a background shell.</span></li>
+      </ol>
+      <p class="why">One catch for both options: a dev server is a background shell too. A worker that leaves one
+        running is still counted as at work until it stops it, which the Operator already tells workers to do before
+        they finish.</p>
+      <div class="options">
+        <article class="option pick"><header><span class="letter">A</span><h3>The row keeps watching</h3><span class="rec">Recommended</span></header>
+          <p>A turn that ends with a background shell still running is not the end of the work. The task's line stays
+          <code>Operator watching · in background</code> with the spinner, and it reaches <code>ready for the
+          Operator</code> only once the worker ends a turn with nothing left running. <code>run_status</code> leaves it
+          out of <code>readyForAcceptance</code> and lists it under a new <code>background</code>, with the commands
+          still running, so the Operator can tell a long gate from a stuck one.</p>
+          <p><b>What changes:</b> the line, the mark and the Operator's obligations all follow what the worker is
+          really doing.</p><div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sidebar statecol"><div class="lab">its turn ended, the gate still runs</div><div class="mk-row"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Cart drawer</span><span class="cl"><span class="q"><svg><use href="#op-jira"/></svg>PAY-233</span><span class="br">feat/pay-233-cart-drawer</span></span><span class="ol"><span class="ob acting op-decode"><span class="tx">Operator watching · in background</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div><div class="lab">the gate finished, the worker reported</div><div class="mk-row"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Cart drawer</span><span class="cl"><span class="q"><svg><use href="#op-jira"/></svg>PAY-233</span><span class="br">feat/pay-233-cart-drawer</span></span><span class="ol"><span class="ob acting op-decode"><span class="tx">ready for the Operator</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div></div></div><figcaption>The row waits for the background job before it says ready</figcaption></figure></div></article>
+        <article class="option"><header><span class="letter">B</span><h3>Only the Operator is told</h3></header>
+          <p>The row stays as it is today and says <code>ready for the Operator</code> as soon as the turn ends.
+          <code>run_status</code> lists the task under <code>background</code> instead of
+          <code>readyForAcceptance</code>, so the Operator isn't woken for it.</p>
+          <p><b>The cost:</b> you still see "ready" on a task that is running its tests, which is the mismatch you
+          noticed.</p><div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sidebar statecol"><div class="lab">its turn ended, the gate still runs</div><div class="mk-row"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Cart drawer</span><span class="cl"><span class="q"><svg><use href="#op-jira"/></svg>PAY-233</span><span class="br">feat/pay-233-cart-drawer</span></span><span class="ol"><span class="ob acting op-decode"><span class="tx">ready for the Operator</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div></div></div><figcaption>Unchanged on screen; only run_status knows</figcaption></figure></div></article>
+      </div>
+    </div>
+
+    <div class="section op" id="p-questions">
+      <p class="eyebrow proposal-flag">Proposal · The Operator's questions · 22 Oct 2026</p>
+      <h2>Where a question from the Operator shows, and what it says</h2>
+      <p class="why">The Operator asks you things with <code>ask_you</code>, and you answer in its own window: it
+        resolves the question there and passes the answer on. The sidebar says this two different ways, and one of
+        them points at the wrong window.</p>
+      <ol class="diagnosis">
+        <li><span><b>The copy reads oddly.</b> A question for the whole broadcast turns the Operator's row to
+          <code>asks you in its window</code>. It is the one status line with no plain state in front, and the only one
+          that names a place, while a click already opens that window.</span></li>
+        <li><span><b>A question about one task sends you to the wrong place.</b> It shows on the task's row as
+          <code>waiting on you</code>, and a click opens the worker's terminal. You asked the Operator whether to
+          answer there. An answer typed into the worker never reaches the Operator, so it kept asking a question you
+          had already answered, over four polls.</span></li>
+      </ol>
+      <h3 class="group">Decision 1 · The Operator row's words</h3>
+      <div class="options">
+        <article class="option pick"><header><span class="letter">A</span><h3>waiting on you</h3><span class="rec">Recommended</span></header>
+          <p>The same words as a task row and the broadcast header. The row's title already says who is waiting, so it
+          reads "Operator, waiting on you". A click opens its window, as now. The line's words stay on the closed list
+          that it already has.</p><div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sidebar statecol"><div class="lab">a question for the broadcast</div><div class="mk-row opr"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Operator</span><span class="ol"><span class="ob you"><span class="tx">waiting on you</span></span></span></span><span class="slot"><span class="st needs"></span></span></div></div></div><figcaption>The Operator row, asking</figcaption></figure></div></article>
+        <article class="option"><header><span class="letter">B</span><h3>question for you</h3></header>
+          <p>Says what kind of thing waits, which separates it from a task's permission prompt. The cost is one more
+          phrase for the same amber state.</p><div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sidebar statecol"><div class="lab">a question for the broadcast</div><div class="mk-row opr"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Operator</span><span class="ol"><span class="ob you"><span class="tx">question for you</span></span></span></span><span class="slot"><span class="st needs"></span></span></div></div></div><figcaption>The Operator row, asking</figcaption></figure></div></article>
+        <article class="option"><header><span class="letter">C</span><h3>Keep asks you in its window</h3></header><p>No change.</p></article>
+      </div>
+    </div>
+
+    <div class="section op" id="p-questions-2">
+      <p class="eyebrow proposal-flag">Proposal · The Operator's questions · 22 Oct 2026</p>
+      <h3 class="group">Decision 2 · A question about one task</h3>
+      <div class="options">
+        <article class="option pick"><header><span class="letter">A</span><h3>On the Operator's row, naming the task</h3><span class="rec">Recommended</span></header>
+          <p>The Operator asked, so its row carries the question and names the task: <code>waiting on you ·
+          PAY-232</code>. A click opens the Operator's window, where you answer. The task's own row keeps saying what
+          its worker does. The rule becomes: a worker's prompt is the task row's, a question from the Operator is the
+          Operator row's.</p><div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sidebar statecol"><div class="mk-row opr"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Operator</span><span class="ol"><span class="ob you"><span class="tx">waiting on you · PAY-232</span></span></span></span><span class="slot"><span class="st needs"></span></span></div><div class="mk-row"><span class="av"><span class="mark vm codex s18"><svg><use href="#op-openai"/></svg></span></span><span class="ln"><span class="tt">Payment provider switch</span><span class="cl"><span class="q"><svg><use href="#op-jira"/></svg>PAY-232</span><span class="br">feat/pay-232-provider-switch</span></span><span class="ol"><span class="ob acting op-decode"><span class="tx">ready for the Operator</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div></div></div><figcaption>The question on the Operator's row; the task keeps its own line</figcaption></figure></div></article>
+        <article class="option"><header><span class="letter">B</span><h3>On the task's row, opening the Operator</h3></header>
+          <p>The task's row says <code>waiting on you</code> as today, but a click opens the Operator's window instead
+          of the worker's. The cost: the same amber line opens different windows depending on who asked, which you
+          can't tell from the row.</p><div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sidebar statecol"><div class="mk-row opr"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Operator</span><span class="ol"><span class="ob quiet"><span class="tx">watching 3 tasks</span></span></span></span><span class="slot"><span class="st idle"></span></span></div><div class="mk-row"><span class="av"><span class="mark vm codex s18"><svg><use href="#op-openai"/></svg></span></span><span class="ln"><span class="tt">Payment provider switch</span><span class="cl"><span class="q"><svg><use href="#op-jira"/></svg>PAY-232</span><span class="br">feat/pay-232-provider-switch</span></span><span class="ol"><span class="ob you"><span class="tx">waiting on you</span></span></span></span><span class="slot"><span class="st needs"></span></span></div></div></div><figcaption>As today on screen; only the click target changes</figcaption></figure></div></article>
+      </div>
+    </div>
+
+    <div class="section op" id="p-driving">
+      <p class="eyebrow proposal-flag">Proposal · You in a worker's window · 22 Oct 2026</p>
+      <h2>The Operator learns when you type into a worker</h2>
+      <p class="why">You can type into any worker's window. AiTerm shows that worker as working, which is true, but it
+        doesn't tell the Operator that the prompt came from you.</p>
+      <ol class="diagnosis">
+        <li><span><b>The Operator blamed AiTerm.</b> You asked the PAY-231 worker for a fix while its task was in
+          review. The Operator saw <code>working</code> next to a last message from before acceptance, and reported
+          "shows working with no activity" as a fault in AiTerm.</span></li>
+        <li><span><b>It doesn't know about the change either.</b> The fix sits uncommitted in a worktree whose merge
+          request is already open, and nothing tells the Operator to accept it, push it or leave it alone.</span></li>
+      </ol>
+      <div class="options">
+        <article class="option pick"><header><span class="letter">A</span><h3>Tell the Operator; the row stays</h3><span class="rec">Recommended</span></header>
+          <p>When a prompt reaches a driven worker that AiTerm didn't deliver, <code>run_status</code> marks the task
+          <code>youAreDriving</code> from your prompt until that turn ends, with the prompt's first line. The Operator
+          leaves the worker alone meanwhile and reads its result afterwards, as it would one of its own. The row
+          already shows the right thing: the worker is working.</p><div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sidebar statecol"><div class="lab">you typed into the worker</div><div class="mk-row"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Checkout layout</span><span class="cl"><span class="q"><svg><use href="#op-jira"/></svg>PAY-231</span><span class="br">feat/pay-231-checkout-layout</span></span><span class="ol"><span class="ob acting op-decode"><span class="tx">Operator watching</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div></div></div><figcaption>Unchanged on screen; run_status says you are driving</figcaption></figure></div></article>
+        <article class="option"><header><span class="letter">B</span><h3>Tell the Operator and say it on the row</h3></header>
+          <p>As A, and the task's line says <code>working for you</code> until the turn ends, so the sidebar shows
+          that this turn is yours and not the Operator's.</p><div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sidebar statecol"><div class="lab">you typed into the worker</div><div class="mk-row"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Checkout layout</span><span class="cl"><span class="q"><svg><use href="#op-jira"/></svg>PAY-231</span><span class="br">feat/pay-231-checkout-layout</span></span><span class="ol"><span class="ob acting op-decode"><span class="tx">working for you</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div></div></div><figcaption>The row names whose turn it is</figcaption></figure></div></article>
+        <article class="option"><header><span class="letter">C</span><h3>Typing takes the task over</h3></header>
+          <p>Your first prompt in a driven worker's window takes the task over, as Take Over does, until you hand it
+          back. Clear, but it changes the task's ownership every time you nudge a worker, which works against handing
+          the Operator large pieces of work.</p></article>
+      </div>
+    </div>
 
 
   </section>
