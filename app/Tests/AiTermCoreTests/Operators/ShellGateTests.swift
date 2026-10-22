@@ -148,7 +148,8 @@ import Testing
     }
 
     @Test func zshExpansionsAtTheStartOfAWordGoToTheOracle() {
-        for command in ["cat =ls", "=(ls)", "git status =cat", "git status | =cat", "cat (ls)", "cat package.json )", "diff =(ls) b", "git log -n =1"] {
+        for command in ["cat =ls", "=(ls)", "git status =cat", "git status | =cat", "cat (ls)", "cat package.json )", "diff =(ls) b", "git log -n =1",
+                        "cat ''=ls", "cat \"\"=ls", "git diff ''=ls ''=cat", "cat ''\"\"=ls"] {
             #expect(route(command) == .oracle, "\(command)")
         }
         // Quoted, or inside a word, an equals sign is plain text.

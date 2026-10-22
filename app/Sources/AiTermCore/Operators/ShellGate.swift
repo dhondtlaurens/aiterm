@@ -83,8 +83,9 @@ public enum ShellGate {
                 continue
             }
             guard c.isASCII else { return nil }
-            // zsh, which runs these, expands a word that starts with `=` to the path of that command.
-            if c == "=", !inWord { return nil }
+            // zsh, which runs these, expands a word that starts with `=` to the path of that command, and it does
+            // so after empty quotes too (`''=ls`): so while the word's text is empty, whatever was quoted.
+            if c == "=", word.isEmpty { return nil }
             switch c {
             case "'", "\"":
                 quote = c; inWord = true; quoted = true
