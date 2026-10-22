@@ -26,7 +26,8 @@
         "taskId": "2F9C4B7E-5A1D-4C3B-9E8F-0A1B2C3D4E5F",
         "terminalId": null,
         "title": "pi",
-        "windowId": "w1"
+        "windowId": "w1",
+        "yourPrompt": null
       },
       {
         "active": false,
@@ -46,7 +47,8 @@
         "taskId": "2F9C4B7E-5A1D-4C3B-9E8F-0A1B2C3D4E5F",
         "terminalId": null,
         "title": "zsh",
-        "windowId": "w1"
+        "windowId": "w1",
+        "yourPrompt": null
       },
       {
         "active": true,
@@ -66,7 +68,8 @@
         "taskId": null,
         "terminalId": null,
         "title": "Logs",
-        "windowId": "w4"
+        "windowId": "w4",
+        "yourPrompt": null
       }
     ],
     "usage": {

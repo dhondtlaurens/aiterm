@@ -162,6 +162,12 @@ def test_a_claude_stop_lists_the_background_work_still_running():
     assert parse_claude_hook({**BASE, "hook_event_name": "UserPromptSubmit", "background_tasks": tasks}).background_work is None
 
 
+def test_a_prompt_submitted_carries_its_text():
+    assert parse_claude_hook({**BASE, "hook_event_name": "UserPromptSubmit", "prompt": "Fix it"}).prompt == "Fix it"
+    assert parse_codex_hook({**BASE, "hook_event_name": "UserPromptSubmit", "prompt": "Fix it"}).prompt == "Fix it"
+    assert parse_claude_hook({**BASE, "hook_event_name": "Stop", "prompt": "Fix it"}).prompt is None
+
+
 def test_only_a_claude_stop_lists_running_subagents():
     tasks = {"background_tasks": []}
     assert parse_claude_hook({**BASE, "hook_event_name": "SubagentStop", "agent_id": "a1", **tasks}).running_subagents is None

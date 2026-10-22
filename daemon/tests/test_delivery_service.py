@@ -112,6 +112,15 @@ async def test_a_wake_line_needs_no_policy_and_a_workers_message_does(claude):
     assert it.sent == [(sid, PASTE_START + wake + PASTE_END), (sid, "\r")]
 
 
+async def test_a_prompt_right_after_a_delivery_is_not_one_you_typed(claude):
+    svc, it, sid, call, _policy = claude
+    await it.user_types(sid, "\r")
+    assert svc._typed_by_you(sid)
+    reply = await call("session.deliver", {"sessionId": sid, "text": "Commit, then stop.", "ownership": 1})
+    assert reply["result"]["result"] == "delivered"
+    assert not svc._typed_by_you(sid), "AiTerm pasted into it just now"
+
+
 async def test_a_long_message_goes_through_the_worktree(claude, tmp_path):
     _svc, it, sid, call, _policy = claude
     reply = await call("session.deliver", {"sessionId": sid, "text": "y" * 2500, "ownership": 1, "worktree": str(tmp_path)})

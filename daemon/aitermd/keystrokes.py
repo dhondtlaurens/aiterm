@@ -5,6 +5,10 @@ from collections.abc import Callable
 
 from .delivery import TYPING_QUIET
 
+# How soon after you press Return in a tab a prompt it submits counts as the one you typed (HookRouter). A
+# UserPromptSubmit hook arrives well within it; a Return longer ago sent something else.
+YOUR_PROMPT_SECONDS = 10.0
+
 # The keys that leave a CLI's input empty: Return, which submits it -- held with a modifier it types
 # a newline instead -- and Ctrl-C and Ctrl-U, which clear it. The keypad's Enter arrives as Ctrl-C's
 # character, and submits too.
@@ -33,6 +37,8 @@ class TypingGuard:
         self._known: set[str] = set()
         self._last: dict[str, float] = {}
         self._unsent: set[str] = set()
+        # When Return last submitted what you typed, by session.
+        self._submitted: dict[str, float] = {}
 
     def note_key(self, session_id: str, at: float, characters: str, modifiers: frozenset[str] = frozenset()) -> None:
         self._sync_monitor()
@@ -40,6 +46,8 @@ class TypingGuard:
         if characters in _TYPES_NOTHING:
             return
         if characters in _EMPTIES or (characters == _SUBMIT and not modifiers & _NEWLINE_MODIFIERS):
+            if characters == _SUBMIT:
+                self._submitted[session_id] = at
             if self._epoch is not None:
                 self._known.add(session_id)
             self._unsent.discard(session_id)
@@ -49,6 +57,11 @@ class TypingGuard:
     def mark_unsent(self, session_id: str) -> None:
         """Text left in the session's input without its Enter: a paste whose Enter was held back."""
         self._unsent.add(session_id)
+
+    def submitted_within(self, session_id: str, now: float, seconds: float) -> bool:
+        """Whether you pressed Return in the session within `seconds` of `now`."""
+        at = self._submitted.get(session_id)
+        return at is not None and 0 <= now - at <= seconds
 
     def is_typing(self, session_id: str, now: float) -> bool:
         last = self._last.get(session_id)
@@ -69,3 +82,4 @@ class TypingGuard:
         self._known.discard(session_id)
         self._last.pop(session_id, None)
         self._unsent.discard(session_id)
+        self._submitted.pop(session_id, None)
