@@ -81,6 +81,10 @@ def _claude_subagent_transcript(p: dict[str, Any], child: str) -> str | None:
 CLAUDE_MATCHABLE_TASK_TYPES = frozenset({"subagent", "shell", "monitor", "MCP task"})
 # The statuses Claude Code lists a task under while it is in flight.
 CLAUDE_IN_FLIGHT_TASK_STATUSES = frozenset({"running", "pending"})
+# How Claude Code describes the watch it keeps on an artifact it published or was asked to watch: a monitor with no
+# MCP server that runs for the rest of the session, which Claude Code counts as no activity (`ambient`, a flag its
+# hooks do not carry). Its description is all a Stop says of it (Claude Code 2.1.308).
+CLAUDE_ARTIFACT_WATCH_PREFIX = "live updates for artifact "
 
 
 def _claude_background_work(tasks: Any) -> tuple[BackgroundJob, ...] | None:
@@ -93,12 +97,20 @@ def _claude_background_work(tasks: Any) -> tuple[BackgroundJob, ...] | None:
     for task in tasks:
         if not isinstance(task, dict) or (kind := _nonempty_string(task.get("type"))) in (None, "subagent"):
             continue
-        if _nonempty_string(task.get("status")) not in CLAUDE_IN_FLIGHT_TASK_STATUSES:
+        if _nonempty_string(task.get("status")) not in CLAUDE_IN_FLIGHT_TASK_STATUSES or _claude_artifact_watch(task):
             continue
         said = _nonempty_string(task.get("command")) if kind == "shell" else None
         if (said := said or _nonempty_string(task.get("description"))) is not None:
             work.append(BackgroundJob("shell" if kind == "shell" else "monitor" if kind == "monitor" else "task", said))
     return tuple(work)
+
+
+def _claude_artifact_watch(task: dict[str, Any]) -> bool:
+    """Whether a `background_tasks` entry is Claude Code watching an artifact for comments, which never ends and
+    wakes the session only when someone comments: no work in flight."""
+    said = _nonempty_string(task.get("description"))
+    return (task.get("type") == "monitor" and task.get("server") is None
+            and said is not None and said.startswith(CLAUDE_ARTIFACT_WATCH_PREFIX))
 
 
 def _claude_running_subagents(tasks: Any) -> frozenset[str] | None:
