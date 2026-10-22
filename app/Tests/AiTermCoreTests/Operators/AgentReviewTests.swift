@@ -35,7 +35,7 @@ import Testing
         #expect(AgentReview.defaultReviewer(for: .claude, installed: [.claude, .codex]) == .codex)
         #expect(AgentReview.defaultReviewer(for: .codex, installed: [.claude, .codex]) == .claude)
         #expect(AgentReview.defaultReviewer(for: .claude, installed: [.claude]) == .claude, "with the other missing, its own agent")
-        #expect(AgentReview.defaultReviewer(for: .grok, installed: [.grok]) == nil, "only Claude or Codex reviews")
+        #expect(AgentReview.defaultReviewer(for: .pi, installed: [.pi]) == nil, "only Claude or Codex reviews")
         #expect(AgentReview.defaultReviewer(for: .claude, installed: []) == nil)
     }
 

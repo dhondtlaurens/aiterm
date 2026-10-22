@@ -117,10 +117,9 @@ import AiTermCore
         await model.load()
 
         // PI's driver is missing in the default fixture: nothing to test until it is installed.
-        #expect(Set(await fake.testedAgents()) == [.claude, .codex, .grok])
+        #expect(Set(await fake.testedAgents()) == [.claude, .codex])
         #expect(model.snapshots[.claude]?.checks.contains(passed) == true)
         #expect(model.snapshots[.codex]?.checks.contains(passed) == true)
-        #expect(model.snapshots[.grok]?.checks.contains(passed) == true)
         #expect(model.snapshots[.pi]?.checks.contains { $0.id == .delivery } == false)
         #expect(model.running.isEmpty)
     }
@@ -309,13 +308,10 @@ private let claudeModel = AgentModel(id: "opus", label: "Opus", detail: nil,
                                      efforts: ["low", "high"], defaultEffort: "high")
 private let codexModel = AgentModel(id: "gpt-5.6", label: "gpt-5.6", detail: nil,
                                     efforts: ["medium", "high"], defaultEffort: "medium")
-private let grokModel = AgentModel(id: "grok-4.7", label: "Grok 4.7", detail: nil,
-                                   efforts: ["medium", "high"], defaultEffort: "high")
 
 private let readySnapshots: [AgentKind: HarnessSnapshot] = [
     .claude: snapshot(.claude, health: .ready, summary: "Ready.", integration: .current, models: [claudeModel]),
     .codex: snapshot(.codex, health: .ready, summary: "Ready.", integration: .current, models: [codexModel]),
-    .grok: snapshot(.grok, health: .ready, summary: "Ready.", integration: .current, models: [grokModel]),
     .pi: snapshot(.pi, health: .ready, summary: "Ready.", integration: .current, models: [piModel]),
 ]
 

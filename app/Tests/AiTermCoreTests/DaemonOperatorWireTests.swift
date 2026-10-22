@@ -58,12 +58,12 @@ final class DaemonOperatorWireTests {
     /// harness this app doesn't know is left out.
     @Test func theDeliveryPolicyReadsAsEachAgentsVerdict() async throws {
         try connect { _ in ["agents": ["claude": ["policy": "auto", "version": "2.1.301"], "codex": ["policy": "pasteOnly", "version": "0.160.0"],
-                                       "grok": ["policy": "somethingNew", "version": "1.0.0"], "pi": ["policy": "off", "version": NSNull()],
-                                       "later": ["policy": "auto", "version": "9.9.9"]]] }
+                                       "pi": ["policy": "somethingNew", "version": "1.0.0"],
+                                       "gemini": ["policy": "auto", "version": "9.9.9"]]] }
         let verdicts = try await client.deliveryPolicy()
         #expect(method() == "delivery.policy")
         #expect(verdicts == [.claude: DeliveryVerdict(policy: .auto, version: "2.1.301"), .codex: DeliveryVerdict(policy: .pasteOnly, version: "0.160.0"),
-                             .grok: DeliveryVerdict(policy: .off, version: "1.0.0"), .pi: DeliveryVerdict(policy: .off, version: nil)])
+                             .pi: DeliveryVerdict(policy: .off, version: "1.0.0")])
     }
 
     @Test func anUnknownPromptKindReadsAsAnOpenMenuAndANullKindStaysNone() async throws {

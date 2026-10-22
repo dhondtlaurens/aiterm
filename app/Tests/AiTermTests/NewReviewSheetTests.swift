@@ -82,14 +82,12 @@ import AiTermCore
         #expect(AgentSegmented.isSelectable(.pi, available: [.pi]))
         #expect(!AgentSegmented.isSelectable(.claude, available: [.pi]))
         #expect(AgentStep.missingAgentNote(available: Set(AgentKind.allCases)) == nil)
-        #expect(AgentStep.missingAgentNote(available: [.claude, .codex, .pi])
-                == "Grok Build isn’t installed. Install it in Settings › Agents.")
         #expect(AgentStep.missingAgentNote(available: [.claude, .codex])
-                == "Grok Build and PI aren’t installed. Install them in Settings › Agents.")
+                == "PI isn’t installed. Install it in Settings › Agents.")
         #expect(AgentStep.missingAgentNote(available: [.codex])
-                == "Claude Code, Grok Build and PI aren’t installed. Install them in Settings › Agents.")
+                == "Claude Code and PI aren’t installed. Install them in Settings › Agents.")
         #expect(AgentStep.missingAgentNote(available: [])
-                == "Claude Code, Codex, Grok Build and PI aren’t installed. Install them in Settings › Agents.")
+                == "Claude Code, Codex and PI aren’t installed. Install them in Settings › Agents.")
     }
 
     @MainActor @Test func completedEmptyCatalogueDoesNotLookLikeItIsStillLoading() {
@@ -297,7 +295,7 @@ import AiTermCore
     @Test func escapeClosesTheCompletionPopupBeforeSteppingBack() throws {
         let h = harness(step: 3, title: "Review it", branch: "main", mrOpen: false)
         defer { h.window.orderOut(nil) }
-        h.model.completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .builtIn)]
+        h.model.completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .user)]
         settle(h.host)
         #expect(!descendants(of: NSTextView.self, in: h.host).isEmpty, "step 3: Prompt")
         try #require(h.model.completions.isOpen, "the popup is open before ⎋")

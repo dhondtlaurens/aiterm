@@ -5,19 +5,19 @@ import Foundation
 /// installer and the daemon arguing about a port, or the log and the socket in different folders.
 public enum AiTermPaths {
     /// Hook HTTP receiver port (daemon plan §1). The drivers install it: the agents' hook URLs
-    /// carry it, PI's extension is written with it, and the status-line shims read it from
+    /// carry it, PI's extension is written with it, and Claude's status-line shim reads it from
     /// `hookPortURL` (`ShimPort`). The supervisor passes it to `aitermd run --hook-port`.
     public static let hookPort = 47821
 
     /// AiTerm's folder in `home`'s Application Support: state, the helper's socket and log, and the
-    /// small files the status-line shims read. The shims spell the same path in shell
-    /// (`StatusLineShimTests` pins that they do).
+    /// small files the status-line shim reads. The shim spells the same path in shell
+    /// (`StatusLineShimTests` pins that it does).
     public static func supportDirectory(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         home.appendingPathComponent("Library/Application Support/AiTerm")
     }
 
-    /// The port the status-line shims post to, one line of digits: a shim runs on every tick of its
-    /// agent's status line and reads it with a shell builtin.
+    /// The port the status-line shim posts to, one line of digits: the shim runs on every tick of
+    /// Claude Code's status line and reads it with a shell builtin.
     public static func hookPortURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         supportDirectory(home: home).appendingPathComponent("hook-port")
     }
@@ -37,11 +37,6 @@ public enum AiTermPaths {
     /// launch migration reads once and nothing writes any more.
     public static func legacyStatusLineOriginalURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         supportDirectory(home: home).appendingPathComponent("statusline-original.json")
-    }
-
-    /// The command of the user's own Grok Build status line, which its shim runs.
-    public static func grokStatusLineOriginalURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        supportDirectory(home: home).appendingPathComponent("grok-statusline-original.cmd")
     }
 
     /// Called once, at launch, before loading state: a driver's install writes into the folder but

@@ -20,7 +20,7 @@ import Synchronization
         #expect(found == [.claude, .pi])
         #expect(asked.withLock { $0 } == [locator.query])
         #expect(locator.query.hasPrefix(LoginShell.locateQuery(AgentKind.allCases.map(\.rawValue))))
-        #expect(locator.query.contains("claude codex grok pi"))
+        #expect(locator.query.contains("claude codex pi"))
     }
 
     /// The New Task sheet and Settings ask the same locator, so an agent installed as an alias is

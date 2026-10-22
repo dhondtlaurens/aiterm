@@ -111,7 +111,7 @@ import Foundation
         write("---\ndescription: Linked\n---\n", to: store.appendingPathComponent("linked.md"))
         write("---\ndescription: Nested\n---\n", to: store.appendingPathComponent("ops/rollout.md"))
         let fm = FileManager.default
-        for dot in [".claude", ".agents"] {
+        for dot in [".claude", ".agents", ".codex"] {
             try fm.createDirectory(at: home.appendingPathComponent("\(dot)/skills"), withIntermediateDirectories: true)
             try fm.createSymbolicLink(at: home.appendingPathComponent("\(dot)/skills/shared"), withDestinationURL: store.appendingPathComponent("shared"))
         }
@@ -122,9 +122,8 @@ import Foundation
         let claude = SkillCatalog.discover(agent: .claude, projectPath: nil, home: home)
         #expect(claude.map(\.name) == ["linked", "ops:rollout", "shared"])
         #expect(claude.first { $0.name == "shared" }?.detail == "Shared")
-        for agent in [AgentKind.codex, .grok] {
-            #expect(SkillCatalog.discover(agent: agent, projectPath: nil, home: home).filter { $0.name == "shared" }.count == 1, "\(agent)")
-        }
+        // Codex reads both `.codex/skills` and `.agents/skills`, two roots that point at one skill.
+        #expect(SkillCatalog.discover(agent: .codex, projectPath: nil, home: home).filter { $0.name == "shared" }.count == 1)
     }
 
     /// A whole skills root can be a link too — `~/.agents/skills -> ../.claude/skills` is a
@@ -135,7 +134,6 @@ import Foundation
         try FileManager.default.createDirectory(at: home.appendingPathComponent(".agents"), withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(atPath: home.appendingPathComponent(".agents/skills").path, withDestinationPath: "../.claude/skills")
         #expect(SkillCatalog.discover(agent: .codex, projectPath: nil, home: home).map(\.name) == ["mine"])
-        #expect(SkillCatalog.discover(agent: .grok, projectPath: nil, home: home).map(\.name) == ["mine"])
         #expect(SkillCatalog.discover(agent: .pi, projectPath: nil, home: home).map(\.name) == ["skill:mine"])
     }
 
@@ -156,7 +154,6 @@ import Foundation
         write("---\ndescription: d\n---\n", to: home.appendingPathComponent(".claude/skills/.trash/1790-abc/deleted/SKILL.md"))
         write("---\ndescription: d\n---\n", to: home.appendingPathComponent(".claude/skills/kept/SKILL.md"))
         #expect(SkillCatalog.discover(agent: .claude, projectPath: nil, home: home).map(\.name) == ["kept"])
-        #expect(SkillCatalog.discover(agent: .grok, projectPath: nil, home: home).map(\.name) == ["kept"])
     }
 
     /// A project's own `.claude` directory is scanned too, and its entries are marked as the
@@ -187,38 +184,8 @@ import Foundation
         #expect(SkillCatalog.trigger(in: "/skill:g", caret: 8)?.query == "skill:g")
     }
 
-    @Test func grokReadsGrokAgentsAndClaudeRoots() {
-        let home = tempDir(), project = tempDir()
-        let skill = "---\ndescription: d\n---\n"
-        write(skill, to: home.appendingPathComponent(".grok/skills/alpha/SKILL.md"))
-        write(skill, to: home.appendingPathComponent(".agents/skills/beta/SKILL.md"))
-        write(skill, to: home.appendingPathComponent(".claude/skills/gamma/SKILL.md"))
-        write(skill, to: home.appendingPathComponent(".grok/commands/deploy.md"))
-        write(skill, to: project.appendingPathComponent(".grok/skills/delta/SKILL.md"))
-        write(skill, to: project.appendingPathComponent(".claude/commands/ship.md"))
-        let names = SkillCatalog.discover(agent: .grok, projectPath: project.path, home: home).map(\.name)
-        #expect(names == ["alpha", "beta", "delta", "deploy", "gamma", "ship"])
-    }
-
-    /// Grok's bundled skills are offered, below a user skill of the same name; its commands are
-    /// flat `commands/*.md` only; and a `user-invocable: false` skill is not a slash command.
-    @Test func grokOffersBundledSkillsFlatCommandsAndOnlyInvocableSkills() throws {
-        let home = tempDir()
-        write("---\ndescription: bundled\n---\n", to: home.appendingPathComponent(".grok/bundled/skills/design/SKILL.md"))
-        write("---\ndescription: bundled\n---\n", to: home.appendingPathComponent(".grok/bundled/skills/review/SKILL.md"))
-        write("---\ndescription: mine\n---\n", to: home.appendingPathComponent(".grok/skills/review/SKILL.md"))
-        write("---\nuser-invocable: false\n---\n", to: home.appendingPathComponent(".grok/skills/background/SKILL.md"))
-        write("---\ndescription: d\n---\n", to: home.appendingPathComponent(".claude/commands/sub/nested.md"))
-        write("---\ndescription: d\n---\n", to: home.appendingPathComponent(".claude/commands/flat.md"))
-        let found = SkillCatalog.discover(agent: .grok, projectPath: nil, home: home)
-        #expect(found.map(\.name) == ["design", "flat", "review"])
-        let review = try #require(found.first { $0.name == "review" })
-        #expect(review.detail == "mine" && review.source == .user)
-        #expect(found.first { $0.name == "design" }?.source == .builtIn)
-    }
-
-    /// Claude Code honours `user-invocable: false` too; Codex documents no such key.
-    @Test func onlyClaudeAndGrokHideNonInvocableSkills() {
+    /// Claude Code honours `user-invocable: false`; Codex documents no such key.
+    @Test func onlyClaudeHidesNonInvocableSkills() {
         let home = tempDir()
         write("---\nuser-invocable: False\n---\n", to: home.appendingPathComponent(".claude/skills/hidden/SKILL.md"))
         write("---\nuser-invocable: false\n---\n", to: home.appendingPathComponent(".codex/skills/shown/SKILL.md"))
@@ -273,11 +240,11 @@ import Foundation
     /// A picked item is written as its agent runs it: Codex mentions a skill with `$` and keeps `/`
     /// for its commands; every other agent runs both from `/`.
     @Test func aPickedItemIsWrittenAsItsAgentRunsIt() {
-        let skill = AgentCompletion(name: "imagegen", kind: .skill, detail: nil, source: .builtIn)
+        let skill = AgentCompletion(name: "imagegen", kind: .skill, detail: nil, source: .user)
         let prompt = AgentCompletion(name: "prompts:draft", kind: .command, detail: nil, source: .user)
         #expect(SkillCatalog.invocation(of: skill, for: .codex) == "$imagegen")
         #expect(SkillCatalog.invocation(of: prompt, for: .codex) == "/prompts:draft")
-        for agent in [AgentKind.claude, .grok, .pi] {
+        for agent in [AgentKind.claude, .pi] {
             #expect(SkillCatalog.invocation(of: skill, for: agent) == "/imagegen")
             #expect(SkillCatalog.invocation(of: prompt, for: agent) == "/prompts:draft")
         }

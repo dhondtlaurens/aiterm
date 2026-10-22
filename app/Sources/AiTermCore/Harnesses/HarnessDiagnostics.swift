@@ -20,14 +20,14 @@ public enum HarnessIntegrationState: Equatable, Sendable {
 /// What a card's check is about. Core and the app filter, replace and order checks by it, so it is
 /// a type: a misspelt id does not compile, and each check's label is said once.
 public enum HarnessCheckID: String, Sendable {
-    case cli, integration, models, daemon, delivery, context, operation
+    case cli, integration, models, daemon, delivery, operation
     case selectedModel = "selected-model"
     /// Whether AiTerm may type into the CLI: the delivery check's verdict on the version installed
     /// (`DeliveryCheck.messaging`), which the app adds to Claude Code's and Codex's cards.
     case messaging
 
     /// The name the card gives the check. The UI calls every harness's integration a driver:
-    /// hooks for Claude, Codex and Grok, an extension for PI — the same job, so one word.
+    /// hooks for Claude and Codex, an extension for PI — the same job, so one word.
     public var label: String {
         switch self {
         case .cli: return "CLI"
@@ -35,7 +35,6 @@ public enum HarnessCheckID: String, Sendable {
         case .models: return "Models"
         case .daemon: return "Helper"
         case .delivery: return "Status delivery"
-        case .context: return "Context"
         case .operation: return "Setup"
         case .selectedModel: return "Default model"
         case .messaging: return "Messaging"
@@ -47,8 +46,8 @@ public struct HarnessCheck: Equatable, Sendable {
     public var id: HarnessCheckID
     public var passed: Bool
     public var explanation: String?
-    /// Whether Install can put this check right when it fails. Grok's Context check cannot: a
-    /// status line AiTerm must not touch stays as it is however many times Install runs.
+    /// Whether Install can put this check right when it fails. Messaging and Setup cannot: both
+    /// report on the Run check, which Install does not run.
     public var repairable: Bool
 
     public var label: String { id.label }

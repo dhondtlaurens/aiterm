@@ -5,9 +5,7 @@ import shlex
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-# "grok" stays only because the app's SessionAgent still names it (WireContractTests compares the two);
-# no harness row, route or parser serves it.
-AgentKind = Literal["claude", "codex", "grok", "pi", "shell"]
+AgentKind = Literal["claude", "codex", "pi", "shell"]
 State = Literal["idle", "working", "needsInput", "done"]
 # What a hook says happened to a turn. Metadata (model, reasoning, context, cwd) is not a kind: it
 # rides along on any event and is applied separately. `promptStart`/`promptEnd` bracket a PI input

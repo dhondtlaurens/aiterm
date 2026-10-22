@@ -9,7 +9,6 @@ struct FixerChoiceTests {
     @Test func onlyAgentsWithAnUnattendedModeAreFixers() {
         #expect(AgentKind.claude.fixer == .claude)
         #expect(AgentKind.codex.fixer == .codex)
-        #expect(AgentKind.grok.fixer == nil, "no network-off on macOS yet (spikes)")
         #expect(AgentKind.pi.fixer == nil)
     }
 
@@ -18,7 +17,7 @@ struct FixerChoiceTests {
     @Test func offWithoutClaude() {
         let on = HelpWithProblems(isOn: true)
         #expect(on.resolve(installed: [.claude, .codex]) == .ready(.claude))
-        #expect(on.resolve(installed: [.codex, .grok, .pi]) == .off, "Codex is no stand-in for the Operator")
+        #expect(on.resolve(installed: [.codex, .pi]) == .off, "Codex is no stand-in for the Operator")
         #expect(on.resolve(installed: []) == .off)
         #expect(HelpWithProblems(isOn: false).resolve(installed: [.claude]) == .off)
         #expect(on.isAvailable(installed: [.claude]) && !on.isAvailable(installed: [.codex]))

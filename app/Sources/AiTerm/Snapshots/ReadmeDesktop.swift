@@ -36,7 +36,7 @@ struct ReadmeDesktop: View {
             Project(id: UUID(), name: name, path: here, provider: provider, remoteUrl: nil, addedAt: clock.now,
                     collapsed: false, jiraProjects: jira)
         }
-        let models: [AgentKind: String] = [.claude: "opus", .codex: "gpt-5.6", .pi: "openai-codex/gpt-5.6-sol", .grok: "grok-4.7"]
+        let models: [AgentKind: String] = [.claude: "opus", .codex: "gpt-5.6", .pi: "openai-codex/gpt-5.6-sol"]
         func task(_ project: Project, _ title: String, _ branch: String, _ agent: AgentKind, _ window: String,
                   jira: String? = nil, review: MergeRequestRef? = nil) -> TaskItem {
             TaskItem(id: UUID(), projectId: project.id, title: title, branch: branch, worktreePath: "/r/.worktrees/\(window)",
@@ -50,7 +50,7 @@ struct ReadmeDesktop: View {
         let acme = project("acme", .gitlab, jira: [ml, web])
 
         let refactor = task(aiterm, "Refactor the session tracker", "refactor/session-tracker", .claude, "a1")
-        let orphan = task(aiterm, "Fix orphaned helper on restart", "fix/orphaned-helper", .grok, "a2")
+        let orphan = task(aiterm, "Fix orphaned helper on restart", "fix/orphaned-helper", .pi, "a2")
         let quantize = task(acme, "Quantize the ranking model to int8", "feat/ml-412-int8-quantization", .pi, "m1", jira: "ML-412")
         let release = task(acme, "Release new marketing website", "release/marketing-website", .codex, "m2", jira: "WEB-221",
                            review: MergeRequestRef(iid: 87, title: "Release new marketing website", url: "https://example/!87"))
@@ -76,7 +76,7 @@ struct ReadmeDesktop: View {
             // The selected task: Claude Code in front, its context the footer's `ctx` row.
             Fixture.session("r1", "a1", refactor.id, "claude", "working", 0, cwd: refactor.worktreePath, active: true, context: 38),
             Fixture.session("r2", "a1", refactor.id, "codex", "idle", 1, cwd: refactor.worktreePath),
-            Fixture.session("r3", "a2", orphan.id, "grok", "done", 0, cwd: orphan.worktreePath, active: true),
+            Fixture.session("r3", "a2", orphan.id, "pi", "done", 0, cwd: orphan.worktreePath, active: true),
             Fixture.session("r4", "m1", quantize.id, "pi", "working", 0, cwd: quantize.worktreePath, active: true),
             Fixture.session("r5", "m2", release.id, "codex", "needsInput", 0, cwd: release.worktreePath, active: true),
             Fixture.session("r6", "m2", release.id, "claude", "idle", 1, cwd: release.worktreePath),

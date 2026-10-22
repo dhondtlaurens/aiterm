@@ -24,7 +24,7 @@ import Testing
     /// worker before it reaches the shell, which under the parallel runner once took past the
     /// deadline.
     @Test func theLaunchAndTheFirstSettingsOpeningShareOneLoginShell() async throws {
-        for missing in [[], [AgentKind.grok, .pi]] {
+        for missing in [[], [AgentKind.codex, .pi]] {
             let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-locator-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: home) }
@@ -72,7 +72,7 @@ import Testing
     @Test func concurrentCallersShareOneShell() {
         let shell = CountingShell(Self.output([.claude, .codex]), gated: true)
         let locator = LoginShellLocator(shell: shell.run)
-        let names = ["claude", "codex", "grok", "pi", "claude", "codex"]
+        let names = ["claude", "codex", "pi", "claude", "codex"]
         let found = Mutex<[String?]>([])
         let answered = DispatchGroup()
         for name in names {

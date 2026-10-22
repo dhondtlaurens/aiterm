@@ -55,6 +55,6 @@ import Foundation
 
     @Test func onlyClaudeAndCodexAreOfferedToAnOperator() {
         #expect(AgentCommand.operatedAgents == [.claude, .codex])
-        #expect(AgentCommand.workerWords(agent: .grok, model: "grok-4", reasoning: nil) == ["grok", "-m", "grok-4"])
+        #expect(AgentCommand.workerWords(agent: .pi, model: "anthropic/claude-sonnet", reasoning: nil) == ["pi", "--model", "anthropic/claude-sonnet"])
     }
 }

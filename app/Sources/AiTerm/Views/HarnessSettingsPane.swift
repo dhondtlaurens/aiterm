@@ -92,7 +92,7 @@ struct HarnessSettingsPane: View {
                         .accessibilityIdentifier("harness-card-\(agent.rawValue)")
                 }
             }
-            HelpText("Settings tests each agent when it opens. Install adds a missing CLI with its vendor’s own installer, then AiTerm’s driver; Run check opens iTerm2 to check that AiTerm can message the agent. The install and Help with problems both take effect immediately; Cancel does not undo them.")
+            HelpText("Claude Code and Codex are fully supported; other providers, such as Grok, work through PI. Settings tests each agent when it opens. Install adds a missing CLI with its vendor’s own installer, then AiTerm’s driver; Run check opens iTerm2 to check that AiTerm can message the agent. The install and Help with problems both take effect immediately; Cancel does not undo them.")
         }
         .onChange(of: focus.map { model.snapshots[$0] != nil } ?? false, initial: true) { _, drawn in
             if drawn, let focus { scroll?.scrollTo(focus, anchor: .top) }

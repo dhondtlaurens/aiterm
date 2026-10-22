@@ -184,7 +184,7 @@ import Testing
 
     @Test func anAgentOrModelCreateTaskWouldRefuseIsRefused() async throws {
         let (world, run, task) = try makeWorld { _ in } adjust: { $0.installedAgents = { [.claude] } }
-        #expect(await world.call(run.id, "open_tab", Self.arguments(agent: "grok")).message == "The Operator’s task runs claude or codex.")
+        #expect(await world.call(run.id, "open_tab", Self.arguments(agent: "pi")).message == "The Operator’s task runs claude or codex.")
         #expect(await world.call(run.id, "open_tab", Self.arguments()).message
                 == "Codex isn’t installed on this Mac. Choose an installed agent from run_status.")
         #expect(await world.call(run.id, "open_tab", Self.arguments(agent: "claude", model: "claude-9")).message

@@ -554,16 +554,6 @@ import Synchronization
         #expect(SidebarModel.usageVendorRows(.empty, now: now, calendar: cal).map(\.vendor) == [.claude, .codex])
     }
 
-    /// Grok Build has no account-quota source either, so it follows PI: no vendor row, only ctx.
-    @Test func grokGetsAContextRowAndNoVendorRow() {
-        let rows = SidebarModel.usageVendorRows(.empty, now: Date(), calendar: .current)
-        #expect(rows.map(\.vendor) == [.claude, .codex])
-        let task = UUID()
-        let tab = session("g", task: task.uuidString, agent: .grok, state: .working, tab: 0, active: true)
-        let row = SidebarModel.usageTaskRow(taskId: task, agent: .grok, sessions: [tab], contexts: [.grok: 37])
-        #expect(row.agent == .grok && row.context?.percent == 37)
-    }
-
     private func tab(_ task: UUID, _ agent: SessionAgent, _ index: Int, active: Bool = false) -> SessionInfo {
         session("s\(index)", task: task.uuidString, agent: agent, state: .idle, tab: index, active: active)
     }

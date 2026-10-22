@@ -199,8 +199,6 @@ extension HarnessSettingsModel {
                                 efforts: ["low", "medium", "high"], defaultEffort: "high")
         let codex = AgentModel(id: "gpt-5.6", label: "gpt-5.6", detail: "Latest Codex model",
                                efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "medium")
-        let grok = AgentModel(id: "grok-4.7", label: "Grok 4.7", detail: "Latest Grok model",
-                              efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "high")
         let pi = AgentModel(id: "openai-codex/gpt-5.6-sol", label: "openai-codex / gpt-5.6-sol",
                             detail: "128k context · images", efforts: ["off", "medium", "high"],
                             defaultEffort: "medium")
@@ -212,7 +210,6 @@ extension HarnessSettingsModel {
         return [
             .claude: ready(.claude, claude),
             .codex: ready(.codex, codex),
-            .grok: ready(.grok, grok),
             .pi: .reduce(agent: .pi, cliAvailable: true, integrationState: .missing, models: [pi],
                          checks: [HarnessCheck(.cli, passed: true, explanation: nil),
                                   HarnessCheck(.integration, passed: false, explanation: "Driver is not installed.")]),

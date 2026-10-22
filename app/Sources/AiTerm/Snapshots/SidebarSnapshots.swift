@@ -52,7 +52,7 @@ enum SidebarSnapshots {
             VStack(alignment: .leading, spacing: Space.base) {
                 ForEach([Size.vendorMark, Size.avatar, Size.control, 96], id: \.self) { size in
                     HStack(spacing: Space.base) {
-                        ForEach([SessionAgent.claude, .codex, .grok, .pi, .shell], id: \.self) { VendorMark(agent: $0, size: size) }
+                        ForEach([SessionAgent.claude, .codex, .pi, .shell], id: \.self) { VendorMark(agent: $0, size: size) }
                         IntegrationMark(service: .jira, size: size)
                         IntegrationMark(service: .gitlab, size: size)
                         IntegrationMark(service: .github, size: size)
@@ -212,7 +212,7 @@ enum SidebarSnapshots {
             let fixture = Fixture(), controller = fixture.controller()
             controller.seedSnapshotRemoval(.removing, of: fixture.working.id)
             controller.seedSnapshotRemoval(.removing, of: fixture.piTask.id)
-            controller.seedSnapshotRemoval(.closing, of: fixture.grokTask.id)
+            controller.seedSnapshotRemoval(.closing, of: fixture.codexTask.id)
             controller.seedSnapshotRemoval(.stopped(note: "Not removed: branch kept", worktreeRemoved: true), of: fixture.other.id)
             controller.report(.branchKept(fixture.other.branch, of: fixture.other.id, because: .notMerged(base: "develop")))
             if let selecting { controller.focus.browse(.task(fixture[keyPath: selecting].id)) }

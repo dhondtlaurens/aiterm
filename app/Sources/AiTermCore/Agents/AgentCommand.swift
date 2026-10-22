@@ -41,13 +41,13 @@ public enum AgentCommand {
     ///   `--permission-mode auto`. `--disallowedTools` takes any number of values, so it is never
     ///   last: the prompt after `--permission-mode auto` would otherwise be read as one more tool.
     /// - Codex: the same `--dangerously-bypass-approvals-and-sandbox` as a task you make.
-    /// - Grok and PI are not offered to the Operator (`operatedAgents`) and launch as they always do.
+    /// - PI is not offered to the Operator (`operatedAgents`) and launches as it always does.
     public static func workerWords(agent: AgentKind, model: String, reasoning: String?) -> [String] {
         let words = agent.harness.launchWords(model: model, reasoning: reasoning)
         switch agent {
         case .claude:
             return words + ["--disallowedTools"] + operatedClaudeDenials + ["--permission-mode", "auto"]
-        case .codex, .grok, .pi:
+        case .codex, .pi:
             return words
         }
     }

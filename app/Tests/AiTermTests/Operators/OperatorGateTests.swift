@@ -174,7 +174,7 @@ import Testing
     }
 
     @Test func anOracleWithNoHeadlessRunMeansItRuns() async throws {
-        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: true, oracleAgent: .grok), projects: [project], state: .active)
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: true, oracleAgent: .pi), projects: [project], state: .active)
         let asked = Asked()
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { ports in
             ports.secondOpinion = answering("ASK", asked)
@@ -264,9 +264,9 @@ import Testing
         }
         #expect(asked.count == 0, "the Oracle is never asked")
 
-        let grok = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: true, oracleAgent: .grok), projects: [project], state: .active)
-        let noHeadless = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [grok]))
-        #expect(await gate(noHeadless, grok, "git push", in: project.path)["decision"] == "deny")
+        let pi = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: true, oracleAgent: .pi), projects: [project], state: .active)
+        let noHeadless = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [pi]))
+        #expect(await gate(noHeadless, pi, "git push", in: project.path)["decision"] == "deny")
 
         // An allowance for the command, however it came to be, doesn't pass it either.
         let (world, run, _) = try makeWorld(runner: .unavailable)

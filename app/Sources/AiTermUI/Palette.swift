@@ -111,10 +111,10 @@ public enum Palette {
 
     // -- vendor marks -------------------------------------------------------------------
     /// The white of a round vendor mark: the Codex, GitLab and GitHub discs, and the logo on Claude's,
-    /// Jira's, Pi's, Grok's and the shell's. A mark keeps its vendor's colours, not the appearance's;
+    /// Jira's, Pi's and the shell's. A mark keeps its vendor's colours, not the appearance's;
     /// the same white as `onAccent`, declared as an alias.
     public static let markPaper = onAccent
-    /// The black of a round vendor mark: the Pi, Grok and shell discs.
+    /// The black of a round vendor mark: the Pi and shell discs.
     public static let markInk = Color.black
 
     // Brand marks, not UI colours.
@@ -137,8 +137,6 @@ public enum Palette {
     /// OpenAI's mark, in its own black — drawn on `VendorMark`'s white Codex disc. A brand mark,
     /// not a UI colour.
     public static let openai = Brand("openai", 0x000000, path: Logos.openaiPath, fallbackSymbol: "hexagon")
-    /// xAI's Grok mark, in black: Grok has no brand colour. A brand mark, not a UI colour.
-    public static let grok = Brand("grok", 0x000000, path: Logos.grokPath, fallbackSymbol: "circle.slash", evenOdd: true)
 
     // -- sidebar ---------------------------------------------------------------------
     /// A neutral translucent wash behind an unselected count chip or badge. 8 % of `.primary`, which
@@ -259,10 +257,6 @@ public struct Brand: Sendable, Hashable {
     public let path: String
     /// Drawn instead when the SVG will not decode, so a mark never silently vanishes.
     public let fallbackSymbol: String
-    /// Whether `path` needs `fill-rule="evenodd"` to render its cut-outs as holes rather than fill:
-    /// opt-in, since most vendor marks are already correct under SVG's default nonzero winding rule.
-    /// Only Grok's mark sets this.
-    public let evenOdd: Bool
 
     /// The brand's colour as a faint wash, behind a label in the brand's own ink: a ticket's or a
     /// merge request's lane in a picker — neutral information in the vendor's colour, not a warning.
@@ -271,12 +265,11 @@ public struct Brand: Sendable, Hashable {
     public static func == (lhs: Brand, rhs: Brand) -> Bool { lhs.name == rhs.name }
     public func hash(into hasher: inout Hasher) { hasher.combine(name) }
 
-    public init(_ name: String, _ value: UInt32, path: String, fallbackSymbol: String, evenOdd: Bool = false) {
+    public init(_ name: String, _ value: UInt32, path: String, fallbackSymbol: String) {
         self.name = name
         color = Palette.hex(value)
         hex = String(format: "#%06X", value)
         self.path = path
         self.fallbackSymbol = fallbackSymbol
-        self.evenOdd = evenOdd
     }
 }

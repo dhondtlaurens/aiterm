@@ -38,13 +38,13 @@ extension AppControllerTests {
         _ = try fixture.addTask(windowId: nil)
         fixture.controller.workspace.mutate {
             $0.tasks[0].conversations = [TaskConversation(agent: .codex, id: "thread-1"), TaskConversation(agent: .claude, id: "conv-2"),
-                                         TaskConversation(agent: .grok, id: "g-3")]
+                                         TaskConversation(agent: .pi, id: "p-3")]
         }
 
         fixture.controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
         await fixture.controller.windows.lastRestore?.value
 
-        #expect(server.requests("tab.create").map { $0.params["agentCommand"] as? String } == ["claude --resume conv-2", "grok --resume g-3"])
+        #expect(server.requests("tab.create").map { $0.params["agentCommand"] as? String } == ["claude --resume conv-2", "pi --session p-3"])
         #expect(server.requests("tab.create").map { $0.params["windowId"] as? String } == ["reopened", "reopened"])
     }
 
@@ -74,7 +74,7 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: nil)
         fixture.controller.workspace.mutate {
             $0.tasks[0].conversations = [TaskConversation(agent: .codex, id: "thread-1"), TaskConversation(agent: .claude, id: "conv-2"),
-                                         TaskConversation(agent: .grok, id: "g-3")]
+                                         TaskConversation(agent: .pi, id: "p-3")]
         }
 
         fixture.controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))

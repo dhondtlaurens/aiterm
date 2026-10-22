@@ -17,11 +17,10 @@ public enum CLIInstallError: Error, Equatable, LocalizedError {
 
 /// Installs a missing harness CLI the way its vendor says to, so someone with no agent at all can
 /// start from AiTerm. Each is the vendor's own `curl | sh` script, never a package manager, and
-/// each keeps its CLI updated itself: Claude Code's and Codex's go in `~/.local/bin`, Grok Build's
-/// in `~/.grok/bin` (a link to the versioned binary it downloads). PI's may install Node.js
-/// first, which it only does after asking in a terminal — there is none here, so on a Mac without
-/// Node it stops and says so, and that sentence becomes the card's. Each script is its harness's
-/// `installCommand`.
+/// each keeps its CLI updated itself: Claude Code's and Codex's go in `~/.local/bin`. PI's may
+/// install Node.js first, which it only does after asking in a terminal — there is none here, so on
+/// a Mac without Node it stops and says so, and that sentence becomes the card's. Each script is
+/// its harness's `installCommand`.
 public enum CLIInstaller {
     /// A download and, for PI, perhaps a Node.js install: minutes, not the seconds a probe gets.
     static let timeout: TimeInterval = 600

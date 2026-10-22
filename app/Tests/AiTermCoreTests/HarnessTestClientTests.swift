@@ -7,7 +7,7 @@ import Testing
         let transport = HarnessTestTransport { url, body, headers in
             #expect(headers["Content-Type"] == "application/json")
             #expect(headers["X-AiTerm-Hook"] == "1")
-            #expect(["/hook/claude", "/hook/codex", "/hook/grok"].contains(url.path))
+            #expect(["/hook/claude", "/hook/codex"].contains(url.path))
             let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: String])
             if let id = object["_aiterm_daemon_test_id"] {
                 return try JSONSerialization.data(withJSONObject: ["ok": true, "daemonTestId": id])
@@ -18,10 +18,8 @@ import Testing
         let client = HarnessTestClient(transport: transport)
         let claude = await client.testHTTP(endpoint: Harness.claude.hookEndpoint)
         let codex = await client.testHTTP(endpoint: Harness.codex.hookEndpoint)
-        let grok = await client.testHTTP(endpoint: Harness.grok.hookEndpoint)
         #expect(claude.passed)
         #expect(codex.passed)
-        #expect(grok.passed)
         #expect(claude.checks.map(\.id) == [.daemon, .delivery])
         #expect(claude.checks.map(\.passed) == [true, true])
     }

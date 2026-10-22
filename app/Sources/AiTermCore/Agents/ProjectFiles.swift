@@ -1,9 +1,9 @@
 import Foundation
 
 /// The project's files and folders, for the prompt's `@` completions. A pick is written as an `@`
-/// mention of its path from the project's root — the form Claude Code, Grok and PI attach a file
-/// by, and a path any agent can open — which reads the same in the task's worktree, where the
-/// agent runs.
+/// mention of its path from the project's root — the form Claude Code and PI attach a file by,
+/// and a path any agent can open — which reads the same in the task's worktree, where the agent
+/// runs.
 public enum ProjectFiles {
     /// The key that opens the file list, at the start of a word.
     public static let trigger: Character = "@"

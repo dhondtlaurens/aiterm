@@ -27,7 +27,7 @@ enum WorkerTranscript {
                 return url
             }
             return nil
-        case .grok, .pi:
+        case .pi:
             return nil
         }
     }

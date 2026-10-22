@@ -37,10 +37,11 @@ public extension TaskItem {
     /// first in its own tab and each other in a tab of its own. One with no id is skipped, and so is
     /// one the CLI would read as a flag (`TaskConversation.isResumable`). The task's own agent resumes
     /// on the model and reasoning it was launched with; another — started in a tab by hand — on its
-    /// defaults.
+    /// defaults. So does every one of a task whose saved agent this build does not know
+    /// (`unrecognizedAgent`): it reads as Claude's, but was never launched with Claude on that model.
     var resumeCommands: [String] {
         conversations.filter { TaskConversation.isResumable($0.id) }.map { conversation in
-            let launched = conversation.agent == agent
+            let launched = conversation.agent == agent && unrecognizedAgent == nil
             return AgentCommand.resume(agent: conversation.agent, conversation: conversation.id,
                                        model: launched ? model : nil, reasoning: launched ? reasoning : nil)
         }

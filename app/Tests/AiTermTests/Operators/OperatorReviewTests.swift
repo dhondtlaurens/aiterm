@@ -473,7 +473,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
     @Test func anAgentReviewRefusesAnAcceptedTask() async throws {
         let r = try await reviewed(.accepted)
         #expect(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review."]).message?.contains("A is accepted: an agent review reads a working task") == true)
-        #expect(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review.", "agent": "grok"]).message != nil)
+        #expect(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review.", "agent": "pi"]).message != nil)
     }
 
     @Test func finishWithAReviewEntersInReview() async throws {

@@ -3,10 +3,10 @@ import Foundation
 @testable import AiTermCore
 
 @Suite struct ModelsTests {
-    @Test func agentsAreOrderedClaudeCodexGrokPi() {
-        #expect(AgentKind.allCases == [.claude, .codex, .grok, .pi])
-        #expect(AgentKind.grok.displayName == "Grok Build")
-        #expect(AgentKind.grok.session == .grok && SessionAgent.grok.agentKind == .grok)
+    @Test func agentsAreOrderedClaudeCodexPi() {
+        #expect(AgentKind.allCases == [.claude, .codex, .pi])
+        #expect(AgentKind.pi.displayName == "PI")
+        #expect(AgentKind.pi.session == .pi && SessionAgent.pi.agentKind == .pi)
         // Each agent is a tab's agent of the same name, and back: the two enums are kept in step
         // by their raw values alone.
         #expect(AgentKind.allCases.allSatisfy { $0.session.agentKind == $0 })
@@ -39,8 +39,8 @@ import Foundation
         #expect(future.kind == .task && future.kindName == "Task" && future.agent == .claude)
         #expect(try raw(future, "kind") == "spike" && raw(future, "agent") == "gemini")
         // Choosing a value of this build's own replaces the saved one.
-        future.agent = .grok; future.kind = .review
-        #expect(try raw(future, "kind") == "review" && raw(future, "agent") == "grok")
+        future.agent = .pi; future.kind = .review
+        #expect(try raw(future, "kind") == "review" && raw(future, "agent") == "pi")
         // Known values, and a missing kind, are untouched: a task saved without one reads as a task
         // and is saved without one, as a task made here is; one that says "task" keeps saying it.
         #expect(try decoded(agent: "pi", kind: "review").kind == .review)
@@ -125,6 +125,39 @@ import Foundation
             .replacingOccurrences(of: "\"pi\"", with: "\"someday\"")
         let back = try JSONDecoder().decode(AppState.self, from: Data(json.utf8))
         #expect(back.tasks.first?.agent == .claude && back.tasks.first?.unrecognizedAgent == "someday")
+    }
+
+    /// A workspace saved while AiTerm drove Grok Build, which it no longer does: its task, conversation
+    /// and preferences, as that build wrote them.
+    private static let savedGrokWorkspace = """
+    {"items":[],"terminals":[],"tasks":[{"id":"1EB4C0DE-0000-0000-0000-000000000001",\
+    "projectId":"1EB4C0DE-0000-0000-0000-000000000002","title":"Work","branch":"feat/work",\
+    "worktreePath":"/repo/.worktrees/work","baseBranch":"main","agent":"grok","model":"grok-4.7",\
+    "appendTicket":false,"createdAt":0,"conversations":[{"agent":"grok","id":"g1"},{"agent":"claude","id":"c1"}]}],\
+    "lastAgentByProject":["1EB4C0DE-0000-0000-0000-000000000002","grok"],\
+    "lastModelByAgent":["grok","grok-4.7","codex","gpt-5.6"]}
+    """
+
+    /// A Grok task still loads, as any task for an agent this build does not know: as a Claude task
+    /// that writes its saved agent back. Its Grok conversation cannot be resumed and is dropped, and so
+    /// are the preferences that name Grok.
+    @Test func savedGrokTaskLoadsAsClaudeAndKeepsItsAgent() throws {
+        let state = try JSONDecoder().decode(AppState.self, from: Data(Self.savedGrokWorkspace.utf8))
+        let task = try #require(state.tasks.first)
+        #expect(task.agent == .claude && task.unrecognizedAgent == "grok")
+        let written = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(task)) as? [String: Any])
+        #expect(written["agent"] as? String == "grok")
+        #expect(task.conversations == [TaskConversation(agent: .claude, id: "c1")])
+        #expect(state.lastAgentByProject.isEmpty)
+        #expect(state.lastModelByAgent == [.codex: "gpt-5.6"])
+    }
+
+    /// A former Grok task's Claude conversation was opened by hand, so it resumes on Claude's defaults,
+    /// never with the Grok model the task was launched with.
+    @Test func formerGrokTaskResumesClaudeOnItsDefaults() throws {
+        let state = try JSONDecoder().decode(AppState.self, from: Data(Self.savedGrokWorkspace.utf8))
+        let task = try #require(state.tasks.first)
+        #expect(task.resumeCommands == [AgentCommand.resume(agent: .claude, conversation: "c1", model: nil, reasoning: nil)])
     }
 
     @Test func testProjectFromAnOlderStateFileDecodesWithoutAJiraProject() throws {
@@ -366,9 +399,9 @@ import Foundation
                             worktreePath: "/tmp/wt", baseBranch: "develop",
                             jira: JiraRef(key: "SHOP-1", summary: "Gift card", url: "https://x.atlassian.net/browse/SHOP-1"),
                             kind: .review, mr: MergeRequestRef(iid: 4, title: "Add gift card", url: "https://git.example.net/g/p/-/merge_requests/4"),
-                            agent: .grok, model: "grok-4", reasoning: "high", firstPrompt: "Look at it", appendTicket: true,
+                            agent: .codex, model: "gpt-5.6", reasoning: "high", firstPrompt: "Look at it", appendTicket: true,
                             createdAt: Date(timeIntervalSince1970: 1_700_000_000), windowId: "w9",
-                            conversations: [TaskConversation(agent: .grok, id: "g-1"), TaskConversation(agent: .claude, id: "c-2")],
+                            conversations: [TaskConversation(agent: .codex, id: "t-1"), TaskConversation(agent: .claude, id: "c-2")],
                             operated: OperatedTask(runId: UUID(), key: "SHOP-1", state: .working, brief: "Do it", revision: 1))
         let data = try JSONEncoder().encode(task)
         let keys = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any]).keys

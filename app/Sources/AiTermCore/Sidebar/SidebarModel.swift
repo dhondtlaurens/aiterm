@@ -535,9 +535,9 @@ public enum SidebarModel {
     /// `wk` leads every row, then `5h`: Codex often reports only its weekly window, and a shared
     /// first column keeps the two rows aligned.
     ///
-    /// Context is not here: it belongs to the selected row and is drawn on ``usageTaskRow``. PI and
-    /// Grok Build have no account-quota source AiTerm can read (see the Grok spec's usage spike),
-    /// so neither gets a vendor row; both show `ctx` on the task row.
+    /// Context is not here: it belongs to the selected row and is drawn on ``usageTaskRow``. PI has
+    /// no account-quota source AiTerm can read, so it gets no vendor row; it shows `ctx` on the task
+    /// row.
     public static func usageVendorRows(_ snap: UsageSnapshot, now: Date, calendar: Calendar,
                                        claudeStatusLineInstalled: Bool = true) -> [UsageVendorRow] {
         [(AgentKind.claude, snap.claude), (.codex, snap.codex)].map { vendor, usage in
@@ -626,7 +626,6 @@ public extension SidebarModel {
         switch agent {
         case .claude: "Claude"
         case .codex: "Codex"
-        case .grok: "Grok"
         case .pi: "PI"
         }
     }

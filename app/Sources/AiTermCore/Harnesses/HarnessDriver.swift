@@ -1,12 +1,11 @@
 import Foundation
 
 /// One harness's driver — the hooks, extension or status line AiTerm writes so the agent reports
-/// its state — in the one shape `HarnessService` drives all four by. A driver is built from what
+/// its state — in the one shape `HarnessService` drives all three by. A driver is built from what
 /// it writes to (`home`, the daemon's port, the bundled resource it installs) and reads its files
 /// once per probe.
 protocol HarnessDriver: Sendable {
-    /// The driver's state, read off its files: why it is not current, and any check the card
-    /// shows after the Driver check.
+    /// The driver's state, read off its files, and why it is not current.
     func probe() -> DriverProbe
     /// Writes the driver, or throws `HarnessDriverError` having written nothing: a file AiTerm
     /// must not replace, or cannot read, stops the whole install before any file is touched.
@@ -19,13 +18,10 @@ struct DriverProbe: Equatable, Sendable {
     var state: HarnessIntegrationState
     /// The Driver check's explanation; `nil` when it passes.
     var explanation: String?
-    /// Checks after the Driver check, such as Grok's Context.
-    var checks: [HarnessCheck] = []
 
     /// A state every driver explains the same way.
-    init(_ state: HarnessIntegrationState, checks: [HarnessCheck] = []) {
+    init(_ state: HarnessIntegrationState) {
         self.state = state
-        self.checks = checks
         switch state {
         case .current: explanation = nil
         case .missing: explanation = "Driver is not installed."

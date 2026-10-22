@@ -164,7 +164,6 @@
   "sessionAgents": [
     "claude",
     "codex",
-    "grok",
     "pi",
     "shell"
   ],

@@ -637,9 +637,8 @@ Settings tests every card when it opens (and a service again once its fields sto
 the answer replaces that card's status line rather than landing in the sheet footer. A harness
 card's one action is named by the card's state and runs the same code whatever it says: Install
 while the CLI or the driver is missing, Repair while a check is amber, Reinstall when the card is
-Ready; a card whose only amber check is one Install cannot fix (Grok's Context, when its status line
-is the built-in or one AiTerm must not edit) shows no action at all. Claude Code's and Codex's cards
-carry a third chip, Messaging: the delivery check's verdict held against the version installed
+Ready; a card whose only amber checks are ones Install cannot fix offers none of the three.
+Claude Code's and Codex's cards carry a third chip, Messaging: the delivery check's verdict held against the version installed
 (`DeliveryCheck.messaging`; a pass covers every patch of its major and minor). Passing, its sentence
 (“Messaging ready for 2.1”) is the chip's tooltip; needing attention, it is the status line
 (“Messaging not checked for 2.2”, “Messaging failed: approvalRace”, naming the scenario the run
@@ -681,6 +680,10 @@ actions. A heading over one line of `HelpText`, a `Hairline`, then the rows, one
 card's actions sit — Help with problems' switch; with no rows there is no rule.
 The terminal-background row is not one: it has no heading of its own, only a swatch, a title and
 a switch, in the same `groupChrome` box.
+
+Settings › Agents has a card for each agent: Claude Code, Codex and PI. Claude Code and Codex are
+fully supported; other providers, such as Grok, work through PI, which the pane's closing `HelpText`
+says before anything else.
 
 `HelpWithProblemsGroup` is the top of Settings › Agents: a `SettingsGroup` “Help with problems” with a
 `SettingsSwitch` as its accessory and no rows — no agent select, since the fix runs as the Operator

@@ -183,11 +183,11 @@ enum SheetSnapshots {
             AgentCompletion(name: "superpowers:brainstorming", kind: .skill, detail: "You MUST use this before any creative work", source: .plugin("superpowers")),
             AgentCompletion(name: "superpowers:finishing-a-development-branch", kind: .skill, detail: "Use when implementation is complete", source: .plugin("superpowers")),
             AgentCompletion(name: "pdf", kind: .skill, detail: "Use this skill whenever the user wants to do anything with PDF files", source: .user),
-            AgentCompletion(name: "review", kind: .command, detail: "Review a pull request", source: .builtIn),
+            AgentCompletion(name: "review", kind: .command, detail: "Review a pull request", source: .project),
             AgentCompletion(name: "simplify", kind: .skill, detail: "Review the changed code for reuse", source: .user),
             AgentCompletion(name: "loop", kind: .skill, detail: "Run a prompt on a recurring interval", source: .user),
             AgentCompletion(name: "security-review", kind: .skill, detail: "Review the pending changes", source: .user),
-            AgentCompletion(name: "statusline", kind: .command, detail: "Set up the status line", source: .builtIn),
+            AgentCompletion(name: "statusline", kind: .command, detail: "Set up the status line", source: .user),
         ]
         let completions = model.completions
         func open() {

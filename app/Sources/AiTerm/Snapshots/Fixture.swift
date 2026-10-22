@@ -35,7 +35,7 @@ struct Fixture {
     static let fresh = Int(Snapshots.clock.now.timeIntervalSince1970)
 
     let project: Project, personal: Project
-    let working: TaskItem, other: TaskItem, piTask: TaskItem, grokTask: TaskItem
+    let working: TaskItem, other: TaskItem, piTask: TaskItem, codexTask: TaskItem
     let terminal: TerminalItem
     let rule: SidebarDivider
     /// What every checkout pass reports.
@@ -63,10 +63,10 @@ struct Fixture {
                           branch: "fix/cart-total-rounding", worktreePath: "/r/.worktrees/pi", baseBranch: "main",
                           jira: nil, agent: .pi, model: "openai-codex/gpt-5.6-sol", reasoning: "high",
                           firstPrompt: nil, appendTicket: false, createdAt: Snapshots.clock.now, windowId: "w5")
-        grokTask = TaskItem(id: UUID(), projectId: project.id, title: "Write the release notes for v2.4",
-                            branch: "docs/release-notes-2-4", worktreePath: "/r/.worktrees/grok", baseBranch: "main",
-                            jira: nil, agent: .grok, model: "grok-4.7", reasoning: "high",
-                            firstPrompt: nil, appendTicket: false, createdAt: Snapshots.clock.now, windowId: "w6")
+        codexTask = TaskItem(id: UUID(), projectId: project.id, title: "Write the release notes for v2.4",
+                             branch: "docs/release-notes-2-4", worktreePath: "/r/.worktrees/codex", baseBranch: "main",
+                             jira: nil, agent: .codex, model: "gpt-5.6", reasoning: "medium",
+                             firstPrompt: nil, appendTicket: false, createdAt: Snapshots.clock.now, windowId: "w6")
         terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Dev server", windowId: "w3", createdAt: Snapshots.clock.now)
         // A second project under a divider, so the sidebar snapshot carries a `DividerRow`.
         personal = Project(id: UUID(), name: "dotfiles", path: FileManager.default.currentDirectoryPath,
@@ -89,7 +89,7 @@ struct Fixture {
             state.append(project: project)
             state.append(divider: rule)
             state.append(project: personal)
-            state.tasks = [working, other, piTask, grokTask]
+            state.tasks = [working, other, piTask, codexTask]
             state.terminals = [terminal]
         }
         controller.live.sessions = [
@@ -105,8 +105,8 @@ struct Fixture {
             Self.session("s7", "w5", piTask.id, "pi", "working", 0, cwd: piTask.worktreePath,
                          active: true, context: 84,
                          model: piTask.model, reasoning: piTask.reasoning),
-            Self.session("s8", "w6", grokTask.id, "grok", "working", 0, cwd: grokTask.worktreePath,
-                         active: true, context: 37, model: grokTask.model, reasoning: grokTask.reasoning),
+            Self.session("s8", "w6", codexTask.id, "codex", "working", 0, cwd: codexTask.worktreePath,
+                         active: true, context: 37, model: codexTask.model, reasoning: codexTask.reasoning),
         ].compactMap { $0 }
         // The monitor is handed what the pass the sessions start would report, and the pass is
         // called off: hosted, it would land while an image is drawn, and its empty list of removed

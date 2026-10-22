@@ -10,10 +10,6 @@ import Testing
         #expect(AgentKind.pi.harness.installCommand == "curl -fsSL https://pi.dev/install.sh | sh")
     }
 
-    @Test func grokUsesXAIsInstaller() {
-        #expect(AgentKind.grok.harness.installCommand == "curl -fsSL https://x.ai/cli/install.sh | bash")
-    }
-
     /// A login shell, so the installer sees the `PATH` the task window will have: Codex's decides
     /// from `$PATH` whether to add `~/.local/bin` to a profile. Nothing can answer a prompt.
     @Test func theInstallerRunsInALoginShellWithPromptsOff() throws {

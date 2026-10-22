@@ -1,9 +1,9 @@
 import Foundation
 
-/// The port the status-line shims post to. A shim runs from the app bundle on every tick of its
-/// agent's status line, so the port cannot be written into it: the drivers that install a shim
-/// record the port in a small file (`AiTermPaths.hookPortURL`) that the shim reads with a shell
-/// builtin. A shim with no port recorded posts nothing.
+/// The port the status-line shim posts to. The shim runs from the app bundle on every tick of
+/// Claude Code's status line, so the port cannot be written into it: Claude's driver records the
+/// port in a small file (`AiTermPaths.hookPortURL`) that the shim reads with a shell builtin. A
+/// shim with no port recorded posts nothing.
 public enum ShimPort {
     /// Whether the file says `port` exactly as `record` writes it, which a driver's probe asks: a
     /// shim reading another port, or none, posts to nothing, however current the agent's own
@@ -16,7 +16,7 @@ public enum ShimPort {
     /// The file's bytes for `port`: its digits and a newline.
     private static func contents(_ port: Int) -> Data { Data("\(port)\n".utf8) }
 
-    /// Writes `port` for the shims, unless it is there already. The support folder is made if it is
+    /// Writes `port` for the shim, unless it is there already. The support folder is made if it is
     /// missing, never migrated: renaming the user's data is launch's job.
     public static func record(_ port: Int, home: URL = FileManager.default.homeDirectoryForCurrentUser) throws {
         guard !isRecorded(port, home: home) else { return }

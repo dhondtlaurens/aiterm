@@ -13,7 +13,7 @@ public enum Provider: String, Codable, Equatable, Sendable {
 }
 /// One step of an item along the sidebar, from its context menu.
 public enum MoveStep: Sendable { case up, down }
-public enum AgentKind: String, Codable, Equatable, Hashable, CaseIterable, Sendable { case claude, codex, grok, pi }
+public enum AgentKind: String, Codable, Equatable, Hashable, CaseIterable, Sendable { case claude, codex, pi }
 
 /// What a tab runs: an agent — one case for each `AgentKind`, of the same name, so each is the
 /// other's by its raw value — or a plain shell.
@@ -22,7 +22,7 @@ public enum AgentKind: String, Codable, Equatable, Hashable, CaseIterable, Senda
 /// can send a raw value this app has never heard of. Decoding it to `.shell` keeps that one session
 /// from failing the whole `DaemonSnapshot`, instead of turning it into a reconnect loop.
 public enum SessionAgent: String, Codable, Equatable, CaseIterable, Sendable {
-    case claude, codex, grok, pi, shell
+    case claude, codex, pi, shell
     public init(from decoder: Decoder) throws {
         self = SessionAgent(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .shell
     }

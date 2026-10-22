@@ -162,13 +162,11 @@ public enum ClaudeSettings {
     /// that still runs — what the footer would call a working feed. A path that runs nothing, a
     /// moved or deleted bundle, is outdated: Repair repoints it.
     ///
-    /// Grok's status line is current only at this bundle's exact path (`GrokStatusLineConfig`).
-    /// Claude's tolerates a runnable copy because a second judge reads it: the footer says whether
-    /// the Claude usage feed works by whether the shim it names can run
-    /// (`statusLineIsInstalled`), and a card that called that same line outdated would contradict
-    /// it — and, with another AiTerm build such as a worktree's running beside this one, offer a
-    /// Repair each would undo for the other. Nothing else judges Grok's line, so its card asks
-    /// for exactly what Install writes.
+    /// It tolerates a runnable copy because a second judge reads the line: the footer says whether
+    /// the Claude usage feed works by whether the shim it names can run (`statusLineIsInstalled`),
+    /// and a card that called that same line outdated would contradict it — and, with another
+    /// AiTerm build such as a worktree's running beside this one, offer a Repair each would undo
+    /// for the other.
     static func isInstalled(_ settings: [String: Any], daemonPort: Int, shimPath: String,
                             isRunnable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }) -> Bool {
         guard let hooks = settings["hooks"] as? [String: Any],

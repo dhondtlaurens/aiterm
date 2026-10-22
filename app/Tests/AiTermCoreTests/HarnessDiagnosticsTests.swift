@@ -148,7 +148,7 @@ import Testing
                                  stderr: "", timedOut: false)
         })
         let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
-                                     resources: HarnessResources([.claude: "/usr/bin/true", .pi: "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\n", .grok: "/usr/bin/true"],
+                                     resources: HarnessResources([.claude: "/usr/bin/true", .pi: "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\n"],
                                                                  installationAllowed: true,
                                                                  unavailableReason: nil))
         for agent in AgentKind.allCases {

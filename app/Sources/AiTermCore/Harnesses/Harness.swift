@@ -67,7 +67,6 @@ public extension AgentKind {
         switch self {
         case .claude: return .claude
         case .codex: return .codex
-        case .grok: return .grok
         case .pi: return .pi
         }
     }
@@ -120,8 +119,8 @@ struct SkillRoot: Sendable {
         /// Directories that hold a `SKILL.md`, each name put under `namespace` when there is one.
         /// `hidingNonInvocable` drops a skill whose frontmatter says `user-invocable: false`.
         case skills(namespace: String? = nil, hidingNonInvocable: Bool = false)
-        /// Markdown commands, a subdirectory's namespaced with a colon, down to `depth`.
-        case commands(namespace: String? = nil, depth: Int = SkillCatalog.maxDepth)
+        /// Markdown commands, a subdirectory's namespaced with a colon.
+        case commands(namespace: String? = nil)
         /// Every installed plugin's skills and commands, under `<url>/plugins`.
         case plugins(hidingNonInvocable: Bool = false)
     }

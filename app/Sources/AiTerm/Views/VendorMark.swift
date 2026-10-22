@@ -22,10 +22,6 @@ struct VendorMark: View {
             case .codex:
                 Circle().fill(Palette.markPaper)
                 Icon(.brand(Palette.openai), size: size * LogoFit.standard.scale)
-            case .grok:
-                Circle().fill(Palette.markInk)
-                Icon(.brand(Palette.grok), size: size * LogoFit.grok.scale, tint: Palette.markPaper)
-                    .offset(x: size * LogoFit.grok.dx, y: size * LogoFit.grok.dy)
             case .pi:
                 Circle().fill(Palette.markInk)
                 Icon(.piBadge, size: size * LogoFit.pi.scale, tint: Palette.markPaper)
@@ -49,26 +45,15 @@ struct VendorMark: View {
 /// an offset — a fraction of the diameter — that puts its centre of mass on the disc's centre,
 /// *unless* a mark's own shape would reach past the disc's edge first: nothing here clips to the
 /// circle, so a box scaled past that point paints outside it, on the plain ground behind the disc.
-/// Containment always wins over the ink target (Grok is the one mark this binds). Measured on the
-/// `marks.png` snapshot; re-measure there before changing one, checking both the ink/centroid and
-/// that no glyph pixel lands outside the disc's radius.
+/// Containment always wins over the ink target. Measured on the `marks.png` snapshot; re-measure
+/// there before changing one, checking both the ink/centroid and that no glyph pixel lands outside
+/// the disc's radius.
 struct LogoFit {
     let scale: CGFloat
     var dx: CGFloat = 0
     var dy: CGFloat = 0
 
     static let standard = LogoFit(scale: 0.61)
-    /// Grok's swoosh is thin and mostly negative space: at the standard 61% box it measured only
-    /// ~10.6% ink on `marks.png` (a control Claude/Codex measured with the same method: ~19.5% /
-    /// 16.8%, matching the documented family target), and its two tips reach much closer to the box's
-    /// own corners than any other mark's ink does — widening the box to bring it to 18% ink pushed
-    /// those tips past the disc's edge into the transparent square around it (nothing here clips to
-    /// the circle). Containment wins over ink: at 70% the tips stay inside the disc at the 96 pt
-    /// `marks.png` row with a several-point margin, and it covers 13.68% (below the family's 18%) —
-    /// its long diagonal reaches the disc edge before its ink does. Its mass still sat slightly right
-    /// of centre (+0.02 of the diameter), pulled back with `dx`; centred within 0.005 of the diameter
-    /// afterward.
-    static let grok = LogoFit(scale: 0.70, dx: -0.02)
     /// The square's mass sits in its left leg.
     static let pi = LogoFit(scale: 0.48, dx: 0.036)
     /// The chevrons climb to the top right.

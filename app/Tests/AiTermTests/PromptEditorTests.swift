@@ -47,10 +47,10 @@ import AiTermTestSupport
         let popup = { _ = CompletionPopup(completions: completions, width: 300).body; _ = (completions.visible, completions.index) }
         #expect(!invalidates(popup, by: { completions.close() }))
 
-        completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .builtIn)]
+        completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .user)]
         completions.index = 0
         #expect(invalidates(popup, by: { completions.close() }), "closing an open one does")
-        completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .builtIn),
+        completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .user),
                                AgentCompletion(name: "loop", kind: .skill, detail: nil, source: .user)]
         completions.index = 1
         completions.close()
@@ -199,7 +199,7 @@ import AiTermTestSupport
     @Test func atCompletesTheProjectsFilesAndDrillsIntoAFolder() throws {
         let text = TextBox()
         let completions = PromptCompletions()
-        completions.all = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .builtIn)]
+        completions.all = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .user)]
         completions.files = FileIndex(paths: ["README.md", "app/Sources/main.swift", "app/Package.swift"])
         let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
                                   agent: .claude, completions: completions)
@@ -228,7 +228,7 @@ import AiTermTestSupport
     @Test func aCodexSkillPickedFromSlashIsWrittenAsItsMention() throws {
         let text = TextBox()
         let completions = PromptCompletions()
-        completions.all = [AgentCompletion(name: "imagegen", kind: .skill, detail: nil, source: .builtIn)]
+        completions.all = [AgentCompletion(name: "imagegen", kind: .skill, detail: nil, source: .user)]
         let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
                                   agent: .codex, completions: completions)
             .frame(width: 420, height: 150)

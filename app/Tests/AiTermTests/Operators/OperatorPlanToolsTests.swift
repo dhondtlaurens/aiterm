@@ -288,9 +288,9 @@ import Testing
     @Test func aTaskOutsideTheWorkspaceOrAnAgentTheOperatorCannotRunIsRefused() async throws {
         let (world, run) = try makeWorld()
         #expect(await create(world, run, "A", project: "Elsewhere").message == "Elsewhere isn’t one of this broadcast’s projects: Shop, Web.")
-        let grok = await world.call(run.id, "create_task", ["key": "B", "title": "B", "brief": "b", "project": "Shop", "agent": "grok",
-                                                            "modelReason": "m"])
-        #expect(grok.message == "The Operator’s task runs claude or codex.")
+        let pi = await world.call(run.id, "create_task", ["key": "B", "title": "B", "brief": "b", "project": "Shop", "agent": "pi",
+                                                          "modelReason": "m"])
+        #expect(pi.message == "The Operator’s task runs claude or codex.")
         #expect(world.state.tasks.isEmpty)
     }
 
@@ -431,7 +431,7 @@ import Testing
 
     @Test func aRefusedCreateTaskLeavesTheOperationsProjectsAsTheyWere() async throws {
         let (world, run) = try makeWorld()
-        let refused = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Shop", "agent": "grok",
+        let refused = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Shop", "agent": "pi",
                                                                "modelReason": "m"])
         #expect(refused.message == "The Operator’s task runs claude or codex.")
         #expect(world.run(run.id)?.projectIds == [project.id, other.id] && world.state.tasks.isEmpty)

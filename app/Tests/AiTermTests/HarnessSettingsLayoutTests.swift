@@ -11,7 +11,7 @@ import AiTermUI
     @Test func settingsTabsAndCardsStayInHarnessOrder() {
         #expect(SettingsTab.agents.rawValue == "Agents")
         #expect(SettingsTab.interface.rawValue == "Interface")
-        #expect(HarnessCardPresentation.agents == [.claude, .codex, .grok, .pi])
+        #expect(HarnessCardPresentation.agents == [.claude, .codex, .pi])
     }
 
     /// Agents · Operator · Integrations · Interface, on ⌘1 to ⌘4.
@@ -146,20 +146,20 @@ import AiTermUI
         #expect(HarnessCardPresentation.action(for: cardSnapshot(.pi, health: .ready, integration: .current)) == "Reinstall")
     }
 
-    /// Grok's built-in status line leaves the card amber with nothing for Install to write, so the
-    /// card names no action; a card with anything Install can change keeps its Repair.
+    /// A Run check whose window could not open leaves the card amber with nothing for Install to
+    /// write, so the card names no action; a card with anything Install can change keeps its Repair.
     @Test func aCardWhoseOnlyWarningIsOneInstallCannotFixOffersNoAction() {
         func card(_ checks: [HarnessCheck]) -> HarnessSnapshot {
-            HarnessSnapshot.reduce(agent: .grok, cliAvailable: true, integrationState: .current,
+            HarnessSnapshot.reduce(agent: .claude, cliAvailable: true, integrationState: .current,
                                    models: [AgentModel(id: "m", label: "M", detail: nil, efforts: [], defaultEffort: nil)],
                                    checks: checks)
         }
         let cli = HarnessCheck(.cli, passed: true, explanation: nil)
-        let context = HarnessCheck(.context, passed: false, explanation: "built-in", repairable: false)
+        let setup = HarnessCheck(.operation, passed: false, explanation: "iTerm2 is not connected", repairable: false)
         let delivery = HarnessCheck(.delivery, passed: false, explanation: "no event arrived")
 
-        #expect(HarnessCardPresentation.action(for: card([cli, context])) == nil)
-        #expect(HarnessCardPresentation.action(for: card([cli, context, delivery])) == "Repair")
+        #expect(HarnessCardPresentation.action(for: card([cli, setup])) == nil)
+        #expect(HarnessCardPresentation.action(for: card([cli, setup, delivery])) == "Repair")
         #expect(HarnessCardPresentation.action(for: card([cli])) == "Reinstall")
     }
 

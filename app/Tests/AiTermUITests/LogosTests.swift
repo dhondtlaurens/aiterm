@@ -20,21 +20,8 @@ struct LogosTests {
         #expect(Logos.image(brand: brand, fill: "#2684FF") !== Logos.image(brand: brand, fill: "#FFFFFF"))
     }
 
-    @Test func windingRulesAreCachedApart() {
-        let name = "winding-\(UUID().uuidString)"
-        let path = "M0 0h24v24H0zM4 4h16v16H4z"
-        let nonzero = Brand(name, 0xFFFFFF, path: path, fallbackSymbol: "circle")
-        let evenOdd = Brand(name, 0xFFFFFF, path: path, fallbackSymbol: "circle", evenOdd: true)
-        let first = Logos.image(brand: nonzero, fill: "#FFFFFF")
-        let second = Logos.image(brand: evenOdd, fill: "#FFFFFF")
-        #expect(first != nil && second != nil)
-        #expect(first !== second, "a winding rule changes how the path is filled")
-        #expect(Logos.image(brand: nonzero, fill: "#FFFFFF") === first)
-        #expect(Logos.image(brand: evenOdd, fill: "#FFFFFF") === second)
-    }
-
     @Test func everyBrandHasItsOwnName() {
-        let brands = [Palette.claude, Palette.jira, Palette.gitlab, Palette.github, Palette.vscode, Palette.openai, Palette.grok]
+        let brands = [Palette.claude, Palette.jira, Palette.gitlab, Palette.github, Palette.vscode, Palette.openai]
         #expect(Set(brands.map(\.name)).count == brands.count)
     }
 

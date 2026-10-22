@@ -7,13 +7,12 @@ import Synchronization
 public struct AgentCompletion: Equatable, Hashable, Identifiable, Sendable {
     public enum Kind: String, Equatable, Hashable, Sendable { case skill, command, file, folder }
     public enum Source: Equatable, Hashable, Sendable {
-        case user, project, plugin(String), builtIn
+        case user, project, plugin(String)
         public var label: String {
             switch self {
             case .user: return "user"
             case .project: return "project"
             case .plugin(let name): return name
-            case .builtIn: return "built-in"
             }
         }
     }
@@ -80,8 +79,8 @@ public enum SkillCatalog {
             switch root.kind {
             case .skills(let namespace, let hidingNonInvocable):
                 found += skills(in: root.url, namespace: namespace, source: root.source, hidingNonInvocable: hidingNonInvocable, walk: walk)
-            case .commands(let namespace, let depth):
-                found += commands(in: root.url, namespace: namespace, source: root.source, depth: depth, walk: walk)
+            case .commands(let namespace):
+                found += commands(in: root.url, namespace: namespace, source: root.source, walk: walk)
             case .plugins(let hidingNonInvocable):
                 found += pluginCompletions(under: root.url, hidingNonInvocable: hidingNonInvocable, walk: walk)
             }
@@ -141,8 +140,8 @@ public enum SkillCatalog {
     /// skill's name is its own directory, never the bucket's.
     ///
     /// `hidingNonInvocable` drops a skill whose frontmatter says `user-invocable: false`, for the
-    /// CLIs that keep such a skill out of their slash menu (Claude Code, Grok); Codex and PI
-    /// document no such key.
+    /// CLI that keeps such a skill out of its slash menu (Claude Code); Codex and PI document no
+    /// such key.
     static func skills(in root: URL, namespace: String?, source: AgentCompletion.Source,
                        hidingNonInvocable: Bool = false, walk: Walk) -> [AgentCompletion] {
         descend(root, depth: maxDepth, walk: walk).compactMap { dir in
@@ -255,7 +254,7 @@ public enum SkillCatalog {
             switch root.kind {
             case .skills(let namespace, _):
                 if let found = skill(in: root.url, namespace: namespace) { return found }
-            case .commands(let namespace, _):
+            case .commands(let namespace):
                 if let found = command(in: root.url, namespace: namespace) { return found }
             case .plugins:
                 for plugin in pluginRoots(under: root.url.appendingPathComponent("plugins"), walk: walk) {

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The four harnesses, side by side: what differs between them is read here, in one table.
+/// The three harnesses, side by side: what differs between them is read here, in one table.
 extension Harness {
     static let claude = claude(config: ClaudeConfig())
 
@@ -15,7 +15,7 @@ extension Harness {
         resumeArguments: { ["--resume", $0] },
         models: .files(sources: { ModelFiles.claudeSources(home: $0, claudeConfig: config) }, read: { ModelFiles.claudeModels(home: $0, claudeConfig: config) }),
         skillRoots: { home, project in
-            // Claude Code, like Grok, keeps a `user-invocable: false` skill out of its `/` menu.
+            // Claude Code keeps a `user-invocable: false` skill out of its `/` menu.
             let user = config.directory(home: home)
             var roots = [SkillRoot(.skills(hidingNonInvocable: true), user.appendingPathComponent("skills"), .user),
                          SkillRoot(.commands(), user.appendingPathComponent("commands"), .user),
@@ -58,33 +58,6 @@ extension Harness {
             return roots
         },
         makeDriver: { home, port, _ in CodexDriver(home: home, daemonPort: port) })
-
-    static let grok = Harness(
-        agent: .grok, executable: "grok", displayName: "Grok Build",
-        installCommand: "curl -fsSL https://x.ai/cli/install.sh | bash",
-        fallbackEfforts: ["low", "medium", "high", "xhigh"], defaultEffort: "high",
-        noModelsExplanation: "No Grok models. Run grok once to sign in and fetch them.",
-        skillSigil: "/", hookEndpoint: "/hook/grok",
-        bundledResource: .script(GrokStatusLineConfig.shimName),
-        launchArguments: { model, reasoning in ["-m", model] + (reasoning.map { ["--reasoning-effort", $0] } ?? []) },
-        resumeArguments: { ["--resume", $0] },     // a UUID-shaped value is always an id (17-sessions.md)
-        models: .files(sources: { GrokModelCatalog.sources(home: $0) }, read: { GrokModelCatalog.models(home: $0) }),
-        skillRoots: { home, project in
-            // Grok reads skills and flat commands from .grok, .agents and (Claude compatibility)
-            // .claude, globally and in the project; only `commands/*.md` itself is a command
-            // (08-skills.md). Its bundled skills come after the user's, which override them.
-            let dots = [".grok", ".agents", ".claude"]
-            func roots(in base: URL, _ source: AgentCompletion.Source) -> [SkillRoot] {
-                dots.flatMap { dot in
-                    [SkillRoot(.skills(hidingNonInvocable: true), base.appendingPathComponent("\(dot)/skills"), source),
-                     SkillRoot(.commands(depth: 0), base.appendingPathComponent("\(dot)/commands"), source)]
-                }
-            }
-            return roots(in: home, .user)
-                + [SkillRoot(.skills(hidingNonInvocable: true), home.appendingPathComponent(".grok/bundled/skills"), .builtIn)]
-                + (project.map { roots(in: $0, .project) } ?? [])
-        },
-        makeDriver: { home, port, shim in shim.map { GrokDriver(home: home, daemonPort: port, shimPath: $0) } })
 
     static let pi = Harness(
         agent: .pi, executable: "pi", displayName: "PI",

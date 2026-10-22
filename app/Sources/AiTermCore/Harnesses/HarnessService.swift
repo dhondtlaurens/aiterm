@@ -70,7 +70,6 @@ public actor HarnessService {
             ?? DriverProbe(state: .resourceUnavailable, explanation: resources.unavailableReason ?? "The bundled driver is unavailable.")
         let integration = driver.state
         checks.append(HarnessCheck(.integration, passed: integration == .current, explanation: driver.explanation))
-        checks += driver.checks
 
         let catalogue: Catalogue
         if let earlier, earlier.health != .unavailable {

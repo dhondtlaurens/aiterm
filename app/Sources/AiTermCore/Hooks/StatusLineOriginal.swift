@@ -1,9 +1,8 @@
 import Foundation
 
 /// The user's own status line, kept when AiTerm's shim takes its place: the shim runs it and prints
-/// what it prints, so the user loses nothing. Claude Code's driver and Grok Build's each keep one,
-/// as a plain-text command file the shim reads on every tick, and decide what to do with it by the
-/// same rule (`record`).
+/// what it prints, so the user loses nothing. Claude Code's driver keeps it as a plain-text command
+/// file the shim reads on every tick, and `record` decides what an install does with it.
 public enum StatusLineOriginal {
     /// What the agent's status line was before an install, as the driver reads it off the agent's
     /// own config.

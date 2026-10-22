@@ -2,8 +2,7 @@ import Foundation
 
 /// An agent AiTerm can ask to fix a problem unattended: one whose CLI has a headless mode with a
 /// JSON-schema answer, a sandbox that turns its commands' network off on macOS, a per-run switch
-/// for hooks and a resumable session. Grok Build lacks the network-off and the hook switch on
-/// macOS (spikes, 2026-10-14); PI has none of these.
+/// for hooks and a resumable session. PI has none of these.
 public enum FixerAgent: String, Codable, CaseIterable, Sendable {
     case claude, codex
 

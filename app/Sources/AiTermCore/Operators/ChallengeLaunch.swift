@@ -235,7 +235,7 @@ public enum ChallengeLaunch {
             return FixerInvocation(executable: "codex", arguments: ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--json",
                 "-C", runFolder, "-o", answerFile] + FixerLaunch.codexQuiet + FixerLaunch.modelWords(.codex, opinion.model, effort) + [prompt],
                 environment: [:], sessionID: nil, answerFile: answerFile)
-        case .grok, .pi:
+        case .pi:
             return nil
         }
     }
@@ -251,7 +251,7 @@ public enum ChallengeLaunch {
         case .codex:
             guard let answerFile, case .bytes(let data) = RegularFile.read(answerFile, limit: FixerLaunch.answerLimit) else { return nil }
             text = String(decoding: data, as: UTF8.self)
-        case .grok, .pi:
+        case .pi:
             text = nil
         }
         return text.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }

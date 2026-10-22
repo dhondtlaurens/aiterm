@@ -54,7 +54,7 @@ import Foundation
 /// and again only when its executable changes.
 @Suite struct AgentVersionsTests {
     @Test func eachVersionLineReadsAsItsNumber() {
-        let output = "banner from .zshrc\nclaude\t2.1.301 (Claude Code)\ncodex\tcodex-cli 0.160.0\ngrok\t\n"
+        let output = "banner from .zshrc\nclaude\t2.1.301 (Claude Code)\ncodex\tcodex-cli 0.160.0\npi\t\n"
         #expect(AgentVersions.versions(in: output) == [.claude: "2.1.301", .codex: "0.160.0"])
     }
 

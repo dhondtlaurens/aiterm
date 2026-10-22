@@ -28,13 +28,6 @@ import Darwin
         #expect(try AgentCommand.build(agent: .codex, model: "gpt-5.6", reasoning: "medium", prompt: "review", worktreePath: wt, git: .hermetic()) == "codex --dangerously-bypass-approvals-and-sandbox -m gpt-5.6 -c model_reasoning_effort=medium 'review'")
     }
 
-    @Test func grokCommand() {
-        #expect(AgentCommand.previewCommand(agent: .grok, model: "grok-4.7", reasoning: "high", prompt: "fix it")
-                == "grok -m grok-4.7 --reasoning-effort high 'fix it'")
-        #expect(AgentCommand.previewCommand(agent: .grok, model: "grok-4.5", reasoning: nil, prompt: nil)
-                == "grok -m grok-4.5")
-    }
-
     @Test func testPiCommandUsesQualifiedModelAndThinking() throws {
         #expect(try AgentCommand.build(agent: .pi, model: "openai-codex/gpt-5.6-sol",
                                        reasoning: "high", prompt: "review", worktreePath: wt, git: .hermetic())
@@ -202,8 +195,6 @@ import Darwin
                 == "claude --resume \(id) --model opus --effort high")
         #expect(AgentCommand.resume(agent: .codex, conversation: id, model: "gpt-5.6", reasoning: "medium")
                 == "codex resume \(id) --dangerously-bypass-approvals-and-sandbox -m gpt-5.6 -c model_reasoning_effort=medium")
-        #expect(AgentCommand.resume(agent: .grok, conversation: id, model: "grok-4.7", reasoning: nil)
-                == "grok --resume \(id) -m grok-4.7")
         #expect(AgentCommand.resume(agent: .pi, conversation: id, model: "openai-codex/gpt-5.6-sol", reasoning: "high")
                 == "pi --session \(id) --model openai-codex/gpt-5.6-sol --thinking high")
     }
@@ -216,7 +207,7 @@ import Darwin
 
     /// The id comes from another process's hook: it is one word of the command, whatever it holds.
     @Test func aConversationIdIsOneWordOfTheCommand() {
-        #expect(AgentCommand.resume(agent: .grok, conversation: "my session; rm -rf ~", model: nil, reasoning: nil)
-                == "grok --resume 'my session; rm -rf ~'")
+        #expect(AgentCommand.resume(agent: .claude, conversation: "my session; rm -rf ~", model: nil, reasoning: nil)
+                == "claude --resume 'my session; rm -rf ~'")
     }
 }

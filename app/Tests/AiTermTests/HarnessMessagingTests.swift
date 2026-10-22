@@ -52,7 +52,7 @@ import AiTermCore
     @Test func messagingIsLeftOutWhereItSaysNothing() {
         let absent = card(cliAvailable: false)
         #expect(HarnessCardPresentation.snapshot(absent, messaging: .needsAttention("Messaging not checked for 2.1")) == absent)
-        #expect(HarnessCardPresentation.snapshot(card(.grok), messaging: nil) == card(.grok))
+        #expect(HarnessCardPresentation.snapshot(card(.pi), messaging: nil) == card(.pi))
     }
 
     /// A Run check whose window couldn't open says why on the card, and offers Run check again.
@@ -96,7 +96,7 @@ import AiTermCore
         await checks.refresh()
         #expect(checks.readiness(of: .claude) == .ready("Messaging ready for 2.1"))
         #expect(checks.readiness(of: .codex) == .needsAttention("Messaging not checked for 0.160"))
-        #expect(checks.readiness(of: .grok) == nil)
+        #expect(checks.readiness(of: .pi) == nil)
     }
 
     /// A check run by hand reaches the card while Settings is open.

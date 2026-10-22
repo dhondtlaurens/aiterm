@@ -46,10 +46,10 @@ import Testing
                               "iTerm2 checks failed: backgroundWindow"]))
     }
 
-    /// Only an installed agent the Operator chooses from is waited for: Grok and PI never are.
+    /// Only an installed agent the Operator chooses from is waited for: PI never is.
     @Test func onlyTheAgentsTheOperatorMayPlanOnAreWaitedFor() {
         #expect(readiness(installed: [.claude], cards: [.claude: card(.claude)], messaging: [.claude: ready[.claude]!]) == .ready)
-        #expect(readiness(installed: [.claude, .grok], cards: [.claude: card(.claude)], messaging: [.claude: ready[.claude]!]) == .ready)
+        #expect(readiness(installed: [.claude, .pi], cards: [.claude: card(.claude)], messaging: [.claude: ready[.claude]!]) == .ready)
         #expect(readiness(installed: []) == .notReady(["No agent to plan on: install Claude Code or Codex in Settings › Agents"]))
     }
 
@@ -95,7 +95,7 @@ import Testing
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-readiness-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: home) }
         let controller = AppController(store: StateStore(url: home.appendingPathComponent("state.json")), preferences: .scratch(), harnessHome: home)
-        controller.agents.availableAgents = [.claude, .codex, .grok]
+        controller.agents.availableAgents = [.claude, .codex, .pi]
         let service = ReadyHarnesses(snapshots: cards)
         _ = controller.agents.harnessSettingsModel(service: service)
         #expect(controller.broadcastReadiness == .checking)
@@ -108,7 +108,7 @@ import Testing
         defer { checking.cancel() }
         #expect(await eventually(describing: "the cards and the file read") { controller.broadcastReadiness != .checking })
         #expect(controller.broadcastReadiness == .notReady(["Codex: Messaging not checked for 0.160", "iTerm2 checks not run"]))
-        #expect(await service.probed.sorted { $0.rawValue < $1.rawValue } == [.claude, .codex], "Grok is never planned on")
+        #expect(await service.probed.sorted { $0.rawValue < $1.rawValue } == [.claude, .codex], "PI is never planned on")
     }
 
     @Test func theSheetChecksAsItOpens() async {

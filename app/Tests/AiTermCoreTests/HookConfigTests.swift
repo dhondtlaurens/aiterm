@@ -777,7 +777,7 @@ import Foundation
     }
 
     @Test(arguments: ["[a]\nx = 1]\n", "[a]\nx = [1, 2\n", "x = { a = 1 \n[b]\n", "x = 1 }\n"])
-    func unbalancedTOMLIsRefusedByBothTOMLDrivers(text: String) throws {
+    func unbalancedTOMLIsRefusedByTheCodexDriver(text: String) throws {
         let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
         let codex = home.appendingPathComponent(".codex/config.toml")
         try text.write(to: codex, atomically: true, encoding: .utf8)
@@ -787,16 +787,6 @@ import Foundation
             try CodexDriver(home: home, daemonPort: 47821).install()
         }
         #expect(try String(contentsOf: codex, encoding: .utf8) == text)
-
-        let grokHome = try temporaryHome(); defer { try? FileManager.default.removeItem(at: grokHome) }
-        let grok = grokHome.appendingPathComponent(".grok/config.toml")
-        try FileManager.default.createDirectory(at: grok.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try text.write(to: grok, atomically: true, encoding: .utf8)
-        let driver = GrokDriver(home: grokHome, daemonPort: 47821, shimPath: "/A/grok-statusline-shim.sh")
-        #expect(driver.probe() == DriverProbe(state: .unreadable, explanation: "~/.grok/config.toml cannot be parsed."))
-        #expect(throws: HarnessDriverError.refused(path: "~/.grok/config.toml", reason: "cannot be parsed")) { try driver.install() }
-        #expect(try String(contentsOf: grok, encoding: .utf8) == text)
-        #expect(!FileManager.default.fileExists(atPath: GrokHooksFile.url(home: grokHome).path), "nothing written first")
     }
 
     @Test func bracketsInStringsAndCommentsAreBalanced() {

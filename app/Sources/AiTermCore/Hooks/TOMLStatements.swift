@@ -161,7 +161,7 @@ enum TOMLStatements {
     /// Whether every bracket and brace outside a string or comment closes what it opened, and no
     /// string is left open. Otherwise `statements` has lost its place: a stray `]` takes the depth
     /// below zero and the rest of the file reads as one statement, hiding every later header.
-    /// Codex and Grok both reject such a file, so an editor has no business appending to it.
+    /// Codex rejects such a file, so an editor has no business appending to it.
     static func isBalanced(_ text: String) -> Bool { scan(text).balanced }
 
     private static func scan(_ text: String) -> (statements: [Statement], balanced: Bool) {
