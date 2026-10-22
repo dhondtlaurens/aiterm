@@ -113,7 +113,7 @@ public struct OperatorLine: Equatable, Sendable {
     /// iTerm2 lists them (any others are passed over): they tell a task whose workers all ended their turn, and how
     /// many worker tabs it has open. Without them it reads as watched. `turn` is how its worker's last turn ended
     /// (`OperatorActs.turns`): a working task whose worker asks is `asking the Operator`, one that committed nothing
-    /// `finished, no commit`; any other state keeps its own line.
+    /// `Operator watching · no commit`; any other state keeps its own line.
     public static func task(_ task: TaskItem, run: OperatorRun, acting: OperatorAct?, requests: [BroadcastRequest],
                             tasks: [UUID: TaskItem] = [:], sessions: [SessionInfo] = [], turn: WorkerTurn.Ending? = nil) -> OperatorLine? {
         guard let operated = task.operated, operated.runId == run.id, !operated.takenOver, operated.state != .stopped,
@@ -145,7 +145,7 @@ public struct OperatorLine: Equatable, Sendable {
             let first = sessions.isEmpty ? nil : task.workerTabs(in: sessions)[0].status
             if turn == .asks, first == .idle || first == .done { return OperatorLine("asking the Operator", look: .acting) }
             if !sessions.isEmpty, task.isReadyForAcceptance(in: sessions) {
-                return OperatorLine(turn == .noCommit ? "finished, no commit" : Count.ready.words, look: .acting)
+                return OperatorLine(turn == .noCommit ? Count.working.words + " · no commit" : Count.ready.words, look: .acting)
             }
             // Its turn ended with work running in the background, which wakes it again: still at work.
             let background = task.workerTabs(in: sessions).flatMap(\.background)

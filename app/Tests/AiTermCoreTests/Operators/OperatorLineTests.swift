@@ -304,7 +304,7 @@ import Testing
             OperatorLine.task(task, run: run, acting: nil, requests: [], sessions: [OperatorUIFixtures.tab("s1", of: task, state)], turn: turn)
         }
         #expect(line(working, .asks) == OperatorLine("asking the Operator", look: .acting))
-        #expect(line(working, .noCommit) == OperatorLine("finished, no commit", look: .acting))
+        #expect(line(working, .noCommit) == OperatorLine("Operator watching · no commit", look: .acting))
         #expect(line(working, nil) == OperatorLine("ready for the Operator", look: .acting))
         #expect(line(working, .noCommit, .working) == OperatorLine("Operator watching", look: .acting), "a new turn is at work")
         let accepted = task(run: run, .accepted, sha: "4f2a91cdeadbeef")

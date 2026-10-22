@@ -12,7 +12,8 @@ import Testing
 
     /// A project and task PLUTO-1 in `state`, in its own worktree on `feat/pluto-1` off `main`, its worker in conversation
     /// `conv-1` and at work.
-    func makeWorld(_ state: OperatedState = .working) throws -> (OperatorWorld, OperatorRun, TaskItem, worktree: String) {
+    func makeWorld(_ state: OperatedState = .working, worker: SessionState = .working)
+        throws -> (OperatorWorld, OperatorRun, TaskItem, worktree: String) {
         let repo = try GitFixture.makeRepo(prefix: "op-turn-")
         let worktree = try GitFixture.folder("op-turn-wt-") + "/wt"
         try git.run(["worktree", "add", "-q", "-b", "feat/pluto-1", worktree], in: repo)
@@ -27,7 +28,7 @@ import Testing
                                                        at: Date(timeIntervalSince1970: 0))
         }
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
-        world.show(sessions(run, task, .working))
+        world.show(sessions(run, task, worker))
         return (world, run, task, worktree)
     }
 
@@ -81,6 +82,24 @@ import Testing
         try await endTurn(saying: "Left eslint as it is. All tests pass.", world, run, task)
         obligations = try status(world, run)
         #expect(obligations.workerAsks.isEmpty && obligations.readyForAcceptance == ["PLUTO-1"])
+    }
+
+    /// A task taken over and handed back while its worker sits idle is read again on its handback: its turn ended with a
+    /// commit, so it is ready, not held as a turn still to read.
+    @Test func aTaskHandedBackWithItsWorkerIdleIsReadAgainAndReady() async throws {
+        let (world, run, task, worktree) = try makeWorld(worker: .idle)
+        await world.controller.turns.lastRead?.value
+        try git.run(["commit", "--allow-empty", "-q", "-m", "work"], in: worktree)
+        func takenOver(_ value: Bool) async {
+            world.workspace.mutate { $0.updateOperated(task.id) { $0.takenOver = value } }
+            await world.controller.turns.lastRead?.value
+        }
+        await takenOver(true)
+        #expect(world.controller.turns.readings[task.id] == nil, "a task you took over is not read")
+        await takenOver(false)
+        let obligations = try status(world, run)
+        #expect(obligations.readyForAcceptance == ["PLUTO-1"])
+        #expect(obligations.finishedWithoutCommit.isEmpty)
     }
 
     /// A turn that ends with nothing committed past the base branch is not ready, and wakes the Operator saying so.

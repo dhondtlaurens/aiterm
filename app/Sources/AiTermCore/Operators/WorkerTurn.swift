@@ -11,7 +11,7 @@ public enum WorkerTurn {
     public enum Ending: Equatable, Sendable {
         /// Its last message ends with a question: `asking the Operator`.
         case asks
-        /// Its branch holds no commit past where its work starts: `finished, no commit`.
+        /// Its branch holds no commit past where its work starts: `Operator watching · no commit`.
         case noCommit
     }
 

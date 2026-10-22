@@ -52,7 +52,11 @@ final class WorkerTurnReader {
         let sessions = live.sessions
         var dropped = false
         for task in workspace.state.tasks {
-            let tab = isRead(task) ? task.firstWorker(in: sessions) : nil
+            let worker = task.firstWorker(in: sessions), watched = isRead(task)
+            // A task not read now (taken over, say) forgets its worker's last read: once it is read again, a turn that
+            // ended meanwhile, or before it was handed back, is new.
+            if !watched, let worker { seen[worker.sessionId] = nil }
+            let tab = watched ? worker : nil
             guard let tab, tab.state == .idle || tab.state == .done else {
                 // A turn under way, or no worker: what its last turn left no longer holds, and its end will be new.
                 if let tab { seen[tab.sessionId] = tab.state }
