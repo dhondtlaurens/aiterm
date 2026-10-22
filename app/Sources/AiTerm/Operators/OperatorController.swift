@@ -97,6 +97,8 @@ final class OperatorController {
     @ObservationIgnored let branchWatch: BranchWatch
     /// What each worker's ended turn left (spec §J), read once each turn ends.
     @ObservationIgnored let turns: WorkerTurnReader
+    /// Which workers say working with a transcript gone quiet (spec §H): what `run_status` reads `working?`.
+    @ObservationIgnored let quiet: WorkerQuietWatch
     @ObservationIgnored private var loop: Task<Void, Never>?
     /// An attach whose first connected snapshot is still to come: it reconciles and sets ownership again.
     @ObservationIgnored private var reattached = false
@@ -196,14 +198,20 @@ final class OperatorController {
         reviewWatcher = ReviewWatcher(workspace: workspace, ports: ports, waker: waker)
         branchWatch = BranchWatch(workspace: workspace, live: live, ports: ports, waker: waker)
         turns = WorkerTurnReader(workspace: workspace, live: live, ports: ports)
+        quiet = WorkerQuietWatch(workspace: workspace, live: live, ports: ports)
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         workspace.onChange { [weak self] in
             // A task taken over, stopped or moved on: what its worker's turn left is read again or dropped first.
             self?.turns.observe()
+            self?.quiet.observe()
             self?.observeRuns()
             self?.heardWorkspace()
         }
         turns.changed = { [weak self] in
+            self?.observeRuns()
+            self?.changed()
+        }
+        quiet.changed = { [weak self] in
             self?.observeRuns()
             self?.changed()
         }
@@ -219,6 +227,7 @@ final class OperatorController {
         tools.onChange = { [weak self] in self?.runChanged($0) }
         tools.onActivity = { [weak self] run in self?.activityWritten[run, default: 0] += 1 }
         tools.turnReadings = { [weak self] in self?.turns.readings ?? [:] }
+        tools.quietTasks = { [weak self] in self?.quiet.quiet ?? [] }
         tools.onMessaged = { [weak self] task in self?.turns.messaged(task) }
         starter.onUncertain = { [weak self] task in
             guard let operated = task.operated else { return }
@@ -283,25 +292,25 @@ final class OperatorController {
     /// The run as `run_status` would show it now, numbered 0: the waker compares content.
     func status(of run: OperatorRun) -> RunStatus? {
         Self.status(of: run.id, state: workspace.state, sessions: live.sessions, revision: 0,
-                    usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turns.readings)
+                    usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turns.readings, quiet: quiet.quiet)
     }
 
     /// `run_status`'s snapshot: the run from the workspace, each task's live facts from its worker's tab and what its
     /// worker's last ended turn left (`WorkerTurnReader.readings`). `usage` is each agent's weekly percent
-    /// (`SidebarModel.weeklyUsage`).
+    /// (`SidebarModel.weeklyUsage`). `quiet` is the tasks whose working worker's transcript went quiet (`WorkerQuietWatch`).
     static func status(of run: UUID, state: AppState, sessions: [SessionInfo], revision: Int,
-                       usage: [AgentKind: Int] = [:], turns: [UUID: WorkerTurnReader.Reading]) -> RunStatus? {
+                       usage: [AgentKind: Int] = [:], turns: [UUID: WorkerTurnReader.Reading], quiet: Set<UUID> = []) -> RunStatus? {
         RunStatus.build(state: state, run: run, revision: revision,
-                        live: liveFacts(of: run, state: state, sessions: sessions, turns: turns),
+                        live: liveFacts(of: run, state: state, sessions: sessions, turns: turns, quiet: quiet),
                         runLive: RunLiveFacts(weeklyUsage: usage))
     }
 
     /// What the tabs say of each of the run's tasks: each worker tab's live status (`WorkerTab`), and the prompt
     /// each waits on you with (the open question D14 records for it). While its first worker is idle or done, what that
     /// turn left (`turns`, spec §J): a working task whose turn is not read yet, or answered by `message_task` since, is
-    /// `turnUnread`.
+    /// `turnUnread`. A first worker at work whose task is in `quiet` has gone quiet (spec §H).
     static func liveFacts(of run: UUID, state: AppState, sessions: [SessionInfo],
-                          turns: [UUID: WorkerTurnReader.Reading]) -> [UUID: TaskLiveFacts] {
+                          turns: [UUID: WorkerTurnReader.Reading], quiet: Set<UUID> = []) -> [UUID: TaskLiveFacts] {
         let questions = state.run(id: run)?.questions ?? []
         var facts: [UUID: TaskLiveFacts] = [:]
         for task in state.tasks(inRun: run) {
@@ -316,7 +325,8 @@ final class OperatorController {
             if tab != nil || prompt != nil || !extra.isEmpty {
                 var live = TaskLiveFacts(status: tab?.state, waitingPrompt: prompt, tabs: Array(extra),
                                          background: workers.flatMap(\.background),
-                                         yourPrompt: workers.lazy.compactMap { $0.session?.yourPrompt }.first)
+                                         yourPrompt: workers.lazy.compactMap { $0.session?.yourPrompt }.first,
+                                         quiet: quiet.contains(task.id))
                 if let tab, live.status == .idle || live.status == .done {
                     if let turn = turns[task.id], turn.session == tab.sessionId, !turn.messaged {
                         live.lastMessage = turn.lastMessage
@@ -590,6 +600,7 @@ final class OperatorController {
     private func sessionsChanged() {
         stallWatch.observe(live.sessions, at: ports.now())
         turns.observe()
+        quiet.observe()
         let sessions = live.sessions, known = tabsKnown
         var closed: [UUID] = []
         workspace.mutate { state in
@@ -642,6 +653,7 @@ final class OperatorController {
         guard reconciler.synced else { return }
         for id in reconciler.tick() { runChanged(id) }
         applyStallFlags()
+        quiet.refresh()
         branchWatch.poll()
         // A prompt whose tab left it without an event, or one an event raced.
         probePrompts()
@@ -721,14 +733,10 @@ final class OperatorController {
         finisher.stopAll()
     }
 
-    /// Each operated task's tab: one that needs input has its prompt read (spec §7.2), and a question
-    /// left open for one whose tab has left the prompt is resolved, whatever the task's state now.
+    /// Each operated task's tab, in any state (spec §H): one that needs input has its prompt read (spec §7.2), and a
+    /// question left open for one whose tab has left the prompt is resolved. A task with no tab open has nothing to read.
     func probePrompts() {
-        for task in workspace.state.tasks {
-            guard let operated = task.operated else { continue }
-            let open = run(id: operated.runId)?.questions.contains { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix(OperatorQuestion.promptPrefix) }
-            if operated.state == .working || operated.state == .blocked || open == true { probePrompt(task.id) }
-        }
+        for task in workspace.state.tasks where task.operated != nil { probePrompt(task.id) }
     }
 
     /// A worker that waits on a prompt: recorded as a question waiting on you, on its task, saying what

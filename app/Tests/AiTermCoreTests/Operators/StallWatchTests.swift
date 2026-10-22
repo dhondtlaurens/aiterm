@@ -233,4 +233,23 @@ import Testing
         #expect(watch.stalled(in: world.state, now: minutes(49)).isEmpty)
         #expect(watch.stalled(in: world.state, now: minutes(50)) == [task])
     }
+
+    // -- a worker that says working but has gone quiet (spec §H) ------------------------------------------
+
+    /// A transcript that grew less than `liveQuietMinutes` ago is a worker at work; older, and the session's "working" is
+    /// not to be trusted. What it grew at is read against when the session started working: a turn just begun has not
+    /// had its two minutes yet, whatever the transcript's age.
+    @Test func aTranscriptQuietForTheLiveWindowIsQuietWhileWorking() {
+        let now = minutes(10), window = Double(OperatorTiming.liveQuietMinutes)
+        func quiet(grew: Double?, since: Double?) -> Bool {
+            StallWatch.isQuietWhileWorking(transcriptGrewAt: grew.map(minutes), sessionWorkingSince: since.map(minutes), now: now)
+        }
+        #expect(quiet(grew: 10 - window - 1, since: 0))
+        #expect(quiet(grew: 10 - window, since: 0), "exactly the window is quiet")
+        #expect(!quiet(grew: 10 - window + 0.5, since: 0))
+        #expect(!quiet(grew: 0, since: 10 - window + 0.5), "the turn only just began")
+        #expect(quiet(grew: 0, since: nil), "no start is known: the transcript alone says")
+        #expect(!quiet(grew: nil, since: 0), "no transcript to read says nothing")
+        #expect(!quiet(grew: nil, since: nil))
+    }
 }

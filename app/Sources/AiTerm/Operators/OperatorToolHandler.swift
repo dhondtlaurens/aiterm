@@ -109,6 +109,8 @@ final class OperatorToolHandler {
     var onChange: @MainActor (UUID) -> Void = { _ in }
     /// What each task's worker's last ended turn left (`WorkerTurnReader.readings`), which `run_status` shows.
     var turnReadings: @MainActor () -> [UUID: WorkerTurnReader.Reading] = { [:] }
+    /// The tasks whose working worker's transcript went quiet (`WorkerQuietWatch.quiet`).
+    var quietTasks: @MainActor () -> Set<UUID> = { [] }
     /// Said once `message_task` delivered to a task's first worker: what its last turn left is answered (spec §J).
     var onMessaged: @MainActor (UUID) -> Void = { _ in }
     /// Carries out a task's recorded end (G10), past the push hooks when told (`noVerify`): the controller's `TaskFinisher`.
@@ -295,7 +297,7 @@ final class OperatorToolHandler {
 
     func currentStatus(of run: OperatorRun) -> RunStatus? {
         OperatorController.status(of: run.id, state: state, sessions: live.sessions, revision: 0,
-                                  usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turnReadings())
+                                  usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turnReadings(), quiet: quietTasks())
     }
 
     /// The task an operator names in `key`, in this run.

@@ -44,14 +44,17 @@ public struct TaskLiveFacts: Equatable, Sendable {
     public var changedAfterAcceptance: Bool
     /// Its first worker ended its turn and AiTerm is still reading it: not ready until what the turn left is known.
     public var turnUnread: Bool
+    /// Its first worker's session says working but its transcript has not grown for `OperatorTiming.liveQuietMinutes`
+    /// (`StallWatch.isQuietWhileWorking`): the line reads `working?` and the task is uncertain.
+    public var quiet: Bool
 
     public init(status: SessionState? = nil, lastCommit: String? = nil, summary: String? = nil, waitingPrompt: String? = nil,
                 tabs: [Tab] = [], background: [String] = [], yourPrompt: String? = nil, lastMessage: String? = nil,
-                commitsAhead: Int? = nil, changedAfterAcceptance: Bool = false, turnUnread: Bool = false) {
+                commitsAhead: Int? = nil, changedAfterAcceptance: Bool = false, turnUnread: Bool = false, quiet: Bool = false) {
         self.status = status; self.lastCommit = lastCommit; self.summary = summary; self.waitingPrompt = waitingPrompt
         self.tabs = tabs; self.background = background; self.yourPrompt = yourPrompt
         self.lastMessage = lastMessage; self.commitsAhead = commitsAhead; self.changedAfterAcceptance = changedAfterAcceptance
-        self.turnUnread = turnUnread
+        self.turnUnread = turnUnread; self.quiet = quiet
     }
 
     /// Its first worker is idle at its prompt or done: what its turn left is its final word.
@@ -151,15 +154,31 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         }
     }
 
+    /// A worker's live status as `run_status` says it: the session's own, except `working?` for one that says working with
+    /// its transcript gone quiet (`TaskLiveFacts.quiet`), which the Operator doesn't take on trust (spec §H).
+    public enum LiveState: String, Encodable, Equatable, Sendable {
+        case idle, working, needsInput, done
+        case workingQuiet = "working?"
+
+        public init(_ state: SessionState, quiet: Bool = false) {
+            switch state {
+            case .idle: self = .idle
+            case .working: self = quiet ? .workingQuiet : .working
+            case .needsInput: self = .needsInput
+            case .done: self = .done
+            }
+        }
+    }
+
     /// One of a task's worker tabs: its key (`main` for the first worker, `WorkerTab.firstKey`), agent, model and live
     /// status, and whether it is still opening or was closed.
     public struct TabLine: Encodable, Equatable, Sendable {
         public var key: String, agent: AgentKind, model: String
-        public var live: SessionState?
+        public var live: LiveState?
         public var opening: Bool
         /// An extra tab that opened and is listed no more: AiTerm never opens it again.
         public var closed: Bool
-        public init(key: String, agent: AgentKind, model: String, live: SessionState? = nil, opening: Bool = false, closed: Bool = false) {
+        public init(key: String, agent: AgentKind, model: String, live: LiveState? = nil, opening: Bool = false, closed: Bool = false) {
             self.key = key; self.agent = agent; self.model = model; self.live = live; self.opening = opening; self.closed = closed
         }
     }
@@ -169,7 +188,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var agent: AgentKind, model: String
         public var state: OperatedState, end: TaskEnd, revision: Int
         /// The first worker's live status; nil when it has none (not started, or its window is gone).
-        public var live: SessionState?
+        public var live: LiveState?
         public var branch: String, lastCommit: String?, summary: String?
         public var dependsOn: [Dependency]
         public var acceptedSHA: String?, blockedReason: String?, mergeRefusal: String?
@@ -189,7 +208,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         /// That prompt's first line.
         public var yourPrompt: String?
         public init(id: UUID, key: String, title: String, project: String, agent: AgentKind, model: String,
-                    state: OperatedState, end: TaskEnd, revision: Int, live: SessionState? = nil, branch: String,
+                    state: OperatedState, end: TaskEnd, revision: Int, live: LiveState? = nil, branch: String,
                     lastCommit: String? = nil, summary: String? = nil, dependsOn: [Dependency] = [],
                     acceptedSHA: String? = nil, blockedReason: String? = nil, flags: [OperatedFlag] = [],
                     takenOver: Bool = false, retriesUsed: Int = 0, agentReview: AgentReviewLine? = nil,
@@ -280,7 +299,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             lines.append(TaskLine(
                 id: item.id, key: o.key, title: item.title, project: state.project(id: item.projectId)?.name ?? "",
                 agent: item.agent, model: item.model, state: o.state, end: o.end, revision: o.revision,
-                live: facts.status, branch: item.branch, lastCommit: facts.lastCommit, summary: facts.summary,
+                live: facts.status.map { LiveState($0, quiet: facts.quiet) }, branch: item.branch, lastCommit: facts.lastCommit, summary: facts.summary,
                 dependsOn: o.dependsOn.map { Dependency(key: keys[$0.task] ?? $0.task.uuidString, kind: $0.kind) },
                 acceptedSHA: o.acceptance?.resultSHA, blockedReason: o.blockedReason,
                 flags: o.flags.sorted { $0.rawValue < $1.rawValue }, takenOver: o.takenOver, retriesUsed: o.retriesUsed,
@@ -305,7 +324,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 else { ready.append(o.key) }
             }
             if o.flags.contains(.possiblyStalled) { stalled.append(o.key) }
-            if o.flags.contains(.uncertain) { uncertain.append(o.key) }
+            if o.flags.contains(.uncertain) || (facts.quiet && facts.status == .working) { uncertain.append(o.key) }
             if o.branchDrift != nil { drift.append(o.key) }
         }
         return RunStatus(
@@ -340,8 +359,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     /// The task's worker tabs as its line lists them, the first worker as `main`; nil when it has no extra tab.
     private static func tabLines(_ item: TaskItem, _ facts: TaskLiveFacts) -> [TabLine]? {
         guard !facts.tabs.isEmpty else { return nil }
-        return [TabLine(key: WorkerTab.firstKey, agent: item.agent, model: item.model, live: facts.status)]
-            + facts.tabs.map { TabLine(key: $0.key, agent: $0.agent, model: $0.model, live: $0.status, opening: $0.opening, closed: $0.closed) }
+        return [TabLine(key: WorkerTab.firstKey, agent: item.agent, model: item.model, live: facts.status.map { LiveState($0, quiet: facts.quiet) })]
+            + facts.tabs.map { TabLine(key: $0.key, agent: $0.agent, model: $0.model, live: $0.status.map { LiveState($0) }, opening: $0.opening, closed: $0.closed) }
     }
 
     /// The snapshot as the tool returns it: JSON with sorted keys and ISO 8601 dates.

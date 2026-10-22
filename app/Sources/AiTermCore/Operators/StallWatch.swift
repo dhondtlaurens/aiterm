@@ -109,6 +109,17 @@ public struct StallWatch: Equatable, Sendable {
         return changes
     }
 
+    /// Whether a worker whose session says working has gone quiet (spec §H): its transcript last grew
+    /// `liveQuietMinutes` or more ago, or its session started working that long ago, whichever is later, so a turn just begun
+    /// is not quiet whatever the file's age. A transcript that can't be read says nothing: that is not a quiet worker. Not
+    /// the stall watch's *possibly stalled*, which judges working tasks by the daemon's signs over `stallAfter`; this
+    /// doubts the session's own word, on a task in any state.
+    public static func isQuietWhileWorking(transcriptGrewAt: Date?, sessionWorkingSince: Date?, now: Date) -> Bool {
+        guard let grew = transcriptGrewAt else { return false }
+        let since = max(grew, sessionWorkingSince ?? grew)
+        return now.timeIntervalSince(since) >= TimeInterval(OperatorTiming.liveQuietMinutes) * 60
+    }
+
     private static func isJudged(_ task: OperatedTask) -> Bool {
         task.state == .working && !task.takenOver && !task.flags.contains(.waitingOnYou)
     }

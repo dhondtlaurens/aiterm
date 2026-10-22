@@ -293,4 +293,27 @@ import Foundation
     @Test func anUnknownRunHasNoSnapshot() {
         #expect(RunStatus.build(state: .empty, run: UUID(), revision: 1, live: [:]) == nil)
     }
+
+    /// A worker whose session says working but whose transcript went quiet reads `working?` and is uncertain, on a task in
+    /// any state (spec §H); one that is not quiet reads as the session does.
+    @Test func aQuietWorkingWorkerReadsWorkingQuestionMarkAndIsUncertain() throws {
+        let a = F.task("A", .inReview), b = F.task("B", .accepted), c = F.task("C", .working)
+        let s = F.state(F.run(planRevision: 1), [a, b, c])
+        let live: [UUID: TaskLiveFacts] = [a.id: TaskLiveFacts(status: .working, quiet: true), b.id: TaskLiveFacts(status: .working),
+                                           c.id: TaskLiveFacts(status: .idle, quiet: true)]
+        let status = try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: live))
+        #expect(status.tasks.map(\.live) == [.workingQuiet, .working, .idle], "only a working session can be quiet")
+        #expect(status.obligations.uncertain == ["A"])
+        let json = try #require(String(data: status.json(), encoding: .utf8))
+        #expect(json.contains(#""live":"working?""#))
+    }
+
+    /// A task already flagged uncertain (a shell where its agent should be) is listed once, quiet or not.
+    @Test func aTaskUncertainTwiceOverIsListedOnce() throws {
+        var a = F.task("A", .working)
+        a.operated?.flags = [.uncertain]
+        let s = F.state(F.run(planRevision: 1), [a])
+        let status = try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: [a.id: TaskLiveFacts(status: .working, quiet: true)]))
+        #expect(status.obligations.uncertain == ["A"])
+    }
 }

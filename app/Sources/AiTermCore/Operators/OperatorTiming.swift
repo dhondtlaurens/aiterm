@@ -37,6 +37,9 @@ public enum OperatorTiming {
     public static let retries = 2
     /// App only: minutes a task's worker may be busy, not counting time idle or waiting on you, before AiTerm blocks it.
     public static let runtimeMinutes = 90
+    /// App only: minutes a worker whose session says working may go with no growth in its transcript before AiTerm reads it
+    /// `working?` and lists it as uncertain (spec §H), on a task in any state: the daemon's state may have stuck.
+    public static let liveQuietMinutes = 2
 }
 
 /// What this build of the operator supports (spec §13). A plan asking for more — a draft MR

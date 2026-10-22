@@ -18,6 +18,7 @@ import Foundation
         #expect(OperatorTiming.mergePoll == 30)
         #expect(OperatorTiming.mergeWait == 3600)
         #expect(OperatorTiming.agentReviewTimeout == 900)
+        #expect(OperatorTiming.liveQuietMinutes == 2)
     }
 
     /// The daemon spells the same constants in `aitermd/delivery.py` (part A): each shared value

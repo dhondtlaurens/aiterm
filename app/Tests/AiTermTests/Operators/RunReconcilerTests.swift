@@ -504,6 +504,23 @@ import Testing
         #expect(world.run(run.id)?.state == .operatorOffline)
     }
 
+    /// A worker that sits at a prompt after its task was accepted still has the prompt read, so the question reaches you
+    /// (spec §H): probing covers every task with a worker tab, not only working or blocked ones.
+    @Test func promptsAreProbedOnAcceptedTasksToo() async throws {
+        for state in [OperatedState.accepted, .inReview, .published] {
+            let project = OperatorServiceFixtures.project()
+            let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
+            let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-27", state: state, worktree: "/tmp/aiterm-wt")
+            let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+            world.daemon.prompts["w1"] = .permission
+            world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .needsInput)])
+            world.controller.probePrompts()
+            await world.controller.lastProbe?.value
+            #expect(world.run(run.id)?.questions.last?.text == "Claude Code asks for permission", "\(state)")
+            #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true, "\(state)")
+        }
+    }
+
     /// A prompt read that fails because the helper is gone records nothing; the next pass asks again.
     @Test func aPromptReadThatFailsRecordsNoQuestionAndIsAskedAgain() async throws {
         let project = OperatorServiceFixtures.project()

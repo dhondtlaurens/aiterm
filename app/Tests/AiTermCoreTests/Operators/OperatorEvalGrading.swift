@@ -68,7 +68,7 @@ enum OperatorEvalGrading {
 
     static let askedAt = Date(timeIntervalSince1970: 1_792_003_600)
 
-    static func line(_ key: String, _ title: String, _ state: OperatedState, live: SessionState?, branch: String,
+    static func line(_ key: String, _ title: String, _ state: OperatedState, live: RunStatus.LiveState?, branch: String,
                      lastCommit: String? = nil, summary: String? = nil, acceptedSHA: String? = nil, flags: [OperatedFlag] = [],
                      agentReview: RunStatus.AgentReviewLine? = nil, peopleReview: PeopleReview? = nil) -> RunStatus.TaskLine {
         RunStatus.TaskLine(id: keys[key]!, key: key, title: title, project: evalProject.name, agent: .claude, model: "claude-opus-5-5",
@@ -84,7 +84,7 @@ enum OperatorEvalGrading {
              agentReview: RunStatus.AgentReviewLine(agent: .codex, state: "done"), peopleReview: PeopleReview(reviewers: reviewers))
     }
 
-    static func pay14(_ state: OperatedState = .working, live: SessionState?, lastCommit: String? = nil, summary: String? = nil,
+    static func pay14(_ state: OperatedState = .working, live: RunStatus.LiveState?, lastCommit: String? = nil, summary: String? = nil,
                       flags: [OperatedFlag] = []) -> RunStatus.TaskLine {
         line("PAY-14", "Download button for the orders export", state, live: live, branch: "feat/pay-14-download-button",
              lastCommit: lastCommit, summary: summary, flags: flags)

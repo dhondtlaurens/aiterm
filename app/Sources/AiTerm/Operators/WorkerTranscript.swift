@@ -32,6 +32,11 @@ enum WorkerTranscript {
         }
     }
 
+    /// When the file was last written: how far the worker's conversation has grown, without reading it.
+    static func modified(_ file: URL) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date
+    }
+
     static func lastMessage(agent: AgentKind, conversation: String, home: URL, claudeConfig: ClaudeConfig = ClaudeConfig()) -> String? {
         file(agent: agent, conversation: conversation, home: home, claudeConfig: claudeConfig).flatMap { lastMessage(in: $0, agent: agent) }
     }
