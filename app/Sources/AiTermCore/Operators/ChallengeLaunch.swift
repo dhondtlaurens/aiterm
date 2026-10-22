@@ -6,8 +6,8 @@ public enum GateVerdict: Equatable, Sendable {
 }
 
 /// The Oracle's headless run (spec §4.1, §8), read-only the way Fix with AI's look is
-/// (`FixerLaunch.look`): `claude -p` with the read tools alone, or `codex exec` in a read-only sandbox,
-/// in the run folder with the operation's projects readable. Its answer is plain text: the critique.
+/// (`FixerLaunch.look`): `claude -p` with the read tools alone, `codex exec` in a read-only sandbox, or `pi -p`
+/// with the read tools alone, in the run folder with the operation's projects readable. Its answer is plain text: the critique.
 public enum ChallengeLaunch {
     static let instructions = """
     You are the second opinion for an AI operator that plans work and steers coding agents for a person. \
@@ -217,9 +217,13 @@ public enum ChallengeLaunch {
     /// The only tools a headless Claude reviewer or Oracle has, and the ones it is denied besides.
     static let readTools = ["Read", "Grep", "Glob"]
     static let writeTools = ["Bash", "Edit", "Write", "NotebookEdit"]
+    /// PI's: it has no sandbox, so this list is what keeps it to reading. Its extensions and MCP servers are off besides,
+    /// so nothing adds a tool, and so are its skills, prompt templates and a project's own files: the prompt is all it is given.
+    static let piReadTools = ["read", "grep", "find", "ls"]
+    static let piQuiet = ["--no-session", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-approve", "--offline"]
 
     public static func invocation(_ opinion: OracleSetting, prompt: String, runFolder: String, projects: [String],
-                                  answerFile: String) -> FixerInvocation? {
+                                  answerFile: String) -> FixerInvocation {
         let effort = opinion.reasoning.flatMap { $0.isEmpty ? nil : $0 }
         switch opinion.agent {
         case .claude:
@@ -236,7 +240,10 @@ public enum ChallengeLaunch {
                 "-C", runFolder, "-o", answerFile] + FixerLaunch.codexQuiet + FixerLaunch.modelWords(.codex, opinion.model, effort) + [prompt],
                 environment: [:], sessionID: nil, answerFile: answerFile)
         case .pi:
-            return nil
+            // PI reads any path, so the projects need no naming. `--` keeps a prompt that starts with a dash the prompt.
+            return FixerInvocation(executable: "pi", arguments: ["-p"] + piQuiet + ["--tools", piReadTools.joined(separator: ",")]
+                + FixerLaunch.modelWords(.pi, opinion.model, effort) + ["--", prompt],
+                environment: [:], sessionID: nil, answerFile: nil)
         }
     }
 
@@ -252,7 +259,7 @@ public enum ChallengeLaunch {
             guard let answerFile, case .bytes(let data) = RegularFile.read(answerFile, limit: FixerLaunch.answerLimit) else { return nil }
             text = String(decoding: data, as: UTF8.self)
         case .pi:
-            text = nil
+            text = output.stdout
         }
         return text.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
     }

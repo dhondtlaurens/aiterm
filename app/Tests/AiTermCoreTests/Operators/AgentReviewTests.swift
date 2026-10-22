@@ -5,10 +5,10 @@ import Testing
 /// The agent review (spec §3.1, §5's base): another agent reads a task's branch headless, read-only, in its
 /// worktree, with the skill the Review names handed to it as text.
 @Suite struct AgentReviewTests {
-    @Test(arguments: [AgentKind.claude, .codex])
+    @Test(arguments: [AgentKind.claude, .codex, .pi])
     func theReviewIsReadOnly(_ agent: AgentKind) throws {
-        let invocation = try #require(AgentReview.invocation(agent: agent, model: "m", reasoning: nil, prompt: "Review it.",
-                                                             worktree: "/tmp/wt", answerFile: "/tmp/runs/review.txt"))
+        let invocation = AgentReview.invocation(agent: agent, model: "m", reasoning: nil, prompt: "Review it.",
+                                                worktree: "/tmp/wt", answerFile: "/tmp/runs/review.txt")
         let words = invocation.arguments
         switch agent {
         case .codex:
@@ -18,7 +18,13 @@ import Testing
             let folder = try #require(words.firstIndex(of: "-C"))
             #expect(words[folder + 1] == "/tmp/wt", "it reads the task's worktree")
             #expect(words.last == "Review it.")
-        default:
+        case .pi:
+            // It runs in the worktree (`SecondOpinionRunner.review`); its tool list alone keeps it to reading.
+            #expect(invocation.executable == "pi" && invocation.answerFile == nil)
+            let tools = try #require(words.firstIndex(of: "--tools"))
+            #expect(words[tools + 1] == "read,grep,find,ls")
+            #expect(Array(words.suffix(2)) == ["--", "Review it."])
+        case .claude:
             #expect(invocation.executable == "claude")
             // The tool set itself is the read tools: no permission rule of the person's can add a write to it.
             let tools = try #require(words.firstIndex(of: "--tools"))

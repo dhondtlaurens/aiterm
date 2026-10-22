@@ -40,12 +40,13 @@ public enum FixerLaunch {
 
     /// The model and its reasoning, as each agent takes them. An empty model is the agent's own
     /// default — no card default and no model picked yet — so neither is passed: `--model ""`
-    /// fails the run.
-    static func modelWords(_ agent: FixerAgent, _ model: String, _ reasoning: String?) -> [String] {
+    /// fails the run. PI takes only a thinking level it names; any other is left out, for its own.
+    static func modelWords(_ agent: AgentKind, _ model: String, _ reasoning: String?) -> [String] {
         guard !model.isEmpty else { return [] }
         return switch agent {
         case .claude: ["--model", model] + (reasoning.map { ["--effort", $0] } ?? [])
         case .codex: ["-m", model] + (reasoning.map { ["-c", "model_reasoning_effort=\($0)"] } ?? [])
+        case .pi: ["--model", model] + (reasoning.flatMap { PiModelCatalog.thinkingLevels.contains($0) ? ["--thinking", $0] : nil } ?? [])
         }
     }
 
@@ -72,12 +73,12 @@ public enum FixerLaunch {
                 + ["--disallowedTools"] + claudeNoWeb
                 + ["--output-format", "json", "--json-schema", FixerPrompt.lookSchema, "--strict-mcp-config",
                    "--settings", claudeSettings] + claudeSettingSources
-                + ["--append-system-prompt", FixerPrompt.instructions] + modelWords(agent, model, reasoning),
+                + ["--append-system-prompt", FixerPrompt.instructions] + modelWords(agent.agent, model, reasoning),
                 environment: [:], sessionID: sessionID, answerFile: nil)
         case .codex:
             let files = try codexFiles(clone, "look", schema: FixerPrompt.lookSchema)
             return FixerInvocation(executable: "codex", arguments: ["exec", "--sandbox", "read-only", "--output-schema", files.schema,
-                "-o", files.answer, "--json", "-C", clone.path] + codexQuiet + modelWords(agent, model, reasoning)
+                "-o", files.answer, "--json", "-C", clone.path] + codexQuiet + modelWords(agent.agent, model, reasoning)
                 + [FixerPrompt.instructions + "\n\n" + problem],
                 environment: [:], sessionID: nil, answerFile: files.answer)
         }
@@ -95,13 +96,13 @@ public enum FixerLaunch {
                 + ["--disallowedTools", "Bash(git push:*)", "Bash(git remote:*)", "Bash(git config:*)"] + claudeNoWeb
                 + ["--output-format", "json", "--json-schema", FixerPrompt.applySchema, "--strict-mcp-config",
                    "--settings", claudeSettings] + claudeSettingSources
-                + ["--append-system-prompt", FixerPrompt.instructions] + modelWords(agent, model, reasoning),
+                + ["--append-system-prompt", FixerPrompt.instructions] + modelWords(agent.agent, model, reasoning),
                 environment: [:], sessionID: sessionID, answerFile: nil)
         case .codex:
             let files = try codexFiles(clone, "apply", schema: FixerPrompt.applySchema)
             return FixerInvocation(executable: "codex", arguments: ["exec", "resume", sessionID,
                 "-c", #"sandbox_mode="workspace-write""#] + codexGitRoot(clone) + ["--output-schema", files.schema, "-o", files.answer, "--json"]
-                + codexQuiet + modelWords(agent, model, reasoning) + [FixerPrompt.instructions + "\n\n" + plan],
+                + codexQuiet + modelWords(agent.agent, model, reasoning) + [FixerPrompt.instructions + "\n\n" + plan],
                 environment: [:], sessionID: sessionID, answerFile: files.answer)
         }
     }

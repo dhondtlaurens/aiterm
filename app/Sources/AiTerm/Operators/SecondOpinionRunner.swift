@@ -24,10 +24,8 @@ struct SecondOpinionRunner: Sendable {
     func challenge(_ opinion: OracleSetting, prompt: String, runFolder: URL, projects: [String]) async -> Verdict {
         let answerFile = runFolder.appendingPathComponent("challenge-\(UUID().uuidString).txt").path
         defer { try? FileManager.default.removeItem(atPath: answerFile) }
-        guard let invocation = ChallengeLaunch.invocation(opinion, prompt: prompt, runFolder: runFolder.path, projects: projects,
-                                                          answerFile: answerFile) else {
-            return .unchallenged("\(opinion.agent.harness.displayName) can’t give a second opinion.")
-        }
+        let invocation = ChallengeLaunch.invocation(opinion, prompt: prompt, runFolder: runFolder.path, projects: projects,
+                                                    answerFile: answerFile)
         switch await perform(invocation, in: runFolder.path, timeout: timeout) {
         case .failure(let why): return .unchallenged(why.text(of: "The second opinion"))
         case .success(let output):
@@ -45,10 +43,8 @@ struct SecondOpinionRunner: Sendable {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let answerFile = folder.appendingPathComponent("review-\(UUID().uuidString).txt").path
         defer { try? FileManager.default.removeItem(atPath: answerFile) }
-        guard let invocation = AgentReview.invocation(agent: agent, model: model, reasoning: reasoning, prompt: prompt, worktree: worktree,
-                                                      answerFile: answerFile) else {
-            return .failed("\(agent.harness.displayName) can’t review headless.")
-        }
+        let invocation = AgentReview.invocation(agent: agent, model: model, reasoning: reasoning, prompt: prompt, worktree: worktree,
+                                                answerFile: answerFile)
         switch await perform(invocation, in: worktree, timeout: timeout) {
         case .failure(let why): return .failed(why.text(of: "The review"))
         case .success(let output):

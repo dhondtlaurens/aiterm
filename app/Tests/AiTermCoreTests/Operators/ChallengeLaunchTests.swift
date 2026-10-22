@@ -9,7 +9,7 @@ import Testing
     let codex = OracleSetting.standard
 
     @Test func claudeReadsAndNothingElse() throws {
-        let words = try #require(ChallengeLaunch.invocation(claude, prompt: "P", runFolder: "/run", projects: ["/shop", "/web"], answerFile: "/run/a")).arguments
+        let words = ChallengeLaunch.invocation(claude, prompt: "P", runFolder: "/run", projects: ["/shop", "/web"], answerFile: "/run/a").arguments
         #expect(Array(words.prefix(2)) == ["-p", "P"])
         #expect(words.contains("dontAsk") && words.contains("--strict-mcp-config"))
         let allowed = words.drop { $0 != "--allowedTools" }.dropFirst().prefix { !$0.hasPrefix("--") }
@@ -26,11 +26,41 @@ import Testing
     }
 
     @Test func codexRunsInAReadOnlySandboxInTheRunFolder() throws {
-        let invocation = try #require(ChallengeLaunch.invocation(codex, prompt: "P", runFolder: "/run", projects: [], answerFile: "/run/a"))
+        let invocation = ChallengeLaunch.invocation(codex, prompt: "P", runFolder: "/run", projects: [], answerFile: "/run/a")
         #expect(invocation.executable == "codex" && invocation.answerFile == "/run/a")
         #expect(Array(invocation.arguments.prefix(3)) == ["exec", "--sandbox", "read-only"])
         #expect(invocation.arguments.contains("-C") && invocation.arguments.last == "P")
         #expect(invocation.arguments.contains("--ignore-user-config"))
+    }
+
+    let pi = OracleSetting(isOn: true, agent: .pi, model: "openai-codex/gpt-5.6-sol", reasoning: "high")
+    /// PI's run before its model words: no session, extension, MCP server, skill or project file, and the read tools alone.
+    let piReadOnly = ["-p", "--no-session", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-approve",
+                      "--offline", "--tools", "read,grep,find,ls"]
+
+    /// PI has no sandbox: its tool list is what keeps it to reading. A prompt that starts with a dash is still the prompt.
+    @Test func piReadsAndNothingElse() {
+        let invocation = ChallengeLaunch.invocation(pi, prompt: "- P", runFolder: "/run", projects: ["/shop"], answerFile: "/run/a")
+        #expect(invocation.executable == "pi" && invocation.answerFile == nil)
+        #expect(invocation.arguments == piReadOnly + ["--model", "openai-codex/gpt-5.6-sol", "--thinking", "high", "--", "- P"])
+    }
+
+    /// A level PI doesn't name is left out, and PI runs at its own default; an empty model passes no model words at all.
+    @Test func piTakesOnlyTheLevelsItNames() {
+        var stale = pi
+        stale.reasoning = "turbo"
+        #expect(ChallengeLaunch.invocation(stale, prompt: "P", runFolder: "/run", projects: [], answerFile: "/run/a").arguments
+                == piReadOnly + ["--model", "openai-codex/gpt-5.6-sol", "--", "P"])
+        var none = pi
+        none.model = ""
+        #expect(ChallengeLaunch.invocation(none, prompt: "P", runFolder: "/run", projects: [], answerFile: "/run/a").arguments
+                == piReadOnly + ["--", "P"])
+    }
+
+    @Test func piCritiqueIsItsPlainOutputAndNothingOnFailure() {
+        #expect(ChallengeLaunch.critique(.pi, output: ProcessOutput(status: 0, stdout: "  Sound.\n", stderr: "", timedOut: false), answerFile: nil) == "Sound.")
+        #expect(ChallengeLaunch.critique(.pi, output: ProcessOutput(status: 1, stdout: "Sound.", stderr: "Error", timedOut: false), answerFile: nil) == nil)
+        #expect(ChallengeLaunch.critique(.pi, output: ProcessOutput(status: 0, stdout: "\n", stderr: "", timedOut: false), answerFile: nil) == nil)
     }
 
     @Test func theCritiqueIsClaudesResultOrCodexsAnswerFileAndNothingOnFailure() throws {

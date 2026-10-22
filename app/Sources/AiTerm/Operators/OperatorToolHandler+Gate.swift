@@ -66,9 +66,7 @@ extension OperatorToolHandler {
         let opinion = run.profile.oracle
         let status = Self.json(currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null)
         let prompt = ChallengeLaunch.gatePrompt(command: command, directory: directory, reason: call.optionalString("description"), run: status)
-        // An Oracle with no headless run (pi) is as good as off: only whether it has one is asked here.
-        guard opinion.isOn, ChallengeLaunch.invocation(opinion, prompt: prompt, runFolder: folder.path, projects: projects,
-                                                       answerFile: folder.path) != nil else {
+        guard opinion.isOn else {
             return answer("allow", "unchallenged: the Oracle is off")
         }
 

@@ -19,8 +19,8 @@ import Testing
         func record(_ prompt: String) { prompts.withLock { $0.append(prompt) } }
     }
 
-    func makeWorld(oracle: Bool = true, runner: SecondOpinionRunner) throws -> (OperatorWorld, OperatorRun, TaskItem) {
-        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: oracle, oracleAgent: .claude), projects: [project],
+    func makeWorld(oracle: Bool = true, oracleAgent: AgentKind = .claude, runner: SecondOpinionRunner) throws -> (OperatorWorld, OperatorRun, TaskItem) {
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: oracle, oracleAgent: oracleAgent), projects: [project],
                                               state: .active)
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .working, worktree: worktree)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])) { ports in
@@ -173,15 +173,12 @@ import Testing
         #expect(missing.run(missingRun.id)?.questions.isEmpty == true)
     }
 
-    @Test func anOracleWithNoHeadlessRunMeansItRuns() async throws {
-        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: true, oracleAgent: .pi), projects: [project], state: .active)
+    /// PI has a headless run as Claude and Codex do: an Oracle on PI is asked, not taken as off.
+    @Test func aPiOracleIsAsked() async throws {
         let asked = Asked()
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { ports in
-            ports.secondOpinion = answering("ASK", asked)
-        }
-        #expect(await gate(world, run, "npm install", in: project.path)["decision"] == "allow")
-        #expect(asked.count == 0)
-        #expect(try #require(await entries(world, run).first).reason == "unchallenged: the Oracle is off")
+        let (world, run, _) = try makeWorld(oracleAgent: .pi, runner: answering("ASK: it deploys.", asked))
+        #expect(await gate(world, run, "npm run deploy", in: worktree)["decision"] == "deny")
+        #expect(asked.count == 1)
     }
 
     @Test func anUnreadableAnswerRuns() async throws {

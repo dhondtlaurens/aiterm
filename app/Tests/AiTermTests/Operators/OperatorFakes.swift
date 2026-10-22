@@ -323,15 +323,19 @@ actor OracleGate {
 }
 
 extension SecondOpinionRunner {
-    /// A second opinion that answers `critique` once `gate` is open (at once with none) and after `delay`, as Claude's JSON result.
+    /// A second opinion that answers `critique` once `gate` is open (at once with none) and after `delay`, as Claude's JSON result,
+    /// or as PI's plain text when PI is the one run.
     static func answering(_ critique: String, after delay: Duration = .zero, gate: OracleGate? = nil,
                           receivePrompt: @escaping @Sendable (String) -> Void = { _ in }) -> SecondOpinionRunner {
-        SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, arguments, _, _, _ in
-            if let at = arguments.firstIndex(of: "-p"), at + 1 < arguments.count { receivePrompt(arguments[at + 1]) }
+        SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { executable, arguments, _, _, _ in
+            let pi = executable.hasSuffix("/pi")
+            // PI's prompt is its last word, after `--`; Claude's follows `-p`.
+            if pi, let prompt = arguments.last { receivePrompt(prompt) }
+            else if let at = arguments.firstIndex(of: "-p"), at + 1 < arguments.count { receivePrompt(arguments[at + 1]) }
             await gate?.wait()
             try? await Task.sleep(for: delay)
             let json = String(decoding: try JSONEncoder().encode(["result": critique]), as: UTF8.self)
-            return ProcessOutput(status: 0, stdout: json, stderr: "", timedOut: false)
+            return ProcessOutput(status: 0, stdout: pi ? critique : json, stderr: "", timedOut: false)
         })
     }
 }
