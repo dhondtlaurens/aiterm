@@ -165,6 +165,21 @@ def test_a_claude_stop_lists_the_background_work_still_running():
     assert parse_claude_hook({**BASE, "hook_event_name": "UserPromptSubmit", "background_tasks": tasks}).background_work is None
 
 
+def test_a_claude_stop_leaves_out_its_artifact_watches():
+    """Claude Code watches every artifact it publishes or is asked to watch for comments, for the rest of the session:
+    a monitor that never ends and that Claude Code itself counts as no activity. A monitor you armed still counts."""
+    tasks = [{"id": "w1", "type": "monitor", "status": "running",
+              "description": "live updates for artifact https://claude.ai/artifact/6xDD (auto-armed on publish)"},
+             {"id": "w2", "type": "monitor", "status": "running",
+              "description": "live updates for artifact https://claude.ai/artifact/MnYZ (watch requested)"},
+             {"id": "m1", "type": "monitor", "status": "running", "description": "CI on !46"},
+             {"id": "m2", "type": "monitor", "status": "running", "description": "live updates for artifact deploys",
+              "server": "ci", "tool": "watch"}]
+    event = parse_claude_hook({**BASE, "hook_event_name": "Stop", "background_tasks": tasks})
+    assert event.background_work == (BackgroundJob("monitor", "CI on !46"), BackgroundJob("monitor", "live updates for artifact deploys"))
+    assert event.running_subagents == frozenset()
+
+
 def test_a_prompt_submitted_carries_its_text():
     assert parse_claude_hook({**BASE, "hook_event_name": "UserPromptSubmit", "prompt": "Fix it"}).prompt == "Fix it"
     assert parse_codex_hook({**BASE, "hook_event_name": "UserPromptSubmit", "prompt": "Fix it"}).prompt == "Fix it"
