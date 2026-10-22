@@ -24,6 +24,37 @@ public struct DiffDigest: Equatable, Sendable {
     /// The lockfiles that are summarised, matched on a path's last component.
     public static let lockfiles: Set<String> = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Package.resolved", "poetry.lock",
                                                 "uv.lock", "Cargo.lock", "composer.lock", "Gemfile.lock"]
+    /// The most files an answer lists; past it one entry says how many more.
+    public static let listedFiles = 200
+    /// The most lines of git's `--stat` an answer keeps: its last, so the summary line stays.
+    public static let statLines = 220
+    /// The most lines of the commit list and of the uncommitted edits an answer keeps.
+    public static let commitLines = 100, uncommittedLines = 100
+
+    /// What the whole answer aims to stay under, JSON escaping and the keys around its text included.
+    static let answerBudget = 36_000
+    /// What a listed file costs an answer beside its patch: its keys and path.
+    static let fileOverhead = 120
+
+    /// The patch budget (`build`'s `total`) for an answer whose other parts, `others` characters of stat, commits and
+    /// uncommitted edits, leave this room for `files` listed files: never above 30 000, and never below 6 000, so
+    /// the files that matter most still carry a patch.
+    public static func patchBudget(others: Int, files: Int) -> Int {
+        min(30_000, max(6_000, answerBudget - others - min(files, listedFiles) * fileOverhead))
+    }
+
+    /// `text`'s first `limit` lines, and whether it had more.
+    public static func firstLines(_ text: String, _ limit: Int) -> (text: String, cut: Bool) {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        return lines.count > limit ? (lines.prefix(limit).joined(separator: "\n"), true) : (text, false)
+    }
+
+    /// `text`'s last `limit` lines, and whether it had more.
+    public static func lastLines(_ text: String, _ limit: Int) -> (text: String, cut: Bool) {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        return lines.count > limit ? (lines.suffix(limit).joined(separator: "\n"), true) : (text, false)
+    }
+
     /// The most package names a `package-lock.json` summary lists before saying how many more.
     static let versionNames = 30
 
@@ -37,7 +68,7 @@ public struct DiffDigest: Equatable, Sendable {
                 continue
             }
             guard budget > 0 else {
-                files.append(File(path: section.path, patch: nil, summary: counts(of: section) + "; patch left out, read the file", truncated: true))
+                files.append(File(path: section.path, patch: nil, summary: counts(of: section) + ", patch left out", truncated: true))
                 continue
             }
             let room = min(perFile, budget), cut = section.text.count > room

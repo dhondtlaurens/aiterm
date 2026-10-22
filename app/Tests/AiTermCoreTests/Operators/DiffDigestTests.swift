@@ -108,4 +108,20 @@ import Testing
         let diff = "diff --git a/old.ts b/new.ts\nsimilarity index 90%\nrename from old.ts\nrename to new.ts\n"
         #expect(DiffDigest.build(diff: diff).files.map(\.path) == ["new.ts"])
     }
+
+    @Test func theEndsOfATextAreKeptByLines() {
+        let text = (1...10).map(String.init).joined(separator: "\n")
+        #expect(DiffDigest.firstLines(text, 3) == ("1\n2\n3", true))
+        #expect(DiffDigest.lastLines(text, 3) == ("8\n9\n10", true))
+        #expect(DiffDigest.firstLines(text, 10) == (text, false) && DiffDigest.lastLines(text, 10) == (text, false))
+        #expect(DiffDigest.firstLines("", 3) == ("", false))
+    }
+
+    @Test func theOthersPartsOfTheAnswerLeaveTheRestToThePatches() {
+        #expect(DiffDigest.patchBudget(others: 0, files: 3) == 30_000, "a narrow diff keeps the whole patch budget")
+        #expect(DiffDigest.patchBudget(others: 20_000, files: 200) == 6_000, "never below what the first files need")
+        #expect(DiffDigest.patchBudget(others: 5_000, files: 500) == DiffDigest.patchBudget(others: 5_000, files: DiffDigest.listedFiles),
+                "files past the list cost nothing")
+        #expect(DiffDigest.patchBudget(others: 10_000, files: 50) == 36_000 - 10_000 - 50 * DiffDigest.fileOverhead)
+    }
 }

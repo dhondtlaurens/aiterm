@@ -117,6 +117,48 @@ import Testing
         #expect(diff["commits"]?.stringValue?.contains("parent.swift") == false)
     }
 
+    @Test func aParentsCommitOutsideTheBranchLeavesBaseLogAndDiffMeasuringFromTheSamePlace() async throws {
+        let (world, run, task) = try makeWorld()
+        let path = task.worktreePath, fork = try git.run(["rev-parse", "HEAD"], in: path)
+        // The parent's accepted commit sits on a branch of its own: not in the child's history, as after a rebase.
+        try git.run(["switch", "-q", "-c", "parent-side"], in: path)
+        let accepted = try commit("parent.swift", in: path)
+        try git.run(["switch", "-q", task.branch], in: path)
+        try commit("child.swift", in: path)
+        let project = try #require(world.state.project(id: task.projectId))
+        var parent = OperatorServiceFixtures.task(in: run, project: project, key: "PARENT", state: .accepted)
+        parent.operated?.acceptance = TaskAcceptance(resultSHA: accepted, prerequisiteSHAs: [], checkOutput: "ok", note: nil, at: Date(timeIntervalSince1970: 0))
+        world.workspace.mutate { state in
+            state.tasks.append(parent)
+            state.updateOperated(task.id) { $0.dependsOn = [TaskDependency(task: parent.id, kind: .code)] }
+        }
+        let diff = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value)
+        #expect(diff["base"] == .string(fork), "the commit log and diff measure from, not one the branch does not contain")
+        #expect(paths(diff) == ["child.swift"])
+        let commits = try #require(diff["commits"]?.stringValue)
+        #expect(commits.contains("Add child.swift") && !commits.contains("parent.swift") && commits.split(separator: "\n").count == 1)
+    }
+
+    @Test func aWideDiffStaysSmallWhateverItsParts() async throws {
+        let (world, run, task) = try makeWorld()
+        let path = task.worktreePath
+        for index in 0..<500 { try "line \(index)\n".write(toFile: path + "/file-\(index).swift", atomically: true, encoding: .utf8) }
+        try git.run(["add", "-A"], in: path)
+        try git.run(["commit", "-q", "-m", "Add five hundred files"], in: path)
+        try git.run(["-c", "alias.steps=!for i in $(seq 120); do git commit --allow-empty -q -m \"Step $i\"; done", "steps"], in: path, timeout: 120)
+        for index in 0..<150 { try "draft\n".write(toFile: path + "/draft-\(index).swift", atomically: true, encoding: .utf8) }
+        let diff = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value)
+        let encoded = try JSONEncoder().encode(diff)
+        #expect(encoded.count < 40_000, "the answer is \(encoded.count) bytes")
+        let files = try #require(diff["files"]?.arrayValue)
+        #expect(files.count == DiffDigest.listedFiles + 1 && files.last?["path"] == "and 300 more files")
+        let stat = try #require(diff["stat"]?.stringValue)
+        #expect(stat.split(separator: "\n").count == DiffDigest.statLines && stat.contains("500 files changed"), "git's summary line is kept")
+        #expect(diff["commits"]?.stringValue?.split(separator: "\n").count == DiffDigest.commitLines)
+        #expect(diff["uncommitted"]?.stringValue?.split(separator: "\n").count == DiffDigest.uncommittedLines)
+        #expect(diff["truncated"] == true)
+    }
+
     @Test func readingThePromptWithNoHelperIsRefusedNotAnsweredAsNoPrompt() async throws {
         let (world, run, task) = try makeWorld()
         world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .needsInput)])

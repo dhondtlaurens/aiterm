@@ -12,17 +12,19 @@ extension OperatorToolHandler {
     /// origin's copy of its base branch, fetched first, so a local `main` that lags origin is not read back as the
     /// worker's changes. A project with no origin, or one that has no such branch, is read from the task's own base.
     /// A fetch that fails (offline) is not a refusal: origin's branch is read as it was last fetched.
+    ///
+    /// Always where that base and HEAD meet, so what `log` and `diff` measure from is the `base` an answer reports,
+    /// even when a parent's accepted commit is not in the branch's history (it was rebased).
     func diffBase(of task: TaskItem, in run: OperatorRun) async throws -> String {
-        if let commit = RunScheduler.baseCommit(for: task.id, in: state)?.trimmingCharacters(in: .whitespacesAndNewlines), !commit.isEmpty {
-            return commit
-        }
+        let stacked = RunScheduler.baseCommit(for: task.id, in: state)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let git = ports.git, path = task.worktreePath, named = task.baseBranch
         return try await BackgroundWork.run {
             let repository = Repository(path, git: git)
-            guard try repository.hasOrigin else { return named }
+            if let stacked, !stacked.isEmpty { return try repository.mergeBase(stacked, "HEAD") ?? stacked }
+            guard try repository.hasOrigin else { return try repository.mergeBase(named, "HEAD") ?? named }
             let branch = named.isEmpty ? repository.defaultBranch() : named
             Log.git.attempt("Fetching \(branch) from origin in \(path)") { try repository.fetchFromOrigin(branch) }
-            return try repository.mergeBase("origin/" + branch, "HEAD") ?? named
+            return try repository.mergeBase("origin/" + branch, "HEAD") ?? repository.mergeBase(named, "HEAD") ?? named
         }
     }
 
@@ -71,24 +73,37 @@ extension OperatorToolHandler {
             // The committed work mark_task accepts: from where the branch left its base to HEAD, so a base that
             // moved on is not read back as the worker's changes; edits not yet committed are told apart.
             let git = ports.git, path = task.worktreePath
-            let read: (base: String, head: String, commits: String, stat: String, diff: String, uncommitted: String)
+            let read: (head: String, commits: String, stat: String, diff: String, uncommitted: String)
+            let base: String
             do {
-                let base = try await diffBase(of: task, in: run)
+                base = try await diffBase(of: task, in: run)
                 read = try await BackgroundWork.run {
-                    (try git.run(["merge-base", base, "HEAD"], in: path), try git.run(["rev-parse", "HEAD"], in: path),
+                    (try git.run(["rev-parse", "HEAD"], in: path),
                      try git.run(["log", "--oneline", "\(base)..HEAD"], in: path), try git.run(["diff", "--stat", "\(base)...HEAD"], in: path),
                      try git.run(["diff", "\(base)...HEAD"], in: path), try git.run(["status", "--porcelain"], in: path))
                 }
             } catch {
                 throw ToolRefusal("AiTerm couldn’t read \(key)’s branch against \(task.baseBranch.isEmpty ? "its base" : task.baseBranch).")
             }
-            let digest = DiffDigest.build(diff: read.diff)
-            let files = digest.files.map { file -> JSONValue in
-                ["path": .string(file.path), "patch": file.patch.map(JSONValue.string) ?? .null,
-                 "summary": file.summary.map(JSONValue.string) ?? .null, "truncated": .bool(file.truncated)]
+            // The whole answer is small, not only its patches: a wide diff lists some of its files, and the stat, the
+            // commits and the uncommitted edits keep their ends.
+            let stat = DiffDigest.lastLines(read.stat, DiffDigest.statLines), commits = DiffDigest.firstLines(read.commits, DiffDigest.commitLines)
+            let uncommitted = DiffDigest.firstLines(read.uncommitted, DiffDigest.uncommittedLines)
+            // What those leave of the answer's room is the patches': a file a line of stat lists is about a line of its answer.
+            let budget = DiffDigest.patchBudget(others: stat.text.count + commits.text.count + uncommitted.text.count,
+                                                files: read.stat.split(separator: "\n").count)
+            let digest = DiffDigest.build(diff: read.diff, total: budget)
+            var files = digest.files.prefix(DiffDigest.listedFiles).map { file -> JSONValue in
+                var entry: [String: JSONValue] = ["path": .string(file.path), "truncated": .bool(file.truncated)]
+                if let patch = file.patch { entry["patch"] = .string(patch) }
+                if let summary = file.summary { entry["summary"] = .string(summary) }
+                return .object(entry)
             }
-            return ["base": .string(read.base), "head": .string(read.head), "stat": .string(read.stat), "commits": .string(read.commits),
-                    "files": .array(files), "truncated": .bool(digest.truncated), "uncommitted": .string(read.uncommitted)]
+            let unlisted = digest.files.count - files.count
+            if unlisted > 0 { files.append(["path": .string("and \(unlisted) more files"), "truncated": true]) }
+            return ["base": .string(base), "head": .string(read.head), "stat": .string(stat.text), "commits": .string(commits.text),
+                    "files": .array(files), "truncated": .bool(digest.truncated || unlisted > 0 || stat.cut || commits.cut || uncommitted.cut),
+                    "uncommitted": .string(uncommitted.text)]
         case "prompt":
             let worker = try self.worker(call, of: task)
             guard let tab = worker.session, !worker.isOpening else {
