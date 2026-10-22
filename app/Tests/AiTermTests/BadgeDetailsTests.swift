@@ -81,3 +81,39 @@ import AiTermUI
         #expect(badges.editorHelp == "Open in VS Code")
     }
 }
+
+/// A row too narrow for every badge gives up what it wears, least-needed first, so the status mark keeps
+/// its slot: the VS Code counts fold to the plain mark, then whole badges drop from the end — the editor,
+/// then the merge request, then the ticket.
+@Suite struct TaskRowBadgeFitTests {
+    private func badges(jiraKey: String? = "FE-1783", mr: MergeRequestRef? = .init(iid: 45, title: "t", url: "https://gitlab.example.com/mr/45"),
+                        diff: BaseDiff? = BaseDiff(base: "main", stat: DiffStat(added: 1416, removed: 1072))) -> TaskRowBadges {
+        TaskRowBadges(row: TaskRow(id: UUID(), title: "t", jiraKey: jiraKey, jiraUrl: nil, mr: mr, branch: .none,
+                                   avatars: AvatarGroup(marks: [], overflow: 0), status: .idle, diff: diff),
+                      details: BadgeDetails())
+    }
+
+    @Test func theDiffFoldsBeforeAnyBadgeDrops() {
+        #expect(badges().fits(editor: true) == [
+            .init(ticket: true, mergeRequest: true, editor: .diff),
+            .init(ticket: true, mergeRequest: true, editor: .plain),
+            .init(ticket: true, mergeRequest: true, editor: .none),
+            .init(ticket: true, mergeRequest: false, editor: .none),
+            .init(ticket: false, mergeRequest: false, editor: .none),
+        ])
+    }
+
+    @Test func onlyWhatTheRowWearsIsGivenUp() {
+        #expect(badges(mr: nil, diff: nil).fits(editor: true) == [
+            .init(ticket: true, mergeRequest: false, editor: .plain),
+            .init(ticket: true, mergeRequest: false, editor: .none),
+            .init(ticket: false, mergeRequest: false, editor: .none),
+        ])
+        // No VS Code: no editor badge, counts or not.
+        #expect(badges(jiraKey: nil).fits(editor: false) == [
+            .init(ticket: false, mergeRequest: true, editor: .none),
+            .init(ticket: false, mergeRequest: false, editor: .none),
+        ])
+        #expect(badges(jiraKey: nil, mr: nil, diff: nil).fits(editor: false) == [.init(ticket: false, mergeRequest: false, editor: .none)])
+    }
+}
