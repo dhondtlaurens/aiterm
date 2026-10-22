@@ -178,10 +178,11 @@ tick that sees it back; the model and context return with the next hook or statu
 ## A turn that removes its own checkout
 
 An agent that finishes by merging and deleting its own worktree deletes the directory its process
-runs in. A hook transport that spawns a command in that directory would then fail to fire, and the
-turn would never end. None of the three harnesses uses one: Claude's hooks are HTTP posts, Codex's
-`Stop` travels over MCP, and PI's extension runs inside PI. The daemon therefore has no rule for a
-vanished directory, and a harness added later must find a transport that survives it.
+runs in. A hook that spawns a command in that directory then fails to fire. Codex's other hooks
+are spawned commands and do fail, but its `Stop`, the end-of-turn signal, travels over MCP and still
+arrives; Claude's hooks are HTTP posts and PI's extension runs inside PI. So no turn is stranded,
+and the daemon has no rule for a vanished directory. A harness added later needs an end-of-turn
+transport that survives one.
 
 The app waits on the same fact before closing a removed task's window: `forgetRemovedCheckouts`
 keeps its confirmed-removal check, and also waits while any of the task's sessions is still

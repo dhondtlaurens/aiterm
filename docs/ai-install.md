@@ -119,7 +119,8 @@ Tell the person the following. Don't do any of it for them:
   folder `$CLAUDE_CONFIG_DIR` names) or `~/.codex/` by hand for this.
 - **An earlier install may have left Grok Build files.** If they used Grok Build with an earlier
   AiTerm, delete `~/.grok/hooks/aiterm.json` and remove the `[ui.status_line]` table in
-  `~/.grok/config.toml` whose `command` names AiTerm's `grok-statusline-shim.sh`. If they had a status
+  `~/.grok/config.toml` whose `command` names AiTerm's `grok-statusline-shim.sh`; a table whose
+  `command` names anything else is theirs, so leave it. If they had a status
   line of their own before, AiTerm saved its command in
   `~/Library/Application Support/AiTerm/grok-statusline-original.cmd`; put that back as the table's
   `command` instead. AiTerm no longer serves or ships any of this.
