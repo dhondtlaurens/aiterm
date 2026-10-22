@@ -339,8 +339,10 @@ final class TaskRemover: CheckoutRemovals {
     /// The tasks a checkout pass found gone, as they are now: one being changed, or waiting on a
     /// removal's retry, is its workflow's to finish, and one whose checkout or project came back
     /// while the pass ran stays. One whose agent is still mid-turn — it removed its own worktree
-    /// and is finishing up — waits: closing the window would kill it. The daemon settles such a
-    /// turn even when the agent's last hook cannot arrive (spec §10b), and the next pass closes it.
+    /// and is finishing up — waits: closing the window would kill it. The turn still ends: every
+    /// harness AiTerm drives delivers its end of turn without a process in the removed checkout
+    /// (Claude's HTTP hooks, Codex's `Stop` over MCP, PI's in-process extension; docs/status-model.md,
+    /// “A turn that removes its own checkout”), and the next pass closes it.
     ///
     /// Each removal is confirmed once more just before it is acted on — the checkout can have come
     /// back since the pass looked — and off the main actor: a `stat` on a mount that has stopped

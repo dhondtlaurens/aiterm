@@ -46,8 +46,8 @@ public struct HarnessCheck: Equatable, Sendable {
     public var id: HarnessCheckID
     public var passed: Bool
     public var explanation: String?
-    /// Whether Install can put this check right when it fails. Messaging and Setup cannot: both
-    /// report on the Run check, which Install does not run.
+    /// Whether Install can put this check right when it fails. Messaging and a Run check's Setup
+    /// cannot: both report on the Run check, which Install does not run.
     public var repairable: Bool
 
     public var label: String { id.label }

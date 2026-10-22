@@ -137,7 +137,9 @@ def _submitted(name: str, p: dict[str, Any]) -> str | None:
 
 
 def parse_claude_hook(p: dict[str, Any]) -> HookEvent | None:
-    if not isinstance(p, dict):
+    # Another CLI that runs ~/.claude/settings.json hooks (Grok Build does) sends `hookEventName`,
+    # which Claude never does: such a post is not Claude's.
+    if not isinstance(p, dict) or "hookEventName" in p:
         return None
     name = _nonempty_string(p.get("hook_event_name"))
     sid, cwd = _nonempty_string(p.get("session_id")), _nonempty_string(p.get("cwd"))
@@ -259,7 +261,7 @@ class StatusLine(NamedTuple):
 
 
 def _object_field(p: dict[str, Any], key: str, field: str) -> str | None:
-    """`p[key][field]` as a string, as in `model.id` and `effort.level`."""
+    """`p[key][field]` as a string, as in `model.id`."""
     value = p.get(key)
     return _nonempty_string(value.get(field)) if isinstance(value, dict) else None
 
@@ -284,6 +286,6 @@ _STATUSLINE_PARSER: dict[AgentKind, StatusLineParser] = {"claude": parse_claude_
 
 # The agent hook routes, each with the parser for its agent's payload.
 HOOK_PARSERS: dict[str, HookParser] = {h.hook_route: _HOOK_PARSER[h.agent] for h in HARNESSES}
-# The status-line shims' routes, each with the agent it reports on and the parser for its payload.
+# Each status-line shim's route, with the agent it reports on and the parser for its payload.
 STATUSLINE_PARSERS: dict[str, tuple[AgentKind, StatusLineParser]] = {
     h.statusline_route: (h.agent, _STATUSLINE_PARSER[h.agent]) for h in HARNESSES if h.statusline_route}

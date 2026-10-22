@@ -365,3 +365,9 @@ def test_a_subagents_start_and_stop_name_no_conversation():
 def test_claude_stop_with_unhashable_task_type_cannot_prove_subagents_finished():
     event = parse_claude_hook({"hook_event_name": "Stop", "background_tasks": [{"type": []}]})
     assert event.running_subagents is None
+
+
+def test_claude_route_drops_payloads_from_another_cli_running_claudes_hooks():
+    # Another CLI that loads ~/.claude/settings.json hooks sends `hookEventName`, a key Claude
+    # never sends; were it to reach the Claude route, it must not count as Claude.
+    assert parse_claude_hook({**BASE, "hook_event_name": "Stop", "hookEventName": "stop"}) is None
