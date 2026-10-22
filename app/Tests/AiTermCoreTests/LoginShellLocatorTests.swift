@@ -119,6 +119,24 @@ import Testing
         #expect(shell.spawns == 2)
     }
 
+    /// The login shell's `PATH` comes with the rest, and `knownPath` says it only once a shell has
+    /// answered: it never starts one, so git can ask it on every command.
+    @Test func theLoginShellsPathIsKnownOnceAShellAnswered() throws {
+        let spawns = Mutex(0)
+        let locator = LoginShellLocator(names: ["sh"], shell: { query in
+            spawns.withLock { $0 += 1 }
+            let result = try? ProcessRunner.run(URL(fileURLWithPath: "/bin/zsh"),
+                                                ["-fc", "PATH=/opt/homebrew/bin:/usr/bin:/bin; " + query], timeout: 5)
+            return result?.status == 0 ? result?.stdout : nil
+        })
+        #expect(locator.knownPath == nil)
+        #expect(spawns.withLock { $0 } == 0, "asking for the known PATH starts no shell")
+        let answers = try #require(locator.current())
+        #expect(locator.knownPath == "/opt/homebrew/bin:/usr/bin:/bin")
+        #expect(answers.executables["sh"] == "/bin/sh")
+        #expect(!answers.pythonOutput.contains("/opt/homebrew/bin:/usr/bin:/bin"), "the PATH is no Python candidate")
+    }
+
     /// A shell that failed or ran out of time said nothing, and is not kept as if it had.
     @Test func aShellThatFailedIsNotKept() {
         let shell = CountingShell(nil)

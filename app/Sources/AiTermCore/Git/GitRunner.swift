@@ -150,9 +150,14 @@ public struct GitRunner: GitRunning {
     /// the hook's repository instead of the fixture's; `environment` can only set variables, so the
     /// tests' runner names what to drop.
     let ignoresInherited: @Sendable (String) -> Bool
+    /// The `PATH` every command runs with, over the inherited one, when it gives one. The app's is the
+    /// login shell's (`LoginShellLocator.knownPath`): a GUI app inherits launchd's, and the hooks git
+    /// runs — a lefthook pre-push that runs `npm` — find nothing from Homebrew on it.
+    let searchPath: @Sendable () -> String?
     public init(git: String = "/usr/bin/git", environment: [String: String] = [:],
-                ignoringInherited: @escaping @Sendable (String) -> Bool = { _ in false }) {
-        self.git = git; self.environment = environment; self.ignoresInherited = ignoringInherited
+                ignoringInherited: @escaping @Sendable (String) -> Bool = { _ in false },
+                searchPath: @escaping @Sendable () -> String? = { nil }) {
+        self.git = git; self.environment = environment; self.ignoresInherited = ignoringInherited; self.searchPath = searchPath
     }
 
     @discardableResult
@@ -174,11 +179,13 @@ public struct GitRunner: GitRunning {
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// What git runs with: what is inherited, less what the runner ignores, with the runner's own
-    /// `environment` and then the command's `extra` set over it, and the settings every command
-    /// runs under.
+    /// What git runs with: what is inherited, less what the runner ignores, with the `searchPath`, the
+    /// runner's own `environment` and then the command's `extra` set over it, and the settings every
+    /// command runs under.
     func commandEnvironment(inheriting inherited: [String: String], extra: [String: String]) -> [String: String] {
-        var env = inherited.filter { !ignoresInherited($0.key) }.merging(environment) { $1 }.merging(extra) { $1 }
+        var env = inherited.filter { !ignoresInherited($0.key) }
+        if let path = searchPath() { env["PATH"] = path }
+        env = env.merging(environment) { $1 }.merging(extra) { $1 }
         env["GIT_OPTIONAL_LOCKS"] = "0"; env["GIT_TERMINAL_PROMPT"] = "0"
         return Self.englishMessages(env)
     }

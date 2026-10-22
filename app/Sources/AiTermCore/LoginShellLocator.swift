@@ -24,6 +24,8 @@ public final class LoginShellLocator: Sendable {
         public let executables: [String: String]
         public let pythonOutput: String
         public var claudeConfigDirectory: String? = nil
+        /// The login shell's `PATH`; nil when it printed none.
+        public var path: String? = nil
     }
 
     private let names: [String]
@@ -48,10 +50,12 @@ public final class LoginShellLocator: Sendable {
     var query: String {
         LoginShell.locateQuery(names) + "; print -r -- \(Self.claudeMarker); "
             + #"print -r -- "${CLAUDE_CONFIG_DIR-}"; "#
+            + "print -r -- \(Self.pathMarker); " + #"print -r -- "$PATH"; "#
             + "print -r -- \(Self.pythonMarker); " + PythonLocator.candidateQuery
     }
 
     static let claudeMarker = "--aiterm-claude-config-dir--"
+    static let pathMarker = "--aiterm-path--"
     static let pythonMarker = "--aiterm-python-candidates--"
 
     /// Where `name` runs from, or `nil` when the login shell does not find it — or could not be
@@ -61,6 +65,11 @@ public final class LoginShellLocator: Sendable {
         if let path = known.withLock({ $0.answers?.executables[name] }), isExecutable(path) { return path }
         return resolve()?.executables[name]
     }
+
+    /// The login shell's `PATH`, once a shell has answered; nil before, and when it printed none. It
+    /// never starts a shell, so git asks it on every command (`GitRunner.searchPath`): the launch's
+    /// probe has run one long before anything is pushed.
+    public var knownPath: String? { known.withLock { $0.answers?.path } }
 
     /// The answers already known, else a shell's.
     public func current() -> Answers? {
@@ -94,11 +103,13 @@ public final class LoginShellLocator: Sendable {
         let marker = lines.lastIndex { $0.trimmingCharacters(in: .whitespacesAndNewlines) == pythonMarker }
         let located = marker.map { lines[..<$0] } ?? lines[...]
         let python = marker.map { lines[($0 + 1)...] } ?? []
+        func after(_ marker: String) -> String? {
+            located.lastIndex(of: marker).flatMap { index in index + 1 < located.endIndex ? located[index + 1] : nil }
+        }
         return Answers(executables: LoginShell.located(names, in: located.joined(separator: "\n"), isExecutable: isExecutable),
                        pythonOutput: python.joined(separator: "\n"),
-                       claudeConfigDirectory: lines.lastIndex(of: claudeMarker).flatMap { index in
-                           index + 1 < lines.count ? lines[index + 1] : nil
-                       })
+                       claudeConfigDirectory: after(claudeMarker),
+                       path: after(pathMarker).flatMap { $0.isEmpty ? nil : $0 })
     }
 }
 
