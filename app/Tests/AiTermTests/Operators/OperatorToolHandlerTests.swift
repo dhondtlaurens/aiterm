@@ -425,9 +425,9 @@ import Testing
     @Test func askYouRefusesAiTermsQuestionKeys() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)
-        for key in ["prompt-mine", "merged-on-host-mine"] {
+        for key in ["prompt-mine", "merged-on-host-mine", "gate-mine"] {
             #expect(await world.call(run.id, "ask_you", ["key": .string(key), "question": "Q?"]).message
-                    == "Keys starting with “prompt-” or “merged-on-host-” are AiTerm’s own questions. Choose another key.")
+                    == "Keys starting with “prompt-”, “merged-on-host-” or “gate-” are AiTerm’s own questions. Choose another key.")
         }
         #expect(world.run(run.id)?.questions.isEmpty == true)
     }

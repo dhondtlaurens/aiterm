@@ -2,8 +2,9 @@ import Foundation
 
 /// What the Activity tab says of an Operator tool call, in plain words, and why a call went the way it did.
 public enum ActivityLine {
-    /// The tools that only look: the tab reads their lines muted.
-    public static let reads: Set<String> = ["run_status", "read_task", "jira_search", "find_user"]
+    /// The tools that only look: the tab reads their lines muted. `shell_read` is a shell command the gate let run as a
+    /// plain read (spec §A.1), and `shell` any other one it judged: both are the gate's own lines, never a tool's.
+    public static let reads: Set<String> = ["run_status", "read_task", "jira_search", "find_user", "shell_read"]
 
     /// The line for `tool` called with `arguments`: `task` is the task it was about, when AiTerm found one. A call
     /// that went through, or was answered from the first, says what was done (`Finished Cart drawer`); one that was
@@ -43,6 +44,8 @@ public enum ActivityLine {
         case "leave_for_you": words = ("Left for you: \(text("text"))", "leave for you: \(text("text"))")
         case "log_decision": words = ("Decided: \(text("text"))", "decide: \(text("text"))")
         case "write_summary": words = ("Wrote the summary", "write the summary")
+        case "shell_read": words = ("Read `\(text("command"))`", "read `\(text("command"))`")
+        case "shell": words = ("Ran `\(text("command"))`", "The Oracle stopped `\(text("command"))`")
         default: words = (tool, tool)
         }
         switch outcome {

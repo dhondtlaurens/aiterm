@@ -183,9 +183,10 @@ final class OperatorToolHandler {
     }
 
     /// The answer to `request`, whatever it was: every call a known run's Operator makes is written to its activity log.
+    /// A shell command's gate writes its own line, naming the command (`gate(_:in:)`).
     func answer(_ request: OperatorRequest) async -> ToolAnswer {
         let (answer, outcome) = await respond(request)
-        record(request, answer: answer, outcome: outcome)
+        if request.tool != Self.gateTool { record(request, answer: answer, outcome: outcome) }
         return answer
     }
 
@@ -199,6 +200,8 @@ final class OperatorToolHandler {
         let activity = activity(for: call, in: id)
         if let activity { onActing(activity, true) }
         defer { if let activity { onActing(activity, false) } }
+        // A shell command is the gate's alone: never a tool, a challenge or a replayed message.
+        if call.tool == Self.gateTool { return (.result(await gate(call, in: run)), .ok) }
         do {
             if let recorded = try replayedMessage(call, in: run) { return (.result(recorded), .repeated) }
             if let instead = try await challengeGate(call, in: run) {
@@ -360,7 +363,7 @@ final class OperatorToolHandler {
     private func askYou(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let key = try call.string("key"), text = try call.string("question")
         guard !OperatorQuestion.aitermPrefixes.contains(where: key.hasPrefix) else {
-            throw ToolRefusal("Keys starting with “prompt-” or “merged-on-host-” are AiTerm’s own questions. Choose another key.")
+            throw ToolRefusal("Keys starting with “prompt-”, “merged-on-host-” or “gate-” are AiTerm’s own questions. Choose another key.")
         }
         let taskId = try call.optionalString("task").map { _ in try task(call, in: run).id }
         if let open = run.questions.first(where: { $0.id == key }) { return Self.askAnswer(open) }
@@ -372,6 +375,8 @@ final class OperatorToolHandler {
         return Self.askAnswer(question)
     }
 
+    /// `allow` is for a command the Oracle stopped (a `gate-` question) alone: true lets it pass the gate once, and
+    /// left out it stays stopped (spec §A.3).
     private func resolveQuestion(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let key = try call.string("key"), summary = try call.string("summary")
         guard var question = run.questions.first(where: { $0.id == key }) else { throw ToolRefusal("No question \(key) in this broadcast.") }
@@ -379,11 +384,17 @@ final class OperatorToolHandler {
         guard !question.id.hasPrefix(OperatorQuestion.promptPrefix) else {
             throw ToolRefusal("\(key) is a worker’s prompt: AiTerm closes its question itself once the worker leaves the prompt. If it looks stale, record it with report_snag.")
         }
+        let allow = call.arguments["allow"].flatMap { $0 == .null ? nil : $0 }
+        guard allow == nil || question.gate != nil else {
+            throw ToolRefusal("allow is only for a command the Oracle stopped (a gate- question). Call resolve_question for \(key) without it.")
+        }
         guard question.resolution == nil else { return Self.questionAnswer(question) }
         question.resolution = summary
+        let allowed = allow == true ? question.gate : nil
         mutate(in: run.id) { state in
             state.updateRun(id: run.id) { run in
                 if let i = run.questions.firstIndex(where: { $0.id == key }) { run.questions[i].resolution = summary }
+                if let allowed { run.gateAllowances.append(allowed) }
             }
             // The row stops waiting on you once none of its questions is open.
             if let taskId = question.task, state.run(id: run.id)?.questions.contains(where: { $0.task == taskId && $0.resolution == nil }) == false {

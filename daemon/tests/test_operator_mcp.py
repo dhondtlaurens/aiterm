@@ -238,6 +238,13 @@ def test_resolve_question_closes_a_merge_on_the_host_and_leaves_a_prompt_to_aite
     assert "worker's prompt is refused" in resolve and "closes it itself" in resolve
 
 
+def test_resolve_question_allows_a_command_the_oracle_stopped():
+    schema = {tool["name"]: tool for tool in TOOLS}["resolve_question"]["inputSchema"]
+    assert schema["properties"]["allow"] == {
+        "type": "boolean", "description": "For a gate- question only: whether the person allowed the command."}
+    assert "allow" not in schema["required"]
+
+
 def test_run_status_says_what_a_restarted_operator_needs():
     status = {tool["name"]: tool for tool in TOOLS}["run_status"]["description"]
     assert "snags you recorded" in status and "twice" in status

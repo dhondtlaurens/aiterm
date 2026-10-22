@@ -54,6 +54,18 @@ import Foundation
         #expect(requests.first?.id == "request-\(run.id.uuidString)-question-locale")
     }
 
+    /// A command the Oracle stopped asks the person as the Operator's question does, on its task's or the broadcast's
+    /// behalf: never a worker's permission prompt, which only `prompt-` keys are (spec §A.3).
+    @Test func aCommandTheOracleStoppedIsAQuestionNotAPrompt() {
+        let task = codexTask("PAY-11")
+        var run = run
+        run.questions = [OperatorQuestion(id: "gate-1", text: "The Oracle stopped `npm run deploy` in /w: it deploys.", task: task.id,
+                                          askedAt: OperatorFixtures.epoch, gate: GateRequest(command: "npm run deploy", directory: "/w"))]
+        let requests = open(run, [task])
+        #expect(requests.map(\.kind) == [.question] && requests.first?.key == "gate-1" && requests.first?.taskId == task.id)
+        #expect(requests.first?.text == "The Operator asks: The Oracle stopped `npm run deploy` in /w: it deploys.")
+    }
+
     @Test func eachQuestionIsItsOwnRequestWithItsKeyInTheId() {
         let task = codexTask("PAY-10")
         var run = run

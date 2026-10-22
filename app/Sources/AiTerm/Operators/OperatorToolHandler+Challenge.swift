@@ -275,7 +275,7 @@ extension OperatorToolHandler {
     }
 
     /// `text` ending as a sentence does.
-    private static func asSentence(_ text: String) -> String {
+    static func asSentence(_ text: String) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return [".", "!", "?"].contains(trimmed.last.map(String.init) ?? "") ? trimmed : trimmed + "."
     }

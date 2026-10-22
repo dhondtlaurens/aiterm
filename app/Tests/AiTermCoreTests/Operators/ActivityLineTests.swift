@@ -40,6 +40,15 @@ import Foundation
         #expect(line("something_new") == "something_new")
     }
 
+    /// The gate's own lines for the Operator's shell commands (spec §A): a read is muted, a command the Oracle
+    /// stopped says so.
+    @Test func aShellCommandReadsAsTheCommand() {
+        #expect(line("shell_read", ["command": "git status"]) == "Read `git status`")
+        #expect(line("shell", ["command": "npm install"]) == "Ran `npm install`")
+        #expect(ActivityLine.line(tool: "shell", arguments: ["command": "npm run deploy"], task: nil, outcome: .challenged)
+                == "The Oracle stopped `npm run deploy`")
+    }
+
     /// A call that did not go through says what was asked, in the imperative; one answered from the first keeps
     /// the past tense, as the call it repeats.
     @Test func aCallThatDidNotGoThroughSaysWhatWasAsked() {
@@ -105,7 +114,7 @@ import Foundation
     }
 
     @Test func readsAreTheToolsThatOnlyLook() {
-        #expect(ActivityLine.reads == ["run_status", "read_task", "jira_search", "find_user"])
+        #expect(ActivityLine.reads == ["run_status", "read_task", "jira_search", "find_user", "shell_read"])
     }
 
     @Test func aReasonIsWhyTheCallWentTheWayItDid() {

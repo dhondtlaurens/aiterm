@@ -417,15 +417,29 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     public var resolution: String?
     /// For a prompt open in one of its task's extra worker tabs (`open_tab`), that tab's key; nil for any other question.
     public var tab: String?
-    public init(id: String, text: String, task: UUID?, askedAt: Date, resolution: String? = nil, tab: String? = nil) {
+    /// For a command the Oracle stopped and asked the person about (`gate-<n>`, spec §A.3), that command where it ran;
+    /// nil for any other question.
+    public var gate: GateRequest?
+    public init(id: String, text: String, task: UUID?, askedAt: Date, resolution: String? = nil, tab: String? = nil,
+                gate: GateRequest? = nil) {
         self.id = id; self.text = text; self.task = task; self.askedAt = askedAt; self.resolution = resolution; self.tab = tab
+        self.gate = gate
     }
 
     /// The keys AiTerm records its own questions under: a worker's prompt is `prompt-<task>-<n>`, a merge on the host
-    /// `merged-on-host-<task>`. The Operator picks no key in these namespaces. AiTerm closes a prompt's question itself;
-    /// a merge on the host is the person's to decide, and the Operator closes it once they have answered.
-    public static let promptPrefix = "prompt-", mergedOnHostPrefix = "merged-on-host-"
-    public static let aitermPrefixes = [promptPrefix, mergedOnHostPrefix]
+    /// `merged-on-host-<task>`, a command the Oracle stopped `gate-<n>`. The Operator picks no key in these namespaces.
+    /// AiTerm closes a prompt's question itself; a merge on the host and a stopped command are the person's to decide,
+    /// and the Operator closes them once they have answered, a stopped command with whether they allowed it.
+    public static let promptPrefix = "prompt-", mergedOnHostPrefix = "merged-on-host-", gatePrefix = "gate-"
+    public static let aitermPrefixes = [promptPrefix, mergedOnHostPrefix, gatePrefix]
+}
+
+/// A shell command of the Operator's and the directory it runs in, as the gate judges it (spec §A): what a `gate-`
+/// question asks about, and what the person's allowance lets pass once.
+public struct GateRequest: Codable, Equatable, Sendable {
+    public var command: String
+    public var directory: String
+    public init(command: String, directory: String) { self.command = command; self.directory = directory }
 }
 
 /// One line of the decisions log; `why` is its reason in a sentence, `challenge` the Oracle's critique and
@@ -612,6 +626,9 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     public var summaryGivenUp = false
     /// When the broadcast ended, for the Shelf.
     public var endedAt: Date?
+    /// The commands the person allowed after the Oracle stopped them (`resolve_question` with `allow`): each passes the
+    /// gate once, on the exact command and directory, and is used up (spec §A.3).
+    public var gateAllowances: [GateRequest] = []
 
     /// `projectIds` defaults to none: a run made in a test or a fixture that never reads its scope.
     public init(id: UUID, name: String, profile: OperatorProfile, projectIds: [UUID] = [], jiraProjectKeys: [String] = [],
@@ -640,7 +657,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         case id, name, profile, projectIds, jiraProjectKeys, prompt, review, done, state, intent, planRevision
         case firstPlanSize, questions, decisions, finds, snags, leftForYou, leftForYouRecords, challenges, operatorConversation, operatorWindowId
         case operatorSessionId, jiraCreated, threadReplies, pendingWrites, createdAt
-        case summary, summaryAt, completedAt, summaryGivenUp, endedAt
+        case summary, summaryAt, completedAt, summaryGivenUp, endedAt, gateAllowances
     }
 
     /// The lists may be missing and read as empty. A run without a profile or a prompt (round 1's,
@@ -679,6 +696,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
         summaryGivenUp = try c.decodeIfPresent(Bool.self, forKey: .summaryGivenUp) ?? false
         endedAt = try c.decodeIfPresent(Date.self, forKey: .endedAt)
+        gateAllowances = try c.decodeIfPresent([GateRequest].self, forKey: .gateAllowances) ?? []
     }
 
     /// A new plan on a finished run: the summary, its time, the completion and the give-up belonged to the old
@@ -724,6 +742,8 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         try c.encodeIfPresent(completedAt, forKey: .completedAt)
         if summaryGivenUp { try c.encode(true, forKey: .summaryGivenUp) }
         try c.encodeIfPresent(endedAt, forKey: .endedAt)
+        // Left out while there are none, so a run without one saves as it did before.
+        if !gateAllowances.isEmpty { try c.encode(gateAllowances, forKey: .gateAllowances) }
     }
 }
 

@@ -1,0 +1,203 @@
+import Foundation
+import Synchronization
+import Testing
+@testable import AiTermCore
+@testable import AiTerm
+@testable import AiTermTestSupport
+
+/// The gate on the Operator's shell (spec §A): a plain read runs at once, anything else is the Oracle's to judge, its
+/// ASK opening a question the person answers, and the command running whenever the Oracle can't answer.
+@MainActor @Suite(.blocking) struct OperatorGateTests {
+    let project = OperatorServiceFixtures.project()
+    let worktree = "/tmp/aiterm-operators-gate-A"
+
+    /// How many times the Oracle was asked, and what it was asked last.
+    final class Asked: Sendable {
+        private let prompts = Mutex<[String]>([])
+        var count: Int { prompts.withLock { $0.count } }
+        var last: String? { prompts.withLock { $0.last } }
+        func record(_ prompt: String) { prompts.withLock { $0.append(prompt) } }
+    }
+
+    func makeWorld(oracle: Bool = true, runner: SecondOpinionRunner) throws -> (OperatorWorld, OperatorRun, TaskItem) {
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: oracle, oracleAgent: .claude), projects: [project],
+                                              state: .active)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .working, worktree: worktree)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])) { ports in
+            ports.secondOpinion = runner
+        }
+        return (world, run, task)
+    }
+
+    func answering(_ answer: String, _ asked: Asked) -> SecondOpinionRunner {
+        .answering(answer, receivePrompt: { asked.record($0) })
+    }
+
+    func gate(_ world: OperatorWorld, _ run: OperatorRun, _ command: String, in directory: String) async -> [String: JSONValue] {
+        let answer = await world.call(run.id, "gate_command", ["command": .string(command), "directory": .string(directory),
+                                                               "description": "Check the worktree."])
+        return answer.value?.objectValue ?? [:]
+    }
+
+    /// The lines written so far, once every recording started has landed.
+    func entries(_ world: OperatorWorld, _ run: OperatorRun) async -> [ActivityEntry] {
+        await world.controller.tools.lastRecording?.value
+        return ActivityLog.read(runFolder: OperatorCommand.runFolder(run.id, home: world.ports.home)).entries
+    }
+
+    @Test func aReadRunsWithoutTheOracle() async throws {
+        let asked = Asked()
+        let (world, run, _) = try makeWorld(runner: answering("ASK", asked))
+        let answer = await gate(world, run, "git status", in: project.path)
+        #expect(answer["decision"] == "allow" && answer["rewrite"] == .null)
+        #expect(asked.count == 0)
+        let recorded = await entries(world, run)
+        #expect(recorded.map(\.tool) == ["shell_read"], "the gate's own line, never one for gate_command")
+        #expect(recorded.first?.outcome == .ok && recorded.first?.line == "Read `git status`" && recorded.first?.isRead == true)
+    }
+
+    @Test func aReadThatWouldShowASecretRunsRewritten() async throws {
+        let (world, run, _) = try makeWorld(runner: .unavailable)
+        let answer = await gate(world, run, "env", in: project.path)
+        #expect(answer["decision"] == "allow" && answer["rewrite"] == .string(ShellGate.maskedEnv))
+    }
+
+    @Test func aYesRuns() async throws {
+        let asked = Asked()
+        let (world, run, task) = try makeWorld(runner: answering("YES. Reinstalling dependencies repairs the worktree.", asked))
+        let answer = await gate(world, run, "npm install", in: worktree)
+        #expect(answer["decision"] == "allow")
+        #expect(asked.count == 1)
+        let prompt = try #require(asked.last)
+        #expect(prompt.contains("npm install") && prompt.contains("Run in: \(worktree)") && prompt.contains("Check the worktree."))
+        #expect(prompt.contains("run_status"))
+        let recorded = try #require(await entries(world, run).first)
+        #expect(recorded.tool == "shell" && recorded.outcome == .ok && recorded.line == "Ran `npm install`")
+        #expect(recorded.task == task.id)
+        #expect(world.controller.acting.broadcast(run.id) == nil, "the badge goes once the Oracle answered")
+    }
+
+    @Test func aWorkerAnswerSendsTheOperatorToAWorkerWithoutAQuestion() async throws {
+        let (world, run, _) = try makeWorld(runner: .answering("WORKER: this edits src/cart.ts."))
+        let answer = await gate(world, run, "sed -i '' s/a/b/ src/cart.ts", in: worktree)
+        #expect(answer["decision"] == "deny")
+        let reason = try #require(answer["reason"]?.stringValue)
+        #expect(reason == "The Oracle: this edits src/cart.ts. Send this to a worker with message_task.")
+        #expect(world.run(run.id)?.questions.isEmpty == true)
+        let recorded = try #require(await entries(world, run).first)
+        #expect(recorded.tool == "shell" && recorded.outcome == .challenged && recorded.line == "The Oracle stopped `sed -i '' s/a/b/ src/cart.ts`")
+        #expect(recorded.reason == reason)
+    }
+
+    @Test func anAskOpensAQuestionOnTheTaskWhoseWorktreeHoldsTheCommand() async throws {
+        let (world, run, task) = try makeWorld(runner: .answering("ASK: it reaches the staging database."))
+        let answer = await gate(world, run, "npm run migrate", in: worktree + "/packages/api")
+        #expect(answer["decision"] == "deny")
+        #expect(answer["reason"] == "The Oracle stopped this and asked the person (question gate-1). Wait for their answer, then resolve_question with allow.")
+        let question = try #require(world.run(run.id)?.questions.first)
+        #expect(question.id == "gate-1" && question.task == task.id && question.resolution == nil)
+        #expect(question.text == "The Oracle stopped `npm run migrate` in \(worktree)/packages/api: it reaches the staging database.")
+        #expect(question.gate == GateRequest(command: "npm run migrate", directory: worktree + "/packages/api"))
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
+        // The Operator's row says it waits on you about that task, as it does for a question it asked.
+        let current = try #require(world.run(run.id))
+        let requests = OperatorRequests.open(run: current, state: world.state, prompts: [:])
+        #expect(requests.map(\.kind) == [.question] && requests.first?.key == "gate-1" && requests.first?.taskId == task.id)
+        let row = SidebarModel.operatorRow(current, tasks: world.state.tasks(inRun: run.id), acting: .none, requests: requests, sessions: [])
+        #expect(row.line.look == .needsYou && row.line.text.hasPrefix("waiting on you") && row.line.text.contains("Task A"))
+        // A second ASK gets the next key.
+        _ = await gate(world, run, "npm run seed", in: project.path)
+        #expect(world.run(run.id)?.questions.map(\.id) == ["gate-1", "gate-2"])
+    }
+
+    @Test func anAskInTheProjectCheckoutIsTheBroadcasts() async throws {
+        let (world, run, task) = try makeWorld(runner: .answering("ASK: it deploys."))
+        let answer = await gate(world, run, "npm run deploy", in: project.path)
+        #expect(answer["decision"] == "deny")
+        let question = try #require(world.run(run.id)?.questions.first)
+        #expect(question.id == "gate-1" && question.task == nil)
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+    }
+
+    @Test func anAllowedCommandPassesOnceAndOnlyExactly() async throws {
+        let asked = Asked()
+        let (world, run, task) = try makeWorld(runner: answering("ASK: it deploys.", asked))
+        #expect(await gate(world, run, "npm run deploy", in: worktree)["decision"] == "deny")
+        #expect(asked.count == 1)
+        let resolved = await world.call(run.id, "resolve_question", ["key": "gate-1", "summary": "Laurens said go ahead.", "allow": true])
+        #expect(resolved.value?["open"] == false)
+        #expect(world.run(run.id)?.gateAllowances == [GateRequest(command: "npm run deploy", directory: worktree)])
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+
+        let allowed = await gate(world, run, "npm run deploy", in: worktree)
+        #expect(allowed["decision"] == "allow" && asked.count == 1, "allowed by you, without the Oracle")
+        #expect(world.run(run.id)?.gateAllowances.isEmpty == true)
+        let line = try #require(await entries(world, run).last)
+        #expect(line.tool == "shell" && line.outcome == .ok && line.reason == "allowed by you")
+
+        _ = await gate(world, run, "npm run deploy", in: worktree)
+        #expect(asked.count == 2, "the allowance passed the command once")
+        _ = await world.call(run.id, "resolve_question", ["key": "gate-2", "summary": "Yes.", "allow": true])
+        _ = await gate(world, run, "npm run deploy ", in: worktree)
+        #expect(asked.count == 3, "a command one character apart is another command")
+        _ = await gate(world, run, "npm run deploy", in: project.path)
+        #expect(asked.count == 4, "the same command in another directory is another command")
+    }
+
+    @Test func aQuestionResolvedWithoutAllowIsDenied() async throws {
+        let asked = Asked()
+        let (world, run, _) = try makeWorld(runner: answering("ASK: it deploys.", asked))
+        _ = await gate(world, run, "npm run deploy", in: worktree)
+        let resolved = await world.call(run.id, "resolve_question", ["key": "gate-1", "summary": "Laurens said no."])
+        #expect(resolved.value?["open"] == false && world.run(run.id)?.gateAllowances.isEmpty == true)
+        #expect(await gate(world, run, "npm run deploy", in: worktree)["decision"] == "deny")
+        #expect(asked.count == 2)
+    }
+
+    @Test func noOracleMeansItRuns() async throws {
+        let (off, offRun, _) = try makeWorld(oracle: false, runner: .answering("ASK"))
+        #expect(await gate(off, offRun, "npm install", in: worktree)["decision"] == "allow")
+        let offLine = try #require(await entries(off, offRun).first)
+        #expect(offLine.tool == "shell" && offLine.reason == "unchallenged: the Oracle is off")
+
+        let (missing, missingRun, _) = try makeWorld(runner: .unavailable)
+        #expect(await gate(missing, missingRun, "npm install", in: worktree)["decision"] == "allow")
+        let missingLine = try #require(await entries(missing, missingRun).first)
+        #expect(missingLine.tool == "shell" && missingLine.reason?.contains("unchallenged") == true)
+        #expect(missing.run(missingRun.id)?.questions.isEmpty == true)
+    }
+
+    @Test func anOracleWithNoHeadlessRunMeansItRuns() async throws {
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: true, oracleAgent: .grok), projects: [project], state: .active)
+        let asked = Asked()
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { ports in
+            ports.secondOpinion = answering("ASK", asked)
+        }
+        #expect(await gate(world, run, "npm install", in: project.path)["decision"] == "allow")
+        #expect(asked.count == 0)
+        #expect(try #require(await entries(world, run).first).reason == "unchallenged: the Oracle is off")
+    }
+
+    @Test func anUnreadableAnswerRuns() async throws {
+        let (world, run, _) = try makeWorld(runner: .answering("Looks fine to me"))
+        #expect(await gate(world, run, "npm install", in: worktree)["decision"] == "allow")
+        let recorded = try #require(await entries(world, run).first)
+        #expect(recorded.tool == "shell" && recorded.outcome == .ok && recorded.reason?.contains("unchallenged") == true)
+    }
+
+    @Test func theOperatorCannotAskWithAGateKey() async throws {
+        let (world, run, _) = try makeWorld(runner: .unavailable)
+        let answer = await world.call(run.id, "ask_you", ["key": "gate-x", "question": "May I deploy?"])
+        #expect(answer.message?.contains("gate-") == true)
+        #expect(world.run(run.id)?.questions.isEmpty == true)
+    }
+
+    @Test func allowIsOnlyForGateQuestions() async throws {
+        let (world, run, _) = try makeWorld(runner: .unavailable)
+        _ = await world.call(run.id, "ask_you", ["key": "locale", "question": "Which locale is the default?"])
+        let refused = await world.call(run.id, "resolve_question", ["key": "locale", "summary": "nl-BE.", "allow": true])
+        #expect(refused.message?.contains("allow") == true)
+        #expect(world.run(run.id)?.questions.first?.resolution == nil)
+        #expect(await world.call(run.id, "resolve_question", ["key": "locale", "summary": "nl-BE."]).value?["open"] == false)
+    }
+}
