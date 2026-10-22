@@ -59,8 +59,8 @@ public struct BroadcastRow: Equatable, Identifiable, Sendable {
 
 /// The Operator's own row, first in the broadcast's group: a task row's grid, Claude's mark as its avatar, the
 /// title `Operator`, and a line and a mark from its own session alone: its act, what it does between turns,
-/// that it asks you in its window, or that its window is closed. Never a task's request: those are the
-/// tasks' rows'. Its id is its own (`id(of:)`), so the list, which keys a row by one UUID, tells it from
+/// that it waits on you (a prompt in its tab, or a question of its own, whichever task it is about), or that its
+/// window is closed. Never a worker's request: those are the tasks' rows'. Its id is its own (`id(of:)`), so the list, which keys a row by one UUID, tells it from
 /// the header, which has the run's.
 public struct OperatorRow: Equatable, Identifiable, Sendable {
     public var id: UUID
@@ -138,8 +138,9 @@ public extension SidebarModel {
     }
 
     /// The Operator's row: its own session's line (`OperatorLine.session`), nothing of its tasks, which the
-    /// header's tooltip, the board's band and the tasks' own rows say. It asks you while its tab waits on input
-    /// or one of its own questions, the broadcast's and no task's, is open; its window is closed while the run
+    /// header's tooltip, the board's band and the tasks' own rows say. It waits on you while its tab waits on input
+    /// or one of its questions is open, the broadcast's or one about a task, which it names (2A, 22 Oct 2026): you
+    /// answer those in its window; its window is closed while the run
     /// is `operatorOffline`; else paused, `writing the summary` once every task is done and `done · summary ready`
     /// once it is written (`done` if AiTerm gave up on it), its act, `working` while its session works, and between
     /// turns `watching 3 tasks`, its working ones counted. Its mark follows the line: amber when it asks, spinning
@@ -148,10 +149,17 @@ public extension SidebarModel {
     static func operatorRow(_ run: OperatorRun, tasks: [TaskItem], acting: OperatorActs, requests: [BroadcastRequest],
                             sessions: [SessionInfo]) -> OperatorRow {
         let tab = run.operatorSessionId.flatMap { id in sessions.first { $0.sessionId == id } } ?? operatorTab(of: run.id, in: sessions)
-        let asks = requests.contains { $0.runId == run.id && $0.taskId == nil }
+        let questions = requests.filter { $0.runId == run.id && $0.kind == .question }
+        let about: String? = switch questions.count {
+        case 0: nil
+        case 1: questions[0].taskId.flatMap { id in tasks.first { $0.id == id } }.map { $0.jira?.key ?? $0.title }
+        default: "\(questions.count) questions"
+        }
         let summary = OperatorLine.summary(of: run)
         let line = OperatorLine.session(acting: acting.broadcast(run.id), working: tab?.state == .working,
-                                        asking: asks || tab?.state == .needsInput, windowClosed: run.state == .operatorOffline,
+                                        asking: !questions.isEmpty || tab?.state == .needsInput, about: about,
+                                        asks: questions.isEmpty ? nil : questions.map(\.text).joined(separator: "\n"),
+                                        windowClosed: run.state == .operatorOffline,
                                         paused: run.state == .paused || run.intent == .paused,
                                         summary: summary ?? .notYet, tasks: tasks)
         let status: TaskStatus = switch line.look {

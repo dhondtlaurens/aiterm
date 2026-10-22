@@ -193,12 +193,17 @@ import Testing
         #expect(OperatorLine.task(byKey, run: run, acting: nil, requests: [], tasks: [parent.id: parent])?.text == "queued · after PAY-232")
     }
 
-    @Test func aQuestionIsInTheTooltipAndABlockedReasonIsCutToFit() throws {
+    /// A question the Operator asks about a task is the Operator's row's (2A, 22 Oct 2026): you answer it in the
+    /// Operator's window, so the task's own line goes on saying what its worker does. A worker's prompt stays its own.
+    @Test func aQuestionAboutATaskIsNotOnItsLineAndABlockedReasonIsCutToFit() throws {
         let run = OperatorUIFixtures.run()
         let asked = task(run: run, .working)
         let question = "The Operator asks: Should the signup block keep its subtitle on mobile, where the design leaves it out?"
         let line = try #require(OperatorLine.task(asked, run: run, acting: nil, requests: [request(.question, run, asked, question)]))
-        #expect(line == OperatorLine("waiting on you", look: .needsYou, tooltip: question))
+        #expect(line == OperatorLine("Operator watching", look: .acting))
+        let prompt = "Claude Code asks for permission in the signup block."
+        #expect(OperatorLine.task(asked, run: run, acting: nil, requests: [request(.permission, run, asked, prompt)])
+                == OperatorLine("waiting on you", look: .needsYou, tooltip: prompt))
         // No window says why a task is blocked, so its line keeps the reason, cut to fit.
         let because = "npm ci failed with a lockfile that no longer matches package.json"
         let blocked = try #require(OperatorLine.task(task(run: run, .blocked, reason: because), run: run, acting: nil, requests: []))
@@ -375,8 +380,12 @@ import Testing
         #expect(line(working: true) == OperatorLine("working", look: .acting))
         #expect(line(acting: (.answering, task: "pay-231"), working: true) == OperatorLine("answering Claude · PAY-231", look: .acting))
         #expect(line(acting: (.consultingTheOracle, task: nil)) == OperatorLine("consulting the Oracle", look: .acting))
-        #expect(line(acting: (.answering, task: "pay-231"), working: true, asking: true) == OperatorLine("asks you in its window", look: .needsYou),
+        #expect(line(acting: (.answering, task: "pay-231"), working: true, asking: true) == OperatorLine("waiting on you", look: .needsYou),
                 "what it asks outranks what it does")
+        // A question about one task names it (2A, 22 Oct 2026); the question itself is the tooltip.
+        let about = OperatorLine.session(acting: nil, working: false, asking: true, about: "PAY-232", asks: "The Operator asks: retry policy?",
+                                         windowClosed: false, tasks: [pay])
+        #expect(about == OperatorLine("waiting on you · PAY-232", look: .needsYou, tooltip: "The Operator asks: retry policy?"))
         #expect(line(working: true, paused: true) == OperatorLine("paused"))
         #expect(line(asking: true, windowClosed: true) == OperatorLine("window closed"), "no window, nothing it can ask in")
         for said in [line(), line(asking: true), line(windowClosed: true)] { #expect(said.text.count <= OperatorLine.maxLength) }

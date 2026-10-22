@@ -325,7 +325,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "They answer in this window; close it with resolve_question. The same key returns the open question.",
           {"key": _KEY, "question": _text("The question, complete on its own."),
            "task": _text("Only when that task's worker is itself stopped on the answer: the task, by its key or its id from "
-                         "run_status. The task then shows waiting on the person, and Waiting on you opens its worker's terminal. "
+                         "run_status. Your row then shows waiting on the person, naming the task, and the task waits for the answer: it "
+                         "isn't ready to accept and isn't watched for stalls until you resolve the question. "
                          "Left out for a question about your own next step, such as a reviewer's username, a scope choice or a "
                          "merge decision.")},
           ("key", "question")),

@@ -267,8 +267,8 @@ The Operator's row (`OperatorRowView`, an `OperatorRow` value) is always first u
 hovered, in `RowPill`'s pill, which selection replaces; its ground `Surface.washed` and `.washedHover`, so the
 avatar ring is `Palette.operatorRowSolid` and `operatorRowHoveredSolid`. Claude's `VendorMark` is its avatar,
 `Operator` its title, its line its own session's alone (`OperatorLine.session`: its act, `working`, `watching
-3 tasks` between its turns (`waiting for its tasks` with none at work), `asks you in its window`, `paused`, `window closed`; never a task's request nor
-what its tasks do) and its `StatusMark` trailing, following the line: amber while it asks, spinning while it
+3 tasks` between its turns (`waiting for its tasks` with none at work), `waiting on you` (`waiting on you · PAY-232`
+for its question about a task), `paused`, `window closed`; never a worker's request nor what its tasks do) and its `StatusMark` trailing, following the line: amber while it asks, spinning while it
 acts or works, the accent ring once the summary is written or AiTerm gave up waiting for it, else the idle ring. No project, ticket or branch line. It has an id of its own
 (`OperatorRow.id(of:)`), selected as `RowSelection.operation`, the header being `.broadcast` with the run's.
 ↑ ↓ peek at its window; a click or ↩ brings it to front with iTerm2, or reopens it in front when it is
@@ -339,8 +339,9 @@ tests fail on main` and `blocked · the rebase conflicted` (the reason kept: no 
 (`OperatorLine.session`), nothing of its tasks but how many it watches: its act, `working`, `watching 3 tasks`
 between turns (`waiting for its tasks` with none at work), `writing the summary` (acting) once every task is done, then
 `done · summary ready` or `done`,
-`paused`, `asks you in its window` (needs you: its tab waits on input, or a question for the whole broadcast is
-open) and `window closed`; its mark follows the line, the idle ring between turns and amber when it needs you.
+`paused`, `waiting on you` (needs you: its tab waits on input, or one of its questions is open, answered in its
+window; a question about one task names it, `waiting on you · PAY-232`, several are counted, `waiting on you · 2
+questions`, and the task's own row goes on with its worker's line) and `window closed`; its mark follows the line, the idle ring between turns and amber when it needs you.
 A line is at most `OperatorLine.maxLength` (40) characters, its detail cut at a word. The group, its header and
 the Operator's row are values, `BroadcastSection`, `BroadcastRow` and `OperatorRow`
 (`AiTermCore/Sidebar/BroadcastRow.swift`).

@@ -28,7 +28,7 @@ public struct BroadcastBoard: Equatable, Sendable {
     public enum Opens: Equatable, Sendable {
         /// An agent's permission prompt, or a started task with nothing asked: the task's window.
         case taskWindow(UUID)
-        /// A question, or a blocked task: the Operator's window, where it is answered.
+        /// A blocked task: the Operator's window, where it is answered.
         case operatorWindow
         /// A problem AiTerm hit: the sidebar banner's Notice already shows the issue, with its recovery.
         case sidebarBanner(issue: String)
@@ -314,7 +314,8 @@ public struct BroadcastBoard: Equatable, Sendable {
     private static func opens(_ task: TaskItem, _ operated: OperatedTask, requests: [BroadcastRequest]) -> Opens {
         var kind: BroadcastRequest.Kind?
         if !operated.takenOver, !operated.isFinished {
-            kind = OperatorLine.first(requests.filter { $0.runId == operated.runId && $0.taskId == task.id })?.kind
+            // A question the Operator asks about it is the Operator's row's, as on its line.
+            kind = OperatorLine.first(requests.filter { $0.runId == operated.runId && $0.taskId == task.id && $0.kind != .question })?.kind
             // Blocked, whether or not its request was passed in: what blocks it is the Operator's, or AiTerm's.
             if kind == nil, operated.state == .blocked { kind = operated.problem == nil ? .blocked : .problem }
         }

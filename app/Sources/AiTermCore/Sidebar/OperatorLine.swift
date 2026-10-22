@@ -111,9 +111,10 @@ public struct OperatorLine: Equatable, Sendable {
                             tasks: [UUID: TaskItem] = [:], sessions: [SessionInfo] = []) -> OperatorLine? {
         guard let operated = task.operated, operated.runId == run.id, !operated.takenOver, operated.state != .stopped,
               run.state != .stopped, run.intent != .stopped else { return nil }
-        // A finished task's leftover asks nothing.
+        // A finished task's leftover asks nothing, and a question the Operator asks about it is the Operator's row's,
+        // answered in its window (2A, 22 Oct 2026).
         if !operated.isFinished {
-            if let request = first(requests.filter { $0.runId == run.id && $0.taskId == task.id }) {
+            if let request = first(requests.filter { $0.runId == run.id && $0.taskId == task.id && $0.kind != .question }) {
                 return line(for: request, task: task)
             }
         }
@@ -296,17 +297,23 @@ public struct OperatorLine: Equatable, Sendable {
     // MARK: - The Operator's own session
 
     /// The Operator row's line: its own session's, nothing of its tasks (the broadcast's header and board say
-    /// those). Its window closed, `window closed`; a prompt open in its tab, `asks you in its window`; paused,
+    /// those). Its window closed, `window closed`; a prompt open in its tab or a question of its own, `waiting on
+    /// you`, with `about` after it, the task one question is about, or how many it asks (`waiting on you · PAY-232`,
+    /// 1A and 2A, 22 Oct 2026), and what it `asks` as the tooltip; paused,
     /// `paused`; every task done, `writing the summary` until it is written, then `done · summary ready`, as the
     /// header says it, or `done` once AiTerm gave up on it; else its act, the task it is about named (`answering
     /// Claude · PAY-231`); else `working` while its session works, and between turns `watching 3 tasks`, its
     /// working ones counted (`waiting for its tasks` with none). `summary` is `summary(of:)`'s, `.notYet` while
     /// the broadcast is under way. `acting` is the broadcast's act as
     /// `OperatorActs.broadcast` gives it, its task a `key` (or an id) among `tasks`, the broadcast's.
-    public static func session(acting: (OperatorAct, task: String?)?, working: Bool, asking: Bool, windowClosed: Bool,
+    public static func session(acting: (OperatorAct, task: String?)?, working: Bool, asking: Bool, about: String? = nil,
+                               asks: String? = nil, windowClosed: Bool,
                                paused: Bool = false, summary: RunSummary = .notYet, tasks: [TaskItem] = []) -> OperatorLine {
         if windowClosed { return OperatorLine("window closed") }
-        if asking { return OperatorLine("asks you in its window", look: .needsYou) }
+        if asking {
+            guard let about else { return OperatorLine("waiting on you", look: .needsYou, tooltip: asks) }
+            return needsYou("waiting on you", about, tooltip: asks)
+        }
         if paused { return OperatorLine("paused") }
         switch summary {
         case .writing: return OperatorLine("writing the summary", look: .acting)
