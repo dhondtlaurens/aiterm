@@ -23,6 +23,9 @@ public enum OperatedAction: Equatable, Sendable {
     case resume
     /// The operator's `retry_task`, while retries are left.
     case retry
+    /// The operator's `message_task` to an accepted task whose commit is not on origin yet (spec §D): back to `working`,
+    /// the worker kept, `reopenedFrom` the commit it was accepted on.
+    case reopen
     /// `finish_task` (M3) has carried out the task's end; `publication` records its steps.
     case publish(TaskPublication)
     /// You: Stop task, or Stop on the whole operation.
@@ -136,6 +139,7 @@ public enum OperatedTransitions {
                 if context.codeDependentStarted, context.milestone < .m3 { throw .reacceptAfterDependentStarted }
             }
             next.state = .accepted
+            next.reopenedFrom = nil
             // The head, in full: what a dependent branches from and a publication must push.
             next.acceptance = TaskAcceptance(resultSHA: head, prerequisiteSHAs: acceptance.prerequisiteSHAs,
                                              checkOutput: acceptance.checkOutput, note: acceptance.note, at: acceptance.at)
@@ -184,6 +188,15 @@ public enum OperatedTransitions {
             next.retriesUsed += 1
             next.blockedReason = nil
 
+        case .reopen:
+            if task.state == .working, task.reopenedFrom != nil { return task }
+            guard isReopenable(task) else { throw refuse() }
+            // Before M3 a parent whose dependent started is never accepted again on another commit.
+            if context.codeDependentStarted, context.milestone < .m3 { throw .reacceptAfterDependentStarted }
+            next.state = .working
+            next.reopenedFrom = task.acceptance?.resultSHA
+            next.acceptance = nil
+
         case .publish(let publication):
             if task.state == .published, task.publication == publication { return task }
             guard task.state == .accepted || task.state == .published else { throw refuse() }
@@ -219,6 +232,17 @@ public enum OperatedTransitions {
         return nil
     }
 
+    /// Whether `task` may go back to its worker (spec §D): accepted, and its accepted commit not on origin yet — nothing
+    /// pushed for it, none merged, its publication not left to you. A commit-end task never pushes, so it stays open to
+    /// steering until something else ends it.
+    public static func isReopenable(_ task: OperatedTask) -> Bool {
+        guard task.state == .accepted else { return false }
+        let publication = task.publication
+        if publication?.merged == true || publication?.mergedSHA != nil || publication?.leftForYou == true { return false }
+        guard let pushed = publication?.pushedSHA, let accepted = task.acceptance?.resultSHA else { return true }
+        return !sameCommit(pushed, accepted)
+    }
+
     /// Two spellings of one commit: equal, or one a prefix of the other at least 7 long, as git
     /// abbreviates. The operator may quote a short SHA; the branch head is read in full.
     public static func sameCommit(_ a: String, _ b: String) -> Bool {
@@ -235,7 +259,7 @@ public enum OperatedTransitions {
         case .stop: return [.you]
         case .release, .start: return [.aiterm]
         case .block: return [.operatorTool, .aiterm]
-        case .accept, .noChange, .fail, .resume, .retry, .publish: return [.operatorTool]
+        case .accept, .noChange, .fail, .resume, .retry, .reopen, .publish: return [.operatorTool]
         }
     }
 
@@ -274,6 +298,7 @@ public enum OperatedTransitions {
         case .fail: return "fail"
         case .resume: return "resume"
         case .retry: return "be retried"
+        case .reopen: return "be reopened"
         case .publish: return "be published"
         case .stop: return "be stopped"
         }

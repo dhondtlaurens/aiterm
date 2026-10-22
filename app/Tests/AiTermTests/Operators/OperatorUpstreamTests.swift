@@ -92,6 +92,46 @@ import Testing
         #expect(recheck() == PublicationGuard.changedMidway, "its step in flight stops before the next push, request or merge")
     }
 
+    /// Self-healing (spec §D): an accepted parent steered back to work and accepted on another commit replaces what its
+    /// stacked child was built on, as accepting a published one again does.
+    func reopen(_ family: Family) async {
+        family.world.show([OperatorServiceFixtures.session("w1", tag: family.parent.id, state: .done)])
+        family.world.workspace.mutate {
+            $0.updateOperated(family.parent.id) {
+                $0.state = .accepted
+                $0.publication = nil
+            }
+        }
+        _ = await family.world.call(family.run.id, "message_task", ["task": "PLUTO-230", "text": "The hook wants a changelog entry."])
+    }
+
+    @Test func reacceptingAReopenedTaskRevokesItsStackedChildren() async throws {
+        let family = try makeFamily(childState: .accepted)
+        await reopen(family)
+        #expect(family.world.task(family.parent.id)?.operated?.state == .working)
+        #expect(family.world.task(family.parent.id)?.operated?.reopenedFrom == family.first)
+        #expect(family.world.task(family.child.id)?.operated?.state == .accepted, "reopening alone leaves it")
+
+        let second = try commit("b.swift", in: family.parent.worktreePath)
+        let again = await accept("PLUTO-230", second, in: family)
+        #expect(again.value?["state"] == "accepted")
+        #expect(again.value?["revokedDependents"] == ["PLUTO-231"])
+        let child = try #require(family.world.task(family.child.id)?.operated)
+        #expect(child.state == .working && child.acceptance == nil && child.flags.contains(.upstreamReplaced))
+        #expect(family.world.task(family.parent.id)?.operated?.reopenedFrom == nil)
+        #expect(family.world.task(family.parent.id)?.operated?.acceptance?.resultSHA == second)
+    }
+
+    @Test func reacceptingTheSameCommitLeavesChildrenAlone() async throws {
+        let family = try makeFamily(childState: .accepted)
+        await reopen(family)
+        let again = await accept("PLUTO-230", family.first, in: family)
+        #expect(again.value?["state"] == "accepted" && again.value?["revokedDependents"] == nil)
+        let child = try #require(family.world.task(family.child.id)?.operated)
+        #expect(child.state == .accepted && child.acceptance?.resultSHA == family.childTip && child.flags.isEmpty)
+        #expect(family.world.task(family.parent.id)?.operated?.reopenedFrom == nil)
+    }
+
     @Test func aRepeatOfTheAcceptedCommitChangesAndRevokesNothingEvenWhilePaused() async throws {
         let family = try makeFamily(childState: .accepted)
         let before = family.world.state

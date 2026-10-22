@@ -126,6 +126,35 @@ import Foundation
         }
     }
 
+    /// Self-healing (spec §D): an accepted task whose commit is not on origin goes back to its worker, which keeps the
+    /// commit it was accepted on, so accepting again can tell a changed commit from the same one.
+    @Test func reopenIsOnlyFromAcceptedAndUnpushed() throws {
+        let accepted = try apply(.accept(F.acceptance("4f2a91c"), branchHead: head), F.operated("A", .working))
+        let reopened = try apply(.reopen, accepted)
+        #expect(reopened.state == .working && reopened.acceptance == nil && reopened.reopenedFrom == head)
+        #expect(try apply(.reopen, reopened) == reopened, "a repeat is the task as it is")
+        #expect(try apply(.accept(F.acceptance("4f2a91c"), branchHead: head), reopened).reopenedFrom == nil, "accepting ends the reopening")
+
+        for state in [OperatedState.planned, .queued, .working, .blocked, .failed, .noChange, .published, .stopped, .inReview] {
+            var task = accepted
+            task.state = state
+            #expect(throws: OperatedTransitionError.notAllowed(action: "be reopened", from: state)) { try apply(.reopen, task) }
+        }
+        #expect(throws: OperatedTransitionError.wrongActor(action: "be reopened", actor: .you)) { try apply(.reopen, accepted, by: .you) }
+
+        var pushed = accepted
+        pushed.publication = TaskPublication(pushedSHA: head)
+        #expect(throws: OperatedTransitionError.notAllowed(action: "be reopened", from: .accepted)) { try apply(.reopen, pushed) }
+        pushed.publication = TaskPublication(pushedSHA: "1111111aaaa")
+        #expect(try apply(.reopen, pushed).state == .working, "an older commit pushed is not this one")
+        var merged = accepted
+        merged.publication = TaskPublication(merged: true)
+        #expect(throws: OperatedTransitionError.notAllowed(action: "be reopened", from: .accepted)) { try apply(.reopen, merged) }
+        var left = accepted
+        left.publication = TaskPublication(leftForYou: true)
+        #expect(throws: OperatedTransitionError.notAllowed(action: "be reopened", from: .accepted)) { try apply(.reopen, left) }
+    }
+
     @Test func noChangeIsAnEnd() throws {
         let done = try apply(.noChange(note: "already fixed"), F.operated("A", .working))
         #expect(done.state == .noChange)

@@ -97,9 +97,12 @@ extension OperatorToolHandler {
         try acceptsWork(run)
         let operated = try notTakenOver(task)
         // An ended task is left as it ended: more steering would move its branch past what was accepted. A task in
-        // review is steered to fix its reviewers' feedback, and accepted again after.
-        guard [.working, .blocked, .inReview].contains(operated.state) else {
-            throw ToolRefusal("\(operated.key) is \(operated.state.rawValue): there is no worker to steer.")
+        // review is steered to fix its reviewers' feedback, and accepted again after; one accepted keeps its worker until
+        // its commit is on origin, so a push the hook refused can be put to it (spec §D).
+        guard [.working, .blocked, .inReview].contains(operated.state) || OperatedTransitions.isReopenable(operated) else {
+            let why = operated.state != .accepted ? "" : operated.publication?.leftForYou == true ? " and its publication is left to you"
+                                                                                                  : " and its commit is on origin"
+            throw ToolRefusal("\(operated.key) is \(operated.state.rawValue)\(why): there is no worker to steer.")
         }
         let worker = try self.worker(call, of: task)
         let key = MessageKey(task: task.id, tab: worker.key, text: text), now = ports.now()
@@ -111,9 +114,35 @@ extension OperatorToolHandler {
         guard let daemon = daemon() else { throw ToolRefusal("AiTerm’s helper isn’t connected; try again in a moment.") }
         let delivery = try await daemon.deliver(sessionId: tab.sessionId, text: text, ownership: operated.ownership, wake: false,
                                                 worktree: task.worktreePath)
-        let answer: JSONValue = ["result": .string(delivery.result.rawValue), "reason": delivery.reason.map(JSONValue.string) ?? .null]
+        var fields: [String: JSONValue] = ["result": .string(delivery.result.rawValue), "reason": delivery.reason.map(JSONValue.string) ?? .null]
+        // Steered, an accepted task is at work again; accepting it on its commit or another says what came of it.
+        if delivery.result == .delivered, operated.state == .accepted, reopen(task) { fields["reopened"] = true }
+        let answer = JSONValue.object(fields)
         if delivery.result == .delivered { deliveredMessages[key] = (ports.now(), answer) }
         return answer
+    }
+
+    /// An accepted task back to its worker, in one change; a complete operation holding work again settles once it is
+    /// done. False where the task moved on while its message was delivered: the worker has it, the task stays as it is.
+    private func reopen(_ task: TaskItem) -> Bool {
+        let milestone = ports.milestone
+        do {
+            try mutate(in: task.operated?.runId) { state in
+                try OperatedTransitions.apply(.reopen, toTask: task.id, in: &state, by: .operatorTool, milestone: milestone)
+                Self.reactivateCompleteRuns(holding: [task.id], in: &state)
+            }
+            return true
+        } catch { return false }
+    }
+
+    /// A complete operation holding work again is not complete: it settles once that is done, and its summary, which no
+    /// longer tells the whole of it, goes with its completion.
+    private static func reactivateCompleteRuns(holding ids: [UUID], in state: inout AppState) {
+        let runs = Set(ids.compactMap { state.task(id: $0)?.operated?.runId })
+        for id in runs {
+            guard let run = state.run(id: id), run.state == .complete, !RunScheduler.isComplete(run, in: state) else { continue }
+            state.updateRun(id: id) { $0.state = .active; $0.reopen() }
+        }
     }
 
     /// The operator's outcome (spec §6, §8). Accepted needs the commit its branch is on, unmoved, and the
@@ -147,6 +176,12 @@ extension OperatorToolHandler {
             // it once a code dependent has started (M1, spec §8).
             if ports.milestone >= .m3, [.accepted, .published, .inReview].contains(operated.state) {
                 return try reaccept(task, as: acceptance)
+            }
+            // Steered back to work after it was accepted (spec §D), and now on another commit: what its children were
+            // built on is replaced, as for any task accepted again.
+            if ports.milestone >= .m3, operated.state == .working, let earlier = operated.reopenedFrom,
+               !OperatedTransitions.sameCommit(earlier, sha) {
+                return try reacceptReopened(task, as: acceptance, branchHead: tip)
             }
             action = .accept(acceptance, branchHead: tip)
         case "noChange":
@@ -194,24 +229,43 @@ extension OperatorToolHandler {
     /// each operation holding one is woken once (`finish_task` of one of them refuses meanwhile).
     private func reaccept(_ task: TaskItem, as acceptance: TaskAcceptance) throws -> JSONValue {
         try recheck(task)
-        let revoked: [UUID]
-        do {
-            revoked = try mutate(in: task.operated?.runId) { state in
+        return try answerRevoking(task) { state in
+            do {
                 let revoked = try UpstreamReplacement.reaccept(task.id, as: acceptance, in: &state)
                 state.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) }
-                // A complete operation holding work again is not complete: it settles once that is done, and its
-                // summary, which no longer tells the whole of it, goes with its completion.
-                let runs = Set(([task.id] + revoked).compactMap { state.task(id: $0)?.operated?.runId })
-                for id in runs {
-                    guard let run = state.run(id: id), run.state == .complete, !RunScheduler.isComplete(run, in: state) else { continue }
-                    state.updateRun(id: id) { $0.state = .active; $0.reopen() }
-                }
                 return revoked
+            } catch let refusal as UpstreamReplacement.Refusal {
+                switch refusal {
+                case .notAccepted(let why), .merged(let why): throw ToolRefusal(why)
+                }
             }
-        } catch let refusal as UpstreamReplacement.Refusal {
-            switch refusal {
-            case .notAccepted(let why), .merged(let why): throw ToolRefusal(why)
+        }
+    }
+
+    /// A task steered back to work after it was accepted (`reopenedFrom`), accepted now on another commit: the accept and
+    /// the replacement of its children in one change, answered as `reaccept` does.
+    private func reacceptReopened(_ task: TaskItem, as acceptance: TaskAcceptance, branchHead: String) throws -> JSONValue {
+        try recheck(task)
+        let milestone = ports.milestone
+        return try answerRevoking(task) { state in
+            do {
+                try OperatedTransitions.apply(.accept(acceptance, branchHead: branchHead), toTask: task.id, in: &state, by: .operatorTool,
+                                              milestone: milestone)
+            } catch let refused as OperatedTransitionError {
+                throw ToolRefusal(refused.description)
             }
+            state.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) }
+            return UpstreamReplacement.revokeDependents(of: task.id, newSHA: acceptance.resultSHA, in: &state)
+        }
+    }
+
+    /// `change` made in one mutation, which returns the dependents it revoked: an operation that was complete holds work
+    /// again, each one holding a revoked task is woken once, and the answer names them.
+    private func answerRevoking(_ task: TaskItem, _ change: (inout AppState) throws -> [UUID]) throws -> JSONValue {
+        let revoked = try mutate(in: task.operated?.runId) { state in
+            let revoked = try change(&state)
+            Self.reactivateCompleteRuns(holding: [task.id] + revoked, in: &state)
+            return revoked
         }
         let keys = revoked.compactMap { id in state.task(id: id)?.operated.map { ($0.runId, $0.key) } }
         for (run, keys) in Dictionary(grouping: keys, by: \.0) {

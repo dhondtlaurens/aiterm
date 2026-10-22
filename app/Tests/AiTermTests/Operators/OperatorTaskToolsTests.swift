@@ -142,13 +142,58 @@ import Testing
         #expect(world.task(task.id)?.operated?.state == .accepted)
     }
 
-    @Test func anEndedTaskIsNotMessaged() async throws {
+    /// Self-healing (spec §D): an accepted task keeps its worker until its commit is on origin, so a failed push can be
+    /// put to it. The message reopens the task; accepting again records what it came back with.
+    @Test func anAcceptedTaskIsMessagedAndGoesBackToWork() async throws {
         let (world, run, task) = try makeWorld()
         world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .done)])
         let tip = try commit("a.swift", in: task.worktreePath)
         _ = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "ok"])
+        let answer = await world.call(run.id, "message_task", ["task": "PLUTO-1", "text": "The hook wants a changelog entry."])
+        #expect(answer.value?["result"] == "delivered" && answer.value?["reopened"] == true)
+        #expect(world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String } == ["The hook wants a changelog entry."])
+        let operated = try #require(world.task(task.id)?.operated)
+        #expect(operated.state == .working && operated.acceptance == nil && operated.reopenedFrom == tip)
+        // A repeat of the delivered message answers from the record and reopens nothing twice.
+        #expect(await world.call(run.id, "message_task", ["task": "PLUTO-1", "text": "The hook wants a changelog entry."]) == answer)
+        #expect(world.daemon.requests("session.deliver").count == 1)
+    }
+
+    @Test func aMessageThatIsNotDeliveredLeavesAnAcceptedTaskAccepted() async throws {
+        let (world, run, task) = try makeWorld()
+        world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .done)])
+        let tip = try commit("a.swift", in: task.worktreePath)
+        _ = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "ok"])
+        world.daemon.deliveries = [Delivery(result: .refused, reason: "you are typing")]
+        let answer = await world.call(run.id, "message_task", ["task": "PLUTO-1", "text": "One more thing."])
+        #expect(answer.value?["result"] == "refused" && answer.value?["reopened"] == nil)
+        #expect(world.task(task.id)?.operated?.state == .accepted)
+    }
+
+    @Test func aPublishedTaskIsStillNotMessaged() async throws {
+        let (world, run, task) = try makeWorld()
+        world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .done)])
+        let tip = try commit("a.swift", in: task.worktreePath)
+        world.workspace.mutate {
+            $0.updateOperated(task.id) {
+                $0.state = .published
+                $0.acceptance = TaskAcceptance(resultSHA: tip, prerequisiteSHAs: [], checkOutput: "ok", note: nil, at: Date())
+                $0.publication = TaskPublication(pushedSHA: tip, mergeRequestNumber: 7)
+            }
+        }
         #expect(await world.call(run.id, "message_task", ["task": "PLUTO-1", "text": "One more thing."]).message
-                == "PLUTO-1 is accepted: there is no worker to steer.")
+                == "PLUTO-1 is published: there is no worker to steer.")
+        #expect(world.daemon.requests("session.deliver").isEmpty)
+    }
+
+    @Test func anAcceptedTaskWhoseCommitIsOnOriginIsNotMessaged() async throws {
+        let (world, run, task) = try makeWorld()
+        world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .done)])
+        let tip = try commit("a.swift", in: task.worktreePath)
+        _ = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "ok"])
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.publication = TaskPublication(pushedSHA: tip) } }
+        #expect(await world.call(run.id, "message_task", ["task": "PLUTO-1", "text": "One more thing."]).message
+                == "PLUTO-1 is accepted and its commit is on origin: there is no worker to steer.")
         #expect(world.daemon.requests("session.deliver").isEmpty)
     }
 

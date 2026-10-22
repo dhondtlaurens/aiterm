@@ -326,6 +326,9 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     public var branchDrift: BranchDrift?
     /// The worker tabs the Operator added beside its first worker (`open_tab`), in the order asked for.
     public var extraTabs: [ExtraTab]
+    /// The commit it was accepted on when `.reopen` sent it back to its worker (spec §D): accepting again on another
+    /// commit replaces what its stacked children built on (`UpstreamReplacement.revokeDependents`); any acceptance clears it.
+    public var reopenedFrom: String?
 
     public init(runId: UUID, key: String, state: OperatedState = .planned, end: TaskEnd = .commit, brief: String,
                 dependsOn: [TaskDependency] = [], stackedOn: UUID? = nil, revision: Int, firstRevision: Int? = nil,
@@ -334,7 +337,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
                 blockedReason: String? = nil, blockedFrom: OperatedState? = nil, flags: Set<OperatedFlag> = [],
                 lastFailure: String? = nil, modelReason: String? = nil, agentPinned: Bool = false, problem: String? = nil,
                 agentReview: AgentReviewResult? = nil, peopleReview: PeopleReview? = nil, branchDrift: BranchDrift? = nil,
-                extraTabs: [ExtraTab] = []) {
+                extraTabs: [ExtraTab] = [], reopenedFrom: String? = nil) {
         self.runId = runId; self.key = key; self.state = state; self.end = end; self.brief = brief
         self.dependsOn = dependsOn; self.stackedOn = stackedOn; self.revision = revision
         self.firstRevision = firstRevision ?? revision
@@ -344,7 +347,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         self.lastFailure = lastFailure
         self.modelReason = modelReason; self.agentPinned = agentPinned; self.problem = problem
         self.agentReview = agentReview; self.peopleReview = peopleReview; self.branchDrift = branchDrift
-        self.extraTabs = extraTabs
+        self.extraTabs = extraTabs; self.reopenedFrom = reopenedFrom
     }
 
     /// Whether a worker was ever launched for it: what makes it "started" for the plan and for
@@ -354,7 +357,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case runId, key, state, end, brief, dependsOn, stackedOn, revision, firstRevision, acceptance, publication
         case takenOver, ownership, launch, retriesUsed, runtimeUsed, blockedReason, blockedFrom, flags, lastFailure
-        case modelReason, agentPinned, problem, agentReview, peopleReview, branchDrift, extraTabs
+        case modelReason, agentPinned, problem, agentReview, peopleReview, branchDrift, extraTabs, reopenedFrom
     }
 
     /// Synthesised but for `flags`: a flag this build does not know is dropped, not a failed load.
@@ -389,6 +392,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         peopleReview = (try? c.decodeIfPresent(PeopleReview.self, forKey: .peopleReview)) ?? nil
         branchDrift = (try? c.decodeIfPresent(BranchDrift.self, forKey: .branchDrift)) ?? nil
         extraTabs = try c.decodeIfPresent([ExtraTab].self, forKey: .extraTabs) ?? []
+        reopenedFrom = try c.decodeIfPresent(String.self, forKey: .reopenedFrom)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -423,6 +427,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         try c.encodeIfPresent(branchDrift, forKey: .branchDrift)
         // Left out while there are none, so a task without one saves as it did before.
         if !extraTabs.isEmpty { try c.encode(extraTabs, forKey: .extraTabs) }
+        try c.encodeIfPresent(reopenedFrom, forKey: .reopenedFrom)
     }
 }
 
