@@ -67,7 +67,9 @@ import AiTermTestSupport
         defer { try? FileManager.default.removeItem(at: home) }
         let words = OperatorCommand.launchWords(model: run.profile.model, effort: run.profile.reasoning, runFolder: prepared.folder,
                                                 projectPaths: ["/code/it's a \"shop\""])
-        #expect(prepared.command == OperatorCommand.command(words: words, firstMessage: true), "the command tested is the one prepared")
+        // The gate's denials put the line past the typed-line limit: the window types a read of `launch.sh`, which holds it.
+        #expect(try String(contentsOf: prepared.folder.appendingPathComponent(OperatorCommand.launchFile), encoding: .utf8)
+                == OperatorCommand.command(words: words, firstMessage: true), "the command tested is the one prepared")
         let message = try String(contentsOf: prepared.folder.appendingPathComponent(OperatorCommand.firstMessageFile), encoding: .utf8)
 
         let printing = OperatorCommand.command(words: ShellLine.printing + words.dropFirst(), firstMessage: true)
@@ -121,9 +123,8 @@ import AiTermTestSupport
         #expect(ran.status == 0)
         #expect(ran.out == ShellLine.printed(words.dropFirst() + [message]))
 
-        // A later launch short enough to type leaves no stale file to be read.
-        let short = try OperatorCommand.prepare(run: run, projects: [F.project()], home: home, token: token)
-        #expect(short.command.hasPrefix("claude "))
-        #expect(!FileManager.default.fileExists(atPath: prepared.folder.appendingPathComponent(OperatorCommand.launchFile).path))
+        // A later line short enough to type leaves no stale file to be read.
+        #expect(try OperatorCommand.typed("claude -p", in: prepared.folder) == "claude -p")
+        #expect(!FileManager.default.fileExists(atPath: launch.path))
     }
 }

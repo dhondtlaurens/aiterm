@@ -252,7 +252,7 @@ import Testing
         world.show([])
         try await world.controller.resume(run: run.id)
         let window = try #require(world.daemon.requests("window.createTask").first)
-        #expect((window.params["agentCommand"] as? String)?.contains("c-9") == true)
+        #expect(try launchLine(world, run.id).contains("c-9"))
         #expect(window.params["background"] == nil && window.params["taskId"] as? String == run.id.uuidString)
         #expect(window.params["cwd"] as? String == OperatorCommand.runFolder(run.id, home: world.ports.home).path)
         #expect(world.run(run.id)?.state == .active)
@@ -276,7 +276,8 @@ import Testing
         try Data(token.utf8).write(to: folder.appendingPathComponent(OperatorCommand.tokenFile))
         world.show([])
         try await world.controller.reopenOperatorWindow(run.id)
-        let fresh = try #require(world.daemon.requests("window.createTask").first?.params["agentCommand"] as? String)
+        #expect(world.daemon.requests("window.createTask").first?.params["agentCommand"] as? String == "eval \"$(command cat launch.sh)\"")
+        let fresh = try launchLine(world, run.id)
         #expect(fresh.contains(OperatorCommand.firstMessageFile), "no conversation: the brief is its first message")
         #expect(world.daemon.requests("operator.register").first?.params["token"] as? String == token)
         world.show([OperatorServiceFixtures.session("op2", tag: run.id)])
@@ -284,7 +285,7 @@ import Testing
         world.controller.mutateRun(run.id) { $0.operatorConversation = "c-3" }
         try world.saveConversation("c-3")
         try await world.controller.reopenOperatorWindow(run.id)
-        let resumed = try #require(world.daemon.requests("window.createTask").last?.params["agentCommand"] as? String)
+        let resumed = try launchLine(world, run.id)
         #expect(resumed.contains("c-3") && !resumed.contains(OperatorCommand.firstMessageFile))
         #expect(world.daemon.requests("operator.register").last?.params["token"] as? String == token)
     }
@@ -767,6 +768,12 @@ extension RunControlsTests {
         world.show([])
         try await world.controller.resume(run: run.id)
         let window = try #require(world.daemon.requests("window.createTask").first)
-        #expect((window.params["agentCommand"] as? String)?.contains("c-9") == true)
+        #expect(try launchLine(world, run.id).contains("c-9"))
+    }
+
+    /// The Operator's line is past the typed-line limit, so its window types a read of `launch.sh`: the line is that file.
+    private func launchLine(_ world: OperatorWorld, _ id: UUID) throws -> String {
+        try String(contentsOf: OperatorCommand.runFolder(id, home: world.ports.home).appendingPathComponent(OperatorCommand.launchFile),
+                   encoding: .utf8)
     }
 }

@@ -8,22 +8,41 @@ import Foundation
 
     private func home() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("operator-home-\(UUID().uuidString)") }
 
+    /// The line the Operator's window runs. With the gate's denials it is past the typed-line limit, so the window
+    /// types `eval "$(command cat launch.sh)"` and the line itself is the run folder's `launch.sh`.
+    private func line(of prepared: OperatorCommand.Prepared) throws -> String {
+        #expect(prepared.command == "eval \"$(command cat launch.sh)\"")
+        return try String(contentsOf: prepared.folder.appendingPathComponent(OperatorCommand.launchFile), encoding: .utf8)
+    }
+
     @Test func theRunFolderIsUnderOperatorsRuns() {
         #expect(OperatorCommand.runFolder(F.runId, home: URL(fileURLWithPath: "/Users/someone")).path
                 == "/Users/someone/Library/Application Support/AiTerm/operators/runs/1EB4C0DE-0000-0000-0000-0000000000AA")
     }
 
-    /// Spec §5's command, word for word, with the effort as the Claude harness passes it.
-    @Test func theOperatorLaunchesWithReadOnlyToolsAndOnlyAiTermsServer() {
+    /// Spec §5's command, word for word, with the effort as the Claude harness passes it: Bash behind the
+    /// gate hook (`--settings`), the hard denials, and `Bash` allowed so a failed hook never prompts.
+    @Test func theOperatorLaunchesWithAGatedShellAndOnlyAiTermsServer() {
         let folder = URL(fileURLWithPath: "/runs/R")
         let words = OperatorCommand.launchWords(model: "claude-opus-5-5", effort: "high", runFolder: folder,
                                                 projectPaths: ["/code/shop", "/code/pay"])
         #expect(words == ["claude", "--model", "claude-opus-5-5", "--effort", "high",
-                          "--append-system-prompt-file", "/runs/R/brief.md", "--tools", "Read,Grep,Glob",
+                          "--append-system-prompt-file", "/runs/R/brief.md", "--tools", "Read,Grep,Glob,Bash",
                           "--add-dir", "/code/shop", "--add-dir", "/code/pay",
-                          "--mcp-config", "/runs/R/mcp.json", "--allowedTools", "mcp__aiterm__*", "--strict-mcp-config"])
+                          "--settings", "/runs/R/gate.json", "--disallowedTools"] + OperatorCommand.shellDenials
+                          + ["--mcp-config", "/runs/R/mcp.json", "--allowedTools", "mcp__aiterm__*", "Bash", "--strict-mcp-config"])
         #expect(OperatorCommand.command(words: words, firstMessage: true).hasSuffix(
-            "--allowedTools 'mcp__aiterm__*' --strict-mcp-config \"$(command cat first-message.md)\""))
+            "--allowedTools 'mcp__aiterm__*' Bash --strict-mcp-config \"$(command cat first-message.md)\""))
+    }
+
+    /// The hard denials win over `Bash` being allowed: a worker's pushes and merges, plus the host changes
+    /// the Operator's shell must never make (commits, resets, checkouts, cleans), and no question tool.
+    @Test func theShellDenialsKeepPushesCommitsAndCheckoutsOut() {
+        let denials = OperatorCommand.shellDenials
+        #expect(denials == AgentCommand.operatedClaudeDenials.filter { $0 != "AskUserQuestion" } + [
+            "Bash(git commit:*)", "Bash(git * commit:*)", "Bash(git reset --hard:*)", "Bash(git checkout:*)",
+            "Bash(git switch:*)", "Bash(git clean:*)", "Bash(git -C * checkout:*)", "Bash(git -C * reset:*)"])
+        #expect(!denials.contains("AskUserQuestion") && denials.contains("Bash(git push:*)"))
     }
 
     /// Spec §9: a gone operator session is relaunched on its conversation, under the same profile.
@@ -31,7 +50,9 @@ import Foundation
         let words = OperatorCommand.launchWords(model: "opus", effort: nil, runFolder: URL(fileURLWithPath: "/r"),
                                                 projectPaths: [], resuming: "conv-1")
         #expect(Array(words.prefix(5)) == ["claude", "--resume", "conv-1", "--model", "opus"])
-        #expect(words.contains("--strict-mcp-config") && words.contains("Read,Grep,Glob"))
+        #expect(words.contains("--strict-mcp-config") && words.contains("Read,Grep,Glob,Bash"))
+        #expect(words.joined(separator: " ").contains("--settings /r/gate.json --disallowedTools"))
+        #expect(words.last == "--strict-mcp-config")
         #expect(words.joined(separator: " ").contains("--system-prompt-snapshot off --append-system-prompt-file /r/brief.md"))
     }
 
@@ -40,6 +61,27 @@ import Foundation
     @Test func mcpJSONReachesTheOperatorRouteWithTheBearerToken() throws {
         let json = OperatorCommand.mcpConfig(hookPort: 47821, token: "t0k")
         #expect(json == #"{"mcpServers":{"aiterm":{"headers":{"Authorization":"Bearer t0k","X-AiTerm-Hook":"1"},"type":"http","url":"http://127.0.0.1:47821/operator"}}}"#)
+    }
+
+    /// The Operator's shell: every Bash call goes to `/operator/gate` as a PreToolUse hook with the run's
+    /// bearer token. The hook outlasts the daemon's 200 s gate wait (240 s), and Claude's own output cap
+    /// is `BASH_MAX_OUTPUT_LENGTH`.
+    @Test func gateSettingsReachTheGateRouteWithTheBearerToken() {
+        let json = OperatorCommand.gateSettings(hookPort: 47821, token: "t0k")
+        #expect(json == #"{"env":{"BASH_MAX_OUTPUT_LENGTH":"16000"},"hooks":{"PreToolUse":[{"hooks":[{"headers":{"Authorization":"Bearer t0k","X-AiTerm-Hook":"1"},"timeout":240,"type":"http","url":"http://127.0.0.1:47821/operator/gate"}],"matcher":"Bash"}]}}"#)
+    }
+
+    @Test func prepareWritesTheGatePrivately() throws {
+        let home = home()
+        defer { try? FileManager.default.removeItem(at: home) }
+        for resuming in [nil, "conv-1"] as [String?] {
+            let prepared = try OperatorCommand.prepare(run: F.run(), projects: [], hookPort: 5000, home: home, token: token, resuming: resuming)
+            let file = prepared.folder.appendingPathComponent(OperatorCommand.gateFile)
+            #expect(OperatorCommand.gateFile == "gate.json")
+            #expect(try #require(FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int) == 0o600)
+            #expect(try String(contentsOf: file, encoding: .utf8) == OperatorCommand.gateSettings(hookPort: 5000, token: token))
+            #expect(try line(of: prepared).contains("--settings \(AgentCommand.shellWord(file.path))"))
+        }
     }
 
     @Test func aTokenIs32RandomBytesInHex() {
@@ -72,12 +114,14 @@ import Foundation
                 == "Your broadcast:\n\nImplement the sprint.\n\nDone: a commit per item, tests green")
         #expect(try String(contentsOf: folder.appendingPathComponent(OperatorCommand.briefFile), encoding: .utf8)
                 .contains("Ask before adding a field a ticket doesn't mention."))
-        #expect(prepared.command.contains("--add-dir '/code/shop dir'"))
-        #expect(prepared.command.contains("'\(folder.appendingPathComponent("brief.md").path)'"))
-        #expect(prepared.command.hasSuffix("\"$(command cat first-message.md)\""))
+        let typed = try line(of: prepared)
+        #expect(typed.contains("--add-dir '/code/shop dir'"))
+        #expect(typed.contains("'\(folder.appendingPathComponent("brief.md").path)'"))
+        #expect(typed.hasSuffix("\"$(command cat first-message.md)\""))
+        #expect(try mode(OperatorCommand.launchFile) == 0o600)
         // No leftover temporary files beside them.
         #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
-                == ["brief.md", "first-message.md", "mcp.json", "token"])
+                == ["brief.md", "first-message.md", "gate.json", "launch.sh", "mcp.json", "token"])
     }
 
     /// The first message is `claude`'s prompt argument: a pasted bullet list must never lead it.
@@ -101,8 +145,9 @@ import Foundation
 
         let resumed = try OperatorCommand.prepare(run: F.run(), projects: [], home: home, token: token, resuming: "conv-1")
 
-        #expect(!resumed.command.contains("first-message.md"))
-        #expect(resumed.command.hasPrefix("claude --resume conv-1 --model claude-opus-5-5 --effort high"))
+        let typed = try line(of: resumed)
+        #expect(!typed.contains("first-message.md"))
+        #expect(typed.hasPrefix("claude --resume conv-1 --model claude-opus-5-5 --effort high"))
         #expect(OperatorCommand.existingToken(in: resumed.folder) == token)
     }
 
@@ -176,7 +221,8 @@ import Foundation
         // 1582 already holds the sheet's summary rule: the 350 is this branch's own growth, the restructure's reasons and examples.
         // Raised from 300 in the final review's fixes, which made rules true rather than short: the second source a missing
         // prompt needs, the merge on the host the Operator now closes, find_user before asking, and what a local merge pushes.
-        #expect(words(largest()) <= today + 350, "\(words(largest())) words")
+        // Raised to 475 for the shell: its hard limit and the one mechanics rule that says how the gate's answers are met.
+        #expect(words(largest()) <= today + 475, "\(words(largest())) words")
     }
 
     /// Strong words are kept for the hard limits, so they keep their weight; every other rule says what to do.
@@ -446,14 +492,24 @@ import Foundation
         #expect(OperatorCommand.said(nil) == nil)
     }
 
-    @Test func theLaunchKeepsTheReadOnlyTools() throws {
+    @Test func theLaunchGivesTheShellAndKeepsTheOtherLimits() throws {
         let home = home()
         defer { try? FileManager.default.removeItem(at: home) }
         let prepared = try OperatorCommand.prepare(run: F.run(slices: Slices(jira: true, review: true, merge: true)), projects: [F.project()],
                                                    home: home, token: token)
-        #expect(prepared.command.contains("--tools Read,Grep,Glob"))
-        #expect(prepared.command.contains("--strict-mcp-config"))
-        #expect(prepared.command.contains("--allowedTools 'mcp__aiterm__*'"))
+        let typed = try line(of: prepared)
+        #expect(typed.contains("--tools Read,Grep,Glob,Bash"))
+        #expect(typed.contains("--disallowedTools 'Bash(git push:*)'"))
+        #expect(!typed.contains("AskUserQuestion"))
+        #expect(typed.contains("--allowedTools 'mcp__aiterm__*' Bash --strict-mcp-config \"$(command cat first-message.md)\""))
+    }
+
+    @Test func theBriefSendsCodeToWorkersAndAsksThroughResolveQuestion() {
+        let brief = OperatorCommand.brief(run: F.run(), projects: [F.project()], milestone: .m1)
+        #expect(brief.contains("noVerify") && brief.contains("resolve_question"))
+        #expect(brief.contains("You have a shell for looking at and repairing the environment, never for code."))
+        #expect(brief.contains("WORKER"))
+        #expect(!brief.contains("\u{2014}"))
     }
 
     /// The tool descriptions mention the two-step challenge only in the `challengeId` property, so
@@ -477,7 +533,7 @@ import Foundation
         run.profile.model = "claude-sonnet-5"
         run.profile.reasoning = "low"
         let prepared = try OperatorCommand.prepare(run: run, projects: [], home: home, token: token)
-        #expect(prepared.command.hasPrefix("claude --model claude-sonnet-5 --effort low"))
+        #expect(try line(of: prepared).hasPrefix("claude --model claude-sonnet-5 --effort low"))
     }
 
     /// The largest brief: the Oracle on, every slice, with Instructions.

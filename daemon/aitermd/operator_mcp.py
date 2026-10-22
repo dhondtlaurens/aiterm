@@ -342,7 +342,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool("resolve_question", "Closes a question once the person has answered it, with a one-line summary of the answer: one "
           "you asked with ask_you, or AiTerm's question about a merge on the host, which only the person decides. Call it at "
           "once when they answer in your chat. A worker's prompt is refused: AiTerm closes it itself once the worker leaves "
-          "the prompt.",
+          "the prompt. A gate- question, opened when your shell's command needs the person's word, is answered with allow "
+          "true or false, from what the person said in this chat.",
           {"key": _text("The question's key."), "summary": _text("The answer, in one line."),
            "allow": {"type": "boolean", "description": "For a gate- question only: whether the person allowed the command."}},
           ("key", "summary")),

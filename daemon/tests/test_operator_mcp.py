@@ -243,6 +243,8 @@ def test_resolve_question_allows_a_command_the_oracle_stopped():
     assert schema["properties"]["allow"] == {
         "type": "boolean", "description": "For a gate- question only: whether the person allowed the command."}
     assert "allow" not in schema["required"]
+    description = {tool["name"]: tool for tool in TOOLS}["resolve_question"]["description"]
+    assert "gate- question" in description and "allow true or false" in description and "in this chat" in description
 
 
 def test_run_status_says_what_a_restarted_operator_needs():

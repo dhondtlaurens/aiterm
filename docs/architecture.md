@@ -126,13 +126,16 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
   folder: `brief.md` (the system prompt, in the sections of `OperatorCommand.briefHeadings`: the base, the
   frozen slices, the hard limits, how a run goes, talking to the person, the tools' mechanics),
   `mcp.json` (one HTTP server, `aiterm`, at the daemon's `/operator` route with the run's Bearer token),
-  `token` (0600) and `first-message.md` (the broadcast). The token is registered with the daemon
+  `gate.json` (0600: the PreToolUse hook that posts each Bash command to `/operator/gate`, and Claude's
+  output cap), `token` (0600) and `first-message.md` (the broadcast). The token is registered with the daemon
   (`operator.register`) and the Operator's window opens in front: a task window tagged with the run's
   id, which no row has, so the window lock never plans it. It runs `claude` with
-  `--append-system-prompt-file brief.md --tools Read,Grep,Glob`, an `--add-dir` per project, and
-  `--mcp-config mcp.json --allowedTools mcp__aiterm__* --strict-mcp-config` last: it can read code and
-  call AiTerm, and nothing else (`OperatorCommand`). The broadcast is its prompt argument,
-  `"$(command cat first-message.md)"`; a command past the typed-line limit (many projects) goes to
+  `--append-system-prompt-file brief.md --tools Read,Grep,Glob,Bash`, an `--add-dir` per project,
+  `--settings gate.json --disallowedTools` (`OperatorCommand.shellDenials`: no push, merge, commit,
+  hard reset, checkout, switch or clean), and `--mcp-config mcp.json --allowedTools mcp__aiterm__* Bash
+  --strict-mcp-config` last: it can read code, run a gated shell and call AiTerm, and nothing else
+  (`OperatorCommand`). The broadcast is its prompt argument,
+  `"$(command cat first-message.md)"`; a command past the typed-line limit (always, with the denials) goes to
   `launch.sh` in the folder and the window types `eval "$(command cat launch.sh)"`, as a long first
   prompt goes to `.aiterm/first-prompt.md`.
 - **Planning and starting are one step.** The Operator's `create_task` calls fill the open plan
