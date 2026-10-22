@@ -157,7 +157,8 @@ final class OperatorController {
             acts.runs[activity.run] = OperatorActs.Broadcast(act: activity.act, task: key)
         }
         for (task, reading) in turns.readings where !reading.messaged {
-            if let ending = WorkerTurn.ending(lastMessage: reading.lastMessage, commitsAhead: reading.commitsAhead) { acts.turns[task] = ending }
+            if let ending = WorkerTurn.ending(lastMessage: reading.lastMessage, commitsAhead: reading.commitsAhead,
+                                             atReopenedCommit: reading.atReopenedCommit) { acts.turns[task] = ending }
         }
         return acts
     }
@@ -338,6 +339,7 @@ final class OperatorController {
                     if let turn = turns[task.id], turn.session == tab.sessionId, !turn.messaged {
                         live.lastMessage = turn.lastMessage
                         live.commitsAhead = turn.commitsAhead
+                        live.atReopenedCommit = turn.atReopenedCommit
                         live.changedAfterAcceptance = turn.changedAfterAcceptance
                     } else {
                         live.turnUnread = task.operated?.state == .working

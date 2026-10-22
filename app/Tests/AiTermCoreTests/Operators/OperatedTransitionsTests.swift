@@ -155,6 +155,14 @@ import Foundation
         #expect(throws: OperatedTransitionError.notAllowed(action: "be reopened", from: .accepted)) { try apply(.reopen, left) }
     }
 
+    /// A reopened task's accepted commit stands: noChange would drop it, so it is refused with what to do instead.
+    @Test func noChangeIsRefusedWhileReopened() throws {
+        var reopened = F.operated("A", .working)
+        reopened.reopenedFrom = "4f2a91c0ffee"
+        #expect(throws: OperatedTransitionError.reopenedFromAcceptedCommit("4f2a91c0ffee")) { try apply(.noChange(note: nil), reopened) }
+        #expect(OperatedTransitionError.reopenedFromAcceptedCommit("4f2a91c0ffee").description.contains("accept 4f2a91c again with mark_task accepted"))
+    }
+
     @Test func noChangeIsAnEnd() throws {
         let done = try apply(.noChange(note: "already fixed"), F.operated("A", .working))
         #expect(done.state == .noChange)

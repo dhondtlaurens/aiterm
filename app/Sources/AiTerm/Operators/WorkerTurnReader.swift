@@ -14,6 +14,8 @@ final class WorkerTurnReader {
     struct Reading: Equatable, Sendable {
         var session: String, state: SessionState
         var lastMessage: String?, commitsAhead: Int?, changedAfterAcceptance: Bool
+        /// A reopened working task's HEAD is the commit it was accepted on (`TaskLiveFacts.atReopenedCommit`).
+        var atReopenedCommit = false
         /// `message_task` reached the worker after its turn ended: what the turn left is answered, and its next turn's end
         /// is what counts. Nothing of this reading is shown, and a working task is not ready until that turn is read.
         var messaged = false
@@ -102,22 +104,26 @@ final class WorkerTurnReader {
                 let message = conversation.flatMap {
                     WorkerTranscript.lastMessage(agent: agent, conversation: $0, home: home, claudeConfig: claudeConfig)
                 }
-                guard let worktree else { return (message: message, ahead: Int?.none, changed: false) }
+                guard let worktree else { return (message: message, ahead: Int?.none, changed: false, atReopened: false) }
                 let ahead = counts
                     ? Repository(worktree, git: git).commitsAhead(reopenedFrom: reopenedFrom, stackedOn: parent, baseBranch: baseBranch)
                     : nil
+                let atReopened = counts && ahead == 0 && reopenedFrom.map { earlier in
+                    (try? git.run(["rev-parse", "HEAD"], in: worktree)).map { OperatedTransitions.sameCommit($0, earlier) } ?? false
+                } ?? false
                 let changed = accepted.map { sha in
                     WorkerTurn.changedAfterAcceptance(porcelain: (try? git.run(["status", "--porcelain"], in: worktree)) ?? "",
                                                       head: try? git.run(["rev-parse", "HEAD"], in: worktree), accepted: sha)
                 } ?? false
-                return (message: message, ahead: ahead, changed: changed)
+                return (message: message, ahead: ahead, changed: changed, atReopened: atReopened)
             }
             // Read fresh: the worker may have started its next turn, or ended it again, while git was asked.
             guard let self, self.seen[session] == state,
                   let current = self.workspace.state.task(id: id), self.isRead(current),
                   current.firstWorker(in: self.live.sessions)?.sessionId == session else { return }
             let reading = Reading(session: session, state: state, lastMessage: read.message, commitsAhead: read.ahead,
-                                  changedAfterAcceptance: read.changed, messaged: self.messagedWhileReading.remove(id) != nil)
+                                  changedAfterAcceptance: read.changed, atReopenedCommit: read.atReopened,
+                                  messaged: self.messagedWhileReading.remove(id) != nil)
             guard self.readings[id] != reading else { return }
             self.readings[id] = reading
             self.changed()

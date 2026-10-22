@@ -114,6 +114,46 @@ import Testing
         })
     }
 
+    /// Spec §C's own case: an accepted task is messaged to diagnose a failed push, which reopens it, and its worker answers
+    /// without committing. Its HEAD is still the commit it was accepted on: ready to accept that commit again, never
+    /// "finished with no commit". noChange is refused, since it would drop that commit; accepting it again works.
+    @Test func aReopenedTaskWithNoNewCommitIsReadyToAcceptAgain() async throws {
+        let (world, run, task, worktree) = try makeWorld()
+        try git.run(["commit", "--allow-empty", "-q", "-m", "work"], in: worktree)
+        let accepted = try git.run(["rev-parse", "HEAD"], in: worktree)
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.reopenedFrom = accepted } }
+        try await endTurn(saying: "The hook needs pnpm 9; nothing in the code to change.", world, run, task)
+        let obligations = try status(world, run)
+        #expect(obligations.readyForAcceptance == ["PLUTO-1"] && obligations.finishedWithoutCommit.isEmpty)
+        #expect(world.controller.acting.turns[task.id] == nil, "its row says it is ready, not `no commit`")
+        let current = try #require(world.run(run.id))
+        let line = try #require(world.controller.status(of: current)?.tasks.first)
+        #expect(line.reopenedFrom == accepted)
+
+        let refused = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "noChange", "note": "Nothing to change."])
+        #expect(refused.message == OperatedTransitionError.reopenedFromAcceptedCommit(accepted).description)
+        #expect(refused.message?.contains("accept \(accepted.prefix(7)) again with mark_task accepted") == true)
+        #expect(world.task(task.id)?.operated?.state == .working && world.task(task.id)?.operated?.reopenedFrom == accepted)
+
+        let again = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(accepted),
+                                                           "checkOutput": "12 passed"])
+        #expect(again.value?["state"] == "accepted")
+        #expect(world.task(task.id)?.operated?.acceptance?.resultSHA == accepted && world.task(task.id)?.operated?.reopenedFrom == nil)
+    }
+
+    /// A reopened task whose worker moved HEAD back past the accepted commit has nothing to accept again: still no commit.
+    @Test func aReopenedTaskMovedBackIsStillFinishedWithoutCommit() async throws {
+        let (world, run, task, worktree) = try makeWorld()
+        try git.run(["commit", "--allow-empty", "-q", "-m", "work"], in: worktree)
+        let accepted = try git.run(["rev-parse", "HEAD"], in: worktree)
+        try git.run(["reset", "-q", "--hard", "HEAD~1"], in: worktree)
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.reopenedFrom = accepted } }
+        try await endTurn(saying: "Reverted.", world, run, task)
+        let obligations = try status(world, run)
+        #expect(obligations.finishedWithoutCommit == ["PLUTO-1"] && obligations.readyForAcceptance.isEmpty)
+        #expect(world.controller.acting.turns[task.id] == .noCommit)
+    }
+
     /// An accepted task whose worker someone worked in after its acceptance, a file changed or a commit on top, is listed;
     /// one whose worker ended a turn with its worktree as accepted is not.
     @Test func workAfterAcceptanceIsReadFromTheWorktree() async throws {

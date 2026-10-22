@@ -65,6 +65,8 @@ public enum OperatedTransitionError: Error, Equatable, CustomStringConvertible {
     case endIsCommit
     case notInThisMilestone(TaskEnd)
     case publishedSHANotAccepted(String)
+    /// noChange on a task steered back to work after it was accepted on that commit: it would drop the commit.
+    case reopenedFromAcceptedCommit(String)
     case unknownTask(UUID)
     case notOperated(UUID)
     case unknownRun(UUID)
@@ -85,6 +87,9 @@ public enum OperatedTransitionError: Error, Equatable, CustomStringConvertible {
         case .endIsCommit: return "The plan ends this task at a commit; there's nothing to publish."
         case .notInThisMilestone(let end): return "This version of AiTerm can't carry out a \(end.displayName) yet."
         case .publishedSHANotAccepted(let sha): return "\(sha) isn't the accepted SHA."
+        case .reopenedFromAcceptedCommit(let sha):
+            return "This task was accepted on \(sha.prefix(7)) before it was steered back to work, so noChange would drop that commit. "
+                + "If its worker needs to change nothing, accept \(sha.prefix(7)) again with mark_task accepted."
         case .unknownTask(let id): return "There's no task \(id.uuidString)."
         case .notOperated(let id): return "Task \(id.uuidString) isn't in a broadcast."
         case .unknownRun(let id): return "There's no broadcast \(id.uuidString)."
@@ -148,6 +153,8 @@ public enum OperatedTransitions {
         case .noChange:
             if task.state == .noChange { return task }
             guard task.state == .working else { throw refuse() }
+            // Reopened (spec §C, §D): its accepted commit stands until it is accepted again or replaced, never dropped.
+            if let earlier = task.reopenedFrom, !earlier.isEmpty { throw .reopenedFromAcceptedCommit(earlier) }
             next.state = .noChange
             settle(&next)
 

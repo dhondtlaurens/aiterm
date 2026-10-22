@@ -261,6 +261,31 @@ import Foundation
         #expect(json.contains(#""finishedWithoutCommit":["B"]"#))
     }
 
+    /// A reopened task still on the commit it was accepted on has that commit to accept again (spec §C, §D): it is ready,
+    /// with the commit on its line, and its row's ending is no `no commit`. Moved off it with nothing new, it is no commit.
+    @Test func aReopenedTaskOnItsAcceptedCommitIsReady() throws {
+        var b = F.task("B", .working)
+        b.operated?.reopenedFrom = "4f2a91c"
+        func build(_ facts: TaskLiveFacts) throws -> RunStatus {
+            try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1, live: [b.id: facts]))
+        }
+        let ready = try build(TaskLiveFacts(status: .idle, lastMessage: "Nothing to change.", commitsAhead: 0, atReopenedCommit: true))
+        #expect(ready.obligations.readyForAcceptance == ["B"] && ready.obligations.finishedWithoutCommit.isEmpty)
+        #expect(ready.tasks.first?.reopenedFrom == "4f2a91c")
+        #expect(String(decoding: try ready.json(), as: UTF8.self).contains(#""reopenedFrom":"4f2a91c""#))
+        #expect(WorkerTurn.ending(lastMessage: "Nothing to change.", commitsAhead: 0, atReopenedCommit: true) == nil)
+
+        let movedBack = try build(TaskLiveFacts(status: .idle, lastMessage: "Reverted.", commitsAhead: 0))
+        #expect(movedBack.obligations.finishedWithoutCommit == ["B"] && movedBack.obligations.readyForAcceptance.isEmpty)
+        #expect(WorkerTurn.ending(lastMessage: "Reverted.", commitsAhead: 0) == .noCommit)
+
+        // A task not reopened carries no such commit, whatever the turn read.
+        b.operated?.reopenedFrom = nil
+        let plain = try build(TaskLiveFacts(status: .idle, commitsAhead: 0, atReopenedCommit: true))
+        #expect(plain.obligations.finishedWithoutCommit == ["B"] && plain.tasks.first?.reopenedFrom == nil)
+        #expect(!String(decoding: try plain.json(), as: UTF8.self).contains("reopenedFrom"))
+    }
+
     /// A turn with a commit and no question is ready, as is one AiTerm couldn't count the commits of.
     @Test func aCleanTurnWithACommitIsReady() throws {
         let status = try turn(.working, lastMessage: "Added the endpoint. All tests pass.", commitsAhead: 1)

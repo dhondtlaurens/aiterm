@@ -15,10 +15,11 @@ public enum WorkerTurn {
         case noCommit
     }
 
-    /// The ending a turn that left `lastMessage` and `commitsAhead` shows; nil for a turn that is simply done.
-    public static func ending(lastMessage: String?, commitsAhead: Int?) -> Ending? {
+    /// The ending a turn that left `lastMessage` and `commitsAhead` shows; nil for a turn that is simply done. A reopened
+    /// task still on the commit it was accepted on (`atReopenedCommit`) has that commit to accept again: no `no commit`.
+    public static func ending(lastMessage: String?, commitsAhead: Int?, atReopenedCommit: Bool = false) -> Ending? {
         if endsWithQuestion(lastMessage) { return .asks }
-        return commitsAhead == 0 ? .noCommit : nil
+        return commitsAhead == 0 && !atReopenedCommit ? .noCommit : nil
     }
 
     /// What is stripped from the end of a message's last line before its question mark is looked for: markdown emphasis

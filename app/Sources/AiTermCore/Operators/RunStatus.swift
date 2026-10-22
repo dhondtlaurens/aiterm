@@ -40,6 +40,9 @@ public struct TaskLiveFacts: Equatable, Sendable {
     /// prompt or done: its last message, and how many commits its branch has past where its work starts (a working task's
     /// only, `Repository.commitsAhead`; nil while unknown).
     public var lastMessage: String?, commitsAhead: Int?
+    /// A reopened working task's HEAD is still the commit it was accepted on (`OperatedTask.reopenedFrom`): no new commit,
+    /// and that one to accept again.
+    public var atReopenedCommit: Bool
     /// An accepted, inReview or published task's worktree moved on from its accepted commit (`WorkerTurn.changedAfterAcceptance`).
     public var changedAfterAcceptance: Bool
     /// Its first worker ended its turn and AiTerm is still reading it: not ready until what the turn left is known.
@@ -50,10 +53,12 @@ public struct TaskLiveFacts: Equatable, Sendable {
 
     public init(status: SessionState? = nil, lastCommit: String? = nil, summary: String? = nil, waitingPrompt: String? = nil,
                 tabs: [Tab] = [], background: [String] = [], yourPrompt: String? = nil, lastMessage: String? = nil,
-                commitsAhead: Int? = nil, changedAfterAcceptance: Bool = false, turnUnread: Bool = false, quiet: Bool = false) {
+                commitsAhead: Int? = nil, atReopenedCommit: Bool = false, changedAfterAcceptance: Bool = false, turnUnread: Bool = false,
+                quiet: Bool = false) {
         self.status = status; self.lastCommit = lastCommit; self.summary = summary; self.waitingPrompt = waitingPrompt
         self.tabs = tabs; self.background = background; self.yourPrompt = yourPrompt
-        self.lastMessage = lastMessage; self.commitsAhead = commitsAhead; self.changedAfterAcceptance = changedAfterAcceptance
+        self.lastMessage = lastMessage; self.commitsAhead = commitsAhead; self.atReopenedCommit = atReopenedCommit
+        self.changedAfterAcceptance = changedAfterAcceptance
         self.turnUnread = turnUnread; self.quiet = quiet
     }
 
@@ -215,13 +220,16 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var mergeRequest: MergeRequestState?
         /// Why `mergeRequest` is nil for a task that has a request: the host did not answer in time, or refused.
         public var mergeRequestNote: String?
+        /// The commit a working task was accepted on before it was steered back to work (spec §C, §D). Listed ready with no
+        /// commit past it, it is that commit to accept again; nil for a task not reopened.
+        public var reopenedFrom: String?
         public init(id: UUID, key: String, title: String, project: String, agent: AgentKind, model: String,
                     state: OperatedState, end: TaskEnd, revision: Int, live: LiveState? = nil, branch: String,
                     lastCommit: String? = nil, summary: String? = nil, dependsOn: [Dependency] = [],
                     acceptedSHA: String? = nil, blockedReason: String? = nil, flags: [OperatedFlag] = [],
                     takenOver: Bool = false, retriesUsed: Int = 0, agentReview: AgentReviewLine? = nil,
                     peopleReview: PeopleReviewLine? = nil, branchDrift: BranchDrift? = nil, tabs: [TabLine]? = nil, background: [String]? = nil,
-                    yourPrompt: String? = nil, mergeRefusal: String? = nil) {
+                    yourPrompt: String? = nil, mergeRefusal: String? = nil, reopenedFrom: String? = nil) {
             self.id = id; self.key = key; self.title = title; self.project = project; self.agent = agent; self.model = model
             self.state = state; self.end = end; self.revision = revision; self.live = live; self.branch = branch
             self.lastCommit = lastCommit; self.summary = summary; self.dependsOn = dependsOn
@@ -230,7 +238,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             self.agentReview = agentReview; self.peopleReview = peopleReview; self.branchDrift = branchDrift
             self.tabs = tabs; self.background = background
             self.youAreDriving = yourPrompt == nil ? nil : true; self.yourPrompt = yourPrompt
-            self.mergeRefusal = mergeRefusal
+            self.mergeRefusal = mergeRefusal; self.reopenedFrom = reopenedFrom
         }
     }
 
@@ -257,7 +265,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         /// names it after its task's key: `PAY-2/tests`.
         public var promptsWaitingOnYou: [String]
         /// Working tasks whose worker ended its turn with no question and a commit past where its work starts: check the
-        /// result, then `mark_task`.
+        /// result, then `mark_task`. A reopened one still on the commit it was accepted on (its line's `reopenedFrom`) is
+        /// here too: accept that commit again.
         public var readyForAcceptance: [String]
         /// Working tasks whose worker ended its turn with work still running in the background, which wakes it again
         /// once it ends: not ready yet. Each task's line says what runs.
@@ -272,7 +281,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         /// ended: changes not committed, or another HEAD. Someone worked there after the acceptance.
         public var changedAfterAcceptance: [String]
         /// Working tasks whose worker ended its turn with no commit past where its work starts (spec §E): not ready; mark it
-        /// noChange or steer it.
+        /// noChange or steer it. Never a reopened one on its accepted commit, which is ready to accept again.
         public var finishedWithoutCommit: [String]
         /// InReview tasks with nothing waiting (spec §K): no unresolved thread, no worker's question and no change after
         /// acceptance, for `OperatorTiming.reviewQuietMinutes` since the review began. The Operator decides against the Done
@@ -324,7 +333,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 branchDrift: o.branchDrift, tabs: tabLines(item, facts), background: facts.background.isEmpty ? nil : facts.background,
                 yourPrompt: facts.yourPrompt,
                 // As on its card: a task finished or taken over is past the refusal.
-                mergeRefusal: o.takenOver || o.isFinished ? nil : o.publication?.mergeRefusal))
+                mergeRefusal: o.takenOver || o.isFinished ? nil : o.publication?.mergeRefusal,
+                reopenedFrom: o.state == .working ? o.reopenedFrom : nil))
             // What the first worker's ended turn left, on a task in any state but yours (spec §J): a new turn is at work.
             let turn = facts.turnEnded && !o.takenOver && o.state != .stopped
             let asking = turn && WorkerTurn.endsWithQuestion(facts.lastMessage)
@@ -339,7 +349,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             } else if !o.flags.contains(.waitingOnYou), !facts.turnUnread,
                       isReadyForAcceptance(o, live: facts.status, extraTabs: facts.tabs.map(\.counted), asks: asking) {
                 if !facts.background.isEmpty { background.append(o.key) }
-                else if facts.commitsAhead == 0 { noCommit.append(o.key) }
+                // A reopened task with no new commit, still on the one it was accepted on, has that commit to accept again.
+                else if facts.commitsAhead == 0, !(o.reopenedFrom != nil && facts.atReopenedCommit) { noCommit.append(o.key) }
                 else { ready.append(o.key) }
             }
             if o.flags.contains(.possiblyStalled) { stalled.append(o.key) }
