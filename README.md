@@ -4,7 +4,7 @@ A native macOS sidebar that turns iTerm2 into a workspace for coding agents: **p
 (git worktrees) → agent tabs**, with each agent's status and usage at a glance. It drives the real
 iTerm2 through its Python API — AiTerm does not embed a terminal.
 
-<img src="docs/desktop.png" alt="AiTerm beside iTerm2: the sidebar lists a home folder and the aiterm (GitHub) and acme projects under Personal and Work dividers, with Claude Code, Codex, Grok Build and PI tasks and a merge-request review, and its footer the selected task's context and tokens, the Mac's load in backpack mode and the agents' usage; beside it, the selected task's iTerm2 window shows Claude Code mid-refactor">
+<img src="docs/desktop.png" alt="AiTerm beside iTerm2: the sidebar lists a home folder and the aiterm (GitHub) and acme projects under Personal and Work dividers, with Claude Code, Codex and PI tasks and a merge-request review, and its footer the selected task's context and tokens, the Mac's load in backpack mode and the agents' usage; beside it, the selected task's iTerm2 window shows Claude Code mid-refactor">
 
 > AiTerm is built for its maintainer's own workflow. Bug reports are welcome; feature requests and
 > pull requests are not taken. See [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -13,8 +13,9 @@ iTerm2 through its Python API — AiTerm does not embed a terminal.
 
 - **Tasks from a Jira ticket or a prompt**: AiTerm creates the worktree and branch, copies the
   gitignored files `.worktreeinclude` names, opens an iTerm2 window and launches the agent.
-- **Every agent's state at a glance**: working, needs input or done, from Claude Code, Codex,
-  Grok Build and PI, with context and account usage in the footer.
+- **Every agent's state at a glance**: working, needs input or done, from Claude Code, Codex
+  and PI, with context and account usage in the footer. Claude Code and Codex are fully supported;
+  other providers, such as Grok, work through PI.
 - **Reviews**: a GitLab merge request or a GitHub pull request in its own worktree, its resolved
   review threads counted on the row.
 - **Backpack Mode** (⌘B): keeps the Mac awake with the lid shut and on your iPhone's hotspot while
@@ -32,18 +33,18 @@ iTerm2 through its Python API — AiTerm does not embed a terminal.
 
 What the sidebar knows depends on what each agent reports:
 
-| | Claude Code | Codex | Grok Build | PI |
-|---|:---:|:---:|:---:|:---:|
-| Status: working, needs input, done | ✓ | ✓ | ✓ | ✓ |
-| Reported through | HTTP hooks | hooks, `Stop` over MCP | command hooks | an extension |
-| A second source, should a hook go missing | its session file | the tab title's spinner | — | — |
-| Stays working while a subagent runs | ✓ | ✓ | ✓ | ✓ (pi-subagents) |
-| Context fill | ✓ | ✓ | ✓ | ✓ |
-| Account usage in the footer | ✓ | ✓ | — | — |
-| Model and reasoning picked per task | ✓ | ✓ | ✓ | ✓ |
-| Skills and commands completed in the first prompt | `/` | `$` and `/prompts:` | `/` | `/skill:` |
-| Conversations resumed when a window comes back | ✓ | ✓ | ✓ | ✓ |
-| Folder-trust dialog shown as needs input | ✓ | — | — | — |
+| | Claude Code | Codex | PI |
+|---|:---:|:---:|:---:|
+| Status: working, needs input, done | ✓ | ✓ | ✓ |
+| Reported through | HTTP hooks | hooks, `Stop` over MCP | an extension |
+| A second source, should a hook go missing | its session file | the tab title's spinner | — |
+| Stays working while a subagent runs | ✓ | ✓ | ✓ (pi-subagents) |
+| Context fill | ✓ | ✓ | ✓ |
+| Account usage in the footer | ✓ | ✓ | — |
+| Model and reasoning picked per task | ✓ | ✓ | ✓ |
+| Skills and commands completed in the first prompt | `/` | `$` and `/prompts:` | `/skill:` |
+| Conversations resumed when a window comes back | ✓ | ✓ | ✓ |
+| Folder-trust dialog shown as needs input | ✓ | — | — |
 
 What a project can do depends on where it lives:
 
@@ -97,8 +98,7 @@ Settings. The steps it follows are in [docs/ai-install.md](docs/ai-install.md).
 - **Agent hooks** — nothing until you press **Install** on an agent's card in *Settings › Agents*;
   until then that agent's status does not reach the sidebar. Install merges hooks into
   Claude's `settings.json` under the login shell's `$CLAUDE_CONFIG_DIR` (default `~/.claude`)
-  or `~/.codex/config.toml`, writes `~/.grok/hooks/aiterm.json` (plus
-  Grok's status line in `~/.grok/config.toml`) or the PI extension, and adds a status-line bridge
+  or `~/.codex/config.toml`, or writes the PI extension, and adds a status-line bridge
   for Claude usage. A backup is kept next to every file it edits; the same card repairs or
   reinstalls them.
 - **A local port** — the helper listens on `127.0.0.1:47821` for those hooks.
@@ -149,6 +149,6 @@ Copyright © 2026 Laurens D'Hondt. AiTerm is free software under the
 
 The app bundles the [`iterm2`](https://pypi.org/project/iterm2/) Python package (GPLv2 or later),
 [`websockets`](https://pypi.org/project/websockets/) and
-[`protobuf`](https://pypi.org/project/protobuf/) (both BSD-3-Clause). Claude, Codex, Grok, PI,
+[`protobuf`](https://pypi.org/project/protobuf/) (both BSD-3-Clause). Claude, Codex, PI,
 Jira, GitLab and GitHub names and logos belong to their owners and are used only to identify those
 tools.

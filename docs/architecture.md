@@ -29,18 +29,17 @@ AiTerm.app  ──JSON-RPC over a Unix socket──>  aitermd  ──iTerm2 Pyth
 ## Inbound · the agents report back
 
 ```
-Claude Code, Codex, Grok Build & PI  ──HTTP POST 127.0.0.1:47821──>  HookServer → StatusEngine  ──events broadcast to clients──>  the sidebar redraws
+Claude Code, Codex & PI  ──HTTP POST 127.0.0.1:47821──>  HookServer → StatusEngine  ──events broadcast to clients──>  the sidebar redraws
 ```
 
 - **Claude Code & Codex** — running in those iTerm2 tabs. Lifecycle hooks are merged into
   Claude's `settings.json` under the login shell's `$CLAUDE_CONFIG_DIR` (default `~/.claude`)
   and `~/.codex/config.toml` by the agent's Install action in
   Settings › Agents — merge-only, with a backup, because Emdash owns hook slots in the same files.
-- **Grok Build** — command hooks, because Grok refuses `http://` hook URLs. AiTerm owns its whole
-  hooks file, `~/.grok/hooks/aiterm.json`, rather than merging into one Emdash also touches; the
-  status line is a merge into `~/.grok/config.toml`'s `[ui.status_line]` table, same as the others.
-- **HookServer → StatusEngine** — `/hook/claude` · `/hook/codex` · `/hook/grok` · `/hook/pi` ·
-  `/mcp` · `/statusline` · `/statusline/grok`. A post is acknowledged before it is handled, so no
+- **PI** — an extension AiTerm writes to `~/.pi/agent/extensions/`. Claude Code and Codex are fully
+  supported; other providers, such as Grok, work through PI.
+- **HookServer → StatusEngine** — `/hook/claude` · `/hook/codex` · `/hook/pi` ·
+  `/mcp` · `/statusline`. A post is acknowledged before it is handled, so no
   agent waits on the daemon — except a `/mcp` tool call (Codex's Stop hook), which is delivered
   before its result goes back. A Harness Test post carrying `_aiterm_test_id` is answered by the
   receiver itself, its proof that the route reaches the daemon, and never handed on, so it cannot
@@ -255,8 +254,8 @@ answers with `operator.reply`. Every mutating tool is safe to repeat (a `key`, o
 A failure an agent can fix — a diverged branch or a rebase's conflict, in New Review's footer and
 Pull main's banner — offers Find a Fix while Settings › Agents' Help with problems is on. The fix
 runs as the Operator: always Claude Code, at Settings › Operator's model and reasoning
-(`AgentIntegrations.fixModel`), and no button without it. The pipeline can still drive Codex (Grok
-Build has no network-off on macOS, PI no unattended mode), which the Oracle's runs reuse. `FixPipeline` runs it off the main
+(`AgentIntegrations.fixModel`), and no button without it. The pipeline can still drive Codex (PI has no
+unattended mode), which the Oracle's runs reuse. `FixPipeline` runs it off the main
 actor in four stages, each a closure the app's tests fake; `FixSession` owns one problem's run.
 
 **The clone.** The agent never runs in the real repository. `FixClone` is a `git clone --shared
@@ -431,7 +430,7 @@ failure the banner names the log at `~/Library/Application Support/AiTerm/aiterm
 | tickets | Jira Cloud REST, credentials in the Keychain |
 | review threads | GitLab REST (`/merge_requests/:iid/discussions`, a discussion with a resolvable note, resolved when all of them are) on the configured GitLab host and port only, and GitHub GraphQL (`reviewThreads { isResolved }`), with the tokens Settings saved; read-only, 100 a page, at most 10 pages |
 | models | each CLI's own catalogue cache, so the picker follows `/model` |
-| conversation | each agent's own hooks — Claude's, Codex's and Grok's `session_id`/`sessionId`, PI's session id — kept only for a post placed on its tab by pid or by the tab id it carries, never by a pin or the directory; a subagent's start or stop and a Grok subagent's post name none, and it goes with the agent's process as the model does |
+| conversation | each agent's own hooks — Claude's and Codex's `session_id`, PI's session id — kept only for a post placed on its tab by pid or by the tab id it carries, never by a pin or the directory; a subagent's start or stop names none, and it goes with the agent's process as the model does |
 | skills & commands | discovered on disk per agent and per project, for the prompt step's completions |
 
 ## What AiTerm writes, and where
@@ -476,14 +475,11 @@ Step 1's checkbox, ticked by default, turns it off for one task; there is no set
 Merge-only, marked as AiTerm's, with `.aiterm-backup` beside each file. A file that already holds
 the right hooks is not rewritten; a symlinked file stays a link and its target is merged; a link
 to nothing is refused rather than replaced, as is a file that sets `hooks`, one of our events or
-`statusLine` in a form the merge cannot extend (Claude), or that does not parse (Codex, Grok). A Claude
-status line counts as current only when it names this bundle's shim or a copy that still runs. The agent's card in Settings › Agents re-runs the same installer — Install, Repair or Reinstall, by its state. Grok's
-eight events go to a file AiTerm owns outright, `~/.grok/hooks/aiterm.json`, written atomically
-rather than merged; only its status line merges into `~/.grok/config.toml`'s `[ui.status_line]`
-table, saving a foreign command to `grok-statusline-original.cmd` first. The PI extension goes to
+`statusLine` in a form the merge cannot extend (Claude), or that does not parse (Codex). A Claude
+status line counts as current only when it names this bundle's shim or a copy that still runs. The agent's card in Settings › Agents re-runs the same installer — Install, Repair or Reinstall, by its state. The PI extension goes to
 `~/.pi/agent/extensions/aiterm-status.ts`, schema 6, written with the hook port in place of its placeholder.
-The two status-line shims run from the bundle and read the port from `hook-port` in the support folder,
-which each of their drivers' Install writes (launch writes it too, for an upgrade); a shim with no port
+The status-line shim runs from the bundle and reads the port from `hook-port` in the support folder,
+which the Claude driver's Install writes (launch writes it too, for an upgrade); a shim with no port
 posts nothing, and a card whose file does not hold the daemon's port is outdated.
 
 **A long first prompt** — When the typed command would pass 1000 bytes, or the prompt holds a

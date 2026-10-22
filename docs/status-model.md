@@ -24,7 +24,7 @@ order — the chips sit still, so a stable reading order beats ranking.
 
 | Hook event | Signal | Notes |
 |---|---|---|
-| `UserPromptSubmit` | working | Claude Code, Codex and Grok Build. A new turn: it drops any completion the previous turn deferred. |
+| `UserPromptSubmit` | working | Claude Code and Codex. A new turn: it drops any completion the previous turn deferred. |
 | `Stop` | done | Deferred while a subagent is still alive — the last child finishes the change. A Claude `Stop` also drops each counted child its `background_tasks` no longer lists (below). |
 | `PermissionRequest` | needsInput | Claude Code and Codex. |
 | `Notification` | needsInput | Claude only: `permission_prompt`, `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`. |
@@ -60,42 +60,11 @@ the prompt turns a remembered done into idle, so closing the prompt does not bri
 completion already seen. Claude's and Codex's input requests remember nothing; their tick signals
 below do the correcting.
 
-Grok Build reports through command hooks rather than an extension, in Claude's PascalCase event
-names but Grok's own camelCase fields:
-
-| Grok event | Signal | Notes |
-|---|---|---|
-| `SessionStart` | sessionStart | Forgets the previous conversation's subagents and deferred completion, same as Claude, except `source: "compact"` (metadata only). |
-| `UserPromptSubmit` | working | A new turn. |
-| `Notification` of type `permission_prompt` | needsInput | |
-| `Notification` of type `idle_prompt` | settle | Grok's backstop for a turn that reports no end — a rewind, a cancel-and-send, a superseded turn, a stop gate at its continuation limit. It fires about a minute after the session settles, after any turn end, so it only ends a turn still working or needing input: a done stays as it is, seen or not. |
-| `PostToolUse` / `PostToolUseFailure` | working | A tool ran, so an answered permission prompt is over — Grok's resume signal, where Claude has its session file and Codex its title spinner. Without it a Grok session would stay needs-input until the turn ended. A tool that fails to dispatch, or an MCP error, reports the second instead of the first. |
-| `Stop` with `reason: "end_turn"` or no reason | done | |
-| `Stop` with a session-end reason (`channel_closed`, `shutdown`) | ignored | Not a turn ending. |
-| `Stop` whose `backgroundTasks` holds a running `subagent` | ignored | The turn works on through its child, as a Claude turn does; the child's completion wakes the session into a new turn, which ends with its own `Stop`. |
-| `Stop` whose `backgroundTasks` holds only `shell` or `monitor` work | done | A dev server or a watcher can run for the rest of the session, so waiting on it would keep the row working for good. Whatever it wakes fires `UserPromptSubmit`, which puts the row back to working. |
-| `StopFailure` / `StopCancelled` | done | |
-
-Grok names each turn with a `promptId`, and its reports are not ordered: a cancelled turn's is
-dispatched off the command loop, so it can arrive after the next turn's `UserPromptSubmit`. The
-engine keeps the turn each `UserPromptSubmit` starts, and ignores a done, needs input or working
-that names another one. A done for a turn never seen to start does not turn an idle row done — an
-interrupted bash-mode (`!`) command reports one with no `UserPromptSubmit` — though a working row,
-say after a daemon restart, takes it. An event with no `promptId` (the `idle_prompt` backstop) always
-applies, and a new session forgets the turn.
-
-Any payload carrying a non-empty `subagentType` is a nested agent's own event and is dropped: a
-foreground Grok subagent runs inside the parent's turn, and background work is already visible on
-`Stop` as `backgroundTasks`, so it needs no separate tracking. The one exception is a child's
-`permission_prompt`: Grok waits on the user for it as for the session's own, so it is needs input. `/hook/claude` drops any payload carrying
-`hookEventName` — a key Claude itself never sends — so a future Grok config that allows loopback
-HTTP on the Claude route can never be counted as Claude.
-
 Hooks are the primary source; two corroborating ones run on the daemon's tick so a missed post
 cannot strand a row — Claude's own session file (`busy`/`thinking`/`running` → working, `waiting`
 → needs input, `idle`/`shell` → the turn ended; any other status is ignored rather than read as
 the end of the turn) and the braille spinner glyph at the head of a Codex tab's iTerm2 title. Which
-harness has which is its `corroboration` in the `HARNESSES` table; Grok Build and PI have neither.
+harness has which is its `corroboration` in the `HARNESSES` table; PI has neither.
 
 Claude Code's folder-trust dialog ("Yes, I trust this folder") comes before all of these: Claude
 loads no hooks and writes no session file until the folder is trusted, so the tab's screen is the
@@ -123,12 +92,12 @@ daemon keeps the newest title in its registry, where the status engine reads it,
 `session.changed` and snapshot still carries it, so an older app that decodes the field keeps working.
 
 A Codex rollout grows without bound and is read on every tick it changes (context fill, rate
-limits), so it is read on a worker thread, as the orphan and subagent checks are, and only the lines
+limits), so it is read on a worker thread, as the subagent checks are, and only the lines
 that contain a `token_count` are parsed. A read that does not answer within a second costs that
 tick its Codex numbers, not the daemon its hook acks.
 
 A tick publishes what it changed even if a step of it raises, and each corroborating step (a
-session's file, the orphan check, the subagent transcripts) is guarded on its own: one that fails is
+session's file, the subagent transcripts) is guarded on its own: one that fails is
 logged and costs only its own changes.
 
 Both lag the hooks, so neither may override a newer one:
@@ -188,12 +157,12 @@ interruption is then ignored, because it was written before that start.
 `SubagentStart` carries only the session's `transcript_path`, `<dir>/<session>.jsonl`. The child's
 transcript sits beside it at `<dir>/<session>/subagents/agent-<id>.jsonl`, or one directory
 further down, where Claude Code files some agents. Only the last 64 KiB of each transcript is read,
-on a worker thread with the one-second bound of the orphan check below, and again only once its
+on a worker thread with the one-second bound of the Codex rollout read above, and again only once its
 mtime or size changes. A turn with nothing deferred reads none.
 
 Claude's own session file cannot do this job. It stays `busy` while a background child runs past the
 end of the turn, and it names no child. Only Claude children are checked. PI relays a crashed
-child's `:failed`, Grok tracks no children (its `Stop` lists them), and no Codex child has yet been
+child's `:failed`, and no Codex child has yet been
 seen to die without its `SubagentStop`.
 
 What an agent reported belongs to its process, not the tab. A tab keeps its model, reasoning,
@@ -201,8 +170,7 @@ agent directory, context fill and conversation id only while the same agent runs
 one snapshot to the next. A Claude that exits to the shell, or a new Claude in the same tab,
 starts blank: the row no longer shows the old worktree's branch, and Cmd+T opens where the shell
 is. The state is not kept either: the tick that finds the tab back at its shell sets it idle at
-once (`StatusEngine.agent_exited`), an exited agent's unseen done included. That is also how a Grok
-session's end shows, since its session-end `Stop` is ignored. An
+once (`StatusEngine.agent_exited`), an exited agent's unseen done included. An
 agent that hands the terminal to another program and gets it back under its own pid comes back
 blank too — Claude's Ctrl+G opening `$EDITOR`. Claude's session file restores its directory in the
 tick that sees it back; the model and context return with the next hook or status-line post.
@@ -210,43 +178,15 @@ tick that sees it back; the model and context return with the next hook or statu
 ## A turn that removes its own checkout
 
 An agent that finishes by merging and deleting its own worktree deletes the directory its process
-runs in. Every hook transport that spawns a command in that directory then fails to fire — Grok
-Build's command hooks always do this; Codex's `Stop` does not, because it travels over MCP instead.
-Left alone, a session like that would sit `working` or `needsInput` forever: no further hook can
-arrive to end its turn.
-
-The daemon's tick settles it instead (`StatusEngine.settle_orphans`). On each tick it checks every
-agent session in `working` or `needsInput`: if `agentCwd` (falling back to the shell's `cwd`) no
-longer exists, it records when the directory was first found missing, and once that has been true
-for `ORPHAN_SETTLE_SECONDS` (10 s) it forces the session to `done` — past any deferred subagent
-completion, since no subagent hook can arrive either. If the directory reappears, or the session
-leaves `working`/`needsInput` on its own first, the record is cleared instead, and any hook for the
-session restarts the 10 seconds: it was spawned in a directory that exists.
-
-"No longer exists" means a `stat` failed with `ENOENT` or `ENOTDIR`. Any other failure — `EACCES` on
-a TCC-protected folder, `EIO`, a stale or unreachable network mount — proves nothing, so the
-directory counts as present. The stats run on a worker thread, and a tick waits a second for them:
-a check that takes longer, or one still stuck from an earlier tick, finds nothing missing, so a
-hung mount stalls neither the daemon nor the hook acks Grok's gates wait on. The 10 seconds are
-timed on the monotonic clock, which an NTP step does not move. A check that raises answers the
-same as one that cannot answer, and its thread is a daemon thread, so one stuck on a dead mount
-cannot hold the daemon open after it quits.
-
-The rule is skipped for harnesses whose real end-of-turn signal survives a removed cwd —
-`END_OF_TURN_SURVIVES_CWD_LOSS = {claude, codex, pi}`, derived from the `HARNESSES` table in
-`aitermd/models.py`, where every per-harness fact the daemon keeps lives: Claude's session file
-would flip a settled tab back to working moments later, and Codex's MCP `Stop` already arrives
-regardless, so for them the rule never runs and there is no pending settle to race. Grok Build gets
-the rule by default, and so does any harness added later, until its driver finds a transport that
-does not spawn into the session's cwd. For one of those unlisted harnesses, a real transition —
-arriving before the 10 seconds are up — always wins and cancels the pending settle; that is what
-the 10 seconds are for.
+runs in. A hook transport that spawns a command in that directory would then fail to fire, and the
+turn would never end. None of the three harnesses uses one: Claude's hooks are HTTP posts, Codex's
+`Stop` travels over MCP, and PI's extension runs inside PI. The daemon therefore has no rule for a
+vanished directory, and a harness added later must find a transport that survives it.
 
 The app waits on the same fact before closing a removed task's window: `forgetRemovedCheckouts`
 keeps its confirmed-removal check, and also waits while any of the task's sessions is still
 `working` or `needsInput`. It closes the window on the first pass after they have all settled, so
-`settle_orphans` — not a fixed poll — is what lets a Grok task whose worktree just vanished finish
-its final message before the window disappears.
+an agent whose worktree just vanished finishes its final message before the window disappears.
 
 ## Why the branch is not iTerm2's to tell
 
@@ -254,7 +194,7 @@ iTerm2's `session.path` is the *shell's* directory. Claude Code chdirs its own p
 enters a worktree, so the shell underneath never moves. Probed live on 17 Sep: four Claude tabs
 all reported the repository root while their processes were inside `.worktrees/*`.
 
-1. The daemon reads the agent's real directory — Claude from its own session file, Codex, Grok
+1. The daemon reads the agent's real directory — Claude from its own session file, and Codex
    and PI from their hook posts — and publishes it as `agentCwd` beside iTerm2's `cwd`.
 2. A row resolves the branch from `agentCwd ?? cwd`, and only for the tab that was *active* in its
    window — that is the tab the keyboard is talking to.

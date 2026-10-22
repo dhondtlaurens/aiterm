@@ -1528,14 +1528,6 @@
             Codex disc. Falls back to <code>hexagon</code>.</div>
         </div>
         <div class="token">
-          <div class="chip" style="background: #000000"></div>
-          <div><div class="name">grok</div><div class="value">#000000</div><div class="appkit">Brand(0x000000)</div></div>
-          <div class="use">xAI's mark — Grok has no brand colour. Its inner cut needs
-            <code>evenOdd</code>, the one <code>Brand</code> that does: SVG's default nonzero
-            winding rule would fill it in instead of leaving a hole. Falls back to
-            <code>circle.slash</code>.</div>
-        </div>
-        <div class="token">
           <div class="chip wash" style="--w: rgba(38,132,255,0.18)"></div>
           <div><div class="name">Brand.wash</div><div class="value">brand colour · 18 %</div><div class="appkit">color.opacity(0.18)</div></div>
           <div class="use">A brand's colour as a faint wash behind a label in its own ink — a ticket's
@@ -1552,13 +1544,13 @@
           <div class="chip" style="background: #FFFFFF"></div>
           <div><div class="name">markPaper <span class="alias">= onAccent</span></div><div class="value">#FFFFFF</div></div>
           <div class="use">The white of a round vendor mark: the Codex and GitLab discs, and the logo on
-            Claude's, Jira's, Pi's, Grok's and the shell's. Also the disc of a <code>SymbolMark</code>
+            Claude's, Jira's, Pi's and the shell's. Also the disc of a <code>SymbolMark</code>
             in its <code>.paper</code> style: the footer's Mac readings row and the Mac card.</div>
         </div>
         <div class="token">
           <div class="chip" style="background: #000000"></div>
           <div><div class="name">markInk</div><div class="value">#000000</div><div class="appkit">Color.black</div></div>
-          <div class="use">The black of a round vendor mark: the Pi, Grok and shell discs, and the glyph on a
+          <div class="use">The black of a round vendor mark: the Pi and shell discs, and the glyph on a
             <code>.paper</code> <code>SymbolMark</code>.</div>
         </div>
       </div>
@@ -2363,10 +2355,6 @@
                   </span>Codex</span>
                 <span>
                   <span class="mark" style="width: 16px; height: 16px; background: #000000">
-                    <svg width="11.2" height="11.2" style="transform: translate(-0.32px, 0)" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FFFFFF" fill-rule="evenodd" d="M9.27 15.29l7.978-5.897c.391-.29.95-.177 1.137.272.98 2.369.542 5.215-1.41 7.169-1.951 1.954-4.667 2.382-7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562-.953 2.341-2.344 3.066-5.539 2.388-8.42l.006.007c-.983-4.232.242-5.924 2.75-9.383.06-.082.12-.164.179-.248l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792-2.67-2.31-6.801.071-9.184 1.761-1.763 4.647-2.483 7.166-1.425l2.705-1.25a7.808 7.808 0 00-1.829-1A8.975 8.975 0 005.984 5.83c-2.533 2.536-3.33 6.436-1.962 9.764 1.022 2.487-.653 4.246-2.34 6.022-.599.63-1.199 1.259-1.682 1.925l7.62-6.815"/></svg>
-                  </span>Grok Build</span>
-                <span>
-                  <span class="mark" style="width: 16px; height: 16px; background: #000000">
                     <svg width="7.68" height="7.68" style="transform: translate(0.58px, 0)" viewBox="0 0 560 560" aria-hidden="true"><path fill="#FFFFFF" d="M420 280H280V140H0V0H420V280Z"/><path fill="#FFFFFF" d="M560 560H420V280H560V560Z"/><path fill="#FFFFFF" d="M140 560H0V140H140V280H280V420H140V560Z"/></svg>
                   </span>PI</span>
               </div>
@@ -2573,7 +2561,7 @@
             <tr><td>BackgroundCardView</td><td>The card a background mark opens on hover over its row (<code>BackgroundCard</code> says it, <code>BackgroundCardHover</code> opens and closes it): <code>Turn ended · running in the background</code>, or <code>· 3 running</code>, then a job per line — a shell's command in <code>Typography.mono</code> after <code>apple.terminal</code>, anything else's description in <code>Typography.help</code> after <code>eye</code>. See Background work, below.</td><td>BackgroundCard.swift</td></tr>
             <tr><td>StatusCountChips</td><td>The counts a collapsed project header draws in place of the rows it hides: <code>StatusMark</code> at <code>Size.statusMarkSmall</code> in front of a number.</td><td>StatusCountChips.swift</td></tr>
             <tr><td>AvatarGroupView</td><td>A fixed column two marks wide (31 pt), so every row's title starts at the same x: stacked <code>VendorMark</code>s at <code>Size.avatar</code>, at most two — a third agent turns the second slot into "+n" (<code>SidebarModel.avatarMax</code>) — each ringed in the row's own <code>occludingBackground</code>, with a hand-drawn circle — <code>Palette.controlActive</code> under "+n" at <code>Typography.micro</code> — in the last slot, not a <code>Badge</code>. (<code>BranchLabelView</code> below is the one that draws its "+n" with <code>Badge</code>; the app has two "+n" renderings, one rectangular and one circular, a candidate for a future <code>Badge</code> variant.) A task the Operator drives shows its own agents, as any task does.</td><td>AvatarGroupView.swift</td></tr>
-            <tr><td>VendorMark</td><td>The round vendor avatar: a <code>Icon</code> on a filled circle in <code>markPaper</code> or <code>markInk</code> (PI draws <code>Icon(.piBadge)</code>, white on black), or the <code>&gt;_</code> prompt glyph for a shell. Grok Build has no brand colour either, so it takes the same white-on-black disc as PI and the shell. Each logo is placed by <code>LogoFit</code>: a box of 61 % of the diameter by default, sized down and nudged for a logo that carries more ink or leans off-centre (PI at 48 %, Jira at 55 %), so every mark covers about 18 % of its disc with its mass on the centre — except Grok, whose long diagonal reaches the disc's edge before its ink does: nothing here clips to the circle, so widening its box past 70 % pushes its tips outside the disc. Containment wins, so Grok stays at 70 % (dx nudged back from the right) and covers only about 14 % of its disc. <code>marks.png</code> from <code>scripts/snapshots.sh</code> is where they are measured — check both the ink and that no glyph pixel lands outside the disc.</td><td>VendorMark.swift</td></tr>
+            <tr><td>VendorMark</td><td>The round vendor avatar: a <code>Icon</code> on a filled circle in <code>markPaper</code> or <code>markInk</code> (PI draws <code>Icon(.piBadge)</code>, white on black), or the <code>&gt;_</code> prompt glyph for a shell. Each logo is placed by <code>LogoFit</code>: a box of 61 % of the diameter by default, sized down and nudged for a logo that carries more ink or leans off-centre (PI at 48 %, Jira at 55 %), so every mark covers about 18 % of its disc with its mass on the centre. <code>marks.png</code> from <code>scripts/snapshots.sh</code> is where they are measured — check both the ink and that no glyph pixel lands outside the disc.</td><td>VendorMark.swift</td></tr>
             <tr><td>BranchLabelView</td><td>A row's branch, last on its badge line: the name in <code>Typography.mono</code> and the surface's <code>secondaryInk</code>, as plain text that selects the row like the rest of it, plus a <code>Badge</code> "+n", <code>Space.snug</code> after it, when the window has other branches open. The name is the only thing allowed to truncate, and it truncates in the middle; "+n" keeps its width however narrow the row gets. A drifted branch — the agent is not on the branch the row is bound to — is <code>Palette.amber</code>, and the tooltip names both.</td><td>BranchLabelView.swift</td></tr>
             <tr><td>ToastView</td><td>A transient confirmation: an SF Symbol label at <code>Typography.label</code> — a checkmark unless the toast names its own symbol (Backpack Mode's are <code>iphone</code>, <code>BackpackController.symbol</code>).</td><td>ToastView.swift</td></tr>
             <tr><td>ProviderIcon</td><td>The provider mark beside a project name, centred in a <code>Size.avatar</code> square so the name lines up with the avatars below; no tile behind it. The four-colour tanuki for GitLab, <code>arrow.triangle.branch</code> for plain git and <code>folder.fill</code> for a folder, the two symbols in the surface's <code>secondaryInk</code>.</td><td>SidebarRows.swift</td></tr>

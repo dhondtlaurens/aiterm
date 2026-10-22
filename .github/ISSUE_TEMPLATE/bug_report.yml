@@ -29,7 +29,7 @@ body:
     attributes:
       label: Agents involved
       multiple: true
-      options: [Claude Code, Codex, Grok Build, PI, None]
+      options: [Claude Code, Codex, PI, None]
   - type: textarea
     id: what
     attributes:
