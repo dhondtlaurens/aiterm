@@ -36,12 +36,26 @@ public struct TaskLiveFacts: Equatable, Sendable {
     public var background: [String]
     /// The prompt you typed into one of its workers yourself, for the turn it started (`SessionInfo.yourPrompt`).
     public var yourPrompt: String?
+    /// What its first worker's ended turn left (spec §J), read once each turn ends and only while that worker is idle at its
+    /// prompt or done: its last message, and how many commits its branch has past where its work starts (a working task's
+    /// only, `Repository.commitsAhead`; nil while unknown).
+    public var lastMessage: String?, commitsAhead: Int?
+    /// An accepted, inReview or published task's worktree moved on from its accepted commit (`WorkerTurn.changedAfterAcceptance`).
+    public var changedAfterAcceptance: Bool
+    /// Its first worker ended its turn and AiTerm is still reading it: not ready until what the turn left is known.
+    public var turnUnread: Bool
 
     public init(status: SessionState? = nil, lastCommit: String? = nil, summary: String? = nil, waitingPrompt: String? = nil,
-                tabs: [Tab] = [], background: [String] = [], yourPrompt: String? = nil) {
+                tabs: [Tab] = [], background: [String] = [], yourPrompt: String? = nil, lastMessage: String? = nil,
+                commitsAhead: Int? = nil, changedAfterAcceptance: Bool = false, turnUnread: Bool = false) {
         self.status = status; self.lastCommit = lastCommit; self.summary = summary; self.waitingPrompt = waitingPrompt
         self.tabs = tabs; self.background = background; self.yourPrompt = yourPrompt
+        self.lastMessage = lastMessage; self.commitsAhead = commitsAhead; self.changedAfterAcceptance = changedAfterAcceptance
+        self.turnUnread = turnUnread
     }
+
+    /// Its first worker is idle at its prompt or done: what its turn left is its final word.
+    var turnEnded: Bool { status == .idle || status == .done }
 }
 
 /// What AiTerm knows beyond `state.json` that belongs to the whole operation rather than one task:
@@ -200,12 +214,20 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         }
     }
 
+    /// A worker whose turn ended with a question (spec §J), on a task in any state: `question` is its last paragraph
+    /// (`WorkerTurn.question`). Read it, and answer with message_task, before acting on the task.
+    public struct WorkerAsk: Encodable, Equatable, Sendable {
+        public var key: String, question: String
+        public init(key: String, question: String) { self.key = key; self.question = question }
+    }
+
     public struct Obligations: Encodable, Equatable, Sendable {
         public var questionsWaiting: [Question]
         /// Task keys whose worker waits on a prompt for you; the operator only tells you. A prompt in an extra tab
         /// names it after its task's key: `PAY-2/tests`.
         public var promptsWaitingOnYou: [String]
-        /// Working tasks whose worker ended its turn: check the result, then `mark_task`.
+        /// Working tasks whose worker ended its turn with no question and a commit past where its work starts: check the
+        /// result, then `mark_task`.
         public var readyForAcceptance: [String]
         /// Working tasks whose worker ended its turn with work still running in the background, which wakes it again
         /// once it ends: not ready yet. Each task's line says what runs.
@@ -214,11 +236,22 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var uncertain: [String]
         /// Tasks whose worker committed off its task branch (`TaskLine.branchDrift`): its work isn't where AiTerm reads it.
         public var branchDrift: [String]
+        /// Workers that ended their turn asking something, on tasks in any state (spec §J). A working one is not ready.
+        public var workerAsks: [WorkerAsk]
+        /// Accepted, inReview or published tasks whose worktree moved on from the accepted commit once their worker's turn
+        /// ended: changes not committed, or another HEAD. Someone worked there after the acceptance.
+        public var changedAfterAcceptance: [String]
+        /// Working tasks whose worker ended its turn with no commit past where its work starts (spec §E): not ready; mark it
+        /// noChange or steer it.
+        public var finishedWithoutCommit: [String]
         public init(questionsWaiting: [Question] = [], promptsWaitingOnYou: [String] = [], readyForAcceptance: [String] = [],
-                    background: [String] = [], possiblyStalled: [String] = [], uncertain: [String] = [], branchDrift: [String] = []) {
+                    background: [String] = [], possiblyStalled: [String] = [], uncertain: [String] = [], branchDrift: [String] = [],
+                    workerAsks: [WorkerAsk] = [], changedAfterAcceptance: [String] = [], finishedWithoutCommit: [String] = []) {
             self.questionsWaiting = questionsWaiting; self.promptsWaitingOnYou = promptsWaitingOnYou
             self.readyForAcceptance = readyForAcceptance; self.background = background; self.possiblyStalled = possiblyStalled
             self.uncertain = uncertain; self.branchDrift = branchDrift
+            self.workerAsks = workerAsks; self.changedAfterAcceptance = changedAfterAcceptance
+            self.finishedWithoutCommit = finishedWithoutCommit
         }
     }
 
@@ -240,6 +273,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         let keys = Dictionary(items.compactMap { item in item.operated.map { (item.id, $0.key) } }, uniquingKeysWith: { first, _ in first })
         var lines: [TaskLine] = []
         var prompts: [String] = [], ready: [String] = [], background: [String] = [], stalled: [String] = [], uncertain: [String] = [], drift: [String] = []
+        var asks: [WorkerAsk] = [], changed: [String] = [], noCommit: [String] = []
         for item in items {
             guard let o = item.operated else { continue }
             let facts = live[item.id] ?? TaskLiveFacts()
@@ -255,12 +289,20 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 yourPrompt: facts.yourPrompt,
                 // As on its card: a task finished or taken over is past the refusal.
                 mergeRefusal: o.takenOver || o.isFinished ? nil : o.publication?.mergeRefusal))
+            // What the first worker's ended turn left, on a task in any state but yours (spec §J): a new turn is at work.
+            let turn = facts.turnEnded && !o.takenOver && o.state != .stopped
+            let asking = turn && WorkerTurn.endsWithQuestion(facts.lastMessage)
+            if asking, let message = facts.lastMessage { asks.append(WorkerAsk(key: o.key, question: WorkerTurn.question(message))) }
+            if turn, facts.changedAfterAcceptance, [.accepted, .inReview, .published].contains(o.state) { changed.append(o.key) }
             let tabPrompts = facts.tabs.filter { $0.waitingPrompt != nil }.map { "\(o.key)/\($0.key)" }
             if facts.waitingPrompt != nil || !tabPrompts.isEmpty {
                 // Only a prompt open in a terminal is listed: the task's key stands for its first worker's prompt.
                 prompts += (facts.waitingPrompt != nil ? [o.key] : []) + tabPrompts
-            } else if !o.flags.contains(.waitingOnYou), isReadyForAcceptance(o, live: facts.status, extraTabs: facts.tabs.map(\.counted)) {
-                if facts.background.isEmpty { ready.append(o.key) } else { background.append(o.key) }
+            } else if !o.flags.contains(.waitingOnYou), !facts.turnUnread,
+                      isReadyForAcceptance(o, live: facts.status, extraTabs: facts.tabs.map(\.counted), asks: asking) {
+                if !facts.background.isEmpty { background.append(o.key) }
+                else if facts.commitsAhead == 0 { noCommit.append(o.key) }
+                else { ready.append(o.key) }
             }
             if o.flags.contains(.possiblyStalled) { stalled.append(o.key) }
             if o.flags.contains(.uncertain) { uncertain.append(o.key) }
@@ -280,18 +322,19 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                     Question(key: $0.id, text: $0.text, task: $0.task.flatMap { keys[$0] }, askedAt: $0.askedAt)
                 },
                 promptsWaitingOnYou: prompts, readyForAcceptance: ready, background: background, possiblyStalled: stalled, uncertain: uncertain,
-                branchDrift: drift))
+                branchDrift: drift, workerAsks: asks, changedAfterAcceptance: changed, finishedWithoutCommit: noCommit))
     }
 
     /// A working task whose every worker ended its turn, idle at its prompt or done, with nothing left running in the
     /// `background`, and not yours: its result waits for the Operator's check. `status` is its first worker's;
     /// `extraTabs` its extra tabs' (`WorkerTab.status`), where nil is one closed, no worker any more. A prompt waiting
-    /// on you is told apart by the caller.
+    /// on you is told apart by the caller. Its worker's turn ended with a question (`asks`), or with no commit past where
+    /// its work starts (`commitsAhead` 0; nil is unknown), is not ready either (spec §E).
     public static func isReadyForAcceptance(_ task: OperatedTask, live status: SessionState?, extraTabs: [SessionState?] = [],
-                                            background: [String] = []) -> Bool {
+                                            background: [String] = [], asks: Bool = false, commitsAhead: Int? = nil) -> Bool {
         let ended: (SessionState?) -> Bool = { $0 == .idle || $0 == .done }
         return task.state == .working && !task.takenOver && ended(status) && extraTabs.allSatisfy { $0 == nil || ended($0) }
-            && background.isEmpty
+            && background.isEmpty && !asks && commitsAhead != 0
     }
 
     /// The task's worker tabs as its line lists them, the first worker as `main`; nil when it has no extra tab.

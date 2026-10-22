@@ -217,6 +217,79 @@ import Foundation
         #expect(status.obligations.readyForAcceptance == ["B"])
     }
 
+    // -- a worker's turn, seen on every task (spec §E, §J) ------------------------------------------------
+
+    /// One task in `state` whose first worker is `live` with what its last turn left: `turn` as the controller reads it.
+    private func turn(_ state: OperatedState, live: SessionState? = .idle, lastMessage: String? = nil, commitsAhead: Int? = nil,
+                      changed: Bool = false, accepted: Bool = false) throws -> RunStatus {
+        var b = F.task("B", state)
+        if accepted { b.operated?.acceptance = F.acceptance("4f2a91c") }
+        let facts = TaskLiveFacts(status: live, lastMessage: lastMessage, commitsAhead: commitsAhead, changedAfterAcceptance: changed)
+        return try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1, live: [b.id: facts]))
+    }
+
+    /// A worker that ended its turn asking something has not finished: the Operator answers it, then reads the result.
+    @Test func aWorkingWorkerThatAsksIsNotReady() throws {
+        let status = try turn(.working, lastMessage: "Tests pass.\n\nShould I also bump eslint?", commitsAhead: 2)
+        #expect(status.obligations.readyForAcceptance.isEmpty)
+        #expect(status.obligations.workerAsks == [RunStatus.WorkerAsk(key: "B", question: "Should I also bump eslint?")])
+        #expect(status.obligations.finishedWithoutCommit.isEmpty)
+        #expect(!RunStatus.isReadyForAcceptance(F.operated("B", .working), live: .idle, asks: true))
+    }
+
+    /// A turn that ended with nothing committed past the base is not ready, and still wakes the Operator, listed.
+    @Test func noCommitIsNotReadyButIsListed() throws {
+        let status = try turn(.working, lastMessage: "Nothing to update.", commitsAhead: 0)
+        #expect(status.obligations.readyForAcceptance.isEmpty)
+        #expect(status.obligations.finishedWithoutCommit == ["B"])
+        #expect(status.obligations.workerAsks.isEmpty)
+        #expect(!RunStatus.isReadyForAcceptance(F.operated("B", .working), live: .idle, commitsAhead: 0))
+        let json = String(decoding: try status.json(), as: UTF8.self)
+        #expect(json.contains(#""finishedWithoutCommit":["B"]"#))
+    }
+
+    /// A turn with a commit and no question is ready, as is one AiTerm couldn't count the commits of.
+    @Test func aCleanTurnWithACommitIsReady() throws {
+        let status = try turn(.working, lastMessage: "Added the endpoint. All tests pass.", commitsAhead: 1)
+        #expect(status.obligations.readyForAcceptance == ["B"])
+        #expect(status.obligations.workerAsks.isEmpty && status.obligations.finishedWithoutCommit.isEmpty)
+        #expect(try turn(.working, commitsAhead: nil).obligations.readyForAcceptance == ["B"], "an unread turn reads as before")
+        #expect(RunStatus.isReadyForAcceptance(F.operated("B", .working), live: .idle, commitsAhead: 1))
+        let b = F.task("B", .working)
+        let unread = try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1,
+                                                  live: [b.id: TaskLiveFacts(status: .idle, turnUnread: true)]))
+        #expect(unread.obligations.readyForAcceptance.isEmpty, "a turn AiTerm is still reading is not ready yet")
+    }
+
+    /// A task in review is not working, yet its worker's question reaches the Operator all the same.
+    @Test func anInReviewWorkerThatAsksIsListed() throws {
+        let status = try turn(.inReview, lastMessage: "I fixed the lint.\n\nShould I commit it and push again?", accepted: true)
+        #expect(status.obligations.workerAsks == [RunStatus.WorkerAsk(key: "B", question: "Should I commit it and push again?")])
+        #expect(status.obligations.readyForAcceptance.isEmpty && status.obligations.finishedWithoutCommit.isEmpty)
+    }
+
+    /// Work done in an accepted task's worker after its acceptance, a dirty worktree or a HEAD past the accepted commit,
+    /// is listed on accepted, inReview and published tasks; never on a working one.
+    @Test func workDoneAfterAcceptanceIsListed() throws {
+        let dirty = WorkerTurn.changedAfterAcceptance(porcelain: " M src/app.ts", head: "4f2a91c", accepted: "4f2a91c")
+        let moved = WorkerTurn.changedAfterAcceptance(porcelain: "", head: "b0b0b0b", accepted: "4f2a91c")
+        #expect(dirty && moved)
+        for state in [OperatedState.accepted, .inReview, .published] {
+            #expect(try turn(state, changed: dirty, accepted: true).obligations.changedAfterAcceptance == ["B"], "\(state)")
+        }
+        #expect(try turn(.working, changed: true).obligations.changedAfterAcceptance.isEmpty)
+        #expect(try turn(.accepted, changed: false, accepted: true).obligations.changedAfterAcceptance.isEmpty)
+    }
+
+    /// A worker whose next turn started is at work: what its last turn said is gone from the obligations.
+    @Test func aNewTurnClearsTheAsk() throws {
+        let asked = "Should I also bump eslint?"
+        #expect(try turn(.working, live: .idle, lastMessage: asked).obligations.workerAsks.count == 1)
+        let next = try turn(.working, live: .working, lastMessage: asked, commitsAhead: 0)
+        #expect(next.obligations.workerAsks.isEmpty && next.obligations.finishedWithoutCommit.isEmpty)
+        #expect(try turn(.accepted, live: .working, changed: true, accepted: true).obligations.changedAfterAcceptance.isEmpty)
+    }
+
     @Test func anUnknownRunHasNoSnapshot() {
         #expect(RunStatus.build(state: .empty, run: UUID(), revision: 1, live: [:]) == nil)
     }

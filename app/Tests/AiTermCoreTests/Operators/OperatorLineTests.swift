@@ -295,6 +295,24 @@ import Testing
                                   sessions: [OperatorUIFixtures.tab("s1", of: codex, .idle)]) == OperatorLine("Operator checking the work", look: .acting))
     }
 
+    /// A working task whose worker ended its turn asking something is the Operator's to answer, and one that ended with no
+    /// commit is not ready either: the line says which (spec §E). A finished task keeps its ending whatever its worker did.
+    @Test func aTurnThatAsksOrCommittedNothingSaysSo() {
+        let run = OperatorUIFixtures.run()
+        let working = task(run: run, .working)
+        func line(_ task: TaskItem, _ turn: WorkerTurn.Ending?, _ state: SessionState = .idle) -> OperatorLine? {
+            OperatorLine.task(task, run: run, acting: nil, requests: [], sessions: [OperatorUIFixtures.tab("s1", of: task, state)], turn: turn)
+        }
+        #expect(line(working, .asks) == OperatorLine("asking the Operator", look: .acting))
+        #expect(line(working, .noCommit) == OperatorLine("finished, no commit", look: .acting))
+        #expect(line(working, nil) == OperatorLine("ready for the Operator", look: .acting))
+        #expect(line(working, .noCommit, .working) == OperatorLine("Operator watching", look: .acting), "a new turn is at work")
+        let accepted = task(run: run, .accepted, sha: "4f2a91cdeadbeef")
+        #expect(line(accepted, .asks) == OperatorLine("done · 4f2a91c", look: .ended))
+        #expect(line(task(run: run, .published, end: .merge, sha: "9b3e07d1234"), .asks)?.text == "merged · 9b3e07d")
+        #expect(line(task(run: run, .inReview), .asks) == OperatorLine("in review"))
+    }
+
     /// A driven task with several worker tabs keeps one row (P5 A): its line counts the tabs still open, and a
     /// request names the tab that asks.
     @Test func severalWorkerTabsAreCountedAndTheAskingOneNamed() throws {

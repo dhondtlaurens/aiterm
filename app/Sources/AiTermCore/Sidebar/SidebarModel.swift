@@ -402,11 +402,14 @@ public enum SidebarModel {
     struct OperatedLookup {
         var runs: [UUID: OperatorRun] = [:], tasks: [UUID: TaskItem] = [:], acting: [UUID: OperatorAct] = [:]
         var requests: [UUID: [BroadcastRequest]] = [:]
-        init(state: AppState, acting: [UUID: OperatorAct]) {
+        /// How each task's worker ended its last turn (`OperatorActs.turns`).
+        var turns: [UUID: WorkerTurn.Ending] = [:]
+        init(state: AppState, acting: [UUID: OperatorAct], turns: [UUID: WorkerTurn.Ending] = [:]) {
             guard state.tasks.contains(where: { $0.operated != nil }) else { return }
             runs = Dictionary(state.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             tasks = Dictionary(state.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             self.acting = acting
+            self.turns = turns
             // What waits on you, as the notifications say it; no prompt's words are known here.
             for run in runs.values { requests[run.id] = OperatorRequests.open(run: run, state: state, prompts: [:]) }
         }
@@ -454,7 +457,7 @@ public enum SidebarModel {
         let run = task.operated.flatMap { operated.runs[$0.runId] }
         let line = run.flatMap { run in
             OperatorLine.task(task, run: run, acting: operated.acting[task.id], requests: operated.requests[run.id] ?? [],
-                              tasks: operated.tasks, sessions: own)
+                              tasks: operated.tasks, sessions: own, turn: operated.turns[task.id])
         }
         let queued = line != nil && task.isQueuedByOperator
         let status = aggregate(own.map(\.state))

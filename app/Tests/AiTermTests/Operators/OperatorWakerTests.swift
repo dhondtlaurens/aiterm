@@ -274,6 +274,67 @@ import Testing
         #expect(held.requests("session.deliver").count == 2)
     }
 
+    // -- a worker's turn (spec §J) ------------------------------------------------------------------
+
+    /// The run with `tasks`, whose first workers ended their turn as `facts` say, by key.
+    func status(_ tasks: [TaskItem], turns facts: [String: TaskLiveFacts]) -> RunStatus {
+        let live = Dictionary(uniqueKeysWithValues: tasks.compactMap { task in facts[task.operated!.key].map { (task.id, $0) } })
+        return RunStatus.build(state: OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: tasks), run: run.id,
+                               revision: 1, live: live)!
+    }
+
+    /// A worker that ends its turn asking something wakes the Operator with a line that says what kind of news it is; the
+    /// line carries no key, since a key's digits are what a menu opening as it lands could take for its answer, and
+    /// run_status's `workerAsks` names the task. Each of the three kinds has its line; two pieces of news at once are the
+    /// generic line.
+    @Test func aWorkerQuestionWakesTheOperatorNamingTheKind() async throws {
+        let asks = TaskLiveFacts(status: .idle, lastMessage: "Should I also bump eslint?", commitsAhead: 1)
+        let empty = TaskLiveFacts(status: .idle, lastMessage: "Nothing to update.", commitsAhead: 0)
+        let quiet = TaskLiveFacts(status: .working)
+        let tasks = ["PAY-2", "PAY-3"].map { OperatorServiceFixtures.task(in: run, project: project, key: $0, state: .working) }
+        func woken(by news: [String: TaskLiveFacts]) async throws -> [String] {
+            let daemon = RecordingDaemon(), hand = HandSleeper()
+            let waker = OperatorWaker(daemon: { daemon }, session: { [op] _ in op.tab }, awake: { _ in true }, coalesce: .zero,
+                                      sleep: { await hand.sleep($0) })
+            waker.acknowledged(status(tasks, turns: ["PAY-2": quiet, "PAY-3": quiet]), of: run.id)
+            waker.observe(status(tasks, turns: news), of: run.id)
+            await hand.release(1)
+            try await daemon.received("session.deliver")
+            await waker.lastSend?.value
+            return daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
+        }
+        #expect(try await woken(by: ["PAY-2": asks, "PAY-3": quiet]) == ["[AiTerm] one worker asks something, call run_status"])
+        #expect(try await woken(by: ["PAY-2": empty, "PAY-3": quiet]) == ["[AiTerm] one task finished with no commit, call run_status"])
+        #expect(try await woken(by: ["PAY-2": asks, "PAY-3": empty]) == ["[AiTerm] updates waiting, call run_status"])
+    }
+
+    /// Work done in an accepted task's worker after its acceptance wakes the Operator with its own line.
+    @Test func workAfterAcceptanceWakesTheOperatorSayingSo() async throws {
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
+        var accepted = OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .accepted)
+        accepted.operated?.acceptance = TaskAcceptance(resultSHA: "4f2a91c", prerequisiteSHAs: [], checkOutput: "ok", note: nil,
+                                                       at: Date(timeIntervalSince1970: 0))
+        func status(changed: Bool) -> RunStatus {
+            RunStatus.build(state: OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [accepted]), run: run.id,
+                            revision: 1, live: [accepted.id: TaskLiveFacts(status: .idle, changedAfterAcceptance: changed)])!
+        }
+        waker.acknowledged(status(changed: false), of: run.id)
+        waker.observe(status(changed: true), of: run.id)
+        await hand.release(1)
+        try await daemon.received("session.deliver")
+        #expect(lines == ["[AiTerm] one task changed after acceptance, call run_status"])
+    }
+
+    /// The three turn lines are plain: no digit, no one-letter word (`isPlain`, the daemon's `wake_text_problem`).
+    @Test func theTurnLinesArePlain() {
+        for reason in OperatorWaker.turnReasons {
+            #expect(OperatorWaker.isPlain(reason), "\(reason)")
+            #expect(OperatorWaker.line(updates: 1, reason: .init(text: reason, colon: false)) == "[AiTerm] \(reason), call run_status")
+        }
+        #expect(OperatorWaker.turnReasons == ["one worker asks something", "one task changed after acceptance",
+                                              "one task finished with no commit"])
+    }
+
     // -- what a wake line may carry ----------------------------------------------------------------
 
     /// Every reason the app says, the ones that name a task by its key among them, and a few no prompt may read.

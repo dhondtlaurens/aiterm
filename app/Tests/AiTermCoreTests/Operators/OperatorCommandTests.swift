@@ -222,7 +222,8 @@ import Foundation
         // Raised from 300 in the final review's fixes, which made rules true rather than short: the second source a missing
         // prompt needs, the merge on the host the Operator now closes, find_user before asking, and what a local merge pushes.
         // Raised to 475 for the shell: its hard limit and the one mechanics rule that says how the gate's answers are met.
-        #expect(words(largest()) <= today + 475, "\(words(largest())) words")
+        // Raised to 500 for the one rule that workerAsks and changedAfterAcceptance come on tasks in any state (spec §J).
+        #expect(words(largest()) <= today + 500, "\(words(largest())) words")
     }
 
     /// Strong words are kept for the hard limits, so they keep their weight; every other rule says what to do.

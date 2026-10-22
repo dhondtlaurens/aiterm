@@ -154,6 +154,8 @@ extension OperatorToolHandler {
         guard let daemon = daemon() else { throw ToolRefusal("AiTerm’s helper isn’t connected; try again in a moment.") }
         let delivery = try await daemon.deliver(sessionId: tab.sessionId, text: text, ownership: operated.ownership, wake: false,
                                                 worktree: task.worktreePath)
+        // Its worker has the Operator's word: what its last turn asked or left is answered (spec §J).
+        if delivery.result == .delivered, worker.key == nil { onMessaged(task.id) }
         var fields: [String: JSONValue] = ["result": .string(delivery.result.rawValue), "reason": delivery.reason.map(JSONValue.string) ?? .null]
         // Steered, an accepted task is at work again; accepting it on its commit or another says what came of it.
         if delivery.result == .delivered, operated.state == .accepted, reopen(task) { fields["reopened"] = true }

@@ -95,6 +95,8 @@ final class OperatorController {
     @ObservationIgnored let reviewWatcher: ReviewWatcher
     /// That each worker commits on its task branch, read on every reconcile tick.
     @ObservationIgnored let branchWatch: BranchWatch
+    /// What each worker's ended turn left (spec §J), read once each turn ends.
+    @ObservationIgnored let turns: WorkerTurnReader
     @ObservationIgnored private var loop: Task<Void, Never>?
     /// An attach whose first connected snapshot is still to come: it reconciles and sets ownership again.
     @ObservationIgnored private var reattached = false
@@ -146,6 +148,9 @@ final class OperatorController {
             let key = activity.task.flatMap { workspace.state.task(id: $0)?.operated?.key }
             acts.runs[activity.run] = OperatorActs.Broadcast(act: activity.act, task: key)
         }
+        for (task, reading) in turns.readings where !reading.messaged {
+            if let ending = WorkerTurn.ending(lastMessage: reading.lastMessage, commitsAhead: reading.commitsAhead) { acts.turns[task] = ending }
+        }
         return acts
     }
     /// How many lines each run's activity log has been written since this launch: the Operator sheet watches it to
@@ -190,10 +195,17 @@ final class OperatorController {
         reconciler = RunReconciler(workspace: workspace, live: live, starter: starter, tabs: tabs, waker: waker, ports: ports)
         reviewWatcher = ReviewWatcher(workspace: workspace, ports: ports, waker: waker)
         branchWatch = BranchWatch(workspace: workspace, live: live, ports: ports, waker: waker)
+        turns = WorkerTurnReader(workspace: workspace, live: live, ports: ports)
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         workspace.onChange { [weak self] in
+            // A task taken over, stopped or moved on: what its worker's turn left is read again or dropped first.
+            self?.turns.observe()
             self?.observeRuns()
             self?.heardWorkspace()
+        }
+        turns.changed = { [weak self] in
+            self?.observeRuns()
+            self?.changed()
         }
         waker.refused = { [weak self] run, delivery in
             guard let self else { return }
@@ -206,6 +218,8 @@ final class OperatorController {
         starter.onActing = { [weak self] activity, on in self?.setActing(activity, on) }
         tools.onChange = { [weak self] in self?.runChanged($0) }
         tools.onActivity = { [weak self] run in self?.activityWritten[run, default: 0] += 1 }
+        tools.turnReadings = { [weak self] in self?.turns.readings ?? [:] }
+        tools.onMessaged = { [weak self] task in self?.turns.messaged(task) }
         starter.onUncertain = { [weak self] task in
             guard let operated = task.operated else { return }
             self?.waker.say("one task is uncertain: its window has only a shell; no worker is confirmed", to: operated.runId)
@@ -269,20 +283,25 @@ final class OperatorController {
     /// The run as `run_status` would show it now, numbered 0: the waker compares content.
     func status(of run: OperatorRun) -> RunStatus? {
         Self.status(of: run.id, state: workspace.state, sessions: live.sessions, revision: 0,
-                    usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()))
+                    usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turns.readings)
     }
 
-    /// `run_status`'s snapshot: the run from the workspace, each task's live facts from its worker's tab.
-    /// `usage` is each agent's weekly percent (`SidebarModel.weeklyUsage`).
+    /// `run_status`'s snapshot: the run from the workspace, each task's live facts from its worker's tab and what its
+    /// worker's last ended turn left (`WorkerTurnReader.readings`). `usage` is each agent's weekly percent
+    /// (`SidebarModel.weeklyUsage`).
     static func status(of run: UUID, state: AppState, sessions: [SessionInfo], revision: Int,
-                       usage: [AgentKind: Int] = [:]) -> RunStatus? {
-        RunStatus.build(state: state, run: run, revision: revision, live: liveFacts(of: run, state: state, sessions: sessions),
+                       usage: [AgentKind: Int] = [:], turns: [UUID: WorkerTurnReader.Reading]) -> RunStatus? {
+        RunStatus.build(state: state, run: run, revision: revision,
+                        live: liveFacts(of: run, state: state, sessions: sessions, turns: turns),
                         runLive: RunLiveFacts(weeklyUsage: usage))
     }
 
     /// What the tabs say of each of the run's tasks: each worker tab's live status (`WorkerTab`), and the prompt
-    /// each waits on you with (the open question D14 records for it).
-    static func liveFacts(of run: UUID, state: AppState, sessions: [SessionInfo]) -> [UUID: TaskLiveFacts] {
+    /// each waits on you with (the open question D14 records for it). While its first worker is idle or done, what that
+    /// turn left (`turns`, spec §J): a working task whose turn is not read yet, or answered by `message_task` since, is
+    /// `turnUnread`.
+    static func liveFacts(of run: UUID, state: AppState, sessions: [SessionInfo],
+                          turns: [UUID: WorkerTurnReader.Reading]) -> [UUID: TaskLiveFacts] {
         let questions = state.run(id: run)?.questions ?? []
         var facts: [UUID: TaskLiveFacts] = [:]
         for task in state.tasks(inRun: run) {
@@ -295,9 +314,19 @@ final class OperatorController {
                 }
             }
             if tab != nil || prompt != nil || !extra.isEmpty {
-                facts[task.id] = TaskLiveFacts(status: tab?.state, waitingPrompt: prompt, tabs: Array(extra),
-                                               background: workers.flatMap(\.background),
-                                               yourPrompt: workers.lazy.compactMap { $0.session?.yourPrompt }.first)
+                var live = TaskLiveFacts(status: tab?.state, waitingPrompt: prompt, tabs: Array(extra),
+                                         background: workers.flatMap(\.background),
+                                         yourPrompt: workers.lazy.compactMap { $0.session?.yourPrompt }.first)
+                if let tab, live.status == .idle || live.status == .done {
+                    if let turn = turns[task.id], turn.session == tab.sessionId, !turn.messaged {
+                        live.lastMessage = turn.lastMessage
+                        live.commitsAhead = turn.commitsAhead
+                        live.changedAfterAcceptance = turn.changedAfterAcceptance
+                    } else {
+                        live.turnUnread = task.operated?.state == .working
+                    }
+                }
+                facts[task.id] = live
             }
         }
         return facts
@@ -560,6 +589,7 @@ final class OperatorController {
     /// A tab seen before and missing from iTerm2's whole list is a window closed: the run forgets it.
     private func sessionsChanged() {
         stallWatch.observe(live.sessions, at: ports.now())
+        turns.observe()
         let sessions = live.sessions, known = tabsKnown
         var closed: [UUID] = []
         workspace.mutate { state in

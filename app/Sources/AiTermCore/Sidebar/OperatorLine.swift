@@ -57,8 +57,13 @@ public struct OperatorActs: Equatable, Sendable {
 
     public var tasks: [UUID: OperatorAct]
     public var runs: [UUID: Broadcast]
+    /// How each task's worker ended its last turn, where that is not simply done (spec §E): what its line says once the
+    /// turn ended, in place of `ready for the Operator`.
+    public var turns: [UUID: WorkerTurn.Ending]
 
-    public init(tasks: [UUID: OperatorAct] = [:], runs: [UUID: Broadcast] = [:]) { self.tasks = tasks; self.runs = runs }
+    public init(tasks: [UUID: OperatorAct] = [:], runs: [UUID: Broadcast] = [:], turns: [UUID: WorkerTurn.Ending] = [:]) {
+        self.tasks = tasks; self.runs = runs; self.turns = turns
+    }
 
     /// Nothing in flight.
     public static let none = OperatorActs()
@@ -106,9 +111,11 @@ public struct OperatorLine: Equatable, Sendable {
     /// (its card says `taken over`), one the Operator let go of, and every task of an ended broadcast.
     /// `tasks` names the tasks it waits for; without them the parent is "another task". `sessions` are its tabs as
     /// iTerm2 lists them (any others are passed over): they tell a task whose workers all ended their turn, and how
-    /// many worker tabs it has open. Without them it reads as watched.
+    /// many worker tabs it has open. Without them it reads as watched. `turn` is how its worker's last turn ended
+    /// (`OperatorActs.turns`): a working task whose worker asks is `asking the Operator`, one that committed nothing
+    /// `finished, no commit`; any other state keeps its own line.
     public static func task(_ task: TaskItem, run: OperatorRun, acting: OperatorAct?, requests: [BroadcastRequest],
-                            tasks: [UUID: TaskItem] = [:], sessions: [SessionInfo] = []) -> OperatorLine? {
+                            tasks: [UUID: TaskItem] = [:], sessions: [SessionInfo] = [], turn: WorkerTurn.Ending? = nil) -> OperatorLine? {
         guard let operated = task.operated, operated.runId == run.id, !operated.takenOver, operated.state != .stopped,
               run.state != .stopped, run.intent != .stopped else { return nil }
         // A finished task's leftover asks nothing, and a question the Operator asks about it is the Operator's row's,
@@ -134,7 +141,12 @@ public struct OperatorLine: Equatable, Sendable {
         case .working:
             // The Operator holds it: the line moves with the row's mark, whether the agent works or the Operator
             // checks it next. The row's icon names the agent, so the line names the Operator.
-            if !sessions.isEmpty, task.isReadyForAcceptance(in: sessions) { return OperatorLine(Count.ready.words, look: .acting) }
+            // Its worker ended its turn asking the Operator something, or with nothing committed: the Operator's to read.
+            let first = sessions.isEmpty ? nil : task.workerTabs(in: sessions)[0].status
+            if turn == .asks, first == .idle || first == .done { return OperatorLine("asking the Operator", look: .acting) }
+            if !sessions.isEmpty, task.isReadyForAcceptance(in: sessions) {
+                return OperatorLine(turn == .noCommit ? "finished, no commit" : Count.ready.words, look: .acting)
+            }
             // Its turn ended with work running in the background, which wakes it again: still at work.
             let background = task.workerTabs(in: sessions).flatMap(\.background)
             if !background.isEmpty {

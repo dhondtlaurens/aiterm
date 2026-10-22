@@ -221,6 +221,12 @@ def test_message_task_and_read_task_take_a_tab_key_and_reach_the_first_worker_wi
     assert "lastMessage" in tools["read_task"]["inputSchema"]["properties"]["tab"]["description"]
 
 
+def test_message_task_says_messaging_an_accepted_task_reopens_it():
+    description = {tool["name"]: tool for tool in TOOLS}["message_task"]["description"]
+    assert ("Messaging an accepted task that isn't published yet sends it back to working; accept its new commit again."
+            in description)
+
+
 def test_ask_you_lists_a_question_asked_in_chat_and_takes_a_task_only_for_a_stopped_worker():
     tools = {tool["name"]: tool for tool in TOOLS}
     ask = tools["ask_you"]

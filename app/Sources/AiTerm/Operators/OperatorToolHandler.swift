@@ -107,6 +107,10 @@ final class OperatorToolHandler {
     var onActing: @MainActor (OperatorActivity, Bool) -> Void = { _, _ in }
     /// Said after an operator's own change to its run: what may start now starts.
     var onChange: @MainActor (UUID) -> Void = { _ in }
+    /// What each task's worker's last ended turn left (`WorkerTurnReader.readings`), which `run_status` shows.
+    var turnReadings: @MainActor () -> [UUID: WorkerTurnReader.Reading] = { [:] }
+    /// Said once `message_task` delivered to a task's first worker: what its last turn left is answered (spec §J).
+    var onMessaged: @MainActor (UUID) -> Void = { _ in }
     /// Carries out a task's recorded end (G10), past the push hooks when told (`noVerify`): the controller's `TaskFinisher`.
     var finish: @MainActor (UUID, Bool) async -> TaskFinisher.Result = { _, _ in
         TaskFinisher.Result(result: "refused", reason: "AiTerm isn’t ready to publish yet.")
@@ -291,7 +295,7 @@ final class OperatorToolHandler {
 
     func currentStatus(of run: OperatorRun) -> RunStatus? {
         OperatorController.status(of: run.id, state: state, sessions: live.sessions, revision: 0,
-                                  usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()))
+                                  usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turnReadings())
     }
 
     /// The task an operator names in `key`, in this run.

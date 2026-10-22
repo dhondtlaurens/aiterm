@@ -272,7 +272,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           {"task": _TASK, "query": _text("A username or a name, or part of one.")}, ("task", "query")),
     _tool("message_task", "Sends a started task's worker a message, typed into its session by AiTerm's rules. Returns "
           "delivered, partial (pasted, its Enter held back) or refused, with the reason; nothing is retried. A task with tabs "
-          "added by open_tab: tab names the one to message. A key the task has no tab for is refused with its tabs.",
+          "added by open_tab: tab names the one to message. A key the task has no tab for is refused with its tabs. "
+          "Messaging an accepted task that isn't published yet sends it back to working; accept its new commit again.",
           {"task": _TASK, "text": _text("The message."),
            "tab": _text("The key of the tab to message, as run_status lists it. Left out, or main, the first worker.")},
           ("task", "text")),

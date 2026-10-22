@@ -115,7 +115,7 @@ import Testing
     }
 
     /// Past its runtime, a task with a tab still at work is blocked; with every tab idle its work waits for acceptance.
-    @Test func aTaskPastItsRuntimeIsBlockedOnlyWhileATabWorks() throws {
+    @Test func aTaskPastItsRuntimeIsBlockedOnlyWhileATabWorks() async throws {
         let (world, run, task) = try makeWorld(runtimeUsed: 95 * 60)
         show(world, run, task, first: .idle, review: .idle)
         world.controller.reconcileTick()
@@ -123,6 +123,8 @@ import Testing
         world.controller.reconcileTick()
         let waiting = try #require(world.task(task.id)?.operated)
         #expect(waiting.state == .working && waiting.runtimeUsed == 95 * 60, "finished work waits for acceptance, unblocked")
+        // Ready once AiTerm has read what the first worker's turn left (`WorkerTurnReader`).
+        await world.controller.turns.lastRead?.value
         let status = try status(world, run)
         #expect(status.obligations.readyForAcceptance == ["PLUTO-1"])
         show(world, run, task, first: .idle, review: .working)

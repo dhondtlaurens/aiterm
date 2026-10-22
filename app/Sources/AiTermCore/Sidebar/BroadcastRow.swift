@@ -113,7 +113,7 @@ public extension SidebarModel {
                                  diffByTask: [UUID: DiffStat] = [:], acting: OperatorActs = .none) -> BroadcastSection? {
         guard let run = state.activeRun, let header = broadcastRow(state: state, acting: acting, sessions: sessions) else { return nil }
         let tasks = state.tasks(inRun: run.id)
-        let tabs = Tabs(sessions), operated = OperatedLookup(state: state, acting: acting.tasks)
+        let tabs = Tabs(sessions), operated = OperatedLookup(state: state, acting: acting.tasks, turns: acting.turns)
         let rows = tasks.map { taskRow($0, tabs: tabs, operated: operated, branchByCwd: branchByCwd, diffByTask: diffByTask) }
         let requests = OperatorRequests.open(run: run, state: state, prompts: [:])
         return BroadcastSection(header: header,

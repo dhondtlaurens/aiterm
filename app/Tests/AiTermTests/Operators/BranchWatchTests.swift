@@ -116,7 +116,8 @@ import Testing
         #expect(world.task(task.id)?.operated?.branchDrift == nil)
         let current = try #require(world.run(run.id))
         #expect(try #require(world.controller.status(of: current)).obligations.branchDrift.isEmpty)
-        #expect(driftLines(world).isEmpty, "nothing to tell")
+        // The idle worker's turn, once read (`WorkerTurnReader`), is news of its own: no drift is.
+        #expect(!driftLines(world).contains { $0.contains("committed off") }, "nothing to tell")
     }
 
     /// Each worker tab's last message is read once its own turn ended: an extra tab's names a commit off the task

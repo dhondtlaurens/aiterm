@@ -188,7 +188,7 @@ public struct BroadcastBoard: Equatable, Sendable {
             let handed = keepsHanded && Self.handedOnEnd(operated)
             guard operated.state != .stopped || handed else { return nil }
             let card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId, sessions: sessions,
-                                 project: projects.count > 1 ? names[task.projectId] : nil)
+                                 turn: acting.turns[task.id], project: projects.count > 1 ? names[task.projectId] : nil)
             return (handed ? .inProgress : Self.column(of: operated, hasReview: hasReview), card, task.agent)
         }
         let columns = Column.allCases.filter { $0 != .review || hasReview }.map { column in
@@ -257,8 +257,9 @@ public struct BroadcastBoard: Equatable, Sendable {
     // MARK: - A card
 
     private static func card(_ task: TaskItem, _ operated: OperatedTask, run: OperatorRun, acting: OperatorAct?,
-                             requests: [BroadcastRequest], tasks: [UUID: TaskItem], sessions: [SessionInfo], project: String?) -> Card {
-        let line = OperatorLine.task(task, run: run, acting: acting, requests: requests, tasks: tasks, sessions: sessions)
+                             requests: [BroadcastRequest], tasks: [UUID: TaskItem], sessions: [SessionInfo], turn: WorkerTurn.Ending?,
+                             project: String?) -> Card {
+        let line = OperatorLine.task(task, run: run, acting: acting, requests: requests, tasks: tasks, sessions: sessions, turn: turn)
         let takenOver = operated.takenOver
         let mr: (reference: String, host: CodeHost, title: String?)? = task.mr.map { ($0.reference, $0.host, $0.title) }
             ?? operated.publication.flatMap { publication in

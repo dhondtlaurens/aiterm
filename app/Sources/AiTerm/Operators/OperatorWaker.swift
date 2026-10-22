@@ -26,6 +26,8 @@ final class OperatorWaker {
         var acknowledgedStatus: RunStatus?, lastSeen: RunStatus?
         var updates = 0
         var reason: Reason?
+        /// What a worker's ended turn brought, when that is all the news since the Operator last looked (`turnReason`).
+        var turn: String?
         var generation = UUID()
         var armed: Task<Void, Never>?, retrying: Task<Void, Never>?
         var sending: Snapshot?
@@ -37,6 +39,7 @@ final class OperatorWaker {
             generation = UUID()
             updates = 0
             reason = nil
+            turn = nil
             armed?.cancel(); armed = nil
             retrying?.cancel(); retrying = nil
         }
@@ -72,6 +75,8 @@ final class OperatorWaker {
         guard status != wake.lastSeen else { return }
         wake.lastSeen = status
         guard let seen = wake.acknowledgedStatus else { wake.acknowledgedStatus = status; return }
+        // A worker's ended turn says which kind of news it brought (spec §J), while it is the only news since.
+        wake.turn = Self.turnReason(from: seen, to: status)
         guard status != seen else { return }
         wake.updates += 1
         arm(run, wake)
@@ -132,11 +137,38 @@ final class OperatorWaker {
         return wake
     }
 
-    /// The line for `count` updates: the reason when it is the only news and plain enough to type (`isPlain`),
-    /// otherwise that updates wait. Never a count: no line carries a digit.
-    static func line(updates count: Int, reason: Reason?) -> String {
+    /// The line for `count` updates: the reason when it is the only news and plain enough to type (`isPlain`), or with
+    /// no reason a worker's `turn` news (`turnReason`), however many changes brought it; otherwise that updates wait. Never
+    /// a count: no line carries a digit.
+    static func line(updates count: Int, reason: Reason?, turn: String? = nil) -> String {
         if let reason, count <= 1, isPlain(reason.text) { return "[AiTerm] \(reason.text)\(reason.colon ? ":" : ",") call run_status" }
+        if reason == nil, let turn, isPlain(turn) { return "[AiTerm] \(turn), call run_status" }
         return "[AiTerm] updates waiting, call run_status"
+    }
+
+    /// What a worker's ended turn brings, one line per kind (spec §J): a worker that asks something (`workerAsks`), a task
+    /// changed after its acceptance (`changedAfterAcceptance`), a task that finished with no commit
+    /// (`finishedWithoutCommit`). Each names the kind and never the task: a key's digits are what a menu opening as the
+    /// line lands could take for its answer, and `run_status` names the task.
+    static let turnReasons = ["one worker asks something", "one task changed after acceptance", "one task finished with no commit"]
+
+    /// The turn line for the news between `seen`, what the Operator last looked at, and `status`: exactly one new entry in
+    /// the three lists of `turnReasons`, and nothing else it acts on changed but that task leaving ready or background.
+    /// The worker's status moving with its turn's end is part of that news. Nil for any other news, which is the
+    /// generic line, several turns at once among it.
+    static func turnReason(from seen: RunStatus, to status: RunStatus) -> String? {
+        let now = status.obligations, was = seen.obligations
+        let news = [now.workerAsks.map(\.key).filter { key in !was.workerAsks.contains { $0.key == key } },
+                    now.changedAfterAcceptance.filter { !was.changedAfterAcceptance.contains($0) },
+                    now.finishedWithoutCommit.filter { !was.finishedWithoutCommit.contains($0) }]
+        guard news.joined().count == 1, let kind = news.firstIndex(where: { !$0.isEmpty }), let key = news[kind].first else { return nil }
+        func rest(_ obligations: RunStatus.Obligations) -> RunStatus.Obligations {
+            var rest = obligations
+            rest.workerAsks = []; rest.changedAfterAcceptance = []; rest.finishedWithoutCommit = []
+            rest.readyForAcceptance.removeAll { $0 == key }; rest.background.removeAll { $0 == key }
+            return rest
+        }
+        return rest(now) == rest(was) && seen.run == status.run ? turnReasons[kind] : nil
     }
 
     /// Whether `text` may go into a wake line: no digit and no one-letter word, which a menu opening as the
@@ -180,7 +212,7 @@ final class OperatorWaker {
         guard count > 0, wake.sending == nil, awake(run), let daemon = daemon(), let tab = session(run), tab.state != .working
         else { return }
         let snapshot = Snapshot(generation: wake.generation, count: count)
-        let text = Self.line(updates: count, reason: wake.reason)
+        let text = Self.line(updates: count, reason: wake.reason, turn: wake.turn)
         wake.sending = snapshot
         lastSend = Task { [weak self] in
             let delivery = try? await daemon.deliver(sessionId: tab.sessionId, text: text, ownership: 0, wake: true, worktree: nil)
@@ -204,7 +236,7 @@ final class OperatorWaker {
             if delivery.result == .delivered { cleared?(run) }
             wake.retrying?.cancel(); wake.retrying = nil
             wake.updates = max(0, wake.updates - snapshot.count)
-            if wake.updates == 0 { wake.reason = nil }
+            if wake.updates == 0 { wake.reason = nil; wake.turn = nil }
             // A timer that fired during delivery could not send then. Already-coalesced news
             // that arrived meanwhile gets its own wake now.
             if wake.updates > 0, wake.armed == nil { send(run, wake) }
