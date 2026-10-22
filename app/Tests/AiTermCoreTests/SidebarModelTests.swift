@@ -17,6 +17,44 @@ import Synchronization
         #expect(SidebarModel.aggregate([]) == .idle)
     }
 
+    /// A turn that ended with work still running is `background` (proposal Background work on your own tasks B):
+    /// seen or not, above done, below working and needs input, and only for the tabs whose turn ended.
+    @Test func aTurnThatEndedWithWorkStillRunningIsInTheBackground() {
+        let tests = BackgroundJob(kind: .shell, text: "scripts/test.sh all"), ci = BackgroundJob(kind: .monitor, text: "CI on !45")
+        var ended = session("s1", task: "t", agent: .claude, state: .done, tab: 1)
+        ended.background = [tests]
+        #expect(SidebarModel.aggregate(tabs: [ended]) == .background)
+        var seen = ended
+        seen.state = .idle
+        #expect(SidebarModel.aggregate(tabs: [seen]) == .background, "looking at it does not end the work")
+        #expect(SidebarModel.aggregate(tabs: [ended, session("s2", task: "t", agent: .codex, state: .done, tab: 0)]) == .background)
+        #expect(SidebarModel.aggregate(tabs: [ended, session("s2", task: "t", agent: .codex, state: .working, tab: 0)]) == .working)
+        #expect(SidebarModel.aggregate(tabs: [ended, session("s2", task: "t", agent: .codex, state: .needsInput, tab: 0)]) == .needsInput)
+        #expect(SidebarModel.aggregate(tabs: [session("s2", task: "t", agent: .codex, state: .done, tab: 0)]) == .done)
+
+        var other = session("s0", task: "t", agent: .claude, state: .done, tab: 0)
+        other.background = [ci]
+        #expect(SidebarModel.backgroundJobs(of: [ended, other]) == [ci, tests], "in tab order")
+        var restarted = ended
+        restarted.state = .working
+        #expect(SidebarModel.backgroundJobs(of: [restarted]).isEmpty, "a turn under way waits on nothing yet")
+    }
+
+    /// The daemon names each job's kind; one this app does not know reads as a task, described.
+    @Test func aBackgroundJobOfAKindNotKnownReadsAsATask() throws {
+        let json = #"[{"kind": "shell", "text": "npm run dev"}, {"kind": "teammate", "text": "Reviewer"}]"#
+        let jobs = try JSONDecoder().decode([BackgroundJob].self, from: Data(json.utf8))
+        #expect(jobs == [BackgroundJob(kind: .shell, text: "npm run dev"), BackgroundJob(kind: .task, text: "Reviewer")])
+    }
+
+    /// The agent takes its turn up again by itself: nothing for Focus View or the Dock badge, and a collapsed
+    /// header counts it with working.
+    @Test func aRowInTheBackgroundIsNotWaitingOnYou() {
+        #expect(!TaskStatus.background.needsAttention)
+        #expect(SidebarModel.statusCounts(tasks: [taskRow(.background), taskRow(.working)], terminals: [terminalRow(.background)])
+                == [StatusCount(status: .working, count: 3)])
+    }
+
     func taskRow(_ status: TaskStatus) -> TaskRow {
         TaskRow(id: UUID(), title: "t", jiraKey: nil, jiraUrl: nil, mr: nil, branch: .none, avatars: AvatarGroup(marks: [], overflow: 0), status: status)
     }

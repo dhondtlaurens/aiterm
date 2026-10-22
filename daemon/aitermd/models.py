@@ -180,6 +180,17 @@ class RawSession:
     active: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class BackgroundJob:
+    """One piece of work a Claude turn left running when it ended (a Stop's `background_tasks`): a `shell` by its
+    command, a `monitor` or any other `task` by its description. The app marks the two kinds apart."""
+    kind: Literal["shell", "monitor", "task"]
+    text: str
+
+    def to_json(self) -> dict[str, Any]:
+        return {"kind": self.kind, "text": self.text}
+
+
 @dataclass
 class SessionInfo:
     session_id: str
@@ -221,7 +232,7 @@ class SessionInfo:
     tab_key: str | None = None
     # What its agent left running in the background when its last turn ended, which wakes it again (a Claude Stop's
     # `background_tasks`): a turn ended with this is paused, not finished. Empty once a new turn starts.
-    background: tuple[str, ...] = ()
+    background: tuple[BackgroundJob, ...] = ()
     # The first line of the prompt you typed into this tab yourself, for the turn it started: AiTerm neither launched
     # the agent with it nor delivered it (HookRouter). None once that turn ends, and for every other prompt.
     your_prompt: str | None = None
@@ -233,7 +244,7 @@ class SessionInfo:
             "reasoning": self.reasoning, "state": self.state, "title": self.title, "cwd": self.cwd, "agentCwd": self.agent_cwd,
             "active": self.active, "contextPercent": self.context_percent,
             "conversationId": self.conversation_id, "terminalId": self.terminal_id, "tabKey": self.tab_key,
-            "background": list(self.background), "yourPrompt": self.your_prompt,
+            "background": [job.to_json() for job in self.background], "yourPrompt": self.your_prompt,
         }
 
 

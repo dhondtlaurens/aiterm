@@ -17,6 +17,17 @@ struct StatusMark: View {
     /// design canvas has honoured it since the first artboard; the app never did.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     static let spinDuration = 1.1
+    /// A background mark's turn: slow enough to read as waiting rather than working.
+    static let backgroundSpinDuration = 6.0
+    /// The dashes a background mark's ring is cut into, each a little longer than the gap after it.
+    static let backgroundDashes = 8
+    static let backgroundDashShare = 0.57
+
+    /// A background ring's dash and gap, in points, for a ring of `radius`: `backgroundDashes` of them around it.
+    static func backgroundDash(radius: CGFloat) -> [CGFloat] {
+        let each = 2 * .pi * radius / CGFloat(backgroundDashes)
+        return [each * backgroundDashShare, each * (1 - backgroundDashShare)]
+    }
 
     /// The one spin every working mark shows, in degrees clockwise from three o'clock: a function
     /// of Core Animation's clock and nothing else, so an arc that starts later, comes back from a
@@ -52,6 +63,17 @@ struct StatusMark: View {
             // Amber stays amber on the accent: it reads there, and it is the one being asked for.
             case .needsInput:
                 Circle().strokeBorder(Palette.amber, lineWidth: size * 0.15)
+            // A turn ended with work still running, which wakes the agent again (proposal Background work on your own
+            // tasks B): the ring dashed, turning slowly, in the arc's ink. Reduce Motion keeps it still.
+            case .background:
+                ZStack {
+                    if reduceMotion {
+                        DashedRing(size: size, color: surface.isOnAccent ? Palette.onAccent : Palette.spinner)
+                    } else {
+                        SpinnerArc(size: size, color: surface.isOnAccent ? Palette.onAccent : Palette.spinner, style: .dashed)
+                    }
+                }
+                .padding(size * 0.15 / 2)
             // The accent on the accent is blue on blue, so a selected row's done ring is white, as
             // its arc is.
             case .done:
@@ -75,6 +97,7 @@ struct StatusMark: View {
 private struct SpinnerArc: View {
     let size: CGFloat
     let color: Color
+    var style = SpinningArcView.Style.arc
     #if DEBUG
     @Environment(\.stillSpinners) private var still
     #else
@@ -83,19 +106,36 @@ private struct SpinnerArc: View {
 
     var body: some View {
         if still {
-            Circle().trim(from: 0, to: 0.15).stroke(color, style: StrokeStyle(lineWidth: size * 0.15, lineCap: .round))
-                .rotationEffect(.degrees(300))
+            switch style {
+            case .arc:
+                Circle().trim(from: 0, to: 0.15).stroke(color, style: StrokeStyle(lineWidth: size * 0.15, lineCap: .round))
+                    .rotationEffect(.degrees(300))
+            case .dashed: DashedRing(size: size, color: color)
+            }
         } else {
-            SpinningArc(size: size, color: color)
+            SpinningArc(size: size, color: color, style: style)
         }
+    }
+}
+
+/// A background mark's ring held still: under Reduce Motion, and in snapshots.
+private struct DashedRing: View {
+    let size: CGFloat
+    let color: Color
+
+    var body: some View {
+        // Inside the mark's half-stroke padding, so the path's radius is the padded box's.
+        let radius = size / 2 - size * 0.15 / 2
+        Circle().stroke(color, style: StrokeStyle(lineWidth: size * 0.15, dash: StatusMark.backgroundDash(radius: radius)))
     }
 }
 
 private struct SpinningArc: NSViewRepresentable {
     let size: CGFloat
     let color: Color
+    let style: SpinningArcView.Style
 
-    func makeNSView(context: Context) -> SpinningArcView { SpinningArcView() }
+    func makeNSView(context: Context) -> SpinningArcView { SpinningArcView(style: style) }
 
     func updateNSView(_ view: SpinningArcView, context: Context) {
         #if DEBUG
@@ -107,20 +147,25 @@ private struct SpinningArc: NSViewRepresentable {
 }
 
 /// Layer-hosting, so AppKit leaves its layers to it: the arc is a shape layer turning about the
-/// view's centre. It passes every click through to its row.
+/// view's centre. It passes every click through to its row. A `dashed` one is a background mark's ring:
+/// the whole circle in dashes, on its own slower turn.
 final class SpinningArcView: NSView {
+    enum Style { case arc, dashed }
     static let spinKey = "spin"
     let arc = CAShapeLayer()
+    let style: Style
     var lineWidth: CGFloat = 0 { didSet { if lineWidth != oldValue { needsLayout = true } } }
     var color = NSColor.clear { didSet { if color != oldValue { paint() } } }
+    private var duration: Double { style == .arc ? StatusMark.spinDuration : StatusMark.backgroundSpinDuration }
 
-    init() {
+    init(style: Style = .arc) {
+        self.style = style
         super.init(frame: .zero)
         layer = CALayer()
         wantsLayer = true
         arc.fillColor = nil
-        arc.lineCap = .round
-        arc.strokeEnd = 0.15
+        arc.lineCap = style == .arc ? .round : .butt
+        arc.strokeEnd = style == .arc ? 0.15 : 1
         layer?.addSublayer(arc)
     }
 
@@ -140,6 +185,9 @@ final class SpinningArcView: NSView {
             path.addArc(center: CGPoint(x: bounds.midX, y: bounds.midY), radius: bounds.width / 2,
                         startAngle: 0, endAngle: -2 * .pi, clockwise: true)
             arc.path = path
+            if style == .dashed {
+                arc.lineDashPattern = StatusMark.backgroundDash(radius: bounds.width / 2).map { NSNumber(value: Double($0)) }
+            }
         }
         spin()
     }
@@ -165,11 +213,11 @@ final class SpinningArcView: NSView {
         let turn = CABasicAnimation(keyPath: "transform.rotation.z")
         turn.fromValue = 0
         turn.toValue = -2 * Double.pi
-        turn.duration = StatusMark.spinDuration
+        turn.duration = duration
         turn.repeatCount = .infinity
         turn.isRemovedOnCompletion = false
         let now = CACurrentMediaTime()
-        turn.beginTime = arc.convertTime(now, from: nil) - now.truncatingRemainder(dividingBy: StatusMark.spinDuration)
+        turn.beginTime = arc.convertTime(now, from: nil) - now.truncatingRemainder(dividingBy: duration)
         arc.add(turn, forKey: Self.spinKey)
     }
 

@@ -1,22 +1,35 @@
 import Foundation
 import Synchronization
 
-/// A row's status: its tabs' states, aggregated (`SidebarModel.aggregate`) — the same four a tab
-/// has, so the same type.
-public typealias TaskStatus = SessionState
+/// A row's status: its tabs' states, aggregated (`SidebarModel.aggregate`) — the four a tab has, and
+/// `background`, which no tab reports: a turn that ended with work it left running, which wakes the agent again
+/// (proposal Background work on your own tasks B, 22 Oct 2026).
+public enum TaskStatus: Equatable, Hashable, Sendable, CaseIterable {
+    case idle, working, needsInput, background, done
 
-public extension SessionState {
-    var label: String {
+    /// A tab's state as a row's.
+    public init(_ state: SessionState) {
+        switch state {
+        case .idle: self = .idle
+        case .working: self = .working
+        case .needsInput: self = .needsInput
+        case .done: self = .done
+        }
+    }
+
+    public var label: String {
         switch self {
         case .idle: return "Idle"
         case .working: return "Working"
         case .needsInput: return "Needs input"
+        case .background: return "In background"
         case .done: return "Done"
         }
     }
 
-    /// The two statuses that are yours to act on, which Focus View opens a project for.
-    var needsAttention: Bool { self == .done || self == .needsInput }
+    /// The two statuses that are yours to act on, which Focus View opens a project for. Not `background`: the
+    /// agent takes its turn up again by itself.
+    public var needsAttention: Bool { self == .done || self == .needsInput }
 }
 
 public extension SessionInfo {
@@ -65,6 +78,9 @@ public struct TaskRow: Equatable, Identifiable, Sendable {
     /// broadcast's group, its planned agent as its avatar, its title in secondary ink and the pause sign as its
     /// mark. Selectable, but nothing opens: it has no window yet.
     public var queued = false
+    /// What its tabs left running while its status is `background` (`SidebarModel.backgroundJobs`); the mark's card
+    /// lists them. A driven task's line says it instead (`OperatorLine`), its status held at working.
+    public var background: [BackgroundJob] = []
 }
 /// How far a task's checkout has moved from the branch it started at — a task's base, a review's
 /// merge-request target. The VS Code badge draws only the counts, `+12 −3`; the base it measures
@@ -80,7 +96,11 @@ public struct BaseDiff: Equatable, Sendable {
 }
 /// A terminal row is as live as a task row: the avatars are the agents running in its iTerm2
 /// window and the status is aggregated over them, so starting Claude in a terminal shows up here.
-public struct TerminalRow: Equatable, Identifiable, Sendable { public var id: UUID, name: String, branch: BranchLabel, avatars: AvatarGroup, status: TaskStatus }
+public struct TerminalRow: Equatable, Identifiable, Sendable {
+    public var id: UUID, name: String, branch: BranchLabel, avatars: AvatarGroup, status: TaskStatus
+    /// What its tabs left running while its status is `background` (`SidebarModel.backgroundJobs`).
+    public var background: [BackgroundJob] = []
+}
 /// How many of a project's rows sit in one status — the chips a collapsed project header draws
 /// in place of the task and terminal rows it is hiding.
 public struct StatusCount: Equatable, Sendable {
@@ -236,6 +256,19 @@ public enum SidebarModel {
         return .idle
     }
 
+    /// A row's status from its tabs: as their states say, except that a row whose every tab ended its turn, one of
+    /// them with work still running, is `background` — between working, which wins while any tab works, and done.
+    public static func aggregate(tabs: [SessionInfo]) -> TaskStatus {
+        let status = aggregate(tabs.map(\.state))
+        return (status == .done || status == .idle) && !backgroundJobs(of: tabs).isEmpty ? .background : status
+    }
+
+    /// What a row's tabs that ended their turn left running, in tab order: a tab still at work has started a new
+    /// turn, which waits on nothing yet.
+    public static func backgroundJobs(of tabs: [SessionInfo]) -> [BackgroundJob] {
+        tabs.filter { $0.state == .idle || $0.state == .done }.sorted { $0.tabIndex < $1.tabIndex }.flatMap(\.background)
+    }
+
     /// The order the chips are drawn in: a task's life, left to right. Not the urgency order
     /// `aggregate` uses — these sit still on a header, so a stable reading order beats ranking.
     public static let statusOrder: [TaskStatus] = [.idle, .working, .needsInput, .done]
@@ -244,8 +277,9 @@ public enum SidebarModel {
     /// nothing waiting on it should draw no chip at all rather than a row of zeroes. A collapsed
     /// project hides terminal rows as well as task rows, so its summary includes both — which also
     /// keeps a coding agent launched in a plain terminal visible after collapse.
+    /// A row in the background counts with working: its agent takes the turn up again by itself.
     public static func statusCounts(tasks: [TaskRow], terminals: [TerminalRow] = []) -> [StatusCount] {
-        statusCounts(tasks.map(\.status) + terminals.map(\.status))
+        statusCounts((tasks.map(\.status) + terminals.map(\.status)).map { $0 == .background ? .working : $0 })
     }
 
     private static func statusCounts(_ statuses: [TaskStatus]) -> [StatusCount] {
@@ -303,7 +337,7 @@ public enum SidebarModel {
         counts.map { c in
             switch c.status {
             case .idle: return "\(c.count) idle"
-            case .working: return "\(c.count) working"
+            case .working, .background: return "\(c.count) working"
             case .needsInput: return c.count == 1 ? "1 needs input" : "\(c.count) need input"
             case .done: return "\(c.count) done"
             }
@@ -438,7 +472,7 @@ public enum SidebarModel {
             return TerminalRow(id: term.id, name: term.name,
                                branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: nil, fallback: projectBranch[project.id]),
                                avatars: own.isEmpty ? AvatarGroup(marks: [.shell], overflow: 0) : avatars(for: own),
-                               status: aggregate(own.map(\.state)))
+                               status: aggregate(tabs: own), background: backgroundJobs(of: own))
         }
         let held = rows.held[project.id] ?? []
         return ProjectSection(project: project, tasks: tasks, terminals: terminals,
@@ -457,13 +491,13 @@ public enum SidebarModel {
                               tasks: operated.tasks, sessions: own)
         }
         let queued = line != nil && task.isQueuedByOperator
-        let status = aggregate(own.map(\.state))
+        let status = aggregate(tabs: own)
         return TaskRow(id: task.id, title: task.title, jiraKey: task.jira?.key, jiraUrl: task.jira?.url, mr: task.mr,
                        branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: task.branch, fallback: nil),
                        avatars: queued && own.isEmpty ? AvatarGroup(marks: [task.agent.session], overflow: 0) : avatars(for: own),
                        status: queued ? status : heldStatus(status, line: line),
                        diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line,
-                       broadcastLive: run.map { !$0.hasEnded } ?? false, queued: queued)
+                       broadcastLive: run.map { !$0.hasEnded } ?? false, queued: queued, background: backgroundJobs(of: own))
     }
 
     /// A driven task's status while the Operator holds it, its line neither gone nor ended (P3 1A, 21 Oct
