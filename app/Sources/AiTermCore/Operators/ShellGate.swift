@@ -3,6 +3,9 @@ import Foundation
 /// Sorts a shell command the Operator wants to run into a read that goes ahead at once or one the Oracle
 /// judges first (spec §A.1). It is a pure function of the text: nothing is run, and whenever it is unsure,
 /// which is the answer for anything it does not know by name, the command is `.oracle`, never `.read`.
+///
+/// Every program's options are an allowlist: a flag that is not named, including a clustered short flag
+/// and a long option cut short (git and GNU tools accept `--upload-pa` for `--upload-pack`), is `.oracle`.
 public enum ShellGate {
     public enum Route: Equatable {
         /// Runs at once. `rewrite` is the command to run instead, when the one asked for would show a secret.
@@ -11,12 +14,12 @@ public enum ShellGate {
     }
 
     /// What a bare `env` or `printenv` runs instead: every variable, with the value of any whose name holds
-    /// TOKEN, SECRET, KEY or PASSWORD (in any case) replaced by `***`. A line that does not start `NAME=` is
-    /// the rest of a multi-line value, which could be a private key, so it is dropped. The programs are
-    /// named in full: the command has to work with nothing but `/bin` on the PATH.
+    /// TOKEN, SECRET, KEY or PASSWORD (in any case) replaced by `***`. The variables are read NUL-separated
+    /// and judged one at a time, so a value of several lines is masked whole, and a value that holds a
+    /// line like `NAME=x` is never taken for a variable of its own. The programs are named in full: the
+    /// command has to work with nothing but `/bin` on the PATH.
     public static let maskedEnv = """
-        /usr/bin/env | /usr/bin/awk '/^[A-Za-z_][A-Za-z0-9_]*=/ { name = $0; sub(/=.*/, "", name); \
-        if (toupper(name) ~ /TOKEN|SECRET|KEY|PASSWORD/) print name "=***"; else print $0 }'
+        /usr/bin/env -0 | /usr/bin/tr '\\000' '\\001' | /usr/bin/awk 'BEGIN { RS = "\\001" } /^[A-Za-z_][A-Za-z0-9_]*=/ { name = $0; sub(/=.*/, "", name); if (toupper(name) ~ /TOKEN|SECRET|KEY|PASSWORD/) print name "=***"; else print $0 }'
         """
 
     /// `directory` is where the command runs; every file it names has to sit under one of `roots`, once `resolve`
@@ -39,26 +42,25 @@ public enum ShellGate {
 
     /// The command as its words, one list per segment between `|`, `||`, `&&` and `;`, with quotes taken off
     /// and the harmless redirects dropped. Nil for anything that can run or write something this does not see:
-    /// an expansion (`$`, a backtick), a subshell, a newline, a backslash, a lone `&`, any other redirect, an
-    /// unbalanced quote, or a segment with nothing in it.
+    /// an expansion (`$`, a backtick, and unquoted `{ } * ? [ !`, or a `~` that starts a word), a subshell, a control character (a
+    /// newline, a tab), a non-ASCII character outside quotes, a backslash, a lone `&`, any other redirect, an
+    /// unbalanced quote, or a segment with nothing in it. It walks unicode scalars, not characters: the
+    /// shell parses bytes, and a combining mark after a quote or `;` would otherwise hide it.
     private static func segments(of command: String) -> [[String]]? {
-        if command.contains(where: \.isNewline) { return nil }
-        let characters = Array(command)
+        let scalars = Array(command.unicodeScalars)
+        if scalars.contains(where: { $0.properties.generalCategory == .control }) { return nil }
         var segments: [[String]] = []
         var words: [String] = []
         var word = ""
         var inWord = false
         var quoted = false
         var redirected = false
-        var quote: Character?
+        var quote: Unicode.Scalar?
 
         func endWord() -> Bool {
             defer { word = ""; inWord = false; quoted = false; redirected = false }
             guard inWord else { return true }
-            if redirected {
-                guard !quoted, harmlessRedirects.contains(word) else { return false }
-                return true
-            }
+            if redirected { return !quoted && harmlessRedirects.contains(word) }
             words.append(word)
             return true
         }
@@ -70,22 +72,27 @@ public enum ShellGate {
         }
 
         var i = 0
-        while i < characters.count {
-            let c = characters[i]
-            let next = i + 1 < characters.count ? characters[i + 1] : nil
+        while i < scalars.count {
+            let c = scalars[i]
+            let next = i + 1 < scalars.count ? scalars[i + 1] : nil
             i += 1
             if let open = quote {
                 if c == open { quote = nil; continue }
-                if open == "\"", ["\\", "$", "`"].contains(c) { return nil }
-                word.append(c)
+                if open == "\"", c == "\\" || c == "$" || c == "`" { return nil }
+                word.unicodeScalars.append(c)
                 continue
             }
+            guard c.isASCII else { return nil }
             switch c {
             case "'", "\"":
                 quote = c; inWord = true; quoted = true
-            case "\\", "$", "`", "(", ")":
+            case "\\", "$", "`", "(", ")", "{", "}", "*", "?", "[", "!":
                 return nil
-            case " ", "\t":
+            case "~":
+                // Tilde expansion needs a word that starts with it (or one after `=` or `:`); `HEAD~1` is only a revision.
+                guard inWord, let last = word.unicodeScalars.last, last != "=", last != ":", last != "<", last != ">" else { return nil }
+                word.unicodeScalars.append(c)
+            case " ":
                 guard endWord() else { return nil }
             case ";":
                 guard endSegment() else { return nil }
@@ -94,7 +101,7 @@ public enum ShellGate {
                 if next == "|" { i += 1 }
             case "&":
                 if next != "&", inWord, !quoted, word == "2>" {
-                    word.append(c)
+                    word.unicodeScalars.append(c)
                 } else if next == "&" {
                     guard endSegment() else { return nil }
                     i += 1
@@ -102,13 +109,64 @@ public enum ShellGate {
                     return nil
                 }
             case "<", ">":
-                word.append(c); inWord = true; redirected = true
+                word.unicodeScalars.append(c); inWord = true; redirected = true
             default:
-                word.append(c); inWord = true
+                word.unicodeScalars.append(c); inWord = true
             }
         }
         guard quote == nil, endSegment() else { return nil }
         return segments
+    }
+
+    // MARK: Options
+
+    private static func isOption(_ word: String) -> Bool { word.hasPrefix("-") && word.count > 1 }
+
+    private static func matches(_ word: String, _ pattern: String) -> Bool {
+        word.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    /// What a program is allowed to be given. Every option has to be named: a switch, a flag with a value
+    /// (the next word, or `--name=value` for a long one) that the value check accepts, or a whole-word
+    /// pattern for the ones with a number in them.
+    private struct Options {
+        var switches: Set<String> = []
+        var values: [String: (String) -> Bool] = [:]
+        var patterns: [String] = []
+        var positionals: ClosedRange<Int> = 0...Int.max
+        var positional: (String) -> Bool = { _ in true }
+
+        /// The words that are no option, and the names of the options given; nil when anything is not allowed.
+        func parse(_ args: [String]) -> (words: [String], seen: Set<String>)? {
+            var words: [String] = []
+            var seen: Set<String> = []
+            var ended = false
+            var i = 0
+            while i < args.count {
+                let word = args[i]
+                i += 1
+                if ended || !ShellGate.isOption(word) {
+                    words.append(word)
+                } else if word == "--" {
+                    ended = true
+                } else if switches.contains(word) {
+                    seen.insert(word)
+                } else if let check = values[word] {
+                    guard i < args.count, check(args[i]) else { return nil }
+                    i += 1
+                    seen.insert(word)
+                } else if word.hasPrefix("--"), let equals = word.firstIndex(of: "="),
+                          let check = values[String(word[..<equals])], check(String(word[word.index(after: equals)...])) {
+                    seen.insert(String(word[..<equals]))
+                } else if patterns.contains(where: { ShellGate.matches(word, $0) }) {
+                    seen.insert(word)
+                } else {
+                    return nil
+                }
+            }
+            guard positionals.contains(words.count), words.allSatisfy(positional) else { return nil }
+            return (words, seen)
+        }
     }
 
     // MARK: Judging
@@ -123,7 +181,7 @@ public enum ShellGate {
         /// Built on each use: a table of closures is not Sendable, so it cannot be a stored static.
         static var programs: [String: (Judge) -> ([String]) -> Bool] { [
             "git": Judge.git, "glab": Judge.glab, "gh": Judge.gh, "npm": Judge.npm, "npx": Judge.npx, "node": Judge.node,
-            "which": Judge.which, "type": Judge.which, "command": Judge.commandV, "pwd": Judge.pwd,
+            "which": { _ in { _ in true } }, "type": { _ in { _ in true } }, "command": Judge.commandV, "pwd": Judge.pwd,
             "cat": files("cat"), "head": files("head"), "tail": files("tail"), "ls": files("ls"), "wc": files("wc"),
             "stat": files("stat"), "file": files("file"), "grep": files("grep"), "rg": files("rg"),
         ] }
@@ -156,19 +214,16 @@ public enum ShellGate {
             URL(fileURLWithPath: path).standardized.path
         }
 
-        // MARK: Arguments
+        // MARK: Value checks
 
-        private static func isOption(_ word: String) -> Bool { word.hasPrefix("-") && word.count > 1 }
-
-        /// The letters of a `-abc` cluster; nil for a long option or a word that is no option.
-        private static func letters(_ word: String) -> Substring? {
-            isOption(word) && !word.hasPrefix("--") ? word.dropFirst() : nil
-        }
-
-        /// A long option's name without its dashes or `=value`.
-        private static func name(_ word: String) -> String? {
-            word.hasPrefix("--") ? String(word.dropFirst(2).prefix { $0 != "=" }) : nil
-        }
+        private static func anything(_ value: String) -> Bool { true }
+        private static func digits(_ value: String) -> Bool { ShellGate.matches(value, #"^[0-9]+$"#) }
+        private static func count(_ value: String) -> Bool { ShellGate.matches(value, #"^\+?[0-9]+$"#) }
+        private static func get(_ value: String) -> Bool { value == "GET" }
+        /// A remote or a branch: no `+`, no `:` (a refspec with a destination writes a local branch, a
+        /// URL with `::` runs a helper) and no leading `-`.
+        private static func plainName(_ value: String) -> Bool { ShellGate.matches(value, #"^[A-Za-z0-9][A-Za-z0-9._/-]*$"#) }
+        private static func plainPattern(_ value: String) -> Bool { ShellGate.matches(value, #"^[A-Za-z0-9][A-Za-z0-9._/*-]*$"#) }
 
         // MARK: Programs
 
@@ -184,15 +239,26 @@ public enum ShellGate {
             guard isInside(location), let subcommand = args.first else { return false }
             let rest = Array(args.dropFirst())
             switch subcommand {
-            case "status", "log", "show", "diff", "rev-parse", "merge-base":
-                // Each of these writes or runs a program with the options below, or with `--no-index` reads outside the repository.
-                return !rest.contains { ["output", "ext-diff", "textconv", "no-index"].contains(Judge.name($0) ?? "") || $0.hasPrefix("--output") }
+            case "status":
+                return Options(switches: ["-s", "-b", "--short", "--branch", "--porcelain"]).parse(rest) != nil
+            case "log", "show":
+                return Options(switches: ["--oneline", "--stat", "--name-only", "--name-status", "--graph", "--decorate", "--all", "-p", "--no-ext-diff"],
+                               values: ["-n": Judge.digits],
+                               patterns: [#"^-[0-9]+$"#, #"^--(format|pretty|since|until|author)=.+$"#]).parse(rest) != nil
+            case "diff":
+                return Options(switches: ["--stat", "--name-only", "--name-status", "--cached", "--staged", "--no-ext-diff"],
+                               patterns: [#"^-U[0-9]+$"#]).parse(rest) != nil
+            case "rev-parse":
+                return Options(switches: ["--abbrev-ref", "--short", "--show-toplevel", "--verify", "--symbolic-full-name",
+                                          "--is-inside-work-tree", "--git-dir"]).parse(rest) != nil
+            case "merge-base":
+                return Options(switches: ["--is-ancestor"]).parse(rest) != nil
             case "branch":
                 var i = 0
                 while i < rest.count {
                     if ["-a", "-r", "-v", "-vv", "--list", "--show-current"].contains(rest[i]) {
                         i += 1
-                    } else if rest[i] == "--contains", i + 1 < rest.count, !Judge.isOption(rest[i + 1]) {
+                    } else if rest[i] == "--contains", i + 1 < rest.count, !ShellGate.isOption(rest[i + 1]) {
                         i += 2
                     } else {
                         return false
@@ -203,44 +269,59 @@ public enum ShellGate {
                 return rest == ["list"] || rest == ["list", "--porcelain"]
             case "remote":
                 if rest == ["-v"] { return true }
-                return rest.count == 2 && rest[0] == "get-url" && !Judge.isOption(rest[1])
-            case "ls-remote", "fetch":
-                return !rest.contains { ["upload-pack", "receive-pack", "exec"].contains(Judge.name($0) ?? "") }
+                return rest.count == 2 && rest[0] == "get-url" && !ShellGate.isOption(rest[1])
+            case "ls-remote":
+                return Options(switches: ["--heads", "--tags", "--symref"], positional: Judge.plainPattern).parse(rest) != nil
+            case "fetch":
+                return Options(switches: ["--prune", "--all", "--tags", "--quiet"], positional: Judge.plainName).parse(rest) != nil
             default:
                 return false
             }
         }
 
-        private func glab(_ args: [String]) -> Bool { host(args, groups: ["mr": ["view", "list", "diff"], "ci": ["status", "view", "list"]]) }
-        private func gh(_ args: [String]) -> Bool { host(args, groups: ["pr": ["view", "list", "diff", "checks"], "run": ["view", "list"]]) }
-
-        /// `glab` and `gh`: a few read subcommands, and `api` as long as it is a GET with nothing to send.
-        private func host(_ args: [String], groups: [String: Set<String>]) -> Bool {
-            guard let group = args.first else { return false }
-            if group == "api" { return Judge.isGet(Array(args.dropFirst())) }
-            return args.count >= 2 && groups[group]?.contains(args[1]) == true
+        private func glab(_ args: [String]) -> Bool {
+            host(args, groups: [
+                "mr": ["view": Judge.listing(["--comments", "-c"], positionals: 1),
+                       "list": Judge.listing(["--all", "--closed", "--merged", "--draft", "--not-draft"],
+                                             ["--author", "--assignee", "--reviewer", "--label", "--per-page", "-P", "--page", "-p",
+                                              "--source-branch", "-s", "--target-branch", "-t"]),
+                       "diff": Judge.listing(["--raw"], positionals: 1)],
+                "ci": ["status": Judge.listing([], ["--branch", "-b"]),
+                       "view": Judge.listing([], ["--branch", "-b"], positionals: 1),
+                       "list": Judge.listing([], ["--per-page", "-P", "--page", "-p", "--status", "-s"])],
+            ])
         }
 
-        /// An `api` call that names a path, asks for no method but GET and sends no field or input.
-        private static func isGet(_ args: [String]) -> Bool {
-            var path = false
-            var i = 0
-            while i < args.count {
-                let word = args[i]
-                i += 1
-                if word == "-X" || word == "--method" || word.hasPrefix("--method=") || word.hasPrefix("-X") {
-                    let value = word.hasPrefix("--method=") ? String(word.dropFirst(9))
-                        : word.hasPrefix("-X") && word.count > 2 ? String(word.dropFirst(2))
-                        : i < args.count ? args[i] : ""
-                    if word == "-X" || word == "--method" { i += 1 }
-                    guard value.uppercased() == "GET" else { return false }
-                } else if word.hasPrefix("-f") || word.hasPrefix("-F") || ["field", "raw-field", "input"].contains(name(word) ?? "") {
-                    return false
-                } else if !isOption(word) {
-                    path = true
-                }
+        private func gh(_ args: [String]) -> Bool {
+            let output = ["--json", "--jq", "-q"]
+            return host(args, groups: [
+                "pr": ["view": Judge.listing(["--comments"], output, positionals: 1),
+                       "list": Judge.listing([], output + ["--state", "-s", "--author", "--limit", "-L", "--base", "--head", "--label"]),
+                       "diff": Judge.listing(["--name-only", "--patch"], positionals: 1),
+                       "checks": Judge.listing(["--required"], output, positionals: 1)],
+                "run": ["view": Judge.listing(["--log", "--log-failed", "--verbose", "-v", "--exit-status"], output + ["--job", "-j"], positionals: 1),
+                        "list": Judge.listing([], output + ["--limit", "-L", "--branch", "-b", "--workflow", "-w", "--status", "-s", "--user", "-u"])],
+            ])
+        }
+
+        /// A read subcommand's options: its switches and its flags with a value, `-R`/`--repo` besides.
+        private static func listing(_ switches: [String], _ values: [String] = [], positionals: Int = 0) -> Options {
+            Options(switches: Set(switches), values: Dictionary(uniqueKeysWithValues: Set(values + ["-R", "--repo"]).map { ($0, Judge.anything) }),
+                    positionals: 0...positionals, positional: { !ShellGate.isOption($0) })
+        }
+
+        /// `glab` and `gh`: a few read subcommands, and `api` as a GET of one path that sends nothing.
+        private func host(_ args: [String], groups: [String: [String: Options]]) -> Bool {
+            guard let group = args.first else { return false }
+            let rest = Array(args.dropFirst())
+            if group == "api" {
+                return Options(switches: ["-i", "--include", "--paginate"],
+                               values: ["--jq": Judge.anything, "-q": Judge.anything, "--hostname": Judge.anything,
+                                        "-X": Judge.get, "--method": Judge.get],
+                               positionals: 1...1).parse(rest) != nil
             }
-            return path
+            guard let subcommand = rest.first, let options = groups[group]?[subcommand] else { return false }
+            return options.parse(Array(rest.dropFirst())) != nil
         }
 
         private func npm(_ args: [String]) -> Bool {
@@ -249,7 +330,8 @@ public enum ShellGate {
             switch subcommand {
             case "-v", "--version": return rest.isEmpty
             case "outdated", "ls", "list", "view": return true
-            case "audit": return !rest.contains { $0.drop { $0 == "-" } == "fix" }
+            case "audit":
+                return Options(switches: ["--json"], values: ["--audit-level": Judge.anything], positionals: 0...0).parse(rest) != nil
             case "config":
                 guard let action = rest.first else { return false }
                 if action == "list" { return true }
@@ -260,64 +342,56 @@ public enum ShellGate {
             }
         }
 
-        /// Only npm-check-updates, which changes package.json with `-u`/`--upgrade`, `-i` and `--doctor`.
+        /// Only npm-check-updates, and only the options that report: `-u`/`--upgrade`, `-i` and `--doctor` change things.
         private func npx(_ args: [String]) -> Bool {
             guard let tool = args.first, ["npm-check-updates", "ncu"].contains(tool) else { return false }
-            return !args.dropFirst().contains {
-                let option = Judge.name($0)
-                return option == "upgrade" || option == "doctor" || option == "interactive"
-                    || (Judge.letters($0)?.contains { $0 == "u" || $0 == "i" } ?? false)
-            }
+            let values = ["--format", "--target", "-t", "--filter", "-f", "--reject", "-x"]
+            return Options(switches: ["--workspaces", "--deep", "--peer"],
+                           values: Dictionary(uniqueKeysWithValues: values.map { ($0, Judge.anything) }),
+                           positionals: 0...0).parse(Array(args.dropFirst())) != nil
         }
 
         private func node(_ args: [String]) -> Bool { args == ["-v"] || args == ["--version"] }
-        private func which(_ args: [String]) -> Bool { true }
-        private func commandV(_ args: [String]) -> Bool { args.count == 2 && args[0] == "-v" && !Judge.isOption(args[1]) }
-        private func pwd(_ args: [String]) -> Bool { args.allSatisfy(Judge.isOption) }
+        private func commandV(_ args: [String]) -> Bool { args.count == 2 && args[0] == "-v" && !ShellGate.isOption(args[1]) }
+        private func pwd(_ args: [String]) -> Bool { args.allSatisfy(ShellGate.isOption) }
 
-        /// `cat`, `head`, `tail`, `ls`, `wc`, `stat`, `file`, `grep` and `rg`: every file they name, or the
-        /// directory when they name none, has to be inside the roots, and none of the options that follow
-        /// links, wait, run a program or read the names or patterns from a file may be there. `grep` and `rg`
-        /// always need the directory inside, since they search it with `-r` or none at all.
+        /// `cat`, `head`, `tail`, `ls`, `wc`, `stat`, `file`, `grep` and `rg`: only the options named below
+        /// (none follows a link, waits, runs a program or reads names or patterns from a file), and every file
+        /// they name, or the directory when they name none, inside the roots. `grep` and `rg` always need the
+        /// directory inside, since they search it with `-r` or none at all.
         private func files(_ program: String, _ args: [String]) -> Bool {
-            let searches = program == "grep" || program == "rg"
-            var paths: [String] = []
-            var optionsEnded = false
-            var patternFromOption = false
-            for word in args {
-                if optionsEnded || !Judge.isOption(word) {
-                    paths.append(word)
-                } else if word == "--" {
-                    optionsEnded = true
-                } else if refuses(program, word) {
-                    return false
-                } else if Judge.name(word) == "regexp" || Judge.name(word) == "files" || Judge.letters(word)?.contains("e") == true {
-                    patternFromOption = true
-                }
+            // Annotated: inferred, the merged dictionaries of function references fail a cast at run time.
+            let digits: [String: (String) -> Bool] = ["-A": Judge.digits, "-B": Judge.digits, "-C": Judge.digits, "-m": Judge.digits]
+            let grepValues: [String: (String) -> Bool] = ["-e": Judge.anything, "--regexp": Judge.anything]
+            let rgValues: [String: (String) -> Bool] = ["-e": Judge.anything, "--regexp": Judge.anything, "-g": Judge.anything,
+                                                         "--glob": Judge.anything, "-t": Judge.anything, "--type": Judge.anything]
+            let options: Options
+            switch program {
+            case "cat": options = Options(switches: ["-n"])
+            case "head", "tail": options = Options(values: ["-n": Judge.count, "-c": Judge.count], patterns: [#"^-[0-9]+$"#, #"^-[nc][0-9]+$"#])
+            case "ls": options = Options(patterns: [#"^-[lAahtrS1d]+$"#])
+            case "wc": options = Options(patterns: [#"^-[lwcm]+$"#])
+            case "stat": options = Options(switches: ["-x"])
+            case "file": options = Options(switches: ["-b", "-i"])
+            case "grep":
+                options = Options(values: digits.merging(grepValues) { $1 },
+                                  patterns: [#"^-[rnHhiIcvlwxEFos]+$"#, #"^-[ABCm][0-9]+$"#, #"^--(include|exclude|exclude-dir)=.+$"#])
+            case "rg":
+                options = Options(switches: ["--files", "--hidden", "--no-heading", "--line-number", "--ignore-case", "--smart-case",
+                                             "--fixed-strings", "--word-regexp", "--files-with-matches", "--count"],
+                                  values: digits.merging(rgValues) { $1 },
+                                  patterns: [#"^-[nisSwFlc]+$"#, #"^-[ABCm][0-9]+$"#])
+            default: return false
             }
+            guard let parsed = options.parse(args) else { return false }
+            var paths = parsed.words
             // The first word `grep` and `rg` are given is the pattern, not a file, unless an option gave it
             // (or, for `rg --files`, there is none). Dropping it is safe: no file comes before the pattern.
+            let searches = program == "grep" || program == "rg"
+            let patternFromOption = !parsed.seen.isDisjoint(with: ["-e", "--regexp", "--files"])
             if searches, !patternFromOption, !paths.isEmpty { paths.removeFirst() }
             if searches || paths.isEmpty, !isInside(directory) { return false }
             return paths.allSatisfy(isInside)
-        }
-
-        /// The options of these programs that follow a link, wait for ever, run a program or read names or
-        /// patterns from a file.
-        private func refuses(_ program: String, _ option: String) -> Bool {
-            let name = Judge.name(option), letters = Judge.letters(option)
-            switch program {
-            case "tail": return name == "follow" || letters?.contains { $0 == "f" || $0 == "F" } == true
-            case "wc": return name == "files0-from"
-            case "file": return ["files-from", "magic-file", "compile"].contains(name ?? "") || letters?.contains { "fCm".contains($0) } == true
-            case "grep":
-                return ["file", "exclude-from", "include-from", "dereference-recursive"].contains(name ?? "")
-                    || letters?.contains { $0 == "f" || $0 == "R" } == true
-            case "rg":
-                return ["file", "ignore-file", "ignore-file-case-insensitive", "pre", "pre-glob", "hostname-bin", "follow", "config-path"]
-                    .contains(name ?? "") || letters?.contains { $0 == "f" || $0 == "L" } == true
-            default: return false
-            }
         }
     }
 }

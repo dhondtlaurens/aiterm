@@ -33,7 +33,10 @@ import Testing
             "npm ls", "npm list --depth 0", "npm audit", "npm view react version", "npm config get registry",
             "npm config list", "npm -v", "npm --version", "npx ncu --workspaces",
             "node -v", "node --version", "command -v git", "type git", "pwd",
-            "ls -la", "head -n 5 package.json", "tail -n 20 /runs/R/log", "wc -l package.json", "stat package.json",
+            "ls -la", "ls -1t", "head -n 5 package.json", "head -5 package.json", "grep -n 'é' src", "git fetch origin main", "git fetch --prune --all",
+            "git ls-remote --heads origin 'refs/heads/*'", "git status -s -b", "git diff --cached -U5", "git log HEAD~3..HEAD", "git show main~1:package.json", "git log --format=%H --since=2.weeks -n 5 main..HEAD",
+            "gh api repos/a/b -i --paginate --jq '.[].number'", "gh pr view 12 --comments", "gh pr list --state open --limit 5 --json number",
+            "gh run view 12 --log-failed", "glab mr list --author me", "glab ci status -b main", "tail -n 20 /runs/R/log", "wc -l package.json", "stat package.json",
             "file package.json", "grep -rn TODO src", "rg 'foo.*bar' src", "git status && git diff --stat",
             "git log >/dev/null", "git status 2>/dev/null; pwd", "git status || pwd",
         ]
@@ -75,6 +78,56 @@ import Testing
             "rg -L x", "rg --files /etc", "env FOO=1 git status", "printenv HOME",
         ]
         for command in hidden {
+            #expect(route(command) == .oracle, "\(command)")
+        }
+    }
+
+    @Test func theShellParsesBytesNotCharacters() {
+        // A combining mark after a quote, a `;` or a `>` is one Character with it, but the shell still sees the metacharacter.
+        for command in ["cat 'a'\u{301}; rm -rf x; echo '", "git log >\u{301}x", "git status ;\u{301} rm x", "cat 'a'\u{200D}| tee x",
+                        "git status\u{0}", "git status\t&& rm x", "git status\u{7F}", "cat é", "git log --author=é", "git status\u{2028}",
+                        "cat \"a\u{0}b\""] {
+            #expect(route(command) == .oracle, "\(command.unicodeScalars.map(\.value))")
+        }
+    }
+
+    @Test func unquotedBracesGlobsAndTildesGoToTheOracleWhereverTheyAre() {
+        for command in ["git log {--output=/tmp/x,-1}", "npm audit {fix,}", "npx ncu {-u,}", "git status {-s,}", "git log --output=/tmp/x{,}",
+                        "cat !x", "cat ~", "git log ~", "git log --author=~x", "git log -n ?", "npm ls [a]", "git branch {-D,} old", "git log *"] {
+            #expect(route(command) == .oracle, "\(command)")
+        }
+        // Quoted, they are plain text.
+        #expect(route("rg 'a{2}|b*' src") == .read(rewrite: nil))
+    }
+
+    @Test func anOptionThatIsNotNamedIsNeverARead() {
+        for command in ["git fetch --upload-pa=touch origin", "git ls-remote --upload-pa=touch origin", "git fetch --receive-p=x origin",
+                        "git fetch --exe=x", "git log --outp=/tmp/x", "git log --max-count=3", "git log --ext-diff", "git log --textconv",
+                        "git diff --ext-di", "git diff --output-indicator-new=x", "git status --ignore-submodules", "git show --stat --output=x",
+                        "git rev-parse --git-path x", "git merge-base --octopus a b", "git fetch --depth=1", "git fetch --prune -u",
+                        "git ls-remote --exec=x origin", "git log -n --output=x", "git log -nx", "git diff -U",
+                        "ls -L", "ls -LR", "ls --color", "ls -lL", "ls -R", "cat -v x", "head -f x", "tail -n5x f", "wc -L x", "stat -f %N x", "file -b -f x",
+                        "grep --fil=/etc/hosts a", "grep --exclude-f=/etc/hosts a", "grep -e", "rg --fil=x a", "rg --pr=sh a", "rg -z a",
+                        "npx ncu --upgrad", "npx ncu --format", "npx ncu --install always -u", "npm audit --fi", "npm audit signatures"] {
+            #expect(route(command) == .oracle, "\(command)")
+        }
+    }
+
+    @Test func aClusteredOrCutShortFlagCannotSendOrChangeAnything() {
+        for command in ["gh api -iXPOST repos/a/b/issues", "gh api repos/a/b/issues -if title=x", "glab api projects/1 -iftitle=x",
+                        "gh api repos/a/b -XGET", "gh api repos/a/b -X get", "gh api repos/a/b --method=POST", "gh api repos/a/b -i -X",
+                        "gh api repos/a/b --hostname", "gh api", "gh api a b", "gh api repos/a/b --silent", "gh api repos/a/b -H x:y",
+                        "gh pr view -w 1", "gh pr view 1 --web", "gh pr checks --watch 1", "gh pr checks 1 -w", "gh run view 1 -w",
+                        "gh run view 1 --web", "gh pr list --web", "gh pr view 1 2", "gh pr diff 1 --color=always", "gh pr list --search x",
+                        "glab mr view 1 -w", "glab mr view 1 --web", "glab ci status --live", "glab ci list -x", "glab mr list -ag"] {
+            #expect(route(command) == .oracle, "\(command)")
+        }
+    }
+
+    @Test func aFetchNamesARemoteAndPlainBranchesOnly() {
+        for command in ["git fetch origin +main:feature", "git fetch origin main:feature", "git fetch origin :feature", "git fetch origin +main",
+                        "git fetch ext::sh", "git fetch https://x/y.git", "git fetch /tmp/evil", "git fetch -- --upload-pack=x", "git fetch origin 'refs/*:refs/*'",
+                        "git ls-remote ext::sh", "git ls-remote origin +x"] {
             #expect(route(command) == .oracle, "\(command)")
         }
     }
@@ -121,7 +174,8 @@ import Testing
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", ShellGate.maskedEnv]
-        process.environment = ["GITLAB_TOKEN": "abc", "PATH": "/bin", "my_Secret": "s", "aws_key_id": "k", "DB_PASSWORD": "p", "HOME": "/h"]
+        process.environment = ["GITLAB_TOKEN": "abc", "PATH": "/bin", "my_Secret": "s", "aws_key_id": "k", "DB_PASSWORD": "p", "HOME": "/h",
+                               "RSA_KEY": "-----BEGIN\nFOO=bar\nSECRET_X=1\n-----END", "NOTE": "line\nMORE=text"]
         let out = Pipe()
         process.standardOutput = out
         try process.run()
@@ -132,5 +186,10 @@ import Testing
             #expect(lines.contains(expected), "\(expected) in \(lines)")
         }
         #expect(!lines.contains { $0.contains("abc") || $0.contains("=s") || $0.contains("=p") })
+        // A multi-line value is masked whole: none of its lines is printed, whatever it looks like.
+        #expect(lines.contains("RSA_KEY=***"))
+        #expect(!lines.contains { $0.contains("BEGIN") || $0.contains("FOO=bar") || $0.contains("SECRET_X") || $0.contains("END") })
+        // A variable that is not secret is printed as it is, lines and all.
+        #expect(lines.contains("NOTE=line") && lines.contains("MORE=text"))
     }
 }
