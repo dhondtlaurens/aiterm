@@ -52,3 +52,15 @@ def test_finish_task_says_what_the_merge_slice_allows_and_what_a_local_merge_lea
         assert phrase in description, phrase
     # A pending yes is called again with its challengeId: told once, in that property.
     assert "pending" in finish_task()["inputSchema"]["properties"]["challengeId"]["description"]
+
+
+def test_finish_task_can_skip_the_push_hooks_on_the_oracles_word() -> None:
+    properties = finish_task()["inputSchema"]["properties"]
+    assert properties["noVerify"] == {
+        "type": "boolean",
+        "description": "Skip the repository's push hooks: only when the hook failed on the environment and your repair "
+                       "didn't work. The Oracle judges it.",
+    }
+    # What was tried goes to the Oracle with the hook's output.
+    assert properties["reason"]["type"] == "string"
+    assert "noVerify" in finish_task()["description"]

@@ -79,14 +79,15 @@ public struct TaskPublisher: Sendable {
     /// A recheck that refused inside a host call, right before its write.
     struct Refused: Error { let reason: String }
 
-    public func advance(_ context: Context, restart: Bool,
+    /// `noVerify`: the push skips the repository's push hooks (spec §B), as the Oracle let it.
+    public func advance(_ context: Context, restart: Bool, noVerify: Bool = false,
                         recheck: @escaping @Sendable () async -> String?,
                         record: @escaping @Sendable (TaskPublication) async throws -> Void) async throws -> Outcome {
-        do { return try await advancing(context, restart: restart, recheck: recheck, record: record) }
+        do { return try await advancing(context, restart: restart, noVerify: noVerify, recheck: recheck, record: record) }
         catch let refused as Refused { return .refused(refused.reason) }
     }
 
-    private func advancing(_ context: Context, restart: Bool,
+    private func advancing(_ context: Context, restart: Bool, noVerify: Bool,
                            recheck: @escaping @Sendable () async -> String?,
                            record: @escaping @Sendable (TaskPublication) async throws -> Void) async throws -> Outcome {
         let task = context.task, branch = task.branch, repository = self.repository
@@ -136,12 +137,14 @@ public struct TaskPublisher: Sendable {
             // An earlier push that timed out may have landed: if origin has the commit, it is not pushed again.
             if try await BackgroundWork.run({ try repository.originTip(of: branch) }) != sha {
                 if let why = await recheck() { return .refused(why) }
-                do { try await BackgroundWork.run { try repository.push(sha, as: branch, defaultBranch: defaultBranch) } }
+                do { try await BackgroundWork.run { try repository.push(sha, as: branch, defaultBranch: defaultBranch, noVerify: noVerify) } }
                 catch let refusal as PublishRefusal { return .refused(refusal.localizedDescription) }
                 catch let error as GitError where error.timedOut { throw PushTimedOut(branch: branch) }
             }
             publication.pushedSHA = sha
             publication.readySince = nil
+            // Landed: an earlier refusal is no longer anything to push past.
+            publication.lastPushFailure = nil
             try await record(publication)
         }
 

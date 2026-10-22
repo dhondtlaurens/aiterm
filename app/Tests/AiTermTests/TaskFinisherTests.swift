@@ -340,6 +340,25 @@ final class MergeClock: Sendable {
         #expect(s.forgotten.all.isEmpty, "an ordinary refusal leaves the login answers alone")
     }
 
+    /// noVerify skips a hook only once a push without it showed what the hook says (spec §B): the refused push's
+    /// output is kept on the task for the Oracle, and the push past the hook clears it.
+    @Test func noVerifyNeedsAFailedPushFirst() async throws {
+        let s = try setUp(end: .draftMR)
+        let first = await s.finisher.finish(s.task, noVerify: true)
+        #expect(first.result == "refused" && first.reason == "Push without noVerify first, so the hook's output is known.")
+        #expect(s.host.log.isEmpty, "nothing asked, nothing pushed")
+
+        _ = try writeHook("#!/bin/sh\necho 'lefthook: running pre-push'\necho 'sh: npm: command not found' >&2\nexit 1\n", in: s)
+        #expect(await s.finisher.finish(s.task).result == "failed")
+        #expect(operated(s)?.publication?.lastPushFailure == "lefthook: running pre-push\nsh: npm: command not found")
+        #expect(try StateStore(url: s.store.file.url).load().task(id: s.task)?.operated?.publication?.lastPushFailure != nil, "saved")
+
+        let past = await s.finisher.finish(s.task, noVerify: true)
+        #expect(past.result == "published" && past.pushedSHA == s.sha)
+        #expect(try git.run(["rev-parse", "refs/heads/feat/pluto-231"], in: s.origin) == s.sha)
+        #expect(operated(s)?.publication?.lastPushFailure == nil, "a push that landed leaves no failure to judge")
+    }
+
     /// A hook that could not find its tool was run with a PATH that has since changed (an install, a
     /// new nvm default), so the login shell is asked again before the next push.
     @Test func commandNotFoundReadsThePathAgain() async throws {

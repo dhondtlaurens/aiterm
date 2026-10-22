@@ -88,21 +88,26 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     /// write or a merge goes ahead only while the project's origin still resolves to it: a request opened before
     /// AiTerm kept it is not acted on.
     public var repository: String?
+    /// What the pre-push hook said when it last refused the push (`GitError.pushReason`), kept for the Oracle to judge a
+    /// `finish_task` with `noVerify` by (spec §B); none until a push is refused, and cleared once one lands.
+    public var lastPushFailure: String?
 
     public init(pushedSHA: String? = nil, mergeRequestURL: String? = nil, mergeRequestNumber: Int? = nil,
                 targetBranch: String? = nil, waitingSince: Date? = nil, readySince: Date? = nil, merged: Bool = false,
                 mergedSHA: String? = nil, mergedHead: String? = nil, problem: String? = nil, conditionsHeld: String? = nil,
-                repository: String? = nil, leftForYou: Bool = false, waitingReason: String? = nil, mergeRefusal: String? = nil) {
+                repository: String? = nil, leftForYou: Bool = false, waitingReason: String? = nil, mergeRefusal: String? = nil,
+                lastPushFailure: String? = nil) {
         self.pushedSHA = pushedSHA; self.mergeRequestURL = mergeRequestURL; self.mergeRequestNumber = mergeRequestNumber
         self.targetBranch = targetBranch; self.waitingSince = waitingSince; self.readySince = readySince; self.merged = merged
         self.mergedSHA = mergedSHA; self.mergedHead = mergedHead; self.problem = problem; self.conditionsHeld = conditionsHeld
         self.mergeRefusal = mergeRefusal
         self.repository = repository; self.leftForYou = leftForYou; self.waitingReason = waitingReason
+        self.lastPushFailure = lastPushFailure
     }
 
     private enum CodingKeys: String, CodingKey {
         case pushedSHA, mergeRequestURL, mergeRequestNumber, targetBranch, waitingSince, readySince, merged, mergedSHA, mergedHead, problem
-        case conditionsHeld, repository, leftForYou, waitingReason, mergeRefusal
+        case conditionsHeld, repository, leftForYou, waitingReason, mergeRefusal, lastPushFailure
     }
 
     /// Every field may be missing: a publication saved before the merge steps reads as not merged.
@@ -131,6 +136,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         repository = try c.decodeIfPresent(String.self, forKey: .repository)
         leftForYou = try c.decodeIfPresent(Bool.self, forKey: .leftForYou) ?? false
         waitingReason = try c.decodeIfPresent(String.self, forKey: .waitingReason)
+        lastPushFailure = try c.decodeIfPresent(String.self, forKey: .lastPushFailure)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -151,6 +157,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         try c.encodeIfPresent(repository, forKey: .repository)
         try c.encode(leftForYou, forKey: .leftForYou)
         try c.encodeIfPresent(waitingReason, forKey: .waitingReason)
+        try c.encodeIfPresent(lastPushFailure, forKey: .lastPushFailure)
     }
 }
 
@@ -536,8 +543,13 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     public var approved: Bool?
     /// The challenged call's arguments as canonical JSON, as `actedArguments`: a veto's yes acts only for these.
     public var askedArguments: String?
-    /// A merge's veto (finish_task): the commit accepted when the Oracle was asked. Its yes holds for that commit only.
+    /// A finish_task's veto, on a merge or a push past the hook (`noVerify`): the commit accepted when the Oracle was
+    /// asked. Its yes holds for that commit only.
     public var askedSHA: String?
+    /// A finish_task's veto: whether the Oracle was asked about the merge's conditions, alone or with a push past the
+    /// hook. False for one asked about the hook alone, whose yes is no merge's. Nil on a record saved before `noVerify`,
+    /// when every finish_task veto was a merge's (`asksMerge`).
+    public var askedMerge: Bool?
     /// Why the act proceeded unchallenged: the second opinion missing, failed or too slow.
     public var unchallengedReason: String?
     /// The acting call's arguments as canonical JSON, `challengeId` and `challengeReply` left out:
@@ -549,16 +561,19 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
 
     public init(id: String, tool: String, kind: ChallengeKind = .critique, stage: ChallengeStage = .running, critique: String? = nil,
                 approved: Bool? = nil, askedArguments: String? = nil, askedSHA: String? = nil, unchallengedReason: String? = nil,
-                actedArguments: String? = nil, result: String? = nil, askedAt: Date) {
+                actedArguments: String? = nil, result: String? = nil, askedAt: Date, askedMerge: Bool? = nil) {
         self.id = id; self.tool = tool; self.kind = kind; self.stage = stage; self.critique = critique; self.approved = approved
-        self.askedArguments = askedArguments; self.askedSHA = askedSHA
+        self.askedArguments = askedArguments; self.askedSHA = askedSHA; self.askedMerge = askedMerge
         self.unchallengedReason = unchallengedReason; self.actedArguments = actedArguments; self.result = result
         self.askedAt = askedAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, tool, kind, stage, critique, approved, askedArguments, askedSHA, unchallengedReason, actedArguments, result, askedAt
+        case id, tool, kind, stage, critique, approved, askedArguments, askedSHA, askedMerge, unchallengedReason, actedArguments, result, askedAt
     }
+
+    /// Whether a finish_task's yes is a merge's (`askedMerge`).
+    public var asksMerge: Bool { askedMerge ?? (askedSHA != nil) }
 
     /// Synthesised but for `kind`, which a record saved before vetoes lacks: it reads as a critique.
     public init(from decoder: Decoder) throws {
@@ -571,6 +586,7 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
         approved = try c.decodeIfPresent(Bool.self, forKey: .approved)
         askedArguments = try c.decodeIfPresent(String.self, forKey: .askedArguments)
         askedSHA = try c.decodeIfPresent(String.self, forKey: .askedSHA)
+        askedMerge = try c.decodeIfPresent(Bool.self, forKey: .askedMerge)
         unchallengedReason = try c.decodeIfPresent(String.self, forKey: .unchallengedReason)
         actedArguments = try c.decodeIfPresent(String.self, forKey: .actedArguments)
         result = try c.decodeIfPresent(String.self, forKey: .result)

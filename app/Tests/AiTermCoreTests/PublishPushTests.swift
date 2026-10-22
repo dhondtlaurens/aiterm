@@ -276,6 +276,19 @@ import Testing
         #expect(try git.ask(["rev-parse", "--verify", "--quiet", "refs/heads/feat/pluto-231"], in: origin, none: [1]) == nil)
     }
 
+    /// A pre-push hook runs on every push but one the Oracle let past it (`noVerify`, spec §B).
+    @Test func noVerifySkipsThePrePushHook() throws {
+        let (path, origin, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
+        let hook = path + "/.git/hooks/pre-push"
+        try "#!/bin/sh\necho 'sh: npm: command not found' >&2\nexit 1\n".write(toFile: hook, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook)
+        let repo = Repository(path, git: git)
+        #expect(throws: GitError.self) { try repo.push(sha, as: "feat/pluto-231", defaultBranch: "main") }
+        #expect(try repo.originTip(of: "feat/pluto-231") == nil, "the hook refused it")
+        try repo.push(sha, as: "feat/pluto-231", defaultBranch: "main", noVerify: true)
+        #expect(try git.run(["rev-parse", "refs/heads/feat/pluto-231"], in: origin) == sha)
+    }
+
     @Test func withoutOriginNothingIsPushed() throws {
         let (path, _, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
         try git.run(["remote", "remove", "origin"], in: path)

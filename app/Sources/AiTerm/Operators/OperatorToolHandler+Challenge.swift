@@ -10,16 +10,17 @@ import AiTermCore
 /// with the workspace, so a lost reply or a restart neither loses it nor makes it act twice.
 extension OperatorToolHandler {
     /// With the Oracle on, a plan and a verdict on a task are critiqued (spec §8), a backlog addition past
-    /// the threshold (`backlog` is `.needsOracle`) gets its veto (spec §4.1), and a `finish_task` that would merge
-    /// (`merges`) its yes that the conditions written in the Review and the Done hold (spec §5); with it off,
-    /// nothing is. A message to a worker never is.
+    /// the threshold (`backlog` is `.needsOracle`) gets its veto (spec §4.1), a `finish_task` that would merge
+    /// (`merges`) its yes that the conditions written in the Review and the Done hold (spec §5), and one with
+    /// `noVerify` its yes that the push hook failed on the environment (spec §B); with it off, nothing is. A
+    /// message to a worker never is.
     static func isChallenged(_ call: ToolCall, oracleIsOn: Bool, backlog: BacklogBudget.Verdict = .free, merges: Bool = false) -> Bool {
         guard oracleIsOn else { return false }
         switch call.tool {
         case "submit_plan": return true
         case "mark_task": return ["accepted", "blocked", "failed"].contains(call.optionalString("outcome") ?? "")
         case "create_task": return backlog == .needsOracle
-        case "finish_task": return merges
+        case "finish_task": return merges || call.optionalBool("noVerify") == true
         default: return false
         }
     }
@@ -37,6 +38,28 @@ extension OperatorToolHandler {
         case .accepted: return TaskPublisher.Context.entersReview(operated, run: run) ? nil : task
         default: return nil
         }
+    }
+
+    /// The task a `finish_task` with `noVerify` would push past its hook, and what the hook said when it refused the push
+    /// (`TaskPublication.lastPushFailure`). Nil for any other call, and for one the finisher refuses before it pushes
+    /// anything (no push refused yet, the broadcast not running), which costs no Oracle run.
+    private func hookSkipAwaitingOracle(_ call: ToolCall, in run: OperatorRun) -> (task: TaskItem, said: String)? {
+        guard call.tool == "finish_task", call.optionalBool("noVerify") == true, PublicationGuard.runRefusal(run) == nil,
+              let task = try? task(call, in: run), let said = task.operated?.publication?.lastPushFailure else { return nil }
+        return (task, said)
+    }
+
+    /// What the Operator tried before a `noVerify` (spec §B), for the Oracle: the call's `reason`, else the task's last five
+    /// `shell` lines of the activity log, the commands the gate judged in its worktree.
+    private func tried(_ call: ToolCall, on task: TaskItem, in run: OperatorRun) async -> String {
+        if let reason = call.optionalString("reason") { return reason }
+        // The lines of the calls already answered are written first.
+        await lastRecording?.value
+        let folder = OperatorCommand.runFolder(run.id, home: ports.home), id = task.id
+        let lines = await BackgroundWork.run {
+            ActivityLog.read(runFolder: folder).entries.filter { $0.tool == "shell" && $0.task == id }.suffix(5).map(\.line)
+        }
+        return lines.isEmpty ? "(no shell command in its worktree)" : lines.joined(separator: "\n")
     }
 
     /// Where a `create_task` stands against the backlog now: free for any other tool, or for a key already made.
@@ -57,7 +80,9 @@ extension OperatorToolHandler {
         let named = call.optionalString("challengeId").flatMap { id in
             state.run(id: run.id)?.challenges.first { $0.id == id && $0.tool == call.tool }
         }
-        let merging = mergeAwaitingOracle(call, in: run)
+        let merging = mergeAwaitingOracle(call, in: run), skipping = hookSkipAwaitingOracle(call, in: run)
+        // A noVerify with nothing to judge goes on to the finisher, which refuses it before it acts.
+        if named == nil, call.tool == "finish_task", call.optionalBool("noVerify") == true, skipping == nil { return nil }
         if named == nil, !Self.isChallenged(call, oracleIsOn: opinion.isOn, backlog: backlog(of: call, in: run), merges: merging != nil) { return nil }
         if let id = call.optionalString("challengeId") {
             guard let kept = named else {
@@ -105,13 +130,21 @@ extension OperatorToolHandler {
         let kind: ChallengeKind = ["create_task", "finish_task"].contains(call.tool) ? .veto : .critique
         let status = Self.json(currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null)
         let prompt: String
+        var mergeQuestion: String?
         if let merging, let operated = merging.operated, let sha = operated.acceptance?.resultSHA {
             // Only a finished review of this very commit is evidence for merging it.
             let evidence = operated.agentReview.flatMap { review in
                 review.head == sha && review.findings != nil ? (try? JSONValue(encoding: review)).map(Self.json) : nil
             }
-            prompt = ChallengeLaunch.mergePrompt(task: operated.key, acceptedSHA: sha, brief: operated.brief, review: OperatorCommand.said(run.review),
-                                                 done: OperatorCommand.said(run.done), agentReview: evidence, run: status)
+            mergeQuestion = ChallengeLaunch.mergePrompt(task: operated.key, acceptedSHA: sha, brief: operated.brief, review: OperatorCommand.said(run.review),
+                                                        done: OperatorCommand.said(run.done), agentReview: evidence, run: status)
+        }
+        if let skipping {
+            // A call that also merges asks both in one prompt: one Oracle run, and its yes holds for both.
+            prompt = ChallengeLaunch.noVerifyPrompt(task: skipping.task.operated?.key ?? skipping.task.title, hookOutput: skipping.said,
+                                                    tried: await tried(call, on: skipping.task, in: run), mergeConditions: mergeQuestion)
+        } else if let mergeQuestion {
+            prompt = mergeQuestion
         } else if kind == .veto {
             // A call that would be refused anyway costs no Oracle run.
             try await vetoPrecheck(call, in: run)
@@ -121,10 +154,10 @@ extension OperatorToolHandler {
                                             instructions: run.profile.instructions)
         }
         let id = UUID().uuidString
-        // A merge's yes holds for the commit accepted now, which the record keeps.
-        let askedSHA = merging?.operated?.acceptance?.resultSHA
+        // A merge's or a push's yes holds for the commit accepted now, which the record keeps, with whether it was a merge's.
+        let askedSHA = (merging ?? skipping?.task)?.operated?.acceptance?.resultSHA, merges = merging != nil
         let asked = ChallengeRecord(id: id, tool: call.tool, kind: kind, askedArguments: Self.invocation(call), askedSHA: askedSHA,
-                                    askedAt: ports.now())
+                                    askedAt: ports.now(), askedMerge: call.tool == "finish_task" ? merges : nil)
         mutate(in: run.id) { $0.updateRun(id: run.id) { $0.challenges.append(asked) } }
         let runner = ports.secondOpinion, folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
@@ -160,16 +193,16 @@ extension OperatorToolHandler {
         let answered = await Self.first(challenge, within: ports.challengeReplyBudget)
         if kind == .veto {
             // Within the budget the answer is this call's, and the record goes: its id was never named to the operator.
-            guard case .some(.some(let verdict)) = answered else { return try vetoPendingAnswer(call, id, in: run) }
+            guard case .some(.some(let verdict)) = answered else { return try vetoPendingAnswer(call, id, merges: merges, in: run) }
             mutate(in: run.id) { $0.updateRun(id: run.id) { $0.challenges.removeAll { $0.id == id } } }
             switch verdict {
             case .critique(let text):
                 let veto = Self.veto(text)
-                guard veto.approved else { try await refuseVetoed(call, in: run, why: veto.reason) }
-                try approve(call, in: run, askedSHA: askedSHA)
+                guard veto.approved else { try await refuseVetoed(call, in: run, why: veto.reason, merges: merges) }
+                try approve(call, in: run, askedSHA: askedSHA, merges: merges)
                 return nil
             case .unchallenged:
-                if call.tool == "finish_task" { try proceedUnchallenged(call, in: run, askedSHA: askedSHA); return nil }
+                if call.tool == "finish_task" { try proceedUnchallenged(call, in: run, askedSHA: askedSHA, merges: merges); return nil }
                 try await refuseUnanswered(call, in: run)
             }
         }
@@ -198,19 +231,20 @@ extension OperatorToolHandler {
         guard kept.askedArguments == Self.invocation(call) else {
             throw ToolRefusal("Challenge \(id) was asked about another \(call.tool). Call again without challengeId.")
         }
+        let merges = kept.asksMerge
         switch kept.stage {
         case .running where runningChallenges[id] != nil:
-            return try vetoPendingAnswer(call, id, in: run)
+            return try vetoPendingAnswer(call, id, merges: merges, in: run)
         case .running:
             updateChallenge(id, in: run.id) { $0.stage = .unchallenged; $0.unchallengedReason = "AiTerm restarted before the Oracle answered." }
-            if call.tool == "finish_task" { try proceedUnchallenged(call, in: run, askedSHA: kept.askedSHA); return nil }
+            if call.tool == "finish_task" { try proceedUnchallenged(call, in: run, askedSHA: kept.askedSHA, merges: merges); return nil }
             try await refuseUnanswered(call, in: run)
         case .unchallenged:
-            if call.tool == "finish_task" { try proceedUnchallenged(call, in: run, askedSHA: kept.askedSHA); return nil }
+            if call.tool == "finish_task" { try proceedUnchallenged(call, in: run, askedSHA: kept.askedSHA, merges: merges); return nil }
             try await refuseUnanswered(call, in: run)
         case .ready, .delivered, .acted:
-            guard kept.approved == true else { try await refuseVetoed(call, in: run, why: kept.critique) }
-            try approve(call, in: run, askedSHA: kept.askedSHA)
+            guard kept.approved == true else { try await refuseVetoed(call, in: run, why: kept.critique, merges: merges) }
+            try approve(call, in: run, askedSHA: kept.askedSHA, merges: merges)
             updateChallenge(id, in: run.id) { $0.stage = .delivered }
             actingChallenges.insert(id)
             return nil
@@ -223,16 +257,18 @@ extension OperatorToolHandler {
         return (verdict.approved, verdict.reason)
     }
 
-    /// The Oracle's yes: an addition is let past the threshold for this call; a merge goes ahead for `askedSHA`, the commit
-    /// accepted when the Oracle was asked, recorded on the task so the merge's later polls hold to it. Refused, and nothing
-    /// recorded, when the task was accepted again on another commit meanwhile.
-    private func approve(_ call: ToolCall, in run: OperatorRun, askedSHA: String?) throws {
+    /// The Oracle's yes: an addition is let past the threshold for this call; a merge (`merges`) or a push past the hook
+    /// goes ahead for `askedSHA`, the commit accepted when the Oracle was asked. A merge's is recorded on the task so the
+    /// merge's later polls hold to it; a push past the hook needs only this call to go on. Refused, and nothing recorded,
+    /// when the task was accepted again on another commit meanwhile.
+    private func approve(_ call: ToolCall, in run: OperatorRun, askedSHA: String?, merges: Bool) throws {
         guard call.tool == "finish_task" else { vettedCalls.insert(Self.invocation(call)); return }
         let task = try task(call, in: run)
         guard let sha = askedSHA, let operated = task.operated, operated.acceptance?.resultSHA == sha else {
-            throw ToolRefusal("\(task.operated?.key ?? "The task") was accepted again on another commit while the Oracle judged its merge: "
-                              + "call finish_task again without challengeId.")
+            throw ToolRefusal("\(task.operated?.key ?? "The task") was accepted again on another commit while the Oracle judged its "
+                              + "\(merges ? "merge" : "push past the hook"): call finish_task again without challengeId.")
         }
+        guard merges else { return }
         mutate(in: run.id) { state in
             state.updateOperated(task.id) { operated in
                 var publication = operated.publication ?? TaskPublication()
@@ -243,7 +279,19 @@ extension OperatorToolHandler {
         _ = workspace.flush()
     }
 
-    private func refuseVetoed(_ call: ToolCall, in run: OperatorRun, why: String?) async throws -> Never {
+    private func refuseVetoed(_ call: ToolCall, in run: OperatorRun, why: String?, merges: Bool) async throws -> Never {
+        if call.tool == "finish_task", call.optionalBool("noVerify") == true {
+            let key = try task(call, in: run).operated?.key ?? "the task"
+            let reason = Self.asSentence(why ?? "it gave no reason")
+            guard merges else {
+                throw ToolRefusal("The Oracle judged that \(key)’s pre-push hook failed on the code, not the environment: \(reason) "
+                                  + "Have its worker fix it, accept the new commit and call finish_task again without noVerify.")
+            }
+            refuseMerge(call, in: run, problem: "The Oracle refused to push past the pre-push hook and merge: \(reason)")
+            throw ToolRefusal("The Oracle refused to push \(key) past its pre-push hook and merge it: \(reason) "
+                              + "AiTerm recorded it on the task. If the hook failed on the code, have its worker fix it and accept the "
+                              + "new commit; call finish_task again once the merge's conditions hold.")
+        }
         if call.tool == "finish_task" {
             let key = try task(call, in: run).operated?.key ?? "the task"
             let reason = Self.asSentence(why ?? "it gave no reason")
@@ -255,16 +303,24 @@ extension OperatorToolHandler {
         throw ToolRefusal("The Oracle judged this off-brief. AiTerm noted it for the summary" + Self.ending(filing))
     }
 
-    private func proceedUnchallenged(_ call: ToolCall, in run: OperatorRun, askedSHA: String?) throws {
-        try approve(call, in: run, askedSHA: askedSHA)
+    /// No answer from the Oracle: the merge, or the push past the hook, goes ahead, each logged as unchallenged once.
+    private func proceedUnchallenged(_ call: ToolCall, in run: OperatorRun, askedSHA: String?, merges: Bool) throws {
+        try approve(call, in: run, askedSHA: askedSHA, merges: merges)
         let task = try task(call, in: run)
-        let why = "The Oracle didn’t answer, so the merge went ahead unchallenged."
+        var unchallenged: [(key: String, text: String, why: String)] = []
+        if call.optionalBool("noVerify") == true {
+            unchallenged.append(("unchallenged-noverify-\(task.id)-\(askedSHA ?? "")", "Pushed \(task.title) past its pre-push hook unchallenged.",
+                                 "The Oracle didn’t answer, so the push past the hook went ahead unchallenged."))
+        }
+        if merges {
+            unchallenged.append(("unchallenged-merge-\(task.id)-\(askedSHA ?? "")", "Merged \(task.title) unchallenged.",
+                                 "The Oracle didn’t answer, so the merge went ahead unchallenged."))
+        }
         mutate(in: run.id) { state in
-            state.updateRun(id: run.id) {
-                let key = "unchallenged-merge-\(task.id)-\(askedSHA ?? "")"
-                guard !$0.decisions.contains(where: { $0.key == key }) else { return }
-                $0.decisions.append(OperatorDecision(key: key, text: "Merged \(task.title) unchallenged.", task: task.id,
-                                                     at: ports.now(), challenge: "unchallenged", why: why))
+            state.updateRun(id: run.id) { run in
+                for (key, text, why) in unchallenged where !run.decisions.contains(where: { $0.key == key }) {
+                    run.decisions.append(OperatorDecision(key: key, text: text, task: task.id, at: ports.now(), challenge: "unchallenged", why: why))
+                }
             }
         }
     }
@@ -295,11 +351,17 @@ extension OperatorToolHandler {
         _ = workspace.flush()
     }
 
-    private func vetoPendingAnswer(_ call: ToolCall, _ id: String, in run: OperatorRun) throws -> JSONValue {
+    private func vetoPendingAnswer(_ call: ToolCall, _ id: String, merges: Bool, in run: OperatorRun) throws -> JSONValue {
         if call.tool == "finish_task" {
             let key = try task(call, in: run).operated?.key ?? "the task"
+            let question: String
+            switch (call.optionalBool("noVerify") == true, merges) {
+            case (true, true): question = "\(key)’s pre-push hook failed on the environment and the conditions to merge it hold"
+            case (true, false): question = "\(key)’s pre-push hook failed on the environment"
+            default: question = "the conditions to merge \(key) hold"
+            }
             return ["challenged": true, "challengeId": .string(id), "pending": true,
-                    "note": .string("Nothing was done yet. The Oracle is still judging whether the conditions to merge \(key) hold: call finish_task again with this challengeId in a little while.")]
+                    "note": .string("Nothing was done yet. The Oracle is still judging whether \(question): call finish_task again with this challengeId in a little while.")]
         }
         return ["challenged": true, "challengeId": .string(id), "pending": true,
                 "note": "Nothing was added yet. The Oracle is still judging this addition: call create_task again with this challengeId in a little while."]

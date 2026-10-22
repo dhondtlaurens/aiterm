@@ -318,6 +318,10 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "as \"Push main in <project>: merged locally.\" "
           "With the Oracle on, a finish_task that would merge first needs the Oracle's yes that the conditions written "
           "in the Review and the Done hold; a no is recorded on the task and refuses the merge. "
+          "A push the repository's pre-push hook refused fails with the hook's output as its reason. noVerify pushes past "
+          "the hook, and only after such a refusal; with the Oracle on it first needs the Oracle's yes that the hook failed "
+          "on the environment, not the code, judged from that output and your reason. A call that also merges asks both at "
+          "once, and only a yes to both acts. "
           "It answers result: published, inReview, waitingToMerge, blocked, refused or failed, with reason, mergeRequest, "
           "pushedSHA, merged and mergedSHA as far as they are known; refused and failed also say what was already "
           "done. "
@@ -329,7 +333,12 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "its parent was accepted again, the broadcast is paused, stopped or offline, the host protects its branch "
           "or cannot say whether it does, or it is the default branch. "
           "AiTerm never deploys, never force-pushes, and never pushes to a default or protected branch.",
-          {"task": _TASK}, ("task",)),
+          {"task": _TASK,
+           "noVerify": {"type": "boolean", "description": "Skip the repository's push hooks: only when the hook failed on the "
+                        "environment and your repair didn't work. The Oracle judges it."},
+           "reason": _text("With noVerify: what you tried to repair the environment, for the Oracle. Left out, it reads your "
+                           "last shell commands in the task's worktree.")},
+          ("task",)),
     _tool("ask_you", "Lists a question you asked in your chat under Waiting on you, with the same text, and notifies the person. "
           "They answer in this window; close it with resolve_question. The same key returns the open question.",
           {"key": _KEY, "question": _text("The question, complete on its own."),

@@ -217,9 +217,9 @@ final class OperatorController {
         finisher.changed = { [weak self] id in self?.publicationChanged(id) }
         finisher.mergedOnHost = { [weak self] id, why in self?.askAboutMergeOnHost(id, why) }
         finisher.watchStopped = { [weak self] id, why in self?.mergeWatchStopped(id, why) }
-        tools.finish = { [weak self] id in
+        tools.finish = { [weak self] id, noVerify in
             guard let self else { return TaskFinisher.Result(result: "refused", reason: "AiTerm is closing.") }
-            return await self.finisher.finish(id)
+            return await self.finisher.finish(id, noVerify: noVerify)
         }
         notices.onIssueChanged { [weak self] old, new in self?.bannerChanged(from: old, to: new) }
     }

@@ -141,6 +141,11 @@ import Testing
         #expect(!OperatorToolHandler.isChallenged(call("report_find"), oracleIsOn: true))
         #expect(!OperatorToolHandler.isChallenged(call("submit_plan"), oracleIsOn: false))
         #expect(!OperatorToolHandler.isChallenged(call("mark_task", ["outcome": "accepted"]), oracleIsOn: false))
+        #expect(!OperatorToolHandler.isChallenged(call("finish_task", ["task": "A"]), oracleIsOn: true))
+        #expect(OperatorToolHandler.isChallenged(call("finish_task", ["task": "A", "noVerify": true]), oracleIsOn: true),
+                "a push past the hook is the Oracle's, merge or not")
+        #expect(!OperatorToolHandler.isChallenged(call("finish_task", ["task": "A", "noVerify": false]), oracleIsOn: true))
+        #expect(!OperatorToolHandler.isChallenged(call("finish_task", ["task": "A", "noVerify": true]), oracleIsOn: false))
     }
 
     /// AiTerm quitting cancels a second opinion: that is not an answer, so the act is not recorded as
@@ -229,5 +234,148 @@ extension OperatorChallengeTests {
         let kept = try #require(world.run(run.id)?.decisions.last)
         #expect(kept.objection?.count == 300 && kept.objection?.hasSuffix("…") == true)
         #expect(kept.challenge == objection, "the full critique stays in the log")
+    }
+}
+
+extension OperatorChallengeTests {
+    /// finish_task's noVerify (spec §B): a push past a refusing pre-push hook goes ahead only on the Oracle's yes that the
+    /// hook failed on the environment, not the code, judged from the hook's output and what the Operator tried. With no
+    /// Oracle, or none answering, it goes ahead. A call that also merges asks both questions in one prompt.
+    @MainActor @Suite(.blocking) struct NoVerify {
+        struct Pushing {
+            let world: OperatorWorld, run: OperatorRun, task: TaskItem, host: FakeMergeHost, sha: String, path: String
+            let prompts: OperatorMergeTests.Prompts
+        }
+
+        /// One accepted task `A` ending in `end` on the branch of a repository with an origin, whose pre-push hook refuses
+        /// with npm not found; the Oracle on or off, answering `answer`.
+        func pushing(end: TaskEnd = .draftMR, oracle: Bool = true, answer: String = "YES\nnpm is missing from the hook's PATH.",
+                     runner: SecondOpinionRunner? = nil) throws -> Pushing {
+            let fixture = try GitFixture.withOrigin(branch: "feat/a")
+            let hook = fixture.path + "/.git/hooks/pre-push"
+            try "#!/bin/sh\necho 'lefthook: running pre-push'\necho 'sh: npm: command not found' >&2\nexit 1\n"
+                .write(toFile: hook, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook)
+            let project = OperatorServiceFixtures.project(path: fixture.path)
+            var profile = OperatorServiceFixtures.profile(oracle: oracle, oracleAgent: .claude)
+            profile.slices = Slices(merge: true)
+            var run = OperatorServiceFixtures.run(profile, projects: [project], state: .active, planRevision: 1)
+            run.done = "Merged once the pipeline is green."
+            var task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .accepted, worktree: fixture.path,
+                                                    branch: "feat/a", end: end)
+            task.baseBranch = "main"
+            task.operated?.acceptance = TaskAcceptance(resultSHA: fixture.sha, prerequisiteSHAs: [], checkOutput: "12 passed", note: nil,
+                                                       at: Date(timeIntervalSince1970: 0))
+            let host = FakeMergeHost(), prompts = OperatorMergeTests.Prompts()
+            let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), adjust: { ports in
+                ports.publisher = { _ in host }
+                ports.secondOpinion = runner ?? .answering(answer, receivePrompt: { prompts.append($0) })
+                ports.challengeReplyBudget = .seconds(60)
+            })
+            world.live.sessions = [OperatorServiceFixtures.session("operator", tag: run.id), OperatorServiceFixtures.session("worker", tag: task.id)]
+            return Pushing(world: world, run: run, task: task, host: host, sha: fixture.sha, path: fixture.path, prompts: prompts)
+        }
+
+        func publication(_ p: Pushing) -> TaskPublication? { p.world.task(p.task.id)?.operated?.publication }
+        func originTip(_ p: Pushing) throws -> String? { try Repository(p.path, git: GitRunner.hermetic()).originTip(of: "feat/a") }
+
+        /// The push the hook refuses, which keeps its output on the task.
+        func refusedPush(_ p: Pushing) async throws {
+            let refused = await p.world.call(p.run.id, "finish_task", ["task": "A"])
+            #expect(refused.value?["result"] == "failed")
+            #expect(publication(p)?.lastPushFailure?.contains("sh: npm: command not found") == true)
+        }
+
+        @Test func noVerifyIsChallengedWithTheHookOutput() async throws {
+            let p = try pushing()
+            try await refusedPush(p)
+            #expect(p.prompts.list.isEmpty, "a draft end's push without noVerify asks no Oracle")
+            let answer = await p.world.call(p.run.id, "finish_task", ["task": "A", "noVerify": true,
+                                                                      "reason": "Ran npm ci in the worktree; npm is still not found."])
+            let prompt = try #require(p.prompts.list.first)
+            #expect(p.prompts.list.count == 1)
+            #expect(prompt.contains("lefthook: running pre-push\nsh: npm: command not found"))
+            #expect(prompt.contains("Ran npm ci in the worktree; npm is still not found."))
+            #expect(!prompt.contains("The act: merge"))
+            #expect(answer.value?["result"] == "published")
+            #expect(try originTip(p) == p.sha, "pushed past the hook")
+            #expect(publication(p)?.conditionsHeld == nil, "a yes on the hook is no yes on a merge")
+        }
+
+        /// Without a reason, what the Operator tried is its last shell commands in the task's worktree, as the activity log has them.
+        @Test func withoutAReasonTheOracleReadsTheTasksLastShellCommands() async throws {
+            let p = try pushing()
+            try await refusedPush(p)
+            let folder = OperatorCommand.runFolder(p.run.id, home: p.world.ports.home)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            for (n, task) in [(1, p.task.id), (2, nil), (3, p.task.id), (4, p.task.id), (5, p.task.id), (6, p.task.id), (7, p.task.id)] as [(Int, UUID?)] {
+                try ActivityLog.append(ActivityEntry(at: Date(), tool: "shell", task: task, taskLabel: nil, arguments: [:], outcome: .ok,
+                                                     result: "{}", line: "Ran `step \(n)`", reason: nil), runFolder: folder)
+            }
+            try ActivityLog.append(ActivityEntry(at: Date(), tool: "shell_read", task: p.task.id, taskLabel: nil, arguments: [:], outcome: .ok,
+                                                 result: "{}", line: "Read `which npm`", reason: nil), runFolder: folder)
+            _ = await p.world.call(p.run.id, "finish_task", ["task": "A", "noVerify": true])
+            let prompt = try #require(p.prompts.list.first)
+            #expect(prompt.contains("Ran `step 3`\nRan `step 4`\nRan `step 5`\nRan `step 6`\nRan `step 7`"))
+            #expect(!prompt.contains("step 1") && !prompt.contains("step 2") && !prompt.contains("which npm"))
+        }
+
+        @Test func aNoOnNoVerifyPushesNothing() async throws {
+            let p = try pushing(answer: "NO\nA test fails: cart.test.ts.")
+            try await refusedPush(p)
+            let answer = await p.world.call(p.run.id, "finish_task", ["task": "A", "noVerify": true])
+            #expect(answer.message?.contains("A test fails: cart.test.ts.") == true)
+            #expect(answer.message?.contains("Have its worker fix it") == true)
+            #expect(try originTip(p) == nil)
+            #expect(!p.host.log.contains { $0.hasPrefix("create") })
+            #expect(publication(p)?.pushedSHA == nil)
+        }
+
+        @Test func noVerifyWithoutAnOracleGoesAhead() async throws {
+            let p = try pushing(oracle: false)
+            try await refusedPush(p)
+            let answer = await p.world.call(p.run.id, "finish_task", ["task": "A", "noVerify": true])
+            #expect(answer.value?["result"] == "published")
+            #expect(try originTip(p) == p.sha)
+            #expect(p.prompts.list.isEmpty)
+        }
+
+        /// An Oracle that can't answer lets the push past the hook go ahead, logged as unchallenged.
+        @Test func anOracleThatDoesNotAnswerLetsNoVerifyGoAhead() async throws {
+            let p = try pushing(runner: .unavailable)
+            try await refusedPush(p)
+            let answer = await p.world.call(p.run.id, "finish_task", ["task": "A", "noVerify": true])
+            #expect(answer.value?["result"] == "published")
+            #expect(try originTip(p) == p.sha)
+            #expect(p.world.run(p.run.id)?.decisions.last?.why == "The Oracle didn’t answer, so the push past the hook went ahead unchallenged.")
+        }
+
+        /// No refused push yet: nothing for the Oracle to judge, so it isn't asked, and the call is refused.
+        @Test func noVerifyBeforeAFailedPushAsksNoOracle() async throws {
+            let p = try pushing()
+            let answer = await p.world.call(p.run.id, "finish_task", ["task": "A", "noVerify": true])
+            #expect(answer.value?["result"] == "refused")
+            #expect(answer.value?["reason"] == "Push without noVerify first, so the hook's output is known.")
+            #expect(p.prompts.list.isEmpty)
+            #expect(try originTip(p) == nil)
+        }
+
+        /// A merge end whose merge the Oracle hasn't said yes to: one run, one prompt with both questions, and its yes holds for both.
+        @Test func aMergingNoVerifyAsksBothQuestionsOnce() async throws {
+            let p = try pushing(end: .merge)
+            p.world.workspace.mutate { $0.updateOperated(p.task.id) {
+                $0.publication = TaskPublication(problem: "The pre-push hook refused the push of feat/a: sh: npm: command not found",
+                                                 lastPushFailure: "sh: npm: command not found")
+            } }
+            let answer = await p.world.call(p.run.id, "finish_task", ["task": "A", "noVerify": true])
+            #expect(p.prompts.list.count == 1)
+            let prompt = try #require(p.prompts.list.first)
+            #expect(prompt.contains("sh: npm: command not found"))
+            #expect(prompt.contains("The act: merge the accepted commit \(p.sha) for task A.") && prompt.contains("Merged once the pipeline is green."))
+            #expect(prompt.contains("Answer YES only when the failure is the environment and the merge is permitted"))
+            #expect(answer.value?["result"] == "waitingToMerge")
+            #expect(try originTip(p) == p.sha)
+            #expect(publication(p)?.conditionsHeld == p.sha)
+        }
     }
 }

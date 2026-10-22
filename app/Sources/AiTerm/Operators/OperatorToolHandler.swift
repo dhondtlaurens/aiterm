@@ -26,6 +26,8 @@ struct ToolCall {
     func optionalString(_ key: String) -> String? {
         arguments[key]?.stringValue.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
     }
+
+    func optionalBool(_ key: String) -> Bool? { arguments[key]?.boolValue }
 }
 
 /// The Jira search behind `jira_search`: the app's client, or a test's.
@@ -105,8 +107,8 @@ final class OperatorToolHandler {
     var onActing: @MainActor (OperatorActivity, Bool) -> Void = { _, _ in }
     /// Said after an operator's own change to its run: what may start now starts.
     var onChange: @MainActor (UUID) -> Void = { _ in }
-    /// Carries out a task's recorded end (G10): the controller's `TaskFinisher`.
-    var finish: @MainActor (UUID) async -> TaskFinisher.Result = { _ in
+    /// Carries out a task's recorded end (G10), past the push hooks when told (`noVerify`): the controller's `TaskFinisher`.
+    var finish: @MainActor (UUID, Bool) async -> TaskFinisher.Result = { _, _ in
         TaskFinisher.Result(result: "refused", reason: "AiTerm isn’t ready to publish yet.")
     }
 
@@ -281,7 +283,7 @@ final class OperatorToolHandler {
         case "find_user": return try await findUser(call, in: run)
         case "finish_task":
             let task = try self.task(call, in: run)
-            let result = await finish(task.id)
+            let result = await finish(task.id, call.optionalBool("noVerify") ?? false)
             return try JSONValue(encoding: result)
         default: throw ToolRefusal("AiTerm has no tool called \(call.tool).")
         }

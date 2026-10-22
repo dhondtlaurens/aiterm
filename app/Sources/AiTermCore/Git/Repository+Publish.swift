@@ -79,8 +79,9 @@ extension Repository {
     /// write: the arguments below take back what it could add — tags (`push.followTags`), push
     /// options a host acts on (`push.pushOption`, GitLab's `merge_request.*`), submodule pushes —
     /// and origin must have exactly one URL to push to, the one it is fetched from. Pre-push hooks
-    /// still run; they are the project's own.
-    public func push(_ sha: String, as branch: String, defaultBranch: String) throws {
+    /// still run; they are the project's own. `noVerify` skips them (`--no-verify`): only for a
+    /// `finish_task` past a hook that failed on the environment, which the Oracle judges (spec §B).
+    public func push(_ sha: String, as branch: String, defaultBranch: String, noVerify: Bool = false) throws {
         // A commit id only: a ref name, an option or `a:b` would change what the refspec says.
         guard Self.isCommitId(sha) else { throw PublishRefusal.invalidCommit(sha) }
         guard !branch.isEmpty, !branch.hasPrefix("-"), branch != "@" else { throw PublishRefusal.invalidBranch(branch) }
@@ -98,8 +99,8 @@ extension Repository {
         guard let fetchURL = try git.ask(["remote", "get-url", "origin"], in: path, none: [2]) else { throw PublishRefusal.noOrigin }
         try requireOneDestination(like: fetchURL)
         try requireOriginsOwnDefaultBranchIsNot(branch: branch, name: name)
-        try git.run(GitRunner.stallGuard + ["-c", "push.pushOption=", "push", "--porcelain", "--no-follow-tags", "--no-recurse-submodules",
-                                            "origin", "\(sha):refs/heads/\(branch)"],
+        try git.run(GitRunner.stallGuard + ["-c", "push.pushOption=", "push", "--porcelain", "--no-follow-tags", "--no-recurse-submodules"]
+                    + (noVerify ? ["--no-verify"] : []) + ["origin", "\(sha):refs/heads/\(branch)"],
                     in: path, timeout: Self.pushTimeout)
     }
 

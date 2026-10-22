@@ -84,10 +84,18 @@ final class TaskFinisher {
     static let takenOverProblem = "taken over by you; call finish_task again once it's handed back"
 
     /// The operator's `finish_task`: clears a recorded problem and goes on from the saved steps. While its
-    /// merge is watched it is one more poll, so asking again never starts the bounded wait over.
-    func finish(_ id: UUID) async -> Result {
-        await run(id, restart: watchers[id] == nil)
+    /// merge is watched it is one more poll, so asking again never starts the bounded wait over. `noVerify`
+    /// pushes past the repository's push hooks (spec §B), the Oracle having judged the call: only once a push
+    /// the hook refused showed what it says (`TaskPublication.lastPushFailure`).
+    func finish(_ id: UUID, noVerify: Bool = false) async -> Result {
+        if noVerify, let operated = store.state.task(id: id)?.operated, operated.publication?.lastPushFailure == nil {
+            return Result(operated.publication, result: "refused", reason: Self.noFailedPush)
+        }
+        return await run(id, restart: watchers[id] == nil, noVerify: noVerify)
     }
+
+    /// Why a `noVerify` is refused before any push the hook refused.
+    static let noFailedPush = "Push without noVerify first, so the hook's output is known."
 
     /// At launch, and whenever an operation runs again — your Resume, its operator back from offline:
     /// watch every merge end (of `run`, or of every operation) that was waiting and is watchable. A task
@@ -136,12 +144,12 @@ final class TaskFinisher {
     }
 
     /// The one way a publication runs: joined when one is in flight for the task.
-    private func run(_ id: UUID, restart: Bool) async -> Result {
+    private func run(_ id: UUID, restart: Bool, noVerify: Bool = false) async -> Result {
         if let running = inFlight[id] {
             joined += 1
             return await running.value
         }
-        let started = Task { await self.advance(id, restart: restart) }
+        let started = Task { await self.advance(id, restart: restart, noVerify: noVerify) }
         inFlight[id] = started
         let result = await started.value
         if inFlight[id] == started { inFlight[id] = nil }
@@ -149,8 +157,8 @@ final class TaskFinisher {
     }
 
     /// A publication's step, and what the Merge slice kept from happening left for you once (spec §5).
-    private func advance(_ id: UUID, restart: Bool) async -> Result {
-        let result = await publish(id, restart: restart)
+    private func advance(_ id: UUID, restart: Bool, noVerify: Bool) async -> Result {
+        let result = await publish(id, restart: restart, noVerify: noVerify)
         if result.result == "refused", let reason = result.reason,
            let task = store.state.task(id: id), let operated = task.operated,
            operated.state == .accepted, Self.permanent(reason) {
@@ -185,7 +193,7 @@ final class TaskFinisher {
         _ = store.flush()
     }
 
-    private func publish(_ id: UUID, restart: Bool) async -> Result {
+    private func publish(_ id: UUID, restart: Bool, noVerify: Bool) async -> Result {
         guard var first = context(of: id) else { return Result(result: "refused", reason: PublicationGuard.gone) }
         // A task in review: this finish_task ends the review (spec §5). A draft end is then published; a merge end
         // goes on to its merge.
@@ -235,7 +243,7 @@ final class TaskFinisher {
             let outcome = try await publisher.advance(
                 TaskPublisher.Context(task: current.task, run: current.run, parent: current.parent,
                                       forReview: TaskPublisher.Context.entersReview(current.operated, run: current.run)),
-                restart: restart,
+                restart: restart, noVerify: noVerify,
                 recheck: { @MainActor [weak self] in
                     guard let self else { return PublicationGuard.gone }
                     return self.recheck(id, ownership: ownership, sha: accepted)
@@ -253,19 +261,21 @@ final class TaskFinisher {
                 let forget = forgetLogin
                 await BackgroundWork.run { forget() }
             }
-            recordFailure(why, on: id)
+            recordFailure(why, on: id, hookSaid: (error as? GitError).flatMap(Self.hookRefusal))
             return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: why)
         }
     }
 
     /// A publication that failed — a push its pre-push hook refused, a host that errored — recorded as the
     /// task's problem and saved, so its line says `blocked` and why, not `opening the MR` for as long as it
-    /// waits for you. The next `finish_task` clears it (`TaskPublisher`).
-    private func recordFailure(_ why: String, on id: UUID) {
+    /// waits for you. The next `finish_task` clears it (`TaskPublisher`). `hookSaid`, for a push the hook
+    /// refused, is kept as `lastPushFailure` for the Oracle to judge a `noVerify` by.
+    private func recordFailure(_ why: String, on id: UUID, hookSaid: String? = nil) {
         store.mutate { state in
             state.updateOperated(id) {
                 var publication = $0.publication ?? TaskPublication()
                 publication.problem = why
+                if let hookSaid { publication.lastPushFailure = hookSaid }
                 $0.publication = publication
             }
         }
