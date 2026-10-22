@@ -249,4 +249,77 @@ import Testing
         // A variable that is not secret is printed as it is, lines and all.
         #expect(lines.contains("NOTE=line") && lines.contains("MORE=text"))
     }
+
+    // MARK: Hard denials (spec §A.2)
+
+    @Test func everyPushIsRefusedForFinishTask() {
+        for command in ["git push", "git push origin feat/x", "git push --force-with-lease", "git -C /code/shop push", "git -c a=b push",
+                        "git --no-pager push", "git --git-dir=/code/shop/.git push", "git --git-dir /code/shop/.git push origin",
+                        "/usr/bin/git push", "cd /code/shop && git push", "git status; git push", "git status | git push",
+                        "FOO=1 git push", "env GIT_TRACE=1 git push", "command git push", "nohup git push &", "timeout 10 git push",
+                        "(git push)", "{ git push; }", "echo $(git push)", "echo \"$(git push)\"", "echo `git push`", "git pu\\sh",
+                        "'git' 'push'", "sh -c 'git push'", "bash -lc \"git push origin\"", "zsh -c 'cd x && git push'", "eval git push",
+                        "git status\ngit push", "git -c alias.p=push p", "git -c 'alias.p=!git push' p", "git push 2>&1 | tail -5",
+                        "git 2>/dev/null push", "if true; then git push; fi"] {
+            #expect(ShellGate.hardDenial(command) == ShellGate.pushDenial, "\(command)")
+        }
+        #expect(ShellGate.pushDenial.contains("finish_task"))
+    }
+
+    @Test func aWorkersChangesToACheckoutAreRefused() {
+        let cases: [(String, String)] = [
+            ("git commit -m x", "git commit"), ("git -C /code/shop commit -am x", "git commit"), ("git -c user.name=x commit", "git commit"),
+            ("git reset --hard", "git reset --hard"), ("git reset --hard origin/main", "git reset --hard"),
+            ("git -c core.x=y reset --hard HEAD~1", "git reset --hard"), ("git -C /code/shop reset -q --hard", "git reset --hard"),
+            ("git checkout main", "git checkout"), ("git --no-pager checkout -- .", "git checkout"), ("git -C x checkout -b y", "git checkout"),
+            ("git switch main", "git switch"), ("git -C /code/shop switch x", "git switch"), ("git -c a=b switch -c y", "git switch"),
+            ("git clean -fdx", "git clean"), ("git -C /code/shop clean -fdx", "git clean"), ("git -C x clean -n", "git clean"),
+            ("git --git-dir=/x/.git clean -f", "git clean"), ("git --work-tree /x clean -f", "git clean"),
+        ]
+        for (command, what) in cases {
+            #expect(ShellGate.hardDenial(command) == ShellGate.workerDenial(what), "\(command)")
+        }
+        #expect(ShellGate.workerDenial("git clean").contains("message_task"))
+    }
+
+    @Test func mergesAndChangesToARequestOnTheHostAreRefused() {
+        let cases: [(String, String)] = [
+            ("gh pr merge 12", "gh pr merge"), ("gh pr merge --squash 12", "gh pr merge"), ("gh pr -R a/b merge 12", "gh pr merge"),
+            ("gh pr close 12", "gh pr close"), ("gh pr edit 12 --title x", "gh pr edit"), ("gh pr review 12 --approve", "gh pr review"),
+            ("gh pr ready 12", "gh pr ready"), ("gh pr reopen 12", "gh pr reopen"), ("gh pr comment 12 -b hi", "gh pr comment"),
+            ("gh pr create --fill", "gh pr create"), ("glab mr merge 3", "glab mr merge"), ("glab mr accept 3", "glab mr accept"),
+            ("glab mr close 3", "glab mr close"), ("glab mr approve 3", "glab mr approve"), ("glab mr update 3 --draft", "glab mr update"),
+            ("glab mr note 3 -m hi", "glab mr note"), ("glab mr rebase 3", "glab mr rebase"), ("glab -R a/b mr merge 3", "glab mr merge"),
+            ("/opt/homebrew/bin/glab mr merge 3", "glab mr merge"), ("cd /code/shop && glab mr approve", "glab mr approve"),
+        ]
+        for (command, what) in cases {
+            #expect(ShellGate.hardDenial(command) == ShellGate.hostDenial(what), "\(command)")
+        }
+        #expect(ShellGate.hostDenial("gh pr merge").contains("finish_task"))
+    }
+
+    @Test func anAPICallThatIsNoGetIsRefused() {
+        for command in ["gh api -X PUT repos/a/b/pulls/1/merge", "gh api repos/a/b/pulls/1/merge -XPUT", "gh api --method=PATCH repos/a/b/pulls/1",
+                        "gh api --method POST repos/a/b/issues", "gh api -iXPOST repos/a/b/issues", "gh api repos/a/b/issues -f title=x",
+                        "gh api repos/a/b/issues -F title=x", "gh api repos/a/b/issues --field title=x", "gh api repos/a/b --raw-field=a=b",
+                        "gh api repos/a/b --input body.json", "gh api repos/a/b -iftitle=x", "gh api graphql -f query=x"] {
+            #expect(ShellGate.hardDenial(command) == ShellGate.apiDenial("gh"), "\(command)")
+        }
+        for command in ["glab api -X PUT projects/1/merge_requests/3/merge", "glab api projects/1/merge_requests/3/merge --method PUT",
+                        "glab api projects/1/merge_requests/3/notes -f body=x", "glab api projects/1 -XDELETE"] {
+            #expect(ShellGate.hardDenial(command) == ShellGate.apiDenial("glab"), "\(command)")
+        }
+    }
+
+    @Test func readsAndOtherCommandsAreNoHardDenial() {
+        for command in ["git status", "git log --grep push", "git log -- commit.ts", "git show HEAD:checkout.md", "git reset --soft HEAD~1",
+                        "git reset HEAD file", "git fetch origin", "git branch --contains abc", "git diff main", "git stash list",
+                        "echo git push", "grep -rn 'git push' .", "cat push.md", "npm run commit", "gh pr view 12", "gh pr list",
+                        "gh pr checks 12", "gh pr diff 12", "glab mr view 3", "glab mr list", "glab mr diff 3", "glab ci status",
+                        "gh api repos/a/b/pulls", "gh api repos/a/b/pulls -X GET -f state=open", "gh api repos/a/b --method get",
+                        "glab api projects/1/merge_requests", "gh run rerun 1", "npm install", "rm -rf node_modules", "",
+                        "git -C /code/shop log --oneline", "git -c core.pager=cat log", "git -c alias.st=status st"] {
+            #expect(ShellGate.hardDenial(command) == nil, "\(command)")
+        }
+    }
 }

@@ -235,4 +235,42 @@ import Testing
         #expect(world.run(run.id)?.questions.first?.resolution == nil)
         #expect(await world.call(run.id, "resolve_question", ["key": "locale", "summary": "nl-BE."]).value?["open"] == false)
     }
+
+    /// Spec §A.2: a push, a worker's change to a checkout, and a merge or a change to a request are refused by AiTerm itself,
+    /// never asked of the Oracle, whatever it would say, and on every path where a command would otherwise run unchallenged:
+    /// an Oracle that says YES, one that is off, one with no headless run, one that fails or gives no clear answer, and an
+    /// allowance you gave for that very command.
+    @Test func hardDenialsAreRefusedBeforeTheOracleOnEveryPath() async throws {
+        let refused: [(String, String)] = [
+            ("git push origin feat/a", ShellGate.pushDenial), ("git -C \(worktree) clean -fdx", ShellGate.workerDenial("git clean")),
+            ("git -C \(worktree) switch x", ShellGate.workerDenial("git switch")),
+            ("git -c core.x=y reset --hard", ShellGate.workerDenial("git reset --hard")),
+            ("gh pr close 12", ShellGate.hostDenial("gh pr close")), ("glab mr approve 3", ShellGate.hostDenial("glab mr approve")),
+            ("gh api -X PUT repos/a/b/pulls/1/merge", ShellGate.apiDenial("gh")),
+        ]
+        let asked = Asked()
+        let worlds = [
+            try makeWorld(runner: answering("YES", asked)), try makeWorld(oracle: false, runner: answering("YES", asked)),
+            try makeWorld(runner: .unavailable), try makeWorld(runner: .answering("Looks fine to me")),
+        ]
+        for (world, run, _) in worlds {
+            for (command, reason) in refused {
+                let answer = await gate(world, run, command, in: worktree)
+                #expect(answer["decision"] == "deny" && answer["reason"] == .string(reason), "\(command)")
+            }
+            let lines = await entries(world, run)
+            #expect(lines.count == refused.count && lines.allSatisfy { $0.tool == "shell" && $0.outcome == .refused })
+            #expect(world.run(run.id)?.questions.isEmpty == true)
+        }
+        #expect(asked.count == 0, "the Oracle is never asked")
+
+        let grok = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: true, oracleAgent: .grok), projects: [project], state: .active)
+        let noHeadless = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [grok]))
+        #expect(await gate(noHeadless, grok, "git push", in: project.path)["decision"] == "deny")
+
+        // An allowance for the command, however it came to be, doesn't pass it either.
+        let (world, run, _) = try makeWorld(runner: .unavailable)
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.gateAllowances = [GateRequest(command: "git push", directory: worktree)] } }
+        #expect(await gate(world, run, "git push", in: worktree)["reason"] == .string(ShellGate.pushDenial))
+    }
 }

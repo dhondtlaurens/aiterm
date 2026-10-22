@@ -3,8 +3,9 @@ import AiTermCore
 
 /// The gate on the Operator's shell (spec §A): each Bash command the Operator runs reaches AiTerm through its
 /// `PreToolUse` hook as a `gate_command` request, and is answered allow or deny before it runs. A plain read inside
-/// the broadcast's checkouts, worktrees and run folder runs at once (`ShellGate`); anything else is the Oracle's to
-/// judge (`ChallengeLaunch.gatePrompt`). Its YES runs the command, its WORKER sends the Operator to a worker, and its
+/// the broadcast's checkouts, worktrees and run folder runs at once (`ShellGate`); a push, a commit or a change to a
+/// checkout, and a merge or a change to a merge request is refused outright (`ShellGate.hardDenial`); anything else is the
+/// Oracle's to judge (`ChallengeLaunch.gatePrompt`). Its YES runs the command, its WORKER sends the Operator to a worker, and its
 /// ASK opens a `gate-` question the person answers in the Operator's chat. Whenever the Oracle can't answer, the
 /// command runs, logged as unchallenged. Every command judged is a line of the activity log, as `shell_read` or `shell`.
 extension OperatorToolHandler {
@@ -49,6 +50,8 @@ extension OperatorToolHandler {
         }
 
         if let ended = ended(run.id) { return answer("deny", ended, outcome: .refused) }
+        // AiTerm's own refusals (spec §A.2), before any allowance, read or Oracle: they hold whenever the Oracle can't answer.
+        if let denied = ShellGate.hardDenial(command) { return answer("deny", denied, outcome: .refused) }
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
         let folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let worktrees = state.tasks(inRun: run.id).map(\.worktreePath).filter { !$0.isEmpty }

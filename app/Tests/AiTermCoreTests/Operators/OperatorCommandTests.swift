@@ -35,14 +35,23 @@ import Foundation
             "--allowedTools 'mcp__aiterm__*' Bash --strict-mcp-config \"$(command cat first-message.md)\""))
     }
 
-    /// The hard denials win over `Bash` being allowed: a worker's pushes and merges, plus the host changes
-    /// the Operator's shell must never make (commits, resets, checkouts, cleans), and no question tool.
+    /// The hard denials win over `Bash` being allowed: a worker's pushes and merges, plus the changes the
+    /// Operator's shell must never make (commits, resets, checkouts, switches and cleans, through `-C` and
+    /// `-c` too; closing, editing, reviewing, approving and commenting on a request), and no question tool.
     @Test func theShellDenialsKeepPushesCommitsAndCheckoutsOut() {
         let denials = OperatorCommand.shellDenials
         #expect(denials == AgentCommand.operatedClaudeDenials.filter { $0 != "AskUserQuestion" } + [
             "Bash(git commit:*)", "Bash(git * commit:*)", "Bash(git reset --hard:*)", "Bash(git checkout:*)",
-            "Bash(git switch:*)", "Bash(git clean:*)", "Bash(git -C * checkout:*)", "Bash(git -C * reset:*)"])
+            "Bash(git switch:*)", "Bash(git clean:*)", "Bash(git -C * checkout:*)", "Bash(git -C * reset:*)",
+            "Bash(git -C * switch:*)", "Bash(git -C * clean:*)",
+            "Bash(git -c * reset:*)", "Bash(git -c * checkout:*)", "Bash(git -c * switch:*)", "Bash(git -c * clean:*)",
+            "Bash(gh pr close:*)", "Bash(gh pr reopen:*)", "Bash(gh pr edit:*)", "Bash(gh pr review:*)", "Bash(gh pr comment:*)",
+            "Bash(glab mr close:*)", "Bash(glab mr reopen:*)", "Bash(glab mr approve:*)", "Bash(glab mr note:*)", "Bash(glab mr rebase:*)"])
         #expect(!denials.contains("AskUserQuestion") && denials.contains("Bash(git push:*)"))
+        // The worker's host denials are kept, not forked: merges, creations, ready and updates.
+        for kept in ["Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)"] {
+            #expect(denials.contains(kept), "\(kept)")
+        }
     }
 
     /// Spec §9: a gone operator session is relaunched on its conversation, under the same profile.
