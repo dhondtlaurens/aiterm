@@ -119,6 +119,25 @@ import Testing
         #expect(shell.spawns == 2)
     }
 
+    /// A refresh keeps what was known until a new shell answers: one that fails (a timeout under load) leaves the old PATH
+    /// for git, and one that answers replaces it.
+    @Test func aRefreshReplacesTheKnownPathOnlyWhenTheShellAnswers() {
+        func said(path: String) -> String { LoginShellLocator.pathMarker + "\n" + path + "\n" + Self.output([.claude]) }
+        let shell = CountingShell(said(path: "/old/bin:/usr/bin"))
+        let locator = LoginShellLocator(shell: shell.run)
+        #expect(locator.current() != nil && locator.knownPath == "/old/bin:/usr/bin")
+
+        shell.answer(nil)
+        #expect(locator.refresh() == nil)
+        #expect(locator.knownPath == "/old/bin:/usr/bin", "a shell that failed leaves the PATH git has")
+        #expect(locator.locate("claude") == "/usr/bin/true", "and every answer known before")
+
+        shell.answer(said(path: "/new/bin:/usr/bin"))
+        #expect(locator.refresh()?.path == "/new/bin:/usr/bin")
+        #expect(locator.knownPath == "/new/bin:/usr/bin")
+        #expect(shell.spawns == 3)
+    }
+
     /// The login shell's `PATH` comes with the rest, and `knownPath` says it only once a shell has
     /// answered: it never starts one, so git can ask it on every command.
     @Test func theLoginShellsPathIsKnownOnceAShellAnswered() throws {

@@ -71,12 +71,13 @@ final class TaskFinisher {
     private var watchers: [UUID: Task<Void, Never>] = [:]
     /// How many calls found a publication in flight and waited for it; for a test.
     private(set) var joined = 0
-    /// Drops what the login shell said and asks it again (`LoginShellLocator`), blocking: run off the main
-    /// actor. A hook that did not find its tool ran with a PATH that may have changed since it was read
-    /// (an install, a new nvm default), and git takes the next push's from the same answers. A test passes its own.
-    var forgetLogin: @Sendable () -> Void = {
-        LoginShellLocator.shared.forget()
-        _ = LoginShellLocator.shared.resolve()
+    /// Asks the login shell again (`LoginShellLocator.refresh`), blocking: run off the main actor. A hook that
+    /// did not find its tool ran with a PATH that may have changed since it was read (an install, a new nvm
+    /// default), and git takes the next push's from the same answers. The old answers stand until the shell
+    /// answers, so one that fails or times out under load leaves git the PATH it had, never launchd's. A test
+    /// passes its own.
+    var refreshLogin: @Sendable () -> Void = {
+        LoginShellLocator.shared.refresh()
     }
 
     init(store: WorkspaceStore, git: any GitRunning,
@@ -283,8 +284,8 @@ final class TaskFinisher {
         } catch {
             let why = Self.failure(error, branch: branch)
             if let git = error as? GitError, Self.commandNotFound(git) {
-                let forget = forgetLogin
-                await BackgroundWork.run { forget() }
+                let refresh = refreshLogin
+                await BackgroundWork.run { refresh() }
             }
             recordFailure(why, on: id, hookSaid: (error as? GitError).flatMap(Self.hookRefusal).map { ($0, accepted) })
             var failed = Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: why)

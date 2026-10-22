@@ -88,6 +88,25 @@ public final class LoginShellLocator: Sendable {
         }
     }
 
+    /// A new shell's answers, which replace the ones known only once it has answered: a shell that fails or runs out of
+    /// time leaves what was known as it was, `knownPath` included. `forget()` then `resolve()` would leave nothing known
+    /// until a shell answers, and git, which asks `knownPath` on every command, back on launchd's PATH meanwhile. Like
+    /// `forget()`, it lets no shell already running stand in for this one, nor store its answers over this one's.
+    @discardableResult
+    public func refresh() -> Answers? {
+        let generation = known.withLock { known in
+            known.generation += 1
+            return known.generation
+        }
+        resolution.detach()
+        return resolution.run {
+            guard let output = shell(query) else { return nil }
+            let answers = Self.answers(output, names: names, isExecutable: isExecutable)
+            known.withLock { if $0.generation == generation { $0.answers = answers } }
+            return answers
+        }
+    }
+
     /// How many callers are waiting on a shell another caller started: for a test that holds its
     /// shell until everyone it expects has joined.
     var callersWaiting: Int { resolution.waiting }

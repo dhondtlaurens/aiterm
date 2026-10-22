@@ -56,7 +56,7 @@ final class MergeClock: Sendable {
         let store: WorkspaceStore, finisher: TaskFinisher, host: FakeMergeHost, ticker: Ticker, changed: Changed, clock: MergeClock
         let task: UUID, run: UUID, sha: String, origin: String, path: String
         let remotes: Recorded<RemoteInfo>, mergedOnHost: Recorded<UUID>, stopped: Recorded<String>
-        /// How many times the finisher dropped the login shell's answers (`TaskFinisher.forgetLogin`).
+        /// How many times the finisher asked the login shell again (`TaskFinisher.refreshLogin`).
         let forgotten: Recorded<Void>
     }
 
@@ -81,7 +81,7 @@ final class MergeClock: Sendable {
                                     now: { clock.now },
                                     sleep: { seconds in await ticker.wait(); clock.slept(seconds) })
         let forgotten = Recorded<Void>()
-        finisher.forgetLogin = { forgotten.append(()) }
+        finisher.refreshLogin = { forgotten.append(()) }
         finisher.changed = { changed.ids.append($0) }
         finisher.mergedOnHost = { id, _ in mergedOnHost.append(id) }
         finisher.watchStopped = { _, why in stopped.append(why) }
