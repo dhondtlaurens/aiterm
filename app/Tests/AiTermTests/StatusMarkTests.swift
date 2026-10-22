@@ -49,10 +49,17 @@ struct StatusMarkTests {
         return try #require(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
     }
 
+    /// Whether `pixel` is `color` as the mark draws it: resolved in the dark appearance the host
+    /// draws in, and laid over the black behind it. A translucent ink such as `Palette.spinner`
+    /// (`muted`, the system's secondary label) is a grey there, not its opaque white.
     private func matches(_ pixel: NSColor, _ color: Color) throws -> Bool {
-        let expected = try #require(NSColor(color).usingColorSpace(.sRGB))
-        return abs(pixel.redComponent - expected.redComponent) + abs(pixel.greenComponent - expected.greenComponent)
-            + abs(pixel.blueComponent - expected.blueComponent) < 0.08
+        var resolved: NSColor?
+        try #require(NSAppearance(named: .darkAqua)).performAsCurrentDrawingAppearance {
+            resolved = NSColor(color).usingColorSpace(.sRGB)
+        }
+        let expected = try #require(resolved), alpha = expected.alphaComponent
+        return abs(pixel.redComponent - expected.redComponent * alpha) + abs(pixel.greenComponent - expected.greenComponent * alpha)
+            + abs(pixel.blueComponent - expected.blueComponent * alpha) < 0.08
     }
 
     private func isBlack(_ pixel: NSColor) -> Bool {
