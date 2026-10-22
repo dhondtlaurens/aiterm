@@ -75,6 +75,19 @@ import Foundation
         #expect(!o.readyForAcceptance.contains("Q"))
     }
 
+    /// What you typed in the task's worker window while a question about it was open (`answeredInWindow`) comes with that
+    /// question, so the Operator can check it and resolve; a question with none omits the field.
+    @Test func aQuestionShowsWhatYouTypedInItsWorkersWindow() throws {
+        let q = F.task("Q", .working)
+        var s = F.state(F.run(), [q])
+        s.runs[0].questions = [OperatorQuestion(id: "locale", text: "Which locale?", task: q.id, askedAt: F.epoch, answeredInWindow: "Use nl-BE"),
+                               OperatorQuestion(id: "api", text: "Which API?", task: q.id, askedAt: F.epoch)]
+        let waiting = try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: [:])).obligations.questionsWaiting
+        #expect(waiting.map(\.answeredInWindow) == ["Use nl-BE", nil])
+        let json = try String(decoding: JSONEncoder().encode(waiting), as: UTF8.self)
+        #expect(json.components(separatedBy: "answeredInWindow").count == 2, "only the marked question carries the field")
+    }
+
     /// A worker that committed off its task branch is named with what AiTerm found, the branch and the SHA,
     /// and listed among the obligations, so the Operator looks before the runtime runs out.
     @Test func aTaskOffItsBranchSaysWhatWasFound() throws {

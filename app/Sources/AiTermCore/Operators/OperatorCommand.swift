@@ -414,6 +414,7 @@ public enum OperatorCommand {
                 + "its worker bring the work onto it with message_task before you accept, or block the task.",
             "workerAsks and changedAfterAcceptance can appear on tasks in any state: read the worker's question or the change "
                 + "before you act on the task.",
+            "A question showing answeredInWindow may already be answered: check, then resolve it.",
             tabRule,
             shellRule,
         ]

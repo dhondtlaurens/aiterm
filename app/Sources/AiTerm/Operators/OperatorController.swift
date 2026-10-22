@@ -624,11 +624,44 @@ final class OperatorController {
         for id in reopenedOperator.keys where Self.operatorTab(of: id, in: sessions) != nil { reopenedOperator[id] = nil }
         let held = starter.tabsListed(sessions)
         for id in closed { operatorWindowClosed(id) }
+        recordWindowAnswers(sessions)
         observeRuns()
         probePrompts()
         for run in runs { waker.operatorSessionChanged(run.id) }
         // A retried task held back until its worker's window was listed: the retry goes to that worker now.
         if held { startReadyTasks() }
+    }
+
+    /// An answer typed in a worker's window instead of the Operator's chat (spec §I): while a prompt you typed into a task's
+    /// worker is set (`SessionInfo.yourPrompt`, cleared when its turn ends), its first line goes onto each open `ask_you`
+    /// question about that task, once per distinct prompt, so it is on the question after the prompt is gone. The question
+    /// stays open: only the Operator's `resolve_question` closes it. AiTerm's own questions (`aitermPrefixes`) are not
+    /// the Operator's to resolve this way.
+    private func recordWindowAnswers(_ sessions: [SessionInfo]) {
+        var typed: [UUID: String] = [:]
+        for task in workspace.state.tasks where task.operated != nil {
+            let prompt = task.workerTabs(in: sessions).lazy.compactMap { $0.session?.yourPrompt }.first
+            if let line = prompt?.split(whereSeparator: \.isNewline).first.map(String.init) { typed[task.id] = line }
+        }
+        guard !typed.isEmpty else { return }
+        let news = workspace.state.runs.flatMap { run in
+            run.questions.compactMap { question in
+                question.task.flatMap { typed[$0] }.flatMap { Self.takesWindowAnswer(question, $0) ? (run.id, question.id, $0) : nil }
+            }
+        }
+        guard !news.isEmpty else { return }
+        for (run, question, prompt) in news {
+            mutateRun(run) { run in
+                if let i = run.questions.firstIndex(where: { $0.id == question }) { run.questions[i].answeredInWindow = prompt }
+            }
+        }
+    }
+
+    /// Whether `prompt`, typed in the question's task's worker, is news for `question`: an open `ask_you` question the
+    /// prompt is not already written on.
+    private static func takesWindowAnswer(_ question: OperatorQuestion, _ prompt: String) -> Bool {
+        question.task != nil && question.resolution == nil && question.answeredInWindow != prompt
+            && !OperatorQuestion.aitermPrefixes.contains(where: question.id.hasPrefix)
     }
 
     /// The Operator's window closed (spec §9): it ends nothing. A broadcast under way goes offline at once,

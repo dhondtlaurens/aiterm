@@ -148,24 +148,32 @@ final class OperatorWaker {
 
     /// What a worker's ended turn brings, one line per kind (spec §J): a worker that asks something (`workerAsks`), a task
     /// changed after its acceptance (`changedAfterAcceptance`), a task that finished with no commit
-    /// (`finishedWithoutCommit`). Each names the kind and never the task: a key's digits are what a menu opening as the
-    /// line lands could take for its answer, and `run_status` names the task.
-    static let turnReasons = ["one worker asks something", "one task changed after acceptance", "one task finished with no commit"]
+    /// (`finishedWithoutCommit`); and, last, a prompt you typed in a worker's window onto an open question (spec §I,
+    /// `Question.answeredInWindow`). Each names the kind and never the task or question: a key's digits are what a menu
+    /// opening as the line lands could take for its answer, and `run_status` names which.
+    static let turnReasons = ["one worker asks something", "one task changed after acceptance", "one task finished with no commit",
+                              "you may have answered one question in its worker's window"]
 
     /// The turn line for the news between `seen`, what the Operator last looked at, and `status`: exactly one new entry in
-    /// the three lists of `turnReasons`, and nothing else it acts on changed but that task leaving ready or background.
-    /// The worker's status moving with its turn's end is part of that news. Nil for any other news, which is the
-    /// generic line, several turns at once among it.
+    /// the three lists of `turnReasons`, or one question newly showing what you typed in its worker's window, and nothing
+    /// else it acts on changed but that task leaving ready or background. The worker's status moving with its turn's end
+    /// is part of that news. Nil for any other news, which is the generic line, several turns at once among it.
     static func turnReason(from seen: RunStatus, to status: RunStatus) -> String? {
         let now = status.obligations, was = seen.obligations
+        let answered = now.questionsWaiting.filter { question in
+            question.answeredInWindow != nil && was.questionsWaiting.first { $0.key == question.key }?.answeredInWindow != question.answeredInWindow
+        }
         let news = [now.workerAsks.map(\.key).filter { key in !was.workerAsks.contains { $0.key == key } },
                     now.changedAfterAcceptance.filter { !was.changedAfterAcceptance.contains($0) },
-                    now.finishedWithoutCommit.filter { !was.finishedWithoutCommit.contains($0) }]
+                    now.finishedWithoutCommit.filter { !was.finishedWithoutCommit.contains($0) },
+                    answered.map(\.key)]
         guard news.joined().count == 1, let kind = news.firstIndex(where: { !$0.isEmpty }), let key = news[kind].first else { return nil }
         func rest(_ obligations: RunStatus.Obligations) -> RunStatus.Obligations {
             var rest = obligations
             rest.workerAsks = []; rest.changedAfterAcceptance = []; rest.finishedWithoutCommit = []
-            rest.readyForAcceptance.removeAll { $0 == key }; rest.background.removeAll { $0 == key }
+            // What you typed on a question is that news and no other change to it.
+            for i in rest.questionsWaiting.indices { rest.questionsWaiting[i].answeredInWindow = nil }
+            if kind < 3 { rest.readyForAcceptance.removeAll { $0 == key }; rest.background.removeAll { $0 == key } }
             return rest
         }
         return rest(now) == rest(was) && seen.run == status.run ? turnReasons[kind] : nil

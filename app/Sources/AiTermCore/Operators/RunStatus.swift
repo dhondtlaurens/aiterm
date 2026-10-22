@@ -228,8 +228,11 @@ public struct RunStatus: Encodable, Equatable, Sendable {
 
     public struct Question: Encodable, Equatable, Sendable {
         public var key: String, text: String, task: String?, askedAt: Date
-        public init(key: String, text: String, task: String? = nil, askedAt: Date) {
-            self.key = key; self.text = text; self.task = task; self.askedAt = askedAt
+        /// The newest prompt (its first line) you typed into the task's worker window while this was open: it may answer
+        /// the question. Check, then resolve it. Nil when none.
+        public var answeredInWindow: String?
+        public init(key: String, text: String, task: String? = nil, askedAt: Date, answeredInWindow: String? = nil) {
+            self.key = key; self.text = text; self.task = task; self.askedAt = askedAt; self.answeredInWindow = answeredInWindow
         }
     }
 
@@ -338,7 +341,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             tasks: lines,
             obligations: Obligations(
                 questionsWaiting: run.questions.filter { $0.resolution == nil }.map {
-                    Question(key: $0.id, text: $0.text, task: $0.task.flatMap { keys[$0] }, askedAt: $0.askedAt)
+                    Question(key: $0.id, text: $0.text, task: $0.task.flatMap { keys[$0] }, askedAt: $0.askedAt,
+                             answeredInWindow: $0.answeredInWindow)
                 },
                 promptsWaitingOnYou: prompts, readyForAcceptance: ready, background: background, possiblyStalled: stalled, uncertain: uncertain,
                 branchDrift: drift, workerAsks: asks, changedAfterAcceptance: changed, finishedWithoutCommit: noCommit))

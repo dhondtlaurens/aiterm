@@ -407,6 +407,86 @@ import Testing
         #expect(controller.sheet == nil)
         #expect(controller.operatorController.presentOverview == nil)
     }
+
+    // -- an answer typed in a worker's window (spec §I) ---------------------------------------------------
+
+    /// An active run with two working tasks, PAY-2 and PAY-3, and the open questions each of `questions` says: its key and
+    /// the task it is about, by key.
+    func askedWorld(_ questions: [(String, String?)]) throws -> (OperatorWorld, OperatorRun, [String: TaskItem]) {
+        var run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
+        let tasks = ["PAY-2", "PAY-3"].map { OperatorServiceFixtures.task(in: run, project: project, key: $0, state: .working) }
+        let byKey = Dictionary(uniqueKeysWithValues: tasks.map { ($0.operated!.key, $0) })
+        run.questions = questions.map { key, task in
+            OperatorQuestion(id: key, text: "Which locale is the default?", task: task.flatMap { byKey[$0]?.id }, askedAt: Date(timeIntervalSince1970: 0))
+        }
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: tasks))
+        return (world, run, byKey)
+    }
+
+    /// The Operator's tab and each worker in `workers`, by key, as the helper lists them with what you typed there.
+    func showWorkers(_ world: OperatorWorld, _ run: OperatorRun, _ workers: [String: TaskItem], typed: [String: String?]) {
+        let tabs = workers.sorted { $0.key < $1.key }.map { key, task in
+            var tab = OperatorServiceFixtures.session("s-\(key)", tag: task.id, state: typed[key].map { $0 == nil ? .idle : .working } ?? .idle)
+            tab.yourPrompt = typed[key] ?? nil
+            return tab
+        }
+        world.show([OperatorServiceFixtures.session("op", window: "wop", tag: run.id)] + tabs)
+    }
+
+    /// A prompt you type into a task's worker, while a question about that task is open, is written on the question: its
+    /// first line, the newest replacing the last, once per prompt. It stays on the question after the turn ends, which clears
+    /// the prompt.
+    @Test func aPromptTypedInTheWorkerIsWrittenOnTheOpenQuestion() throws {
+        let (world, run, tasks) = try askedWorld([("locale", "PAY-2")])
+        func written() -> String? { world.run(run.id)?.questions.first?.answeredInWindow }
+        showWorkers(world, run, tasks, typed: ["PAY-2": nil, "PAY-3": nil])
+        #expect(written() == nil)
+        showWorkers(world, run, tasks, typed: ["PAY-2": "Use nl-BE as the default\nand keep en", "PAY-3": nil])
+        #expect(written() == "Use nl-BE as the default")
+        // Once per prompt: the same prompt shown again writes nothing.
+        var writes = 0
+        world.workspace.onChange { writes += 1 }
+        showWorkers(world, run, tasks, typed: ["PAY-2": "Use nl-BE as the default\nand keep en", "PAY-3": nil])
+        #expect(writes == 0)
+        showWorkers(world, run, tasks, typed: ["PAY-2": nil, "PAY-3": nil])
+        #expect(written() == "Use nl-BE as the default", "the turn ended and cleared the prompt; the question keeps it")
+        showWorkers(world, run, tasks, typed: ["PAY-2": "Actually use fr-BE", "PAY-3": nil])
+        #expect(written() == "Actually use fr-BE", "the newest replaces the last")
+        let status = try #require(world.controller.status(of: run))
+        #expect(status.obligations.questionsWaiting.map(\.answeredInWindow) == ["Actually use fr-BE"])
+    }
+
+    /// AiTerm only says what you typed: the question stays open, and its task still waits on you, until `resolve_question`.
+    @Test func itNeverResolvesTheQuestion() throws {
+        let (world, run, tasks) = try askedWorld([("locale", "PAY-2")])
+        world.workspace.mutate { $0.updateOperated(tasks["PAY-2"]!.id) { $0.flags.insert(.waitingOnYou) } }
+        showWorkers(world, run, tasks, typed: ["PAY-2": "Use nl-BE", "PAY-3": nil])
+        showWorkers(world, run, tasks, typed: ["PAY-2": nil, "PAY-3": nil])
+        let question = try #require(world.run(run.id)?.questions.first)
+        #expect(question.resolution == nil)
+        #expect(world.state.task(id: tasks["PAY-2"]!.id)?.operated?.flags.contains(.waitingOnYou) == true)
+        #expect(world.controller.status(of: run)?.obligations.questionsWaiting.map(\.key) == ["locale"])
+    }
+
+    /// Only an open `ask_you` question about the task whose worker you typed in is marked: not one about another task, one
+    /// about none, a resolved one, or one of AiTerm's own.
+    @Test func onlyQuestionsAboutThatTaskAreMarked() throws {
+        let (world, run, tasks) = try askedWorld([("locale", "PAY-2"), ("other-task", "PAY-3"), ("no-task", nil), ("old", "PAY-2")])
+        world.workspace.mutate { state in
+            state.updateRun(id: run.id) {
+                $0.questions[3].resolution = "Done"
+                $0.questions.append(OperatorQuestion(id: "prompt-\(tasks["PAY-2"]!.id.uuidString)-1", text: "Codex asks", task: tasks["PAY-2"]!.id,
+                                                     askedAt: Date(timeIntervalSince1970: 0)))
+                $0.questions.append(OperatorQuestion(id: "merged-on-host-\(tasks["PAY-2"]!.id.uuidString)", text: "Merged?", task: tasks["PAY-2"]!.id,
+                                                     askedAt: Date(timeIntervalSince1970: 0)))
+                $0.questions.append(OperatorQuestion(id: "gate-1", text: "Run it?", task: tasks["PAY-2"]!.id, askedAt: Date(timeIntervalSince1970: 0),
+                                                     gate: GateRequest(command: "ls", directory: "/tmp")))
+            }
+        }
+        showWorkers(world, run, tasks, typed: ["PAY-2": "Use nl-BE", "PAY-3": nil])
+        let marked = world.run(run.id)?.questions.filter { $0.answeredInWindow != nil }.map(\.id)
+        #expect(marked == ["locale"])
+    }
 }
 
 /// A `summarySleep` that ends when the test says, or at once once opened, and keeps what it was asked to wait.

@@ -443,10 +443,14 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// For a command the Oracle stopped and asked the person about (`gate-<n>`, spec §A.3), that command where it ran;
     /// nil for any other question.
     public var gate: GateRequest?
+    /// For an `ask_you` question about a task, the first line of the newest prompt you typed into that task's worker
+    /// instead of answering in the Operator's chat (spec §I). AiTerm writes it while the question is open and never closes
+    /// the question: the Operator checks whether it is answered and calls `resolve_question`. Nil for any other question.
+    public var answeredInWindow: String?
     public init(id: String, text: String, task: UUID?, askedAt: Date, resolution: String? = nil, tab: String? = nil,
-                gate: GateRequest? = nil) {
+                gate: GateRequest? = nil, answeredInWindow: String? = nil) {
         self.id = id; self.text = text; self.task = task; self.askedAt = askedAt; self.resolution = resolution; self.tab = tab
-        self.gate = gate
+        self.gate = gate; self.answeredInWindow = answeredInWindow
     }
 
     /// The keys AiTerm records its own questions under: a worker's prompt is `prompt-<task>-<n>`, a merge on the host

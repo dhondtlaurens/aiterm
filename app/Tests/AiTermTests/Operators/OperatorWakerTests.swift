@@ -325,14 +325,35 @@ import Testing
         #expect(lines == ["[AiTerm] one task changed after acceptance, call run_status"])
     }
 
-    /// The three turn lines are plain: no digit, no one-letter word (`isPlain`, the daemon's `wake_text_problem`).
+    /// A prompt you typed into a task's worker, which the controller writes on its open question (`answeredInWindow`), wakes
+    /// the Operator with a line that says what kind of news it is and names no question: a key's digits are what a menu
+    /// opening as it lands could take for its answer, and run_status names the question. The question stays open.
+    @Test func theOperatorIsWokenNamingTheTask() async throws {
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .working)
+        func status(typed: String?) -> RunStatus {
+            var run = self.run
+            run.questions = [OperatorQuestion(id: "locale-2", text: "Which locale?", task: task.id, askedAt: Date(timeIntervalSince1970: 0),
+                                              answeredInWindow: typed)]
+            return RunStatus.build(state: OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), run: run.id,
+                                   revision: 1, live: [task.id: TaskLiveFacts(status: .idle)])!
+        }
+        waker.acknowledged(status(typed: nil), of: run.id)
+        waker.observe(status(typed: "Use nl-BE"), of: run.id)
+        await hand.release(1)
+        try await daemon.received("session.deliver")
+        #expect(lines == ["[AiTerm] you may have answered one question in its worker's window, call run_status"])
+    }
+
+    /// The turn lines are plain: no digit, no one-letter word (`isPlain`, the daemon's `wake_text_problem`).
     @Test func theTurnLinesArePlain() {
         for reason in OperatorWaker.turnReasons {
             #expect(OperatorWaker.isPlain(reason), "\(reason)")
             #expect(OperatorWaker.line(updates: 1, reason: .init(text: reason, colon: false)) == "[AiTerm] \(reason), call run_status")
         }
         #expect(OperatorWaker.turnReasons == ["one worker asks something", "one task changed after acceptance",
-                                              "one task finished with no commit"])
+                                              "one task finished with no commit",
+                                              "you may have answered one question in its worker's window"])
     }
 
     // -- what a wake line may carry ----------------------------------------------------------------

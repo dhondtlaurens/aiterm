@@ -223,7 +223,8 @@ import Foundation
         // prompt needs, the merge on the host the Operator now closes, find_user before asking, and what a local merge pushes.
         // Raised to 475 for the shell: its hard limit and the one mechanics rule that says how the gate's answers are met.
         // Raised to 500 for the one rule that workerAsks and changedAfterAcceptance come on tasks in any state (spec §J).
-        #expect(words(largest()) <= today + 500, "\(words(largest())) words")
+        // Raised to 520 for the one rule that a question showing answeredInWindow may already be answered (spec §I).
+        #expect(words(largest()) <= today + 520, "\(words(largest())) words")
     }
 
     /// Strong words are kept for the hard limits, so they keep their weight; every other rule says what to do.
