@@ -58,6 +58,8 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         tiling.sidebarWindow = window
         NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: window, queue: .main) { [weak tiling] _ in MainActor.assumeIsolated { tiling?.sidebarMoved() } }
         NotificationCenter.default.addObserver(forName: NSWindow.didEndLiveResizeNotification, object: window, queue: .main) { [weak tiling] _ in MainActor.assumeIsolated { tiling?.sidebarMoved() } }
+        NotificationCenter.default.addObserver(forName: NSWindow.willBeginSheetNotification, object: window, queue: .main) { [weak tiling] _ in MainActor.assumeIsolated { tiling?.sheetWillBegin() } }
+        NotificationCenter.default.addObserver(forName: NSWindow.didEndSheetNotification, object: window, queue: .main) { [weak tiling] _ in MainActor.assumeIsolated { tiling?.sheetDidEnd() } }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak tiling] _ in MainActor.assumeIsolated { tiling?.sidebarMoved() } }
         buildMenu()
         controller.start()
