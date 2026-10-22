@@ -253,7 +253,13 @@ final class FakeJira: OperatorJira {
         }
     }
     func boards(project: String) async throws -> [JiraBoard] { agile.withLock { $0.boards[project] ?? [] } }
-    func sprints(board: Int) async throws -> [JiraSprint] { agile.withLock { $0.sprints[board] ?? [] } }
+    /// The boards whose sprints Jira refuses with its 400, "The board does not support sprints".
+    private let sprintless = Mutex<Set<Int>>([])
+    func refuseSprints(of board: Int) { sprintless.withLock { _ = $0.insert(board) } }
+    func sprints(board: Int) async throws -> [JiraSprint] {
+        if sprintless.withLock({ $0.contains(board) }) { throw JiraError.badResponse(400) }
+        return agile.withLock { $0.sprints[board] ?? [] }
+    }
     func columns(board: Int) async throws -> [JiraColumn] { agile.withLock { $0.columns[board] ?? [] } }
     /// Awaited inside a sprint write, before its last check: a test changes the operation with it.
     let beforeSprintWrite = Mutex<(@Sendable () async -> Void)?>(nil)

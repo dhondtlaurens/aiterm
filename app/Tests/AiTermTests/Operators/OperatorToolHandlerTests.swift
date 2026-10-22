@@ -325,6 +325,32 @@ import Testing
         #expect(world.run(run.id)?.leftForYou.isEmpty == true)
     }
 
+    /// A team-managed scrum board is `simple` in Jira Cloud, and has sprints.
+    @Test func aSimpleBoardsSprintTakesTickets() async throws {
+        let jira = agileJira()
+        jira.put(boards: [JiraBoard(id: 13, name: "Web team board", type: "simple")],
+                 sprints: [JiraSprint(id: 61, name: "Web sprint 1", state: "active", startDate: nil, endDate: nil, boardId: 13)], in: "WEB")
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let seen = try #require(await world.call(run.id, "jira_board").value?.arrayValue?.last?["boards"]?.arrayValue?.last)
+        #expect(seen["sprints"]?.arrayValue?.map { $0["name"] } == ["Web sprint 1"])
+        #expect(await world.call(run.id, "jira_sprint", ["key": "s1", "tickets": ["WEB-2"], "sprint": 61]).value?["sprinted"] == true)
+        #expect(jira.writes == [.sprint(tickets: ["WEB-2"], sprint: 61)])
+    }
+
+    @Test func aBoardThatHasNoSprintsReadsNoneAndDoesNotFailTheRead() async throws {
+        let jira = agileJira()
+        jira.refuseSprints(of: 7)
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let answer = try #require(await world.call(run.id, "jira_board").value?.arrayValue)
+        #expect(answer.first?["boards"]?.arrayValue?.first?["sprints"] == [])
+        #expect(answer.first?["boards"]?.arrayValue?.first?["columns"]?.arrayValue?.count == 2)
+        #expect(await world.call(run.id, "jira_sprint", ["key": "s1", "tickets": ["PLUTO-1"], "sprint": 41]).message
+                == "Sprint 41 isn’t an active or future sprint on a board of this broadcast’s Jira projects: PLUTO, WEB.")
+        #expect(jira.writes.isEmpty)
+    }
+
     @Test func jiraBoardWithoutJiraSaysWhere() async throws {
         let run = jiraRun(slice: true)
         let world = try makeWorld(run)

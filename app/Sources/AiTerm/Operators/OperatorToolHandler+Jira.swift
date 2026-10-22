@@ -104,7 +104,7 @@ extension OperatorToolHandler {
         var label: String { if case .sprint(let id) = self { String(id) } else { "backlog" } }
     }
 
-    /// For each of the broadcast's Jira projects, its boards: the active and future sprints of a scrum board, and the columns
+    /// For each of the broadcast's Jira projects, its boards: the active and future sprints of each board that has any, and the columns
     /// with the statuses in them (spec §L). A read, so it needs no slice, and Jira's answer is awaited for the search's budget.
     func jiraBoard(in run: OperatorRun) async throws -> JSONValue {
         let jira = try connectedJira()
@@ -125,8 +125,7 @@ extension OperatorToolHandler {
         for project in projects {
             var boards: [JSONValue] = []
             for board in try await jira.boards(project: project) {
-                // Only a scrum board has sprints: Jira answers 400 for the sprints of a kanban one.
-                let sprints = board.type == "scrum" ? try await jira.sprints(board: board.id) : []
+                let sprints = try await Self.sprints(of: board, with: jira)
                 let columns = try await jira.columns(board: board.id)
                 boards.append(["id": .int(board.id), "name": .string(board.name), "type": .string(board.type),
                                "sprints": .array(sprints.map { sprint in
@@ -199,11 +198,19 @@ extension OperatorToolHandler {
         throw ToolRefusal("jira_sprint’s `sprint` is a sprint’s id from jira_board, or \"backlog\".")
     }
 
-    /// Whether `id` is an active or future sprint of a scrum board of one of `projects`.
+    /// The active and future sprints of `board`: none for a kanban board, and none for one Jira says has no sprints (its 400).
+    /// A team-managed scrum board is `simple`, not `scrum`, so only `kanban` is skipped by its type.
+    private static func sprints(of board: JiraBoard, with jira: any OperatorJira) async throws -> [JiraSprint] {
+        guard board.type != "kanban" else { return [] }
+        do { return try await jira.sprints(board: board.id) }
+        catch JiraError.badResponse(400) { return [] }
+    }
+
+    /// Whether `id` is an active or future sprint of a board of one of `projects`.
     private static func sprintIsOnABoard(_ id: Int, of projects: [String], with jira: any OperatorJira) async throws -> Bool {
         for project in projects {
-            for board in try await jira.boards(project: project) where board.type == "scrum" {
-                if try await jira.sprints(board: board.id).contains(where: { $0.id == id }) { return true }
+            for board in try await jira.boards(project: project) {
+                if try await sprints(of: board, with: jira).contains(where: { $0.id == id }) { return true }
             }
         }
         return false
