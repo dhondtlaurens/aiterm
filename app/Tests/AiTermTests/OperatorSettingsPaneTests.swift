@@ -11,6 +11,8 @@ import Foundation
     nonisolated static let sonnet = AgentModel(id: "claude-sonnet-5", label: "Sonnet 5", detail: nil, efforts: [], defaultEffort: nil)
     nonisolated static let astra = AgentModel(id: "gpt-6-astra", label: "gpt-6-astra", detail: nil, efforts: ["low", "medium", "high"], defaultEffort: "medium")
     nonisolated static let mini = AgentModel(id: "gpt-6-mini", label: "gpt-6-mini", detail: nil, efforts: ["low", "high"], defaultEffort: "low")
+    nonisolated static let sol = AgentModel(id: "openai-codex/gpt-5.6-sol", label: "openai-codex / gpt-5.6-sol", detail: nil,
+                                            efforts: PiModelCatalog.thinkingLevels, defaultEffort: "medium")
 
     /// A model over `defaults`, as Settings makes it: the saved profile loaded from them, Claude's and
     /// Codex's catalogues, and Save writing back to them.
@@ -20,9 +22,10 @@ import Foundation
         return OperatorSettingsModel(load: {
             OperatorSettingsModel.Loaded(
                 profile: OperatorProfileStore.load(defaults, claudeDefault: (model: "claude-opus-5-5", reasoning: "high")),
-                models: [.claude: [Self.opus, Self.sonnet], .codex: [Self.mini, Self.astra]],
+                models: [.claude: [Self.opus, Self.sonnet], .codex: [Self.mini, Self.astra], .pi: [Self.sol]],
                 agentDefaults: [.claude: ModelPreference(model: "claude-opus-5-5", reasoning: "high"),
-                                .codex: ModelPreference(model: "gpt-6-mini", reasoning: "low")],
+                                .codex: ModelPreference(model: "gpt-6-mini", reasoning: "low"),
+                                .pi: ModelPreference(model: "openai-codex/gpt-5.6-sol", reasoning: "medium")],
                 skills: [])
         }, save: { OperatorProfileStore.save($0, defaults) })
     }
@@ -99,8 +102,8 @@ import Foundation
     @Test func pickingTheOraclesAgentTakesItsDefault() async {
         let settings = settings(ScratchDefaults.make())
         await settings.load()
-        #expect(OperatorSettingsModel.oracleAgents == [.claude, .codex])
-        #expect(settings.oracleAgentChoices == [.claude, .codex], "both installed")
+        #expect(OperatorSettingsModel.oracleAgents == [.claude, .codex, .pi])
+        #expect(settings.oracleAgentChoices == [.claude, .codex, .pi], "all installed")
         settings.select(oracleAgent: .claude)
         #expect(settings.oracle == OracleSetting(isOn: true, agent: .claude, model: "claude-opus-5-5", reasoning: "high"))
         settings.select(oracleAgent: .codex)
@@ -110,6 +113,8 @@ import Foundation
         settings.select(oracleReasoning: "medium")
         settings.select(oracleModel: Self.mini)
         #expect(settings.oracle.reasoning == "low", "Mini has no medium, so its own default")
+        settings.select(oracleAgent: .pi)
+        #expect(settings.oracle == OracleSetting(isOn: true, agent: .pi, model: "openai-codex/gpt-5.6-sol", reasoning: "medium"))
     }
 
     /// The Oracle's Agent offers the agents installed here; the saved one stays, shown as it is,
@@ -129,6 +134,10 @@ import Foundation
         #expect(claudeSaved.oracle == claudeOracle, "Codex is not installed")
         let both = loaded(OperatorProfile(model: "claude-opus-5-5", reasoning: "high", oracle: claudeOracle), installed: [.claude, .codex])
         #expect(both.oracleAgentChoices == [.claude, .codex])
+
+        let piOracle = OracleSetting(isOn: true, agent: .pi, model: "openai-codex/gpt-5.6-sol", reasoning: "medium")
+        let piSaved = loaded(OperatorProfile(model: "claude-opus-5-5", reasoning: "high", oracle: piOracle), installed: [.claude])
+        #expect(piSaved.oracleAgentChoices == [.claude, .pi], "PI is saved: shown, not swapped")
     }
 
     /// No pick leaves a model empty, and Save never writes one: the loaded model stands in.
@@ -172,6 +181,7 @@ import Foundation
             "Never answers an agent’s permission prompt. That’s always yours.",
         ])
         #expect(Pane.oracleHelp.hasSuffix("Changes apply to the next broadcast."))
+        #expect(Pane.oracleHelp.contains("PI checks with read-only tools, not a sandbox."))
         #expect(Pane.instructionsHelp == "House rules for every broadcast. Type / for the agents’ skills.")
         let copy = [Pane.agentHelp, Pane.autonomyHelp, Pane.baseHelp, Pane.oracleHelp, Pane.instructionsHelp]
             + Pane.slices.map(\.help) + Pane.never

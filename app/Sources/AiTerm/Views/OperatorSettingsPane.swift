@@ -39,7 +39,7 @@ struct OperatorSettingsPane: View {
         "Never deploys, force-pushes, or pushes to a default or protected branch.",
         "Never answers an agent’s permission prompt. That’s always yours.",
     ]
-    static let oracleHelp = "A second agent that checks the Operator’s plan, its backlog additions and its verdicts. Each check adds tens of seconds. Changes apply to the next broadcast."
+    static let oracleHelp = "A second agent that checks the Operator’s plan, its backlog additions and its verdicts. Each check adds tens of seconds. PI checks with read-only tools, not a sandbox. Changes apply to the next broadcast."
     static let instructionsHelp = "House rules for every broadcast. Type / for the agents’ skills."
 
     /// The Oracle's fields are dimmed, and disabled, while it is off; their values are kept.

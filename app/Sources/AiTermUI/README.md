@@ -697,9 +697,9 @@ Reasoning `Select`s from Claude's catalogue. **Autonomy** lists the base with �
 then the Jira, Review and Merge slices, each its name in `Typography.bodyEmphasis` over a `HelpText`
 with a `SettingsSwitch` trailing, rows split by a `Hairline`; under them the fixed Never lines, each
 led by `nosign`, all in `Palette.muted`: facts, not failures. **Oracle** carries its switch as the
-group's accessory over Agent (Claude Code or Codex, whichever is installed, and the saved one
-shown as it is though it is not), Model and Reasoning; off, they are dimmed and
-disabled and keep their values. **Instructions** is a `PromptEditor` whose `/` lists both agents'
+group's accessory over Agent (Claude Code, Codex or PI, whichever is installed, and the saved one
+shown as it is though it is not), Model and Reasoning; off, they are dimmed and disabled and keep
+their values. Its help says PI's checks are read-only by their tool list, not a sandbox. **Instructions** is a `PromptEditor` whose `/` lists both agents'
 skills. Autonomy's and the Oracle's help end “Changes apply to the next broadcast.”: a broadcast
 freezes the profile as it starts.
 

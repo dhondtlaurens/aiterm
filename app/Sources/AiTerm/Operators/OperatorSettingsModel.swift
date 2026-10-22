@@ -17,8 +17,8 @@ final class OperatorSettingsModel {
         var skills: [AgentCompletion]
     }
 
-    /// The agents that can be the Oracle: the two `ChallengeLaunch` can run headless.
-    nonisolated static let oracleAgents: [AgentKind] = [.claude, .codex]
+    /// The agents that can be the Oracle: every one, since `ChallengeLaunch` runs each headless.
+    nonisolated static let oracleAgents: [AgentKind] = AgentKind.allCases
     /// The agents whose skills `/` lists in Instructions.
     nonisolated static let skillAgents: [AgentKind] = [.claude, .codex]
 
