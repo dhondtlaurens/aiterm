@@ -255,7 +255,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           ("key", "ticket")),
     _tool("jira_comment", "Comments on a ticket of one of the broadcast's Jira projects. A comment reaches the ticket's "
           "watchers, so write it for them. Refused unless the broadcast's Jira slice is on, and outside its Jira projects; "
-          "AiTerm then leaves it for the person. The same key again posts nothing, so call again with it after a lost reply.",
+          "AiTerm then leaves it for the person. The same key again posts nothing: after a lost reply call again with it, and "
+          "AiTerm looks for the comment on the ticket before it posts anything.",
           {"key": _KEY, "ticket": _text("The ticket's key, such as PAY-231."), "body": _text("The comment, in plain text.")},
           ("key", "ticket", "body")),
     _tool("create_task", "Adds an unstarted task to the open plan revision, in one of the broadcast's projects. The same key "

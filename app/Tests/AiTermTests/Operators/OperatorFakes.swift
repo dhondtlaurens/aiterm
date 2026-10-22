@@ -282,11 +282,23 @@ final class FakeJira: OperatorJira {
         try await beforeWrite()
         try record(.edit(key: key, fields: fields))
     }
-    func comment(key: String, body: String, beforeWrite: @Sendable () async throws -> Void) async throws -> String {
+    /// The comments posted, with the tag each was given, as Jira would hold them.
+    private let posted = Mutex<[(id: String, ticket: String, tag: String?)]>([])
+    var comments: [(id: String, ticket: String, tag: String?)] { posted.withLock { $0 } }
+    /// The next comment reaches Jira, then its answer is lost.
+    private let loseComment = Mutex(false)
+    func loseNextCommentReply() { loseComment.withLock { $0 = true } }
+    func comment(key: String, body: String, tag: String?, beforeWrite: @Sendable () async throws -> Void) async throws -> String {
         if let hook = beforeEditWrite.withLock({ $0 }) { await hook() }
         try await beforeWrite()
         try record(.comment(key: key, body: body))
-        return "c\(writes.count)"
+        let id = "c\(writes.count)"
+        posted.withLock { $0.append((id, key, tag)) }
+        if loseComment.withLock({ let was = $0; $0 = false; return was }) { throw URLError(.networkConnectionLost) }
+        return id
+    }
+    func findComment(key: String, tag: String) async throws -> String? {
+        posted.withLock { $0.first { $0.ticket == key && $0.tag == tag }?.id }
     }
     private func record(_ write: Write) throws {
         if let error = failing.withLock({ $0 }) { throw error }

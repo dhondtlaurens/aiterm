@@ -210,8 +210,10 @@ extension OperatorToolHandler {
         return ["ticket": .string(ticket), "edited": true]
     }
 
-    /// Comments on a ticket of the broadcast's Jira projects (spec §L). The same key again posts nothing; the key is kept
-    /// only once the comment is posted, so a failed call may be made again.
+    /// Comments on a ticket of the broadcast's Jira projects (spec §L), once per key. The comment carries the run-scoped hash
+    /// of its key as a property, and the key is saved as pending before the POST and as posted before the call is answered:
+    /// a retry of a key still pending (its answer lost, AiTerm quit meanwhile) looks for the tagged comment on the ticket
+    /// and, finding it, records it and posts nothing. Two calls with one key that overlap post once.
     func jiraComment(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let callKey = try call.string("key")
         if let id = run.jiraCommented[callKey] {
@@ -222,12 +224,29 @@ extension OperatorToolHandler {
         try jiraWritable(run.id)
         let jira = try connectedJira()
         let runId = run.id
-        let id = try await jira.comment(key: ticket, body: body, beforeWrite: { @MainActor [weak self] in
-            guard let self else { throw ToolRefusal("AiTerm is closing; nothing more is written.") }
-            try self.jiraWritable(runId)
-        })
-        mutate(in: runId) { $0.updateRun(id: runId) { $0.jiraCommented[callKey] = id } }
-        _ = workspace.flush()
+        // Another call with this key is posting now: this one would post it twice.
+        let flight = "\(runId.uuidString)/comment/\(callKey)"
+        guard filingFinds.insert(flight).inserted else { throw ToolRefusal("jira_comment with this key is still posting: call it again for its result.") }
+        defer { filingFinds.remove(flight) }
+        let tag = Self.createLabel(run: runId, key: callKey), pending = "jira_comment/\(callKey)"
+        if state.run(id: runId)?.pendingWrites.contains(pending) == true, let found = try await jira.findComment(key: ticket, tag: tag) {
+            settle(pending, in: runId) { $0.jiraCommented[callKey] = found }
+            return ["ticket": .string(ticket), "commentId": .string(found), "commented": false, "note": "The first call posted it; its answer was lost."]
+        }
+        // Read fresh after the look, right before the write.
+        try jiraWritable(runId)
+        try markPending(pending, in: runId)
+        let id: String
+        do {
+            id = try await jira.comment(key: ticket, body: body, tag: tag, beforeWrite: { @MainActor [weak self] in
+                guard let self else { throw ToolRefusal("AiTerm is closing; nothing more is written.") }
+                try self.jiraWritable(runId)
+            })
+        } catch {
+            if !Self.mayHaveLanded(error) { settle(pending, in: runId) }
+            throw error
+        }
+        settle(pending, in: runId) { $0.jiraCommented[callKey] = id }
         return ["ticket": .string(ticket), "commentId": .string(id), "commented": true]
     }
 

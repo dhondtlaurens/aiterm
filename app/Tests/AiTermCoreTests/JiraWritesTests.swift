@@ -242,12 +242,58 @@ import Foundation
         let error = await #expect(throws: JiraError.self) {
             try await JiraClient(config: config, session: stub.session).edit(key: "PAY-9", fields: JiraEdit(summary: "s", assignee: .query("sofie")))
         }
-        #expect(error == .refused(status: 400, detail: "“sofie” matches more than one assignable user: Sofie Jacobs (sj@example.com), Sofie Peeters. Name one by email."))
+        #expect(error == .refused(status: 400, detail: "“sofie” matches more than one assignable user: Sofie Jacobs (sj@example.com), Sofie Peeters. Use a fuller name or an email."))
         #expect(stub.requests.count == 1 && stub.lastRequest?.httpMethod == "GET", "nothing was written")
         let none = StubSession { _ in (200, Data("[]".utf8)) }
         await #expect(throws: JiraError.refused(status: 400, detail: "No assignable user in PAY matches “nobody”.")) {
             try await JiraClient(config: config, session: none.session).edit(key: "PAY-9", fields: JiraEdit(assignee: .query("nobody")))
         }
+    }
+
+    /// Jira's search is by substring, so `sofie@x.com` also finds `xsofie@x.com`: an exact email or name picks one.
+    @Test func aQueryThatIsExactlyOneUsersEmailOrNameIsThatUser() async throws {
+        let users = #"[{"accountId":"a","displayName":"Sofie","emailAddress":"sofie@x.com"},{"accountId":"b","displayName":"Xsofie Peeters","emailAddress":"xsofie@x.com"},{"accountId":"c","displayName":"Sofie Jacobs"}]"#
+        for (query, account) in [("SOFIE@x.com", "a"), (" xsofie@x.com ", "b"), ("sofie jacobs", "c"), ("sofie", "a")] {
+            let stub = StubSession { request in request.url?.path == "/rest/api/3/user/assignable/search" ? (200, Data(users.utf8)) : (204, Data()) }
+            try await JiraClient(config: config, session: stub.session).edit(key: "PAY-9", fields: JiraEdit(assignee: .query(query)))
+            let fields = try #require(try body(stub.lastRequest)["fields"] as? [String: Any])
+            #expect(fields["assignee"] as? [String: String] == ["accountId": account], "\(query)")
+        }
+        // Two users with the same name stay ambiguous, and a part of a name is no exact match.
+        let twins = StubSession { _ in (200, Data(#"[{"accountId":"a","displayName":"Sofie","emailAddress":"a@x.com"},{"accountId":"b","displayName":"sofie","emailAddress":"b@x.com"}]"#.utf8)) }
+        await #expect(throws: JiraError.self) {
+            try await JiraClient(config: config, session: twins.session).edit(key: "PAY-9", fields: JiraEdit(assignee: .query("Sofie")))
+        }
+        let part = StubSession { _ in (200, Data(#"[{"accountId":"a","displayName":"Sofie Jacobs"},{"accountId":"b","displayName":"Sofie Peeters"}]"#.utf8)) }
+        await #expect(throws: JiraError.self) {
+            try await JiraClient(config: config, session: part.session).edit(key: "PAY-9", fields: JiraEdit(assignee: .query("Sofie")))
+        }
+    }
+
+    @Test func aTaggedCommentCarriesItsTagAsAProperty() async throws {
+        let stub = StubSession { _ in (201, Data(#"{"id":"10042"}"#.utf8)) }
+        _ = try await JiraClient(config: config, session: stub.session).comment(key: "PAY-9", body: "Hi.", tag: "aiterm-v2-abc")
+        let properties = try #require(try body(stub.lastRequest)["properties"] as? [[String: Any]])
+        #expect(properties.count == 1 && properties.first?["key"] as? String == "aiterm")
+        #expect((properties.first?["value"] as? [String: String]) == ["call": "aiterm-v2-abc"])
+        let plain = StubSession { _ in (201, Data(#"{"id":"1"}"#.utf8)) }
+        _ = try await JiraClient(config: config, session: plain.session).comment(key: "PAY-9", body: "Hi.")
+        #expect(try body(plain.lastRequest)["properties"] == nil)
+    }
+
+    @Test func aCommentIsFoundByItsTagAcrossPages() async throws {
+        let stub = StubSession { request in
+            request.url?.query?.contains("startAt=2") == true
+                ? (200, Data(#"{"total":3,"comments":[{"id":"12","properties":[{"key":"aiterm","value":{"call":"mine"}}]}]}"#.utf8))
+                : (200, Data(#"{"total":3,"comments":[{"id":"10"},{"id":"11","properties":[{"key":"other","value":{"call":"mine"}},{"key":"aiterm","value":{"call":"theirs"}},{"nope":1}]}]}"#.utf8))
+        }
+        let client = JiraClient(config: config, session: stub.session)
+        #expect(try await client.findComment(key: "PAY-9", tag: "mine") == "12", "only an aiterm property counts")
+        #expect(try await client.findComment(key: "PAY-9", tag: "theirs") == "11")
+        #expect(try await client.findComment(key: "PAY-9", tag: "nobody") == nil)
+        let first = try #require(stub.requests.first)
+        #expect(first.httpMethod == "GET" && first.url?.path == "/rest/api/3/issue/PAY-9/comment" && first.url?.query?.contains("expand=properties") == true)
+        await #expect(throws: JiraError.self) { _ = try await client.findComment(key: "x", tag: "t") }
     }
 
     @Test func assignableReadsUsers() async throws {

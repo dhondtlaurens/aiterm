@@ -280,7 +280,9 @@ def test_the_jira_writes_say_what_the_slice_governs_and_comments_are_one_of_them
     assert "needs no slice" in tools["jira_board"]["description"]
     # A comment messages people, so it is a write of the slice like the others, and says so.
     assert [name for name in tools if "comment" in name] == ["jira_comment"]
+    # A lost reply is retried with the same key; AiTerm finds the comment first, so that is true and says so.
     assert "same key again posts nothing" in tools["jira_comment"]["description"]
+    assert "looks for the comment on the ticket before it posts anything" in tools["jira_comment"]["description"]
 
 
 def test_the_review_tools_say_what_the_slice_governs():

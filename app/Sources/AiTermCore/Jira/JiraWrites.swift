@@ -116,19 +116,47 @@ extension JiraClient {
         let project = String(ticket.prefix { $0 != "-" })
         let users = try await assignable(project: project, query: query)
         if users.count == 1, let only = users.first { return only }
+        // Jira's search is by substring: a query that is exactly one user's email or name picks that user.
+        let wanted = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let exact = users.filter { $0.email?.caseInsensitiveCompare(wanted) == .orderedSame || $0.displayName.caseInsensitiveCompare(wanted) == .orderedSame }
+        if exact.count == 1, let only = exact.first { return only }
         guard !users.isEmpty else { throw JiraError.refused(status: 400, detail: "No assignable user in \(project) matches “\(query)”.") }
         let named = users.prefix(5).map { user in user.email.map { "\(user.displayName) (\($0))" } ?? user.displayName }.joined(separator: ", ")
-        throw JiraError.refused(status: 400, detail: "“\(query)” matches more than one assignable user: \(named)\(users.count > 5 ? ", …" : ""). Name one by email.")
+        throw JiraError.refused(status: 400, detail: "“\(query)” matches more than one assignable user: \(named)\(users.count > 5 ? ", …" : ""). Use a fuller name or an email.")
     }
 
-    /// Comments `body`, in ADF, on `key`; the comment's id. `beforeWrite` is as `edit`'s.
-    public func comment(key: String, body: String, beforeWrite: @Sendable () async throws -> Void = {}) async throws -> String {
+    /// The comment property that tags a comment with the call that made it: `findComment` reads it back.
+    static let commentPropertyKey = "aiterm"
+
+    /// Comments `body`, in ADF, on `key`; the comment's id. A `tag` is set on the comment as a property, so a call whose
+    /// answer was lost can find what it posted (`findComment`). `beforeWrite` is as `edit`'s.
+    public func comment(key: String, body: String, tag: String? = nil, beforeWrite: @Sendable () async throws -> Void = {}) async throws -> String {
         let path = "/rest/api/3/issue/\(try Self.validKey(key))/comment"
         guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw JiraError.refused(status: 400, detail: "A comment needs text.") }
         try await beforeWrite()
+        var sent: [String: Any] = ["body": ADFText.document(body)]
+        if let tag { sent["properties"] = [["key": Self.commentPropertyKey, "value": ["call": tag]]] }
         var req = request(path: path); req.httpMethod = "POST"
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["body": ADFText.document(body)])
+        req.httpBody = try JSONSerialization.data(withJSONObject: sent)
         return try await writeDecode(CommentCreated.self, req).id
+    }
+
+    /// The id of the comment on `key` that carries `tag` (set by `comment`), nil when there is none. A read, a page of
+    /// comments at a time.
+    public func findComment(key: String, tag: String) async throws -> String? {
+        let path = "/rest/api/3/issue/\(try Self.validKey(key))/comment"
+        var startAt = 0
+        for _ in 0..<20 {
+            let page = try await decode(CommentPage.self, request(path: path, queryItems: [
+                URLQueryItem(name: "expand", value: "properties"), URLQueryItem(name: "startAt", value: String(startAt)),
+                URLQueryItem(name: "maxResults", value: "100"),
+            ]))
+            let comments = page.comments.compactMap(\.value)
+            if let found = comments.first(where: { $0.tags.contains(tag) }) { return found.id }
+            startAt += page.comments.count
+            if page.comments.isEmpty || startAt >= (page.total ?? startAt) { break }
+        }
+        return nil
     }
 
     /// A write whose answer is an empty 2xx (a transition and a link answer 204).
@@ -178,6 +206,31 @@ extension JiraClient {
 private struct Created: Decodable { var key: String }
 private struct CommentCreated: Decodable { var id: String }
 private struct Account: Decodable { var accountId: String }
+
+/// `/issue/{key}/comment?expand=properties`: a page of comments, each with the `call` tags of its `aiterm` properties.
+private struct CommentPage: Decodable {
+    struct Comment: Decodable {
+        struct Property: Decodable {
+            struct Value: Decodable { var call: String? }
+            var key: String, value: Lenient<Value>?
+        }
+        var id: String, properties: [Lenient<Property>]
+        var tags: [String] { properties.compactMap(\.value).filter { $0.key == JiraClient.commentPropertyKey }.compactMap { $0.value?.value?.call } }
+        init(from decoder: Decoder) throws {
+            let fields = try decoder.container(keyedBy: Key.self)
+            id = try fields.decode(String.self, forKey: .id)
+            properties = fields.lenient([Lenient<Property>].self, forKey: .properties) ?? []
+        }
+        private enum Key: String, CodingKey { case id, properties }
+    }
+    var comments: [Lenient<Comment>], total: Int?
+    init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: Key.self)
+        comments = try fields.decode([Lenient<Comment>].self, forKey: .comments)
+        total = fields.lenient(Int.self, forKey: .total)
+    }
+    private enum Key: String, CodingKey { case comments, total }
+}
 
 /// `/user/assignable/search`: one entry; one that is not one drops alone.
 private struct AssignableUser: Decodable {

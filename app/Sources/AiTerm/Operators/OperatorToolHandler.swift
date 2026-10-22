@@ -51,7 +51,10 @@ protocol OperatorJira: Sendable {
     func moveToBacklog(tickets: [String], beforeWrite: @Sendable () async throws -> Void) async throws
     /// `jira_edit` and `jira_comment` (spec §L); `beforeWrite` as above. A comment answers its id.
     func edit(key: String, fields: JiraEdit, beforeWrite: @Sendable () async throws -> Void) async throws
-    func comment(key: String, body: String, beforeWrite: @Sendable () async throws -> Void) async throws -> String
+    /// A comment is tagged with `tag`, and `findComment` reads the id of the comment on `key` that carries it: a call whose
+    /// answer was lost finds what it posted.
+    func comment(key: String, body: String, tag: String?, beforeWrite: @Sendable () async throws -> Void) async throws -> String
+    func findComment(key: String, tag: String) async throws -> String?
 }
 
 extension JiraClient: OperatorJira {}

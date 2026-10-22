@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
@@ -510,6 +511,7 @@ import Testing
         let again = await world.call(run.id, "jira_comment", ["key": "c1", "ticket": "PLUTO-2", "body": "Another."])
         #expect(again.value?["commented"] == false && again.value?["commentId"] == "c1")
         #expect(jira.writes == [.comment(key: "PLUTO-1", body: "Shipped in 1.4.")], "one comment for one key")
+        #expect(world.run(run.id)?.pendingWrites.isEmpty == true)
         #expect(world.run(run.id)?.jiraCommented == ["c1": "c1"])
         #expect(try world.workspace.file.load().run(id: run.id)?.jiraCommented == ["c1": "c1"])
         // A failed post records nothing: the same key may try again.
@@ -519,6 +521,59 @@ import Testing
         jira.failWrites(false)
         #expect(await world.call(run.id, "jira_comment", ["key": "c2", "ticket": "PLUTO-1", "body": "Two."]).value?["commented"] == true)
         #expect(await world.call(run.id, "jira_comment", ["key": "c3", "ticket": "PLUTO-1"]).message == "jira_comment needs `body`.")
+    }
+
+    /// A comment whose POST landed and whose answer was lost is found again by its tag, and posted once.
+    @Test func aCommentWhoseReplyWasLostIsFoundNotPostedAgain() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let call: JSONValue = ["key": "c1", "ticket": "PLUTO-1", "body": "Shipped."]
+        jira.loseNextCommentReply()
+        #expect(await world.call(run.id, "jira_comment", call).message != nil)
+        #expect(jira.comments.count == 1 && world.run(run.id)?.pendingWrites == ["jira_comment/c1"], "kept pending while it may have landed")
+        #expect(world.run(run.id)?.jiraCommented.isEmpty == true)
+        let again = await world.call(run.id, "jira_comment", call)
+        #expect(again.value?["commented"] == false && again.value?["commentId"] == "c1")
+        #expect(jira.comments.count == 1, "one comment, found by its tag")
+        #expect(world.run(run.id)?.pendingWrites.isEmpty == true && world.run(run.id)?.jiraCommented == ["c1": "c1"])
+        #expect(jira.comments.first?.tag == OperatorToolHandler.createLabel(run: run.id, key: "c1"), "tagged with the run-scoped hash of its key")
+    }
+
+    /// A pending comment that is not on the ticket never landed: the retry posts it.
+    @Test func aPendingCommentThatIsNotThereIsPosted() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        jira.failWrites()
+        #expect(await world.call(run.id, "jira_comment", ["key": "c1", "ticket": "PLUTO-1", "body": "Hi."]).message == "Jira returned an error (HTTP 500). Try again.")
+        #expect(world.run(run.id)?.pendingWrites == ["jira_comment/c1"], "a 500 may have landed")
+        jira.failWrites(false)
+        #expect(await world.call(run.id, "jira_comment", ["key": "c1", "ticket": "PLUTO-1", "body": "Hi."]).value?["commented"] == true)
+        #expect(jira.comments.count == 1 && world.run(run.id)?.pendingWrites.isEmpty == true)
+        // A refusal made nothing, so nothing stays pending.
+        jira.refuseWrites("bad")
+        _ = await world.call(run.id, "jira_comment", ["key": "c2", "ticket": "PLUTO-1", "body": "Hi."])
+        #expect(world.run(run.id)?.pendingWrites.isEmpty == true)
+    }
+
+    /// Two calls with one key that overlap post once: the second is told the first is still posting.
+    @Test func twoOverlappingCommentsWithOneKeyPostOnce() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let (gate, release) = AsyncStream<Void>.makeStream()
+        let entered = Mutex(false)
+        jira.beforeEditWrite.withLock { $0 = { @Sendable in entered.withLock { $0 = true }; for await _ in gate { break } } }
+        let call: JSONValue = ["key": "c1", "ticket": "PLUTO-1", "body": "Once."]
+        let first = Task { @MainActor in await world.call(run.id, "jira_comment", call) }
+        while !entered.withLock({ $0 }) { await Task.yield() }
+        #expect(await world.call(run.id, "jira_comment", call).message == "jira_comment with this key is still posting: call it again for its result.")
+        jira.beforeEditWrite.withLock { $0 = nil }
+        release.yield(())
+        #expect(await first.value.value?["commented"] == true)
+        #expect(jira.comments.count == 1)
+        #expect(await world.call(run.id, "jira_comment", call).value?["commented"] == false)
     }
 
     @Test func jiraEditAndCommentAreCheckedAgainJustBeforeTheWrite() async throws {
