@@ -642,6 +642,29 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         #expect(!(OperatorToolHandler.threadsAre + OperatorToolHandler.findingsAre).contains("\u{2014}"))
     }
 
+    /// PI reviews with its read tools alone, on the model its own card or last pick gives it, never Claude's.
+    @Test func aPiReviewRunsPisReadOnlyRecipe() async throws {
+        let seen = TaskFinisherTests.Recorded<String>()
+        let runner = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { executable, arguments, _, _, _ in
+            for word in [executable] + arguments { seen.append(word) }
+            return ProcessOutput(status: 0, stdout: "Line 3 leaks the token.\n", stderr: "", timedOut: false)
+        })
+        let r = try await reviewed(.working) { $0.agentReviewer = runner; $0.installedAgents = { [.claude, .codex, .pi] } }
+        r.world.workspace.mutate { $0.lastModelByAgent = [.claude: "opus", .pi: "openai-codex/gpt-5.6-sol"] }
+        let answer = await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review.", "agent": "pi"])
+        #expect(answer.value?["agent"] == "pi")
+        await r.world.controller.tools.lastReview?.value
+        let words = seen.all
+        #expect(words.first == "/opt/bin/pi")
+        let tools = try #require(words.firstIndex(of: "--tools"))
+        #expect(words[tools + 1] == "read,grep,find,ls")
+        let model = try #require(words.firstIndex(of: "--model"))
+        #expect(words[model + 1] == "openai-codex/gpt-5.6-sol")
+        #expect(r.world.task(r.task.id)?.operated?.agentReview?.findings == "Line 3 leaks the token.")
+        #expect(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review.", "agent": "gemini"]).message
+                == "review_task’s agent is claude, codex or pi.")
+    }
+
     @Test func anEndDuringAReviewStopsItAndRecordsNothing() async throws {
         let gate = ReviewGate()
         let runner = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, _, _, _, _ in

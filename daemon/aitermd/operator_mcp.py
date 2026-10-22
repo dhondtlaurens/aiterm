@@ -296,7 +296,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "already, or the same review of the same commit, is not started again.",
           {"task": _TASK, "instructions": _text("What the review checks and how, from the broadcast's Review, such as "
                                                 "an adversarial review with /review-skill."),
-           "agent": _choice("Who reviews. Left out, the other of Claude and Codex from the task's own agent.", "claude", "codex")},
+           "agent": _choice("Who reviews: claude, codex or pi. Left out, the other of Claude and Codex from the task's own agent.",
+                            "claude", "codex", "pi")},
           ("task", "instructions")),
     _tool("request_review", "Marks a task's merge request ready and asks people to review it. Refused unless the broadcast's "
           "Review slice is on; AiTerm then leaves it for the person. The same reviewers again change nothing.",

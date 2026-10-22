@@ -71,13 +71,13 @@ final class AgentIntegrations {
     /// model last picked for that agent (`remembered`, the workspace's), else empty — the agent's own
     /// default (`FixerLaunch.modelWords`). What the Operator's tasks launch with when it names none;
     /// a Fix runs at the Operator's own (`fixModel`). Read as each run starts, off the main actor.
-    nonisolated static func fixerModel(_ agent: FixerAgent, remembered: [AgentKind: String],
+    nonisolated static func fixerModel(_ agent: AgentKind, remembered: [AgentKind: String],
                                        defaults: UserDefaults = .standard) -> (model: String, reasoning: String?) {
-        ModelSettings.load(for: agent.agent, defaults: defaults).map { ($0.model, $0.reasoning) } ?? (remembered[agent.agent] ?? "", nil)
+        ModelSettings.load(for: agent, defaults: defaults).map { ($0.model, $0.reasoning) } ?? (remembered[agent] ?? "", nil)
     }
 
     /// `fixerModel` over the models remembered as a launch asks for it.
-    nonisolated static func fixerModels(remembered: [AgentKind: String]) -> @Sendable (FixerAgent) -> (model: String, reasoning: String?) {
+    nonisolated static func fixerModels(remembered: [AgentKind: String]) -> @Sendable (AgentKind) -> (model: String, reasoning: String?) {
         { fixerModel($0, remembered: remembered) }
     }
     private let defaults: UserDefaults

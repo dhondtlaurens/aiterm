@@ -68,7 +68,7 @@ extension OperatorToolHandler {
         return Self.reviewAnswer(review, started: true)
     }
 
-    /// Who reviews: the agent the call names, Claude or Codex and installed, or by default the other of the two.
+    /// Who reviews: the agent the call names, installed, or by default the other of Claude and Codex.
     private func reviewer(_ call: ToolCall, for task: TaskItem) throws(ToolRefusal) -> AgentKind {
         let installed = installedAgents
         guard let named = call.optionalString("agent") else {
@@ -77,9 +77,7 @@ extension OperatorToolHandler {
             }
             return agent
         }
-        guard let agent = AgentKind(rawValue: named.lowercased()), agent == .claude || agent == .codex else {
-            throw ToolRefusal("review_task’s agent is claude or codex.")
-        }
+        guard let agent = AgentKind(rawValue: named.lowercased()) else { throw ToolRefusal("review_task’s agent is claude, codex or pi.") }
         guard installed.contains(agent) else { throw ToolRefusal("\(SidebarModel.agentName(agent)) isn’t installed here.") }
         return agent
     }

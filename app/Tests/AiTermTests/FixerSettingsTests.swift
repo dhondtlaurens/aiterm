@@ -48,6 +48,8 @@ import Foundation
         ModelSettings.save(ModelPreference(model: "sonnet", reasoning: "high"), for: .claude, defaults: defaults)
         let card = AgentIntegrations.fixerModel(.claude, remembered: [.claude: "opus"], defaults: defaults)
         #expect(card.model == "sonnet" && card.reasoning == "high")
+        let pi = AgentIntegrations.fixerModel(.pi, remembered: [.pi: "openai-codex/gpt-5.6-sol", .claude: "opus"], defaults: defaults)
+        #expect(pi.model == "openai-codex/gpt-5.6-sol" && pi.reasoning == nil, "PI's own, never Claude's")
     }
 
     /// Without Claude Code the group says what to do instead, and its switch reads off.

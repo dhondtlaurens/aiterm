@@ -255,7 +255,8 @@ A failure an agent can fix — a diverged branch or a rebase's conflict, in New 
 Pull main's banner — offers Find a Fix while Settings › Agents' Help with problems is on. The fix
 runs as the Operator: always Claude Code, at Settings › Operator's model and reasoning
 (`AgentIntegrations.fixModel`), and no button without it. The pipeline can still drive Codex (PI has no
-unattended mode), which the Oracle's runs reuse. `FixPipeline` runs it off the main
+unattended mode), which the Oracle's runs reuse; PI's one headless run is the Oracle's and agent
+reviews', read-only by its tool list alone (`ChallengeLaunch`), since it has no sandbox. `FixPipeline` runs it off the main
 actor in four stages, each a closure the app's tests fake; `FixSession` owns one problem's run.
 
 **The clone.** The agent never runs in the real repository. `FixClone` is a `git clone --shared

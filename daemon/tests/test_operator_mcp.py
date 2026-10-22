@@ -293,7 +293,7 @@ def test_the_review_tools_say_what_the_slice_governs():
         assert "needs no slice" in tools[name]["description"]
     required = {name: set(tool["inputSchema"].get("required", [])) for name, tool in tools.items()}
     assert required["review_task"] == {"task", "instructions"}
-    assert tools["review_task"]["inputSchema"]["properties"]["agent"]["enum"] == ["claude", "codex"]
+    assert tools["review_task"]["inputSchema"]["properties"]["agent"]["enum"] == ["claude", "codex", "pi"]
     assert required["request_review"] == {"task", "reviewers"} and required["reply_thread"] == {"task", "key", "thread", "body"}
     assert tools["request_review"]["inputSchema"]["properties"]["reviewers"]["items"] == {"type": "string"}
     assert "inReview" in tools["finish_task"]["description"]
