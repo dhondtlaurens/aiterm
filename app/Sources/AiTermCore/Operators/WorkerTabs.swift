@@ -30,7 +30,7 @@ public struct WorkerTab: Equatable, Sendable {
 
     /// What it left running in the background when its turn ended (`SessionInfo.background`), which wakes it again;
     /// nothing while its turn is under way.
-    public var background: [String] { status == .idle || status == .done ? session?.background ?? [] : [] }
+    public var background: [String] { status == .idle || status == .done ? session?.background.map(\.text) ?? [] : [] }
 
     /// An extra tab that opened and is listed no more: closed, and never opened again. A first worker is never closed
     /// here; its window comes back on your click.

@@ -363,6 +363,8 @@ struct TaskRowView: View {
     @Environment(\.rowBodyCounter) private var bodyCounter
     @Environment(\.hoveredRow) private var hoveredRow
     #endif
+    /// A test's, to draw the background mark's card open; the row's own is the card's (`backgroundCard`).
+    var cardHover: BackgroundCardHover? = nil
 
     var body: some View {
         #if DEBUG
@@ -382,6 +384,9 @@ struct TaskRowView: View {
                                    threads: controller.reviewThreads.threads(of: row.id))
         let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, failed: failed, removing: removing,
                                              awaitsRetry: awaitsRetry, queued: row.queued, canChangeWorkspace: controller.canChangeWorkspace)
+        let mark = TaskRowMark(status: row.status, line: row.operatorLine, removing: removing, queued: row.queued)
+        // The card lists what the background mark waits on; no other mark opens one.
+        let jobs = mark == .status(.background) ? row.background : []
         // A row being removed is not activated: its window is closing, or gone.
         SelectableRow(selected: selected, activate: { if let task, !removing { controller.choose(task: task.id) } }) {
             HStack(spacing: scale(Space.inset)) {
@@ -421,17 +426,18 @@ struct TaskRowView: View {
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: folded)
                 Spacer(minLength: scale(Space.tight))
                 // The status mark's spinner: the row's agents went with its window. An ended driven task's is the
-                // check, a queued one's the pause sign.
-                TaskRowMarkView(mark: TaskRowMark(status: row.status, line: row.operatorLine, removing: removing, queued: row.queued),
-                                size: SidebarRowLayout.trailingGlyph(scale))
-                    .frame(width: SidebarRowLayout.trailingSlot(scale))
+                // check, a queued one's the pause sign. In the background, its hover opens the card.
+                TaskRowMarkView(mark: mark, size: SidebarRowLayout.trailingGlyph(scale))
+                    .opensBackgroundCard(slot: SidebarRowLayout.trailingSlot(scale))
             }
+            .backgroundCard(jobs, hover: cardHover)
         }
         #if DEBUG
         .environment(\.rowHovered, hoveredRow == row.id)
         #endif
         .accessibilityLabel(voiceOver.label)
-        .accessibilityValue(caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip ?? row.status.label)
+        .accessibilityValue(caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip
+                            ?? (jobs.isEmpty ? row.status.label : BackgroundCard(jobs: jobs).spoken))
         .accessibilityActions {
             if let task {
                 ForEach(voiceOver.actions, id: \.self) { action in
@@ -531,11 +537,13 @@ struct TerminalRowView: View {
                     }
                 }
                 Spacer(minLength: scale(Space.tight))
-                StatusMark(status: row.status, size: SidebarRowLayout.trailingGlyph(scale)).frame(width: SidebarRowLayout.trailingSlot(scale))
+                StatusMark(status: row.status, size: SidebarRowLayout.trailingGlyph(scale))
+                    .opensBackgroundCard(slot: SidebarRowLayout.trailingSlot(scale))
             }
+            .backgroundCard(row.status == .background ? row.background : [])
         }
         .accessibilityLabel(row.name)
-        .accessibilityValue(row.status.label)
+        .accessibilityValue(row.status == .background ? BackgroundCard(jobs: row.background).spoken : row.status.label)
         .accessibilityActions {
             if let terminal {
                 ForEach(TerminalRowAccessibility(terminal: terminal, canChangeWorkspace: controller.canChangeWorkspace).actions,
@@ -720,15 +728,15 @@ struct TaskRowAccessibility: Equatable {
 /// unless it needs you: `SidebarModel.heldStatus`), or once the Operator's work on the task is over (its
 /// line's look `ended`) the check (1A, 21 Oct 2026), or while the Operator has it queued the pause sign. The
 /// check stands in for an idle session and for an unseen turn, whose last words are the Operator's to read;
-/// a session at work or waiting on input is yours again and keeps its own mark, and a removal or shelving in
-/// progress spins.
+/// a session at work, waiting on input or on its background work is yours again and keeps its own mark, and a
+/// removal or shelving in progress spins.
 enum TaskRowMark: Equatable {
     case status(TaskStatus), ended, queued
 
     init(status: TaskStatus, line: OperatorLine?, removing: Bool, queued: Bool = false) {
         if removing { self = .status(.working) }
         else if queued { self = .queued }
-        else if line?.look == .ended, status != .working, status != .needsInput { self = .ended }
+        else if line?.look == .ended, ![.working, .needsInput, .background].contains(status) { self = .ended }
         else { self = .status(status) }
     }
 }

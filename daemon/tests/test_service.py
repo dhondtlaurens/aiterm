@@ -16,7 +16,7 @@ from aitermd import service
 from aitermd.codex_sessions import CodexSessionFiles
 from aitermd.hooks_server import HookServer
 from aitermd.iterm_bridge import ItermUnavailable
-from aitermd.models import Frame
+from aitermd.models import BackgroundJob, Frame
 from tests.conftest import wait_until
 from tests.fake_iterm import FakeIterm
 
@@ -1219,8 +1219,8 @@ async def test_a_turn_that_ends_with_background_work_says_what_still_runs(stack,
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "Stop", "background_tasks": [
         {"id": "b1", "type": "shell", "status": "running", "description": "the gate", "command": "npm run test:run"}]})
     session = svc.registry.get(sid)
-    assert (session.state, session.background) == ("done", ("npm run test:run",))
-    assert session.to_json()["background"] == ["npm run test:run"]
+    assert (session.state, session.background) == ("done", (BackgroundJob("shell", "npm run test:run"),))
+    assert session.to_json()["background"] == [{"kind": "shell", "text": "npm run test:run"}]
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
     assert svc.registry.get(sid).background == ()
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "Stop", "background_tasks": []})

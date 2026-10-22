@@ -31,7 +31,7 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// What its agent left running in the background when its last turn ended, which wakes it again (Claude's
     /// `background_tasks`): a shell by its command, other work by its description. A turn ended with any is paused,
     /// not finished. Empty once a new turn starts, and from a daemon too old to send it.
-    public var background: [String] = []
+    public var background: [BackgroundJob] = []
     /// The first line of the prompt you typed into this tab yourself, for the turn it started: not one AiTerm launched
     /// the agent with or delivered. Nil once that turn ends, for any other prompt, and from a daemon too old to send it.
     public var yourPrompt: String? = nil
@@ -69,8 +69,33 @@ extension SessionInfo {
         conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
         terminalId = try c.decodeIfPresent(String.self, forKey: .terminalId)
         tabKey = try c.decodeIfPresent(String.self, forKey: .tabKey)
-        background = try c.decodeIfPresent([String].self, forKey: .background) ?? []
+        background = try c.decodeIfPresent([BackgroundJob].self, forKey: .background) ?? []
         yourPrompt = try c.decodeIfPresent(String.self, forKey: .yourPrompt)
+    }
+}
+
+/// One piece of work an agent's turn left running when it ended (a Claude Stop's `background_tasks`): a shell by its
+/// command, a monitor or any other task by its description.
+public struct BackgroundJob: Codable, Equatable, Hashable, Sendable {
+    /// See `SessionAgent`'s decoding note: a kind this app does not know reads as `.task`.
+    public enum Kind: String, Codable, Sendable {
+        case shell, monitor, task
+        public init(from decoder: Decoder) throws {
+            self = Kind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .task
+        }
+    }
+    public var kind: Kind, text: String
+    public init(kind: Kind, text: String) { self.kind = kind; self.text = text }
+
+    /// A daemon older than the kinds — one left running after a crash — sends each job as its text alone: read as
+    /// a task, described, rather than failing the session it came in.
+    public init(from decoder: Decoder) throws {
+        if let text = try? decoder.singleValueContainer().decode(String.self) {
+            self.init(kind: .task, text: text)
+            return
+        }
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(kind: try c.decode(Kind.self, forKey: .kind), text: try c.decode(String.self, forKey: .text))
     }
 }
 
