@@ -293,6 +293,127 @@ import Testing
         #expect(await otherWorld.call(other.id, "jira_create", ticket()).value?["created"] == true)
     }
 
+    // -- Jira boards and sprints (spec §L) ------------------------------------------------------------
+
+    /// A Jira that has a scrum board with sprints 41 (active) and 42 (future) in PLUTO, a kanban board in WEB, and a scrum
+    /// board with sprint 99 in PAY, which the broadcast does not have.
+    func agileJira() -> FakeJira {
+        let jira = FakeJira()
+        jira.put(boards: [JiraBoard(id: 7, name: "Pluto board", type: "scrum")],
+                 sprints: [JiraSprint(id: 41, name: "Sprint 41", state: "active", startDate: "2026-10-12", endDate: "2026-10-26", boardId: 7),
+                           JiraSprint(id: 42, name: "Sprint 42", state: "future", startDate: nil, endDate: nil, boardId: 7)],
+                 columns: [JiraColumn(name: "To Do", statuses: ["Open"]), JiraColumn(name: "Done", statuses: ["Done"])], in: "PLUTO")
+        jira.put(boards: [JiraBoard(id: 9, name: "Web flow", type: "kanban")], columns: [JiraColumn(name: "Doing", statuses: ["In Progress"])], in: "WEB")
+        jira.put(boards: [JiraBoard(id: 11, name: "Pay board", type: "scrum")],
+                 sprints: [JiraSprint(id: 99, name: "Sprint 99", state: "active", startDate: nil, endDate: nil, boardId: 11)], in: "PAY")
+        return jira
+    }
+
+    @Test func jiraBoardNeedsNoSliceAndReadsOnlyTheBroadcastsProjects() async throws {
+        let jira = agileJira()
+        let run = jiraRun(slice: false)
+        let world = try makeWorld(run, jira: jira)
+        let answer = try #require(await world.call(run.id, "jira_board").value?.arrayValue)
+        #expect(answer.map { $0["project"] } == ["PLUTO", "WEB"], "PAY is not the broadcast's")
+        let pluto = try #require(answer.first?["boards"]?.arrayValue?.first)
+        #expect(pluto["id"] == 7 && pluto["name"] == "Pluto board" && pluto["type"] == "scrum")
+        #expect(pluto["sprints"]?.arrayValue?.map { $0["name"] } == ["Sprint 41", "Sprint 42"])
+        #expect(pluto["sprints"]?.arrayValue?.first?["state"] == "active" && pluto["sprints"]?.arrayValue?.first?["endDate"] == "2026-10-26")
+        #expect(pluto["columns"]?.arrayValue?.first?["name"] == "To Do" && pluto["columns"]?.arrayValue?.first?["statuses"] == ["Open"])
+        let web = try #require(answer.last?["boards"]?.arrayValue?.first)
+        #expect(web["sprints"] == [] && web["columns"]?.arrayValue?.count == 1, "a kanban board has columns and no sprints")
+        #expect(world.run(run.id)?.leftForYou.isEmpty == true)
+    }
+
+    @Test func jiraBoardWithoutJiraSaysWhere() async throws {
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run)
+        #expect(await world.call(run.id, "jira_board").message == "Jira isn’t connected in AiTerm’s Settings › Integrations.")
+    }
+
+    @Test func jiraSprintNeedsTheSlice() async throws {
+        let jira = agileJira()
+        let run = jiraRun(slice: false)
+        let world = try makeWorld(run, jira: jira)
+        let off = "The Jira slice is off for this broadcast."
+        #expect(await world.call(run.id, "jira_sprint", ["key": "s1", "tickets": ["PLUTO-1", "WEB-2"], "sprint": 41]).message == off)
+        #expect(await world.call(run.id, "jira_sprint", ["key": "s2", "tickets": ["PLUTO-1"], "sprint": "backlog"]).message == off)
+        #expect(jira.writes.isEmpty)
+        #expect(world.run(run.id)?.leftForYou == ["Put PLUTO-1, WEB-2 in sprint 41: the Jira slice is off.",
+                                                  "Move PLUTO-1 to the backlog: the Jira slice is off."])
+    }
+
+    @Test func jiraSprintPutsTicketsInASprintOrOnTheBacklog() async throws {
+        let jira = agileJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let added = await world.call(run.id, "jira_sprint", ["key": "s1", "tickets": ["pluto-1", "WEB-2", "PLUTO-1"], "sprint": 41])
+        #expect(added.value?["sprinted"] == true && added.value?["sprint"] == "41" && added.value?["tickets"] == ["PLUTO-1", "WEB-2"])
+        #expect(await world.call(run.id, "jira_sprint", ["key": "s2", "tickets": ["PLUTO-3"], "sprint": "42"]).value?["sprinted"] == true, "an id may come as text")
+        let back = await world.call(run.id, "jira_sprint", ["key": "s3", "tickets": ["PLUTO-1"], "sprint": "Backlog"])
+        #expect(back.value?["sprinted"] == true && back.value?["sprint"] == "backlog")
+        #expect(jira.writes == [.sprint(tickets: ["PLUTO-1", "WEB-2"], sprint: 41), .sprint(tickets: ["PLUTO-3"], sprint: 42), .backlog(tickets: ["PLUTO-1"])],
+                "each ticket once, upper-cased")
+        #expect(world.run(run.id)?.leftForYou.isEmpty == true)
+    }
+
+    @Test func aSprintOfAnotherProjectIsRefused() async throws {
+        let jira = agileJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let nowhere = "Sprint 99 isn’t an active or future sprint on a board of this broadcast’s Jira projects: PLUTO, WEB."
+        #expect(await world.call(run.id, "jira_sprint", ["key": "s1", "tickets": ["PLUTO-1"], "sprint": 99]).message == nowhere)
+        #expect(await world.call(run.id, "jira_sprint", ["key": "s2", "tickets": ["PLUTO-1"], "sprint": 12345]).message
+                == "Sprint 12345 isn’t an active or future sprint on a board of this broadcast’s Jira projects: PLUTO, WEB.")
+        #expect(await world.call(run.id, "jira_sprint", ["key": "s3", "tickets": ["PLUTO-1"], "sprint": "next"]).message
+                == "jira_sprint’s `sprint` is a sprint’s id from jira_board, or \"backlog\".")
+        #expect(jira.writes.isEmpty && world.run(run.id)?.jiraSprinted.isEmpty == true)
+    }
+
+    @Test func aTicketOutOfScopeIsRefused() async throws {
+        let jira = agileJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let outside = "isn’t in this broadcast’s Jira projects: PLUTO, WEB."
+        #expect(await world.call(run.id, "jira_sprint", ["key": "s1", "tickets": ["PLUTO-1", "PAY-9"], "sprint": 41]).message == "PAY-9 \(outside)")
+        #expect(await world.call(run.id, "jira_sprint", ["key": "s2", "tickets": ["PAY-9"], "sprint": "backlog"]).message == "PAY-9 \(outside)")
+        #expect(await world.call(run.id, "jira_sprint", ["key": "s3", "tickets": [], "sprint": 41]).message == "jira_sprint needs `tickets`, the keys to move.")
+        #expect(await world.call(run.id, "jira_sprint", ["key": "s4", "tickets": ["PLUTO-1"]]).message == "jira_sprint needs `sprint`.")
+        #expect(jira.writes.isEmpty)
+        let off = jiraRun(slice: false)
+        let offWorld = try makeWorld(off, jira: jira)
+        #expect(await offWorld.call(off.id, "jira_sprint", ["key": "s1", "tickets": ["PAY-9"], "sprint": 41]).message == "PAY-9 \(outside)")
+        #expect(offWorld.run(off.id)?.leftForYou.isEmpty == true)
+    }
+
+    @Test func jiraSprintIsSafeToRepeat() async throws {
+        let jira = agileJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let first = await world.call(run.id, "jira_sprint", ["key": "s1", "tickets": ["PLUTO-1"], "sprint": 41])
+        let again = await world.call(run.id, "jira_sprint", ["key": "s1", "tickets": ["PLUTO-1", "PLUTO-2"], "sprint": 41])
+        #expect(first.value?["sprinted"] == true && again.value?["sprinted"] == false && again.value?["sprint"] == "41")
+        #expect(jira.writes.count == 1, "one write for one key")
+        #expect(world.run(run.id)?.jiraSprinted == ["s1": "41"])
+        #expect(try world.workspace.file.load().run(id: run.id)?.jiraSprinted == ["s1": "41"])
+        // A failed write records nothing: the same key may try again.
+        jira.failWrites()
+        #expect(await world.call(run.id, "jira_sprint", ["key": "s2", "tickets": ["PLUTO-1"], "sprint": 42]).message == "Jira returned an error (HTTP 500). Try again.")
+        #expect(world.run(run.id)?.jiraSprinted == ["s1": "41"])
+        jira.failWrites(false)
+        #expect(await world.call(run.id, "jira_sprint", ["key": "s2", "tickets": ["PLUTO-1"], "sprint": 42]).value?["sprinted"] == true)
+    }
+
+    @Test func jiraSprintIsCheckedAgainJustBeforeTheWrite() async throws {
+        let jira = agileJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        // The slice is turned off after the sprint is read and before the write.
+        jira.beforeSprintWrite.withLock { $0 = { @Sendable in await MainActor.run { world.workspace.mutate { $0.updateRun(id: run.id) { $0.profile.slices.jira = false } } } } }
+        #expect(await world.call(run.id, "jira_sprint", ["key": "s1", "tickets": ["PLUTO-1"], "sprint": 41]).message == "The Jira slice is off for this broadcast.")
+        #expect(jira.writes.isEmpty && world.run(run.id)?.jiraSprinted.isEmpty == true)
+    }
+
     @Test func jiraMoveToTheStatusItIsInSucceedsWithoutATransition() async throws {
         let jira = FakeJira()
         jira.put("PLUTO-231", in: "Done")

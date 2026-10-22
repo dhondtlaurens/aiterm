@@ -4,7 +4,7 @@ import Foundation
 public enum ActivityLine {
     /// The tools that only look: the tab reads their lines muted. `shell_read` is a shell command the gate let run as a
     /// plain read (spec §A.1), and `shell` any other one it judged: both are the gate's own lines, never a tool's.
-    public static let reads: Set<String> = ["run_status", "read_task", "jira_search", "find_user", "shell_read"]
+    public static let reads: Set<String> = ["run_status", "read_task", "jira_search", "jira_board", "find_user", "shell_read"]
 
     /// The line for `tool` called with `arguments`: `task` is the task it was about, when AiTerm found one. A call
     /// that went through, or was answered from the first, says what was done (`Finished Cart drawer`); one that was
@@ -21,6 +21,12 @@ public enum ActivityLine {
         case "jira_create": words = ("Filed “\(text("summary"))” in \(text("project"))", "file “\(text("summary"))” in \(text("project"))")
         case "jira_move": words = ("Moved \(text("key")) to \(text("status"))", "move \(text("key")) to \(text("status"))")
         case "jira_link": words = ("Linked \(text("key")) to \(text("to"))", "link \(text("key")) to \(text("to"))")
+        case "jira_board": words = ("Read the Jira boards and sprints", "read the Jira boards and sprints")
+        case "jira_sprint":
+            let tickets = (arguments["tickets"]?.arrayValue ?? []).compactMap(\.stringValue).joined(separator: ", ")
+            let sprint = arguments["sprint"]?.intValue.map(String.init) ?? text("sprint")
+            if sprint.lowercased() == "backlog" { words = ("Moved \(cut(tickets)) to the backlog", "move \(cut(tickets)) to the backlog") }
+            else { words = ("Put \(cut(tickets)) in sprint \(sprint)", "put \(cut(tickets)) in sprint \(sprint)") }
         case "create_task": words = ("Added \(text("title")) to the plan", "add \(text("title")) to the plan")
         case "update_task": words = ("Changed \(named)’s plan", "change \(named)’s plan")
         case "submit_plan": words = ("Submitted the plan", "submit the plan")

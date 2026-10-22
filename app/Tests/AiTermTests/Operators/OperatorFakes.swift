@@ -183,6 +183,8 @@ final class FakeJira: OperatorJira {
         case create(project: String, type: String, summary: String, description: String, parent: String?)
         case move(key: String, status: String)
         case link(key: String, to: String, type: String)
+        case sprint(tickets: [String], sprint: Int)
+        case backlog(tickets: [String])
     }
     let tickets: [JiraTicket]
     /// Every write answers Jira's 500 while this is set.
@@ -242,6 +244,29 @@ final class FakeJira: OperatorJira {
         return true
     }
     func link(key: String, to other: String, type: String) async throws { try record(.link(key: key, to: other, type: type)) }
+    /// The boards each Jira project has, and the sprints and columns of each board, as `jira_board` reads them.
+    private let agile = Mutex<(boards: [String: [JiraBoard]], sprints: [Int: [JiraSprint]], columns: [Int: [JiraColumn]])>(([:], [:], [:]))
+    func put(boards: [JiraBoard], sprints: [JiraSprint] = [], columns: [JiraColumn] = [], in project: String) {
+        agile.withLock { agile in
+            agile.boards[project, default: []] += boards
+            for board in boards { agile.sprints[board.id] = sprints.filter { $0.boardId == board.id }; agile.columns[board.id] = columns }
+        }
+    }
+    func boards(project: String) async throws -> [JiraBoard] { agile.withLock { $0.boards[project] ?? [] } }
+    func sprints(board: Int) async throws -> [JiraSprint] { agile.withLock { $0.sprints[board] ?? [] } }
+    func columns(board: Int) async throws -> [JiraColumn] { agile.withLock { $0.columns[board] ?? [] } }
+    /// Awaited inside a sprint write, before its last check: a test changes the operation with it.
+    let beforeSprintWrite = Mutex<(@Sendable () async -> Void)?>(nil)
+    func addToSprint(_ sprint: Int, tickets: [String], beforeWrite: @Sendable () async throws -> Void) async throws {
+        if let hook = beforeSprintWrite.withLock({ $0 }) { await hook() }
+        try await beforeWrite()
+        try record(.sprint(tickets: tickets, sprint: sprint))
+    }
+    func moveToBacklog(tickets: [String], beforeWrite: @Sendable () async throws -> Void) async throws {
+        if let hook = beforeSprintWrite.withLock({ $0 }) { await hook() }
+        try await beforeWrite()
+        try record(.backlog(tickets: tickets))
+    }
     private func record(_ write: Write) throws {
         if let error = failing.withLock({ $0 }) { throw error }
         made.withLock { $0.append(write) }

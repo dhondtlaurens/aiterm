@@ -2,10 +2,11 @@ import Foundation
 import CryptoKit
 import AiTermCore
 
-/// The Jira slice (spec §5): `jira_create`, `jira_move` and `jira_link`, and the filing of off-brief finds. A
+/// The Jira slice (spec §5): `jira_create`, `jira_move`, `jira_link` and `jira_sprint`, and the filing of off-brief finds. A
 /// write is refused unless the broadcast's frozen slice allows it, and is kept to the broadcast's Jira
 /// projects. Each is read fresh right before it is sent, after any read that came first: none goes while the
-/// operation is paused, offline or ended. Comments are not here: a comment messages people.
+/// operation is paused, offline or ended. Comments are not here: a comment messages people. `jira_board` only reads
+/// (spec §L), so it needs no slice.
 extension OperatorToolHandler {
     private static let sliceOff = "The Jira slice is off for this broadcast."
     private static let notConnected = "Jira isn’t connected in AiTerm’s Settings › Integrations."
@@ -94,6 +95,118 @@ extension OperatorToolHandler {
         try jiraWritable(run.id)
         try await jira.link(key: key, to: other, type: type)
         return ["key": .string(key), "to": .string(other), "type": .string(type), "linked": true]
+    }
+
+    /// Where `jira_sprint` puts its tickets.
+    private enum SprintTarget: Equatable {
+        case sprint(Int), backlog
+        /// What the call records for its key, and answers.
+        var label: String { if case .sprint(let id) = self { String(id) } else { "backlog" } }
+    }
+
+    /// For each of the broadcast's Jira projects, its boards: the active and future sprints of a scrum board, and the columns
+    /// with the statuses in them (spec §L). A read, so it needs no slice, and Jira's answer is awaited for the search's budget.
+    func jiraBoard(in run: OperatorRun) async throws -> JSONValue {
+        let jira = try connectedJira()
+        var projects: [String] = []
+        for key in run.jiraProjectKeys.map({ $0.uppercased() }) where !projects.contains(key) { projects.append(key) }
+        guard !projects.isEmpty else { throw outOfScope("", of: run) }
+        let budget = ports.jiraSearchBudget
+        switch await Self.within(budget, { try await Self.readBoards(of: projects, with: jira) }) {
+        case .success(let answer): return answer
+        case .failure(let error) where error is NoAnswer:
+            throw ToolRefusal("Jira didn’t answer within \(Int(budget.components.seconds)) s; call jira_board again.")
+        case .failure(let error): throw error
+        }
+    }
+
+    private static func readBoards(of projects: [String], with jira: any OperatorJira) async throws -> JSONValue {
+        var answer: [JSONValue] = []
+        for project in projects {
+            var boards: [JSONValue] = []
+            for board in try await jira.boards(project: project) {
+                // Only a scrum board has sprints: Jira answers 400 for the sprints of a kanban one.
+                let sprints = board.type == "scrum" ? try await jira.sprints(board: board.id) : []
+                let columns = try await jira.columns(board: board.id)
+                boards.append(["id": .int(board.id), "name": .string(board.name), "type": .string(board.type),
+                               "sprints": .array(sprints.map { sprint in
+                                   ["id": .int(sprint.id), "name": .string(sprint.name), "state": .string(sprint.state),
+                                    "startDate": sprint.startDate.map(JSONValue.string) ?? .null, "endDate": sprint.endDate.map(JSONValue.string) ?? .null]
+                               }),
+                               "columns": .array(columns.map { ["name": .string($0.name), "statuses": .array($0.statuses.map(JSONValue.string))] })])
+            }
+            answer.append(["project": .string(project), "boards": .array(boards)])
+        }
+        return .array(answer)
+    }
+
+    /// Puts tickets of the broadcast's Jira projects in an active or future sprint on a board of those projects, or back on
+    /// the backlog (spec §L). The same key again moves nothing: adding to a sprint is safe to repeat, so no write is marked pending.
+    func jiraSprint(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        let callKey = try call.string("key")
+        if let done = run.jiraSprinted[callKey] {
+            return ["sprint": .string(done), "sprinted": false, "note": "The first call with this key already did it."]
+        }
+        guard let named = call.arguments["tickets"]?.arrayValue, !named.isEmpty else { throw ToolRefusal("jira_sprint needs `tickets`, the keys to move.") }
+        var tickets: [String] = []
+        for value in named {
+            guard let text = value.stringValue else { throw ToolRefusal("jira_sprint’s `tickets` are ticket keys like PLUTO-231.") }
+            let key = try inScope(ticket: text, of: run)
+            if !tickets.contains(key) { tickets.append(key) }
+        }
+        let target = try sprintTarget(call)
+        let list = tickets.joined(separator: ", ")
+        switch target {
+        case .sprint(let id): try requireSlice(in: run, otherwise: "Put \(list) in sprint \(id)")
+        case .backlog: try requireSlice(in: run, otherwise: "Move \(list) to the backlog")
+        }
+        try jiraWritable(run.id)
+        let jira = try connectedJira()
+        let runId = run.id, projects = run.jiraProjectKeys, moved = tickets
+        let budget = ports.jiraSearchBudget
+        // Jira's boards and sprints are read first: the move is checked again after them, right before it is sent.
+        let outcome = await Self.within(budget) { [self] in
+            if case .sprint(let id) = target {
+                guard try await Self.sprintIsOnABoard(id, of: projects, with: jira) else {
+                    throw ToolRefusal("Sprint \(id) isn’t an active or future sprint on a board of this broadcast’s Jira projects: \(projects.joined(separator: ", ")).")
+                }
+            }
+            let check: @Sendable () async throws -> Void = { @MainActor [weak self] in
+                guard let self else { throw ToolRefusal("AiTerm is closing; nothing more is written.") }
+                try self.jiraWritable(runId)
+            }
+            switch target {
+            case .sprint(let id): try await jira.addToSprint(id, tickets: moved, beforeWrite: check)
+            case .backlog: try await jira.moveToBacklog(tickets: moved, beforeWrite: check)
+            }
+            mutate(in: runId) { $0.updateRun(id: runId) { $0.jiraSprinted[callKey] = target.label } }
+            _ = workspace.flush()
+        }
+        switch outcome {
+        case .success: return ["sprint": .string(target.label), "tickets": .array(tickets.map(JSONValue.string)), "sprinted": true]
+        case .failure(let error) where error is NoAnswer:
+            throw ToolRefusal("Jira didn’t answer within \(Int(budget.components.seconds)) s, so the tickets may or may not have moved; call jira_sprint again with the same key, which is safe to repeat.")
+        case .failure(let error): throw error
+        }
+    }
+
+    /// `sprint` as a sprint’s id or `backlog`.
+    private func sprintTarget(_ call: ToolCall) throws(ToolRefusal) -> SprintTarget {
+        guard let value = call.arguments["sprint"], value != .null else { throw ToolRefusal("jira_sprint needs `sprint`.") }
+        let text = value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text?.lowercased() == "backlog" { return .backlog }
+        if let id = value.intValue ?? text.flatMap({ Int($0) }), id > 0 { return .sprint(id) }
+        throw ToolRefusal("jira_sprint’s `sprint` is a sprint’s id from jira_board, or \"backlog\".")
+    }
+
+    /// Whether `id` is an active or future sprint of a scrum board of one of `projects`.
+    private static func sprintIsOnABoard(_ id: Int, of projects: [String], with jira: any OperatorJira) async throws -> Bool {
+        for project in projects {
+            for board in try await jira.boards(project: project) where board.type == "scrum" {
+                if try await jira.sprints(board: board.id).contains(where: { $0.id == id }) { return true }
+            }
+        }
+        return false
     }
 
     /// Refuses a write the Jira slice does not allow, and leaves `otherwise` (what was not done) for the person once.

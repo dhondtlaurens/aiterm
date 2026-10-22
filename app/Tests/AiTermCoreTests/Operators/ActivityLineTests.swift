@@ -15,6 +15,10 @@ import Foundation
         #expect(line("jira_create", ["summary": "Fix cart", "project": "SHOP"]) == "Filed “Fix cart” in SHOP")
         #expect(line("jira_move", ["key": "SHOP-1", "status": "Done"]) == "Moved SHOP-1 to Done")
         #expect(line("jira_link", ["key": "SHOP-1", "to": "SHOP-2"]) == "Linked SHOP-1 to SHOP-2")
+        #expect(line("jira_board") == "Read the Jira boards and sprints")
+        #expect(line("jira_sprint", ["tickets": ["SHOP-1", "SHOP-2"], "sprint": 41]) == "Put SHOP-1, SHOP-2 in sprint 41")
+        #expect(line("jira_sprint", ["tickets": ["SHOP-1"], "sprint": "41"]) == "Put SHOP-1 in sprint 41")
+        #expect(line("jira_sprint", ["tickets": ["SHOP-1"], "sprint": "backlog"]) == "Moved SHOP-1 to the backlog")
         #expect(line("create_task", ["title": "Cart drawer"]) == "Added Cart drawer to the plan")
         #expect(line("update_task", task: cart) == "Changed Cart drawer’s plan")
         #expect(line("submit_plan") == "Submitted the plan")
@@ -63,6 +67,9 @@ import Foundation
         #expect(asked("jira_create", ["summary": "Fix cart", "project": "SHOP"]) == "file “Fix cart” in SHOP")
         #expect(asked("jira_move", ["key": "SHOP-1", "status": "Done"]) == "move SHOP-1 to Done")
         #expect(asked("jira_link", ["key": "SHOP-1", "to": "SHOP-2"]) == "link SHOP-1 to SHOP-2")
+        #expect(asked("jira_board") == "read the Jira boards and sprints")
+        #expect(asked("jira_sprint", ["tickets": ["SHOP-1", "SHOP-2"], "sprint": 41]) == "put SHOP-1, SHOP-2 in sprint 41")
+        #expect(asked("jira_sprint", ["tickets": ["SHOP-1"], "sprint": "backlog"]) == "move SHOP-1 to the backlog")
         #expect(asked("create_task", ["title": "Cart drawer"]) == "add Cart drawer to the plan")
         #expect(asked("update_task", task: cart) == "change Cart drawer’s plan")
         #expect(asked("submit_plan", as: .challenged) == "submit the plan")
@@ -116,7 +123,7 @@ import Foundation
     }
 
     @Test func readsAreTheToolsThatOnlyLook() {
-        #expect(ActivityLine.reads == ["run_status", "read_task", "jira_search", "find_user", "shell_read"])
+        #expect(ActivityLine.reads == ["run_status", "read_task", "jira_search", "jira_board", "find_user", "shell_read"])
     }
 
     @Test func aReasonIsWhyTheCallWentTheWayItDid() {

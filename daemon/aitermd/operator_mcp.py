@@ -225,6 +225,19 @@ TOOLS: tuple[dict[str, Any], ...] = (
           {"key": _text("The ticket the link is read from."), "to": _text("The ticket it points to."),
            "type": _text("The Jira link type's name, such as Blocks, Relates or Duplicate.")},
           ("key", "to", "type")),
+    _tool("jira_board", "Reads the Jira boards of each of the broadcast's Jira projects: for each board its id, name and type, "
+          "its active and future sprints (id, name, state, dates; only a scrum board has any) and its columns with the "
+          "statuses in each. Read-only; needs no slice. Use a sprint's id with jira_sprint, and a column's status names "
+          "with jira_move."),
+    _tool("jira_sprint", "Puts Jira tickets in an active or future sprint, or back on the backlog. The tickets must be in "
+          "the broadcast's Jira projects, and a sprint must be on one of their boards (jira_board lists them). Refused "
+          "unless the broadcast's Jira slice is on; AiTerm then leaves it for the person. The same key again moves "
+          "nothing, so call again with it after a lost reply.",
+          {"key": _KEY, "tickets": {"type": "array", "items": {"type": "string"},
+                                    "description": "The tickets' keys, such as PAY-231; at most 50."},
+           "sprint": {"type": ["integer", "string"],
+                      "description": "The sprint's id from jira_board, or backlog to take the tickets out of their sprints."}},
+          ("key", "tickets", "sprint")),
     _tool("create_task", "Adds an unstarted task to the open plan revision, in one of the broadcast's projects. The same key "
           "in this broadcast returns the task already made. Once the first plan is submitted, additions past a quarter of its "
           "size need the Oracle's yes. One the Oracle refuses, or any past that limit with the Oracle off, is refused and "

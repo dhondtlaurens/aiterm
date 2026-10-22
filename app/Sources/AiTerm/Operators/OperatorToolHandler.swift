@@ -42,6 +42,13 @@ protocol OperatorJira: Sendable {
     /// right before the move, and its error stops it.
     func transition(key: String, to statusName: String, beforeWrite: @Sendable () async throws -> Void) async throws -> Bool
     func link(key: String, to other: String, type: String) async throws
+    /// Boards and sprints (spec §L): `jira_board` reads them, `jira_sprint` writes. `beforeWrite` is as `transition`'s: it runs
+    /// right before the write, and its error stops it.
+    func boards(project: String) async throws -> [JiraBoard]
+    func sprints(board: Int) async throws -> [JiraSprint]
+    func columns(board: Int) async throws -> [JiraColumn]
+    func addToSprint(_ sprint: Int, tickets: [String], beforeWrite: @Sendable () async throws -> Void) async throws
+    func moveToBacklog(tickets: [String], beforeWrite: @Sendable () async throws -> Void) async throws
 }
 
 extension JiraClient: OperatorJira {}
@@ -163,7 +170,7 @@ final class OperatorToolHandler {
     static let mutating: Set<String> = ["create_task", "update_task", "submit_plan", "message_task", "open_tab", "mark_task", "resume_task",
                                         "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "leave_for_you", "report_find", "report_snag",
                                         "write_summary",
-                                        "jira_create", "jira_move", "jira_link", "review_task", "request_review", "reply_thread"]
+                                        "jira_create", "jira_move", "jira_link", "jira_sprint", "review_task", "request_review", "reply_thread"]
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
          waker: OperatorWaker, tabs: TabOpener) {
@@ -269,6 +276,8 @@ final class OperatorToolHandler {
             return try await jiraCreate(call, in: run)
         case "jira_move": return try await jiraMove(call, in: run)
         case "jira_link": return try await jiraLink(call, in: run)
+        case "jira_board": return try await jiraBoard(in: run)
+        case "jira_sprint": return try await jiraSprint(call, in: run)
         case "ask_you": return try askYou(call, in: run)
         case "resolve_question": return try resolveQuestion(call, in: run)
         case "leave_for_you": return try leaveForYou(call, in: run)

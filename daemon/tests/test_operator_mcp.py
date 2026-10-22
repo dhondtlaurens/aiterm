@@ -135,10 +135,10 @@ def test_memory_wins_over_a_file(tmp_path):
     assert tokens.run_for(TOKEN) is None and tokens.run_for(OTHER) == "run-1"
 
 
-CONTRACT_TOOLS = {"run_status", "jira_search", "jira_create", "jira_move", "jira_link", "create_task", "update_task",
-                  "submit_plan", "read_task", "message_task", "open_tab", "mark_task", "resume_task", "retry_task", "finish_task",
-                  "ask_you", "resolve_question", "report_find", "report_snag", "log_decision", "leave_for_you", "review_task",
-                  "request_review", "reply_thread", "find_user", "write_summary"}
+CONTRACT_TOOLS = {"run_status", "jira_search", "jira_board", "jira_create", "jira_move", "jira_link", "jira_sprint",
+                  "create_task", "update_task", "submit_plan", "read_task", "message_task", "open_tab", "mark_task",
+                  "resume_task", "retry_task", "finish_task", "ask_you", "resolve_question", "report_find", "report_snag",
+                  "log_decision", "leave_for_you", "review_task", "request_review", "reply_thread", "find_user", "write_summary"}
 
 
 def test_the_tools_are_the_contracts():
@@ -200,6 +200,8 @@ def test_the_values_are_the_apps():
     assert {"why", "objection"} <= set(properties["log_decision"]) and required["log_decision"] == {"key", "text"}
     assert required["jira_create"] == {"key", "project", "type", "summary", "description"} and "parent" in properties["jira_create"]
     assert required["jira_move"] == {"key", "status"} and required["jira_link"] == {"key", "to", "type"}
+    assert required["jira_sprint"] == {"key", "tickets", "sprint"} and required["jira_board"] == set()
+    assert properties["jira_board"] == {} and properties["jira_sprint"]["tickets"]["type"] == "array"
 
 
 def test_open_tab_adds_a_worker_tab_to_a_running_task_by_key():
@@ -266,8 +268,9 @@ def test_finish_task_says_what_it_did_to_the_draft():
 
 def test_the_jira_writes_say_what_the_slice_governs_and_there_is_no_comment_tool():
     tools = {tool["name"]: tool for tool in TOOLS}
-    for name in ("jira_create", "jira_move", "jira_link"):
+    for name in ("jira_create", "jira_move", "jira_link", "jira_sprint"):
         assert "Jira slice" in tools[name]["description"]
+    assert "needs no slice" in tools["jira_board"]["description"]
     assert not [name for name in tools if "comment" in name]
 
 

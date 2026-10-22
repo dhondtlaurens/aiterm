@@ -647,6 +647,9 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     public var leftForYouRecords: [String: String]?
     /// The tickets `jira_create` made, by the key the Operator gave the call: the same key again returns the ticket.
     public var jiraCreated: [String: String]
+    /// Where each `jira_sprint` call put its tickets, by the key the Operator gave it (a sprint's id, or `backlog`): the same
+    /// key again moves nothing. Left out of the save while empty.
+    public var jiraSprinted: [String: String] = [:]
     /// The review threads `reply_thread` answered, by the key the Operator gave the call: the same key again posts nothing.
     public var threadReplies: [String: String]
     /// The writes sent and not yet known to have landed, as `jira_create/<key>` and `reply_thread/<key>`: saved before
@@ -696,7 +699,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, name, profile, projectIds, jiraProjectKeys, prompt, review, done, state, intent, planRevision
         case firstPlanSize, questions, decisions, finds, snags, leftForYou, leftForYouRecords, challenges, operatorConversation, operatorWindowId
-        case operatorSessionId, jiraCreated, threadReplies, pendingWrites, createdAt
+        case operatorSessionId, jiraCreated, jiraSprinted, threadReplies, pendingWrites, createdAt
         case summary, summaryAt, completedAt, summaryGivenUp, endedAt, gateAllowances
     }
 
@@ -728,6 +731,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         operatorWindowId = try c.decodeIfPresent(String.self, forKey: .operatorWindowId)
         operatorSessionId = try c.decodeIfPresent(String.self, forKey: .operatorSessionId)
         jiraCreated = try c.decodeIfPresent([String: String].self, forKey: .jiraCreated) ?? [:]
+        jiraSprinted = try c.decodeIfPresent([String: String].self, forKey: .jiraSprinted) ?? [:]
         threadReplies = try c.decodeIfPresent([String: String].self, forKey: .threadReplies) ?? [:]
         pendingWrites = try c.decodeIfPresent([String].self, forKey: .pendingWrites) ?? []
         createdAt = try c.decode(Date.self, forKey: .createdAt)
@@ -774,6 +778,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         try c.encodeIfPresent(operatorWindowId, forKey: .operatorWindowId)
         try c.encodeIfPresent(operatorSessionId, forKey: .operatorSessionId)
         try c.encode(jiraCreated, forKey: .jiraCreated)
+        if !jiraSprinted.isEmpty { try c.encode(jiraSprinted, forKey: .jiraSprinted) }
         try c.encode(threadReplies, forKey: .threadReplies)
         try c.encode(pendingWrites, forKey: .pendingWrites)
         try c.encode(createdAt, forKey: .createdAt)

@@ -46,7 +46,7 @@ extension JiraClient {
     }
 
     /// A write whose answer is an empty 2xx (a transition and a link answer 204).
-    private func perform(_ request: URLRequest) async throws { _ = try await writeSend(request) }
+    func perform(_ request: URLRequest) async throws { _ = try await writeSend(request) }
 
     private func writeDecode<Response: Decodable>(_ type: Response.Type, _ request: URLRequest) async throws -> Response {
         let data = try await writeSend(request)
@@ -83,7 +83,7 @@ extension JiraClient {
     }
 
     /// `key` when it is an issue key, so it is safe as a path segment; a Jira 400 says what the caller sent was no ticket.
-    private static func validKey(_ key: String) throws -> String {
+    static func validKey(_ key: String) throws -> String {
         guard key.range(of: #"^[A-Za-z][A-Za-z0-9_]+-[0-9]+$"#, options: .regularExpression) != nil else { throw JiraError.refused(status: 400, detail: "\(key) isn’t a Jira ticket key.") }
         return key
     }
