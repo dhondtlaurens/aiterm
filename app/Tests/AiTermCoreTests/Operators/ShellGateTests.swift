@@ -133,6 +133,27 @@ import Testing
         }
     }
 
+    /// gh and glab send their token to the host they talk to: `-R` names a plain repository path, and `--hostname` or a
+    /// path's host part one of the hosts the broadcast's projects are on. Anything else is the Oracle's.
+    @Test func ghAndGlabReadOnlyFromTheBroadcastsHosts() {
+        let hosts: Set<String> = ["gitlab.com", "github.com"]
+        func route(_ command: String) -> ShellGate.Route { ShellGate.route(command, in: directory, roots: roots, hosts: hosts) }
+        for command in ["glab mr view 3 -R team/shop", "glab mr list --repo team/shop -R gitlab.com/group/shop", "gh pr view 12 -R a/b",
+                        "gh pr list --repo=a/b", "gh api repos/a/b --hostname github.com", "glab api projects/1 --hostname GitLab.com",
+                        "glab ci status -R gitlab.com/group/sub/shop"] {
+            #expect(route(command) == .read(rewrite: nil), "\(command)")
+        }
+        for command in ["glab api projects/1 --hostname other.host", "gh api repos/a/b --hostname=evil.example",
+                        "glab mr view 3 -R https://other.host/a/b", "glab mr view 3 -R other.host/a/b", "gh pr view 1 -R evil.example/a/b",
+                        "gh pr view 1 -R git@other.host:a/b", "gh pr view 1 -R user@a/b", "glab mr view 3 -R a", "glab mr view 3 -R a/../b",
+                        "gh pr view 1 -R //a/b", "gh pr view 1 -R a/b/", "glab mr view 3 -R localhost:8080/a/b", "gh pr view 1 -R group/sub/shop",
+                        "gh api repos/a/b --hostname github.com.evil.example", "gh api repos/a/b --hostname github.com:443"] {
+            #expect(route(command) == .oracle, "\(command)")
+        }
+        // With no project on a host, no host is one to send to.
+        #expect(ShellGate.route("gh api repos/a/b --hostname github.com", in: directory, roots: roots) == .oracle)
+    }
+
     @Test func aFetchNamesARemoteAndPlainBranchesOnly() {
         for command in ["git fetch origin +main:feature", "git fetch origin main:feature", "git fetch origin :feature", "git fetch origin +main",
                         "git fetch ext::sh", "git fetch https://x/y.git", "git fetch /tmp/evil", "git fetch -- --upload-pack=x", "git fetch origin 'refs/*:refs/*'",

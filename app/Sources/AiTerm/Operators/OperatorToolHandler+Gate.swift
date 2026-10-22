@@ -52,10 +52,11 @@ extension OperatorToolHandler {
         if let ended = ended(run.id) { return answer("deny", ended, outcome: .refused) }
         // AiTerm's own refusals (spec §A.2), before any allowance, read or Oracle: they hold whenever the Oracle can't answer.
         if let denied = ShellGate.hardDenial(command) { return answer("deny", denied, outcome: .refused) }
-        let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
+        let checkouts = run.projectIds.compactMap(state.project(id:)), projects = checkouts.map(\.path)
         let folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let worktrees = state.tasks(inRun: run.id).map(\.worktreePath).filter { !$0.isEmpty }
-        if case .read(let rewrite) = ShellGate.route(command, in: directory, roots: projects + worktrees + [folder.path]) {
+        let hosts = Set(checkouts.compactMap { ProviderDetector.detect(remoteUrl: $0.remoteUrl).host })
+        if case .read(let rewrite) = ShellGate.route(command, in: directory, roots: projects + worktrees + [folder.path], hosts: hosts) {
             return answer("allow", "A plain read.", rewrite: rewrite, tool: "shell_read", logged: .some(nil))
         }
         if let allowed = state.run(id: run.id)?.gateAllowances.firstIndex(of: request) {

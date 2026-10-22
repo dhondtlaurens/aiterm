@@ -23,13 +23,14 @@ public enum ShellGate {
         """
 
     /// `directory` is where the command runs; every file it names has to sit under one of `roots`, once `resolve`
-    /// has followed its symlinks.
-    public static func route(_ command: String, in directory: String, roots: [String],
+    /// has followed its symlinks. `hosts` are the hosts the broadcast's projects' origins are on: the only ones a gh or
+    /// glab read may name, as they send their token to it.
+    public static func route(_ command: String, in directory: String, roots: [String], hosts: Set<String> = [],
                              resolve: (String) -> String = { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }) -> Route {
         guard let segments = segments(of: command), !segments.isEmpty else { return .oracle }
         if segments.count == 1, segments[0] == ["env"] || segments[0] == ["printenv"] { return .read(rewrite: maskedEnv) }
         return withoutActuallyEscaping(resolve) { resolve in
-            let judge = Judge(directory: directory, roots: roots, resolve: resolve)
+            let judge = Judge(directory: directory, roots: roots, hosts: Set(hosts.map { $0.lowercased() }), resolve: resolve)
             return segments.allSatisfy(judge.isRead) ? .read(rewrite: nil) : .oracle
         }
     }
@@ -179,6 +180,7 @@ public enum ShellGate {
     private struct Judge {
         let directory: String
         let roots: [String]
+        let hosts: Set<String>
         let resolve: (String) -> String
 
         /// Built on each use: a table of closures is not Sendable, so it cannot be a stored static.
@@ -234,6 +236,17 @@ public enum ShellGate {
         /// URL with `::` runs a helper) and no leading `-`.
         private static func plainName(_ value: String) -> Bool { ShellGate.matches(value, #"^[A-Za-z0-9][A-Za-z0-9._/-]*$"#) }
         private static func plainPattern(_ value: String) -> Bool { ShellGate.matches(value, #"^[A-Za-z0-9][A-Za-z0-9._/*-]*$"#) }
+        /// A host gh or glab may send its token to: one of the broadcast's projects' origins, by name alone (no scheme,
+        /// user or port).
+        private func knownHost(_ value: String) -> Bool { hosts.contains(value.lowercased()) }
+        /// A repository for `-R`/`--repo`: a plain path, `owner/repo` or `group/sub/repo`, never a URL or one with a user.
+        /// A path of three parts or more may be read as `host/owner/repo`, so its first part then has to be one of `hosts`.
+        private func repository(_ value: String) -> Bool {
+            guard ShellGate.matches(value, #"^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_.-]+)+$"#) else { return false }
+            let parts = value.split(separator: "/")
+            guard !parts.contains(where: { $0 == "." || $0 == ".." }) else { return false }
+            return parts.count == 2 || knownHost(String(parts[0]))
+        }
 
         // MARK: Programs
 
@@ -250,7 +263,7 @@ public enum ShellGate {
             let rest = Array(args.dropFirst())
             // A word that is a revision or a path cannot be told apart here, so each is held to the roots as a path
             // from where git runs: `git diff /a /b` with both outside the repository turns into `--no-index` by itself.
-            let here = Judge(directory: location, roots: roots, resolve: resolve)
+            let here = Judge(directory: location, roots: roots, hosts: hosts, resolve: resolve)
             func inside(_ options: Options) -> Bool {
                 guard let parsed = options.parse(rest) else { return false }
                 return parsed.words.allSatisfy(here.isInside)
@@ -298,43 +311,45 @@ public enum ShellGate {
 
         private func glab(_ args: [String]) -> Bool {
             host(args, groups: [
-                "mr": ["view": Judge.listing(["--comments", "-c"], positionals: 1),
-                       "list": Judge.listing(["--all", "--closed", "--merged", "--draft", "--not-draft"],
+                "mr": ["view": listing(["--comments", "-c"], positionals: 1),
+                       "list": listing(["--all", "--closed", "--merged", "--draft", "--not-draft"],
                                              ["--author", "--assignee", "--reviewer", "--label", "--per-page", "-P", "--page", "-p",
                                               "--source-branch", "-s", "--target-branch", "-t"]),
-                       "diff": Judge.listing(["--raw"], positionals: 1)],
-                "ci": ["status": Judge.listing([], ["--branch", "-b"]),
-                       "view": Judge.listing([], ["--branch", "-b"], positionals: 1),
-                       "list": Judge.listing([], ["--per-page", "-P", "--page", "-p", "--status", "-s"])],
+                       "diff": listing(["--raw"], positionals: 1)],
+                "ci": ["status": listing([], ["--branch", "-b"]),
+                       "view": listing([], ["--branch", "-b"], positionals: 1),
+                       "list": listing([], ["--per-page", "-P", "--page", "-p", "--status", "-s"])],
             ])
         }
 
         private func gh(_ args: [String]) -> Bool {
             let output = ["--json", "--jq", "-q"]
             return host(args, groups: [
-                "pr": ["view": Judge.listing(["--comments"], output, positionals: 1),
-                       "list": Judge.listing([], output + ["--state", "-s", "--author", "--limit", "-L", "--base", "--head", "--label"]),
-                       "diff": Judge.listing(["--name-only", "--patch"], positionals: 1),
-                       "checks": Judge.listing(["--required"], output, positionals: 1)],
-                "run": ["view": Judge.listing(["--log", "--log-failed", "--verbose", "-v", "--exit-status"], output + ["--job", "-j"], positionals: 1),
-                        "list": Judge.listing([], output + ["--limit", "-L", "--branch", "-b", "--workflow", "-w", "--status", "-s", "--user", "-u"])],
+                "pr": ["view": listing(["--comments"], output, positionals: 1),
+                       "list": listing([], output + ["--state", "-s", "--author", "--limit", "-L", "--base", "--head", "--label"]),
+                       "diff": listing(["--name-only", "--patch"], positionals: 1),
+                       "checks": listing(["--required"], output, positionals: 1)],
+                "run": ["view": listing(["--log", "--log-failed", "--verbose", "-v", "--exit-status"], output + ["--job", "-j"], positionals: 1),
+                        "list": listing([], output + ["--limit", "-L", "--branch", "-b", "--workflow", "-w", "--status", "-s", "--user", "-u"])],
             ])
         }
 
-        /// A read subcommand's options: its switches and its flags with a value, `-R`/`--repo` besides.
-        private static func listing(_ switches: [String], _ values: [String] = [], positionals: Int = 0) -> Options {
+        /// A read subcommand's options: its switches and its flags with a value, `-R`/`--repo` besides, which names a
+        /// plain repository path (`repository`).
+        private func listing(_ switches: [String], _ values: [String] = [], positionals: Int = 0) -> Options {
             var checks: [String: (String) -> Bool] = [:]
-            for name in values + ["-R", "--repo"] { checks[name] = name == "--jq" || name == "-q" ? Judge.jq : Judge.anything }
+            for name in values { checks[name] = name == "--jq" || name == "-q" ? Judge.jq : Judge.anything }
+            for name in ["-R", "--repo"] { checks[name] = repository }
             return Options(switches: Set(switches), values: checks, positionals: 0...positionals, positional: { !ShellGate.isOption($0) })
         }
 
-        /// `glab` and `gh`: a few read subcommands, and `api` as a GET of one path that sends nothing.
+        /// `glab` and `gh`: a few read subcommands, and `api` as a GET of one path that sends nothing, to one of `hosts` (`knownHost`).
         private func host(_ args: [String], groups: [String: [String: Options]]) -> Bool {
             guard let group = args.first else { return false }
             let rest = Array(args.dropFirst())
             if group == "api" {
                 return Options(switches: ["-i", "--include", "--paginate"],
-                               values: ["--jq": Judge.jq, "-q": Judge.jq, "--hostname": Judge.anything,
+                               values: ["--jq": Judge.jq, "-q": Judge.jq, "--hostname": knownHost,
                                         "-X": Judge.get, "--method": Judge.get],
                                positionals: 1...1).parse(rest) != nil
             }

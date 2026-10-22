@@ -273,4 +273,22 @@ import Testing
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.gateAllowances = [GateRequest(command: "git push", directory: worktree)] } }
         #expect(await gate(world, run, "git push", in: worktree)["reason"] == .string(ShellGate.pushDenial))
     }
+
+    /// A gh or glab read talks only to a host the broadcast's projects' origins are on: one that names another goes to the
+    /// Oracle, as it would send the token there.
+    @Test func aHostReadNamesOnlyTheProjectsHosts() async throws {
+        var onGitLab = OperatorServiceFixtures.project(path: "/tmp/aiterm-operators-gate-hosts")
+        onGitLab.remoteUrl = "git@gitlab.com:team/shop.git"
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: true, oracleAgent: .claude), projects: [onGitLab],
+                                              state: .active)
+        let asked = Asked()
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [onGitLab], runs: [run])) { ports in
+            ports.secondOpinion = answering("ASK: it sends the token to another host.", asked)
+        }
+        #expect(await gate(world, run, "glab api projects/1 --hostname gitlab.com", in: onGitLab.path)["decision"] == "allow")
+        #expect(asked.count == 0)
+        #expect(await gate(world, run, "glab api projects/1 --hostname other.host", in: onGitLab.path)["decision"] == "deny")
+        #expect(await gate(world, run, "glab mr view 3 -R https://other.host/a/b", in: onGitLab.path)["decision"] == "deny")
+        #expect(asked.count == 2, "both went to the Oracle")
+    }
 }
