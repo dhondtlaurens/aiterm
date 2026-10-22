@@ -218,7 +218,8 @@ public enum ChallengeLaunch {
     static let readTools = ["Read", "Grep", "Glob"]
     static let writeTools = ["Bash", "Edit", "Write", "NotebookEdit"]
     /// PI's: it has no sandbox, so this list is what keeps it to reading. Its extensions and MCP servers are off besides,
-    /// so nothing adds a tool, and so are its skills, prompt templates and a project's own files: the prompt is all it is given.
+    /// so nothing adds a tool, and so are its skills, prompt templates and the project settings a trusted folder would load.
+    /// Its context files (AGENTS.md, CLAUDE.md) still load, as Claude's and Codex's do.
     static let piReadTools = ["read", "grep", "find", "ls"]
     static let piQuiet = ["--no-session", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-approve", "--offline"]
 

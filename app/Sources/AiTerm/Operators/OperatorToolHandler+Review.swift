@@ -50,10 +50,12 @@ extension OperatorToolHandler {
                 return Self.reviewAnswer(review, started: false)
             }
         }
-        let home = ports.home, claudeConfig = ports.claudeConfig, other: AgentKind = agent == .codex ? .claude : .codex
+        // The reviewer's own skills first, then those `/` lists in the Review: a PI reviewer is handed a Claude skill too.
+        let home = ports.home, claudeConfig = ports.claudeConfig
+        let agents = [agent] + OperatorSettingsModel.skillAgents.filter { $0 != agent }
         let project = state.project(id: task.projectId)?.path
         let skills = await BackgroundWork.run {
-            AgentReview.skills(in: instructions, agents: [agent, other], projectPath: project, home: home, claudeConfig: claudeConfig)
+            AgentReview.skills(in: instructions, agents: agents, projectPath: project, home: home, claudeConfig: claudeConfig)
         }
         try recheck(task)
         if runningReviews[task.id] != nil, let review = state.task(id: task.id)?.operated?.agentReview {

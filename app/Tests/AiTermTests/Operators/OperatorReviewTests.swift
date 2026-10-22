@@ -807,6 +807,24 @@ extension OperatorReviewTests {
         #expect(!seen.all.contains { $0.contains("Wrong folder.") })
     }
 
+    /// A PI reviewer is handed a skill only Claude has, as Settings › Operator's `/` lists Claude's and Codex's: PI runs
+    /// with its own skills off, so the text is all it gets.
+    @Test func aPiReviewerIsHandedAClaudeOnlySkill() async throws {
+        let seen = TaskFinisherTests.Recorded<String>()
+        let runner = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, arguments, _, _, _ in
+            for word in arguments { seen.append(word) }
+            return ProcessOutput(status: 0, stdout: "Sound.", stderr: "", timedOut: false)
+        })
+        let r = try await reviewed(.working) { $0.agentReviewer = runner; $0.installedAgents = { [.claude, .codex, .pi] } }
+        let skill = r.world.ports.home.appendingPathComponent(".claude/skills/review-skill/SKILL.md")
+        try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "---\nname: review-skill\n---\nAttack every assumption.\n".write(to: skill, atomically: true, encoding: .utf8)
+        try #require(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review it with /review-skill.", "agent": "pi"])
+            .value?["review"] == "started")
+        await r.world.controller.tools.lastReview?.value
+        #expect(seen.all.contains { $0.contains("Attack every assumption.") })
+    }
+
     /// The review reads what `read_task` with `what: diff` does: from where the branch left origin's default branch, not
     /// from a local `main` that lags it.
     @Test func theReviewReadsTheSameBase() async throws {
