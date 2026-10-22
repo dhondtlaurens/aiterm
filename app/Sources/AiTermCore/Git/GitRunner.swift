@@ -129,10 +129,10 @@ extension GitRunning {
     }
 
     /// `run` for a command that talks to a remote — `fetch`, `ls-remote` — with the remote
-    /// deadline and the stall guard.
+    /// deadline, or a shorter one of the caller's, and the stall guard.
     @discardableResult
-    public func runRemote(_ args: [String], in dir: String) throws -> String {
-        try run(GitRunner.stallGuard + args, in: dir, timeout: GitRunner.remoteTimeout)
+    public func runRemote(_ args: [String], in dir: String, timeout: TimeInterval = GitRunner.remoteTimeout) throws -> String {
+        try run(GitRunner.stallGuard + args, in: dir, timeout: timeout)
     }
 
     /// `run` for a question git can answer "no" to by exiting with a status of its own — `1` for

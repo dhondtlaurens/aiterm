@@ -66,8 +66,10 @@ import Testing
     }
 
     /// A world whose task works in the project's own checkout on `feat/x`, branched from `origin/main` after someone else
-    /// moved origin on, so the checkout's local `main` lags. `moved` is origin's `main`.
-    func makeWorldBehindOrigin() throws -> (world: OperatorWorld, run: OperatorRun, task: TaskItem, moved: String) {
+    /// moved origin on, so the checkout's local `main` lags. `moved` is origin's `main`. `worldGit` is the git the world's
+    /// tools run.
+    func makeWorldBehindOrigin(worldGit: (any GitRunning)? = nil, adjust: (inout OperatorPorts) -> Void = { _ in })
+        throws -> (world: OperatorWorld, run: OperatorRun, task: TaskItem, moved: String) {
         let path = try GitFixture.makeRepo(prefix: "op-origin-"), origin = try GitFixture.folder("origin-"), clone = try GitFixture.folder("clone-")
         try git.run(["init", "--bare", "-q", "--initial-branch=main", origin], in: "/")
         try git.run(["remote", "add", "origin", origin], in: path)
@@ -85,7 +87,8 @@ import Testing
         task.baseBranch = "main"
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: Date())
         task.operated?.ownership = 3
-        return (try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])), run, task, moved)
+        return (try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), git: worldGit ?? git,
+                                  adjust: adjust), run, task, moved)
     }
 
     @Test func theDiffStartsAtOriginNotTheLocalMain() async throws {
@@ -98,6 +101,39 @@ import Testing
         #expect(diff["stat"]?.stringValue?.contains("mine.swift") == true && diff["stat"]?.stringValue?.contains("origin-only") == false)
         #expect(diff["truncated"] == false && diff["uncommitted"] == "")
         #expect(diff["diff"] == nil, "the patches are in files")
+    }
+
+    /// The base's fetch is bounded well inside the daemon's 30 s wait for the answer, and done at most once a minute for the
+    /// same base: `read_task diff` and the review after it fetch once (spec §9, the reopen and read_task diff fixes).
+    @Test func theBaseIsFetchedWithinTenSecondsAndAtMostOnceAMinute() async throws {
+        let recording = RecordingGitRunner(forwardingTo: git), clock = StepClock()
+        let (world, run, _, moved) = try makeWorldBehindOrigin(worldGit: recording) { $0.now = { clock.now } }
+        func fetches() -> [RecordingGitRunner.Call] { recording.calls.filter { $0.args.contains("fetch") } }
+        func diff() async throws -> JSONValue { try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value) }
+        #expect(try await diff()["base"] == .string(moved))
+        #expect(fetches().count == 1)
+        #expect(fetches().allSatisfy { $0.timeout == OperatorTiming.diffBaseFetchTimeout } && OperatorTiming.diffBaseFetchTimeout <= 10)
+        #expect(OperatorTiming.diffBaseFetchTimeout * 2 < OperatorTiming.operatorRequestTimeout)
+        clock.advance(by: 59)
+        #expect(try await diff()["base"] == .string(moved))
+        #expect(fetches().count == 1, "fetched under a minute ago")
+        clock.advance(by: 2)
+        _ = try await diff()
+        #expect(fetches().count == 2)
+    }
+
+    /// A fetch that fails or runs out of time (offline, a VPN down) is no refusal: origin's branch is read as last fetched,
+    /// and the next read within the minute doesn't wait on it again.
+    @Test func aFetchThatFailsReadsOriginAsLastFetched() async throws {
+        let failing = TimingOutGitRunner(GitRunner.stallGuard + ["fetch"], inner: git)
+        let recording = RecordingGitRunner(forwardingTo: failing)
+        let (world, run, _, moved) = try makeWorldBehindOrigin(worldGit: recording)
+        let answer = await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"])
+        #expect(answer.message == nil)
+        let diff = try #require(answer.value)
+        #expect(diff["base"] == .string(moved) && paths(diff) == ["mine.swift"])
+        _ = await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"])
+        #expect(recording.calls.filter { $0.args.contains("fetch") }.count == 1, "a failed try counts for the minute too")
     }
 
     @Test func aStackedTasksDiffStartsAtItsParentsAcceptedCommit() async throws {

@@ -148,9 +148,10 @@ public struct Repository: Sendable {
 
     /// `branch` fetched from origin into `origin/<branch>`. An explicit, forced refspec: `git fetch
     /// origin <branch>` updates the tracking ref only when `remote.origin.fetch` covers it, which a
-    /// single-branch or shallow clone's does not.
-    public func fetchFromOrigin(_ branch: String) throws {
-        try git.runRemote(["fetch", "--quiet", "origin", "+refs/heads/\(branch):refs/remotes/origin/\(branch)"], in: path)
+    /// single-branch or shallow clone's does not. `timeout` is the remote deadline unless the caller can wait less.
+    public func fetchFromOrigin(_ branch: String, timeout: TimeInterval = GitRunner.remoteTimeout) throws {
+        try git.runRemote(["fetch", "--quiet", "origin", "+refs/heads/\(branch):refs/remotes/origin/\(branch)"], in: path,
+                          timeout: timeout)
     }
 
     /// `branch` brought to `origin/<branch>` where no checkout lists it: a fetch from the repository

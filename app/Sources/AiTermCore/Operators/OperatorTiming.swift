@@ -50,6 +50,11 @@ public enum OperatorTiming {
     /// they answer without it, and how long that reading is kept per request.
     public static let hostReadTimeout: TimeInterval = 8
     public static let hostReadCache: TimeInterval = 30
+    /// App only: seconds `read_task diff` and `review_task` let the fetch of a task's base from origin take, well inside
+    /// `operatorRequestTimeout` with the local reads after it; and how long after a fetch of the same base, or a try at
+    /// one, they read origin's copy as it is without fetching again.
+    public static let diffBaseFetchTimeout: TimeInterval = 10
+    public static let diffBaseFetchInterval: TimeInterval = 60
 }
 
 /// What this build of the operator supports (spec §13). A plan asking for more — a draft MR

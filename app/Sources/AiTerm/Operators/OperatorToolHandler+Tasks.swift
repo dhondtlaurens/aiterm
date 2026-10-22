@@ -13,19 +13,33 @@ extension OperatorToolHandler {
     /// worker's changes. A project with no origin, or one that has no such branch, is read from the task's own base.
     /// A fetch that fails (offline) is not a refusal: origin's branch is read as it was last fetched.
     ///
+    /// The fetch is bounded (`OperatorTiming.diffBaseFetchTimeout`) and done at most once a minute for the same base
+    /// (`diffBaseFetchInterval`), a failed try included, so a slow remote or a VPN down never holds `read_task diff` or
+    /// `review_task` past the daemon's wait for the app's answer.
+    ///
     /// Always where that base and HEAD meet, so what `log` and `diff` measure from is the `base` an answer reports,
     /// even when a parent's accepted commit is not in the branch's history (it was rebased).
     func diffBase(of task: TaskItem, in run: OperatorRun) async throws -> String {
         let stacked = RunScheduler.baseCommit(for: task.id, in: state)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let git = ports.git, path = task.worktreePath, named = task.baseBranch
-        return try await BackgroundWork.run {
+        let git = ports.git, path = task.worktreePath, named = task.baseBranch, now = ports.now()
+        let recent = Set(diffBaseFetches.filter { now.timeIntervalSince($0.value) < OperatorTiming.diffBaseFetchInterval }.keys)
+        let (base, fetched) = try await BackgroundWork.run { () throws -> (String, String?) in
             let repository = Repository(path, git: git)
-            if let stacked, !stacked.isEmpty { return try repository.mergeBase(stacked, "HEAD") ?? stacked }
-            guard try repository.hasOrigin else { return try repository.mergeBase(named, "HEAD") ?? named }
+            if let stacked, !stacked.isEmpty { return (try repository.mergeBase(stacked, "HEAD") ?? stacked, nil) }
+            guard try repository.hasOrigin else { return (try repository.mergeBase(named, "HEAD") ?? named, nil) }
             let branch = named.isEmpty ? repository.defaultBranch() : named
-            Log.git.attempt("Fetching \(branch) from origin in \(path)") { try repository.fetchFromOrigin(branch) }
-            return try repository.mergeBase("origin/" + branch, "HEAD") ?? repository.mergeBase(named, "HEAD") ?? named
+            let key = path + "\n" + branch
+            let fetching = !recent.contains(key)
+            if fetching {
+                Log.git.attempt("Fetching \(branch) from origin in \(path)") {
+                    try repository.fetchFromOrigin(branch, timeout: OperatorTiming.diffBaseFetchTimeout)
+                }
+            }
+            let base = try repository.mergeBase("origin/" + branch, "HEAD") ?? repository.mergeBase(named, "HEAD") ?? named
+            return (base, fetching ? key : nil)
         }
+        if let fetched { diffBaseFetches[fetched] = now }
+        return base
     }
 
     /// The worker's tab: the task's first worker, never one of the Operator's extra tabs (`TaskItem.firstWorker`).

@@ -104,6 +104,9 @@ final class OperatorToolHandler {
     var reviewAssignments: [ReviewRequestKey: [ReviewWaiter]] = [:]
     /// What each host last said of a request, by its URL, kept for `OperatorPorts.hostCache` (`hostState(of:)`).
     var hostStates: [String: (at: Date, state: MergeRequestState)] = [:]
+    /// When `diffBase` last fetched, or tried to fetch, each task base from origin, by worktree and branch: within
+    /// `OperatorTiming.diffBaseFetchInterval` it reads origin's copy as it is.
+    var diffBaseFetches: [String: Date] = [:]
     /// The agent reviews running now, by task: one in a task's record but not here was lost with AiTerm's restart.
     var runningReviews: [UUID: Task<Void, Never>] = [:]
     /// The latest agent review, for a test to await. Set by `OperatorToolHandler+Review.swift`.
