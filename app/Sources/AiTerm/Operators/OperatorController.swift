@@ -235,7 +235,7 @@ final class OperatorController {
         tools.onMessaged = { [weak self] task in self?.turns.messaged(task) }
         starter.onUncertain = { [weak self] task in
             guard let operated = task.operated else { return }
-            self?.waker.say("one task is uncertain: its window has only a shell; no worker is confirmed", to: operated.runId)
+            self?.waker.say("one task is uncertain, no worker confirmed in its window", to: operated.runId)
         }
         starter.onBlocked = { [weak self] task, _ in
             guard let self, let runId = task.operated?.runId else { return }

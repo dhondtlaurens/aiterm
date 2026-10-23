@@ -20,7 +20,7 @@
 # `# opt-in, reads outside its target:` line; a daemon reader by `<test file>=<path it reads>` on the
 # `# daemon readers outside daemon/:` line, where a row above must route that path to daemon.
 # Add the name when a new test only reads its own target's files; add a row when it reads another's.
-# reads only its own target: PaletteDistinctionTests CoreFoldersTests OperatorPlanToolsTests
+# reads only its own target: PaletteDistinctionTests CoreFoldersTests OperatorPlanToolsTests OperatorWakerTests
 # opt-in, reads outside its target: OperatorEvalTests
 # daemon readers outside daemon/: test_statusline_shim.py=hooks/claude-statusline-shim.sh test_pi_extension.py=hooks/pi-aiterm-status.ts
 

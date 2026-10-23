@@ -404,12 +404,34 @@ import Testing
         #expect(OperatorWaker.reviewQuietReason == "one task is in review with nothing waiting")
     }
 
+    /// Every literal reason `OperatorController` says is plain, so it is the line and not the generic one: each
+    /// `waker.say` call's quoted text, read from the controller's sources.
+    @Test func everyReasonTheControllerSaysIsPlain() throws {
+        let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/AiTerm/Operators")
+        let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("OperatorController") && $0.pathExtension == "swift" }
+        #expect(files.count >= 2, "the controller's sources, read from \(folder.path)")
+        let literal = try Regex(#""([^"\\\n]*)""#)
+        var reasons: [String] = []
+        for file in files {
+            for line in try String(contentsOf: file, encoding: .utf8).split(separator: "\n") {
+                guard let call = line.range(of: "waker.say(") else { continue }
+                let argument = line[call.upperBound...].prefix { $0 != "\n" }
+                let reason = argument.range(of: ", to:").map { argument[..<$0.lowerBound] } ?? argument
+                reasons += reason.matches(of: literal).compactMap { $0.output[1].substring.map(String.init) }
+            }
+        }
+        #expect(reasons.count >= 8, "\(reasons)")
+        for reason in reasons { #expect(OperatorWaker.isPlain(reason), "\(reason)") }
+    }
+
     // -- what a wake line may carry ----------------------------------------------------------------
 
     /// Every reason the app says, the ones that name a task by its key among them, and a few no prompt may read.
     nonisolated static let reasons = [
         "reconnected", "resumed", "broadcast complete", "operation complete", "the person took over PAY-2", "PAY-2 is handed back",
-        "PAY-2 committed off its task branch", "PAY-2 is uncertain: its window has only a shell; no worker is confirmed",
+        "PAY-2 committed off its task branch", "PAY-2 is uncertain, no worker confirmed in its window",
         "PAY-2 merged", "PAY-2 can’t merge: the host gave no reason", "QUIET-1, LOUD-7 may be stalled", "review feedback on A",
         "Claude reviewed A", "Codex’s review of PAY-2 failed", "PAY-3 needs a rebase: PAY-2 was accepted again",
         "PAY-2: the merge watch stopped, the branch moved; call finish_task again when it can go on", "y", "a task", "1",
