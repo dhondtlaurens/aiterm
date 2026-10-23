@@ -15,7 +15,7 @@ final class HeldBranchesGit: GitRunning {
     func open() { gate.withLock { $0.open = true } }
 
     func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
-        guard args.first == "for-each-ref", args.contains("refs/heads") else { throw GitError(args: args, code: 128, stderr: "not a repository") }
+        guard args.first == "for-each-ref", args.contains("refs/heads") else { throw GitError(args: args, code: 128, stderr: "fatal: not a git repository (or any of the parent directories): .git") }
         gate.withLock { $0.waiting += 1 }
         while !gate.withLock({ $0.open }) { Thread.sleep(forTimeInterval: 0.002) }
         return branches.map { "refs/heads/" + $0 }.joined(separator: "\n")

@@ -472,3 +472,32 @@ extension OperatorPlanToolsTests {
         #expect(operated(connected, "A")?.end == .draftMR)
     }
 }
+
+/// A git whose `remote get-url` fails with something other than git's "no such remote", and that runs every
+/// other command for real.
+private struct OriginUnreadableGit: GitRunning {
+    static let sentence = "fatal: unable to access '.git/config': Permission denied"
+    let inner: any GitRunning = GitRunner.hermetic()
+
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        if args.starts(with: ["remote", "get-url"]) { throw GitError(args: args, code: 128, stderr: Self.sentence) }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
+    }
+}
+
+extension OperatorPlanToolsTests {
+    /// Git failing to read the origin is no answer that there is none: the call is refused with git's sentence, not
+    /// told the project has no connected code host.
+    @Test func anOriginGitCantReadIsRefusedWithGitsSentence() async throws {
+        let fixture = try GitFixture.withOrigin(branch: "feat/source")
+        let project = OperatorServiceFixtures.project(path: fixture.path)
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let host = FakeMergeHost()
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]), git: OriginUnreadableGit()) {
+            $0.publisher = { _ in host }
+        }
+        let refused = await create(world, run, "A", end: "draftMR")
+        #expect(refused.message?.contains(OriginUnreadableGit.sentence) == true, "\(String(describing: refused.message))")
+        #expect(world.state.tasks.isEmpty)
+    }
+}

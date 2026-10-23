@@ -17,7 +17,7 @@ extension OperatorToolHandler {
         let agent = try self.agent(call), project = try self.project(call, in: run)
         // Every branch name the repository has, local and on origin (F7), and the agent's own models.
         let git = ports.git, path = project.path, models = agentModels
-        let connected = await hasCodeHost(project)
+        let connected = try await hasCodeHost(project)
         let (repositoryBranches, catalogue) = await BackgroundWork.run { (Repository(path, git: git).branches(), models(agent)) }
         let delivery = await deliveryStatus()
         // Another call may have made this key while git was read: this one is its repeat.
@@ -83,7 +83,7 @@ extension OperatorToolHandler {
         let agent = try self.agent(call), models = agentModels
         let catalogue = await BackgroundWork.run { models(agent) }
         let project = try self.project(call, in: run)
-        let connected = await hasCodeHost(project)
+        let connected = try await hasCodeHost(project)
         let delivery = await deliveryStatus()
         _ = try draft(call, in: state.run(id: run.id) ?? run, catalogue: catalogue, connected: connected, delivery: delivery)
     }
@@ -137,12 +137,26 @@ extension OperatorToolHandler {
         return done.contains(/\bcommits?\b/) && !saysRequest ? .commit : .draftMR
     }
 
-    /// Only an origin whose host AiTerm can connect to supports a remote publication end.
-    private func hasCodeHost(_ project: Project) async -> Bool {
+    /// Only an origin whose host AiTerm can connect to supports a remote publication end. Git saying there is no origin
+    /// (exit 2), or no repository to have one (a folder that is none, or is gone), is no origin; any other failure of
+    /// git's (a timeout, a config it can't read) is refused with git's own words, not read as no origin.
+    private func hasCodeHost(_ project: Project) async throws(ToolRefusal) -> Bool {
         let git = ports.git, path = project.path
-        guard let origin = try? await BackgroundWork.run({ try git.ask(["remote", "get-url", "origin"], in: path, none: [2]) }) else { return false }
+        let origin: String?
+        do { origin = try await BackgroundWork.run({ try git.ask(["remote", "get-url", "origin"], in: path, none: [2]) }) }
+        catch let error as GitError where Self.isNoRepository(error) { return false }
+        catch _ where !FileManager.default.fileExists(atPath: path) { return false }
+        catch {
+            throw ToolRefusal("AiTerm couldn’t read \(project.name)’s origin: \((error as? GitError)?.reason ?? error.localizedDescription)")
+        }
+        guard let origin else { return false }
         let remote = ProviderDetector.detect(remoteUrl: origin, repoPath: path)
         do { _ = try ports.publisher(remote); return true } catch { return false }
+    }
+
+    /// Git's answer that the folder is no repository, or is gone: in its own words, which `GitRunner` keeps English.
+    private static func isNoRepository(_ error: GitError) -> Bool {
+        !error.timedOut && error.code == 128 && (error.stderr.contains("not a git repository") || error.stderr.contains("cannot change to"))
     }
 
     private func validateEnd(_ end: TaskEnd, in run: OperatorRun, project: Project, connected: Bool) throws(ToolRefusal) {
@@ -169,7 +183,8 @@ extension OperatorToolHandler {
         }
         try acceptsPlanChanges(run)
         let project = state.project(id: task.projectId)
-        let connected = if let project { await hasCodeHost(project) } else { false }
+        // The origin is read only for an end it checks: a git that can't read it holds up no other change.
+        let connected = if let project, call.arguments["end"] != nil { try await hasCodeHost(project) } else { false }
         let brief = call.optionalString("brief")
         let agent = try call.optionalString("agent").map { _ in try self.agent(call) }
         // A new agent with no model named takes that agent's default, not the old agent's model; a model named
