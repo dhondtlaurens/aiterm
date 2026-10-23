@@ -38,14 +38,6 @@ public struct GitLabClient: Sendable {
         return path.addingPercentEncoding(withAllowedCharacters: allowed) ?? path
     }
 
-    /// `path` on the GitLab at `host`, whose trailing slashes are dropped. `path` already carries
-    /// its percent-encoding. `URLComponents(string:)` keeps `percentEncodedPath` verbatim and
-    /// setting `queryItems` does not touch it, so the project's `%2F` survives — which assigning
-    /// to `components.path` would not (it re-escapes the `%`).
-    static func apiURL(host: URL, path: String, query: [URLQueryItem] = []) -> URL? {
-        HTTPJSON.url(base(host) + path, query: query)
-    }
-
     /// The host as written in Settings, less its trailing slashes.
     static func base(_ host: URL) -> String {
         var base = host.absoluteString

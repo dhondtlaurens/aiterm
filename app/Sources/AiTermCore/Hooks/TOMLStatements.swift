@@ -147,6 +147,10 @@ enum TOMLStatements {
 
     static func tables(_ text: String) -> [Table] { parsed(text).tables }
 
+    /// `text`'s tables, and whether every bracket and brace outside a string or comment closes what
+    /// it opened, and no string is left open. Otherwise the statements have lost their place: a stray
+    /// `]` takes the depth below zero and the rest of the file reads as one statement, hiding every
+    /// later header. Codex rejects such a file, so an editor has no business appending to it.
     static func parsed(_ text: String) -> (tables: [Table], balanced: Bool) {
         let scanned = scan(text)
         var result = [Table(statements: [])]
@@ -160,12 +164,6 @@ enum TOMLStatements {
     /// Split only at top-level newlines. A table-looking line inside a multiline string or
     /// array is data, never a table to edit. Keep comments in `text`, but out of `code`.
     static func statements(_ text: String) -> [Statement] { scan(text).statements }
-
-    /// Whether every bracket and brace outside a string or comment closes what it opened, and no
-    /// string is left open. Otherwise `statements` has lost its place: a stray `]` takes the depth
-    /// below zero and the rest of the file reads as one statement, hiding every later header.
-    /// Codex rejects such a file, so an editor has no business appending to it.
-    static func isBalanced(_ text: String) -> Bool { scan(text).balanced }
 
     private static func scan(_ text: String) -> (statements: [Statement], balanced: Bool) {
         let chars = Array(text)

@@ -32,7 +32,7 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
     /// base branch is `defaultBranch` when the caller knows the project's — the checkout monitor
     /// reads it on every pass — and git's answer otherwise.
     public static func initial(project: Project, state: AppState, git: any GitRunning, agent: AgentKind,
-                               catalog: [AgentModel], defaultBranch: String? = nil, defaults: UserDefaults = .standard) -> TaskDraft {
+                               catalog: [AgentModel], defaultBranch: String? = nil, defaults: UserDefaults) -> TaskDraft {
         let preference = Self.preference(for: agent, state: state, catalog: catalog, defaults: defaults)
         return TaskDraft(ticket: nil, baseBranch: defaultBranch ?? Repository(project.path, git: git).defaultBranch(), agent: agent,
                          model: preference.model, reasoning: preference.reasoning)

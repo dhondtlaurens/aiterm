@@ -790,9 +790,9 @@ import Foundation
     }
 
     @Test func bracketsInStringsAndCommentsAreBalanced() {
-        #expect(TOMLStatements.isBalanced("a = \"]\"\nb = '['\n# ] [ {\nc = [ [1], {x = 2} ]\n[t]\n[[u]]\nd = \"\"\"]\n\"\"\"\n"))
-        #expect(!TOMLStatements.isBalanced("a = 1]\n"))
-        #expect(!TOMLStatements.isBalanced("a = [1\n"))
-        #expect(!TOMLStatements.isBalanced("a = \"open\n"))
+        #expect(TOMLStatements.parsed("a = \"]\"\nb = '['\n# ] [ {\nc = [ [1], {x = 2} ]\n[t]\n[[u]]\nd = \"\"\"]\n\"\"\"\n").balanced)
+        #expect(!TOMLStatements.parsed("a = 1]\n").balanced)
+        #expect(!TOMLStatements.parsed("a = [1\n").balanced)
+        #expect(!TOMLStatements.parsed("a = \"open\n").balanced)
     }
 }
