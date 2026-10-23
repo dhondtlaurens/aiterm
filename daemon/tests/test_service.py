@@ -2116,3 +2116,20 @@ async def test_snapshot_echoes_the_claude_directory_as_the_app_spelled_it(stack,
     assert response["result"]["claudeConfigDirectory"] == spelled
     assert svc.claude_files.root == tmp_path / "Claude Profile" / "sessions"
 
+
+
+@pytest.mark.parametrize("directory", ["", "relative/path", "~/claude"])
+async def test_snapshot_rejects_nonabsolute_claude_directory(stack, directory):
+    svc, _, _, r, w = stack
+    root = svc.claude_files.root
+    response = await call(r, w, "workspace.snapshot", {"claudeConfigDirectory": directory})
+    assert response["error"]["code"] == "bad_params"
+    assert svc.claude_files.root == root
+
+
+async def test_closed_session_forgets_prompt_attribution(stack):
+    svc, *_ = stack
+    svc.hook_router.typed_by_you = lambda _: True
+    svc.hook_router._note_prompt("reused", "first")
+    svc._forget_session("reused")
+    assert "reused" not in svc.hook_router._prompted

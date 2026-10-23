@@ -93,12 +93,15 @@ class HookRouter:
         starts_elsewhere = ev.kind == "sessionStart" and sid != direct
         if not starts_elsewhere:
             changed += self.status.apply_event(sid, ev)
-            if ev.kind == "sessionStart":
+            if ev.kind == "sessionStart" and body.get("source") != "clear":
                 self._prompted.discard(sid)
         if ev.event_name == "UserPromptSubmit":
             changed += self._note_prompt(sid, ev.prompt)
         await self.publisher.session_changed(changed)
         return None
+
+    def forget_session(self, sid: str) -> None:
+        self._prompted.discard(sid)
 
     def _note_prompt(self, sid: str, prompt: str | None) -> list[str]:
         """Records whether the prompt that started the tab's turn is yours (SessionInfo.your_prompt): never the first

@@ -23,7 +23,7 @@ from .operator_mcp import OperatorRoute, OperatorTokens
 from .publisher import Publisher
 from .resolver import SessionResolver
 from .rpc_params import frame_param, guard, optional_param, param, require_iterm
-from .rpc_server import RpcServer
+from .rpc_server import RpcError, RpcServer
 from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
 from .sessions import SessionRegistry, SnapshotDiff
 from .status import StatusEngine, shows_trust_prompt
@@ -173,8 +173,11 @@ class Service:
 
     async def _h_snapshot(self, _p: Any) -> dict[str, Any]:
         if isinstance(_p, dict) and "claudeConfigDirectory" in _p:
-            self._claude_directory = param(_p, "claudeConfigDirectory", str)
-            self.claude_files.configure(Path(self._claude_directory))
+            directory = param(_p, "claudeConfigDirectory", str)
+            if not Path(directory).is_absolute():
+                raise RpcError(protocol.BAD_PARAMS, "claudeConfigDirectory must be an absolute path")
+            self._claude_directory = directory
+            self.claude_files.configure(Path(directory))
         try:
             await self.tick()
         except Exception:  # noqa: BLE001 - the last known registry beats no bootstrap at all
@@ -492,7 +495,7 @@ class Service:
         only its own state, not the others'."""
         for what, forget in (("window state", self.windows.forget_session), ("turn", self.status.forget_session),
                              ("bindings", self.resolver.forget), ("delivery state", self.deliverer.forget_session),
-                             ("last key", self.typing.forget)):
+                             ("last key", self.typing.forget), ("prompt attribution", self.hook_router.forget_session)):
             with _logged(f"forgetting the {what} of closed session {session_id}"):
                 forget(session_id)
 

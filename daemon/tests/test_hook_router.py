@@ -342,3 +342,14 @@ async def test_claude_file_lookup_does_not_block_hook_event_loop(tmp_path, monke
     await hooks.post("/hook/claude", {"hook_event_name": "UserPromptSubmit", "session_id": "conversation", "cwd": "/wt"})
     assert hooks.state("s1") == "working"
     assert lookup_threads and loop_thread not in lookup_threads
+
+
+async def test_prompt_typed_after_clear_is_still_yours(hooks, monkeypatch):
+    [sid] = hooks.tabs(("s1", "claude", 101))
+    monkeypatch.setattr(hooks.resolver.claude_files, "pid_for_session", lambda _: 101)
+    hooks.router.typed_by_you = lambda _: True
+    base = {"session_id": "conversation", "cwd": "/wt"}
+    await hooks.post("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit", "prompt": "launch prompt"})
+    await hooks.post("/hook/claude", {**base, "hook_event_name": "SessionStart", "source": "clear"})
+    await hooks.post("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit", "prompt": "my next prompt"})
+    assert hooks.registry.get(sid).your_prompt == "my next prompt"

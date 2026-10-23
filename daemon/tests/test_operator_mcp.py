@@ -615,3 +615,18 @@ def test_leave_for_you_is_record_only_and_requires_key_and_text():
     assert set(schema["properties"]) == {"key", "text"}
     assert "sends nothing" in tool["description"]
     assert "leave_for_you" not in CHALLENGED_TOOLS
+
+
+def test_failed_token_unlink_does_not_restore_revoked_authority(tmp_path, monkeypatch):
+    path = write_token(tmp_path, "run-1", TOKEN)
+    tokens = OperatorTokens(tmp_path)
+    with monkeypatch.context() as patch:
+        def fail(*args, **kwargs):
+            raise OSError("read-only")
+        patch.setattr(type(path), "unlink", fail)
+        tokens.revoke("run-1")
+    assert path.exists()
+    assert tokens.run_for(TOKEN) is None
+    write_token(tmp_path, "run-2", OTHER)
+    assert tokens.run_for(OTHER) == "run-2"
+    assert tokens.run_for(TOKEN) is None

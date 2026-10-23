@@ -365,12 +365,13 @@ class Deliverer:
                 return _refused(again)
             session, policy = again  # a verdict that changed to paste-only meanwhile keeps the Enter back
         try:
-            self._pasted[session_id] = self._monotonic()
             await self.iterm.send_text(session_id, PASTE_START + body + PASTE_END)
         except KeyError:
             return _refused(Refusal("sessionClosed", "the session has closed"))
         except ItermUnavailable as exc:
-            return _refused(Refusal("itermRefused", f"iTerm2 did not take the text: {exc}"))
+            self._pasted[session_id] = self._monotonic()
+            return _partial(Refusal("itermRefused", f"iTerm2 may have taken the text before the connection failed: {exc}"))
+        self._pasted[session_id] = self._monotonic()
         if policy == "pasteOnly":
             return _partial(Refusal("pasteOnly", f"pasted without Enter: this {session.agent} version is checked paste-safe only, "
                                                  "so you press Enter"))

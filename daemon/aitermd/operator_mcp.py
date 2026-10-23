@@ -61,6 +61,7 @@ class OperatorTokens:
         self._root = runs_root
         self._runs: dict[str, str] = {}    # token -> run id
         self._tokens: dict[str, str] = {}  # run id -> token
+        self._revoked: set[str] = set()
         self._load()
 
     def register(self, run_id: str, token: str) -> None:
@@ -71,12 +72,14 @@ class OperatorTokens:
         if (owner := self._runs.get(token)) is not None and owner != run_id:
             raise ValueError("that token belongs to another run")
         self._forget(run_id)
+        self._revoked.discard(run_id)
         self._runs[token], self._tokens[run_id] = run_id, token
 
     def revoke(self, run_id: str) -> None:
         """Closes /operator to the run for good: its token leaves memory, and its file goes, so no
         later read of the folder brings it back. The run folder itself is the app's."""
         self._forget(run_id)
+        self._revoked.add(run_id)
         if self._root is not None and _run_folder_name(run_id):
             try:
                 (self._root / run_id / "token").unlink(missing_ok=True)
@@ -111,6 +114,8 @@ class OperatorTokens:
         except OSError:
             return  # no runs yet
         for folder in folders:
+            if folder.name in self._revoked:
+                continue
             path = folder / "token"
             try:
                 if not path.is_file():

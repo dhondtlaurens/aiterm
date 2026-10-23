@@ -372,10 +372,11 @@ async def test_text_with_nothing_left_to_paste_is_refused(rig):
     assert rig.iterm.sent == []
 
 
-async def test_a_paste_iterm2_refuses_is_refused_and_not_retried(rig):
+async def test_an_interrupted_paste_is_partial_and_not_retried(rig):
     rig.iterm.send_error = ItermUnavailable("iTerm2 closed the connection")
     result = await rig.deliverer.deliver(rig.sid, "hello", 1)
-    assert result == DeliveryResult("refused", "iTerm2 did not take the text: iTerm2 closed the connection")
+    assert result.result == "partial"
+    assert rig.guard.has_unsent_input(rig.sid)
     assert rig.iterm.sent == []
 
 
@@ -826,3 +827,16 @@ def test_the_reply_carries_the_code():
     assert DeliveryResult("refused", "you are typing", "typing").to_json() == {
         "result": "refused", "reason": "you are typing", "code": "typing"}
     assert DeliveryResult("delivered").to_json() == {"result": "delivered", "reason": None, "code": None}
+
+
+async def test_paste_attribution_is_stamped_when_send_finishes(rig, monkeypatch):
+    original = rig.iterm.send_text
+
+    async def slow_send(sid, text):
+        if text.startswith(PASTE_START):
+            rig.clock.now += 10
+        await original(sid, text)
+
+    monkeypatch.setattr(rig.iterm, "send_text", slow_send)
+    assert (await rig.deliverer.deliver(rig.sid, "hello", 1)).result == "delivered"
+    assert rig.deliverer.delivered_within(rig.sid, rig.clock.now, 1)
