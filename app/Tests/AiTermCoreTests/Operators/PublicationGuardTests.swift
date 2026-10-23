@@ -48,7 +48,7 @@ import Testing
 
     @Test func aTakenOverTaskIsNotPublished() {
         var (w, task, run) = world()
-        w.update(task) { $0.takenOver = true }
+        w.state.updateOperated(task) { $0.takenOver = true }
         #expect(refusal(w, task, run) == "You've taken PLUTO-231 over; it is published only once you hand it back.")
     }
 
@@ -59,7 +59,7 @@ import Testing
 
     @Test func aReplacedUpstreamBlocksPublication() {
         var (w, task, run) = world()
-        w.update(task) { $0.flags.insert(.upstreamReplaced) }
+        w.state.updateOperated(task) { $0.flags.insert(.upstreamReplaced) }
         #expect(refusal(w, task, run) == "PLUTO-231's parent was accepted again on another commit: have its worker rebase, accept it again, then finish it.")
     }
 
@@ -89,7 +89,7 @@ import Testing
         let child = world.addTask("PLUTO-231", run: run, state: .accepted, end: .draftMR,
                                   dependsOn: [TaskDependency(task: parent, kind: .code)], branch: "feat/pluto-231", acceptedSHA: sha)
         #expect(refusal(world, child, run, parent: parent) == "PLUTO-231 builds on PLUTO-230, whose branch its request targets: finish PLUTO-230 first.")
-        world.update(parent) { $0.publication = TaskPublication(pushedSHA: "aaa", mergeRequestNumber: 11) }
+        world.state.updateOperated(parent) { $0.publication = TaskPublication(pushedSHA: "aaa", mergeRequestNumber: 11) }
         #expect(refusal(world, child, run, parent: parent) == nil)
     }
 
@@ -124,15 +124,15 @@ import Testing
         w.state.runs[0].state = .stopped
         #expect(recheck() == "The broadcast was stopped; it publishes nothing.")
         w.state.runs[0].state = .active
-        w.update(task) { $0.ownership = 1 }
+        w.state.updateOperated(task) { $0.ownership = 1 }
         #expect(recheck() == PublicationGuard.changedMidway, "taken over and handed back meanwhile")
-        w.update(task) { $0.ownership = 0; $0.takenOver = true }
+        w.state.updateOperated(task) { $0.ownership = 0; $0.takenOver = true }
         #expect(recheck() == PublicationGuard.changedMidway)
-        w.update(task) { $0.takenOver = false; $0.acceptance?.resultSHA = "5eed5eed" }
+        w.state.updateOperated(task) { $0.takenOver = false; $0.acceptance?.resultSHA = "5eed5eed" }
         #expect(recheck() == PublicationGuard.changedMidway, "accepted again on another commit")
-        w.update(task) { $0.acceptance?.resultSHA = sha; $0.state = .working }
+        w.state.updateOperated(task) { $0.acceptance?.resultSHA = sha; $0.state = .working }
         #expect(recheck() == PublicationGuard.changedMidway, "its acceptance revoked")
-        w.update(task) { $0.state = .accepted; $0.flags.insert(.upstreamReplaced) }
+        w.state.updateOperated(task) { $0.state = .accepted; $0.flags.insert(.upstreamReplaced) }
         #expect(recheck() == "PLUTO-231's parent was accepted again on another commit: have its worker rebase, accept it again, then finish it.")
         #expect(PublicationGuard.recheck(task: nil, run: w.state.runs.first, ownership: 0, acceptedSHA: sha) == PublicationGuard.gone)
     }
@@ -183,9 +183,9 @@ import Testing
             w.state.runs[0].profile.oracle.isOn = true
             let unconfirmed = "The Oracle hasn’t said that the conditions written in the Review and the Done hold for PLUTO-231, so AiTerm doesn’t merge it: call finish_task again."
             #expect(refusal(w, task, run) == unconfirmed, "\(end)")
-            w.update(task) { $0.publication = TaskPublication(conditionsHeld: "0123456789abcdef") }
+            w.state.updateOperated(task) { $0.publication = TaskPublication(conditionsHeld: "0123456789abcdef") }
             #expect(refusal(w, task, run) == unconfirmed, "a yes for another commit, \(end)")
-            w.update(task) { $0.publication = TaskPublication(conditionsHeld: sha) }
+            w.state.updateOperated(task) { $0.publication = TaskPublication(conditionsHeld: sha) }
             #expect(refusal(w, task, run) == nil, "\(end)")
         }
         var (w, task, run) = world(end: .merge, slices: Slices(review: true, merge: true))
@@ -204,7 +204,7 @@ import Testing
         let child = world.addTask("PLUTO-231", run: run, state: .accepted, end: .mergeLocal,
                                   dependsOn: [TaskDependency(task: parent, kind: .code)], branch: "feat/pluto-231", acceptedSHA: sha)
         #expect(refusal(world, child, run, parent: parent) == "PLUTO-231 builds on PLUTO-230: finish PLUTO-230 first.")
-        world.update(parent) { $0.state = .published; $0.publication = TaskPublication(merged: true, mergedSHA: "bbb") }
+        world.state.updateOperated(parent) { $0.state = .published; $0.publication = TaskPublication(merged: true, mergedSHA: "bbb") }
         #expect(refusal(world, child, run, parent: parent) == nil)
     }
 }

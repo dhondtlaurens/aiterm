@@ -25,7 +25,7 @@ import Testing
     @Test func everyStepRoundTripsOnATask() throws {
         var world = OperatedWorld()
         let task = world.addTask("PLUTO-231", run: world.addRun(), state: .accepted, end: .merge, acceptedSHA: "4f2a91c")
-        world.update(task) {
+        world.state.updateOperated(task) {
             $0.publication = TaskPublication(pushedSHA: "4f2a91c", mergeRequestURL: "https://github.com/octocat/hello/pull/88",
                                              mergeRequestNumber: 88, targetBranch: "main",
                                              waitingSince: Date(timeIntervalSince1970: 1_800_000_000),

@@ -24,7 +24,7 @@ import Testing
     func task(_ tabs: [ExtraTab]) -> TaskItem {
         var world = OperatedWorld()
         let id = world.addTask("T-1", run: world.addRun(), state: .working)
-        world.update(id) { $0.extraTabs = tabs }
+        world.state.updateOperated(id) { $0.extraTabs = tabs }
         return world.state.task(id: id)!
     }
 

@@ -91,7 +91,7 @@ import Synchronization
         let task = s.world.state.tasks.first { $0.id == s.task }!
         let context = TaskPublisher.Context(task: task, run: s.world.state.runs.first { $0.id == s.run }!,
                                             parent: parent.flatMap { id in s.world.state.tasks.first { $0.id == id } }, forReview: forReview)
-        defer { if let last = records.last { s.world.update(s.task) { $0.publication = last } } }
+        defer { if let last = records.last { s.world.state.updateOperated(s.task) { $0.publication = last } } }
         return try await publisher.advance(context, restart: restart,
                                            recheck: { current.ask() ? nil : PublicationGuard.changedMidway },
                                            record: { try records.append($0) })
@@ -303,7 +303,7 @@ import Synchronization
     @Test func aPublishedTaskAnswersFromItsRecord() async throws {
         var s = try setUp(end: .draftMR)
         let done = TaskPublication(pushedSHA: s.sha, mergeRequestURL: FakeMergeHost.url, mergeRequestNumber: 12, targetBranch: "main")
-        s.world.update(s.task) { $0.state = .published; $0.publication = done }
+        s.world.state.updateOperated(s.task) { $0.state = .published; $0.publication = done }
         if let index = s.world.state.runs.firstIndex(where: { $0.id == s.run }) { s.world.state.runs[index].state = .stopped }
         try git.run(["commit", "--allow-empty", "-q", "-m", "more"], in: s.path)
         let host = FakeMergeHost()
@@ -315,7 +315,7 @@ import Synchronization
         var s = try setUp(end: .merge)
         let merged = TaskPublication(pushedSHA: s.sha, mergeRequestURL: FakeMergeHost.url, mergeRequestNumber: 12,
                                      targetBranch: "main", merged: true, mergedSHA: "5eed5eed")
-        s.world.update(s.task) { $0.takenOver = true; $0.publication = merged }
+        s.world.state.updateOperated(s.task) { $0.takenOver = true; $0.publication = merged }
         let host = FakeMergeHost()
         #expect(try await advance(&s, host: host) == .published(merged))
         #expect(host.log.isEmpty)
@@ -540,7 +540,7 @@ import Synchronization
 
     @Test func aChildOfAParentMergedWithUnacceptedCommitsBlocks() async throws {
         var (s, parent) = try stacked(childEnd: .merge, parentEnd: .merge)
-        s.world.update(parent) { $0.publication?.mergedSHA = "abc123"; $0.publication?.mergedHead = "0123456789abcdef0123456789abcdef01234567" }
+        s.world.state.updateOperated(parent) { $0.publication?.mergedSHA = "abc123"; $0.publication?.mergedHead = "0123456789abcdef0123456789abcdef01234567" }
         let host = FakeMergeHost()
         let outcome = try await advance(&s, host: host, parent: parent)
         guard case .blocked(_, let why) = outcome else { Issue.record("\(outcome)"); return }
@@ -573,7 +573,7 @@ import Synchronization
         let childSHA = try git.run(["rev-parse", "HEAD"], in: s.path)
         try Repository(s.path, git: git).push(s.sha, as: "feat/pluto-230", defaultBranch: "main")
         let parent = s.task, parentSHA = s.sha, run = s.run
-        s.world.update(parent) { $0.publication = TaskPublication(pushedSHA: parentSHA, mergeRequestURL: "https://git.example.net/web/acme-web/-/merge_requests/11", mergeRequestNumber: 11, targetBranch: "main", repository: FakeMergeHost.repository) }
+        s.world.state.updateOperated(parent) { $0.publication = TaskPublication(pushedSHA: parentSHA, mergeRequestURL: "https://git.example.net/web/acme-web/-/merge_requests/11", mergeRequestNumber: 11, targetBranch: "main", repository: FakeMergeHost.repository) }
         let child = s.world.addTask("PLUTO-231", run: run, state: .accepted, end: childEnd,
                                     dependsOn: [TaskDependency(task: parent, kind: .code)], branch: "feat/pluto-231", acceptedSHA: childSHA)
         return (Setup(world: s.world, task: child, run: s.run, sha: childSHA, origin: s.origin, path: s.path), parent)
@@ -606,7 +606,7 @@ import Synchronization
         guard case .waiting(_, let why) = first else { Issue.record("\(first)"); return }
         #expect(why == "waiting for PLUTO-230 to merge first")
         #expect(!host.log.contains { $0.hasPrefix("readiness") })
-        s.world.update(parent) { $0.publication?.merged = true; $0.publication?.mergedSHA = "p4r3nt" }
+        s.world.state.updateOperated(parent) { $0.publication?.merged = true; $0.publication?.mergedSHA = "p4r3nt" }
         clock.pass(OperatorTiming.mergePoll)
         let second = try await advance(&s, host: host, restart: false, parent: parent, now: { clock.now })
         guard case .waiting(_, let confirming) = second else { Issue.record("\(second)"); return }
@@ -624,7 +624,7 @@ import Synchronization
         var (s, parent) = try stacked(childEnd: .merge, parentEnd: .merge)
         let host = FakeMergeHost()
         _ = try await advance(&s, host: host, parent: parent)
-        s.world.update(parent) { $0.publication?.merged = true; $0.publication?.mergedSHA = "p4r3nt" }
+        s.world.state.updateOperated(parent) { $0.publication?.merged = true; $0.publication?.mergedSHA = "p4r3nt" }
         let outcome = try await advance(&s, host: host, restart: false, current: Current(opensFor: 0), parent: parent)
         #expect(outcome == .refused(PublicationGuard.changedMidway))
         #expect(!host.log.contains { $0.hasPrefix("retarget") })
@@ -632,7 +632,7 @@ import Synchronization
 
     @Test func aStackedDraftWhoseParentMergedOpensIntoTheDefaultBranch() async throws {
         var (s, parent) = try stacked(childEnd: .draftMR, parentEnd: .merge)
-        s.world.update(parent) { $0.publication?.merged = true; $0.publication?.mergedSHA = "p4r3nt" }
+        s.world.state.updateOperated(parent) { $0.publication?.merged = true; $0.publication?.mergedSHA = "p4r3nt" }
         let host = FakeMergeHost()
         guard case .published(let publication) = try await advance(&s, host: host, parent: parent) else { Issue.record("not published"); return }
         #expect(publication.targetBranch == "main")
@@ -643,7 +643,7 @@ import Synchronization
     /// where a retarget would take it — the parent's branch may be gone from the host.
     @Test func aStackedMergeWhoseParentMergedFirstOpensIntoTheDefaultBranch() async throws {
         var (s, parent) = try stacked(childEnd: .merge, parentEnd: .merge)
-        s.world.update(parent) { $0.publication?.merged = true; $0.publication?.mergedSHA = "p4r3nt" }
+        s.world.state.updateOperated(parent) { $0.publication?.merged = true; $0.publication?.mergedSHA = "p4r3nt" }
         let host = FakeMergeHost()
         _ = try await advance(&s, host: host, parent: parent)
         #expect(host.log.contains("create feat/pluto-231 → main"))
@@ -654,7 +654,7 @@ import Synchronization
     /// stacking rule's retarget applies to it.
     @Test func aStackedMergesFoundRequestIntoItsParentsBranchIsRetargetedOnceTheParentMerged() async throws {
         var (s, parent) = try stacked(childEnd: .merge, parentEnd: .merge)
-        s.world.update(parent) { $0.publication?.merged = true; $0.publication?.mergedSHA = "p4r3nt" }
+        s.world.state.updateOperated(parent) { $0.publication?.merged = true; $0.publication?.mergedSHA = "p4r3nt" }
         let host = FakeMergeHost(.init(existing: MergeRequest(iid: 12, title: "PLUTO-231", sourceBranch: "feat/pluto-231", targetBranch: "feat/pluto-230",
                                                               author: "aiterm", state: "opened", draft: false, url: FakeMergeHost.url)))
         _ = try await advance(&s, host: host, parent: parent)
@@ -701,7 +701,7 @@ import Synchronization
     @Test func aChildOfAParentMergedIntoAnotherTargetBlocksWithItsReason() async throws {
         var (s, parent) = try stacked(childEnd: .merge, parentEnd: .merge)
         let why = "PLUTO-230 was merged on the host into release, not main"
-        s.world.update(parent) {
+        s.world.state.updateOperated(parent) {
             $0.publication?.mergedSHA = "foreign"
             $0.publication?.mergedHead = $0.acceptance?.resultSHA
             $0.publication?.targetBranch = "release"
@@ -892,7 +892,7 @@ import Synchronization
         #expect(moved == .refused("The project’s origin changed since !12 was opened, so AiTerm won’t act on it."))
         #expect(elsewhere.log.isEmpty, "the other repository is neither read nor written")
         // A request opened before AiTerm kept its repository is not acted on either.
-        s.world.update(s.task) { $0.publication?.repository = nil }
+        s.world.state.updateOperated(s.task) { $0.publication?.repository = nil }
         let old = try await advance(&s, host: host, restart: false, now: { clock.now })
         #expect(old == .refused("AiTerm didn’t keep which repository !12 was opened in, so it won’t act on it."))
     }

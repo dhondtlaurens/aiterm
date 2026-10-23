@@ -19,7 +19,7 @@ import Testing
         let child = world.addTask("PLUTO-231", run: run, state: childState, end: .draftMR,
                                   dependsOn: [TaskDependency(task: parent, kind: .code)],
                                   acceptedSHA: childState == .accepted ? "child" : nil)
-        world.update(child) { if $0.acceptance != nil { $0.acceptance?.prerequisiteSHAs = childPrerequisites } }
+        world.state.updateOperated(child) { if $0.acceptance != nil { $0.acceptance?.prerequisiteSHAs = childPrerequisites } }
         return (world, parent, child)
     }
 
@@ -70,7 +70,7 @@ import Testing
     @Test func aPublishedDraftIsAcceptedAgainAndKeepsItsRequest() throws {
         let made = family(.working)
         var world = made.world
-        world.update(made.parent) { $0.state = .published; $0.publication = TaskPublication(pushedSHA: "old", mergeRequestNumber: 11) }
+        world.state.updateOperated(made.parent) { $0.state = .published; $0.publication = TaskPublication(pushedSHA: "old", mergeRequestNumber: 11) }
         _ = try UpstreamReplacement.reaccept(made.parent, as: acceptance("new"), in: &world.state)
         #expect(world.operated(made.parent)?.state == .accepted, "finish_task pushes the new commit to the same request")
         #expect(world.operated(made.parent)?.publication?.mergeRequestNumber == 11)
@@ -79,7 +79,7 @@ import Testing
     @Test func aMergedOrUnacceptedTaskIsNotAcceptedAgain() {
         let made = family(.working)
         var world = made.world
-        world.update(made.parent) { $0.publication = TaskPublication(pushedSHA: "old", mergeRequestNumber: 11, merged: true, mergedSHA: "m") }
+        world.state.updateOperated(made.parent) { $0.publication = TaskPublication(pushedSHA: "old", mergeRequestNumber: 11, merged: true, mergedSHA: "m") }
         #expect(throws: UpstreamReplacement.Refusal.merged("PLUTO-230 is merged already; a new commit needs a new task.")) {
             try UpstreamReplacement.reaccept(made.parent, as: acceptance("new"), in: &world.state)
         }
@@ -91,7 +91,7 @@ import Testing
     @Test func aRequestTheHostMergedWithAnotherHeadIsNotAcceptedAgainEither() {
         let made = family(.working)
         var world = made.world
-        world.update(made.parent) {
+        world.state.updateOperated(made.parent) {
             $0.publication = TaskPublication(pushedSHA: "old", mergeRequestNumber: 11, merged: false, mergedSHA: "m", mergedHead: "other")
         }
         let before = world.state
@@ -116,7 +116,7 @@ import Testing
         var world = made.world
         let grandchild = world.addTask("PLUTO-232", run: world.state.runs[0].id, state: .accepted, end: .draftMR,
                                        dependsOn: [TaskDependency(task: made.child, kind: .code)], acceptedSHA: "grand")
-        world.update(grandchild) { $0.acceptance?.prerequisiteSHAs = ["child"] }
+        world.state.updateOperated(grandchild) { $0.acceptance?.prerequisiteSHAs = ["child"] }
         let changed = try UpstreamReplacement.reaccept(made.parent, as: acceptance("new"), in: &world.state)
         #expect(changed == [made.child, grandchild])
         #expect(world.operated(grandchild)?.state == .working && world.operated(grandchild)?.acceptance == nil)
@@ -132,7 +132,7 @@ import Testing
         let both = world.addTask("PLUTO-234", run: run, state: .accepted, end: .draftMR,
                                  dependsOn: [TaskDependency(task: made.child, kind: .code), TaskDependency(task: other, kind: .code)],
                                  acceptedSHA: "both")
-        world.update(both) { $0.acceptance?.prerequisiteSHAs = ["child"] }
+        world.state.updateOperated(both) { $0.acceptance?.prerequisiteSHAs = ["child"] }
         let changed = try UpstreamReplacement.reaccept(made.parent, as: acceptance("new"), in: &world.state)
         #expect(changed.filter { $0 == both }.count == 1)
         #expect(Set(changed) == [made.child, other, both])
@@ -142,8 +142,8 @@ import Testing
         let made = family(.working)
         for parentState in [OperatedState.working, .blocked, .queued] {
             var world = made.world
-            world.update(made.parent) { $0.state = parentState; $0.acceptance = nil }
-            world.update(made.child) { $0.flags.insert(.upstreamReplaced) }
+            world.state.updateOperated(made.parent) { $0.state = parentState; $0.acceptance = nil }
+            world.state.updateOperated(made.child) { $0.flags.insert(.upstreamReplaced) }
             let task = try #require(world.state.task(id: made.child))
             let reason = UpstreamReplacement.acceptRefusal(for: task, in: world.state, contains: { _ in
                 Issue.record("No ancestry check without an accepted parent")
@@ -162,7 +162,7 @@ import Testing
         let task = try #require(world.state.task(id: grandchild))
         #expect(UpstreamReplacement.acceptRefusal(for: task, in: world.state, contains: { _ in true })
                 == "PLUTO-232 cannot be accepted until PLUTO-231, its code parent, is accepted.")
-        world.update(made.child) { $0.state = .accepted; $0.acceptance = acceptance("rebased") }
+        world.state.updateOperated(made.child) { $0.state = .accepted; $0.acceptance = acceptance("rebased") }
         #expect(UpstreamReplacement.acceptRefusal(for: task, in: world.state, contains: { $0 == "rebased" }) == nil)
     }
 }

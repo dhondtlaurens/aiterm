@@ -57,10 +57,4 @@ struct OperatedWorld {
     }
 
     func operated(_ id: UUID) -> OperatedTask? { state.tasks.first { $0.id == id }?.operated }
-
-    mutating func update(_ id: UUID, _ change: (inout OperatedTask) -> Void) {
-        guard let index = state.tasks.firstIndex(where: { $0.id == id }), var operated = state.tasks[index].operated else { return }
-        change(&operated)
-        state.tasks[index].operated = operated
-    }
 }

@@ -13,8 +13,8 @@ import Testing
         let run = world.addRun()
         let first = world.addTask("W-1", run: run, state: .working), second = world.addTask("W-2", run: run, state: .working)
         let queued = (1...3).map { world.addTask("Q-\($0)", run: run) }
-        world.update(first) { $0.state = .accepted }
-        world.update(second) { $0.state = .noChange }
+        world.state.updateOperated(first) { $0.state = .accepted }
+        world.state.updateOperated(second) { $0.state = .noChange }
 
         let claimedFirst = RunScheduler.claim(in: &world.state, now: now)
         let claimedSecond = RunScheduler.claim(in: &world.state, now: now)
@@ -47,7 +47,7 @@ import Testing
         var world = OperatedWorld()
         let run = world.addRun()
         let retried = world.addTask("R-1", run: run)
-        world.update(retried) { $0.launch = LaunchAttempt(number: 1, requestedAt: now.addingTimeInterval(-600)); $0.retriesUsed = 1 }
+        world.state.updateOperated(retried) { $0.launch = LaunchAttempt(number: 1, requestedAt: now.addingTimeInterval(-600)); $0.retriesUsed = 1 }
         #expect(RunScheduler.claim(in: &world.state, now: now) == [retried])
         #expect(world.operated(retried)?.launch == LaunchAttempt(number: 2, requestedAt: now))
     }

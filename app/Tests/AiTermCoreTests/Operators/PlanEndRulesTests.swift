@@ -30,14 +30,14 @@ import Testing
         let parent = world.addTask("PLUTO-230", run: run, state: .accepted, end: .commit, acceptedSHA: "4f2a91c")
         let child = world.addTask("PLUTO-231", run: run, state: .planned, end: .draftMR,
                                   dependsOn: [TaskDependency(task: parent, kind: .code)])
-        world.update(child) { $0.revision = 2; $0.firstRevision = 2 }
+        world.state.updateOperated(child) { $0.revision = 2; $0.firstRevision = 2 }
         let why = try #require(PlanEndRules.refusal(for: world.state.tasks))
         #expect(throws: PlanRevision.Failure.endsDisagree(why)) {
             try PlanRevision.submit(2, run: run, in: &world.state)
         }
         #expect(world.state.runs[0].planRevision == 1, "nothing submitted")
         #expect(PlanRevision.Failure.endsDisagree(why).description == why)
-        world.update(child) { $0.end = .commit }
+        world.state.updateOperated(child) { $0.end = .commit }
         #expect(try PlanRevision.submit(2, run: run, in: &world.state).revision == 2)
     }
 

@@ -20,6 +20,18 @@ public extension AppState {
     /// The run's tasks in sidebar order, which is the plan's order: the order they were created.
     func tasks(inRun id: UUID) -> [TaskItem] { tasks.filter { $0.operated?.runId == id } }
 
+    /// The run's task an Operator names: by its id, or by the key it created it with.
+    func task(inRun run: UUID, named ref: String) -> TaskItem? {
+        tasks(inRun: run).first { $0.id.uuidString.caseInsensitiveCompare(ref) == .orderedSame || $0.operated?.key == ref }
+    }
+
+    /// Changes an operated task's record; nothing for a task that has gone or was never an Operator's.
+    mutating func updateOperated(_ id: UUID, _ change: (inout OperatedTask) throws -> Void) rethrows {
+        guard let i = tasks.firstIndex(where: { $0.id == id }), var operated = tasks[i].operated else { return }
+        try change(&operated)
+        tasks[i].operated = operated
+    }
+
     mutating func updateRun(id: UUID, _ change: (inout OperatorRun) -> Void) {
         guard let i = runs.firstIndex(where: { $0.id == id }) else { return }
         change(&runs[i])

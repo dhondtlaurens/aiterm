@@ -18,7 +18,7 @@ import Testing
         var world = OperatedWorld()
         let run = world.addRun()
         let busy = world.addTask("BUSY-1", run: run, state: .working), quiet = world.addTask("QUIET-1", run: run, state: .working)
-        for id in [busy, quiet] { world.update(id) { $0.launch = LaunchAttempt(number: 1, requestedAt: start) } }
+        for id in [busy, quiet] { world.state.updateOperated(id) { $0.launch = LaunchAttempt(number: 1, requestedAt: start) } }
         return (world, busy, quiet)
     }
 
@@ -43,10 +43,10 @@ import Testing
         var (world, busy, quiet) = twoWorkers()
         var watch = StallWatch()
         watch.observe([session("a", task: busy), session("b", task: quiet)], at: minutes(0))
-        world.update(quiet) { $0.flags.insert(.waitingOnYou) }
+        world.state.updateOperated(quiet) { $0.flags.insert(.waitingOnYou) }
         watch.observe([session("a", task: busy), session("b", task: quiet, state: .needsInput)], at: minutes(1))
         #expect(!watch.stalled(in: world.state, now: minutes(30)).contains(quiet), "its time is yours")
-        world.update(quiet) { $0.flags.remove(.waitingOnYou) }
+        world.state.updateOperated(quiet) { $0.flags.remove(.waitingOnYou) }
         watch.observe([session("a", task: busy), session("b", task: quiet, state: .working)], at: minutes(30))
         #expect(!watch.stalled(in: world.state, now: minutes(45)).contains(quiet))
         #expect(watch.stalled(in: world.state, now: minutes(51)).contains(quiet))
@@ -56,9 +56,9 @@ import Testing
         var world = OperatedWorld()
         let run = world.addRun()
         let driven = world.addTask("D-1", run: run, state: .working)
-        world.update(driven) { $0.takenOver = true; $0.launch = LaunchAttempt(number: 1, requestedAt: start) }
+        world.state.updateOperated(driven) { $0.takenOver = true; $0.launch = LaunchAttempt(number: 1, requestedAt: start) }
         let unlaunched = world.addTask("N-1", run: run, state: .working)
-        world.update(unlaunched) { $0.launch = nil }
+        world.state.updateOperated(unlaunched) { $0.launch = nil }
         #expect(StallWatch().stalled(in: world.state, now: minutes(120)).isEmpty)
     }
 
@@ -107,9 +107,9 @@ import Testing
 
     @Test func aTaskResumedAfterAThirtyMinuteBlockStartsAFreshClock() {
         var (world, task, watch) = quietWorker()
-        world.update(task) { $0.state = .blocked }
+        world.state.updateOperated(task) { $0.state = .blocked }
         watch.settle(in: world.state, at: minutes(29))
-        world.update(task) { $0.state = .working }
+        world.state.updateOperated(task) { $0.state = .working }
         watch.settle(in: world.state, at: minutes(30))
         #expect(!watch.stalled(in: world.state, now: minutes(31)).contains(task))
         #expect(!watch.stalled(in: world.state, now: minutes(48)).contains(task))
@@ -118,7 +118,7 @@ import Testing
 
     @Test func aRelaunchCountsFromItsOwnRequest() {
         var (world, task, watch) = quietWorker()
-        world.update(task) { $0.launch = LaunchAttempt(number: 2, requestedAt: minutes(25)) }
+        world.state.updateOperated(task) { $0.launch = LaunchAttempt(number: 2, requestedAt: minutes(25)) }
         watch.settle(in: world.state, at: minutes(25))
         #expect(!watch.stalled(in: world.state, now: minutes(26)).contains(task))
         #expect(watch.stalled(in: world.state, now: minutes(46)).contains(task))
@@ -126,10 +126,10 @@ import Testing
 
     @Test func clearingWaitingOnYouWithTheSessionUnchangedStartsAFreshClock() {
         var (world, task, watch) = quietWorker()
-        world.update(task) { $0.flags.insert(.waitingOnYou) }
+        world.state.updateOperated(task) { $0.flags.insert(.waitingOnYou) }
         watch.observe([session("b", task: task)], at: minutes(39))
         watch.settle(in: world.state, at: minutes(39))
-        world.update(task) { $0.flags.remove(.waitingOnYou) }
+        world.state.updateOperated(task) { $0.flags.remove(.waitingOnYou) }
         watch.observe([session("b", task: task)], at: minutes(40))
         watch.settle(in: world.state, at: minutes(40))
         #expect(!watch.stalled(in: world.state, now: minutes(41)).contains(task))
@@ -164,7 +164,7 @@ import Testing
     func twoTabs() -> (world: OperatedWorld, task: UUID) {
         var world = OperatedWorld()
         let task = world.addTask("TWO-1", run: world.addRun(), state: .working)
-        world.update(task) { operated in
+        world.state.updateOperated(task) { operated in
             operated.launch = LaunchAttempt(number: 1, requestedAt: start, openedAt: start)
             operated.extraTabs = [ExtraTab(key: "review", agent: .codex, model: "gpt-6-mini", reasoning: nil, modelReason: "Tests.",
                                            brief: "Write the tests.", launch: LaunchAttempt(number: 1, requestedAt: start, openedAt: start),
@@ -210,7 +210,7 @@ import Testing
     /// An extra tab asked for that never showed counts as at work from its request: the task is noticed.
     @Test func anExtraTabThatNeverOpensIsAStallFromItsRequest() {
         var (world, task) = twoTabs()
-        world.update(task) { operated in
+        world.state.updateOperated(task) { operated in
             operated.extraTabs[0].sessionId = nil
             operated.extraTabs[0].launch = LaunchAttempt(number: 1, requestedAt: minutes(5))
         }
@@ -227,9 +227,9 @@ import Testing
         var (world, task) = twoTabs()
         var watch = StallWatch()
         watch.observe([session("a", task: task), extra(task)], at: minutes(0))
-        world.update(task) { $0.takenOver = true }
+        world.state.updateOperated(task) { $0.takenOver = true }
         watch.settle(in: world.state, at: minutes(30))
-        world.update(task) { $0.takenOver = false }
+        world.state.updateOperated(task) { $0.takenOver = false }
         #expect(watch.stalled(in: world.state, now: minutes(49)).isEmpty)
         #expect(watch.stalled(in: world.state, now: minutes(50)) == [task])
     }
