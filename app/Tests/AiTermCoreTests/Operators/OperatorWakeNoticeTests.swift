@@ -13,6 +13,11 @@ import Foundation
                                                      uncertain: uncertain, branchDrift: drift))
     }
 
+    func status(obligations: RunStatus.Obligations) -> RunStatus {
+        RunStatus(revision: 3, run: RunStatus.Run(id: run, name: "Sprint 42", state: .active, prompt: "Go", planRevision: 1, openRevision: 2),
+                  obligations: obligations)
+    }
+
     @Test func itSaysWhatWaitsOnTheOperatorAndWhyItWasRefused() throws {
         let refusal = Delivery(result: .refused, reason: "its screen could not be read: timeout", code: .screenUnread)
         let notice = try #require(OperatorWakeNotice(run: run, status: status(ready: ["PAY-1", "PAY-2"]), refusal: refusal))
@@ -27,6 +32,17 @@ import Foundation
         #expect(OperatorWakeNotice.waiting(status(uncertain: ["A"])) == "1 task uncertain in “Payments”.")
         #expect(OperatorWakeNotice.waiting(status(prompts: ["E"])) == "News waits for it in “Payments”.")
         #expect(OperatorWakeNotice.waiting(nil) == "News waits for it.")
+    }
+
+    @Test func everyReasonTheWakerWakesForIsNamed() {
+        #expect(OperatorWakeNotice.waiting(status(obligations: .init(workerAsks: [RunStatus.WorkerAsk(key: "A", question: "Which?")])))
+                == "1 task asking the Operator in “Sprint 42”.")
+        #expect(OperatorWakeNotice.waiting(status(obligations: .init(changedAfterAcceptance: ["A"])))
+                == "1 task changed after acceptance in “Sprint 42”.")
+        #expect(OperatorWakeNotice.waiting(status(obligations: .init(finishedWithoutCommit: ["A"])))
+                == "1 task finished with no commit in “Sprint 42”.")
+        #expect(OperatorWakeNotice.waiting(status(obligations: .init(reviewQuiet: ["A"])))
+                == "1 task in review with nothing waiting in “Sprint 42”.")
     }
 
     @Test func aPromptWaitingOnThePersonOrALineThatWentInIsNoNotice() {

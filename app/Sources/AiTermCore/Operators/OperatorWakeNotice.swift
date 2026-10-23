@@ -26,8 +26,8 @@ public struct OperatorWakeNotice: Equatable, Sendable {
         ![.prompt, .typing, .unsentInput].contains(code)
     }
 
-    /// What waits on the Operator in `status`, as a sentence: "2 tasks ready to accept in “Payments”."
-    /// What waits on the person (a question, a prompt) is left out: the Operator only tells them.
+    /// What waits on the Operator in `status`, as a sentence: "2 tasks ready to accept in “Payments”." Every reason the
+    /// waker wakes it for is named. What waits on the person (a question, a prompt) is left out: the Operator only tells them.
     public static func waiting(_ status: RunStatus?) -> String {
         guard let status else { return "News waits for it." }
         let o = status.obligations
@@ -36,7 +36,10 @@ public struct OperatorWakeNotice: Equatable, Sendable {
         }
         let parts = [tasks(o.readyForAcceptance, "ready to accept"), tasks(o.possiblyStalled, "possibly stalled"),
                      tasks(o.uncertain, "uncertain"),
-                     tasks(o.branchDrift, o.branchDrift.count == 1 ? "off its branch" : "off their branch")].compactMap { $0 }
+                     tasks(o.branchDrift, o.branchDrift.count == 1 ? "off its branch" : "off their branch"),
+                     tasks(o.workerAsks.map(\.key), "asking the Operator"), tasks(o.changedAfterAcceptance, "changed after acceptance"),
+                     tasks(o.finishedWithoutCommit, "finished with no commit"),
+                     tasks(o.reviewQuiet, "in review with nothing waiting")].compactMap { $0 }
         let what = switch parts.count {
         case 0: "News waits for it"
         case 1: parts[0]
