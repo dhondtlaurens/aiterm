@@ -81,7 +81,7 @@ struct BroadcastGroupFocusTests {
         controller.focus.select(.operation(run.id))
         controller.activateSelection()
         #expect(asked == [run.id, run.id])
-        #expect(controller.focus.selectedOperationId == run.id)
+        #expect(controller.focus.selection == .operation(run.id))
         #expect(daemon.requests("window.activate").isEmpty)
         #expect(controller.sheet == nil)
     }
@@ -99,7 +99,7 @@ struct BroadcastGroupFocusTests {
         await controller.focus.select(.operation(run.id))?.value
         #expect(asked == [run.id])
         #expect(daemon.requests("window.activate").count == 2)
-        #expect(controller.focus.selectedOperationId == run.id)
+        #expect(controller.focus.selection == .operation(run.id))
     }
 
     /// The header folds on a click or ↩, as a project header does, and shows no window; its board button

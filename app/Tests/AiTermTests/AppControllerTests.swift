@@ -392,18 +392,17 @@ import Testing
         controller.workspace.mutate { $0.items = [.project(first), .project(last)] }
         #expect(controller.workspace.flush())
 
-        #expect(!controller.canMove(itemId: first.id, .up))
-        #expect(controller.canMove(itemId: first.id, .down))
-        #expect(controller.canMove(itemId: last.id, .up))
-        #expect(!controller.canMove(itemId: last.id, .down))
-        #expect(!controller.canMove(itemId: stranger.id, .up))
+        #expect(!controller.state.canMove(id: first.id, .up))
+        #expect(controller.state.canMove(id: first.id, .down))
+        #expect(controller.state.canMove(id: last.id, .up))
+        #expect(!controller.state.canMove(id: last.id, .down))
+        #expect(!controller.state.canMove(id: stranger.id, .up))
         #expect(!controller.move(itemId: first.id, .up))
         #expect(!controller.move(itemId: last.id, .down))
         #expect(!controller.move(itemId: stranger.id, .down))
         #expect(controller.state.projects.map(\.id) == [first.id, last.id])
 
         try controller.breakSaving()
-        #expect(!controller.canMove(itemId: first.id, .down))
         #expect(!controller.move(itemId: first.id, .down))
         #expect(controller.state.projects.map(\.id) == [first.id, last.id])
     }
@@ -1230,9 +1229,9 @@ import Testing
         #expect(moved)
         #expect(controller.state.items.map(\.id) == [a.id, b.id, rule.id])
         #expect(controller.state.projects.map(\.name) == ["a", "b"])
-        #expect(!controller.canMove(itemId: a.id, .up))
-        #expect(!controller.canMove(itemId: rule.id, .down))
-        #expect(controller.canMove(itemId: rule.id, .up))
+        #expect(!controller.state.canMove(id: a.id, .up))
+        #expect(!controller.state.canMove(id: rule.id, .down))
+        #expect(controller.state.canMove(id: rule.id, .up))
     }
 
     @Test func dividerActionsAreRefusedWhileTheWorkspaceIsLocked() throws {
@@ -1245,7 +1244,6 @@ import Testing
         #expect(throws: (any Error).self) { try controller.loadWorkspace() }
         controller.addDivider(name: "Work")
         #expect(controller.state.items.isEmpty)
-        #expect(!controller.canMove(itemId: UUID(), .up))
         controller.presentNewDivider()
         #expect(controller.sheet == nil)
     }

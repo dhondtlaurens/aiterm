@@ -254,12 +254,6 @@ final class ProjectActions {
         return true
     }
 
-    /// Whether `move` would do anything: the first row has no "up", the last no "down", and a
-    /// locked workspace has neither. The menus grey their items on this.
-    func canMove(itemId: UUID, _ step: MoveStep) -> Bool {
-        canChangeWorkspace && state.canMove(id: itemId, step)
-    }
-
     /// Moves a project or a divider one slot along the sidebar. Only the item order changes: tasks
     /// and terminals stay attached by project id, so an expanded project's rows move with it and
     /// its collapsed state is left untouched. Whether it moved.

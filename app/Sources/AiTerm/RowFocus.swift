@@ -157,12 +157,6 @@ final class RowFocus {
         return nil
     }
 
-    /// The broadcast whose Operator's row is selected.
-    var selectedOperationId: UUID? {
-        if case .operation(let id) = selection { return id }
-        return nil
-    }
-
     /// The broadcast whose header is selected.
     var selectedBroadcastId: UUID? {
         if case .broadcast(let id) = selection { return id }

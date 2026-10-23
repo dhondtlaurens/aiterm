@@ -375,7 +375,6 @@ final class AppController {
     func pullDefault(project: Project) -> Task<Void, Never>? { projects.pullDefault(project: project) }
     func toggleCollapsed(_ project: Project) { projects.toggleCollapsed(project) }
     func toggleFolded(run id: UUID) { projects.toggleFolded(run: id) }
-    func canMove(itemId: UUID, _ step: MoveStep) -> Bool { projects.canMove(itemId: itemId, step) }
     @discardableResult
     func move(itemId: UUID, _ step: MoveStep) -> Bool { projects.move(itemId: itemId, step) }
     func confirmRemove(project: Project) async { await projects.confirmRemove(project: project) }
