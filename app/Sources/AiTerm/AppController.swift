@@ -609,7 +609,7 @@ final class AppController {
     func choose(task id: UUID) -> Task<Void, Never>? {
         if let task = state.task(id: id), let operated = task.operated, !operated.takenOver, !task.isQueuedByOperator,
            let run = state.activeRun, run.id == operated.runId, removal(of: id)?.inProgress != true,
-           let tab = task.tabToBring(sessions: live.sessions, requests: OperatorRequests.open(run: run, state: state, prompts: [:])) {
+           let tab = task.tabToBring(sessions: live.sessions, requests: OperatorRequests.open(run: run, state: state)) {
             return bringTab(task: id, sessionId: tab.sessionId)
         }
         return focus.select(.task(id))

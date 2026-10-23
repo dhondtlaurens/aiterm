@@ -29,7 +29,7 @@ final class HeldBranchesGit: GitRunning {
 
     func makeWorld(_ git: HeldBranchesGit) throws -> (OperatorWorld, OperatorRun) {
         let run = OperatorServiceFixtures.run(projects: [project])
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]), git: git) { $0.milestone = .m1 }
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]), git: git)
         world.link.attached = false
         return (world, run)
     }

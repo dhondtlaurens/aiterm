@@ -1,8 +1,8 @@
 import Foundation
 
-/// What AiTerm knows of a task's session beyond `state.json`: its live status, the branch's last
-/// commit, a one-line summary, and a prompt waiting on you. Gathered by the caller from the daemon
-/// snapshot and git; `RunStatus` only arranges it.
+/// What AiTerm knows of a task's session beyond `state.json`: its live status, its tabs, a prompt
+/// waiting on you, and what its last turn left. Gathered by the caller from the daemon snapshot and
+/// git; `RunStatus` only arranges it.
 public struct TaskLiveFacts: Equatable, Sendable {
     /// An extra worker tab the Operator added (`open_tab`), as `WorkerTab` counts it.
     public struct Tab: Equatable, Sendable {
@@ -26,8 +26,6 @@ public struct TaskLiveFacts: Equatable, Sendable {
 
     /// The first worker's live status.
     public var status: SessionState?
-    public var lastCommit: String?
-    public var summary: String?
     /// The classified prompt that waits on you in the first worker, `permission` or `unknown` (spec §7.2), if any.
     public var waitingPrompt: String?
     /// The task's extra worker tabs, in the order asked for.
@@ -51,11 +49,11 @@ public struct TaskLiveFacts: Equatable, Sendable {
     /// (`StallWatch.isQuietWhileWorking`): the line reads `working?` and the task is uncertain.
     public var quiet: Bool
 
-    public init(status: SessionState? = nil, lastCommit: String? = nil, summary: String? = nil, waitingPrompt: String? = nil,
+    public init(status: SessionState? = nil, waitingPrompt: String? = nil,
                 tabs: [Tab] = [], background: [String] = [], yourPrompt: String? = nil, lastMessage: String? = nil,
                 commitsAhead: Int? = nil, atReopenedCommit: Bool = false, changedAfterAcceptance: Bool = false, turnUnread: Bool = false,
                 quiet: Bool = false) {
-        self.status = status; self.lastCommit = lastCommit; self.summary = summary; self.waitingPrompt = waitingPrompt
+        self.status = status; self.waitingPrompt = waitingPrompt
         self.tabs = tabs; self.background = background; self.yourPrompt = yourPrompt
         self.lastMessage = lastMessage; self.commitsAhead = commitsAhead; self.atReopenedCommit = atReopenedCommit
         self.changedAfterAcceptance = changedAfterAcceptance
@@ -197,7 +195,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var state: OperatedState, end: TaskEnd, revision: Int
         /// The first worker's live status; nil when it has none (not started, or its window is gone).
         public var live: LiveState?
-        public var branch: String, lastCommit: String?, summary: String?
+        public var branch: String
         public var dependsOn: [Dependency]
         public var acceptedSHA: String?, blockedReason: String?, mergeRefusal: String?
         public var flags: [OperatedFlag]
@@ -225,14 +223,14 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var reopenedFrom: String?
         public init(id: UUID, key: String, title: String, project: String, agent: AgentKind, model: String,
                     state: OperatedState, end: TaskEnd, revision: Int, live: LiveState? = nil, branch: String,
-                    lastCommit: String? = nil, summary: String? = nil, dependsOn: [Dependency] = [],
+                    dependsOn: [Dependency] = [],
                     acceptedSHA: String? = nil, blockedReason: String? = nil, flags: [OperatedFlag] = [],
                     takenOver: Bool = false, retriesUsed: Int = 0, agentReview: AgentReviewLine? = nil,
                     peopleReview: PeopleReviewLine? = nil, branchDrift: BranchDrift? = nil, tabs: [TabLine]? = nil, background: [String]? = nil,
                     yourPrompt: String? = nil, mergeRefusal: String? = nil, reopenedFrom: String? = nil) {
             self.id = id; self.key = key; self.title = title; self.project = project; self.agent = agent; self.model = model
             self.state = state; self.end = end; self.revision = revision; self.live = live; self.branch = branch
-            self.lastCommit = lastCommit; self.summary = summary; self.dependsOn = dependsOn
+            self.dependsOn = dependsOn
             self.acceptedSHA = acceptedSHA; self.blockedReason = blockedReason; self.flags = flags
             self.takenOver = takenOver; self.retriesUsed = retriesUsed
             self.agentReview = agentReview; self.peopleReview = peopleReview; self.branchDrift = branchDrift
@@ -325,7 +323,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             lines.append(TaskLine(
                 id: item.id, key: o.key, title: item.title, project: state.project(id: item.projectId)?.name ?? "",
                 agent: item.agent, model: item.model, state: o.state, end: o.end, revision: o.revision,
-                live: facts.status.map { LiveState($0, quiet: facts.quiet) }, branch: item.branch, lastCommit: facts.lastCommit, summary: facts.summary,
+                live: facts.status.map { LiveState($0, quiet: facts.quiet) }, branch: item.branch,
                 dependsOn: o.dependsOn.map { Dependency(key: keys[$0.task] ?? $0.task.uuidString, kind: $0.kind) },
                 acceptedSHA: o.acceptance?.resultSHA, blockedReason: o.blockedReason,
                 flags: o.flags.sorted { $0.rawValue < $1.rawValue }, takenOver: o.takenOver, retriesUsed: o.retriesUsed,
@@ -388,13 +386,13 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     /// A working task whose every worker ended its turn, idle at its prompt or done, with nothing left running in the
     /// `background`, and not yours: its result waits for the Operator's check. `status` is its first worker's;
     /// `extraTabs` its extra tabs' (`WorkerTab.status`), where nil is one closed, no worker any more. A prompt waiting
-    /// on you is told apart by the caller. Its worker's turn ended with a question (`asks`), or with no commit past where
-    /// its work starts (`commitsAhead` 0; nil is unknown), is not ready either (spec §E).
+    /// on you is told apart by the caller. Its worker's turn ended with a question (`asks`) is not ready either (spec §E);
+    /// one with no commit past where its work starts is told apart by `build`, as `finishedWithoutCommit`.
     public static func isReadyForAcceptance(_ task: OperatedTask, live status: SessionState?, extraTabs: [SessionState?] = [],
-                                            background: [String] = [], asks: Bool = false, commitsAhead: Int? = nil) -> Bool {
+                                            background: [String] = [], asks: Bool = false) -> Bool {
         let ended: (SessionState?) -> Bool = { $0 == .idle || $0 == .done }
         return task.state == .working && !task.takenOver && ended(status) && extraTabs.allSatisfy { $0 == nil || ended($0) }
-            && background.isEmpty && !asks && commitsAhead != 0
+            && background.isEmpty && !asks
     }
 
     /// The task's worker tabs as its line lists them, the first worker as `main`; nil when it has no extra tab.

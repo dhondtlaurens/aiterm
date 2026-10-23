@@ -49,16 +49,6 @@ public enum PublicationGuard {
         return nil
     }
 
-    /// What is left for you when the Merge slice keeps a merge from happening, said once in Left for you.
-    public static func mergeLeftForYou(_ operated: OperatedTask) -> String {
-        let request = operated.publication.flatMap { publication in
-            publication.mergeRequestNumber.map { number in
-                publication.mergeRequestURL.map { CodeHost(webURL: $0).reference(number) } ?? "#\(number)"
-            }
-        }
-        return "Merge \(request ?? operated.key): the Merge slice is off."
-    }
-
     /// AiTerm's floor for a merge through the request (spec §5), read right before it: the host's head is the
     /// accepted commit, and every review thread on `request` is resolved. Nil when it may merge.
     public static func mergeFloor(head: String, acceptedSHA: String, threads: [ReviewThread], request: String) -> String? {

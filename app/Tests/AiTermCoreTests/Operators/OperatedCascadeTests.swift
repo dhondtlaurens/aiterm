@@ -67,17 +67,17 @@ import Foundation
         #expect(s == before)
     }
 
-    /// The M1 re-accept rule, read from the workspace: D builds on A's code and has started.
-    @Test func theCodeDependentsStartIsReadFromTheWorkspace() throws {
+    /// A started `code` dependent does not hold its parent back (spec §8): the parent is accepted again on another
+    /// commit, and the caller replaces what the dependent was built on (`UpstreamReplacement`).
+    @Test func aParentIsAcceptedAgainAfterItsCodeDependentStarted() throws {
         let head = "4f2a91c0d1e2f3a4"
         var (s, a, _, _, d, _) = chain()
         try OperatedTransitions.apply(.accept(F.acceptance(head), branchHead: head), toTask: a, in: &s, by: .operatorTool)
         try OperatedTransitions.apply(.start(LaunchAttempt(number: 1, requestedAt: F.epoch)), toTask: d, in: &s, by: .aiterm)
 
-        #expect(throws: OperatedTransitionError.reacceptAfterDependentStarted) {
-            try OperatedTransitions.apply(.accept(F.acceptance("bbbbbbb1"), branchHead: "bbbbbbb1"), toTask: a, in: &s, by: .operatorTool,
-                                          milestone: .m1)
-        }
+        #expect(try OperatedTransitions.apply(.accept(F.acceptance("bbbbbbb1"), branchHead: "bbbbbbb1"), toTask: a, in: &s,
+                                              by: .operatorTool) == [a])
+        #expect(s.tasks.first { $0.id == a }?.operated?.acceptance?.resultSHA == "bbbbbbb1")
     }
 
     @Test func theRunsStateAndRetryLimitApply() throws {

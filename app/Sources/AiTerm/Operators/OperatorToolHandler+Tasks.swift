@@ -181,10 +181,9 @@ extension OperatorToolHandler {
     /// An accepted task back to its worker, in one change; a complete operation holding work again settles once it is
     /// done. False where the task moved on while its message was delivered: the worker has it, the task stays as it is.
     private func reopen(_ task: TaskItem) -> Bool {
-        let milestone = ports.milestone
         do {
             try mutate(in: task.operated?.runId) { state in
-                try OperatedTransitions.apply(.reopen, toTask: task.id, in: &state, by: .operatorTool, milestone: milestone)
+                try OperatedTransitions.apply(.reopen, toTask: task.id, in: &state, by: .operatorTool)
                 Self.reactivateCompleteRuns(holding: [task.id], in: &state)
             }
             return true
@@ -221,21 +220,20 @@ extension OperatorToolHandler {
             guard sha == tip else {
                 throw ToolRefusal("\(operated.key)’s branch is at \(tip.prefix(7)), not \(given): accept the commit its branch is on.")
             }
-            // A task whose code parent was accepted again builds on the new commit before it is accepted (M3, spec §8).
+            // A task whose code parent was accepted again builds on the new commit before it is accepted (spec §8).
             let why = try await upstreamRefusal(task, result: sha)
             try recheck(task)
             if let why { throw ToolRefusal(why) }
             let prerequisites = RunScheduler.baseCommit(for: task.id, in: state).map { [$0] } ?? []
             let acceptance = TaskAcceptance(resultSHA: sha, prerequisiteSHAs: prerequisites, checkOutput: check,
                                             note: call.optionalString("note"), at: ports.now())
-            // Accepted again on another commit: its dependents are revoked and flagged. Before M3, part C refuses
-            // it once a code dependent has started (M1, spec §8).
-            if ports.milestone >= .m3, [.accepted, .published, .inReview].contains(operated.state) {
+            // Accepted again on another commit: its dependents are revoked and flagged.
+            if [.accepted, .published, .inReview].contains(operated.state) {
                 return try reaccept(task, as: acceptance)
             }
             // Steered back to work after it was accepted (spec §D), and now on another commit: what its children were
             // built on is replaced, as for any task accepted again.
-            if ports.milestone >= .m3, operated.state == .working, let earlier = operated.reopenedFrom,
+            if operated.state == .working, let earlier = operated.reopenedFrom,
                !OperatedTransitions.sameCommit(earlier, sha) {
                 return try reacceptReopened(task, as: acceptance, branchHead: tip)
             }
@@ -302,11 +300,9 @@ extension OperatorToolHandler {
     /// the replacement of its children in one change, answered as `reaccept` does.
     private func reacceptReopened(_ task: TaskItem, as acceptance: TaskAcceptance, branchHead: String) throws -> JSONValue {
         try recheck(task)
-        let milestone = ports.milestone
         return try answerRevoking(task) { state in
             do {
-                try OperatedTransitions.apply(.accept(acceptance, branchHead: branchHead), toTask: task.id, in: &state, by: .operatorTool,
-                                              milestone: milestone)
+                try OperatedTransitions.apply(.accept(acceptance, branchHead: branchHead), toTask: task.id, in: &state, by: .operatorTool)
             } catch let refused as OperatedTransitionError {
                 throw ToolRefusal(refused.description)
             }
@@ -392,13 +388,12 @@ extension OperatorToolHandler {
         return operated
     }
 
-    /// A transition of the task by the operator, through part C's table under this build's milestone:
-    /// a failed task's dependents are blocked with it; a refusal is the tool's error, in C's words.
+    /// A transition of the task by the operator, through part C's table: a failed task's dependents are blocked
+    /// with it; a refusal is the tool's error, in C's words.
     func apply(_ action: OperatedAction, to task: TaskItem) throws {
-        let milestone = ports.milestone
         do {
             try mutate(in: task.operated?.runId) { state in
-                _ = try OperatedTransitions.apply(action, toTask: task.id, in: &state, by: .operatorTool, milestone: milestone)
+                _ = try OperatedTransitions.apply(action, toTask: task.id, in: &state, by: .operatorTool)
             }
         } catch let refused as OperatedTransitionError {
             throw ToolRefusal(refused.description)

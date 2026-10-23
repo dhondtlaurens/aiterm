@@ -149,15 +149,6 @@ import Testing
         #expect(refusal(w, task, run) == nil)
     }
 
-    /// What the person is left with, the request named once it is open.
-    @Test func whatTheSliceLeavesForYouNamesTheRequest() {
-        var (w, task, _) = world(end: .merge, slices: .none)
-        #expect(PublicationGuard.mergeLeftForYou(w.operated(task)!) == "Merge PLUTO-231: the Merge slice is off.")
-        w.update(task) { $0.publication = TaskPublication(mergeRequestURL: "https://git.example.net/web/acme-web/-/merge_requests/418",
-                                                          mergeRequestNumber: 418) }
-        #expect(PublicationGuard.mergeLeftForYou(w.operated(task)!) == "Merge !418: the Merge slice is off.")
-    }
-
     /// The slices froze when the broadcast started: turning Merge on in Settings changes only the next one.
     @Test func theSliceIsFrozen() {
         let defaults = UserDefaults(suiteName: "aiterm-guard-\(UUID().uuidString)")!

@@ -176,7 +176,7 @@ import Testing
                             OperatorQuestion(id: "prompt-1", text: "Codex asks to run npm install", task: permission.id,
                                              askedAt: OperatorUIFixtures.epoch)]
         let state = state(asking, [permission, question, blocked, problem, working, todo])
-        let requests = OperatorRequests.open(run: asking, state: state, prompts: [permission.id: "run npm install"])
+        let requests = OperatorRequests.open(run: asking, state: state)
         let board = BroadcastBoard.make(run: asking, state: state, acting: .none, requests: requests)
         let cards = Dictionary(uniqueKeysWithValues: board.columns.flatMap(\.cards).map { ($0.title, $0) })
 

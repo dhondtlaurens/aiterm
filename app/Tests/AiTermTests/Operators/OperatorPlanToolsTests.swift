@@ -12,11 +12,10 @@ import Testing
     let docs = OperatorServiceFixtures.project(path: "/tmp/aiterm-operators-docs", name: "Docs")
 
     /// The plan tools need no helper, and without one nothing a released task starts (D10's
-    /// `WorkerStarter.start` returns nil), so a queued task stays queued for the test to read. M1's
-    /// rules by name unless a test asks for another milestone: F1 and G6 raised `OperatorMilestone.current`.
-    func makeWorld(milestone: OperatorMilestone = .m1) throws -> (OperatorWorld, OperatorRun) {
+    /// `WorkerStarter.start` returns nil), so a queued task stays queued for the test to read.
+    func makeWorld() throws -> (OperatorWorld, OperatorRun) {
         let run = OperatorServiceFixtures.run(projects: [project, other])
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project, other, docs], runs: [run])) { $0.milestone = milestone }
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project, other, docs], runs: [run]))
         world.link.attached = false
         return (world, run)
     }
@@ -152,7 +151,6 @@ import Testing
         if jira != nil { run.profile.slices.jira = true; run.jiraProjectKeys = ["PLUTO"] }
         let first = OperatorServiceFixtures.task(in: run, project: project, key: "FIRST", state: .queued)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project, other], runs: [run], tasks: [first])) { ports in
-            ports.milestone = .m1
             ports.secondOpinion = runner
             ports.challengeReplyBudget = budget
             if let jira { ports.jira = { jira } }
@@ -402,7 +400,6 @@ import Testing
         let release = DispatchSemaphore(value: 0)
         let run = OperatorServiceFixtures.run(projects: [project, other])
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project, other, docs], runs: [run])) { ports in
-            ports.milestone = .m1
             ports.agentModels = { agent in
                 let hold = gate.withLock { gate in
                     guard gate.armed, agent == .claude, !gate.entered else { return false }
@@ -449,7 +446,7 @@ private extension Array {
 
 extension OperatorPlanToolsTests {
     @Test func forbiddenEndsAreRefusedBeforeTasksStart() async throws {
-        let (world, run) = try makeWorld(milestone: .m3)
+        let (world, run) = try makeWorld()
         for end in ["merge", "mergeLocal"] {
             #expect(await create(world, run, "A", end: end).message == "Merge is off for this broadcast: end it at a commit or a draft MR.")
         }

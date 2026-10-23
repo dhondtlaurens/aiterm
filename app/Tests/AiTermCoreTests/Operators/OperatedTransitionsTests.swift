@@ -7,9 +7,7 @@ import Foundation
 @Suite struct OperatedTransitionsTests {
     typealias F = OperatorFixtures
     let head = "4f2a91c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6"
-    /// M1's rules, named rather than `OperatorMilestone.current`'s: parts F and G raise that, and the
-    /// rules that change with it are tested at each milestone below.
-    let active = OperatedContext(runState: .active, retryLimit: 2, milestone: .m1)
+    let active = OperatedContext(runState: .active, retryLimit: 2)
 
     private func apply(_ action: OperatedAction, _ task: OperatedTask, by actor: OperatedActor = .operatorTool,
                        _ context: OperatedContext? = nil) throws(OperatedTransitionError) -> OperatedTask {
@@ -86,33 +84,20 @@ import Foundation
         }
     }
 
-    /// M1: once a `code` dependent started, the parent cannot be accepted again on another SHA.
-    @Test func reacceptingOnAnotherSHAIsRefusedOnceACodeDependentStarted() throws {
+    /// Spec §8: a parent accepted again on another commit replaces what its dependents built on (the caller's
+    /// `UpstreamReplacement`), a published task is accepted again on a new commit for `finish_task` to push, and a
+    /// task in review once its agent fixed the feedback.
+    @Test func aTaskIsAcceptedAgainOnANewCommitWhetherAcceptedPublishedOrInReview() throws {
         let accepted = try apply(.accept(F.acceptance("4f2a91c"), branchHead: head), F.operated("A", .working))
         let newHead = "abcdef0123456789"
-        let moved = try apply(.accept(F.acceptance("abcdef0"), branchHead: newHead), accepted)
-        #expect(moved.acceptance?.resultSHA == newHead, "no dependent started: the new SHA replaces the old")
-        #expect(throws: OperatedTransitionError.reacceptAfterDependentStarted) {
-            try apply(.accept(F.acceptance("abcdef0"), branchHead: newHead), accepted,
-                      OperatedContext(runState: .active, retryLimit: 2, codeDependentStarted: true, milestone: .m1))
-        }
-    }
-
-    /// M3 lifts that rule (spec §8): a parent accepted again replaces what its dependents built on, and a
-    /// published task is accepted again on a new commit for `finish_task` to push. Before M3 a published
-    /// task is never accepted again.
-    @Test func fromM3AParentIsAcceptedAgainAfterItsDependentStartedAndAfterItWasPublished() throws {
-        let m3 = OperatedContext(runState: .active, retryLimit: 2, codeDependentStarted: true, milestone: .m3)
-        let accepted = try apply(.accept(F.acceptance("4f2a91c"), branchHead: head), F.operated("A", .working), m3)
-        let newHead = "abcdef0123456789"
-        #expect(try apply(.accept(F.acceptance("abcdef0"), branchHead: newHead), accepted, m3).acceptance?.resultSHA == newHead)
-        var published = accepted
-        published.state = .published
-        let again = try apply(.accept(F.acceptance("abcdef0"), branchHead: newHead), published, m3)
-        #expect(again.state == .accepted && again.acceptance?.resultSHA == newHead)
-        #expect(try apply(.accept(F.acceptance("4f2a91c"), branchHead: head), published, m3) == published, "the same commit is a repeat")
-        #expect(throws: OperatedTransitionError.notAllowed(action: "be accepted", from: .published)) {
-            try apply(.accept(F.acceptance("abcdef0"), branchHead: newHead), published)
+        #expect(try apply(.accept(F.acceptance("abcdef0"), branchHead: newHead), accepted).acceptance?.resultSHA == newHead,
+                "the new SHA replaces the old")
+        for state in [OperatedState.published, .inReview] {
+            var earlier = accepted
+            earlier.state = state
+            let again = try apply(.accept(F.acceptance("abcdef0"), branchHead: newHead), earlier)
+            #expect(again.state == .accepted && again.acceptance?.resultSHA == newHead, "\(state)")
+            #expect(try apply(.accept(F.acceptance("4f2a91c"), branchHead: head), earlier) == earlier, "the same commit is a repeat: \(state)")
         }
     }
 
@@ -194,7 +179,7 @@ import Foundation
     /// A task blocked for its runtime is resumed with a fresh allowance; one blocked for another reason keeps the time it used.
     @Test func resumingATaskBlockedForItsRuntimeGrantsAFreshAllowance() throws {
         let limit: TimeInterval = 90 * 60
-        let context = OperatedContext(runState: .active, retryLimit: 2, milestone: .m1, runtimeLimit: limit)
+        let context = OperatedContext(runState: .active, retryLimit: 2, runtimeLimit: limit)
         var spent = F.operated("A", .working)
         spent.runtimeUsed = limit
         let reason = try #require(OperatedTransitions.limitReason(for: spent))
@@ -322,28 +307,11 @@ import Foundation
         #expect(try apply(.stop, task, by: .you).state == .stopped)
     }
 
-    // MARK: published, stopped
-
-    @Test func publishingCarriesOutADraftMROrAMergeFromM3Only() throws {
-        let m3 = OperatedContext(runState: .active, retryLimit: 2, milestone: .m3)
-        var task = F.operated("A", .accepted, end: .merge)
-        task.acceptance = F.acceptance(head)
-        let publication = TaskPublication(pushedSHA: head, mergeRequestURL: "https://example.net/mr/1")
-        let published = try apply(.publish(publication), task, m3)
-        #expect(published.state == .published && published.publication == publication)
-        #expect(try apply(.publish(publication), published, m3) == published)
-        #expect(throws: OperatedTransitionError.notInThisMilestone(.merge)) { try apply(.publish(publication), task) }
-        #expect(throws: OperatedTransitionError.publishedSHANotAccepted("0000000ff")) {
-            try apply(.publish(TaskPublication(pushedSHA: "0000000ff")), task, m3)
-        }
-        var commit = task
-        commit.end = .commit
-        #expect(throws: OperatedTransitionError.endIsCommit) { try apply(.publish(publication), commit, m3) }
-    }
+    // MARK: stopped
 
     @Test(arguments: [OperatedState.planned, .queued, .working, .blocked, .failed])
     func youStopAnyOpenTask(_ state: OperatedState) throws {
-        let stopped = try apply(.stop, F.operated("A", state), by: .you, OperatedContext(runState: .paused, retryLimit: 2, milestone: .m1))
+        let stopped = try apply(.stop, F.operated("A", state), by: .you, OperatedContext(runState: .paused, retryLimit: 2))
         #expect(stopped.state == .stopped)
         #expect(try apply(.stop, stopped, by: .you) == stopped)
     }

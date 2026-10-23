@@ -90,7 +90,7 @@ final class SidebarProjection {
         if broadcastChanged { self.broadcast = broadcast }
         let board = state.activeRun.map { run in
             BroadcastBoard.make(run: run, state: state, acting: next.acting,
-                                requests: OperatorRequests.open(run: run, state: state, prompts: [:]), sessions: next.sessions)
+                                requests: OperatorRequests.open(run: run, state: state), sessions: next.sessions)
         }
         if board != self.board { self.board = board }
         let entries = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,

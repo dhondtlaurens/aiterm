@@ -19,7 +19,7 @@ import Foundation
             OperatorQuestion(id: "q-done", text: "Old?", task: nil, askedAt: F.epoch, resolution: "v2"),
         ]
         let live: [UUID: TaskLiveFacts] = [
-            b.id: TaskLiveFacts(status: .done, lastCommit: "b0b0b0b", summary: "Added the endpoint"),
+            b.id: TaskLiveFacts(status: .done),
             c.id: TaskLiveFacts(status: .needsInput, waitingPrompt: "permission"),
             d.id: TaskLiveFacts(status: .idle),
         ]
@@ -33,8 +33,7 @@ import Foundation
         #expect(status.run.planRevision == 2 && status.run.openRevision == 3 && status.run.state == .active)
         #expect(status.tasks.map(\.key) == ["A", "B", "C", "D", "E"])
         let b = status.tasks[1]
-        #expect(b.id == ids["B"] && b.project == "Shop" && b.live == .done && b.lastCommit == "b0b0b0b")
-        #expect(b.summary == "Added the endpoint" && b.branch == "feat/b")
+        #expect(b.id == ids["B"] && b.project == "Shop" && b.live == .done && b.branch == "feat/b")
         #expect(b.dependsOn == [RunStatus.Dependency(key: "A", kind: .code)])
         #expect(status.tasks[0].acceptedSHA == "4f2a91c0ffee")
         #expect(status.tasks[2].flags == [.possiblyStalled, .uncertain])
@@ -256,7 +255,6 @@ import Foundation
         #expect(status.obligations.readyForAcceptance.isEmpty)
         #expect(status.obligations.finishedWithoutCommit == ["B"])
         #expect(status.obligations.workerAsks.isEmpty)
-        #expect(!RunStatus.isReadyForAcceptance(F.operated("B", .working), live: .idle, commitsAhead: 0))
         let json = String(decoding: try status.json(), as: UTF8.self)
         #expect(json.contains(#""finishedWithoutCommit":["B"]"#))
     }
@@ -292,7 +290,7 @@ import Foundation
         #expect(status.obligations.readyForAcceptance == ["B"])
         #expect(status.obligations.workerAsks.isEmpty && status.obligations.finishedWithoutCommit.isEmpty)
         #expect(try turn(.working, commitsAhead: nil).obligations.readyForAcceptance == ["B"], "an unread turn reads as before")
-        #expect(RunStatus.isReadyForAcceptance(F.operated("B", .working), live: .idle, commitsAhead: 1))
+        #expect(RunStatus.isReadyForAcceptance(F.operated("B", .working), live: .idle))
         let b = F.task("B", .working)
         let unread = try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1,
                                                   live: [b.id: TaskLiveFacts(status: .idle, turnUnread: true)]))

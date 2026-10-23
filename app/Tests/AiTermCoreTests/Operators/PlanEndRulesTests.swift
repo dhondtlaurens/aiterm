@@ -33,12 +33,12 @@ import Testing
         world.update(child) { $0.revision = 2; $0.firstRevision = 2 }
         let why = try #require(PlanEndRules.refusal(for: world.state.tasks))
         #expect(throws: PlanRevision.Failure.endsDisagree(why)) {
-            try PlanRevision.submit(2, run: run, in: &world.state, milestone: .m3)
+            try PlanRevision.submit(2, run: run, in: &world.state)
         }
         #expect(world.state.runs[0].planRevision == 1, "nothing submitted")
         #expect(PlanRevision.Failure.endsDisagree(why).description == why)
         world.update(child) { $0.end = .commit }
-        #expect(try PlanRevision.submit(2, run: run, in: &world.state, milestone: .m3).revision == 2)
+        #expect(try PlanRevision.submit(2, run: run, in: &world.state).revision == 2)
     }
 
     @Test func aStackedEndMustBeOneItsParentCanCarry() {

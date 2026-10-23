@@ -136,6 +136,37 @@ import Foundation
         #expect(try roundTrip(run) == run)
     }
 
+    /// What `leave_for_you` recorded is kept by its key, and a run that recorded none saves as it did before.
+    @Test func whatLeaveForYouRecordedIsKeptByItsKeyAndLeftOutWhileEmpty() throws {
+        var run = OperatorRun(id: UUID(), name: "Left", profile: profile, prompt: "b", createdAt: Date(timeIntervalSince1970: 0))
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        func keys(_ run: OperatorRun) throws -> Dictionary<String, Any>.Keys {
+            try #require(try JSONSerialization.jsonObject(with: encoder.encode(run)) as? [String: Any]).keys
+        }
+        #expect(run.leftForYouRecords.isEmpty)
+        #expect(!(try keys(run)).contains("leftForYouRecords"))
+        run.leftForYouRecords = ["l1": "Marking !412 ready is yours."]
+        #expect(try keys(run).contains("leftForYouRecords"))
+        #expect(try roundTrip(run) == run)
+    }
+
+    /// A run as an earlier build saved it, with its `leftForYouRecords` and a key this build does not know, loads and
+    /// saves back the same.
+    @Test func aRunSavedByAnEarlierBuildSavesBackTheSame() throws {
+        var run = OperatorRun(id: UUID(), name: "Earlier", profile: profile, prompt: "b", state: .active, planRevision: 2,
+                              createdAt: Date(timeIntervalSince1970: 0))
+        run.leftForYouRecords = ["l1": "Marking !412 ready is yours."]
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        var saved = try #require(try JSONSerialization.jsonObject(with: encoder.encode(run)) as? [String: Any])
+        saved["milestone"] = 3
+        let data = try JSONSerialization.data(withJSONObject: saved)
+        let loaded = try decoder.decode(OperatorRun.self, from: data)
+        #expect(loaded.leftForYouRecords == ["l1": "Marking !412 ready is yours."])
+        let again = try #require(try JSONSerialization.jsonObject(with: encoder.encode(loaded)) as? [String: Any])
+        #expect(NSDictionary(dictionary: again).isEqual(to: saved))
+    }
+
     /// A launch saved before AiTerm recorded its window reads as one still opening.
     @Test func aLaunchSavedBeforeItsWindowWasRecordedReadsAsStillOpening() throws {
         let read = try JSONDecoder().decode(LaunchAttempt.self, from: Data(#"{"number":2,"requestedAt":40}"#.utf8))

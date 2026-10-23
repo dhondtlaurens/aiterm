@@ -163,7 +163,7 @@ import Foundation
     @Test func theBriefCarriesTheBroadcastAndItsRules() {
         var run = F.run()
         run.review = "Jan approves each MR"
-        let brief = OperatorCommand.brief(run: run, projects: [F.project()], milestone: .m1)
+        let brief = OperatorCommand.brief(run: run, projects: [F.project()])
         #expect(brief.hasPrefix("# You are the Operator in AiTerm"))
         #expect(brief.contains("Broadcast: Sprint 42"))
         #expect(brief.contains("Review: Jan approves each MR"))
@@ -182,9 +182,7 @@ import Foundation
         #expect(!brief.contains("propose_lesson") && !brief.lowercased().contains("persona"))
         // The 16 Oct change: merging is allowed when asked for, through finish_task only.
         #expect(!brief.lowercased().contains("never merge"))
-        #expect(brief.contains("This version of AiTerm carries out: commit."))
-        #expect(OperatorCommand.brief(run: run, projects: [], milestone: .m3)
-                .contains("carries out: commit, draft MR, merge, local merge."))
+        #expect(brief.contains("This version of AiTerm carries out: commit, draft MR, merge, local merge."))
     }
 
     /// When a worker tab (`open_tab`) is the right call, and how a task with several is briefed, steered and accepted.
@@ -250,16 +248,14 @@ import Foundation
         for oracle in [true, false] {
             for slices in [Slices.none, Slices(jira: true, review: false, merge: false), Slices(jira: false, review: true, merge: false),
                            Slices(jira: true, review: true, merge: true)] {
-                for milestone in OperatorMilestone.allCases {
-                    let brief = OperatorCommand.brief(run: F.run(oracle: oracle, slices: slices), projects: [F.project()], milestone: milestone)
-                    let outside = brief.components(separatedBy: "\n## ")
-                        .filter { !$0.hasPrefix("Hard limits\n") && !$0.hasPrefix("Instructions\n") }.joined()
-                    for word in ["Never", "never", "Forbidden", "forbidden"] {
-                        #expect(outside.range(of: "\\b\(word)\\b", options: .regularExpression) == nil,
-                                "\(word): oracle \(oracle), \(slices), \(milestone)")
-                    }
-                    #expect(section("## Hard limits", of: brief).contains("Forbidden"))
+                let brief = OperatorCommand.brief(run: F.run(oracle: oracle, slices: slices), projects: [F.project()])
+                let outside = brief.components(separatedBy: "\n## ")
+                    .filter { !$0.hasPrefix("Hard limits\n") && !$0.hasPrefix("Instructions\n") }.joined()
+                for word in ["Never", "never", "Forbidden", "forbidden"] {
+                    #expect(outside.range(of: "\\b\(word)\\b", options: .regularExpression) == nil,
+                            "\(word): oracle \(oracle), \(slices)")
                 }
+                #expect(section("## Hard limits", of: brief).contains("Forbidden"))
             }
         }
     }
@@ -412,7 +408,7 @@ import Foundation
 
     /// The brief names every end this version carries out, the local merge with them, once.
     @Test func theBriefListsTheEndsCarriedOut() {
-        let brief = OperatorCommand.brief(run: F.run(slices: Slices(jira: false, review: false, merge: true)), projects: [], milestone: .m3)
+        let brief = OperatorCommand.brief(run: F.run(slices: Slices(jira: false, review: false, merge: true)), projects: [])
         let may = section("## What you may do", of: brief)
         #expect(may.contains("Each task ends in a commit, a draft MR, a merge or a local merge, as the Done"))
         #expect(may.contains("This version of AiTerm carries out: commit, draft MR, merge, local merge."))
@@ -475,10 +471,8 @@ import Foundation
     @Test func theBriefHasNoEmDash() {
         for oracle in [true, false] {
             for slices in [Slices.none, Slices(jira: true, review: true, merge: true)] {
-                for milestone in OperatorMilestone.allCases {
-                    let brief = OperatorCommand.brief(run: F.run(oracle: oracle, slices: slices), projects: [F.project()], milestone: milestone)
-                    #expect(!brief.contains("\u{2014}"), "oracle \(oracle), \(slices), \(milestone)")
-                }
+                let brief = OperatorCommand.brief(run: F.run(oracle: oracle, slices: slices), projects: [F.project()])
+                #expect(!brief.contains("\u{2014}"), "oracle \(oracle), \(slices)")
             }
         }
         #expect(!OperatorCommand.firstMessage(for: F.run()).contains("\u{2014}"))
@@ -534,7 +528,7 @@ import Foundation
     }
 
     @Test func theBriefSendsCodeToWorkersAndAsksThroughResolveQuestion() {
-        let brief = OperatorCommand.brief(run: F.run(), projects: [F.project()], milestone: .m1)
+        let brief = OperatorCommand.brief(run: F.run(), projects: [F.project()])
         #expect(brief.contains("noVerify") && brief.contains("resolve_question"))
         #expect(brief.contains("You have a shell for looking at and repairing the environment, never for code."))
         #expect(brief.contains("WORKER"))
@@ -544,7 +538,7 @@ import Foundation
     /// The tool descriptions mention the two-step challenge only in the `challengeId` property, so
     /// Mechanics is where the Operator learns the whole exchange.
     @Test func theBriefExplainsTheTwoStepChallengePlainly() {
-        let brief = OperatorCommand.brief(run: F.run(), projects: [], milestone: .m1)
+        let brief = OperatorCommand.brief(run: F.run(), projects: [])
         #expect(brief.contains("may first return a critique, or `pending: true`"))
         #expect(brief.contains("call the same tool again with the challengeId and either a challengeReply"))
         #expect(brief.contains("or revised arguments; only that second call takes effect"))

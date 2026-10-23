@@ -123,13 +123,12 @@ public enum OperatorCommand {
     /// conversation sends none. A command too long to type goes to `launch.sh` (`typed`).
     public static func prepare(run: OperatorRun, projects: [Project], hookPort: Int = AiTermPaths.hookPort,
                                home: URL = FileManager.default.homeDirectoryForCurrentUser, token: String = makeToken(),
-                               resuming conversation: String? = nil, firstMessage message: String? = nil,
-                               milestone: OperatorMilestone = .current) throws -> Prepared {
+                               resuming conversation: String? = nil, firstMessage message: String? = nil) throws -> Prepared {
         let folder = runFolder(run.id, home: home)
         let manager = FileManager.default
         try manager.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
-        try Data(brief(run: run, projects: projects, milestone: milestone).utf8)
+        try Data(brief(run: run, projects: projects).utf8)
             .write(to: folder.appendingPathComponent(briefFile), options: .atomic)
         try writePrivate(Data(mcpConfig(hookPort: hookPort, token: token).utf8), to: folder.appendingPathComponent(mcpFile))
         // On a resume too: a reopened Operator gets the gate with its shell.
@@ -219,7 +218,7 @@ public enum OperatorCommand {
     /// obvious, and "never" and "forbidden" are kept for the hard limits, so they keep their weight. The slices are told in
     /// words as "you may" or "you may not": the tool handler is what refuses a write, the brief is how the Operator knows
     /// not to try.
-    public static func brief(run: OperatorRun, projects: [Project], milestone: OperatorMilestone = .current) -> String {
+    public static func brief(run: OperatorRun, projects: [Project]) -> String {
         let oracleIsOn = run.profile.oracle.isOn
         var sections: [(String, [String])] = [
             ("## The role", [role]),
@@ -228,7 +227,7 @@ public enum OperatorCommand {
                                      "Done: \(said(run.done) ?? "not said, so end each task at a draft MR")",
                                      "Jira projects: \(run.jiraProjectKeys.isEmpty ? "none" : run.jiraProjectKeys.joined(separator: ", "))",
                                      "Projects:"] + projects.map { "- \($0.name): \($0.path)" }).joined(separator: "\n")]),
-            ("## What you may do", [planRule(milestone: milestone)] + slicesRule(run.profile.slices, oracleIsOn: oracleIsOn)),
+            ("## What you may do", [planRule] + slicesRule(run.profile.slices, oracleIsOn: oracleIsOn)),
             ("## The backlog", [backlogRule(oracleIsOn: oracleIsOn)]),
             ("## Agent and model", [agentChoiceRule]),
             ("## Hard limits", [hardLimitsLead, bullets(hardLimits)]),
@@ -254,8 +253,8 @@ public enum OperatorCommand {
         + "A good run ends with every task where the Done says, on a commit you checked."
 
     /// The base every broadcast has: the plan starts at once, workers commit, and AiTerm carries out each task's end.
-    static func planRule(milestone: OperatorMilestone) -> String {
-        let ends = TaskEnd.allCases.filter(milestone.supports).map(\.displayName)
+    static var planRule: String {
+        let ends = TaskEnd.allCases.map(\.displayName)
         return "A plan you submit starts at once; nothing waits for approval. "
             + "Each task's agent commits on the task's branch and pushes nothing; AiTerm pushes and merges as far as the task's "
             + "end goes, through finish_task. "

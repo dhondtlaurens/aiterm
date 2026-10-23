@@ -108,12 +108,11 @@ import Foundation
         #expect(throws: PlanRevision.Failure.runIs(runState)) { try PlanRevision.submit(1, run: F.runId, in: &s) }
     }
 
-    /// Spec §13: a plan asking for more than the milestone supports is refused, not downgraded.
-    @Test func aDraftMROrMergeIsRefusedBeforeM3() throws {
-        var s = F.state(F.run(state: .planning, planRevision: 0), [F.task("A", .planned, end: .merge)])
-        #expect(throws: PlanRevision.Failure.unsupportedEnd(key: "A", .merge)) { try PlanRevision.submit(1, run: F.runId, in: &s, milestone: .m1) }
-        #expect(s.runs[0].planRevision == 0)
-        try PlanRevision.submit(1, run: F.runId, in: &s, milestone: .m3)
+    /// Every end is one AiTerm carries out (spec §13): a plan ending a task in any of them is submitted.
+    @Test(arguments: TaskEnd.allCases)
+    func aPlanEndingInAnyEndIsSubmitted(_ end: TaskEnd) throws {
+        var s = F.state(F.run(state: .planning, planRevision: 0), [F.task("A", .planned, end: end)])
+        try PlanRevision.submit(1, run: F.runId, in: &s)
         #expect(s.runs[0].planRevision == 1)
     }
 

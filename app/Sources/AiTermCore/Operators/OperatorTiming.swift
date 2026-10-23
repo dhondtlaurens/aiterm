@@ -30,9 +30,9 @@ public enum OperatorTiming {
     public static let jiraSearchBudget: TimeInterval = 20
     /// A launch attempt older than this with no tagged session may be launched again (spec §11).
     public static let launchAdoptAfter: TimeInterval = 60
-    /// M3, app only: how often `finish_task` asks the host whether a `merge` task's MR is mergeable.
+    /// App only: how often `finish_task` asks the host whether a `merge` task's MR is mergeable.
     public static let mergePoll: TimeInterval = 30
-    /// M3, app only: how long it waits for that before blocking the task and asking you.
+    /// App only: how long it waits for that before blocking the task and asking you.
     public static let mergeWait: TimeInterval = 60 * 60
     /// App only: how long after the plan is done AiTerm waits for the Operator's summary before giving up on it.
     public static let summaryWait: TimeInterval = 300
@@ -57,25 +57,7 @@ public enum OperatorTiming {
     public static let diffBaseFetchInterval: TimeInterval = 60
 }
 
-/// What this build of the operator supports (spec §13). A plan asking for more — a draft MR
-/// in M1 — is refused when submitted, with the reason, never quietly downgraded.
-public enum OperatorMilestone: Int, Comparable, CaseIterable, Sendable {
-    case m1 = 1, m2, m3
-
-    /// The milestone this build ships: M3, every end carried out.
-    public static let current: OperatorMilestone = .m3
-
-    public static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
-
-    /// Whether a plan may end a task with `end`: a commit from M1; a draft MR, a merge or a local
-    /// merge, which `finish_task` carries out, from M3.
-    public func supports(_ end: TaskEnd) -> Bool { self >= end.availableFrom }
-}
-
 public extension TaskEnd {
-    /// The first milestone whose `finish_task` can carry this end out.
-    var availableFrom: OperatorMilestone { self == .commit ? .m1 : .m3 }
-
     /// A merge through the request, or a local one: what the Merge slice governs.
     var merges: Bool { self == .merge || self == .mergeLocal }
 

@@ -354,8 +354,8 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         self.extraTabs = extraTabs; self.reopenedFrom = reopenedFrom
     }
 
-    /// Whether a worker was ever launched for it: what makes it "started" for the plan and for
-    /// the M1 re-accept rule, whatever its state is now.
+    /// Whether a worker was ever launched for it: what makes it "started" for the plan, whatever its
+    /// state is now.
     public var started: Bool { launch != nil }
 
     private enum CodingKeys: String, CodingKey {
@@ -644,7 +644,9 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     public var finds: [OffBriefFind], leftForYou: [String]
     /// What AiTerm got wrong that the Operator worked around, kept beside the summary (`report_snag`).
     public var snags: [OperatorSnag]
-    public var leftForYouRecords: [String: String]?
+    /// What each `leave_for_you` call recorded, by the key the Operator gave it: the same key again records nothing.
+    /// Left out of the save while empty.
+    public var leftForYouRecords: [String: String] = [:]
     /// The tickets `jira_create` made, by the key the Operator gave the call: the same key again returns the ticket.
     public var jiraCreated: [String: String]
     /// Where each `jira_sprint` call put its tickets, by the key the Operator gave it (a sprint's id, or `backlog`): the same
@@ -690,7 +692,6 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         self.prompt = prompt; self.review = review; self.done = done; self.state = state; self.intent = intent
         self.planRevision = planRevision; self.firstPlanSize = firstPlanSize
         self.questions = questions; self.decisions = decisions; self.finds = finds; self.snags = snags; self.leftForYou = leftForYou
-        self.leftForYouRecords = nil
         self.operatorConversation = operatorConversation; self.operatorWindowId = operatorWindowId
         self.operatorSessionId = operatorSessionId; self.challenges = challenges; self.jiraCreated = jiraCreated
         self.threadReplies = threadReplies; self.pendingWrites = pendingWrites
@@ -728,7 +729,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         finds = try c.decodeIfPresent([OffBriefFind].self, forKey: .finds) ?? []
         snags = try c.decodeIfPresent([OperatorSnag].self, forKey: .snags) ?? []
         leftForYou = try c.decodeIfPresent([String].self, forKey: .leftForYou) ?? []
-        leftForYouRecords = try c.decodeIfPresent([String: String].self, forKey: .leftForYouRecords)
+        leftForYouRecords = try c.decodeIfPresent([String: String].self, forKey: .leftForYouRecords) ?? [:]
         challenges = try c.decodeIfPresent([ChallengeRecord].self, forKey: .challenges) ?? []
         operatorConversation = try c.decodeIfPresent(String.self, forKey: .operatorConversation)
         operatorWindowId = try c.decodeIfPresent(String.self, forKey: .operatorWindowId)
@@ -776,7 +777,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         try c.encode(finds, forKey: .finds)
         try c.encode(snags, forKey: .snags)
         try c.encode(leftForYou, forKey: .leftForYou)
-        try c.encodeIfPresent(leftForYouRecords, forKey: .leftForYouRecords)
+        if !leftForYouRecords.isEmpty { try c.encode(leftForYouRecords, forKey: .leftForYouRecords) }
         try c.encode(challenges, forKey: .challenges)
         try c.encodeIfPresent(operatorConversation, forKey: .operatorConversation)
         try c.encodeIfPresent(operatorWindowId, forKey: .operatorWindowId)

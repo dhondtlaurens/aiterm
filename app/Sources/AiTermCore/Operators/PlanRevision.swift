@@ -11,9 +11,7 @@ public enum PlanRevision {
         case unknownTask(UUID)
         case runIs(OperatorRunState)
         case unknownRevision(open: Int, asked: Int)
-        case nothingSubmitted
-        case unsupportedEnd(key: String, TaskEnd)
-        /// M3: a stacked task's end its parent's end cannot carry (`PlanEndRules`), in its own words.
+        /// A stacked task's end its parent's end cannot carry (`PlanEndRules`), in its own words.
         case endsDisagree(String)
         case tooManyCodeParents(key: String)
         case codeParentInAnotherProject(key: String)
@@ -28,9 +26,6 @@ public enum PlanRevision {
             case .unknownTask(let id): return "There's no task \(id.uuidString) in this broadcast."
             case .runIs(let state): return "The broadcast is \(state.rawValue)."
             case .unknownRevision(let open, let asked): return "Revision \(asked) isn't open; the open revision is \(open)."
-            case .nothingSubmitted: return "No plan has been submitted yet."
-            case .unsupportedEnd(let key, let end):
-                return "\(key) ends in a \(end.displayName), which this version of AiTerm can't carry out yet; end it at a commit."
             case .endsDisagree(let why): return why
             case .tooManyCodeParents(let key): return "\(key) builds on more than one task's code; a task can stack on one."
             case .codeParentInAnotherProject(let key): return "\(key) builds on code in another project; a code dependency stays in one project."
@@ -54,17 +49,16 @@ public enum PlanRevision {
     }
 
     /// Closes the open revision `revision` (spec §6 `submit_plan`). Refused, with the reason, when
-    /// the plan asks for more than this milestone supports or its dependencies cannot work. Its
+    /// its dependencies or its ends cannot work. Its
     /// planned tasks are released at once and the run is active (a complete run reopens, spec §9);
     /// the first submit also records how many tasks the plan had, `firstPlanSize`.
     @discardableResult
-    public static func submit(_ revision: Int, run id: UUID, in state: inout AppState,
-                              milestone: OperatorMilestone = .current) throws(Failure) -> Submitted {
+    public static func submit(_ revision: Int, run id: UUID, in state: inout AppState) throws(Failure) -> Submitted {
         guard let run = state.run(id: id) else { throw .unknownRun(id) }
         guard [.planning, .active, .complete].contains(run.state) else { throw .runIs(run.state) }
         if revision >= 1, revision <= run.planRevision { return Submitted(revision: revision, repeated: true) }
         guard revision == run.openRevision else { throw .unknownRevision(open: run.openRevision, asked: revision) }
-        try validate(state, run: id, milestone: milestone)
+        try validate(state, run: id)
 
         let size = state.tasks(inRun: id).count
         state.updateRun(id: id) { run in
@@ -79,10 +73,9 @@ public enum PlanRevision {
 
     /// `submit(_:run:in:)` for the open revision.
     @discardableResult
-    public static func submit(run id: UUID, in state: inout AppState,
-                              milestone: OperatorMilestone = .current) throws(Failure) -> Submitted {
+    public static func submit(run id: UUID, in state: inout AppState) throws(Failure) -> Submitted {
         guard let run = state.run(id: id) else { throw .unknownRun(id) }
-        return try submit(run.openRevision, run: id, in: &state, milestone: milestone)
+        return try submit(run.openRevision, run: id, in: &state)
     }
 
     /// `update_task` on an unstarted task: the change belongs to the open revision, and a queued
@@ -96,10 +89,10 @@ public enum PlanRevision {
         state.tasks[index].operated?.revision = run.openRevision
     }
 
-    /// Whether the run's plan can be carried out: every end supported by `milestone`, at most one
-    /// `code` parent per task and in its own project, every dependency inside the run, no circle, and every stacked end one its parent's can carry
-    /// (`PlanEndRules`, over every revision's tasks of the run).
-    public static func validate(_ state: AppState, run id: UUID, milestone: OperatorMilestone = .current) throws(Failure) {
+    /// Whether the run's plan can be carried out: at most one `code` parent per task and in its own project, every
+    /// dependency inside the run, no circle, and every stacked end one its parent's can carry (`PlanEndRules`, over every
+    /// revision's tasks of the run).
+    public static func validate(_ state: AppState, run id: UUID) throws(Failure) {
         let tasks = state.tasks(inRun: id)
         // One id twice is a corrupt state: reading only the first of them could hide a circle or a bad parent in the other.
         var seen: Set<UUID> = []
@@ -107,7 +100,6 @@ public enum PlanRevision {
         let byId = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for task in tasks {
             guard let o = task.operated else { continue }
-            if !o.started, !milestone.supports(o.end) { throw .unsupportedEnd(key: o.key, o.end) }
             let code = o.dependsOn.filter { $0.kind == .code }
             if code.count > 1 { throw .tooManyCodeParents(key: o.key) }
             for dependency in o.dependsOn {

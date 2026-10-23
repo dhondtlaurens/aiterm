@@ -23,7 +23,7 @@ import Testing
         task.operated?.end = .commit
         run.questions = [OperatorQuestion(id: "prompt-old", text: "Permission?", task: task.id, askedAt: OperatorFixtures.epoch)]
         let state = OperatorFixtures.state(run, [task])
-        #expect(OperatorRequests.open(run: run, state: state, prompts: [task.id: "run tests"]).isEmpty)
+        #expect(OperatorRequests.open(run: run, state: state).isEmpty)
         #expect(RunScheduler.isComplete(run, in: state))
     }
 
@@ -33,7 +33,7 @@ import Testing
         task.operated?.end = .merge
         task.operated?.publication = TaskPublication(problem: "CI failed.")
         let state = OperatorFixtures.state(run, [task])
-        let requests = OperatorRequests.open(run: run, state: state, prompts: [:])
+        let requests = OperatorRequests.open(run: run, state: state)
         #expect(requests.first?.text == "\(task.title): CI failed.")
         #expect(OperatorLine.task(task, run: run, acting: nil, requests: requests)?.look == .needsYou)
     }

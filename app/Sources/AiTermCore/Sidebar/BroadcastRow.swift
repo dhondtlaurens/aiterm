@@ -115,7 +115,7 @@ public extension SidebarModel {
         let tasks = state.tasks(inRun: run.id)
         let tabs = Tabs(sessions), operated = OperatedLookup(state: state, acting: acting.tasks, turns: acting.turns)
         let rows = tasks.map { taskRow($0, tabs: tabs, operated: operated, branchByCwd: branchByCwd, diffByTask: diffByTask) }
-        let requests = OperatorRequests.open(run: run, state: state, prompts: [:])
+        let requests = OperatorRequests.open(run: run, state: state)
         return BroadcastSection(header: header,
                                 operatorRow: operatorRow(run, tasks: tasks, acting: acting, requests: requests, sessions: sessions),
                                 tasks: rows.filter { !$0.queued } + rows.filter(\.queued),
@@ -127,7 +127,7 @@ public extension SidebarModel {
     static func broadcastRow(state: AppState, acting: OperatorActs = .none, sessions: [SessionInfo] = []) -> BroadcastRow? {
         guard let run = state.activeRun else { return nil }
         let tasks = state.tasks.filter { $0.operated?.runId == run.id }
-        let requests = OperatorRequests.open(run: run, state: state, prompts: [:])
+        let requests = OperatorRequests.open(run: run, state: state)
         let line = OperatorLine.broadcast(run, tasks: tasks, acting: acting.broadcast(run.id), requests: requests,
                                           ready: readyForAcceptance(tasks, sessions: sessions))
         let projects = run.projectIds.compactMap(state.project(id:))

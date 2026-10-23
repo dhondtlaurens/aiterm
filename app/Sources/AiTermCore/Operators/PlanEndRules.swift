@@ -1,6 +1,6 @@
 import Foundation
 
-/// What a plan's ends must agree on (M3). Every end is allowed on its own: commit, draft MR, merge,
+/// What a plan's ends must agree on. Every end is allowed on its own: commit, draft MR, merge,
 /// local merge. A stacked task's request targets its parent's branch, so a task that ends in a request
 /// builds only on a parent whose own end pushes that branch (a local merge pushes nothing); one that
 /// ends in a merge, through the request or local, merges after its parent, so not on a draft.

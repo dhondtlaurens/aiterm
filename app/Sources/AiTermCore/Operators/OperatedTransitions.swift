@@ -26,8 +26,6 @@ public enum OperatedAction: Equatable, Sendable {
     /// The operator's `message_task` to an accepted task whose commit is not on origin yet (spec §D): back to `working`,
     /// the worker kept, `reopenedFrom` the commit it was accepted on.
     case reopen
-    /// `finish_task` (M3) has carried out the task's end; `publication` records its steps.
-    case publish(TaskPublication)
     /// You: Stop task, or Stop on the whole operation.
     case stop
 }
@@ -37,17 +35,11 @@ public struct OperatedContext: Equatable, Sendable {
     public var runState: OperatorRunState
     /// The run's snapshot `limits.retries`.
     public var retryLimit: Int
-    /// Whether a task with a `code` dependency on this one has started (M1 re-accept rule, spec §8).
-    public var codeDependentStarted: Bool
-    public var milestone: OperatorMilestone
     /// The run's snapshot `limits.runtimeMinutes`, in seconds; nil where a caller does not say.
     public var runtimeLimit: TimeInterval?
 
-    public init(runState: OperatorRunState, retryLimit: Int, codeDependentStarted: Bool = false,
-                milestone: OperatorMilestone = .current, runtimeLimit: TimeInterval? = nil) {
-        self.runState = runState; self.retryLimit = retryLimit
-        self.codeDependentStarted = codeDependentStarted; self.milestone = milestone
-        self.runtimeLimit = runtimeLimit
+    public init(runState: OperatorRunState, retryLimit: Int, runtimeLimit: TimeInterval? = nil) {
+        self.runState = runState; self.retryLimit = retryLimit; self.runtimeLimit = runtimeLimit
     }
 }
 
@@ -60,11 +52,7 @@ public enum OperatedTransitionError: Error, Equatable, CustomStringConvertible {
     case notInRevision(released: Int, taskRevision: Int)
     case missingEvidence
     case notTheBranchHead(sha: String, head: String)
-    case reacceptAfterDependentStarted
     case noRetriesLeft(limit: Int)
-    case endIsCommit
-    case notInThisMilestone(TaskEnd)
-    case publishedSHANotAccepted(String)
     /// noChange on a task steered back to work after it was accepted on that commit: it would drop the commit.
     case reopenedFromAcceptedCommit(String)
     case unknownTask(UUID)
@@ -81,12 +69,7 @@ public enum OperatedTransitionError: Error, Equatable, CustomStringConvertible {
             return "The task changed in plan revision \(revision); revision \(released) doesn't release it."
         case .missingEvidence: return "Accepting needs the result SHA and the worker's check output."
         case .notTheBranchHead(let sha, let head): return "\(sha) isn't the branch's head (\(head)); the branch moved."
-        case .reacceptAfterDependentStarted:
-            return "A task building on this one has started, so it can't be accepted again on another SHA."
         case .noRetriesLeft(let limit): return "No retries left: all \(limit) are used."
-        case .endIsCommit: return "The plan ends this task at a commit; there's nothing to publish."
-        case .notInThisMilestone(let end): return "This version of AiTerm can't carry out a \(end.displayName) yet."
-        case .publishedSHANotAccepted(let sha): return "\(sha) isn't the accepted SHA."
         case .reopenedFromAcceptedCommit(let sha):
             return "This task was accepted on \(sha.prefix(7)) before it was steered back to work, so noChange would drop that commit. "
                 + "If its worker needs to change nothing, accept \(sha.prefix(7)) again with mark_task accepted."
@@ -128,10 +111,10 @@ public enum OperatedTransitions {
             next.blockedReason = nil
 
         case .accept(let acceptance, let head):
-            // From M3 a published task is accepted again on a new commit (spec §8, upstream
-            // replacement): `finish_task` then pushes it to the same request. Before M3 nothing is published.
+            // A published task is accepted again on a new commit (spec §8, upstream replacement): `finish_task`
+            // then pushes it to the same request, and the caller replaces what its dependents built on (`UpstreamReplacement`).
             // A task in review is accepted again once its agent fixed the feedback (spec §5, the Review slice).
-            let accepted: Set<OperatedState> = context.milestone >= .m3 ? [.accepted, .published, .inReview] : [.accepted]
+            let accepted: Set<OperatedState> = [.accepted, .published, .inReview]
             guard task.state == .working || accepted.contains(task.state) else { throw refuse() }
             let sha = acceptance.resultSHA.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !sha.isEmpty, !acceptance.checkOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -139,10 +122,6 @@ public enum OperatedTransitions {
             // A repeat names the commit already accepted: the earlier result, even if the branch moved since.
             if accepted.contains(task.state), let earlier = task.acceptance, sameCommit(sha, earlier.resultSHA) { return task }
             guard sameCommit(sha, head) else { throw .notTheBranchHead(sha: sha, head: head) }
-            if accepted.contains(task.state), task.acceptance != nil {
-                // M1 and M2 (spec §8); from M3 the started dependents are replaced instead (part G's `UpstreamReplacement`).
-                if context.codeDependentStarted, context.milestone < .m3 { throw .reacceptAfterDependentStarted }
-            }
             next.state = .accepted
             next.reopenedFrom = nil
             // The head, in full: what a dependent branches from and a publication must push.
@@ -198,22 +177,9 @@ public enum OperatedTransitions {
         case .reopen:
             if task.state == .working, task.reopenedFrom != nil { return task }
             guard isReopenable(task) else { throw refuse() }
-            // Before M3 a parent whose dependent started is never accepted again on another commit.
-            if context.codeDependentStarted, context.milestone < .m3 { throw .reacceptAfterDependentStarted }
             next.state = .working
             next.reopenedFrom = task.acceptance?.resultSHA
             next.acceptance = nil
-
-        case .publish(let publication):
-            if task.state == .published, task.publication == publication { return task }
-            guard task.state == .accepted || task.state == .published else { throw refuse() }
-            guard task.end != .commit else { throw .endIsCommit }
-            guard context.milestone.supports(task.end) else { throw .notInThisMilestone(task.end) }
-            if let pushed = publication.pushedSHA, let accepted = task.acceptance?.resultSHA, !sameCommit(pushed, accepted) {
-                throw .publishedSHANotAccepted(pushed)
-            }
-            next.state = .published
-            next.publication = publication
 
         case .stop:
             if task.state == .stopped { return task }
@@ -266,7 +232,7 @@ public enum OperatedTransitions {
         case .stop: return [.you]
         case .release, .start: return [.aiterm]
         case .block: return [.operatorTool, .aiterm]
-        case .accept, .noChange, .fail, .resume, .retry, .reopen, .publish: return [.operatorTool]
+        case .accept, .noChange, .fail, .resume, .retry, .reopen: return [.operatorTool]
         }
     }
 
@@ -306,7 +272,6 @@ public enum OperatedTransitions {
         case .resume: return "resume"
         case .retry: return "be retried"
         case .reopen: return "be reopened"
-        case .publish: return "be published"
         case .stop: return "be stopped"
         }
     }

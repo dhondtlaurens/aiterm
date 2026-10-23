@@ -23,7 +23,7 @@ import Testing
     }
 
     func makeFamily(childState: OperatedState = .working, oracle: Bool = false, runState: OperatorRunState = .active,
-                    runner: SecondOpinionRunner? = nil, milestone: OperatorMilestone = .m3) throws -> Family {
+                    runner: SecondOpinionRunner? = nil) throws -> Family {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-upstream-"))
         let run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: oracle, oracleAgent: .claude), projects: [project], state: runState)
         var parent = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-230", state: .working, end: .draftMR)
@@ -43,7 +43,6 @@ import Testing
         }
         if childState == .published { child.operated?.publication = TaskPublication(pushedSHA: childTip, mergeRequestNumber: 12) }
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [parent, child])) { ports in
-            ports.milestone = milestone
             if let runner { ports.secondOpinion = runner }
         }
         return Family(world: world, run: run, parent: parent, child: child, first: first, childTip: childTip)
@@ -204,14 +203,6 @@ import Testing
         #expect(acted.value?["revokedDependents"] == ["PLUTO-231"])
         #expect(family.world.task(family.parent.id)?.operated?.acceptance?.resultSHA == second)
         #expect(family.world.task(family.child.id)?.operated?.flags.contains(.upstreamReplaced) == true)
-    }
-
-    @Test func beforeM3ARepeatedAcceptWithAStartedDependentIsStillRefused() async throws {
-        let family = try makeFamily(childState: .working, milestone: .m1)
-        family.world.workspace.mutate { $0.updateOperated(family.parent.id) { $0.state = .accepted } }
-        let second = try commit("b.swift", in: family.parent.worktreePath)
-        #expect(await accept("PLUTO-230", second, in: family).message == OperatedTransitionError.reacceptAfterDependentStarted.description)
-        #expect(family.world.task(family.child.id)?.operated?.flags.isEmpty == true)
     }
 
     @Test func aMergedTaskIsNotAcceptedAgain() async throws {

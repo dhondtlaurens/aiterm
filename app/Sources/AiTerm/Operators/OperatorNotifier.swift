@@ -47,20 +47,16 @@ protocol OperatorNotifications: AnyObject {
 final class OperatorNotifier {
     private let notifications: any OperatorNotifications
     private let state: @MainActor () -> AppState
-    private let prompts: @MainActor () -> [UUID: String]
     /// What is showing now, by run: each id this run of AiTerm has sent and not withdrawn, with the body it
     /// carries, and from the launch's listing on each id an earlier run left that was still asked then.
     private var posted: [UUID: [String: String]] = [:]
     /// The launch's reading of the centre, for a test to await.
     private(set) var lastListing: Task<Void, Never>?
 
-    /// `state` is the workspace as it stands; `prompts` what each waiting worker's prompt asks, by task,
-    /// where it is known (`OperatorRequests.open`).
-    init(notifications: any OperatorNotifications, state: @escaping @MainActor () -> AppState,
-         prompts: @escaping @MainActor () -> [UUID: String] = { [:] }) {
+    /// `state` is the workspace as it stands.
+    init(notifications: any OperatorNotifications, state: @escaping @MainActor () -> AppState) {
         self.notifications = notifications
         self.state = state
-        self.prompts = prompts
         lastListing = Task { [weak self] in
             guard let self else { return }
             takeDelivered(await notifications.readDelivered())
@@ -91,7 +87,7 @@ final class OperatorNotifier {
     /// What the run asks of you now, as notes: each request on its own, and once every task is done and its
     /// summary settled, that it is ready — or, given up on, that the tasks are done.
     private func wanted(for run: OperatorRun, in state: AppState) -> [OperatorNote] {
-        var notes: [OperatorNote] = OperatorRequests.open(run: run, state: state, prompts: prompts()).map { request in
+        var notes: [OperatorNote] = OperatorRequests.open(run: run, state: state).map { request in
             // A prompt only you can answer opens its task's window; anything else, the broadcast's overview.
             var target = OperatorNote.Target.overview(run.id)
             if request.kind == .permission, let task = request.taskId { target = .task(task) }

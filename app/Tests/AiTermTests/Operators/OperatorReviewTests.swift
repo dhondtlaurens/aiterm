@@ -73,7 +73,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
     @Test(arguments: [0, 1, 2, 3], ["pause", "end", "takeover", "handback", "state"])
     func reacceptRechecksAfterEachRead(_ read: Int, _ change: String) async throws {
         let git = ReviewGit()
-        let (world, run, task) = try fixture(git: git) { $0.milestone = .m3 }
+        let (world, run, task) = try fixture(git: git)
         var parent = OperatorServiceFixtures.task(in: run, project: project, key: "parent", state: .accepted)
         parent.operated?.acceptance = TaskAcceptance(resultSHA: "parent-sha", prerequisiteSHAs: [], checkOutput: "ok", note: nil,
                                                     at: Date(timeIntervalSince1970: 0))

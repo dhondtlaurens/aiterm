@@ -32,9 +32,6 @@ struct OperatorPorts {
     var summarySleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// How often the run reconciler looks at the real tabs.
     var reconcileInterval: Duration = .seconds(OperatorTiming.reconcileInterval)
-    /// What this build carries out (spec §13). A test that pins one milestone's rules names it, so
-    /// raising `OperatorMilestone.current` (F1, G6) leaves it as it was.
-    var milestone: OperatorMilestone = .current
     /// The code host a project's requests are published on, with the connections Settings saved (G10):
     /// `remote` is origin's, the repository the push goes to. The tokens stay in the clients.
     var publisher: @Sendable (RemoteInfo) throws -> any MergeRequestPublishing = { remote in
@@ -480,10 +477,10 @@ final class OperatorController {
         let run = OperatorRun(id: UUID(), name: OperatorCommand.said(name) ?? Self.operationName(from: prompt), profile: profile,
                               projectIds: projectIds, jiraProjectKeys: jiraProjectKeys, prompt: prompt,
                               review: OperatorCommand.said(review), done: OperatorCommand.said(done), createdAt: ports.now())
-        let home = ports.home, milestone = ports.milestone
+        let home = ports.home
         // A fresh start: `prepare` makes the token and writes the first message the command reads.
         let prepared = try await BackgroundWork.run {
-            try OperatorCommand.prepare(run: run, projects: projects, home: home, milestone: milestone)
+            try OperatorCommand.prepare(run: run, projects: projects, home: home)
         }
         // The workspace may have been locked while the folder was written, or another start got there first.
         guard workspace.canChangeWorkspace, activeRun == nil else {

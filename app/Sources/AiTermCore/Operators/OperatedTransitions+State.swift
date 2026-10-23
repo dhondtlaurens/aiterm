@@ -14,23 +14,17 @@ public extension OperatedTransitions {
     /// - a **retried** task puts the tasks its failure blocked, none of which ever ran, back in
     ///   the queue.
     ///
-    /// The context comes from the task's run: its state, its snapshot's retry limit, and whether a
-    /// `code` dependent has started. Returns the ids of every task it changed, the task's first;
-    /// none when the action was a repeat.
+    /// The context comes from the task's run: its state, its snapshot's retry limit and runtime. Returns
+    /// the ids of every task it changed, the task's first; none when the action was a repeat.
     @discardableResult
-    static func apply(_ action: OperatedAction, toTask id: UUID, in state: inout AppState, by actor: OperatedActor,
-                      milestone: OperatorMilestone = .current) throws(OperatedTransitionError) -> [UUID] {
+    static func apply(_ action: OperatedAction, toTask id: UUID, in state: inout AppState,
+                      by actor: OperatedActor) throws(OperatedTransitionError) -> [UUID] {
         guard let index = state.tasks.firstIndex(where: { $0.id == id }) else { throw .unknownTask(id) }
         guard let task = state.tasks[index].operated else { throw .notOperated(id) }
         guard let run = state.run(id: task.runId) else { throw .unknownRun(task.runId) }
         let runTasks = state.tasks(inRun: run.id)
-        let context = OperatedContext(
-            runState: run.state, retryLimit: OperatorTiming.retries,
-            codeDependentStarted: runTasks.contains { other in
-                guard let o = other.operated else { return false }
-                return o.started && o.dependsOn.contains(TaskDependency(task: id, kind: .code))
-            },
-            milestone: milestone, runtimeLimit: TimeInterval(OperatorTiming.runtimeMinutes * 60))
+        let context = OperatedContext(runState: run.state, retryLimit: OperatorTiming.retries,
+                                      runtimeLimit: TimeInterval(OperatorTiming.runtimeMinutes * 60))
 
         let next = try apply(action, to: task, by: actor, context: context)
         guard next != task else { return [] }

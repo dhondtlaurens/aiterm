@@ -105,7 +105,7 @@ import Testing
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
         // The Operator's row says it waits on you about that task, as it does for a question it asked.
         let current = try #require(world.run(run.id))
-        let requests = OperatorRequests.open(run: current, state: world.state, prompts: [:])
+        let requests = OperatorRequests.open(run: current, state: world.state)
         #expect(requests.map(\.kind) == [.question] && requests.first?.key == "gate-1" && requests.first?.taskId == task.id)
         let row = SidebarModel.operatorRow(current, tasks: world.state.tasks(inRun: run.id), acting: .none, requests: requests, sessions: [])
         #expect(row.line.look == .needsYou && row.line.text.hasPrefix("waiting on you") && row.line.text.contains("Task A"))

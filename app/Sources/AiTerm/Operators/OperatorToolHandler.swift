@@ -450,9 +450,8 @@ final class OperatorToolHandler {
         let key = try call.string("key"), text = try call.string("text")
         mutate(in: run.id) { state in
             state.updateRun(id: run.id) {
-                guard $0.leftForYouRecords?[key] == nil else { return }
-                if $0.leftForYouRecords == nil { $0.leftForYouRecords = [:] }
-                $0.leftForYouRecords?[key] = text
+                guard $0.leftForYouRecords[key] == nil else { return }
+                $0.leftForYouRecords[key] = text
                 $0.leftForYou.append(text)
             }
         }

@@ -14,22 +14,22 @@ import Foundation
         return task
     }
 
-    func open(_ run: OperatorRun, _ tasks: [TaskItem], prompts: [UUID: String] = [:]) -> [BroadcastRequest] {
-        OperatorRequests.open(run: run, state: OperatorFixtures.state(run, tasks), prompts: prompts)
+    func open(_ run: OperatorRun, _ tasks: [TaskItem]) -> [BroadcastRequest] {
+        OperatorRequests.open(run: run, state: OperatorFixtures.state(run, tasks))
     }
 
-    @Test func aWorkersPromptWithItsCommandSaysWhatItAsksToRun() {
+    @Test func aWorkersPromptIsAPermissionRequestOnItsTask() {
         let task = codexTask("PAY-1")
         var run = run
         run.questions = [OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Codex asks for permission", task: task.id, askedAt: OperatorFixtures.epoch)]
-        let requests = open(run, [task], prompts: [task.id: "run npm install"])
+        let requests = open(run, [task])
         #expect(requests.map(\.kind) == [.permission])
-        #expect(requests.first?.text == "Codex asks to run npm install in Payment provider switch.")
+        #expect(requests.first?.text == "Codex asks for permission in Payment provider switch.")
         #expect(requests.first?.taskId == task.id)
         #expect(requests.first?.id == "request-\(run.id.uuidString)-\(task.id.uuidString)-permission")
     }
 
-    @Test func aPromptWithNoCommandIsSaidAsItWasRecorded() {
+    @Test func aPromptIsSaidAsItWasRecorded() {
         let task = codexTask("PAY-2")
         var run = run
         run.questions = [OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Codex shows a menu", task: task.id, askedAt: OperatorFixtures.epoch)]
@@ -108,7 +108,7 @@ import Foundation
         var run = run
         run.questions = [OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Codex asks for permission", task: task.id, askedAt: OperatorFixtures.epoch),
                          OperatorQuestion(id: "about-it", text: "Keep it?", task: task.id, askedAt: OperatorFixtures.epoch)]
-        #expect(open(run, [task], prompts: [task.id: "run npm install"]).isEmpty)
+        #expect(open(run, [task]).isEmpty)
     }
 
     @Test func anEndedBroadcastHasNoRequest() {
@@ -125,6 +125,6 @@ import Foundation
         task.operated?.blockedReason = "Retries used up."
         var run = run
         run.questions = [OperatorQuestion(id: "q", text: "Which one?", task: nil, askedAt: OperatorFixtures.epoch)]
-        #expect(open(run, [task], prompts: [task.id: "run npm install"]).allSatisfy { !$0.text.contains("—") })
+        #expect(open(run, [task]).allSatisfy { !$0.text.contains("—") })
     }
 }

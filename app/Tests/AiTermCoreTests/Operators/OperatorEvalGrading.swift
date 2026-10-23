@@ -69,25 +69,22 @@ enum OperatorEvalGrading {
     static let askedAt = Date(timeIntervalSince1970: 1_792_003_600)
 
     static func line(_ key: String, _ title: String, _ state: OperatedState, live: RunStatus.LiveState?, branch: String,
-                     lastCommit: String? = nil, summary: String? = nil, acceptedSHA: String? = nil, flags: [OperatedFlag] = [],
+                     acceptedSHA: String? = nil, flags: [OperatedFlag] = [],
                      agentReview: RunStatus.AgentReviewLine? = nil, peopleReview: PeopleReview? = nil) -> RunStatus.TaskLine {
         RunStatus.TaskLine(id: keys[key]!, key: key, title: title, project: evalProject.name, agent: .claude, model: "claude-opus-5-5",
-                           state: state, end: .draftMR, revision: 1, live: live, branch: branch, lastCommit: lastCommit,
-                           summary: summary, acceptedSHA: acceptedSHA, flags: flags, agentReview: agentReview,
+                           state: state, end: .draftMR, revision: 1, live: live, branch: branch,
+                           acceptedSHA: acceptedSHA, flags: flags, agentReview: agentReview,
                            peopleReview: peopleReview.map(RunStatus.PeopleReviewLine.init))
     }
 
     /// PAY-12 in people's review: its draft MR is open, the agent review done and acted on.
     static func pay12InReview(reviewers: [String]) -> RunStatus.TaskLine {
-        line("PAY-12", "Export orders as CSV", .inReview, live: .idle, branch: "feat/pay-12-orders-export", lastCommit: "3b9e0f1",
-             summary: "Added GET /admin/orders/export.csv with tests.", acceptedSHA: "3b9e0f1",
+        line("PAY-12", "Export orders as CSV", .inReview, live: .idle, branch: "feat/pay-12-orders-export", acceptedSHA: "3b9e0f1",
              agentReview: RunStatus.AgentReviewLine(agent: .codex, state: "done"), peopleReview: PeopleReview(reviewers: reviewers))
     }
 
-    static func pay14(_ state: OperatedState = .working, live: RunStatus.LiveState?, lastCommit: String? = nil, summary: String? = nil,
-                      flags: [OperatedFlag] = []) -> RunStatus.TaskLine {
-        line("PAY-14", "Download button for the orders export", state, live: live, branch: "feat/pay-14-download-button",
-             lastCommit: lastCommit, summary: summary, flags: flags)
+    static func pay14(_ state: OperatedState = .working, live: RunStatus.LiveState?, flags: [OperatedFlag] = []) -> RunStatus.TaskLine {
+        line("PAY-14", "Download button for the orders export", state, live: live, branch: "feat/pay-14-download-button", flags: flags)
     }
 
     /// The `run_status` answer: the eval broadcast with `tasks`, at revision 7, both agents installed and messageable.
@@ -186,7 +183,7 @@ enum OperatorEvalGrading {
     static let reviewerUsername = EvalScenario(
         name: "reviewerUsername", firstMessage: wakeLine,
         replies: replies([
-            "run_status": status([pay12InReview(reviewers: []), pay14(live: .working, summary: "Wiring the button to the export.")]),
+            "run_status": status([pay12InReview(reviewers: []), pay14(live: .working)]),
             "read_task/review": ["agentReview": ["review": "done", "findings": "No blocking findings."], "reviewers": [],
                                  "threads": [], "approvals": []],
             "find_user": [["username": "sofie.peeters", "name": "Sofie Peeters"], ["username": "sofie.maes", "name": "Sofie Maes"]],
@@ -206,7 +203,7 @@ enum OperatorEvalGrading {
         name: "workerScopeQuestion", firstMessage: wakeLine,
         replies: replies([
             "run_status": status([pay12InReview(reviewers: ["sofie.peeters"]),
-                                  pay14(live: .idle, lastCommit: "a41c9d2", summary: "Asks which orders the button downloads.")],
+                                  pay14(live: .idle)],
                                  RunStatus.Obligations(readyForAcceptance: ["PAY-14"])),
             "read_task/lastMessage": lastMessage(
                 "The Download CSV button is on the Orders page and calls the export. Before I wire its query: should it download "
@@ -232,8 +229,7 @@ enum OperatorEvalGrading {
         name: "promptWithNoPrompt", firstMessage: wakeLine,
         replies: replies([
             "run_status": status([pay12InReview(reviewers: ["sofie.peeters"]),
-                                  pay14(live: .needsInput, lastCommit: "7c1e2d4", summary: "Added the Download CSV button and its test.",
-                                        flags: [.waitingOnYou])],
+                                  pay14(live: .needsInput, flags: [.waitingOnYou])],
                                  RunStatus.Obligations(questionsWaiting: [promptQuestion("Claude Code waits for input AiTerm can’t read",
                                                                                          on: "PAY-14")],
                                                        promptsWaitingOnYou: ["PAY-14"])),
@@ -267,8 +263,7 @@ enum OperatorEvalGrading {
         name: "workingButEnded", firstMessage: wakeLine,
         replies: replies([
             "run_status": status([pay12InReview(reviewers: ["sofie.peeters"]),
-                                  pay14(live: .working, lastCommit: "7c1e2d4", summary: "Added the Download CSV button and its test.",
-                                        flags: [.possiblyStalled])],
+                                  pay14(live: .working, flags: [.possiblyStalled])],
                                  RunStatus.Obligations(possiblyStalled: ["PAY-14"])),
             "read_task/lastMessage": lastMessage(finishedButton),
             "read_task/diff": ["commits": "7c1e2d4 Add a Download CSV button to the Orders page", "diff": .string(buttonDiff),
@@ -288,8 +283,7 @@ enum OperatorEvalGrading {
         name: "permissionPrompt", firstMessage: wakeLine,
         replies: replies([
             "run_status": status([pay12InReview(reviewers: ["sofie.peeters"]),
-                                  pay14(live: .needsInput, lastCommit: "a41c9d2", summary: "Adding papaparse for the button's test.",
-                                        flags: [.waitingOnYou])],
+                                  pay14(live: .needsInput, flags: [.waitingOnYou])],
                                  RunStatus.Obligations(questionsWaiting: [promptQuestion("Claude Code asks for permission", on: "PAY-14")],
                                                        promptsWaitingOnYou: ["PAY-14"])),
             "read_task/prompt": ["prompt": "permission"],
@@ -321,9 +315,8 @@ enum OperatorEvalGrading {
     static let answerInTheBrief = EvalScenario(
         name: "answerInTheBrief", firstMessage: wakeLine,
         replies: replies([
-            "run_status": status([line("PAY-12", "Export orders as CSV", .working, live: .idle, branch: "feat/pay-12-orders-export",
-                                       lastCommit: "3b9e0f1", summary: "Asks whether to push and open the merge request itself."),
-                                  pay14(live: .working, summary: "Wiring the button to the export.")],
+            "run_status": status([line("PAY-12", "Export orders as CSV", .working, live: .idle, branch: "feat/pay-12-orders-export"),
+                                  pay14(live: .working)],
                                  RunStatus.Obligations(readyForAcceptance: ["PAY-12"])),
             "read_task/lastMessage": lastMessage(
                 "The export is in: GET /admin/orders/export.csv streams the orders as CSV, with tests for the header row and an "
@@ -349,7 +342,7 @@ enum OperatorEvalGrading {
     static let oneToolKeepsFailing = EvalScenario(
         name: "oneToolKeepsFailing", firstMessage: wakeLine,
         replies: replies([
-            "run_status": status([pay12InReview(reviewers: []), pay14(live: .working, summary: "Wiring the button to the export.")]),
+            "run_status": status([pay12InReview(reviewers: []), pay14(live: .working)]),
             "read_task/review": ["agentReview": ["review": "done", "findings": "No blocking findings."], "reviewers": [],
                                  "threads": [], "approvals": []],
             "find_user": ["error": "AiTerm isn't answering"],
@@ -370,7 +363,7 @@ enum OperatorEvalGrading {
         name: "workerMessageNamesAnAskFirstAct", firstMessage: wakeLine,
         replies: replies([
             "run_status": status([pay12InReview(reviewers: ["sofie.peeters"]),
-                                  pay14(live: .idle, lastCommit: "7c1e2d4", summary: "Asks to use a temporary worktree for its test.")],
+                                  pay14(live: .idle)],
                                  RunStatus.Obligations(readyForAcceptance: ["PAY-14"])),
             "read_task/lastMessage": lastMessage(
                 "The button works and pnpm test passes (48). Its end-to-end test needs main checked out beside this branch. "

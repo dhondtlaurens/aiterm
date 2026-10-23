@@ -157,7 +157,7 @@ import Foundation
         twin.operated?.key = "X-1-twin"
         world.state.tasks.append(twin)
         #expect(throws: PlanRevision.Failure.duplicateTask(key: "X-1-twin")) {
-            try PlanRevision.validate(world.state, run: run, milestone: .m3)
+            try PlanRevision.validate(world.state, run: run)
         }
     }
 
@@ -172,7 +172,7 @@ import Foundation
         twin.operated?.dependsOn = [TaskDependency(task: y, kind: .order)]
         world.state.tasks.append(twin)
         #expect(throws: PlanRevision.Failure.duplicateTask(key: "X-1-twin")) {
-            try PlanRevision.validate(world.state, run: run, milestone: .m3)
+            try PlanRevision.validate(world.state, run: run)
         }
     }
 
@@ -187,7 +187,7 @@ import Foundation
         twin.projectId = UUID()
         world.state.tasks.append(twin)
         #expect(throws: PlanRevision.Failure.duplicateTask(key: "P-1-twin")) {
-            try PlanRevision.validate(world.state, run: run, milestone: .m3)
+            try PlanRevision.validate(world.state, run: run)
         }
     }
 
@@ -196,7 +196,7 @@ import Foundation
         let run = world.addRun()
         let parent = world.addTask("P-1", run: run)
         world.addTask("C-1", run: run, dependsOn: [TaskDependency(task: parent, kind: .order)])
-        try PlanRevision.validate(world.state, run: run, milestone: .m3)
+        try PlanRevision.validate(world.state, run: run)
     }
 
     @Test func aTaskNeverStartsBeforeItsParent() {

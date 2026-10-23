@@ -445,7 +445,7 @@ public enum SidebarModel {
             self.acting = acting
             self.turns = turns
             // What waits on you, as the notifications say it; no prompt's words are known here.
-            for run in runs.values { requests[run.id] = OperatorRequests.open(run: run, state: state, prompts: [:]) }
+            for run in runs.values { requests[run.id] = OperatorRequests.open(run: run, state: state) }
         }
     }
 

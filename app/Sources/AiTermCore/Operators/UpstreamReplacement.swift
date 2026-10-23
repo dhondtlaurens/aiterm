@@ -1,6 +1,6 @@
 import Foundation
 
-/// M3's re-acceptance (spec §8). A task accepted again on another commit replaces what its `code`
+/// Re-acceptance (spec §8). A task accepted again on another commit replaces what its `code`
 /// dependents were built on: one already accepted loses its acceptance and goes back to working,
 /// and every started one is flagged *upstream replaced*, which blocks its publication
 /// (`PublicationGuard`) until its worker rebases and the operator accepts it again. A dependent

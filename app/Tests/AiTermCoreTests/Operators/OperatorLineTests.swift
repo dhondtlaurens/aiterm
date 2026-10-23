@@ -362,7 +362,7 @@ import Testing
         }
         func open(_ questions: [OperatorQuestion]) -> BroadcastRequest? {
             run.questions = questions
-            return OperatorRequests.open(run: run, state: state(), prompts: [:]).first { $0.kind == .permission }
+            return OperatorRequests.open(run: run, state: state()).first { $0.kind == .permission }
         }
         let prefix = "prompt-\(tabbed.id.uuidString)-"
         #expect(try #require(open([OperatorUIFixtures.question("e2e", id: prefix + "1", task: tabbed.id, tab: "e2e-tests"),
@@ -371,7 +371,7 @@ import Testing
                                     OperatorUIFixtures.question("main", id: prefix + "2", task: tabbed.id)])).tab == WorkerTab.firstKey)
         // A question the Operator asks is no tab's.
         run.questions = [OperatorUIFixtures.question("Which retry policy?", task: tabbed.id)]
-        let asked = OperatorRequests.open(run: run, state: state(), prompts: [:])
+        let asked = OperatorRequests.open(run: run, state: state())
         #expect(asked.map(\.tab) == [nil])
     }
 

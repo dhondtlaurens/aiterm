@@ -26,8 +26,8 @@ import Testing
         workspace.state = OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])
     }
 
-    func makeNotifier(prompts: [UUID: String] = [:]) -> OperatorNotifier {
-        OperatorNotifier(notifications: notifications, state: { [workspace] in workspace.state }, prompts: { prompts })
+    func makeNotifier() -> OperatorNotifier {
+        OperatorNotifier(notifications: notifications, state: { [workspace] in workspace.state })
     }
 
     func change(_ edit: (inout AppState) -> Void) { edit(&workspace.state) }
@@ -58,7 +58,7 @@ import Testing
     }
 
     @Test func aWorkersPromptOpensItsWindow() {
-        let notifier = makeNotifier(prompts: [task.id: "run npm install"])
+        let notifier = makeNotifier()
         change { state in
             state.updateRun(id: run.id) {
                 $0.questions.append(OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Codex asks for permission",
@@ -67,7 +67,7 @@ import Testing
             state.tasks[0].title = "Payment provider switch"
         }
         notifier.requestsChanged(run: current)
-        #expect(notifications.posted.map(\.body) == ["Codex asks to run npm install in Payment provider switch."])
+        #expect(notifications.posted.map(\.body) == ["Codex asks for permission in Payment provider switch."])
         #expect(notifications.posted.first?.target == .task(task.id))
     }
 
@@ -230,7 +230,7 @@ import Testing
     }
 
     @Test func copyHasNoEmDash() {
-        let notifier = makeNotifier(prompts: [task.id: "run npm install"])
+        let notifier = makeNotifier()
         ask()
         change { state in
             state.updateRun(id: run.id) {

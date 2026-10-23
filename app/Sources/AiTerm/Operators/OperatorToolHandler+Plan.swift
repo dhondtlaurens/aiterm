@@ -214,11 +214,10 @@ extension OperatorToolHandler {
         return Self.taskAnswer(state.task(id: task.id) ?? task, created: false)
     }
 
-    /// Closes the open revision through `PlanRevision.submit` — the plan-validation step, where the
-    /// milestone check refuses an end this milestone does not carry out (M1: anything but a commit, spec
-    /// §13) with the reason. Its tasks are released at once and the operation is active. A revision already
-    /// submitted changes nothing and says so: it carries no `released` count, which would read as "nothing
-    /// was released".
+    /// Closes the open revision through `PlanRevision.submit`, the plan-validation step, which refuses a plan whose
+    /// dependencies or ends cannot work, with the reason. Its tasks are released at once and the operation is active.
+    /// A revision already submitted changes nothing and says so: it carries no `released` count, which would read as
+    /// "nothing was released".
     func submitPlan(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         guard let revision = call.arguments["revision"]?.intValue else {
             throw ToolRefusal("submit_plan needs `revision`, the open revision run_status shows.")
@@ -226,7 +225,7 @@ extension OperatorToolHandler {
         try acceptsPlanChanges(run)
         let submitted: PlanRevision.Submitted
         do {
-            submitted = try mutate(in: run.id) { try PlanRevision.submit(revision, run: run.id, in: &$0, milestone: ports.milestone) }
+            submitted = try mutate(in: run.id) { try PlanRevision.submit(revision, run: run.id, in: &$0) }
         } catch let failure as PlanRevision.Failure {
             throw ToolRefusal(failure.description)
         }

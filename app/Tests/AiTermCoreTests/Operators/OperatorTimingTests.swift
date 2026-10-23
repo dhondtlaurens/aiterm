@@ -62,12 +62,8 @@ import Foundation
         return first * (number(2) ?? 1)
     }
 
-    /// Spec §13 and the 16 Oct change: commit from M1; draft MR, merge and local merge from M3.
-    @Test func eachEndArrivesWithItsMilestone() {
-        #expect(OperatorMilestone.current == .m3)
-        #expect(TaskEnd.allCases.filter(OperatorMilestone.m1.supports) == [.commit])
-        #expect(TaskEnd.allCases.filter(OperatorMilestone.m2.supports) == [.commit])
-        #expect(TaskEnd.allCases.filter(OperatorMilestone.m3.supports) == [.commit, .draftMR, .merge, .mergeLocal])
-        #expect(TaskEnd.draftMR.displayName == "draft MR")
+    /// Each end as the plan, the overview and a refusal say it.
+    @Test func eachEndIsSaidByItsName() {
+        #expect(TaskEnd.allCases.map(\.displayName) == ["commit", "draft MR", "merge", "local merge"])
     }
 }
