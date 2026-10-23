@@ -127,7 +127,8 @@ extension OperatorToolHandler {
             }
         }
         let kind: ChallengeKind = [.createTask, .finishTask].contains(call.operatorTool) ? .veto : .critique
-        let status = Self.json(currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null)
+        // Built only for a prompt that carries it: a push past the hook alone doesn't.
+        let status = { Self.json(self.currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null) }
         let prompt: String
         var mergeQuestion: String?
         if let merging, let operated = merging.operated, let sha = operated.acceptance?.resultSHA {
@@ -136,7 +137,7 @@ extension OperatorToolHandler {
                 review.head == sha && review.findings != nil ? (try? JSONValue(encoding: review)).map(Self.json) : nil
             }
             mergeQuestion = ChallengeLaunch.mergePrompt(task: operated.key, acceptedSHA: sha, brief: operated.brief, review: OperatorCommand.said(run.review),
-                                                        done: OperatorCommand.said(run.done), agentReview: evidence, run: status)
+                                                        done: OperatorCommand.said(run.done), agentReview: evidence, run: status())
         }
         if let skipping {
             // A call that also merges asks both in one prompt: one Oracle run, and its yes holds for both.
@@ -147,9 +148,9 @@ extension OperatorToolHandler {
         } else if kind == .veto {
             // A call that would be refused anyway costs no Oracle run.
             try await vetoPrecheck(call, in: run)
-            prompt = ChallengeLaunch.vetoPrompt(addition: Self.invocation(call), run: status)
+            prompt = ChallengeLaunch.vetoPrompt(addition: Self.invocation(call), run: status())
         } else {
-            prompt = ChallengeLaunch.prompt(tool: call.tool, arguments: Self.json(call.arguments), status: status,
+            prompt = ChallengeLaunch.prompt(tool: call.tool, arguments: Self.json(call.arguments), status: status(),
                                             instructions: run.profile.instructions)
         }
         let id = UUID().uuidString

@@ -64,11 +64,12 @@ extension OperatorToolHandler {
             return answer("allow", "allowed by you")
         }
         let opinion = run.profile.oracle
-        let status = Self.json(currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null)
-        let prompt = ChallengeLaunch.gatePrompt(command: command, directory: directory, reason: call.optionalString("description"), run: status)
         guard opinion.isOn else {
             return answer("allow", "unchallenged: the Oracle is off")
         }
+        // Only a command the Oracle judges costs a status and a prompt.
+        let status = Self.json(currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null)
+        let prompt = ChallengeLaunch.gatePrompt(command: command, directory: directory, reason: call.optionalString("description"), run: status)
 
         // Awaited however long it takes: the hook waits `OperatorTiming.gateTimeout`, past the Oracle's own limit.
         let consulting = OperatorActivity(run: run.id, task: task?.id, act: .consultingTheOracle)
