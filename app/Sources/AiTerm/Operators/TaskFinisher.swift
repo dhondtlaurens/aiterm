@@ -480,6 +480,8 @@ final class TaskFinisher {
     private func watch(_ id: UUID) {
         guard watchers[id] == nil, isWatchable(id) else { return }
         let current = Task { [weak self] in
+            // Not cancelled, it is still the task's watch (`stopWatching` cancels the one it removes): its entry goes with it.
+            defer { if !Task.isCancelled { self?.watchers[id] = nil } }
             var failures = 0
             while !Task.isCancelled {
                 guard let self else { return }
@@ -508,10 +510,6 @@ final class TaskFinisher {
             }
         }
         watchers[id] = current
-        Task { [weak self] in
-            _ = await current.value
-            if let self, self.watchers[id] == current { self.watchers[id] = nil }
-        }
     }
 
     /// Why a host could not be had for the project's origin, as Settings would fix it.

@@ -114,8 +114,12 @@ final class OperatorToolHandler {
     /// later one is a new message.
     static let messageReplayWindow = 2 * OperatorTiming.operatorRequestTimeout
     var sendingMessages: Set<MessageKey> = []
-    /// The finds being filed in Jira now, by run and key: a second call for one leaves it to the first.
-    var filingFinds: Set<String> = []
+    /// A keyed write being sent now: a second call for the same one leaves it to the first.
+    struct WriteInFlight: Hashable {
+        enum Kind { case jiraCreate, jiraComment, threadReply, find }
+        let kind: Kind, run: UUID, key: String
+    }
+    var writesInFlight: Set<WriteInFlight> = []
     /// Host reviewer assignment is a read/replace sequence, owned once per published request.
     struct ReviewRequestKey: Hashable { let repository: String?; let number: Int }
     struct ReviewWaiter { let id: UUID; let continuation: CheckedContinuation<Void, any Error> }

@@ -197,21 +197,26 @@ final class WorkerStarter {
     /// pinned and its agent's weekly use is near the limit (`ModelChoice.launchAgent`): then the other agent
     /// and that agent's default model, and `switchedFrom` names the planned agent. A relaunch or a retry
     /// keeps the agent it started on.
-    private func launchChoice(for task: TaskItem, operated: OperatedTask, attempt: LaunchAttempt)
-        -> (agent: AgentKind, model: String, reasoning: String?, switchedFrom: AgentKind?, percent: Int) {
-        let keep = (agent: task.agent, model: task.model, reasoning: task.reasoning, switchedFrom: AgentKind?.none, percent: 0)
+    private func launchChoice(for task: TaskItem, operated: OperatedTask, attempt: LaunchAttempt) -> LaunchChoice {
+        let keep = LaunchChoice(agent: task.agent, model: task.model, reasoning: task.reasoning, switchedFrom: nil, percent: 0)
         guard attempt.number == 1, operated.retriesUsed == 0 else { return keep }
         let weekly = ports.weeklyUsage?() ?? [:], installed = ports.installedAgents?() ?? Set(AgentKind.allCases)
         let agent = ModelChoice.launchAgent(planned: task.agent, pinned: operated.agentPinned, weekly: weekly, installed: installed)
         guard agent != task.agent else { return keep }
         let model = OperatorToolHandler.defaultModel(for: agent, remembered: state.lastModelByAgent)
-        return (agent, model.model, model.reasoning, task.agent, weekly[task.agent] ?? 0)
+        return LaunchChoice(agent: agent, model: model.model, reasoning: model.reasoning, switchedFrom: task.agent,
+                            percent: weekly[task.agent] ?? 0)
+    }
+
+    /// What a task launches with (`launchChoice`): `switchedFrom` is the planned agent when it starts on the other, and
+    /// `percent` that agent's weekly use, which is why.
+    private struct LaunchChoice {
+        let agent: AgentKind, model: String, reasoning: String?, switchedFrom: AgentKind?, percent: Int
     }
 
     /// The switch, saved before the window opens: the task's agent and model, why, and one line in the run's
     /// decisions, keyed by the task so a launch that runs again logs nothing twice.
-    private func recordSwitch(of id: UUID, to choice: (agent: AgentKind, model: String, reasoning: String?, switchedFrom: AgentKind?, percent: Int),
-                              from planned: AgentKind) {
+    private func recordSwitch(of id: UUID, to choice: LaunchChoice, from planned: AgentKind) {
         guard let task = state.task(id: id), let runId = task.operated?.runId else { return }
         let why = "\(SidebarModel.agentName(planned))’s weekly limit is at \(choice.percent) %."
         let text = "Started \(task.title) on \(SidebarModel.agentName(choice.agent)): \(why)"

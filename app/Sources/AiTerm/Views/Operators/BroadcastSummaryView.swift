@@ -26,8 +26,8 @@ struct BroadcastSummaryView: View {
         }
     }
 
-    /// Which link just copied.
-    enum CopyTarget: Equatable { case all, snag(Int) }
+    /// Which link just copied: Copy All, or a snag's Copy, by the snag's key.
+    enum CopyTarget: Equatable { case all, snag(String) }
 
     let summary: RunSummary
     let leftForYou: [String]
@@ -71,6 +71,11 @@ struct BroadcastSummaryView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // A link reads Copied for `copiedFor`; another copy meanwhile starts the wait over.
+        .task(id: justCopied?.id) {
+            guard justCopied != nil, (try? await Task.sleep(for: Self.copiedFor)) != nil else { return }
+            justCopied = nil
+        }
     }
 
     private var leftForYouList: some View {
@@ -94,7 +99,7 @@ struct BroadcastSummaryView: View {
                     copyLink(.all, text: copyAll, help: Self.copyAllHelp, label: Self.copyAllLabel)
                 }
             }
-            ForEach(Array(snags.enumerated()), id: \.offset) { index, snag in
+            ForEach(snags, id: \.key) { snag in
                 VStack(alignment: .leading, spacing: Space.hairline) {
                     VStack(alignment: .leading, spacing: Space.hairline) {
                         Text(snag.title).font(Typography.caption).foregroundStyle(Palette.text)
@@ -105,7 +110,7 @@ struct BroadcastSummaryView: View {
                     .help(Self.details(of: snag))
                     .accessibilityElement(children: .combine)
                     .accessibilityValue(Self.details(of: snag))
-                    copyLink(.snag(index), text: fixTask(snag), help: Self.copyHelp, label: Self.copyLabel(of: snag))
+                    copyLink(.snag(snag.key), text: fixTask(snag), help: Self.copyHelp, label: Self.copyLabel(of: snag))
                 }
             }
         }
@@ -121,13 +126,8 @@ struct BroadcastSummaryView: View {
     private func copy(_ text: String, as target: CopyTarget) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-        let id = UUID()
-        justCopied = (target, id)
+        justCopied = (target, UUID())
         AccessibilityNotification.Announcement(Self.copied).post()
-        Task { @MainActor in
-            try? await Task.sleep(for: Self.copiedFor)
-            if justCopied?.id == id { justCopied = nil }
-        }
     }
 
     /// The lists the Summary shows under its text, each only when it has something: Left for you, then Worked

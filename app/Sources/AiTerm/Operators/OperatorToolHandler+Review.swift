@@ -284,9 +284,9 @@ extension OperatorToolHandler {
             throw ToolRefusal("\(operated.key) has no merge request yet: finish_task opens it.")
         }
         // Another call with this key is posting now: this one would post it twice.
-        let flight = "\(run.id.uuidString)/reply/\(callKey)"
-        guard filingFinds.insert(flight).inserted else { throw ToolRefusal("reply_thread with this key is still posting: call it again for its result.") }
-        defer { filingFinds.remove(flight) }
+        let flight = WriteInFlight(kind: .threadReply, run: run.id, key: callKey)
+        guard writesInFlight.insert(flight).inserted else { throw ToolRefusal("reply_thread with this key is still posting: call it again for its result.") }
+        defer { writesInFlight.remove(flight) }
         let pending = "reply_thread/\(callKey)"
         if state.run(id: run.id)?.pendingWrites.contains(pending) == true {
             settle(pending, in: run.id)
