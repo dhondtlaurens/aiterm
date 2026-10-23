@@ -90,7 +90,7 @@ import Testing
 
     /// The summary is a change the Operator has seen: the call counts as its own news, so the wake does not echo it.
     @Test func writeSummaryIsAMutatingTool() {
-        #expect(OperatorToolHandler.mutating.contains("write_summary"))
+        #expect(OperatorToolHandler.mutating.contains(.writeSummary))
     }
 
     /// An off-brief find goes to the debrief, once per key, and run_status shows it.
@@ -847,28 +847,28 @@ import Testing
     /// Each tool that is one of the Operator's acts maps to its act, by what the task is doing and how it ends.
     @Test func eachActingToolIsItsAct() {
         let run = OperatorServiceFixtures.run(projects: [project])
-        func act(_ tool: String, _ state: OperatedState = .working, end: TaskEnd = .commit, request: Bool = false) -> OperatorAct? {
+        func act(_ tool: OperatorTool, _ state: OperatedState = .working, end: TaskEnd = .commit, request: Bool = false) -> OperatorAct? {
             var task = workingTask(in: run)
             task.operated?.state = state
             task.operated?.end = end
             if request { task.operated?.publication = TaskPublication(mergeRequestURL: "https://gitlab.example/a/-/merge_requests/1") }
             return OperatorToolHandler.act(for: tool, on: task)
         }
-        #expect(act("message_task") == .answering)
-        #expect(act("message_task", .inReview) == .relayingFeedback)
-        #expect(act("reply_thread", .inReview) == .relayingFeedback)
-        #expect(act("mark_task") == .checkingTheWork)
-        #expect(act("review_task") == .reviewingWith)
-        #expect(act("request_review") == .assigning)
-        #expect(act("finish_task") == .checkingTheWork)
-        #expect(act("finish_task", end: .draftMR) == .openingTheMR)
-        #expect(act("finish_task", end: .merge) == .openingTheMR)
-        #expect(act("finish_task", .inReview, end: .merge, request: true) == .merging)
-        #expect(act("finish_task", end: .mergeLocal) == .merging)
-        #expect(act("run_status") == nil && act("read_task") == nil)
-        #expect(OperatorToolHandler.actsOnBroadcast["submit_plan"] == .loadingTheConstruct)
-        #expect(OperatorToolHandler.actsOnBroadcast["jira_create"] == .filingATicket)
-        #expect(OperatorToolHandler.actsOnBroadcast["report_snag"] == nil, "it files nothing")
+        #expect(act(.messageTask) == .answering)
+        #expect(act(.messageTask, .inReview) == .relayingFeedback)
+        #expect(act(.replyThread, .inReview) == .relayingFeedback)
+        #expect(act(.markTask) == .checkingTheWork)
+        #expect(act(.reviewTask) == .reviewingWith)
+        #expect(act(.requestReview) == .assigning)
+        #expect(act(.finishTask) == .checkingTheWork)
+        #expect(act(.finishTask, end: .draftMR) == .openingTheMR)
+        #expect(act(.finishTask, end: .merge) == .openingTheMR)
+        #expect(act(.finishTask, .inReview, end: .merge, request: true) == .merging)
+        #expect(act(.finishTask, end: .mergeLocal) == .merging)
+        #expect(act(.runStatus) == nil && act(.readTask) == nil)
+        #expect(OperatorToolHandler.actsOnBroadcast[.submitPlan] == .loadingTheConstruct)
+        #expect(OperatorToolHandler.actsOnBroadcast[.jiraCreate] == .filingATicket)
+        #expect(OperatorToolHandler.actsOnBroadcast[.reportSnag] == nil, "it files nothing")
     }
 
     // MARK: - Gate C: Jira writes wait while the operation does not run, and a lost answer makes no second ticket

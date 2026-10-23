@@ -355,7 +355,7 @@ extension OperatorToolHandler {
         do {
             try jiraWritable(runId)
             // Finds and explicit jira_create calls have separate idempotency keys.
-            let call = ToolCall(tool: "jira_create", arguments: ["key": .string("find/" + key), "project": .string(project),
+            let call = ToolCall(tool: OperatorTool.jiraCreate.rawValue, arguments: ["key": .string("find/" + key), "project": .string(project),
                 "type": "Task", "summary": .string(find.title), "description": .string(find.why)])
             let answer = try await jiraCreate(call, in: run)
             guard let ticket = answer["key"]?.stringValue else { return .notFiled("Jira returned no ticket key.") }

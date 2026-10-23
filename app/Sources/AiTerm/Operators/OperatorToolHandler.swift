@@ -18,6 +18,9 @@ struct ToolRefusal: Error, Equatable {
 struct ToolCall {
     let tool: String, arguments: JSONValue
 
+    /// The tool by its name; nil for a name AiTerm has no tool for.
+    var operatorTool: OperatorTool? { OperatorTool(rawValue: tool) }
+
     func string(_ key: String) throws(ToolRefusal) -> String {
         guard let value = optionalString(key) else { throw ToolRefusal("\(tool) needs `\(key)`.") }
         return value
@@ -141,23 +144,23 @@ final class OperatorToolHandler {
     }
 
     /// The tools that act on one task while they run: its line says the act meanwhile (`act(for:on:)`).
-    static let actsOnTask: Set<String> = ["message_task", "mark_task", "finish_task", "review_task", "request_review", "reply_thread"]
+    static let actsOnTask: Set<OperatorTool> = [.messageTask, .markTask, .finishTask, .reviewTask, .requestReview, .replyThread]
     /// The tools that are the broadcast's own acts while they run.
-    static let actsOnBroadcast: [String: OperatorAct] = ["create_task": .loadingTheConstruct, "update_task": .loadingTheConstruct,
-                                                         "submit_plan": .loadingTheConstruct, "jira_create": .filingATicket,
-                                                         "report_find": .filingATicket]
+    static let actsOnBroadcast: [OperatorTool: OperatorAct] = [.createTask: .loadingTheConstruct, .updateTask: .loadingTheConstruct,
+                                                               .submitPlan: .loadingTheConstruct, .jiraCreate: .filingATicket,
+                                                               .reportFind: .filingATicket]
 
     /// What a call on `task` is, as its status line says it: answering its agent, or, with people's review
     /// under way, relaying their feedback; checking the work; opening the MR or merging, by the task's end.
-    static func act(for tool: String, on task: TaskItem) -> OperatorAct? {
+    static func act(for tool: OperatorTool, on task: TaskItem) -> OperatorAct? {
         let operated = task.operated
         switch tool {
-        case "message_task": return operated?.state == .inReview ? .relayingFeedback : .answering
-        case "mark_task": return .checkingTheWork
-        case "review_task": return .reviewingWith
-        case "request_review": return .assigning
-        case "reply_thread": return .relayingFeedback
-        case "finish_task":
+        case .messageTask: return operated?.state == .inReview ? .relayingFeedback : .answering
+        case .markTask: return .checkingTheWork
+        case .reviewTask: return .reviewingWith
+        case .requestReview: return .assigning
+        case .replyThread: return .relayingFeedback
+        case .finishTask:
             switch operated?.end ?? .commit {
             case .commit: return .checkingTheWork
             case .draftMR: return .openingTheMR
@@ -170,20 +173,24 @@ final class OperatorToolHandler {
 
     /// The act a call carries out while it runs, if it is one of the Operator's.
     func activity(for call: ToolCall, in run: UUID) -> OperatorActivity? {
-        if Self.actsOnTask.contains(call.tool) {
+        guard let tool = call.operatorTool else { return nil }
+        if Self.actsOnTask.contains(tool) {
             guard let task = call.optionalString("task").flatMap({ state.task(inRun: run, named: $0) }),
-                  let act = Self.act(for: call.tool, on: task) else { return nil }
+                  let act = Self.act(for: tool, on: task) else { return nil }
             return OperatorActivity(run: run, task: task.id, act: act)
         }
-        return Self.actsOnBroadcast[call.tool].map { OperatorActivity(run: run, task: nil, act: $0) }
+        return Self.actsOnBroadcast[tool].map { OperatorActivity(run: run, task: nil, act: $0) }
     }
 
     /// The tools that change the run, its tasks or its records: the operator has seen what they changed.
     /// `finish_task` is one: a publication changes the run, and may complete it.
-    static let mutating: Set<String> = ["create_task", "update_task", "submit_plan", "message_task", "open_tab", "mark_task", "resume_task",
-                                        "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "leave_for_you", "report_find", "report_snag",
-                                        "write_summary",
-                                        "jira_create", "jira_move", "jira_link", "jira_sprint", "jira_edit", "jira_comment", "review_task", "request_review", "reply_thread"]
+    static let mutating: Set<OperatorTool> = [.createTask, .updateTask, .submitPlan, .messageTask, .openTab, .markTask, .resumeTask,
+                                              .retryTask, .finishTask, .askYou, .resolveQuestion, .logDecision, .leaveForYou, .reportFind,
+                                              .reportSnag, .writeSummary, .jiraCreate, .jiraMove, .jiraLink, .jiraSprint, .jiraEdit,
+                                              .jiraComment, .reviewTask, .requestReview, .replyThread]
+
+    /// Whether `call` is one of the tools that change the run (`mutating`).
+    static func isMutating(_ call: ToolCall) -> Bool { call.operatorTool.map(mutating.contains) ?? false }
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
          waker: OperatorWaker, tabs: TabOpener) {
@@ -249,12 +256,12 @@ final class OperatorToolHandler {
             guard !current.hasEnded else {
                 throw ToolRefusal("This broadcast has ended; its tools no longer act.")
             }
-            if Self.mutating.contains(call.tool), current.state != run.state || current.intent != run.intent, current.isPaused {
+            if Self.isMutating(call), current.state != run.state || current.intent != run.intent, current.isPaused {
                 try acceptsWork(current)
             }
             let value = try await perform(call, in: current)
             recordActed(call, in: id, answer: value)
-            if Self.mutating.contains(call.tool) { onChange(id) }
+            if Self.isMutating(call) { onChange(id) }
             return (.result(value), .ok)
         } catch let refusal as ToolRefusal {
             return (.error(refusal.message), .refused)
@@ -276,46 +283,46 @@ final class OperatorToolHandler {
 
     /// One tool, by its name.
     func perform(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
-        switch call.tool {
-        case "run_status": return try await runStatus(run)
-        case "jira_search": return try await jiraSearch(call, in: run)
-        case "jira_create":
+        guard let tool = call.operatorTool else { throw ToolRefusal("AiTerm has no tool called \(call.tool).") }
+        switch tool {
+        case .runStatus: return try await runStatus(run)
+        case .jiraSearch: return try await jiraSearch(call, in: run)
+        case .jiraCreate:
             // The finds' own keys (`fileFind`) are AiTerm's.
             guard !(try call.string("key")).hasPrefix("find/") else {
                 throw ToolRefusal("jira_create keys starting with “find/” are reserved for off-brief finds. Choose another key.")
             }
             return try await jiraCreate(call, in: run)
-        case "jira_move": return try await jiraMove(call, in: run)
-        case "jira_link": return try await jiraLink(call, in: run)
-        case "jira_board": return try await jiraBoard(in: run)
-        case "jira_sprint": return try await jiraSprint(call, in: run)
-        case "jira_edit": return try await jiraEdit(call, in: run)
-        case "jira_comment": return try await jiraComment(call, in: run)
-        case "ask_you": return try askYou(call, in: run)
-        case "resolve_question": return try resolveQuestion(call, in: run)
-        case "leave_for_you": return try leaveForYou(call, in: run)
-        case "log_decision": return try logDecision(call, in: run)
-        case "write_summary": return try writeSummary(call, in: run)
-        case "report_find": return try await reportFind(call, in: run)
-        case "report_snag": return try reportSnag(call, in: run)
-        case "create_task": return try await createTask(call, in: run)
-        case "update_task": return try await updateTask(call, in: run)
-        case "submit_plan": return try submitPlan(call, in: run)
-        case "read_task": return try await readTask(call, in: run)
-        case "message_task": return try await messageTask(call, in: run)
-        case "open_tab": return try await openTab(call, in: run)
-        case "mark_task": return try await markTask(call, in: run)
-        case "resume_task": return try resumeTask(call, in: run)
-        case "retry_task": return try retryTask(call, in: run)
-        case "review_task": return try await reviewTask(call, in: run)
-        case "request_review": return try await requestReview(call, in: run)
-        case "reply_thread": return try await replyThread(call, in: run)
-        case "find_user": return try await findUser(call, in: run)
-        case "finish_task":
+        case .jiraMove: return try await jiraMove(call, in: run)
+        case .jiraLink: return try await jiraLink(call, in: run)
+        case .jiraBoard: return try await jiraBoard(in: run)
+        case .jiraSprint: return try await jiraSprint(call, in: run)
+        case .jiraEdit: return try await jiraEdit(call, in: run)
+        case .jiraComment: return try await jiraComment(call, in: run)
+        case .askYou: return try askYou(call, in: run)
+        case .resolveQuestion: return try resolveQuestion(call, in: run)
+        case .leaveForYou: return try leaveForYou(call, in: run)
+        case .logDecision: return try logDecision(call, in: run)
+        case .writeSummary: return try writeSummary(call, in: run)
+        case .reportFind: return try await reportFind(call, in: run)
+        case .reportSnag: return try reportSnag(call, in: run)
+        case .createTask: return try await createTask(call, in: run)
+        case .updateTask: return try await updateTask(call, in: run)
+        case .submitPlan: return try submitPlan(call, in: run)
+        case .readTask: return try await readTask(call, in: run)
+        case .messageTask: return try await messageTask(call, in: run)
+        case .openTab: return try await openTab(call, in: run)
+        case .markTask: return try await markTask(call, in: run)
+        case .resumeTask: return try resumeTask(call, in: run)
+        case .retryTask: return try retryTask(call, in: run)
+        case .reviewTask: return try await reviewTask(call, in: run)
+        case .requestReview: return try await requestReview(call, in: run)
+        case .replyThread: return try await replyThread(call, in: run)
+        case .findUser: return try await findUser(call, in: run)
+        case .finishTask:
             let task = try self.task(call, in: run)
             let result = await finish(task.id, call.optionalBool("noVerify") ?? false)
             return try JSONValue(encoding: result)
-        default: throw ToolRefusal("AiTerm has no tool called \(call.tool).")
         }
     }
 
