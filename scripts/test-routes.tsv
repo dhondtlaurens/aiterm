@@ -56,11 +56,26 @@ scripts/test-select.sh	toolchain everything
 scripts/test-routes.tsv	toolchain everything
 scripts/test-test-select.sh	toolchain everything
 
+# The build scripts the toolchain guard's fixtures run: check-bundle-verifier.sh runs the bundle
+# verifier, and check-build-scripts.sh runs snapshots.sh and make-app.sh, which both run build-app.sh.
+scripts/test-app-bundle.sh	toolchain
+scripts/build-app.sh	toolchain
+scripts/make-app.sh	toolchain
+scripts/snapshots.sh	toolchain
+
 # Nothing a test reads.
 docs/*	none
 *.md	none
-.superpowers/*	none
 *.png	none
 .github/*	none
 LICENSE	none
 .gitignore	none
+# The release and picture scripts, which only a person runs; the fixtures copy them but never run them.
+scripts/release.sh	none
+scripts/make-dmg.sh	none
+scripts/dmg-settings.py	none
+scripts/readme-picture.sh	none
+scripts/run-dev.sh	none
+# The agents' skills (.claude/skills is a link to .agents/skills).
+.claude/skills	none
+.agents/*	none
