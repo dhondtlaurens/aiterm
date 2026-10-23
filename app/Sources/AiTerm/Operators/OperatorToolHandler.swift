@@ -175,7 +175,7 @@ final class OperatorToolHandler {
     }
 
     /// The tools that change the run, its tasks or its records: the operator has seen what they changed.
-    /// `finish_task` is one from M3 (part G): a publication changes the run, and may complete it.
+    /// `finish_task` is one: a publication changes the run, and may complete it.
     static let mutating: Set<String> = ["create_task", "update_task", "submit_plan", "message_task", "open_tab", "mark_task", "resume_task",
                                         "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "leave_for_you", "report_find", "report_snag",
                                         "write_summary",

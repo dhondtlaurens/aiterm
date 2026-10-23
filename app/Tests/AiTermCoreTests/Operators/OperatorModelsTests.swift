@@ -10,6 +10,14 @@ import Foundation
         return try decoder.decode(T.self, from: encoder.encode(value))
     }
 
+    /// A run as `state.json` saves it: a JSON object, its dates as `StateStore` writes them.
+    private func saved(_ run: OperatorRun) throws -> [String: Any] {
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        return try #require(try JSONSerialization.jsonObject(with: encoder.encode(run)) as? [String: Any])
+    }
+
+    private func keys(_ run: OperatorRun) throws -> Dictionary<String, Any>.Keys { try saved(run).keys }
+
     private let profile = OperatorProfile(
         model: "claude-opus-5-5", reasoning: "high", slices: Slices(jira: true, review: false, merge: true),
         oracle: OracleSetting(isOn: true, agent: .codex, model: "gpt-6-astra", reasoning: "medium"),
@@ -85,12 +93,11 @@ import Foundation
         #expect(try roundTrip(run) == run)
         #expect(run.openRevision == 4)
 
-        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-        let keys = try #require(try JSONSerialization.jsonObject(with: encoder.encode(run)) as? [String: Any]).keys
+        let written = try keys(run)
         for key in ["profile", "jiraProjectKeys", "prompt", "review", "done", "firstPlanSize", "finds", "leftForYou", "jiraCreated"] {
-            #expect(keys.contains(key), "\(key) is not written")
+            #expect(written.contains(key), "\(key) is not written")
         }
-        for key in ["persona", "brief", "doneWhen", "lessons"] { #expect(!keys.contains(key), "\(key) is still written") }
+        for key in ["persona", "brief", "doneWhen", "lessons"] { #expect(!written.contains(key), "\(key) is still written") }
     }
 
     /// A decision saved before decisions said why has none.
@@ -113,10 +120,6 @@ import Foundation
     /// What `jira_sprint` did is kept by its key, and a run that did none saves as it did before.
     @Test func whatJiraSprintDidIsKeptByItsKeyAndLeftOutWhileEmpty() throws {
         var run = OperatorRun(id: UUID(), name: "Sprint", profile: profile, prompt: "b", createdAt: Date(timeIntervalSince1970: 0))
-        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-        func keys(_ run: OperatorRun) throws -> Dictionary<String, Any>.Keys {
-            try #require(try JSONSerialization.jsonObject(with: encoder.encode(run)) as? [String: Any]).keys
-        }
         #expect(!(try keys(run)).contains("jiraSprinted"))
         run.jiraSprinted = ["s1": "41", "s2": "backlog"]
         #expect(try keys(run).contains("jiraSprinted"))
@@ -126,10 +129,6 @@ import Foundation
     /// The comments `jira_comment` posted are kept by their key, and a run that posted none saves as it did before.
     @Test func whatJiraCommentPostedIsKeptByItsKeyAndLeftOutWhileEmpty() throws {
         var run = OperatorRun(id: UUID(), name: "Comment", profile: profile, prompt: "b", createdAt: Date(timeIntervalSince1970: 0))
-        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-        func keys(_ run: OperatorRun) throws -> Dictionary<String, Any>.Keys {
-            try #require(try JSONSerialization.jsonObject(with: encoder.encode(run)) as? [String: Any]).keys
-        }
         #expect(!(try keys(run)).contains("jiraCommented"))
         run.jiraCommented = ["c1": "10042"]
         #expect(try keys(run).contains("jiraCommented"))
@@ -139,10 +138,6 @@ import Foundation
     /// What `leave_for_you` recorded is kept by its key, and a run that recorded none saves as it did before.
     @Test func whatLeaveForYouRecordedIsKeptByItsKeyAndLeftOutWhileEmpty() throws {
         var run = OperatorRun(id: UUID(), name: "Left", profile: profile, prompt: "b", createdAt: Date(timeIntervalSince1970: 0))
-        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-        func keys(_ run: OperatorRun) throws -> Dictionary<String, Any>.Keys {
-            try #require(try JSONSerialization.jsonObject(with: encoder.encode(run)) as? [String: Any]).keys
-        }
         #expect(run.leftForYouRecords.isEmpty)
         #expect(!(try keys(run)).contains("leftForYouRecords"))
         run.leftForYouRecords = ["l1": "Marking !412 ready is yours."]
@@ -150,21 +145,26 @@ import Foundation
         #expect(try roundTrip(run) == run)
     }
 
-    /// A run as an earlier build saved it, with its `leftForYouRecords` and a key this build does not know, loads and
-    /// saves back the same.
+    /// A run as b29ffc4 saved it, word for word: `leftForYouRecords` and `jiraCreated` filled, no `jiraSprinted` or
+    /// `jiraCommented`, and a key this build does not know. It loads and saves back the same.
     @Test func aRunSavedByAnEarlierBuildSavesBackTheSame() throws {
-        var run = OperatorRun(id: UUID(), name: "Earlier", profile: profile, prompt: "b", state: .active, planRevision: 2,
-                              createdAt: Date(timeIntervalSince1970: 0))
-        run.leftForYouRecords = ["l1": "Marking !412 ready is yours."]
-        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let json = #"""
+        {"id":"0F3A1C2B-0000-4000-8000-0000000000B2","name":"Sprint 42",
+         "profile":{"model":"claude-opus-5-5","reasoning":"high","slices":{"jira":true,"review":false,"merge":true},
+                    "oracle":{"isOn":true,"agent":"codex","model":"gpt-6-astra","reasoning":"medium"},
+                    "instructions":"Keep changes small."},
+         "projectIds":[],"jiraProjectKeys":["PLUTO"],"prompt":"Do the sprint","state":"active","planRevision":2,
+         "questions":[],"decisions":[],"finds":[],"snags":[],"leftForYou":["Marking !412 ready is yours."],
+         "leftForYouRecords":{"l1":"Marking !412 ready is yours."},"challenges":[],
+         "jiraCreated":{"t1":"PLUTO-241"},"threadReplies":{},"pendingWrites":[],
+         "createdAt":"1970-01-01T00:00:00Z","milestone":3}
+        """#
+        let data = Data(json.utf8)
+        let earlier = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        var saved = try #require(try JSONSerialization.jsonObject(with: encoder.encode(run)) as? [String: Any])
-        saved["milestone"] = 3
-        let data = try JSONSerialization.data(withJSONObject: saved)
         let loaded = try decoder.decode(OperatorRun.self, from: data)
-        #expect(loaded.leftForYouRecords == ["l1": "Marking !412 ready is yours."])
-        let again = try #require(try JSONSerialization.jsonObject(with: encoder.encode(loaded)) as? [String: Any])
-        #expect(NSDictionary(dictionary: again).isEqual(to: saved))
+        #expect(loaded.leftForYouRecords == ["l1": "Marking !412 ready is yours."] && loaded.jiraCreated == ["t1": "PLUTO-241"])
+        #expect(NSDictionary(dictionary: try saved(loaded)).isEqual(to: earlier))
     }
 
     /// A launch saved before AiTerm recorded its window reads as one still opening.

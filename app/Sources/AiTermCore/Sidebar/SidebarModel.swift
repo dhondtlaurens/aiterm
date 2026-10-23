@@ -444,7 +444,7 @@ public enum SidebarModel {
             tasks = Dictionary(state.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             self.acting = acting
             self.turns = turns
-            // What waits on you, as the notifications say it; no prompt's words are known here.
+            // What waits on you, as the notifications say it.
             for run in runs.values { requests[run.id] = OperatorRequests.open(run: run, state: state) }
         }
     }
