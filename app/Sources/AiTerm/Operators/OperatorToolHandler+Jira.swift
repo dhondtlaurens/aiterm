@@ -192,7 +192,6 @@ extension OperatorToolHandler {
     /// Changes fields of a ticket of the broadcast's Jira projects (spec §L). Setting the same values again changes nothing,
     /// so a repeat needs no record. At least one field must name a change.
     func jiraEdit(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
-        _ = try call.string("key")
         let ticket = try inScope(ticket: try call.string("ticket"), of: run)
         let fields = try editFields(call)
         guard !fields.isEmpty else {

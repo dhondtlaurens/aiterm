@@ -476,8 +476,16 @@ import Testing
         #expect(await world.call(run.id, "jira_edit", edit("PLUTO-1", [:])).message == needs)
         #expect(await world.call(run.id, "jira_edit", edit("PLUTO-1", ["summary": " ", "labelsAdd": [], "priority": " "])).message == needs)
         #expect(await world.call(run.id, "jira_edit", edit("PLUTO-1", ["labelsAdd": "web"])).message == "jira_edit’s `labelsAdd` is a list of text.")
-        #expect(await world.call(run.id, "jira_edit", ["ticket": "PLUTO-1", "summary": "s"]).message == "jira_edit needs `key`.")
         #expect(jira.writes.isEmpty)
+    }
+
+    /// `jira_edit` reads no `key`: a call without one edits.
+    @Test func anEditWithoutAKeyEdits() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        #expect(await world.call(run.id, "jira_edit", ["ticket": "PLUTO-1", "summary": "s"]).value == ["ticket": "PLUTO-1", "edited": true])
+        #expect(jira.writes.count == 1)
     }
 
     @Test func jiraEditAndCommentNeedTheSlice() async throws {
