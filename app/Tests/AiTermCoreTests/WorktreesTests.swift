@@ -176,7 +176,7 @@ import Darwin
         try FileManager.default.createDirectory(atPath: path + "/app/.nuxt", withIntermediateDirectories: true)
         try "export {}\n".write(toFile: path + "/app/.nuxt/nuxt.d.ts", atomically: true, encoding: .utf8)
 
-        try Repository(repo, git: git).removeWorktree(at: path, deleteBranch: "feat/a", force: false)
+        try Repository(repo, git: git).removeWorktree(at: path, deleteBranch: "feat/a", force: false, allowUnlisted: true)
 
         #expect(!FileManager.default.fileExists(atPath: path))
         #expect(try Repository(repo, git: git).worktrees().map(\.path) == [repo])

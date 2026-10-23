@@ -178,13 +178,7 @@ final class TaskRemover: CheckoutRemovals {
         case (false, false):
             "Deletes its worktree and closes its iTerm2 window."
         }
-        let answer = await prompter.ask(AlertPrompt(
-            message: "Remove \(shown.kind == .review ? "review" : "task") “\(shown.title)”?",
-            detail: detail,
-            buttons: archiveInstead == nil ? ["Remove", "Cancel"] : ["Remove", "Shelve", "Cancel"],
-            checkbox: Self.offersBranchDeletion(for: shown) ? "Delete local branch" : nil,
-            checkboxHelp: Self.offersBranchDeletion(for: shown) ? shown.branch : nil,
-            defaultDeletes: true))
+        let answer = await prompter.ask(.removeTask(shown, detail: detail, offersArchive: archiveInstead != nil))
         // The archive checks the row, its project and the workspace itself, as it does from the menu.
         if let archiveInstead, answer.button == 1 {
             guard let current = workspace.state.task(id: task.id) else { return nil }
@@ -274,18 +268,27 @@ final class TaskRemover: CheckoutRemovals {
     private func removeWorktree(task: TaskItem, project: Project, deleteBranch: Bool,
                                 holding token: WorkInFlight.Token) async throws -> TaskWorkflow.Removed? {
         var task = task, force = false
+        let unlisted = try await workflow.needsRemovalConfirmation(task: task, project: project)
+        if unlisted {
+            let answer = await prompter.ask(AlertPrompt(message: "Delete the unlisted folder for “\(task.title)”?",
+                detail: "Git no longer lists this folder as a worktree. It may contain files AiTerm did not create.\n\(task.worktreePath)",
+                buttons: ["Keep", "Delete Folder"], escape: 0))
+            guard answer.button == 1, let still = workspace.state.task(id: task.id),
+                  still.worktreePath == task.worktreePath, still.projectId == project.id else { return nil }
+            task = still
+        }
         if try await workflow.hasUnsavedWork(task: task, project: project) {
             guard await teardown.confirmDeletingUnsavedWork(of: task, verb: .remove), let still = workspace.state.task(id: task.id) else { return nil }
             task = still
             force = true
         }
         try await teardown.closeWindow(of: task, holding: token, requiringDaemon: false, operation: { .removing(windowLetGo: $0) })
-        do { return try await workflow.remove(task: task, project: project, deleteBranch: deleteBranch, force: force) }
+        do { return try await workflow.remove(task: task, project: project, deleteBranch: deleteBranch, force: force, allowUnlisted: unlisted) }
         catch let error as GitError where error.refusedForUnsavedWork {
             // Written after the check, before the window closed. Kept, the task is a task again: its
             // window, if this removal closed it, is owed and comes back (`WindowReconciler`).
             guard await teardown.confirmDeletingUnsavedWork(of: task, verb: .remove), let still = workspace.state.task(id: task.id) else { return nil }
-            return try await workflow.remove(task: still, project: project, deleteBranch: deleteBranch, force: true)
+            return try await workflow.remove(task: still, project: project, deleteBranch: deleteBranch, force: true, allowUnlisted: unlisted)
         }
     }
 
@@ -315,7 +318,7 @@ final class TaskRemover: CheckoutRemovals {
         }
         forget(task: task)
         if workspace.persistenceError == nil {
-            notices.showToast("\(task.kindName) removed." + (result.keptBranch.map { " " + $0.note(branch: task.branch) } ?? ""))
+            notices.showRemoval(of: task, result: result)
         }
     }
 

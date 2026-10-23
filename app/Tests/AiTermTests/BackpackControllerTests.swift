@@ -7,6 +7,22 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct BackpackControllerTests {
+    @Test func crashRecoveryLetsTheMainActorRunWhileRestoringSleep() async {
+        let fake = FakeBackpack()
+        fake.settings.engaged = true
+        let yielded = Mutex(false)
+        let release = DispatchSemaphore(value: 0)
+        fake.lid.onSet = { _ in
+            Task { @MainActor in release.signal() }
+            // Match eventually's wall-clock ceiling: the full suite can queue main-actor work for tens of seconds.
+            yielded.withLock { $0 = release.wait(timeout: .now() + TestDeadline.seconds * Double(wallClockFactor)) == .success }
+        }
+        let backpack = controller(fake)
+        await backpack.launch()
+        #expect(yielded.withLock { $0 })
+        #expect(!fake.settings.engaged)
+    }
+
     private func controller(_ fake: FakeBackpack, toasts: Recorder = Recorder(),
                             working: @escaping @MainActor () -> Bool = { true },
                             now: @escaping @Sendable () -> Date = Date.init,
@@ -527,5 +543,51 @@ import Testing
         let fake = FakeBackpack()
         fake.settings.password = "saved"
         #expect(await controller(fake).savedPassword() == "saved")
+    }
+}
+
+extension AppControllerTests {
+    /// The desk click opens the sheet once; ⌘B while it connects neither replaces the sheet, nor
+    /// opens another once it is gone, nor turns anything off. The hotspot is out
+    /// of range, so the connect keeps retrying and `busy` holds until the Cancel.
+    @Test func toggleWhileConnectingDoesNothing() async {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString).appendingPathComponent("state.json")
+        let fake = FakeBackpack()
+        fake.wifi.inRange = ["Home"]
+        fake.wifi.joinSucceeds = false
+        let controller = AppController(store: StateStore(url: url), preferences: .scratch(), backpackPorts: fake.ports)
+        let backpack = controller.backpack
+        controller.toggleBackpack()
+        guard case .backpack(let model)? = controller.sheet else { Issue.record("no sheet"); return }
+        let connecting = Task { await backpack.connect(network: "Phone", password: nil) }
+        await eventually(describing: "the connect to start") { backpack.busy }
+        controller.toggleBackpack()
+        guard case .backpack(let same)? = controller.sheet else { Issue.record("sheet replaced"); return }
+        #expect(same === model)
+        controller.sheet = nil
+        controller.toggleBackpack()
+        #expect(controller.sheet == nil, "no sheet while it connects")
+        #expect(backpack.busy && !backpack.isOn)
+        await backpack.cancelConnect()
+        await connecting.value
+        #expect(!backpack.isOn && !backpack.busy)
+    }
+
+    /// The mode ended itself and is rejoining Wi-Fi: no `busy`, but it switches, so a click does
+    /// nothing. Once the rejoin is over the click opens the sheet again.
+    @Test func toggleWhileTheSelfEndingRejoinRunsDoesNothing() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString).appendingPathComponent("state.json")
+        let fake = FakeBackpack()
+        let controller = AppController(store: StateStore(url: url), preferences: .scratch(), backpackPorts: fake.ports)
+        let setup = BackpackSetup(sleepRule: true, location: true, network: "Phone")
+        controller.backpack.preview(state: .off, setup: setup, transition: .turningOff)
+        #expect(!controller.backpack.busy)
+        controller.toggleBackpack()
+        #expect(controller.sheet == nil, "no sheet while it switches")
+        controller.backpack.preview(state: .off, setup: setup, transition: nil)
+        controller.toggleBackpack()
+        guard case .backpack? = controller.sheet else { Issue.record("no sheet once it has switched"); return }
     }
 }

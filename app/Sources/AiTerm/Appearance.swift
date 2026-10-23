@@ -5,8 +5,10 @@ import AppKit
 @MainActor
 enum Appearance {
     static func apply(defaults: UserDefaults = .standard) {
-        // Discard the retired preference on upgrade; appearance is no longer user-configurable.
-        defaults.removeObject(forKey: "appearance")
+        // Discard preferences retired by the dark-only UI and the shared Operator profile.
+        for key in ["appearance", "fixer", "fixerIsOn", "modelDefaults.grok"] {
+            defaults.removeObject(forKey: key)
+        }
         NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
     }
 }

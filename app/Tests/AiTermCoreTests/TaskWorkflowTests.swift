@@ -89,17 +89,28 @@ import Testing
     /// A Remove git gave up on halfway left the task's folder behind, holding build output a
     /// process wrote back, with git's record of the worktree gone. Every Remove after it failed
     /// "is not a working tree", so the task could never go.
-    @Test func removalFinishesATaskWhoseWorktreeGitHalfRemoved() async throws {
+    @Test(arguments: [false, true])
+    func unlistedRemovalNeedsConsentUnlessThisWorkflowPreviouslyTriedRemovingIt(triedRemoval: Bool) async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }
         let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
         let created = try await workflow.create(draft: draft, project: project)
         let path = created.task.worktreePath
+        if triedRemoval {
+            let file = path + "/unsaved"
+            try "work".write(toFile: file, atomically: true, encoding: .utf8)
+            await #expect(throws: GitError.self) {
+                try await workflow.remove(task: created.task, project: project, deleteBranch: false, force: false)
+            }
+            try FileManager.default.removeItem(atPath: file)
+        }
         try git.run(["worktree", "unlock", path], in: project.path)
         try git.run(["worktree", "remove", path], in: project.path)
         try FileManager.default.createDirectory(atPath: path + "/app/node_modules/.cache", withIntermediateDirectories: true)
 
-        let result = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: false)
+        #expect(try await workflow.needsRemovalConfirmation(task: created.task, project: project) == !triedRemoval)
+        let result = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: false,
+                                               allowUnlisted: !triedRemoval)
 
         #expect(result.branchRefusal == nil)
         #expect(!FileManager.default.fileExists(atPath: path))

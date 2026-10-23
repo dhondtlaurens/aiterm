@@ -11,7 +11,7 @@ import AiTermCore
 final class FixSession {
     enum State: Equatable {
         case offered, looking, proposal(FixProposal), applying
-        case done(FixLanding), noFix(String), failed(String), unavailable(String)
+        case done(FixLanding), noFix(String), failed(String), unavailable
     }
 
     /// Written only through `set(_:)`, which skips an equal value.
@@ -30,18 +30,14 @@ final class FixSession {
 
     init(request: FixRequest, fixer: FixerResolution, pipeline: FixPipeline, retry: @escaping @MainActor (FixLanding) async -> Void) {
         self.request = request; self.pipeline = pipeline; self.retry = retry
-        switch fixer {
-        case .ready(let agent): self.fixer = agent; state = .offered
-        case .off: self.fixer = nil; state = .unavailable("")
-        }
+        self.fixer = fixer.agent
+        state = fixer.agent == nil ? .unavailable : .offered
     }
 
     isolated deinit {
-        if let clone { Self.remove(clone) }
+        if let clone { Task { await Self.discard(clone) } }
     }
 
-    /// What the offer says: what you get, not who gives it (Help with problems, option A).
-    var buttonTitle: String { FixOffer.title }
     var isBusy: Bool { state == .looking || state == .applying }
     var clonePath: String? { clone?.path }
 
@@ -153,9 +149,6 @@ final class FixSession {
         await BackgroundWork.run { clone.remove() }
     }
 
-    private nonisolated static func remove(_ clone: FixClone) {
-        DispatchQueue.global(qos: .utility).async { clone.remove() }
-    }
 }
 
 extension FixSession.State {
@@ -187,3 +180,7 @@ extension FixSession {
     }
 }
 #endif
+
+extension FixerResolution {
+    var agent: FixerAgent? { if case .ready(let agent) = self { agent } else { nil } }
+}

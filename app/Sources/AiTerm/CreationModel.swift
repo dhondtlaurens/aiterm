@@ -101,9 +101,6 @@ protocol CreationKind {
     /// A last check between the press and the submit, run while `creating` holds off a second
     /// press. `false` stops the create; the kind says why with `model.refuse`.
     func confirmBeforeSubmit(_ model: CreationModel<Self>) async -> Bool
-    /// How many steps the sheet has, and which one picks the agent (`CreationSteps`).
-    static var stepCount: Int { get }
-    static var agentStep: Int? { get }
     /// The fix a failure offered (`CreationFailure.recovery`), run before the create is tried again.
     func recover(_ recovery: CreationFailure.Recovery) async throws
     /// Whether an agent's fix for `request` is still about `draft`: its branch is the draft's.
@@ -112,10 +109,7 @@ protocol CreationKind {
 
 extension CreationKind {
     /// New Task and New Review: three steps, the agent second.
-    static var stepCount: Int { 3 }
-    static var agentStep: Int? { 2 }
-    /// The frame's rules for this kind's steps.
-    static var steps: CreationSteps { CreationSteps(count: stepCount, agentStep: agentStep) }
+    static var steps: CreationSteps { CreationSteps(count: 3, agentStep: 2) }
 
     /// The person's text, trimmed. New Task appends its ticket.
     func composedPrompt(_ text: String, draft: Draft) -> String? {
@@ -157,6 +151,22 @@ struct CreationSteps: Equatable {
     func hasPrompt(onStep step: Int) -> Bool { step > 1 && step != agentStep }
 }
 
+/// The dependencies shared by New Task and New Review; disk and preference sources are explicit.
+@MainActor
+struct CreationContext {
+    var home: URL
+    var claudeConfig = ClaudeConfig()
+    var availableAgents: @MainActor () -> Set<AgentKind> = { Set(AgentKind.allCases) }
+    var rememberedModels: [AgentKind: String] = [:]
+    var catalogue: @Sendable (AgentKind) throws -> [AgentModel]
+    var initialCatalogue: [AgentModel]? = nil
+    var initialCatalogueFailure: String? = nil
+    var defaults: UserDefaults
+    var git: any GitRunning
+    var reservedSlugs: Set<String> = []
+    var canChangeWorkspace: @MainActor () -> Bool = { true }
+}
+
 /// What the New Task and New Review sheets share: the draft, the chosen agent's model catalogue and
 /// prompt completions, the branch list, a debounced search whose stale answers are dropped, and the
 /// one create call. `Kind` is the rest (`TaskCreationModel`, `ReviewCreationModel`).
@@ -175,7 +185,7 @@ final class CreationModel<Kind: CreationKind> {
     let kind: Kind
     /// The agent CLIs this machine has, read live: one Settings installs while the sheet is up is
     /// offered at once, and the views that read this redraw for it.
-    var availableAgents: Set<AgentKind> { installedAgents() }
+    var availableAgents: Set<AgentKind> { context.availableAgents() }
     /// Everything in the draft but its prompt, which reads as empty here.
     private var fields: Draft
     /// The prompt as typed. Observed under its own name, and not through `draft`.
@@ -201,28 +211,19 @@ final class CreationModel<Kind: CreationKind> {
     /// Set once a create run by a landed fix has succeeded: the sheet closes on it, as on its own create.
     private(set) var createdAfterFix = false
     let completions = PromptCompletions()
-    let canChangeWorkspace: @MainActor () -> Bool
-    private let installedAgents: @MainActor () -> Set<AgentKind>
-    private let rememberedModels: [AgentKind: String]
-    /// Whose skills and commands the prompt completes: the person's home in the app.
-    private let home: URL
-    private let claudeConfig: ClaudeConfig
-    private let catalogue: @Sendable (AgentKind) throws -> [AgentModel]
+    private let context: CreationContext
+    var canChangeWorkspace: @MainActor () -> Bool { context.canChangeWorkspace }
     /// The catalogue the draft was built from, for the first load of the draft's own agent — and
     /// why it has no models, when it could not be read, so a failed read is not tried twice.
     @ObservationIgnored private var initialCatalogue: (agent: AgentKind, models: [AgentModel], failure: String?)?
-    private let defaults: UserDefaults
     /// Lists the project's branches, and a review's checkouts.
-    let git: any GitRunning
+    var git: any GitRunning { context.git }
     private let searchItems: @MainActor (String) async throws -> [Item]
     private let submit: @MainActor (Draft) async throws -> Void
     @ObservationIgnored private var searchTask: Task<Void, Never>?
     @ObservationIgnored private var searchGeneration = 0
     @ObservationIgnored private var catalogueGeneration = 0
     @ObservationIgnored private var resetModel = false
-    /// The worktree folders the project's archived rows come back to, which the folder the sheet names skips
-    /// as create does.
-    let reservedSlugs: Set<String>
     /// Written while a body reads `worktreeSlug`, so it must not count as a change to the model.
     @ObservationIgnored private var unusedSlugMemo: (slug: String, unused: String)?
     /// Settings › Agents' Help with problems, read as a failure is shown.
@@ -235,11 +236,7 @@ final class CreationModel<Kind: CreationKind> {
     /// started, or the draft had moved to another branch: the toast naming the backup.
     private let backupKept: @MainActor (FixLanding) -> Void
 
-    init(kind: Kind, project: Project, draft: Draft, home: URL, claudeConfig: ClaudeConfig = ClaudeConfig(), availableAgents: @escaping @MainActor () -> Set<AgentKind>,
-         rememberedModels: [AgentKind: String],
-         catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel], initialCatalogue: [AgentModel]? = nil,
-         initialCatalogueFailure: String? = nil, defaults: UserDefaults, git: any GitRunning,
-         reservedSlugs: Set<String> = [], canChangeWorkspace: @escaping @MainActor () -> Bool,
+    init(kind: Kind, project: Project, draft: Draft, context: CreationContext,
          search: @escaping @MainActor (String) async throws -> [Item], submit: @escaping @MainActor (Draft) async throws -> Void,
          fixer: @escaping @MainActor () -> FixerResolution = { .off }, pipeline: FixPipeline? = nil,
          fixLanded: @escaping @MainActor (FixLanding, FixerAgent) -> Void = { _, _ in },
@@ -247,11 +244,8 @@ final class CreationModel<Kind: CreationKind> {
         var fields = draft
         fields.promptText = ""
         self.kind = kind; self.project = project; self.fields = fields; self.prompt = draft.promptText
-        self.home = home; self.claudeConfig = claudeConfig; self.installedAgents = availableAgents
-        self.rememberedModels = rememberedModels; self.catalogue = catalogue; self.defaults = defaults; self.git = git
-        self.reservedSlugs = reservedSlugs
-        self.initialCatalogue = initialCatalogue.map { (draft.agent, $0, initialCatalogueFailure) }
-        self.canChangeWorkspace = canChangeWorkspace
+        self.context = context
+        self.initialCatalogue = context.initialCatalogue.map { (draft.agent, $0, context.initialCatalogueFailure) }
         self.searchItems = search; self.submit = submit
         self.fixer = fixer; self.pipeline = pipeline; self.fixLanded = fixLanded; self.backupKept = backupKept
     }
@@ -297,7 +291,7 @@ final class CreationModel<Kind: CreationKind> {
     func unusedSlug(_ slug: String) -> String {
         guard !slug.isEmpty else { return "" }
         if let memo = unusedSlugMemo, memo.slug == slug { return memo.unused }
-        let unused = BranchNaming.unused(slug, in: project.path, reserved: reservedSlugs)
+        let unused = BranchNaming.unused(slug, in: project.path, reserved: context.reservedSlugs)
         unusedSlugMemo = (slug, unused)
         return unused
     }
@@ -332,10 +326,10 @@ final class CreationModel<Kind: CreationKind> {
 
     func loadAgentCatalogue() async {
         catalogueGeneration += 1
-        let generation = catalogueGeneration, agent = draft.agent, path = project.path, home = self.home, claudeConfig = self.claudeConfig
-        let remembered = rememberedModels[agent], catalogueProvider = self.catalogue
+        let generation = catalogueGeneration, agent = draft.agent, path = project.path, home = context.home, claudeConfig = context.claudeConfig
+        let remembered = context.rememberedModels[agent], catalogueProvider = context.catalogue
         // UserDefaults is documented as thread-safe; the SDK just does not mark it `Sendable`.
-        nonisolated(unsafe) let defaults = self.defaults
+        nonisolated(unsafe) let defaults = context.defaults
         let handed = initialCatalogue?.agent == agent ? initialCatalogue : nil
         initialCatalogue = nil
         let catalogue = await BackgroundWork.run {
@@ -507,7 +501,7 @@ final class CreationModel<Kind: CreationKind> {
     /// where the branch as it was is kept: after the new failure, or in a toast when there is none.
     private func makeFixSession(_ request: FixRequest, pipeline: FixPipeline) -> FixSession {
         let resolution = fixer()
-        let agent: FixerAgent? = if case .ready(let agent) = resolution { agent } else { nil }
+        let agent = resolution.agent
         return FixSession(request: request, fixer: resolution, pipeline: pipeline) { [weak self] landing in
             guard let self else { return }
             // A draft on another branch is not the create this fix was for, and the failure still

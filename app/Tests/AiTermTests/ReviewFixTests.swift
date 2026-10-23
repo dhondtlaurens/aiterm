@@ -197,10 +197,8 @@ import AiTermUI
     /// make no session.
     @Test func noPipelineOrNoFixMakesNoSession() async {
         let without = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
-                                          home: ScratchHome.bare, catalogue: ScratchHome.catalogue, defaults: ScratchDefaults.make(),
-                                          git: .hermetic(), searchMergeRequests: { _ in [] },
-                                          createReview: { _ in throw WorktreeError.rebaseConflicted("feat/x", detail: nil) },
-                                          recover: { _ in })
+                                          context: .scratch(), searchMergeRequests: { _ in [] },
+                                          createReview: { _ in throw WorktreeError.rebaseConflicted("feat/x", detail: nil) }, recover: { _ in })
         await without.loadAgentCatalogue()
         _ = await without.create()
         #expect(without.error?.fix != nil)
@@ -347,7 +345,7 @@ import AiTermUI
     /// State 9: with Help with problems off, or Claude Code missing, no button at all, and the
     /// sentence keeps “Rebase it by hand.”, as it does with no session.
     @Test func anAgentThatCannotRunIsAbsent() {
-        let off = footer(conflict, .unavailable(""), fixer: nil)
+        let off = footer(conflict, .unavailable, fixer: nil)
         #expect(off.offer == nil)
         let byHand = conflictSentence + " Rebase it by hand."
         #expect(off.lead == .failure(byHand, description: nil, help: conflict.detail ?? byHand))

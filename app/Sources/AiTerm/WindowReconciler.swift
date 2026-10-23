@@ -320,7 +320,8 @@ final class WindowReconciler {
                     return
                 }
                 workspace.mutate { $0.terminals[i].windowId = wid }
-            } catch { fail(row, title: "Couldn’t reopen “\(terminal.name)”.", subject: nil, error) }
+                notices.dropIssues(about: id)
+            } catch { fail(row, title: "Couldn’t reopen “\(terminal.name)”.", subject: id, error) }
         }
     }
 

@@ -232,7 +232,7 @@ final class RowFocus {
         switch row {
         case .task(let id):
             return activate(row, failure: "Couldn’t activate the window") { daemon in
-                _ = try? await daemon.markSeen(taskId: id.uuidString)
+                await Log.daemon.attempt("Marking task \(id) as seen") { try await daemon.markSeen(taskId: id.uuidString) }
             }
         case .terminal:
             return activate(row, failure: "Couldn’t activate the terminal")

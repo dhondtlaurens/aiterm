@@ -82,7 +82,7 @@ import Testing
     /// Off — Help with problems turned off, or Claude Code missing — offers nothing, and “Rebase it by
     /// hand.” is back, since no fix can help.
     @Test func anOffFixerDropsTheOffer() {
-        let off = shown(conflict, .unavailable(""), fixer: nil)
+        let off = shown(conflict, .unavailable, fixer: nil)
         #expect(off.links == [.dismiss])
         #expect(off.content == .text("Couldn’t rebase the default branch.",
                                      detail: "Rebasing “main” onto origin’s hit a conflict, so it was left as it was. Rebase it by hand.",
@@ -103,7 +103,7 @@ import Testing
     /// again — still diverged here, since the stub's fix moves nothing, so the new failure names
     /// where the branch as it was is kept.
     @Test func aFixThatLandsPullsAgainAndAFailedPullNamesTheBackup() async throws {
-        let fixture = try divergedFixture()
+        let fixture = try RaceFixture.diverged()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.fixPipeline = { _ in .stub(look: .fix(proposal)) }
@@ -125,7 +125,7 @@ import Testing
 
     /// A pull that succeeds after the fix says so, and where the old commits are.
     @Test func aPullAfterTheFixSaysWhereTheOldCommitsAre() async throws {
-        let fixture = try divergedFixture()
+        let fixture = try RaceFixture.diverged()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.fixPipeline = { _ in .stub(look: .fix(proposal)) }
@@ -160,17 +160,17 @@ import Testing
 
     /// The banner's session follows Help with problems: Off makes one that offers nothing.
     @Test func theBannersSessionFollowsHelpWithProblems() async throws {
-        let fixture = try divergedFixture()
+        let fixture = try RaceFixture.diverged()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.agents.helpWithProblems.isOn = false
         await fixture.controller.pullDefault(project: fixture.project)?.value
-        #expect(fixture.controller.notices.fixSession?.state == .unavailable(""))
+        #expect(fixture.controller.notices.fixSession?.state == .unavailable)
     }
 
     /// A fix that landed on a branch that is no longer the project's default pulls nothing — that
     /// pull was for the old one — and the toast says where the branch as it was is kept.
     @Test func aFixForABranchNoLongerTheDefaultPullsNothing() async throws {
-        let fixture = try divergedFixture()
+        let fixture = try RaceFixture.diverged()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         var pipeline = FixPipeline.stub(look: .fix(proposal))
@@ -189,7 +189,7 @@ import Testing
     /// Two projects: while A's fix holds the banner, B's refusal waits; once A's fix lands it comes
     /// up with a Fix of its own, and A's pull, run again, leaves it be.
     @Test func anotherProjectsIssueWaitsForTheFixAndIsLeftAlone() async throws {
-        let fixture = try divergedFixture()
+        let fixture = try RaceFixture.diverged()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.fixPipeline = { _ in .stub(look: .fix(proposal)) }
@@ -220,7 +220,7 @@ import Testing
 
     /// Quitting stops a Look: its agent's process group would outlive the app.
     @Test func shutdownStopsALook() async throws {
-        let fixture = try divergedFixture()
+        let fixture = try RaceFixture.diverged()
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         controller.fixPipeline = { _ in .stub(look: .none("n"), slowLook: true) }
@@ -237,19 +237,5 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: clone))
     }
 
-    /// A repository whose `main` has one commit origin lacks while origin has one it lacks.
-    private func divergedFixture() throws -> RaceFixture {
-        let fixture = try RaceFixture()
-        let remote = fixture.root.appendingPathComponent("remote.git").path, other = fixture.root.appendingPathComponent("other").path
-        let repo = fixture.repo.path
-        try fixture.git.run(["init", "-q", "--bare", "-b", "main", remote], in: fixture.root.path)
-        try fixture.git.run(["remote", "add", "origin", remote], in: repo)
-        try fixture.git.run(["push", "-q", "origin", "main"], in: repo)
-        try fixture.git.run(["clone", "-q", remote, other], in: fixture.root.path)
-        for (dir, message) in [(other, "upstream"), (repo, "local")] {
-            try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", message], in: dir)
-        }
-        try fixture.git.run(["push", "-q", "origin", "main"], in: other)
-        return fixture
-    }
+
 }

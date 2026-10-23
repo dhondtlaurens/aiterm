@@ -9,8 +9,6 @@ import Testing
 @MainActor
 struct CreationSheetStepsTests {
     @Test func newTaskStillHasThreeSteps() {
-        #expect(TaskCreation.stepCount == 3 && TaskCreation.agentStep == 2)
-        #expect(ReviewCreation.stepCount == 3 && ReviewCreation.agentStep == 2)
         #expect(TaskCreation.steps == ReviewCreation.steps)
         let steps = TaskCreation.steps
         #expect(steps == CreationSteps(count: 3, agentStep: 2))

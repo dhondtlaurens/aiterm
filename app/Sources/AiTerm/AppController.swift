@@ -220,7 +220,7 @@ final class AppController {
         helper.onAttach { [weak operatorController] in operatorController?.daemonAttached() }
         sheets = SheetCoordinator(workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
                                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
-                                  launcher: launcher, workflow: workflow)
+                                  launcher: launcher, workflow: workflow, defaults: preferences.defaults)
         // The connections as Settings saved them, read once per pass: a test's are none, so it
         // reads nothing from either host.
         reviewThreads = ReviewThreadsWatcher(workspace: workspace, focus: focus,

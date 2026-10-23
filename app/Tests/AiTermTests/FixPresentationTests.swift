@@ -20,10 +20,6 @@ import Testing
         #expect(footer.offer?.title == "Find a Fix")
         #expect(FixFooterPresentation(error: footerConflict, state: .looking, fixer: .claude, lastProposal: nil).lead
                 == .busy("Looking for a fix…"))
-
-        let request = FixRequest(title: "t", reason: nil, detail: nil, projectPath: "/p", branch: "feat/x", recreateRebase: true,
-                                 retry: .createReview)
-        #expect(FixSession.snapshot(nil, fixer: .ready(.claude), request: request).buttonTitle == "Find a Fix")
     }
 
     /// A fix that failed leaves the problem standing: its title stays, and the failure is its

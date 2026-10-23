@@ -9,6 +9,13 @@ import AiTermCore
 /// connection is tested. Keychain writes go to a `MemorySecretStore`; the testers are stand-ins.
 @MainActor
 @Suite(.serialized) struct IntegrationSettingsModelTests {
+    @Test func savingUnchangedCredentialsWritesNoSecrets() {
+        let store = CountingSecretStore(wrapping: MemorySecretStore(), allowing: 0)
+        let settings = model(jira: Self.jira, gitLab: Self.gitLab, gitHub: Self.gitHub, store: store)
+        #expect(settings.save() == nil)
+        #expect(store.writes == 0)
+    }
+
     static let site = URL(string: "https://example.atlassian.net")!
     static let jira = JiraConfig(siteURL: site, email: "me@example.com", token: "jira-token")
     static let gitLab = GitLabConfig(hostURL: URL(string: "https://git.example.net")!, token: "gl-token")
@@ -404,9 +411,11 @@ private final class RefusingKeySecretStore: SecretStore {
 private final class CountingSecretStore: SecretStore {
     private let wrapped: SecretStore
     private var remaining: Int
+    private(set) var writes = 0
     init(wrapping wrapped: SecretStore, allowing count: Int) { self.wrapped = wrapped; remaining = count }
     func get(_ key: String) -> String? { wrapped.get(key) }
     func set(_ key: String, _ value: String?) -> Bool {
+        writes += 1
         guard remaining > 0 else { return false }
         remaining -= 1
         return wrapped.set(key, value)

@@ -10,14 +10,15 @@ import Testing
         let defaults = ScratchDefaults.make()
         let original = NSApplication.shared.appearance
         defer { NSApplication.shared.appearance = original }
-        defaults.set("obsolete-choice", forKey: "appearance")
+        let retired = ["appearance", "fixer", "fixerIsOn", "modelDefaults.grok"]
+        for key in retired { defaults.set("obsolete-choice", forKey: key) }
         defaults.set(true, forKey: "matchItermBackground")
         NSApplication.shared.appearance = nil
 
         Appearance.apply(defaults: defaults)
 
         #expect(NSApplication.shared.appearance?.name == .darkAqua)
-        #expect(defaults.object(forKey: "appearance") == nil)
+        for key in retired { #expect(defaults.object(forKey: key) == nil) }
         #expect(defaults.bool(forKey: "matchItermBackground"))
 
         // A fresh install and subsequent launches use the same fixed appearance.

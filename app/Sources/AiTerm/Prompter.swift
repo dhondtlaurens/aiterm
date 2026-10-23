@@ -1,4 +1,5 @@
 import AppKit
+import AiTermCore
 
 /// One modal question: a message, the detail under it, its buttons and an optional checkbox. A
 /// value, so a test can read what was asked and answer it without a window.
@@ -29,6 +30,16 @@ struct AlertPrompt: Equatable {
     /// ⎋ unanswered — an alert with no safe choice.
     var escapeButton: Int? {
         escape ?? buttons.firstIndex(of: "Cancel") ?? (buttons.count == 1 ? 0 : nil)
+    }
+}
+
+extension AlertPrompt {
+    @MainActor static func removeTask(_ task: TaskItem, detail: String, offersArchive: Bool = false) -> AlertPrompt {
+        let offersBranch = TaskRemover.offersBranchDeletion(for: task)
+        return AlertPrompt(message: "Remove \(task.kindName.lowercased()) “\(task.title)”?", detail: detail,
+                           buttons: offersArchive ? ["Remove", "Shelve", "Cancel"] : ["Remove", "Cancel"],
+                           checkbox: offersBranch ? "Delete local branch" : nil,
+                           checkboxHelp: offersBranch ? task.branch : nil, defaultDeletes: true)
     }
 }
 

@@ -227,6 +227,7 @@ final class IntegrationSettingsModel {
         let before = self[keyPath: saved]
         if card.fields.hasInput {
             guard let config = card.fields.config else { throw InvalidCard(message: card.invalidURL) }
+            guard config != before else { return nil }
             let testFailed = card.test?.failed == true
             return PendingWrite(service: service, write: { write(config) }, undo: { write(before) },
                                 commit: { [self] in self[keyPath: saved] = config; record[keyPath: failed] = testFailed },

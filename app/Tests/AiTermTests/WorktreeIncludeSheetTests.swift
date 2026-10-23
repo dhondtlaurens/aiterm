@@ -11,8 +11,7 @@ import Testing
         let project = Project(id: UUID(), name: "Repo", path: repo, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setTitle("With env")
-        return TaskCreationModel(project: project, draft: draft, home: ScratchHome.bare, catalogue: ScratchHome.catalogue,
-                                 defaults: ScratchDefaults.make(), git: git, searchIssues: { _ in [] }, createTask: { _ in })
+        return TaskCreationModel(project: project, draft: draft, context: .scratch(git: git), searchIssues: { _ in [] }, createTask: { _ in })
     }
 
     @Test func theSheetOffersWhatTheProjectsWorktreeIncludeSelects() async throws {

@@ -167,8 +167,9 @@ enum SheetSnapshots {
     }
 
     private static func taskModel(_ draft: TaskDraft) -> TaskCreationModel {
-        let model = TaskCreationModel(project: Fixture().project, draft: draft, home: Fixture.home, catalogue: Fixture.catalogue,
-                                      defaults: Fixture.defaults, git: Fixture.git, searchIssues: { _ in tickets }, createTask: { _ in })
+        let model = TaskCreationModel(project: Fixture().project, draft: draft,
+                                      context: CreationContext(home: Fixture.home, catalogue: Fixture.catalogue, defaults: Fixture.defaults, git: Fixture.git),
+                                      searchIssues: { _ in tickets }, createTask: { _ in })
         model.results = tickets
         return model
     }
@@ -218,9 +219,10 @@ enum SheetSnapshots {
     private static func reviewSheet(step: Int, mergeRequestsOpen: Bool = false, owner: TaskItem? = nil,
                                     prepare: (ReviewCreationModel) -> Void = { _ in }) -> NewReviewSheet {
         let task = draft()
-        let model = ReviewCreationModel(project: Fixture().project, draft: ReviewDraft(mr: nil, agent: .claude, model: task.model, reasoning: task.reasoning),
-                                        home: Fixture.home, catalogue: Fixture.catalogue, defaults: Fixture.defaults,
-                                        git: Fixture.git, owningTask: { branch, _ in branch == owner?.branch ? owner : nil },
+        let model = ReviewCreationModel(project: Fixture().project,
+                                        draft: ReviewDraft(mr: nil, agent: .claude, model: task.model, reasoning: task.reasoning),
+                                        context: CreationContext(home: Fixture.home, catalogue: Fixture.catalogue, defaults: Fixture.defaults, git: Fixture.git),
+                                        owningTask: { branch, _ in branch == owner?.branch ? owner : nil },
                                         searchMergeRequests: { _ in mergeRequests }, createReview: { _ in }, recover: { _ in })
         model.results = mergeRequests
         prepare(model)

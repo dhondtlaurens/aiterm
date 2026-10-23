@@ -251,6 +251,37 @@ extension AppControllerTests {
         #expect(controller.workspace.flush())
     }
 
+    @Test func aNewTaskUsesTheSavedModelFromTheControllersPreferences() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let model = try #require(ScratchHome.catalogue(.claude).dropFirst().first).id
+        ModelSettings.save(ModelPreference(model: model, reasoning: nil), for: .claude,
+                           defaults: fixture.controller.preferences.defaults)
+        fixture.controller.sheets.presentNewTask(project: fixture.project)
+        await fixture.controller.sheets.preparingSheet?.value
+        guard case .newTask(let creation)? = fixture.controller.sheets.sheet else {
+            Issue.record("New Task did not open"); return
+        }
+        #expect(creation.draft.model == model)
+    }
+
+    @Test func aSuccessfulTerminalReopenClearsItsFailureBanner() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        let daemon = RecordingDaemon(failing: ["window.createTerminal": "temporary_failure"])
+        controller.helper.setDaemonClient(daemon)
+        let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
+        controller.workspace.mutate { $0.terminals = [terminal] }
+        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
+        await controller.windows.restore(.terminal(terminal.id))?.value
+        #expect(controller.issue != nil)
+        daemon.failing = [:]
+        await controller.windows.choose(.terminal(terminal.id))?.value
+        #expect(controller.state.terminal(id: terminal.id)?.windowId != nil)
+        #expect(controller.issue == nil)
+    }
+
     // -- terminals and windows -----------------------------------------------------------------
 
     /// Like a task's removal, a terminal's closes the window the terminal has now.
@@ -533,75 +564,4 @@ extension AppControllerTests {
         #expect(server.requests("window.close").map { $0.params["windowId"] as? String } == ["reopened"])
         #expect(controller.state.tasks.isEmpty)
     }
-}
-
-/// A saved project in a real repository, a controller over it, and the prompter it asks.
-@MainActor
-struct RaceFixture {
-    let root: URL
-    let repo: URL
-    let git = GitRunner.hermetic()
-    let project: Project
-    let prompter: ScriptedPrompter
-    let controller: AppController
-
-    /// `scan` replaces the checkout monitor's reading of the disk, for a test that needs a pass that
-    /// has not seen a change yet. The root is resolved with `realpath(3)`: git reports the physical
-    /// path of a repository under `/var/folders`, and adding the unresolved one adds it as "the
-    /// repository around" that path.
-    init(prompter: ScriptedPrompter? = nil, activateIterm: @escaping @MainActor () -> Void = {},
-         bringForward: @escaping @MainActor () -> Void = {}, launchIterm: @escaping @MainActor () -> Void = {},
-         itermRunning: @escaping @MainActor () -> Bool = { true },
-         now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }, scan: CheckoutMonitor.Scanner? = nil) throws {
-        let raw = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
-        try FileManager.default.createDirectory(atPath: raw, withIntermediateDirectories: true)
-        root = URL(fileURLWithPath: realpath(raw, nil).map { defer { free($0) }; return String(cString: $0) } ?? raw)
-        repo = root.appendingPathComponent("repo")
-        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
-        try git.run(["init", "-q", "-b", "main"], in: repo.path)
-        try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"], in: repo.path)
-        project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .git,
-                          remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let prompter = prompter ?? ScriptedPrompter()
-        self.prompter = prompter
-        controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(), prompter: prompter,
-                                   activateIterm: activateIterm, launchIterm: launchIterm, itermRunning: itermRunning,
-                                   bringForward: bringForward, now: now,
-                                   scan: scan ?? {
-                                       WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5,
-                                                         defaultBranches: $6)
-                                   })
-        try controller.loadWorkspace()
-        controller.workspace.mutate { $0.items = [.project(project)] }
-        #expect(controller.workspace.flush())
-    }
-
-    /// A task with a real worktree, saved.
-    func addTask(windowId: String?) throws -> TaskItem {
-        let checkout = repo.appendingPathComponent(".worktrees/work").path
-        try git.run(["worktree", "add", "-q", "-b", "feat/work", checkout], in: repo.path)
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "Work", branch: "feat/work",
-                            worktreePath: checkout, baseBranch: "main", jira: nil, agent: .codex,
-                            model: "model", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                            createdAt: Date(timeIntervalSince1970: 0), windowId: windowId)
-        controller.workspace.mutate { $0.tasks.append(task) }
-        #expect(controller.workspace.flush())
-        return task
-    }
-
-    /// A connected snapshot with one tab tagged with `task`, in window `windowId`.
-    func snapshot(tagging task: TaskItem, in windowId: String) -> DaemonSnapshot {
-        DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [
-            SessionInfo(sessionId: "s", windowId: windowId, tabIndex: 0, taskId: task.id.uuidString, projectId: nil,
-                        agent: .shell, model: nil, state: .idle, title: "", cwd: task.worktreePath),
-        ], usage: .empty)
-    }
-
-    func draft(_ title: String) -> TaskDraft {
-        var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
-        draft.setTitle(title)
-        return draft
-    }
-
-    func cleanUp() { try? FileManager.default.removeItem(at: root) }
 }

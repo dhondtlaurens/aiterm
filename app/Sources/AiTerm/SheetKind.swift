@@ -47,8 +47,8 @@ extension AppController {
             // The row's name only: a tab is titled with its branch (`sessions.setTitles`), and
             // the window's profile name is set once, when it opens.
             case .terminal: return "Renames the row in the sidebar; its iTerm2 tabs keep their branch titles."
-            // The row and the overview only; the Operator's window was titled when it opened.
-            case .broadcast: return "Renames its row and its overview; the Operator’s window and its tasks keep theirs."
+            // The row and the board only; the Operator's window was titled when it opened.
+            case .broadcast: return "Renames its row and its board; the Operator’s window and its tasks keep theirs."
             }
         }
     }

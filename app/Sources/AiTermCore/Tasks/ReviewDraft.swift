@@ -18,7 +18,7 @@ public struct ReviewDraft: AgentDraft, Equatable, Sendable {
 
     /// A draft for `agent`, its model chosen from `catalog` — which the caller has read already.
     public static func initial(state: AppState, agent: AgentKind, catalog: [AgentModel],
-                               defaults: UserDefaults = .standard) -> ReviewDraft {
+                               defaults: UserDefaults) -> ReviewDraft {
         let preference = Self.preference(for: agent, state: state, catalog: catalog, defaults: defaults)
         return ReviewDraft(mr: nil, agent: agent, model: preference.model, reasoning: preference.reasoning)
     }

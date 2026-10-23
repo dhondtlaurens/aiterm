@@ -31,9 +31,9 @@ import Synchronization
     /// Off — Help with problems turned off, or Claude Code missing — offers nothing and does not start.
     @Test func anOffFixerIsUnavailableAndDoesNotStart() async {
         let off = FixSession(request: request, fixer: .off, pipeline: pipeline(), retry: { _ in })
-        #expect(off.state == .unavailable(""))
+        #expect(off.state == .unavailable)
         off.start(); await off.settled()
-        #expect(off.state == .unavailable(""))
+        #expect(off.state == .unavailable)
         #expect(!cloneExists)
     }
 

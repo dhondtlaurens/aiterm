@@ -151,6 +151,7 @@ private final class WorkspaceWriter: Sendable {
 
     private let file: StateStore
     private let delay: Duration
+    private let worker = SerialThread(name: "aiterm.workspace-writer")
     /// The workspace as the latest change left it, while the save it rides along with waits.
     private let waiting = Mutex<Waiting?>(nil)
     /// The newest revision the file holds, written or loaded. Held while a save writes, which is
@@ -173,12 +174,14 @@ private final class WorkspaceWriter: Sendable {
         }
         guard starts else { return }
         let delay = self.delay
-        // Weak: a store gone by then has nothing left to save.
-        Thread { [weak self] in
-            Thread.sleep(forTimeInterval: Double(delay.components.seconds) + Double(delay.components.attoseconds) / 1e18)
-            guard let self, let latest = waiting.withLock({ waiting in defer { waiting = nil }; return waiting }) else { return }
-            done(latest.revision, write(latest.state, revision: latest.revision))
-        }.start()
+        // Weak: a store gone by then has nothing left to save. The delay occupies no worker.
+        Task { [weak self, worker] in
+            try? await Task.sleep(for: delay)
+            await worker.run { [weak self] in
+                guard let self, let latest = waiting.withLock({ waiting in defer { waiting = nil }; return waiting }) else { return }
+                done(latest.revision, write(latest.state, revision: latest.revision))
+            }
+        }
     }
 
     /// Saves now, in place of the save waiting, once a save under way has written.

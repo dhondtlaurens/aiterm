@@ -41,7 +41,7 @@ final class HelperLink {
     private let findPython: @Sendable () -> URL?
     private let claudeConfig: ClaudeConfig
     private let harnessHome: URL
-    private var claudeDirectory: String?
+    @ObservationIgnored private var claudeDirectory: String?
 
     init(socketPath: String = AiTermPaths.socketPath, bundledResourcesURL: URL?, preferences: InterfacePreferences,
          findPython: @escaping @Sendable () -> URL? = { PythonLocator.find() },
@@ -159,7 +159,7 @@ final class HelperLink {
     /// stream like any other, so `itermConnection` is updated there; a helper that cannot answer
     /// is noticed by its connection's own loop. The rest is what the helper cannot see.
     func checkIterm() async -> ItermEnvironment {
-        if let daemon { _ = try? await daemon.snapshot() }
+        if let daemon { await Log.daemon.attempt("Checking iTerm2") { try await daemon.snapshot() } }
         return ItermEnvironment.current()
     }
 
@@ -192,6 +192,6 @@ final class HelperLink {
     /// infer, and could miss. An unchanged list costs one local request.
     func sendTitles(_ titles: [SessionTitle]) async {
         guard let daemon, !titles.isEmpty else { return }
-        _ = try? await daemon.setSessionTitles(titles)
+        await Log.daemon.attempt("Updating session titles") { try await daemon.setSessionTitles(titles) }
     }
 }

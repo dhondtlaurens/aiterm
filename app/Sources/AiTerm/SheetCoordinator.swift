@@ -27,6 +27,7 @@ final class SheetCoordinator {
     private let git: any GitRunning
     /// The home whose agent configuration the sheets read — models, skills, commands. The
     /// person's own in the app; a test's is a bare directory of its own.
+    private let defaults: UserDefaults
     private let harnessHome: URL
     /// Read the saved Jira, GitLab and GitHub connections. Each reads the Keychain (Jira and GitLab
     /// also UserDefaults), so they are called off the main actor.
@@ -42,7 +43,8 @@ final class SheetCoordinator {
          jiraSettings: @escaping @Sendable () -> JiraConfig?,
          gitLabSettings: @escaping @Sendable () -> GitLabConfig?,
          gitHubSettings: @escaping @Sendable () -> GitHubConfig?,
-         launcher: TaskLauncher, workflow: TaskWorkflow) {
+         launcher: TaskLauncher, workflow: TaskWorkflow, defaults: UserDefaults) {
+        self.defaults = defaults
         self.workspace = workspace
         self.checkouts = checkouts
         self.agents = agents
@@ -200,16 +202,18 @@ final class SheetCoordinator {
     /// the agent's model catalogue.
     func presentNewTask(project: Project) {
         // The monitor reads each project's default branch on every pass: nothing to ask git for.
+        nonisolated(unsafe) let defaults = defaults
         let git = self.git, known = checkouts.defaultBranch[project.id]
-        prepareSheet(for: project, draft: { TaskDraft.initial(project: project, state: $0, git: git, agent: $1, catalog: $2, defaultBranch: known) },
+        prepareSheet(for: project, draft: { TaskDraft.initial(project: project, state: $0, git: git, agent: $1, catalog: $2, defaultBranch: known, defaults: defaults) },
                      search: jiraSettings) { [unowned self] in
             .newTask(makeCreationModel(project: project, draft: $0, catalogue: $1, catalogueFailure: $2, jira: $3))
         }
     }
 
     func presentNewReview(project: Project) {
+        nonisolated(unsafe) let defaults = defaults
         let gitLab = gitLabSettings, gitHub = gitHubSettings
-        prepareSheet(for: project, draft: { ReviewDraft.initial(state: $0, agent: $1, catalog: $2) },
+        prepareSheet(for: project, draft: { ReviewDraft.initial(state: $0, agent: $1, catalog: $2, defaults: defaults) },
                      search: { (gitLab: gitLab(), gitHub: gitHub(),
                                 remote: ProviderDetector.detect(remoteUrl: project.remoteUrl, repoPath: project.path)) }) { [unowned self] in
             .newReview(makeReviewModel(project: project, draft: $0, catalogue: $1, catalogueFailure: $2,
@@ -246,43 +250,41 @@ final class SheetCoordinator {
         }
     }
 
+    private func creationContext(project: Project, catalogue: [AgentModel]?, failure: String?) -> CreationContext {
+        let models = agents.catalogue
+        return CreationContext(home: harnessHome, claudeConfig: agents.claudeConfig,
+            availableAgents: { [agents] in agents.availableAgents }, rememberedModels: state.lastModelByAgent,
+            catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue, initialCatalogueFailure: failure,
+            defaults: defaults, git: git, reservedSlugs: state.reservedWorktreeSlugs(projectId: project.id),
+            canChangeWorkspace: { [weak workspace] in workspace?.canChangeWorkspace == true })
+    }
+
     // -- the creation sheets' models -----------------------------------------------------
     /// `catalogue` is the one `draft` was built from, if the caller read it, and `catalogueFailure`
     /// why it is empty if reading it failed; `jira` is the connection read when the sheet was prepared.
     func makeCreationModel(project: Project, draft: TaskDraft, catalogue: [AgentModel]? = nil, catalogueFailure: String? = nil,
                            jira: JiraConfig?) -> TaskCreationModel {
-        let models = agents.catalogue, launcher = self.launcher
-        return TaskCreationModel(project: project, draft: draft, home: harnessHome, claudeConfig: agents.claudeConfig, availableAgents: { [agents] in agents.availableAgents },
-                          rememberedModels: state.lastModelByAgent,
-                          catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue,
-                          initialCatalogueFailure: catalogueFailure, git: git,
-                          reservedSlugs: state.reservedWorktreeSlugs(projectId: project.id),
-                          canChangeWorkspace: { [weak workspace] in workspace?.canChangeWorkspace == true },
-                          searchIssues: TaskCreationModel.jiraSearcher(for: project, jira: jira),
-                          createTask: { try await launcher.createTask(draft: $0, project: project) })
+        let launcher = self.launcher
+        return TaskCreationModel(project: project, draft: draft,
+                                 context: creationContext(project: project, catalogue: catalogue, failure: catalogueFailure),
+                                 searchIssues: TaskCreationModel.jiraSearcher(for: project, jira: jira),
+                                 createTask: { try await launcher.createTask(draft: $0, project: project) })
     }
 
     private func makeReviewModel(project: Project, draft: ReviewDraft, catalogue: [AgentModel]? = nil, catalogueFailure: String? = nil,
                                  gitLab: GitLabConfig?, gitHub: GitHubConfig?, remote: RemoteInfo) -> ReviewCreationModel {
-        let models = agents.catalogue, launcher = self.launcher
-        return ReviewCreationModel(project: project, draft: draft, home: harnessHome, claudeConfig: agents.claudeConfig, availableAgents: { [agents] in agents.availableAgents },
-                            rememberedModels: state.lastModelByAgent,
-                            catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue,
-                            initialCatalogueFailure: catalogueFailure, git: git,
-                            reservedSlugs: state.reservedWorktreeSlugs(projectId: project.id),
-                            canChangeWorkspace: { [weak workspace] in workspace?.canChangeWorkspace == true },
-                            owningTask: { [weak workspace] branch, checkouts in
+        let launcher = self.launcher
+        return ReviewCreationModel(project: project, draft: draft,
+                                   context: creationContext(project: project, catalogue: catalogue, failure: catalogueFailure),
+                                   owningTask: { [weak workspace] branch, checkouts in
                                 workspace?.state.task(checkingOut: branch, in: project.id, worktrees: checkouts)
-                            },
-                            codeHost: MergeRequestSearch.host(for: remote),
-                            searchMergeRequests: ReviewCreationModel.searcher(gitLab: gitLab, gitHub: gitHub, remote: remote),
-                            createReview: { try await launcher.createReview(draft: $0, project: project) },
-                            recover: { try await launcher.recover($0, in: project) },
-                            fixer: { [agents] in agents.fixer },
-                            pipeline: .live(git: git, workflow: workflow, project: project,
+                            }, codeHost: MergeRequestSearch.host(for: remote),
+                                   searchMergeRequests: ReviewCreationModel.searcher(gitLab: gitLab, gitHub: gitHub, remote: remote),
+                                   createReview: { try await launcher.createReview(draft: $0, project: project) },
+                                   recover: { try await launcher.recover($0, in: project) }, fixer: { [agents] in agents.fixer },
+                                   pipeline: .live(git: git, workflow: workflow, project: project,
                                             model: agents.fixModel,
-                                            locate: { HarnessCommandRunner.live.locate($0) }),
-                            fixLanded: { launcher.announceFix($0, by: $1) },
-                            backupKept: { launcher.announceBackup($0) })
+                                            locate: { HarnessCommandRunner.live.locate($0) }), fixLanded: { launcher.announceFix($0, by: $1) },
+                                   backupKept: { launcher.announceBackup($0) })
     }
 }

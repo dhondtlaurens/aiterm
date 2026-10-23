@@ -36,10 +36,9 @@ import Foundation
                           backupKept: @escaping @MainActor (FixLanding) -> Void = { _ in },
                           canChangeWorkspace: @escaping @MainActor () -> Bool = { true }) -> ReviewCreationModel {
         ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: agent, model: modelID, reasoning: nil),
-                            home: ScratchHome.bare, availableAgents: { available ?? [agent] }, catalogue: catalogue, defaults: defaults, git: .hermetic(),
-                            canChangeWorkspace: canChangeWorkspace,
-                            searchMergeRequests: search, createReview: create, recover: recover,
-                            fixer: { fixer }, pipeline: pipeline, fixLanded: fixLanded, backupKept: backupKept)
+                            context: .scratch(availableAgents: { available ?? [agent] }, catalogue: catalogue, defaults: defaults, canChangeWorkspace: canChangeWorkspace),
+                            searchMergeRequests: search, createReview: create, recover: recover, fixer: { fixer }, pipeline: pipeline,
+                            fixLanded: fixLanded, backupKept: backupKept)
     }
 
     /// The GitLab connection and the project's remote are read once, when the sheet is prepared —
@@ -203,8 +202,7 @@ import Foundation
                              agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil, appendTicket: true,
                              createdAt: Date(), windowId: nil)
         let m = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
-                                    home: ScratchHome.bare, catalogue: ScratchHome.catalogue, defaults: ScratchDefaults.make(), git: .hermetic(),
-                                    owningTask: { branch, _ in branch == owner.branch ? owner : nil },
+                                    context: .scratch(), owningTask: { branch, _ in branch == owner.branch ? owner : nil },
                                     searchMergeRequests: { _ in [] }, createReview: { _ in }, recover: { _ in })
         #expect(m.owningTask == nil)
         m.draft.apply(mr: mr)
@@ -219,9 +217,8 @@ import Foundation
     @Test func theOwningTaskIsFoundOnceABranchIsPickedNotOnEachRead() {
         var lookups = 0
         let m = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
-                                    home: ScratchHome.bare, catalogue: ScratchHome.catalogue, defaults: ScratchDefaults.make(), git: .hermetic(),
-                                    owningTask: { _, _ in lookups += 1; return nil },
-                                    searchMergeRequests: { _ in [] }, createReview: { _ in }, recover: { _ in })
+                                    context: .scratch(), owningTask: { _, _ in lookups += 1; return nil }, searchMergeRequests: { _ in [] },
+                                    createReview: { _ in }, recover: { _ in })
         let before = lookups
         _ = (m.owningTask, m.owningTask, m.owningTask)
         m.draft.promptText = "/code-review"

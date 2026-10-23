@@ -20,8 +20,6 @@ final class TaskArchiver {
     private let focus: RowFocus
     private let teardown: WorktreeTeardown
     private let now: @MainActor () -> Date
-    /// Each row's archive, restore or removal while it runs, for whoever awaits it.
-    private(set) var running: [UUID: Task<Void, Never>] = [:]
 
     init(workspace: WorkspaceStore, work: WorkInFlight, workflow: TaskWorkflow, notices: Notices, prompter: Prompter,
          checkouts: CheckoutMonitor, remover: TaskRemover, focus: RowFocus, teardown: WorktreeTeardown,
@@ -53,8 +51,8 @@ final class TaskArchiver {
               let token = work.begin(.archiving(windowLetGo: false), onTask: task.id) else { return nil }
         remover.clearOutcome(of: task.id)
         let id = task.id, kind = shown.kindName
-        let job = Task {
-            defer { running[id] = nil; work.end(token) }
+        return Task {
+            defer { work.end(token) }
             do { try await archive(shown, in: project, holding: token) }
             catch Stop.kept {}
             catch Stop.keptLate { remover.recordStop(of: id, note: "Not shelved") }
@@ -78,8 +76,6 @@ final class TaskArchiver {
                 notices.report(OperationIssue(title: "Couldn’t shelve the \(kind.lowercased()).", error: error, subject: id))
             }
         }
-        running[id] = job
-        return job
     }
 
     private func archive(_ task: TaskItem, in project: Project, holding token: WorkInFlight.Token) async throws {
@@ -143,9 +139,9 @@ final class TaskArchiver {
         let state = workspace.state
         guard workspace.canChangeWorkspace, let entry = state.archived(id: id), let project = state.project(id: entry.task.projectId),
               let token = work.begin(.restoring, onTask: id) else { return nil }
-        let job = Task {
+        return Task {
             var holding: WorkInFlight.Token? = token
-            defer { if let holding { work.end(holding) }; running[id] = nil }
+            defer { if let holding { work.end(holding) } }
             let made: TaskCreator.Made
             do { made = try await workflow.restore(entry.task, project: project) }
             catch {
@@ -171,8 +167,6 @@ final class TaskArchiver {
             focus.select(.task(id))
             if workspace.persistenceError == nil { notices.showToast("\(entry.task.kindName) restored.", symbol: "tray.and.arrow.up") }
         }
-        running[id] = job
-        return job
     }
 
     // -- remove from the archive --------------------------------------------------------
@@ -184,21 +178,15 @@ final class TaskArchiver {
     func confirmRemove(archived id: UUID) async -> Task<Void, Never>? {
         guard workspace.canChangeWorkspace, work.operation(onTask: id) == nil, let shown = workspace.state.archived(id: id)?.task,
               workspace.state.project(id: shown.projectId) != nil else { return nil }
-        let offersBranch = TaskRemover.offersBranchDeletion(for: shown)
-        let answer = await prompter.ask(AlertPrompt(
-            message: "Remove \(shown.kind == .review ? "review" : "task") “\(shown.title)”?",
+        let answer = await prompter.ask(.removeTask(shown,
             detail: "Forgets it and its conversations. Its worktree was deleted when it was shelved."
-                + (shown.kind == .review ? " Its local branch goes too, unless it has unpushed commits." : ""),
-            buttons: ["Remove", "Cancel"],
-            checkbox: offersBranch ? "Delete local branch" : nil,
-            checkboxHelp: offersBranch ? shown.branch : nil,
-            defaultDeletes: true))
+                + (shown.kind == .review ? " Its local branch goes too, unless it has unpushed commits." : "")))
         // As in Remove: what the answer finds is decided on the row as it is once the alert is gone.
         guard answer.confirmed, workspace.canChangeWorkspace, let task = workspace.state.archived(id: id)?.task,
               let project = workspace.state.project(id: task.projectId),
               let token = work.begin(.removing(windowLetGo: false), onTask: id) else { return nil }
-        let job = Task {
-            defer { running[id] = nil; work.end(token) }
+        return Task {
+            defer { work.end(token) }
             do {
                 let result = try await workflow.forgetArchived(task: task, project: project, deleteBranch: answer.checked)
                 // The row goes whatever became of its branch: it has no worktree to retry, so a branch
@@ -221,14 +209,12 @@ final class TaskArchiver {
                 workspace.mutate { $0.removeArchived(id: id) }
                 workspace.flush()
                 if workspace.persistenceError == nil {
-                    notices.showToast("\(task.kindName) removed." + (result.keptBranch.map { " " + $0.note(branch: task.branch) } ?? ""))
+                    notices.showRemoval(of: task, result: result)
                 }
             } catch {
                 // No subject, for the reason above.
                 notices.report(OperationIssue(title: "Couldn’t remove the \(task.kindName.lowercased()).", error: error))
             }
         }
-        running[id] = job
-        return job
     }
 }

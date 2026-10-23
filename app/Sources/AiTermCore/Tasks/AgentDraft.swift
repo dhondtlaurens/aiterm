@@ -14,7 +14,7 @@ public extension AgentDraft {
     /// used with that agent, else the catalogue's first (see `ModelSettings.resolve`), the catalogue
     /// being one the caller has already read.
     static func preference(for agent: AgentKind, state: AppState, catalog: [AgentModel],
-                           defaults: UserDefaults = .standard) -> ModelPreference {
+                           defaults: UserDefaults) -> ModelPreference {
         ModelSettings.resolve(for: agent, catalog: catalog, remembered: state.lastModelByAgent[agent], defaults: defaults)
     }
 

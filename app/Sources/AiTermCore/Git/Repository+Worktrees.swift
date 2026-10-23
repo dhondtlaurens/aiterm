@@ -151,11 +151,14 @@ extension Repository {
 
     /// The worktree at `worktreePath` removed, and then `deleteBranch` with it when one is named —
     /// `-D` under `force`, else `-d`.
-    public func removeWorktree(at worktreePath: String, deleteBranch: String?, force: Bool) throws {
+    public func removeWorktree(at worktreePath: String, deleteBranch: String?, force: Bool, allowUnlisted: Bool = false,
+                               onRemoving: () -> Void = {}) throws {
         if let worktree = try worktree(at: worktreePath) {
-            try removeRegistered(worktreePath, lockedWith: worktree.lockReason, force: force)
+            try removeRegistered(worktreePath, lockedWith: worktree.lockReason, force: force, onRemoving: onRemoving)
         } else {
-            // A removal git gave up on halfway, retried: there is nothing left to unlock or refuse.
+            guard allowUnlisted || !FileManager.default.fileExists(atPath: worktreePath) else {
+                throw WorktreeError.notAWorktree(worktreePath)
+            }
             try deleteLeftover(worktreePath)
         }
         // The checkout is gone either way, so a branch git refuses to delete must not skip the prune.
@@ -166,10 +169,11 @@ extension Repository {
     /// `lockReason` is the one git listed *before* unlocking: it is the only marker on disk that says
     /// whether this worktree is a review's, and a refused removal must put back what was there rather
     /// than stamping every survivor "aiterm task".
-    private func removeRegistered(_ worktreePath: String, lockedWith lockReason: String?, force: Bool) throws {
+    private func removeRegistered(_ worktreePath: String, lockedWith lockReason: String?, force: Bool, onRemoving: () -> Void) throws {
         let reason = lockReason ?? Worktree.taskLockReason
         // Refused for a worktree that is not locked, which is no reason to stop.
         _ = try? git.run(["worktree", "unlock", worktreePath], in: path, timeout: GitRunner.checkoutTimeout)
+        onRemoving()
         do { try git.run(["worktree", "remove"] + (force ? ["--force"] : []) + [worktreePath], in: path, timeout: GitRunner.checkoutTimeout) }
         catch {
             // git drops its record of the worktree even when it cannot delete all of it — a process

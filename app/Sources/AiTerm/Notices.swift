@@ -57,6 +57,10 @@ final class Notices {
         issueHooks.append(hook)
     }
 
+    func showRemoval(of task: TaskItem, result: TaskWorkflow.Removed) {
+        showToast("\(task.kindName) removed." + (result.keptBranch.map { " " + $0.note(branch: task.branch) } ?? ""))
+    }
+
     /// Completion feedback disappears on its own, after long enough to read a sentence — some say
     /// what was kept and why. The id means an older delayed dismissal cannot hide a newer toast.
     /// `symbol` is the glyph in front of it: the checkmark, unless the toast names its own.

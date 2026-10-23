@@ -9,7 +9,7 @@ import Testing
 /// with nothing created there is nothing a later removal could take from the task.
 extension AppControllerTests {
     @Test func aReviewOfATasksBranchOpensAsATabInItsWindow() async throws {
-        let fixture = try ReviewFixture(windowOpen: true)
+        let fixture = try TaskFixture(windowOpen: true, provider: .gitlab)
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
@@ -36,7 +36,7 @@ extension AppControllerTests {
 
     /// A task whose window is closed gets it back, with the reviewer as its first tab.
     @Test func aReviewOfATaskWithoutAWindowReopensItWithTheReviewer() async throws {
-        let fixture = try ReviewFixture(windowOpen: false)
+        let fixture = try TaskFixture(windowOpen: false, provider: .gitlab)
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
@@ -54,7 +54,7 @@ extension AppControllerTests {
     /// The saved window id can outlive the window by a poll. iTerm2's "no such window" means it
     /// is gone, so the task gets a new one rather than the sheet an error.
     @Test func aReviewWhoseWindowJustClosedReopensIt() async throws {
-        let fixture = try ReviewFixture(windowOpen: true)
+        let fixture = try TaskFixture(windowOpen: true, provider: .gitlab)
         let server = RecordingDaemon(failing: ["tab.create": .notFound])
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
@@ -70,7 +70,7 @@ extension AppControllerTests {
     /// `feat/work` must not open in that worktree — the reviewer would be looking at the other
     /// branch — and the worktree is not switched back under the task: the review gets its own.
     @Test func aReviewOfTheBranchADriftedTaskLeftGetsAWorktreeOfItsOwn() async throws {
-        let fixture = try ReviewFixture(windowOpen: true)
+        let fixture = try TaskFixture(windowOpen: true, provider: .gitlab)
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
@@ -89,7 +89,7 @@ extension AppControllerTests {
 
     /// The other direction: the branch the task's worktree moved to is that task's to review in.
     @Test func aReviewOfTheBranchADriftedTaskMovedToOpensInThatTask() async throws {
-        let fixture = try ReviewFixture(windowOpen: true)
+        let fixture = try TaskFixture(windowOpen: true, provider: .gitlab)
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
@@ -108,16 +108,14 @@ extension AppControllerTests {
     /// The sheet names the destination before anything is created. If the branch moves off the
     /// task it named, the press that would have opened it elsewhere stops and says where it goes now.
     @Test func theSheetRefusesADestinationThatMovedSinceItWasShown() async throws {
-        let fixture = try ReviewFixture(windowOpen: true)
+        let fixture = try TaskFixture(windowOpen: true, provider: .gitlab)
         defer { fixture.cleanUp() }
         var submitted = false
         let controller = fixture.controller, projectId = fixture.project.id
-        let model = ReviewCreationModel(
-            project: fixture.project, draft: fixture.draft, home: ScratchHome.bare,
-            catalogue: { _ in [AgentModel(id: "sonnet", label: "Sonnet", detail: nil, efforts: [], defaultEffort: nil)] },
-            defaults: ScratchDefaults.make(), git: .hermetic(),
-            owningTask: { branch, checkouts in controller.state.task(checkingOut: branch, in: projectId, worktrees: checkouts) },
-            searchMergeRequests: { _ in [] }, createReview: { _ in submitted = true }, recover: { _ in })
+        let model = ReviewCreationModel(project: fixture.project, draft: fixture.draft,
+                                        context: .scratch(catalogue: { _ in [AgentModel(id: "sonnet", label: "Sonnet", detail: nil, efforts: [], defaultEffort: nil)] }),
+                                        owningTask: { branch, checkouts in controller.state.task(checkingOut: branch, in: projectId, worktrees: checkouts) },
+                                        searchMergeRequests: { _ in [] }, createReview: { _ in submitted = true }, recover: { _ in })
         await model.loadAgentCatalogue()
         await model.loadCheckouts()
         #expect(model.owningTask?.id == fixture.task.id)
@@ -135,7 +133,7 @@ extension AppControllerTests {
     /// Nothing has been created when this fails, so it is the sheet's error and the draft survives
     /// for a retry — unlike a new worktree, whose recovery the workspace owns.
     @Test func aReviewInATaskWhileDisconnectedFailsWithoutTouchingTheTask() async throws {
-        let fixture = try ReviewFixture(windowOpen: true)
+        let fixture = try TaskFixture(windowOpen: true, provider: .gitlab)
         defer { fixture.cleanUp() }
         await #expect(throws: ActionUnavailable.self) {
             try await fixture.controller.createReview(draft: fixture.draft, project: fixture.project)
@@ -145,43 +143,12 @@ extension AppControllerTests {
     }
 }
 
-@MainActor
-private struct ReviewFixture {
-    let root: URL
-    let repo: URL
-    let git = GitRunner.hermetic()
-    let project: Project
-    let task: TaskItem
-    let draft: ReviewDraft
-    let controller: AppController
-
-    init(windowOpen: Bool) throws {
-        root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        repo = root.appendingPathComponent("repo")
-        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
-        try git.run(["init", "-q", "-b", "main"], in: repo.path)
-        try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "init"], in: repo.path)
-        let checkout = repo.appendingPathComponent(".worktrees/work").path
-        try git.run(["worktree", "add", "-q", "-b", "feat/work", checkout], in: repo.path)
-        project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .gitlab,
-                          remoteUrl: nil, addedAt: Date(), collapsed: false)
-        task = TaskItem(id: UUID(), projectId: project.id, title: "Work", branch: "feat/work",
-                        worktreePath: checkout, baseBranch: "main", jira: nil, agent: .codex,
-                        model: "model", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                        createdAt: Date(timeIntervalSince1970: 0), windowId: windowOpen ? "alive" : nil)
+private extension TaskFixture {
+    var draft: ReviewDraft {
         var draft = ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil)
         draft.apply(mr: MergeRequest(iid: 7, title: "Work", sourceBranch: "feat/work", targetBranch: "main",
                                      author: "me", state: "opened", draft: false, url: "https://gitlab/x/-/merge_requests/7"))
         draft.promptText = "/code-review"
-        self.draft = draft
-        controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
-        controller.workspace.mutate { state in
-            state.items = [.project(project)]
-            state.tasks = [task]
-        }
-        #expect(controller.workspace.flush())
+        return draft
     }
-
-    func cleanUp() { try? FileManager.default.removeItem(at: root) }
 }

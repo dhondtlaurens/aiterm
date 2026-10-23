@@ -389,7 +389,7 @@ struct BroadcastBoardSheetTests {
         guard case .rename(let target) = controller.sheet else { Issue.record("no rename sheet"); return }
         #expect(target == .broadcast(run))
         #expect(target.title == "Rename broadcast" && target.fieldLabel == "Broadcast name" && target.name == "Newsletter signup")
-        #expect(target.subtitle == "Renames its row and its overview; the Operator’s window and its tasks keep theirs.")
+        #expect(target.subtitle == "Renames its row and its board; the Operator’s window and its tasks keep theirs.")
     }
 
     /// What the operator controller refuses reaches the banner, named after what it was for, and is never dropped.

@@ -175,8 +175,7 @@ import AiTermCore
                               remoteUrl: "git@git.example.net:web/acme-web.git", addedAt: Date(), collapsed: false)
         let created = Created()
         let model = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
-                                        home: ScratchHome.bare, availableAgents: { [.claude] }, catalogue: ScratchHome.catalogue,
-                                        defaults: ScratchDefaults.make(), git: .hermetic(), searchMergeRequests: { _ in mergeRequests },
+                                        context: .scratch(availableAgents: { [.claude] }), searchMergeRequests: { _ in mergeRequests },
                                         createReview: { draft in
                                             created.drafts.append(draft)
                                             if createFails { throw Refused() }

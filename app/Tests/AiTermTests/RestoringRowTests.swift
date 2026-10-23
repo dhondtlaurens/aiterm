@@ -321,8 +321,7 @@ extension AppControllerTests {
         #expect(fixture.controller.state.task(id: task.id)?.windowId == "reopened-2")
     }
 
-    /// A terminal whose window could not be reopened says so with its name and no subject: the banner
-    /// is not a task's, and its row has no caption to tie it to.
+    /// A failed terminal reopen names its row, so a successful retry can dismiss its banner.
     @Test func aTerminalWhoseRestoreFailedShowsTheBannerWithItsName() async throws {
         let fixture = try RaceFixture()
         let server = RecordingDaemon(failing: ["window.createTerminal": "temporary_failure"])
@@ -335,7 +334,7 @@ extension AppControllerTests {
         await fixture.controller.windows.lastRestore?.value
 
         #expect(fixture.controller.issue?.title == "Couldn’t reopen “Shell”.")
-        #expect(fixture.controller.issue?.subject == nil)
+        #expect(fixture.controller.issue?.subject == terminal.id)
         #expect(fixture.controller.hasFailedRestore(terminal.id))
     }
 

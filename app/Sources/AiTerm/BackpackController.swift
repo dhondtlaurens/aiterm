@@ -90,12 +90,6 @@ final class BackpackController {
         get { mode.settings.network }
         set { mode.settings.network = newValue; setup.network = newValue }
     }
-    /// A Keychain read: off the main actor where it can be (`savedPassword()`).
-    var password: String? {
-        get { mode.settings.password }
-        set { mode.settings.setPassword(newValue) }
-    }
-
     /// Writes the password to the Keychain; false when it refused.
     func setPassword(_ value: String) -> Bool { mode.settings.setPassword(value) }
 
@@ -326,15 +320,10 @@ final class BackpackController {
         }
     }
 
-    /// At launch, before anything else: a marker left by a crash puts sleep back.
-    func recoverAtLaunch() {
-        let mode = self.mode
-        worker.sync { mode.recoverAtLaunch() }
-    }
-
     /// Launch: put sleep back if a crash left it off, then read setup, so the header's menu knows.
     func launch() async {
-        recoverAtLaunch()
+        let mode = self.mode
+        await worker.run { mode.recoverAtLaunch() }
         await refreshSetup()
     }
 

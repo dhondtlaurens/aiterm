@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// Git work runs on one user-initiated queue, away from presentation and the cooperative
 /// executor. Creation and removal share it so mutations cannot race in one app.
@@ -30,8 +31,10 @@ public struct TaskWorkflow: Sendable {
     /// Internal, not private, for the workflow jobs that live in the folder of the feature they serve
     /// (`TaskWorkflow+FixLanding`): Core's folders may not depend on each other in a loop.
     static let queue = DispatchQueue(label: "aiterm.task-workflows", qos: .userInitiated)
-    /// Runs every git command of a creation, removal or pull. A test passes one that runs git without
-    /// the developer's own configuration.
+    /// Only a removal that reached git may clean up an unlisted folder on retry.
+    private final class RemovalAttempts: Sendable { let paths = Mutex<[UUID: String]>([:]) }
+    private let removalAttempts = RemovalAttempts()
+    /// Runs every git command through the injected runner.
     let git: any GitRunning
     public init(git: any GitRunning) { self.git = git }
 
@@ -87,11 +90,26 @@ public struct TaskWorkflow: Sendable {
         }
     }
 
-    public func remove(task: TaskItem, project: Project, deleteBranch: Bool, force: Bool) async throws -> Removed {
-        let git = git
+    /// An unlisted directory is not evidence of our failed removal: ask before deleting it.
+    public func needsRemovalConfirmation(task: TaskItem, project: Project) async throws -> Bool {
+        let git = git, attempts = removalAttempts
         return try await BackgroundWork.run(on: Self.queue) {
-            try Self.takeWorktree(of: task, from: project, force: force, git: git)
-            return Self.releaseBranch(of: task, in: project, deleteBranch: deleteBranch, git: git)
+            guard task.hasCheckout, !attempts.paths.withLock({ $0[task.id] == task.worktreePath }),
+                  FileManager.default.fileExists(atPath: task.worktreePath) else { return false }
+            return try Repository(project.path, git: git).worktree(at: task.worktreePath) == nil
+        }
+    }
+
+    public func remove(task: TaskItem, project: Project, deleteBranch: Bool, force: Bool,
+                       allowUnlisted: Bool = false) async throws -> Removed {
+        let git = git, attempts = removalAttempts
+        return try await BackgroundWork.run(on: Self.queue) {
+            try Self.takeWorktree(of: task, from: project, force: force, git: git,
+                                  allowUnlisted: allowUnlisted || attempts.paths.withLock { $0[task.id] == task.worktreePath },
+                                  onRemoving: { attempts.paths.withLock { $0[task.id] = task.worktreePath } })
+            let result = Self.releaseBranch(of: task, in: project, deleteBranch: deleteBranch, git: git)
+            if result.branchRefusal == nil { attempts.paths.withLock { _ = $0.removeValue(forKey: task.id) } }
+            return result
         }
     }
 
@@ -119,12 +137,13 @@ public struct TaskWorkflow: Sendable {
     }
 
     /// The task's worktree removed — or, already gone, unlocked and pruned.
-    private static func takeWorktree(of task: TaskItem, from project: Project, force: Bool, git: any GitRunning) throws {
+    private static func takeWorktree(of task: TaskItem, from project: Project, force: Bool, git: any GitRunning, allowUnlisted: Bool = false,
+                                     onRemoving: () -> Void = {}) throws {
         // An operator's task not started yet has no worktree to remove, unlock or prune.
         guard task.hasCheckout else { return }
         let repository = Repository(project.path, git: git)
         if FileManager.default.fileExists(atPath: task.worktreePath) {
-            try repository.removeWorktree(at: task.worktreePath, deleteBranch: nil, force: force)
+            try repository.removeWorktree(at: task.worktreePath, deleteBranch: nil, force: force, allowUnlisted: allowUnlisted, onRemoving: onRemoving)
         } else {
             try repository.forgetWorktreeRecord(at: task.worktreePath)
         }

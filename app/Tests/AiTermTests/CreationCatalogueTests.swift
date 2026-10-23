@@ -67,8 +67,8 @@ struct CreationCatalogueTests {
                        initialCatalogue: [AgentModel]? = nil, initialCatalogueFailure: String? = nil) -> TaskCreationModel {
         let project = Project(id: UUID(), name: "Repo", path: "/tmp/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         let draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .pi, model: "", reasoning: nil)
-        return TaskCreationModel(project: project, draft: draft, home: ScratchHome.bare, catalogue: catalogue,
-                                 initialCatalogue: initialCatalogue, initialCatalogueFailure: initialCatalogueFailure,
-                                 defaults: ScratchDefaults.make(), git: .hermetic(), searchIssues: { _ in [] }, createTask: { _ in })
+        return TaskCreationModel(project: project, draft: draft,
+                                 context: .scratch(catalogue: catalogue, initialCatalogue: initialCatalogue, initialCatalogueFailure: initialCatalogueFailure),
+                                 searchIssues: { _ in [] }, createTask: { _ in })
     }
 }

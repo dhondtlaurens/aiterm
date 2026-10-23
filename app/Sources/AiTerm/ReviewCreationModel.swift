@@ -69,17 +69,7 @@ extension CreationModel where Kind == ReviewCreation {
     // `recover`, the fixes the footer offers (`TaskLauncher.recover`): one that did nothing would
     // offer a button whose create fails again with the same refusal. `fixer` and `pipeline` are the
     // agent's Fix (`FixSession`); without a pipeline a failure offers none.
-    /// `home` and `catalogue` have no defaults: each reads an agent's configuration, and a default
-    /// would read the developer's own from anything that left them out. A `catalogue` that throws
-    /// has no models to offer, and the sheet says why in their place.
-    convenience init(project: Project, draft: ReviewDraft, home: URL, claudeConfig: ClaudeConfig = ClaudeConfig(),
-                     availableAgents: @escaping @MainActor () -> Set<AgentKind> = { Set(AgentKind.allCases) },
-                     rememberedModels: [AgentKind: String] = [:],
-                     catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel],
-                     initialCatalogue: [AgentModel]? = nil, initialCatalogueFailure: String? = nil,
-                     defaults: UserDefaults = .standard, git: any GitRunning,
-                     reservedSlugs: Set<String> = [],
-                     canChangeWorkspace: @escaping @MainActor () -> Bool = { true },
+    convenience init(project: Project, draft: ReviewDraft, context: CreationContext,
                      owningTask: @escaping (_ branch: String, _ checkouts: [Worktree]) -> TaskItem? = { _, _ in nil },
                      codeHost: CodeHost = .gitLab,
                      searchMergeRequests: @escaping @MainActor (String) async throws -> [MergeRequest],
@@ -88,10 +78,8 @@ extension CreationModel where Kind == ReviewCreation {
                      fixer: @escaping @MainActor () -> FixerResolution = { .off }, pipeline: FixPipeline? = nil,
                      fixLanded: @escaping @MainActor (FixLanding, FixerAgent) -> Void = { _, _ in },
                      backupKept: @escaping @MainActor (FixLanding) -> Void = { _ in }) {
-        self.init(kind: ReviewCreation(codeHost: codeHost, findOwner: owningTask, fix: recover), project: project, draft: draft, home: home, claudeConfig: claudeConfig,
-                  availableAgents: availableAgents, rememberedModels: rememberedModels, catalogue: catalogue,
-                  initialCatalogue: initialCatalogue, initialCatalogueFailure: initialCatalogueFailure, defaults: defaults,
-                  git: git, reservedSlugs: reservedSlugs, canChangeWorkspace: canChangeWorkspace, search: searchMergeRequests, submit: createReview,
+        self.init(kind: ReviewCreation(codeHost: codeHost, findOwner: owningTask, fix: recover), project: project, draft: draft, context: context,
+                  search: searchMergeRequests, submit: createReview,
                   fixer: fixer, pipeline: pipeline, fixLanded: fixLanded, backupKept: backupKept)
         findOwningTask()
     }

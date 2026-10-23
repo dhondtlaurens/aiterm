@@ -106,8 +106,7 @@ final class UpdateController {
 }
 
 extension UpdateController {
-    /// The real wiring: the running bundle's version, feed and signature, the feed's token (if it
-    /// takes one), the updates folder in Caches, and `NSApp.terminate` — whose normal quit path saves state first.
+    /// The real wiring: the running bundle's version, feed and signature, the updates folder in Caches, and `NSApp.terminate` — whose normal quit path saves state first.
     static func live(prompter: Prompter) -> UpdateController {
         let bundle = Bundle.main
         let bundleURL = bundle.bundleURL, identifier = bundle.bundleIdentifier ?? ""
@@ -118,7 +117,7 @@ extension UpdateController {
             currentVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             channel: BuildChannel(infoDictionary: bundle.infoDictionary),
             bundleURL: bundleURL, updatesDirectory: updates,
-            makeSource: { try ReleaseFeed.source(for: feed, secrets: Keychain.shared) },
+            makeSource: { try ReleaseFeed.source(for: feed) },
             checkReplaceable: { try UpdateInstaller.checkReplaceable(bundleURL) },
             stage: { image, version in
                 let requirement = try UpdateStager.designatedRequirement(of: bundleURL)

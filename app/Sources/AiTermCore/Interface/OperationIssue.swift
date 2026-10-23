@@ -59,7 +59,7 @@ public struct OperationIssue: Equatable, Sendable {
     /// Whether the issue names a task or a project that `state` no longer has: the question has
     /// gone with it, and its actions would find nothing to act on.
     public func isStale(in state: AppState) -> Bool {
-        if let subject, state.task(id: subject) == nil { return true }
+        if let subject, state.task(id: subject) == nil, state.terminal(id: subject) == nil { return true }
         if case .pullDefault(let id)? = fix?.retry, state.project(id: id) == nil { return true }
         return actions.contains { action in
             switch action {
