@@ -625,7 +625,8 @@ def test_failed_token_unlink_does_not_restore_revoked_authority(tmp_path, monkey
 
 def test_unknown_tokens_do_not_repeatedly_scan_unchanged_run_folders(tmp_path, monkeypatch):
     write_token(tmp_path, "run-1", TOKEN)
-    tokens = OperatorTokens(tmp_path)
+    now = [0.0]
+    tokens = OperatorTokens(tmp_path, clock=lambda: now[0])
     scans = []
     original = type(tmp_path).iterdir
 
@@ -634,9 +635,13 @@ def test_unknown_tokens_do_not_repeatedly_scan_unchanged_run_folders(tmp_path, m
         return original(path)
 
     monkeypatch.setattr(type(tmp_path), "iterdir", counted)
+    now[0] = 0.9
     assert tokens.run_for(UNKNOWN) is None
     assert tokens.run_for(OTHER) is None
     assert scans == []
+    now[0] = 1.0
+    assert tokens.run_for(UNKNOWN) is None
+    assert scans == [tmp_path], "a second on, the folder is read again"
 
 
 def finish_task():

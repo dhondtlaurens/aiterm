@@ -58,8 +58,11 @@ class OperatorTokens:
     accident or because a ticket told it to; it is no wall against a process of the same user, which
     can read the run folder. With no runs root, tokens live in memory only."""
 
-    def __init__(self, runs_root: Path | None = None) -> None:
-        self._root = runs_root
+    # How long an unknown token waits before another read of an unchanged runs folder.
+    RELOAD_SECONDS = 1.0
+
+    def __init__(self, runs_root: Path | None = None, clock: Callable[[], float] = time.monotonic) -> None:
+        self._root, self._clock = runs_root, clock
         self._runs: dict[str, str] = {}    # token -> run id
         self._tokens: dict[str, str] = {}  # run id -> token
         self._revoked: set[str] = set()
@@ -114,9 +117,10 @@ class OperatorTokens:
             return
         try:
             stamp = self._root.stat().st_mtime_ns
-            if stamp == self._root_stamp and time.monotonic() - self._loaded_at < 1:
+            now = self._clock()
+            if stamp == self._root_stamp and now - self._loaded_at < self.RELOAD_SECONDS:
                 return
-            self._root_stamp, self._loaded_at = stamp, time.monotonic()
+            self._root_stamp, self._loaded_at = stamp, now
             folders = [path for path in self._root.iterdir() if path.is_dir()]
         except OSError:
             return  # no runs yet

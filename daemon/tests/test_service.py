@@ -1066,7 +1066,7 @@ async def test_closed_sessions_leave_nothing_behind(stack):
     assert sid not in svc.windows._self_created and sid not in svc.windows._applied_titles
     assert svc.status.turn(sid) is None
     assert not svc.resolver._pins and not svc.resolver._codex
-    assert not svc.codex_files._paths and not svc.codex_files._context
+    assert not svc.codex_files._paths and not svc.codex_files._missed and not svc.codex_files._context
 
 
 async def test_a_hook_port_in_use_leaves_no_rpc_socket_behind(make_service):
