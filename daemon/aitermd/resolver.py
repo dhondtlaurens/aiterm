@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .claude_sessions import ClaudeSessionFiles
+from .offload import run_detached
 from .models import HARNESS_BY_AGENT, AgentKind
 from .sessions import SessionRegistry
 
@@ -26,19 +27,11 @@ class SessionResolver:
         self._codex: dict[str, CodexBinding] = {}
         self._generation = 0
 
-    def resolve(self, agent: AgentKind, session_id: str | None, cwd: str | None,
-                iterm_session_id: str | None = None) -> str | None:
-        """Pid (Claude) or the tab id the hook itself carries (Codex, PI) first; then the tab this
-        conversation was pinned to earlier, while it still runs the same agent; then, as a
-        heuristic, the directory. The pin is what survives an agent chdir'ing into a worktree:
-        from then on the post's cwd matches no tab's shell directory."""
-        return self.resolve_with_evidence(agent, session_id, cwd, iterm_session_id)[0]
-
-    def resolve_with_evidence(self, agent: AgentKind, session_id: str | None, cwd: str | None,
+    async def resolve_with_evidence(self, agent: AgentKind, session_id: str | None, cwd: str | None,
                               iterm_session_id: str | None = None) -> tuple[str | None, str | None]:
         """The placed tab and the directly evidenced tab, from one lookup. Hooks use the
         latter to decide whether conversation resets can safely affect the placed tab."""
-        if (direct := self.resolve_directly(agent, session_id, iterm_session_id)) is not None:
+        if (direct := await self.resolve_directly(agent, session_id, iterm_session_id)) is not None:
             return direct, direct
         if session_id and (pinned := self._pins.get((agent, session_id))):
             s = self.registry.get(pinned)
@@ -46,15 +39,22 @@ class SessionResolver:
                 return pinned, None
         return self._by_cwd(cwd, agent), None
 
-    def resolve_directly(self, agent: AgentKind, session_id: str | None,
+    async def resolve_directly(self, agent: AgentKind, session_id: str | None,
                          iterm_session_id: str | None = None) -> str | None:
         """The tab a post came from, by evidence rather than inference: the agent's own pid (Claude)
         or the tab id the hook carries (Codex, PI). A pin or a directory match can be stale."""
         if (harness := HARNESS_BY_AGENT.get(agent)) is None:
             return None
         if harness.placement == "pid_file":
-            if session_id and (pid := self.claude_files.pid_for_session(session_id)) and (s := self.registry.by_job_pid(pid)):
-                return s.session_id
+            if session_id:
+                # Only file I/O runs off-loop; registry and pin decisions stay on the event loop.
+                while True:
+                    root = self.claude_files.root
+                    pid = await run_detached(lambda: self.claude_files.pid_for_session(session_id))
+                    if root == self.claude_files.root:
+                        break
+                if pid and (s := self.registry.by_job_pid(pid)):
+                    return s.session_id
         elif iterm_session_id:
             # $ITERM_SESSION_ID includes a pane prefix (`w1t0p0:<uuid>`), while iTerm2's Python API
             # reports only the suffix as the session id.

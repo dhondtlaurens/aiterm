@@ -45,10 +45,16 @@ class ClaudeSessionFiles:
         return entry[1]
 
     def pid_for_session(self, session_id: str) -> int | None:
-        if not self.root.is_dir():
-            return None
-        index = {path: entry for path in self.root.glob("*.json") if (entry := self._load(path)) is not None}
-        self._index = index
+        root = self.root
+        # Most posts name a conversation already read by a tick or an earlier post. Validate
+        # just that file; a renamed, removed or unknown conversation falls back to discovery.
+        for path, (_, cached) in tuple(self._index.items()):
+            if path.parent == root and cached and cached.session_id == session_id:
+                if (current := self.read(cached.pid)) and current.session_id == session_id:
+                    return current.pid
+        index = {path: entry for path in root.glob("*.json") if (entry := self._load(path)) is not None}
+        if root == self.root:
+            self._index = index
         return next((f.pid for _, f in index.values() if f and f.session_id == session_id), None)
 
     def _load(self, path: Path) -> _Entry | None:

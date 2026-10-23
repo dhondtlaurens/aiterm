@@ -116,3 +116,20 @@ def test_unreadable_session_file_is_retried_without_a_file_change(tmp_path, monk
         patch.setattr(type(tmp_path), "read_text", unreadable)
         assert files.read(42) is None
     assert files.read(42).session_id == "sid-42"
+
+
+def test_known_session_lookup_stats_only_its_file(tmp_path, monkeypatch):
+    write(tmp_path, 1)
+    write(tmp_path, 2)
+    files = ClaudeSessionFiles(tmp_path)
+    assert files.pid_for_session("sid-2") == 2
+    inspected = []
+    stat = type(tmp_path).stat
+
+    def counted(path, *args, **kwargs):
+        inspected.append(path.name)
+        return stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(type(tmp_path), "stat", counted)
+    assert files.pid_for_session("sid-2") == 2
+    assert inspected == ["2.json"]

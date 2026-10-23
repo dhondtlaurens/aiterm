@@ -64,7 +64,7 @@ class HookRouter:
             if usage and (usage.five_hour or usage.seven_day or usage.spend) and self.usage.set(agent, usage):
                 await self.publisher.usage_changed()
             if (tick.model or tick.context_percent is not None) and (
-                    sid := self._resolve_post(agent, tick.session_id, tick.cwd, tick.iterm_session_id)[0]):
+                    sid := (await self._resolve_post(agent, tick.session_id, tick.cwd, tick.iterm_session_id))[0]):
                 await self.publisher.session_changed(self.status.apply_metadata(
                     sid, model=tick.model, context=tick.context_percent))
             return None
@@ -74,9 +74,9 @@ class HookRouter:
         ev = parser(body) if parser else None
         if ev is None:
             return None
-        sid, direct = self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
+        sid, direct = await self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
         if sid is None and await self._tick_for_unplaced():
-            sid, direct = self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
+            sid, direct = await self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
         if sid is None:
             log.debug("hook for unknown session: %s %s", ev.agent, ev.cwd)
             return None
@@ -138,9 +138,9 @@ class HookRouter:
             return False
         return True
 
-    def _resolve_post(self, agent: AgentKind, session_id: str | None, cwd: str | None,
+    async def _resolve_post(self, agent: AgentKind, session_id: str | None, cwd: str | None,
                       iterm_session_id: str | None = None, hook_event: str | None = None) -> tuple[str | None, str | None]:
-        sid, direct = self.resolver.resolve_with_evidence(agent, session_id, cwd, iterm_session_id)
+        sid, direct = await self.resolver.resolve_with_evidence(agent, session_id, cwd, iterm_session_id)
         if sid is not None:
             self.resolver.bind(sid, agent, session_id, hook_event)
         return sid, direct

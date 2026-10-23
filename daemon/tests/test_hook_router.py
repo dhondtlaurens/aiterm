@@ -324,3 +324,21 @@ async def test_cancelling_a_hook_wait_preserves_its_shared_tick(hooks):
         release.set()
         await asyncio.wait_for(finished.wait(), 1)
     assert cancelled == []
+
+
+async def test_claude_file_lookup_does_not_block_hook_event_loop(tmp_path, monkeypatch):
+    import threading
+
+    hooks = Hooks(tmp_path)
+    hooks.tabs(("s1", "claude", 101))
+    loop_thread = threading.get_ident()
+    lookup_threads = []
+
+    def lookup(session_id):
+        lookup_threads.append(threading.get_ident())
+        return 101
+
+    monkeypatch.setattr(hooks.resolver.claude_files, "pid_for_session", lookup)
+    await hooks.post("/hook/claude", {"hook_event_name": "UserPromptSubmit", "session_id": "conversation", "cwd": "/wt"})
+    assert hooks.state("s1") == "working"
+    assert lookup_threads and loop_thread not in lookup_threads

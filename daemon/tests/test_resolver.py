@@ -25,40 +25,40 @@ def claude_file(files, pid, session_id):
     (files.root / f"{pid}.json").write_text(json.dumps({"pid": pid, "sessionId": session_id, "cwd": "/repo", "status": "busy"}))
 
 
-def test_claude_resolves_by_pid_before_anything_else(world):
+async def test_claude_resolves_by_pid_before_anything_else(world):
     resolver, _, files = world
     claude_file(files, 101, "conv-a")
     resolver.bind("b", "claude", "conv-a")
-    assert resolver.resolve("claude", "conv-a", "/repo") == "a"
+    assert (await resolver.resolve_with_evidence("claude", "conv-a", "/repo"))[0] == "a"
 
 
-def test_a_pin_beats_the_directory_heuristic(world):
+async def test_a_pin_beats_the_directory_heuristic(world):
     resolver, _, _ = world
     # No session file: by directory alone the most recently seen tab, `b`, would win.
-    assert resolver.resolve("claude", "conv-a", "/repo") == "b"
+    assert (await resolver.resolve_with_evidence("claude", "conv-a", "/repo"))[0] == "b"
     resolver.bind("a", "claude", "conv-a")
-    assert resolver.resolve("claude", "conv-a", "/repo") == "a"
+    assert (await resolver.resolve_with_evidence("claude", "conv-a", "/repo"))[0] == "a"
     # The pin also survives the agent leaving the shell's directory.
-    assert resolver.resolve("claude", "conv-a", "/repo/.worktrees/feat") == "a"
+    assert (await resolver.resolve_with_evidence("claude", "conv-a", "/repo/.worktrees/feat"))[0] == "a"
 
 
-def test_a_pin_is_ignored_once_its_tab_runs_another_agent(world):
+async def test_a_pin_is_ignored_once_its_tab_runs_another_agent(world):
     resolver, reg, _ = world
     resolver.bind("a", "claude", "conv-a")
     reg.apply_snapshot([
         RawSession("a", "w1", 0, "-zsh", 201, "", "/repo", {}),
         RawSession("b", "w1", 1, "claude", 102, "", "/repo", {}),
     ])
-    assert resolver.resolve("claude", "conv-a", "/repo") == "b"
+    assert (await resolver.resolve_with_evidence("claude", "conv-a", "/repo"))[0] == "b"
 
 
-def test_the_hooks_own_prefixed_tab_id_wins_for_its_agent_only(world):
+async def test_the_hooks_own_prefixed_tab_id_wins_for_its_agent_only(world):
     resolver, _, _ = world
-    assert resolver.resolve("codex", "t1", "/elsewhere", "w1t2p0:x") == "x"
-    assert resolver.resolve("pi", "p1", "/elsewhere", "w1t2p0:x") is None
+    assert (await resolver.resolve_with_evidence("codex", "t1", "/elsewhere", "w1t2p0:x"))[0] == "x"
+    assert (await resolver.resolve_with_evidence("pi", "p1", "/elsewhere", "w1t2p0:x"))[0] is None
 
 
-def test_a_codex_thread_waits_for_the_next_snapshot_to_learn_its_process(world):
+async def test_a_codex_thread_waits_for_the_next_snapshot_to_learn_its_process(world):
     resolver, reg, _ = world
     resolver.bind("x", "codex", "thread-1", "UserPromptSubmit")
     # The replacement process posts before iTerm2 has reported its pid.
@@ -71,7 +71,7 @@ def test_a_codex_thread_waits_for_the_next_snapshot_to_learn_its_process(world):
     assert resolver.codex_thread("x") is None
 
 
-def test_a_stop_binds_the_thread_to_the_process_it_came_from(world):
+async def test_a_stop_binds_the_thread_to_the_process_it_came_from(world):
     resolver, reg, _ = world
     resolver.bind("x", "codex", "thread-1", "Stop")
     reg.apply_snapshot([RawSession("x", "w1", 2, "codex", 104, "", "/repo", {})])
@@ -79,9 +79,9 @@ def test_a_stop_binds_the_thread_to_the_process_it_came_from(world):
     assert resolver.codex_thread("x") is None
 
 
-def test_pi_resolves_directly_by_iterm_session(tmp_path):
+async def test_pi_resolves_directly_by_iterm_session(tmp_path):
     reg = SessionRegistry()
     reg.apply_snapshot([RawSession("tab-1", "w1", 0, "pi", 41, "", "/wt", {"aiterm_task": "t1"})])
     resolver = SessionResolver(reg, ClaudeSessionFiles(tmp_path))
     # $ITERM_SESSION_ID carries a pane prefix; iTerm2's API reports only the suffix.
-    assert resolver.resolve_directly("pi", "p-1", "w0t0p0:tab-1") == "tab-1"
+    assert await resolver.resolve_directly("pi", "p-1", "w0t0p0:tab-1") == "tab-1"
