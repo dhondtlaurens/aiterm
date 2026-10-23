@@ -154,8 +154,7 @@ def test_the_markers_are_the_spikes():
 
 def test_the_timings_are_the_contracts():
     assert (delivery.SUBMIT_DELAY, delivery.TYPING_QUIET, delivery.MESSAGE_FILE_THRESHOLD) == (0.4, 10.0, 2000)
-    assert (delivery.WAKE_COALESCE, delivery.RECONCILE_INTERVAL, delivery.STALL_AFTER) == (3.0, 60.0, 1200.0)
-    assert (delivery.CHALLENGE_TIMEOUT, delivery.OPERATOR_REQUEST_TIMEOUT, delivery.LAUNCH_ADOPT_AFTER) == (180.0, 30.0, 60.0)
+    assert delivery.OPERATOR_REQUEST_TIMEOUT == 30.0
 
 
 def _policy_file(tmp_path, content):

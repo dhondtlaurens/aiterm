@@ -30,11 +30,8 @@ import Foundation
         guard let python = try? String(contentsOf: file, encoding: .utf8) else { return }
         let shared: [(String, Double)] = [
             ("SUBMIT_DELAY", OperatorTiming.submitDelay), ("TYPING_QUIET", OperatorTiming.typingQuiet),
-            ("MESSAGE_FILE_THRESHOLD", Double(OperatorTiming.messageFileThreshold)), ("WAKE_COALESCE", OperatorTiming.wakeCoalesce),
-            ("RECONCILE_INTERVAL", OperatorTiming.reconcileInterval), ("STALL_AFTER", OperatorTiming.stallAfter),
-            ("CHALLENGE_TIMEOUT", OperatorTiming.challengeTimeout), ("GATE_TIMEOUT", OperatorTiming.gateTimeout),
+            ("MESSAGE_FILE_THRESHOLD", Double(OperatorTiming.messageFileThreshold)), ("GATE_TIMEOUT", OperatorTiming.gateTimeout),
             ("OPERATOR_REQUEST_TIMEOUT", OperatorTiming.operatorRequestTimeout),
-            ("LAUNCH_ADOPT_AFTER", OperatorTiming.launchAdoptAfter),
         ]
         for (name, value) in shared {
             let read = try #require(Self.pythonConstant(name, in: python), "delivery.py has no \(name)")

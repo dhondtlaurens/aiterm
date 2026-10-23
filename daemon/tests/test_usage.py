@@ -5,9 +5,9 @@ from aitermd.usage import UsageStore, parse_codex_rate_limits
 
 def test_store_reports_change_and_snapshot():
     store = UsageStore()
-    u = Usage(UsageWindow(23, 1), None, None, "max", 10)
+    u = Usage(UsageWindow(23, 1), None, None, 10)
     assert store.set("claude", u) is True
-    assert store.set("claude", Usage(UsageWindow(23, 1), None, None, "max", 11)) is False  # only updatedAt differs
+    assert store.set("claude", Usage(UsageWindow(23, 1), None, None, 11)) is False  # only updatedAt differs
     assert store.snapshot() == {"claude": u.to_json() | {"updatedAt": 11}, "codex": None}
 
 
@@ -15,9 +15,9 @@ def test_store_reports_an_unchanged_usage_once_its_age_moves_a_minute():
     # The footer greys a number by its age, so the client's copy of `updatedAt` must keep up
     # with the daemon's -- once a minute, not once a status-line tick.
     store = UsageStore()
-    store.set("codex", Usage(None, UsageWindow(52, 1), None, "team", 1000))
-    assert store.set("codex", Usage(None, UsageWindow(52, 1), None, "team", 1059)) is False
-    assert store.set("codex", Usage(None, UsageWindow(52, 1), None, "team", 1060)) is True
+    store.set("codex", Usage(None, UsageWindow(52, 1), None, 1000))
+    assert store.set("codex", Usage(None, UsageWindow(52, 1), None, 1059)) is False
+    assert store.set("codex", Usage(None, UsageWindow(52, 1), None, 1060)) is True
 
 
 # The shape below is the `rate_limits` block of a `token_count` event in Codex's own rollout
@@ -29,14 +29,14 @@ def test_parse_codex_windows_by_duration():
           "secondary": {"used_percent": 4.0, "window_minutes": 10080, "resets_at": 1789982382}, "plan_type": "team"}
     u = parse_codex_rate_limits(rl, updated_at=5)
     assert u.five_hour == UsageWindow(26, 1789473619) and u.seven_day == UsageWindow(4, 1789982382)
-    assert u.plan == "team" and u.updated_at == 5
+    assert u.updated_at == 5
 
 
 def test_parse_codex_weekly_only_plan():
     rl = {"primary": {"used_percent": 52.0, "window_minutes": 10080, "resets_at": 1790582049}, "secondary": None,
           "plan_type": "self_serve_business_prolite"}
     u = parse_codex_rate_limits(rl, updated_at=5)
-    assert u.five_hour is None and u.seven_day == UsageWindow(52, 1790582049) and u.plan == "self_serve_business_prolite"
+    assert u.five_hour is None and u.seven_day == UsageWindow(52, 1790582049)
 
 
 def test_parse_codex_unknown_duration_fills_five_hour_first():
@@ -60,9 +60,9 @@ def test_parse_codex_tolerates_malformed_fields():
     assert u.five_hour == UsageWindow(50, None)
     u = parse_codex_rate_limits({"primary": {"used_percent": 30, "window_minutes": "300"}}, updated_at=3)
     assert u.five_hour == UsageWindow(30, None) and u.seven_day is None
-    u = parse_codex_rate_limits({"primary": ["not", "a", "window"], "plan_type": 7}, updated_at=4)
-    assert u.five_hour is None and u.seven_day is None and u.plan is None
-    assert parse_codex_rate_limits({}, updated_at=5) == Usage(None, None, None, None, 5)
+    u = parse_codex_rate_limits({"primary": ["not", "a", "window"]}, updated_at=4)
+    assert u.five_hour is None and u.seven_day is None
+    assert parse_codex_rate_limits({}, updated_at=5) == Usage(None, None, None, 5)
 
 
 @pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan"), 10 ** 400], ids=["inf", "-inf", "nan", "huge"])

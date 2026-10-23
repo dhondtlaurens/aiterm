@@ -198,8 +198,8 @@ def _tool(name: str, description: str, properties: dict[str, Any] | None = None,
 # The operator's tools (spec §6), served by /operator and answered by the app's OperatorToolHandler.
 # Every one that changes something is safe to repeat: the repeat returns the recorded result.
 TOOLS: tuple[dict[str, Any], ...] = (
-    _tool("run_status", "The broadcast now, numbered by revision: every task with its state, live status, branch, last commit "
-          "and a one-line summary, and what is open: questions waiting, prompts waiting on the person (a prompt open in a "
+    _tool("run_status", "The broadcast now, numbered by revision: every task with its state, live status and branch, "
+          "and what is open: questions waiting, prompts waiting on the person (a prompt open in a "
           "worker's terminal), tasks ready to accept, "
           "tasks whose worker ended its turn with work still running in the background (under background; each task's "
           "background lists the commands, and the worker wakes on its own when they end, so it is not ready yet), "
@@ -253,7 +253,7 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "removed, the others stay), priority, fix versions or assignee. Name at least one. Refused unless the broadcast's "
           "Jira slice is on, and outside its Jira projects; AiTerm then leaves it for the person. Setting the same values "
           "again changes nothing, so call again after a lost reply.",
-          {"key": _KEY, "ticket": _text("The ticket's key, such as PAY-231."),
+          {"ticket": _text("The ticket's key, such as PAY-231."),
            "summary": _text("The new title."),
            "description": _text("The new description, in plain text; it replaces the old one, and an empty one clears it."),
            "labelsAdd": {"type": "array", "items": {"type": "string"}, "description": "Labels to add."},
@@ -263,7 +263,7 @@ TOOLS: tuple[dict[str, Any], ...] = (
                            "description": "The version names the ticket ends with, replacing its fix versions; empty clears them."},
            "assignee": _text("me, none, or a name or email that matches exactly one person Jira can assign the ticket to; "
                              "several matches are refused with their names.")},
-          ("key", "ticket")),
+          ("ticket",)),
     _tool("jira_comment", "Comments on a ticket of one of the broadcast's Jira projects. A comment reaches the ticket's "
           "watchers, so write it for them. Refused unless the broadcast's Jira slice is on, and outside its Jira projects; "
           "AiTerm then leaves it for the person. The same key again posts nothing: after a lost reply call again with it, and "

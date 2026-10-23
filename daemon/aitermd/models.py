@@ -244,7 +244,6 @@ class Usage:
     five_hour: UsageWindow | None
     seven_day: UsageWindow | None
     spend: UsageWindow | None
-    plan: str | None
     updated_at: int
 
     def to_json(self) -> dict[str, Any]:
@@ -252,5 +251,5 @@ class Usage:
             "fiveHour": self.five_hour.to_json() if self.five_hour else None,
             "sevenDay": self.seven_day.to_json() if self.seven_day else None,
             "spend": self.spend.to_json() if self.spend else None,
-            "plan": self.plan, "updatedAt": self.updated_at,
+            "updatedAt": self.updated_at,
         }

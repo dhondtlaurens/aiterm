@@ -880,7 +880,7 @@ async def test_codex_usage_is_read_from_the_rollout_file_on_tick(tmp_path, make_
     await svc.tick()
     assert (await call(r, w, "usage.get"))["result"]["codex"] == {
         "fiveHour": None, "sevenDay": {"usedPercent": 52, "resetsAt": 1790582049},
-        "spend": None, "plan": "self_serve_business_prolite", "updatedAt": 1790087469}
+        "spend": None, "updatedAt": 1790087469}
     # Codex's next turn appends a record; the next tick announces it.
     with path.open("a") as stream:
         stream.write(json.dumps(rate_limited({"used_percent": 53.0, "window_minutes": 10080, "resets_at": 1790582049},

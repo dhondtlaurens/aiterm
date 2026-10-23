@@ -160,7 +160,7 @@ final class DaemonClientTests {
         server.push(event: "iterm.connected", payload: ["version": "3.7.2"])
         server.push(event: "window.activated", payload: ["windowId": "w1"])
         server.push(event: "session.changed", payload: ["sessionId": "s1", "windowId": "w1", "tabIndex": 0, "taskId": "t1", "projectId": NSNull(), "agent": "claude", "model": "claude-opus-5", "state": "working", "title": "✳", "cwd": "/wt"])
-        server.push(event: "usage.changed", payload: ["claude": ["fiveHour": ["usedPercent": 23, "resetsAt": 99], "sevenDay": NSNull(), "spend": NSNull(), "plan": NSNull(), "updatedAt": 1], "codex": NSNull()])
+        server.push(event: "usage.changed", payload: ["claude": ["fiveHour": ["usedPercent": 23, "resetsAt": 99], "sevenDay": NSNull(), "spend": NSNull(), "updatedAt": 1], "codex": NSNull()])
 
         guard case .event(let e1) = await nextEvent(box) else { Issue.record("timed out waiting for iterm.connected event"); return }
         #expect(e1 == .itermConnected("3.7.2"))
@@ -177,7 +177,7 @@ final class DaemonClientTests {
         #expect(u.claude?.fiveHour?.usedPercent == 23); #expect(u.codex == nil)
 
         // A later snapshot replaces the first wholesale: the vendor that went quiet is nil again.
-        server.push(event: "usage.changed", payload: ["claude": NSNull(), "codex": ["fiveHour": NSNull(), "sevenDay": ["usedPercent": 12, "resetsAt": 88], "spend": NSNull(), "plan": "pro", "updatedAt": 2]])
+        server.push(event: "usage.changed", payload: ["claude": NSNull(), "codex": ["fiveHour": NSNull(), "sevenDay": ["usedPercent": 12, "resetsAt": 88], "spend": NSNull(), "updatedAt": 2]])
         guard case .event(let e7) = await nextEvent(box) else { Issue.record("timed out waiting for second usage.changed event"); return }
         guard case .usageChanged(let u2)? = e7 else { Issue.record("expected .usageChanged"); return }
         #expect(u2.codex?.sevenDay?.usedPercent == 12)

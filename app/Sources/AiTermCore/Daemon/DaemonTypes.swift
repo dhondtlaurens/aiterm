@@ -106,7 +106,7 @@ public struct SessionTitle: Codable, Equatable, Sendable {
 
 public struct UsageWindow: Codable, Equatable, Sendable { public var usedPercent: Int; public var resetsAt: Int? }
 public struct Usage: Codable, Equatable, Sendable {
-    public var fiveHour, sevenDay, spend: UsageWindow?; public var plan: String?
+    public var fiveHour, sevenDay, spend: UsageWindow?
     /// When the vendor last reported, in epoch seconds.
     public var updatedAt: Int
 }

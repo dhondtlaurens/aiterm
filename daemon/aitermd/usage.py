@@ -62,7 +62,7 @@ def parse_claude_rate_limits(rl: Any, updated_at: int) -> Usage:
     if not isinstance(rl, dict):
         rl = {}
     five_hour, seven_day, spend = (_window(rl.get(key), "used_percentage") for key in ("five_hour", "seven_day", "spend_limit"))
-    return Usage(five_hour, seven_day, spend, None, updated_at)
+    return Usage(five_hour, seven_day, spend, updated_at)
 
 
 def parse_codex_rate_limits(rl: dict[str, Any], updated_at: int) -> Usage:
@@ -83,5 +83,4 @@ def parse_codex_rate_limits(rl: dict[str, Any], updated_at: int) -> Usage:
             five_hour = w
         elif seven_day is None:
             seven_day = w
-    plan = rl.get("plan_type")
-    return Usage(five_hour, seven_day, None, plan if isinstance(plan, str) else None, updated_at)
+    return Usage(five_hour, seven_day, None, updated_at)

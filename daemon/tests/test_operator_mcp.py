@@ -194,8 +194,8 @@ def test_the_values_are_the_apps():
     assert required["jira_move"] == {"key", "status"} and required["jira_link"] == {"key", "to", "type"}
     assert required["jira_sprint"] == {"key", "tickets", "sprint"} and required["jira_board"] == set()
     assert properties["jira_board"] == {} and properties["jira_sprint"]["tickets"]["type"] == "array"
-    assert required["jira_edit"] == {"key", "ticket"} and required["jira_comment"] == {"key", "ticket", "body"}
-    assert set(properties["jira_edit"]) == {"key", "ticket", "summary", "description", "labelsAdd", "labelsRemove", "priority",
+    assert required["jira_edit"] == {"ticket"} and required["jira_comment"] == {"key", "ticket", "body"}
+    assert set(properties["jira_edit"]) == {"ticket", "summary", "description", "labelsAdd", "labelsRemove", "priority",
                                             "fixVersions", "assignee"}
     for name in ("labelsAdd", "labelsRemove", "fixVersions"):
         assert properties["jira_edit"][name]["type"] == "array" and properties["jira_edit"][name]["items"] == {"type": "string"}

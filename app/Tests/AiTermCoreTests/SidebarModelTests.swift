@@ -406,8 +406,8 @@ import Synchronization
         let monday2100 = Int(cal.date(from: DateComponents(year: 2026, month: 9, day: 21, hour: 21, minute: 0))!.timeIntervalSince1970)
         let wednesday1628 = Int(cal.date(from: DateComponents(year: 2026, month: 9, day: 23, hour: 16, minute: 28))!.timeIntervalSince1970)
         let snap = UsageSnapshot(
-            claude: Usage(fiveHour: UsageWindow(usedPercent: 23, resetsAt: today1640), sevenDay: UsageWindow(usedPercent: 84, resetsAt: monday2100), spend: nil, plan: nil, updatedAt: Int(now.timeIntervalSince1970)),
-            codex: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 23, resetsAt: wednesday1628), spend: nil, plan: "self_serve_business_prolite", updatedAt: Int(now.timeIntervalSince1970)))
+            claude: Usage(fiveHour: UsageWindow(usedPercent: 23, resetsAt: today1640), sevenDay: UsageWindow(usedPercent: 84, resetsAt: monday2100), spend: nil, updatedAt: Int(now.timeIntervalSince1970)),
+            codex: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 23, resetsAt: wednesday1628), spend: nil, updatedAt: Int(now.timeIntervalSince1970)))
         let rows = SidebarModel.usageVendorRows(snap, now: now, calendar: cal)
         #expect(rows == [
             UsageVendorRow(vendor: .claude, lines: [UsageLine(window: .weekly, percent: 84, reset: "Mon 21:00", warning: true, resetInFull: "Monday 21:00"),
@@ -416,10 +416,10 @@ import Synchronization
         ])
         // Each segment's tooltip and VoiceOver label say it in words.
         #expect(rows[0].lines.map(\.help) == ["Weekly limit, 84 % used, resets Monday 21:00", "5-hour limit, 23 % used, resets 16:40"])
-        let none = SidebarModel.usageVendorRows(UsageSnapshot(claude: nil, codex: Usage(fiveHour: nil, sevenDay: nil, spend: nil, plan: nil, updatedAt: Int(now.timeIntervalSince1970))), now: now, calendar: cal)
+        let none = SidebarModel.usageVendorRows(UsageSnapshot(claude: nil, codex: Usage(fiveHour: nil, sevenDay: nil, spend: nil, updatedAt: Int(now.timeIntervalSince1970))), now: now, calendar: cal)
         #expect(none[0] == UsageVendorRow(vendor: .claude, lines: [], note: "No usage data yet"))
         #expect(none[1] == UsageVendorRow(vendor: .codex, lines: [], note: "No usage data reported"))
-        let noReset = SidebarModel.usageVendorRows(UsageSnapshot(claude: Usage(fiveHour: UsageWindow(usedPercent: 5, resetsAt: nil), sevenDay: nil, spend: nil, plan: nil, updatedAt: Int(now.timeIntervalSince1970)), codex: nil), now: now, calendar: cal)
+        let noReset = SidebarModel.usageVendorRows(UsageSnapshot(claude: Usage(fiveHour: UsageWindow(usedPercent: 5, resetsAt: nil), sevenDay: nil, spend: nil, updatedAt: Int(now.timeIntervalSince1970)), codex: nil), now: now, calendar: cal)
         #expect(noReset[0].lines == [UsageLine(window: .fiveHour, percent: 5, reset: nil, warning: false)])
         #expect(noReset[0].lines[0].help == "5-hour limit, 5 % used")
     }
@@ -429,10 +429,10 @@ import Synchronization
         let now = Date(timeIntervalSince1970: 1_800_000_000), epoch = Int(now.timeIntervalSince1970)
         let snap = UsageSnapshot(
             claude: Usage(fiveHour: UsageWindow(usedPercent: 99, resetsAt: epoch + 60), sevenDay: UsageWindow(usedPercent: 84, resetsAt: epoch + 3600),
-                          spend: nil, plan: nil, updatedAt: epoch),
-            codex: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 23, resetsAt: epoch - 1), spend: nil, plan: nil, updatedAt: epoch))
+                          spend: nil, updatedAt: epoch),
+            codex: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 23, resetsAt: epoch - 1), spend: nil, updatedAt: epoch))
         #expect(SidebarModel.weeklyUsage(snap, now: now) == [.claude: 84], "codex's week ended; the 5-hour window is not the week")
-        let noReset = UsageSnapshot(claude: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 5, resetsAt: nil), spend: nil, plan: nil, updatedAt: epoch), codex: nil)
+        let noReset = UsageSnapshot(claude: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 5, resetsAt: nil), spend: nil, updatedAt: epoch), codex: nil)
         #expect(SidebarModel.weeklyUsage(noReset, now: now) == [.claude: 5])
         #expect(SidebarModel.weeklyUsage(.empty, now: now).isEmpty)
     }
@@ -463,13 +463,13 @@ import Synchronization
         let epoch = Int(now.timeIntervalSince1970)
         let snap = UsageSnapshot(
             claude: Usage(fiveHour: UsageWindow(usedPercent: 91, resetsAt: epoch - 1),
-                          sevenDay: UsageWindow(usedPercent: 40, resetsAt: epoch + 3600), spend: nil, plan: nil, updatedAt: epoch),
-            codex: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 28, resetsAt: epoch - 86_400), spend: nil, plan: nil, updatedAt: epoch))
+                          sevenDay: UsageWindow(usedPercent: 40, resetsAt: epoch + 3600), spend: nil, updatedAt: epoch),
+            codex: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 28, resetsAt: epoch - 86_400), spend: nil, updatedAt: epoch))
         let rows = SidebarModel.usageVendorRows(snap, now: now, calendar: cal)
         #expect(rows[0].lines.map(\.window) == [.weekly])
         #expect(rows[1] == UsageVendorRow(vendor: .codex, lines: [], note: "No usage data reported"))
         // A window with no reset time at all never expires.
-        let open = UsageSnapshot(claude: Usage(fiveHour: UsageWindow(usedPercent: 5, resetsAt: nil), sevenDay: nil, spend: nil, plan: nil, updatedAt: epoch), codex: nil)
+        let open = UsageSnapshot(claude: Usage(fiveHour: UsageWindow(usedPercent: 5, resetsAt: nil), sevenDay: nil, spend: nil, updatedAt: epoch), codex: nil)
         #expect(SidebarModel.usageVendorRows(open, now: now, calendar: cal)[0].lines.map(\.window) == [.fiveHour])
     }
 
@@ -481,7 +481,7 @@ import Synchronization
         let epoch = Int(now.timeIntervalSince1970)
         let usage = { (age: Int) in
             UsageSnapshot(claude: nil, codex: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 28, resetsAt: epoch + 86_400),
-                                                     spend: nil, plan: nil, updatedAt: epoch - age))
+                                                     spend: nil, updatedAt: epoch - age))
         }
         let rows = { (age: Int) in SidebarModel.usageVendorRows(usage(age), now: now, calendar: cal)[1].lines }
         #expect(rows(86_400) == rows(0))

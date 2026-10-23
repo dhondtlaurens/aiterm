@@ -73,6 +73,6 @@ def test_session_info_json_is_camel_case_and_drops_job_pid():
 
 
 def test_usage_json():
-    u = Usage(UsageWindow(23, 1790172996), None, None, "max", 1789568196)
-    assert u.to_json() == {"fiveHour": {"usedPercent": 23, "resetsAt": 1790172996}, "sevenDay": None, "spend": None, "plan": "max",
+    u = Usage(UsageWindow(23, 1790172996), None, None, 1789568196)
+    assert u.to_json() == {"fiveHour": {"usedPercent": 23, "resetsAt": 1790172996}, "sevenDay": None, "spend": None,
                            "updatedAt": 1789568196}

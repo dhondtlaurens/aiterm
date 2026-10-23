@@ -32,20 +32,10 @@ TYPING_QUIET = 10.0
 # A message longer than this, in characters, is left in a message file, and the session is sent
 # one fixed line telling it to read it.
 MESSAGE_FILE_THRESHOLD = 2000
-# Wake lines within this of each other are merged into one (the app's OperatorWaker).
-WAKE_COALESCE = 3.0
-# How often the app reconciles runs with the real sessions and branches.
-RECONCILE_INTERVAL = 60.0
-# A task working with no hook, transcript or screen change for this long is flagged possibly stalled.
-STALL_AFTER = 20 * 60.0
-# The longest a second opinion may take before the act goes ahead, unchallenged.
-CHALLENGE_TIMEOUT = 180.0
 # The longest the Oracle may take on an Operator shell command before it runs, unchallenged.
 GATE_TIMEOUT = 200.0
 # How long /operator waits for the app to answer a forwarded tool call (operator_mcp).
 OPERATOR_REQUEST_TIMEOUT = 30.0
-# A launch attempt older than this with no session tagged for it may be launched again.
-LAUNCH_ADOPT_AFTER = 60.0
 
 # What a screen can show that typed text could answer: an approval, a startup dialog (folder trust,
 # an update offer) or any other menu. Checked in that order: an approval and a startup dialog draw

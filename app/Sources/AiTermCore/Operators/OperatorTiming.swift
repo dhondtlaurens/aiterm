@@ -1,8 +1,8 @@
 import Foundation
 
-/// The operator surface's timings, the same values as the daemon's `aitermd/delivery.py`: the
-/// app and the daemon each act on some of them, and they must agree (`OperatorTimingTests` pins
-/// both the values and their names in the Python file).
+/// The operator surface's timings. Those the daemon acts on too are spelled again in its
+/// `aitermd/delivery.py`, and the two must agree (`OperatorTimingTests` pins both the values and
+/// their names in the Python file).
 public enum OperatorTiming {
     /// Between a bracketed paste and the `\r` that submits it (spec §2.2: sent together, the CLI
     /// takes the Enter as part of the paste).
