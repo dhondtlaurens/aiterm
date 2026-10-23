@@ -27,10 +27,11 @@ chmod +x "$repo/app/.build/"{debug,release}/AiTerm
 export AITERM_FIXTURE_BUILD_CALLS="$fixture_dir/calls"
 failures=0
 fail() { print -u2 -- "$*"; cat "$fixture_dir/output" >&2; failures=$(( failures + 1 )); }
-mkdir -p "$repo/build/pictures"
-touch "$repo/build/pictures/stale.png"
+mkdir -p "$repo/build/pictures/kept"
+touch "$repo/build/pictures/stale.png" "$repo/build/pictures/notes.txt"
 "$repo/scripts/snapshots.sh" "$repo/build/pictures" >"$fixture_dir/output" 2>&1
 [[ ! -e "$repo/build/pictures/stale.png" && -e "$repo/build/pictures/current.png" ]] || fail 'snapshots retained a stale image'
+[[ -e "$repo/build/pictures/notes.txt" && -d "$repo/build/pictures/kept" ]] || fail 'snapshots deleted more than its images'
 grep -Fxq 'build --product AiTerm' "$AITERM_FIXTURE_BUILD_CALLS" || fail 'snapshots built more than the app'
 rc=0
 AITERM_FIXTURE_BUILD_STATUS=73 "$repo/scripts/snapshots.sh" "$repo/build/pictures" >"$fixture_dir/output" 2>&1 || rc=$?

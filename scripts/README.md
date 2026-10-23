@@ -176,8 +176,9 @@ and strict code signature. Both signing and signature verification must succeed 
 
 ## `snapshots.sh`
 
-Builds only the AiTerm product, then clears the output folder and draws the snapshot suite there.
-The previous images stay in place if the build fails. The default folder is `build/snapshots`;
+Builds only the AiTerm product, then deletes the PNG images at the top of the output folder and
+draws the snapshot suite there. Nothing else in the folder is touched, and the previous images stay
+in place if the build fails. The default folder is `build/snapshots`;
 pass a folder as the first argument to use another.
 
 Snapshots always use the app’s dark appearance. For captures of actual AppKit controls and native selection materials:

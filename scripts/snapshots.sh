@@ -5,5 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${1:-$ROOT/build/snapshots}"
 "$ROOT/scripts/build-app.sh" debug
-rm -rf "$OUT"
+# Only the images: the folder is the caller's, and may hold anything else (`build`, say).
+mkdir -p "$OUT"
+find "$OUT" -maxdepth 1 -type f -name '*.png' -delete
 AITERM_SNAPSHOT_DIR="$OUT" "$ROOT/app/.build/debug/AiTerm"
