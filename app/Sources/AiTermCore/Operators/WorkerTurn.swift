@@ -57,11 +57,6 @@ public enum WorkerTurn {
     }
 }
 
-public extension SessionState {
-    /// Its turn ended: idle at its prompt, or done.
-    var turnEnded: Bool { self == .idle || self == .done }
-}
-
 public extension Repository {
     /// How many commits HEAD has past where a working task's work starts, without fetching: the commit it was accepted on
     /// before it was steered back to work (`reopenedFrom`), else its stacked parent's accepted commit, else origin's copy

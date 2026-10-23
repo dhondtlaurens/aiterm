@@ -2,7 +2,7 @@ import Foundation
 import Synchronization
 import AiTermCore
 
-/// `finish_task` (spec §6, M3), as the app runs it: `TaskPublisher` carries the task's end forward,
+/// `finish_task` (spec §6), as the app runs it: `TaskPublisher` carries the task's end forward,
 /// each step saved to the workspace — and flushed — as it completes (spec §11: a crash between push
 /// and MR resumes at the MR); a step that cannot be saved stops everything after it. One publication
 /// per task runs at a time: a second call — the operator's retry after the daemon gave up waiting, or

@@ -67,7 +67,7 @@ public extension TaskItem {
     }
 
     /// `isReadyForAcceptance(in:)` from its worker tabs (`workerTabs(in:)`), for a caller that has them already.
-    func isReadyForAcceptance(tabs: [WorkerTab]) -> Bool {
+    internal func isReadyForAcceptance(tabs: [WorkerTab]) -> Bool {
         guard let operated, !operated.flags.contains(.waitingOnYou) else { return false }
         let workers = tabs.map(\.status)
         return RunStatus.isReadyForAcceptance(operated, live: workers[0], extraTabs: Array(workers.dropFirst()),

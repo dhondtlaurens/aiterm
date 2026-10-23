@@ -404,25 +404,26 @@ import Testing
         #expect(OperatorWaker.reviewQuietReason == "one task is in review with nothing waiting")
     }
 
-    /// Every literal reason `OperatorController` says is plain, so it is the line and not the generic one: each
-    /// `waker.say` call's quoted text, read from the controller's sources.
-    @Test func everyReasonTheControllerSaysIsPlain() throws {
+    /// Every literal reason the Operator's services say is plain, so it is the line and not the generic one: each
+    /// `waker.say` call's quoted text up to its `to:`, over as many lines as the call takes, read from every source in
+    /// `Sources/AiTerm/Operators`. A reason with an interpolation is not read.
+    @Test func everyReasonTheServicesSayIsPlain() throws {
         let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/AiTerm/Operators")
         let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
-            .filter { $0.lastPathComponent.hasPrefix("OperatorController") && $0.pathExtension == "swift" }
-        #expect(files.count >= 2, "the controller's sources, read from \(folder.path)")
-        let literal = try Regex(#""([^"\\\n]*)""#)
+            .filter { $0.pathExtension == "swift" }
+        #expect(files.count >= 20, "the services' sources, read from \(folder.path)")
+        let literal = try Regex(#""([^"\\\n]*)""#), label = try Regex(#",\s*to:"#)
         var reasons: [String] = []
         for file in files {
-            for line in try String(contentsOf: file, encoding: .utf8).split(separator: "\n") {
-                guard let call = line.range(of: "waker.say(") else { continue }
-                let argument = line[call.upperBound...].prefix { $0 != "\n" }
-                let reason = argument.range(of: ", to:").map { argument[..<$0.lowerBound] } ?? argument
+            var rest = try String(contentsOf: file, encoding: .utf8)[...]
+            while let call = rest.range(of: "waker.say(") {
+                rest = rest[call.upperBound...]
+                let reason = rest.firstMatch(of: label).map { rest[..<$0.range.lowerBound] } ?? rest
                 reasons += reason.matches(of: literal).compactMap { $0.output[1].substring.map(String.init) }
             }
         }
-        #expect(reasons.count >= 8, "\(reasons)")
+        #expect(reasons.count >= 16, "\(reasons)")
         for reason in reasons { #expect(OperatorWaker.isPlain(reason), "\(reason)") }
     }
 

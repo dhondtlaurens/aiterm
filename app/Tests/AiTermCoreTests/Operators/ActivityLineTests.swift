@@ -19,7 +19,7 @@ import Foundation
         #expect(line("jira_sprint", ["tickets": ["SHOP-1", "SHOP-2"], "sprint": 41]) == "Put SHOP-1, SHOP-2 in sprint 41")
         #expect(line("jira_sprint", ["tickets": ["SHOP-1"], "sprint": "41"]) == "Put SHOP-1 in sprint 41")
         #expect(line("jira_sprint", ["tickets": ["SHOP-1"], "sprint": "backlog"]) == "Moved SHOP-1 to the backlog")
-        #expect(line("jira_edit", ["key": "e1", "ticket": "SHOP-1"]) == "Edited SHOP-1")
+        #expect(line("jira_edit", ["ticket": "SHOP-1"]) == "Edited SHOP-1")
         #expect(line("jira_comment", ["key": "c1", "ticket": "SHOP-1"]) == "Commented on SHOP-1")
         #expect(line("create_task", ["title": "Cart drawer"]) == "Added Cart drawer to the plan")
         #expect(line("update_task", task: cart) == "Changed Cart drawer’s plan")

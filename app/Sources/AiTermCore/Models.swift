@@ -28,6 +28,9 @@ public enum SessionAgent: String, Codable, LenientRawDecodable, Equatable, CaseI
 public enum SessionState: String, Codable, LenientRawDecodable, Equatable, CaseIterable, Sendable {
     case idle, working, needsInput, done
     static var unrecognized: Self { .idle }
+
+    /// Its turn ended: idle at its prompt, or done.
+    public var turnEnded: Bool { self == .idle || self == .done }
 }
 
 public extension SessionAgent {

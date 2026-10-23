@@ -322,7 +322,7 @@ extension OperatorToolHandler {
         let keys = revoked.compactMap { id in state.task(id: id)?.operated.map { ($0.runId, $0.key) } }
         for (run, keys) in Dictionary(grouping: keys, by: \.0) {
             let seen = run == task.operated?.runId ? state.run(id: run).flatMap(currentStatus(of:)) : nil
-            waker.say(keys.count == 1 ? "one task needs a rebase: another was accepted again" : "some tasks need a rebase: another was accepted again",
+            waker.say(keys.count == 1 ? "one task needs rebasing: another was accepted again" : "some tasks need rebasing: another was accepted again",
                        to: run, unlessAcknowledged: seen)
         }
         let marked = state.task(id: task.id) ?? task
