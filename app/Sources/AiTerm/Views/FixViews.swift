@@ -55,8 +55,6 @@ struct FixFooterPresentation: Equatable {
     let showsRecovery: Bool
     let buttons: Buttons
 
-    /// Whether the sheet may close: not while a fix is applied, half-made.
-
     init(error: CreationFailure?, state: FixSession.State?, fixer: FixerAgent?, lastProposal: FixProposal?) {
         let name = fixer?.shortName ?? "AI"
         func failure(_ text: String, description: String? = nil, help: String? = nil) -> Lead {
@@ -138,8 +136,6 @@ struct BannerFixPresentation: Equatable {
 
     let content: Content
     let links: [Link]
-
-    /// Whether Dismiss is there: not while the fix holds the banner.
 
     init(issue: OperationIssue, state: FixSession.State?, fixer: FixerAgent?) {
         let name = fixer?.shortName ?? "AI"

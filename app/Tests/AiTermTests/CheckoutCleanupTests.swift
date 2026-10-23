@@ -6,8 +6,8 @@ import Testing
 @testable import AiTermTestSupport
 
 extension AppControllerTests {
-    /// A checkout removed outside AiTerm while its window is open: the row and its badge stay until
-    /// the window closes. (AiTerm's own Remove closes the window first; see below.)
+    /// Remove asks before deleting a folder git no longer lists: it may hold files AiTerm did not
+    /// make. Keep, the default and ⎋, keeps it and the task.
     @Test(arguments: ["Keep", "Delete Folder", "↩", "⎋"])
     func removingAnUnknownFolderKeepsItUnlessExplicitlyConfirmed(answer: String) async throws {
         let prompt = ScriptedPrompter(answering: ["Remove", answer])
@@ -23,6 +23,8 @@ extension AppControllerTests {
         #expect(prompt.asked.last?.buttons == ["Keep", "Delete Folder"])
     }
 
+    /// A checkout removed outside AiTerm while its window is open: the row and its badge stay until
+    /// the window closes. (AiTerm's own Remove closes the window first; see below.)
     @Test(arguments: [false, true])
     func diffRemainsUntilRemovalCompletesOrFails(closeFails: Bool) async throws {
         let fixture = try TaskFixture(windowOpen: true)

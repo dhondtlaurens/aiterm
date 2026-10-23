@@ -33,7 +33,7 @@ import SwiftUI
         let state = FieldState()
         let (window, host) = Self.host(StatefulField(state: state))
         defer { window.orderOut(nil) }
-        let field = try #require(host.firstDescendant( FocusableTextField.self))
+        let field = try #require(host.firstDescendant(FocusableTextField.self))
         #expect(!state.focused)
 
         window.makeFirstResponder(field)
@@ -51,7 +51,7 @@ import SwiftUI
         let state = FieldState()
         let (window, host) = Self.host(StatefulField(state: state))
         defer { window.orderOut(nil) }
-        let field = try #require(host.firstDescendant( FocusableTextField.self))
+        let field = try #require(host.firstDescendant(FocusableTextField.self))
         window.makeFirstResponder(field)
         settle(host)
         #expect(state.focused)
@@ -68,7 +68,7 @@ import SwiftUI
         let state = FieldState()
         let (window, host) = Self.host(StatefulField(state: state))
         defer { window.orderOut(nil) }
-        let field = try #require(host.firstDescendant( FocusableTextField.self))
+        let field = try #require(host.firstDescendant(FocusableTextField.self))
         #expect(field.placeholderString == "Search tickets")
 
         state.placeholder = "Search branches"
@@ -80,7 +80,7 @@ import SwiftUI
         let state = FieldState()
         let (window, host) = Self.host(StatefulField(state: state))
         defer { window.orderOut(nil) }
-        let field = try #require(host.firstDescendant( FocusableTextField.self))
+        let field = try #require(host.firstDescendant(FocusableTextField.self))
         window.makeFirstResponder(field)
         let editor = try #require(field.currentEditor() as? NSTextView)
         editor.insertText("abc", replacementRange: NSRange(location: NSNotFound, length: 0))

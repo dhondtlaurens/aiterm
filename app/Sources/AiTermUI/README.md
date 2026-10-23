@@ -221,7 +221,7 @@ vendor needs both.
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
 tab's mark, the `UsageRing` and the percentage; a shell draws its mark alone), then the Mac's rows,
-always there (proposal 1A · 2A · 3A, 6 Oct 2026). The first is its readings, under a `SymbolMark` in
+always there (proposal 1A · 2A · 3A, 6 Oct 2026). The first is its readings, under a `SymbolMark`
 at `Size.vendorMark` with `macbook`: `cpu ◔ 23% · ram ◔ 61%`, and `bat ◔ 64%` while the
 Mac runs on its battery, drawn by the same renderer as `ctx` and the vendor windows. `MachineMonitor`
 samples them every 5 s through a `MachineSensor` — Mach host statistics, `thermalState` and the
@@ -483,9 +483,8 @@ disabled, otherwise — and for a review that opens in the task that has its bra
 
 `CreationSheet` is the frame New Task and New Review share — step bar, command preview, destination
 line, footer and its keys, the loads on appear — generic over the sheet's `CreationKind`; each
-sheet hands it values and keeps its own first step. A kind says how many steps it has and which one
-picks the agent (`stepCount`, 3, and `agentStep`, 2, by default), and `CreationSteps` decides the rest
-from those two in one place: the last step creates, the first has Cancel and every other Back, the
+sheet hands it values and keeps its own first step. Both kinds have three steps, the agent picked on
+the second (`CreationKind.steps`), and `CreationSteps` decides the rest from those two in one place: the last step creates, the first has Cancel and every other Back, the
 destination line ends the first step and the last, the command preview and the missing-agent note
 belong to a sheet with an agent step, and every step past the first but the agent's is a prompt editor
 whose popup ⎋ closes. New Broadcast, which starts no agent of its own, draws the same parts from

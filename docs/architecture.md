@@ -222,7 +222,7 @@ it differs, so a change the board draws nothing of redraws no board. `BroadcastB
 columns and their cards, what each card's click opens (`BroadcastBoard.Opens`), the tab it opens on
 (`firstTab`), its summary (`RunSummary`) and what was left for you. Every Operator tool call is logged as it
 is made to `activity.jsonl` in the run folder (`ActivityLog`, its words from `ActivityLine`), which the sheet's
-Activity follows through `ActivityFeed`. `BroadcastBoardHost` presents it, and `ShelvedBroadcastHost` an ended
+Activity follows through `ActivityFeed`. `BroadcastBoardHost` presents it, and with its `.shelved` source an ended
 broadcast's, read-only, from the Shelf (`BroadcastBoard.shelved`); `OperatorRequests.open` says what needs you, and
 `OperatorLine` every status line's words: a task's from its state, its requests and its own tabs (`Operator
 watching · 2 tabs`, `ready for the Operator`), the Operator's row's from its own session alone (`OperatorLine.session`, read from

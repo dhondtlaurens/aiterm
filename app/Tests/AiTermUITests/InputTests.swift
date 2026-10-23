@@ -37,7 +37,7 @@ struct InputTests {
             host.frame = NSRect(origin: .zero, size: host.fittingSize)
             host.layoutSubtreeIfNeeded()
         }
-        let field = try #require(host.firstDescendant( NSTextField.self))
+        let field = try #require(host.firstDescendant(NSTextField.self))
         #expect(field.frame.height == field.intrinsicContentSize.height)
         #expect(field.frame.height < 20)
     }
@@ -48,7 +48,7 @@ struct InputTests {
         let state = TextState()
         let (window, host) = Self.host(StatefulInput(state: state, secure: secure))
         defer { window.orderOut(nil) }
-        let field = try #require(host.firstDescendant( NSTextField.self))
+        let field = try #require(host.firstDescendant(NSTextField.self))
         #expect((field is NSSecureTextField) == secure)
 
         window.makeFirstResponder(field)
@@ -67,7 +67,7 @@ struct InputTests {
     @Test func theRingShowsWhileTheFieldHasTheKeyboard() throws {
         let (window, host) = Self.host(StatefulInput(state: TextState(), secure: false).padding(8).background(Color.black))
         defer { window.orderOut(nil) }
-        let field = try #require(host.firstDescendant( NSTextField.self))
+        let field = try #require(host.firstDescendant(NSTextField.self))
         // Half a point outside the field box's left edge, where only the ring draws.
         let ring = NSPoint(x: 7.5, y: host.bounds.midY)
         #expect(try brightness(of: host, at: ring) == 0)
@@ -86,7 +86,7 @@ struct InputTests {
     @Test(arguments: [false, true]) func returnLeavesTheFieldWithTheKeyboardAndItsRing(secure: Bool) throws {
         let (window, host) = Self.host(StatefulInput(state: TextState(), secure: secure).padding(8).background(Color.black))
         defer { window.orderOut(nil) }
-        let field = try #require(host.firstDescendant( NSTextField.self))
+        let field = try #require(host.firstDescendant(NSTextField.self))
         let ring = NSPoint(x: 7.5, y: host.bounds.midY)
         window.makeFirstResponder(field)
         settle(host)
@@ -103,7 +103,7 @@ struct InputTests {
         let state = TextState()
         let (window, host) = Self.host(StatefulInput(state: state, secure: secure))
         defer { window.orderOut(nil) }
-        let field = try #require(host.firstDescendant( NSTextField.self))
+        let field = try #require(host.firstDescendant(NSTextField.self))
         window.makeFirstResponder(field)
         let editor = try #require(field.currentEditor() as? NSTextView)
         editor.insertText("abc", replacementRange: NSRange(location: NSNotFound, length: 0))

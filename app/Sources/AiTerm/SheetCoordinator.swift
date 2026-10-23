@@ -32,9 +32,11 @@ final class SheetCoordinator {
     private let checkouts: CheckoutMonitor
     private let agents: AgentIntegrations
     private let git: any GitRunning
+    /// Where the sheets read and remember their agent and model choices: the app's own defaults, a
+    /// test's scratch suite.
+    private let defaults: UserDefaults
     /// The home whose agent configuration the sheets read — models, skills, commands. The
     /// person's own in the app; a test's is a bare directory of its own.
-    private let defaults: UserDefaults
     private let harnessHome: URL
     /// Read the saved Jira, GitLab and GitHub connections. Each reads the Keychain (Jira and GitLab
     /// also UserDefaults), so they are called off the main actor.
@@ -285,8 +287,8 @@ final class SheetCoordinator {
         return ReviewCreationModel(project: project, draft: draft,
                                    context: creationContext(project: project, catalogue: catalogue, failure: catalogueFailure),
                                    owningTask: { [weak workspace] branch, checkouts in
-                                workspace?.state.task(checkingOut: branch, in: project.id, worktrees: checkouts)
-                            }, codeHost: MergeRequestSearch.host(for: remote),
+                                       workspace?.state.task(checkingOut: branch, in: project.id, worktrees: checkouts)
+                                   }, codeHost: MergeRequestSearch.host(for: remote),
                                    searchMergeRequests: ReviewCreationModel.searcher(gitLab: gitLab, gitHub: gitHub, remote: remote),
                                    createReview: { try await launcher.createReview(draft: $0, project: project) },
                                    recover: { try await launcher.recover($0, in: project) }, fixer: { [agents] in agents.fixer },
