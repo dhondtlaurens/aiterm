@@ -239,8 +239,8 @@ struct HelpWithProblemsGroup: View {
     /// The group's one line of help; without Claude Code it says what to do instead.
     static func groupHelp(installed: Set<AgentKind>) -> String {
         HelpWithProblems(isOn: true).isAvailable(installed: installed)
-            ? "When AiTerm hits a git problem, like a diverged branch or a conflicted rebase, a button asks the Operator for a fix, "
-                + "with the agent and model set in Settings › Operator. Nothing changes until you press Apply."
+            ? "When AiTerm hits a git problem, like a diverged branch or a conflicted rebase, a button asks the Operator for a fix: "
+                + "Claude Code, at the model and reasoning set in Settings › Operator. Nothing changes until you press Apply."
             : "Needs Claude Code, the Operator’s agent. Install it on its card below."
     }
 

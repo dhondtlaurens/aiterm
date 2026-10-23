@@ -56,7 +56,7 @@ import Foundation
     @Test func withoutClaudeTheSwitchIsOffAndTheHelpSaysWhy() {
         #expect(HelpWithProblemsGroup.title == "Help with problems")
         #expect(HelpWithProblemsGroup.groupHelp(installed: [.claude])
-                == "When AiTerm hits a git problem, like a diverged branch or a conflicted rebase, a button asks the Operator for a fix, with the agent and model set in Settings › Operator. Nothing changes until you press Apply.")
+                == "When AiTerm hits a git problem, like a diverged branch or a conflicted rebase, a button asks the Operator for a fix: Claude Code, at the model and reasoning set in Settings › Operator. Nothing changes until you press Apply.")
         #expect(HelpWithProblemsGroup.groupHelp(installed: [.codex, .pi])
                 == "Needs Claude Code, the Operator’s agent. Install it on its card below.")
         #expect(HelpWithProblemsGroup.switchIsOn(HelpWithProblems(isOn: true), installed: [.claude]))
