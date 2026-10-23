@@ -70,7 +70,7 @@ struct OperatorPorts {
     }
 }
 
-/// Every operation: its start, its operator's tab and token, and the services that answer the
+/// Every broadcast: its start, its operator's tab and token, and the services that answer the
 /// operator's tools, start its workers, wake it, notify you and reconcile it. The workspace is the one
 /// place a run is kept (`AppState.runs`), changed only through here; the app is its only writer.
 ///
@@ -122,9 +122,9 @@ final class OperatorController {
     @ObservationIgnored private(set) var summaryWaits: [UUID: Task<Void, Never>] = [:]
     /// The latest wait for a summary, for a test to await.
     @ObservationIgnored private(set) var summaryWait: Task<Void, Never>?
-    /// The operation whose overview a notification's click asked for (spec §10.3): the sidebar presents
+    /// The broadcast whose board a notification's click asked for (spec §10.3): the sidebar presents
     /// it and sets this back to nil. Observed, so the click reaches a sidebar already on screen.
-    var presentOverview: UUID?
+    var presentBoard: UUID?
     /// The broadcasts whose Operator's window could not be reopened behind the board, its conversation
     /// gone (spec §13): the board's footer says so and offers Start Fresh. Cleared by a reopening that
     /// opens one, and by Start Fresh. Observed, so the board open in front of it changes at once.
@@ -132,13 +132,13 @@ final class OperatorController {
     /// The Operator's wake line refused for anything but a prompt waiting on you: the sidebar's Notice. Taken
     /// down once the Operator calls `run_status`, a later wake line is delivered, or its broadcast is forgotten.
     var wakeNotice: OperatorWakeNotice?
-    /// The operations whose operator window is being opened now (`reopenOperatorWindow`, D16): a second
+    /// The broadcasts whose operator window is being opened now (`reopenOperatorWindow`, D16): a second
     /// click on the row meanwhile opens no second operator.
     @ObservationIgnored var reopeningOperator: Set<UUID> = []
-    /// When each operation's operator window was last opened by `reopenOperatorWindow`, until its tab is
+    /// When each broadcast's operator window was last opened by `reopenOperatorWindow`, until its tab is
     /// listed: a click in the gap before iTerm2 lists it (or past `launchAdoptAfter`) opens no second one.
     @ObservationIgnored var reopenedOperator: [UUID: Date] = [:]
-    /// The latest close of ended operations' operator windows after an attach, for a test to await.
+    /// The latest close of ended broadcasts' operator windows after an attach, for a test to await.
     @ObservationIgnored var closingEnded: Task<Void, Never>?
     /// The latest re-registration of the runs' tokens, for a test to await.
     @ObservationIgnored private(set) var registering: Task<Void, Never>?
@@ -377,7 +377,7 @@ final class OperatorController {
 
     // -- starting workers -------------------------------------------------------------------
     /// The one start pass (spec §8, §11): what may start now — every task whose dependencies are satisfied,
-    /// in every active operation, oldest first, with no cap — is claimed in one change, saved so the launch
+    /// in every active broadcast, oldest first, with no cap — is claimed in one change, saved so the launch
     /// intents are on disk before any window is asked for, then launched. A pass that overlaps another — two
     /// tasks finishing at once, or one while a launch awaits its window — finds the other's claims taken, so
     /// no task is claimed twice. Nothing while no helper is attached: there is no window to ask for. Called
@@ -415,7 +415,7 @@ final class OperatorController {
         startReadyTasks()
     }
 
-    /// An operation whose every task has ended and with no question open is complete (spec §9): when is
+    /// A broadcast whose every task has ended and with no question open is complete (spec §9): when is
     /// recorded, the operator is told — which asks it for its summary — and the wait for that summary begins.
     /// You are notified once the summary is written or given up on (`OperatorNotifier`). A later `submit_plan`
     /// makes it active again.
@@ -715,7 +715,7 @@ final class OperatorController {
     /// On every reconcile tick (spec §8, *possibly stalled*): the tasks quiet for `stallAfter`, each on
     /// its own clock, are flagged and those that showed a sign since are cleared; each newly quiet one is
     /// probed for an open prompt without being given work — a prompt found open makes it *waiting on you*
-    /// instead — and each operation's operator is woken once for its quiet tasks. Nothing is ever
+    /// instead — and each broadcast's operator is woken once for its quiet tasks. Nothing is ever
     /// launched in place of a worker that may still be running.
     func applyStallFlags() {
         let now = ports.now()
@@ -751,7 +751,7 @@ final class OperatorController {
 
     // -- publishing -------------------------------------------------------------------------
     /// A watched merge ended — merged, blocked, or out of time: its operator is told, and the run is
-    /// settled, so an operation's last merge completes it (spec §9).
+    /// settled, so a broadcast's last merge completes it (spec §9).
     func publicationChanged(_ id: UUID) {
         guard let operated = workspace.state.task(id: id)?.operated else { return }
         waker.say(operated.state == .published ? "one task merged" : "one task can’t merge", to: operated.runId)
@@ -766,7 +766,7 @@ final class OperatorController {
     }
 
     /// The host merged the task's request with a head nobody accepted (spec §6): only you can say how the
-    /// operation goes on, so it is a question for you, asked once — as `ask_you` asks it — on the task.
+    /// broadcast goes on, so it is a question for you, asked once — as `ask_you` asks it — on the task.
     func askAboutMergeOnHost(_ id: UUID, _ why: String) {
         guard let operated = workspace.state.task(id: id)?.operated, let run = run(id: operated.runId) else { return }
         let key = OperatorQuestion.mergedOnHostPrefix + id.uuidString
@@ -822,7 +822,7 @@ final class OperatorController {
                     state.updateOperated(id) { $0.flags.remove(.waitingOnYou) }
                 }
             }
-            // The last open question may be what kept the operation from completing.
+            // The last open question may be what kept the broadcast from completing.
             runChanged(run.id)
             return
         }
@@ -856,7 +856,7 @@ final class OperatorController {
         }
     }
 
-    /// What a prompt asks, as the overview and the row say it. The daemon names the prompt's kind,
+    /// What a prompt asks, as the board and the row say it. The daemon names the prompt's kind,
     /// not its words, so this is what AiTerm can say of it.
     static func promptText(_ kind: PromptKind?, agent: AgentKind) -> String {
         let name = agent.harness.displayName

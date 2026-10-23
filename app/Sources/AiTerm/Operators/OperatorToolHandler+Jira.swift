@@ -5,7 +5,7 @@ import AiTermCore
 /// The Jira slice (spec §5, §L): `jira_create`, `jira_move`, `jira_link`, `jira_sprint`, `jira_edit` and `jira_comment`, and
 /// the filing of off-brief finds. A write is refused unless the broadcast's frozen slice allows it, and is kept to the
 /// broadcast's Jira projects. Each is read fresh right before it is sent, after any read that came first: none goes
-/// while the operation is paused, offline or ended. A comment messages people, so it is a write of the slice like the rest.
+/// while the broadcast is paused, offline or ended. A comment messages people, so it is a write of the slice like the rest.
 /// `jira_board` only reads, so it needs no slice.
 extension OperatorToolHandler {
     private static let notConnected = "Jira isn’t connected in AiTerm’s Settings › Integrations."
@@ -61,7 +61,7 @@ extension OperatorToolHandler {
         return "aiterm-v2-\(run.uuidString.lowercased())-\(digest)"
     }
 
-    /// Jira writes go while the operation plans (its tickets for planned work) or runs, read fresh: never while you
+    /// Jira writes go while the broadcast plans (its tickets for planned work) or runs, read fresh: never while you
     /// paused or ended it, its Operator is offline, or its slice is off.
     func jiraWritable(_ runId: UUID) throws(ToolRefusal) {
         guard let run = state.run(id: runId) else { throw ToolRefusal("This broadcast is no longer in AiTerm.") }

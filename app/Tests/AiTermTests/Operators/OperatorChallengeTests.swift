@@ -226,7 +226,7 @@ import Testing
 }
 
 extension OperatorChallengeTests {
-    @Test func anOverruledObjectionIsCappedForTheDebrief() async throws {
+    @Test func anOverruledObjectionIsCappedForTheSummary() async throws {
         let objection = String(repeating: "x", count: 500)
         let (world, run) = try await makeWorld(runner: .answering(objection))
         let id = try #require(await world.call(run.id, "submit_plan", ["revision": 1]).value?["challengeId"]?.stringValue)

@@ -5,7 +5,7 @@ import Testing
 @testable import AiTermTestSupport
 
 /// Waking the operator (spec §7.3): a short fixed line, coalesced, only while it is idle and its
-/// operation is one that may be woken.
+/// broadcast is one that may be woken.
 @MainActor @Suite struct OperatorWakerTests {
     /// The operator's tab and whether its run may be woken, as a test sets them.
     final class Operator { var tab: SessionInfo?; var awake = true }
@@ -147,7 +147,7 @@ import Testing
         #expect(lines == ["[AiTerm] updates waiting, call run_status"])
     }
 
-    @Test func anOperationThatMayNotBeWokenIsNot() async throws {
+    @Test func anBroadcastThatMayNotBeWokenIsNot() async throws {
         let waker = makeWaker()
         op.awake = false
         waker.acknowledged(status(questions: 0), of: run.id)

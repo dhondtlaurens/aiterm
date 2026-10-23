@@ -247,7 +247,7 @@ final class WorkerStarter {
     }
 
     /// A worker's window you closed, brought back on your click (`OperatorController.reopenWorker`):
-    /// reopened behind your work, its conversation resumed under the operation's flags — never a second
+    /// reopened behind your work, its conversation resumed under the broadcast's flags — never a second
     /// worker. Nil when it is starting, has a tab, was reopened a moment ago and its tab is not listed yet, has no worktree
     /// or no conversation to resume, or no helper is there. Only the first worker's conversation resumes
     /// (`TaskItem.firstWorkerConversation`): an extra tab the Operator added (`open_tab`) is never opened again.

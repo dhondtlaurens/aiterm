@@ -255,7 +255,7 @@ final class AppController {
         workspace.onChange { [weak remover] in remover?.pruneRemovals() }
         // The banner's Fix needs the agents and the pull, both built after the notices.
         notices.makesFixes { [weak self] in self?.makeFix(for: $0) }
-        // A notification's click: an overview opens over the sidebar, a task's window comes forward.
+        // A notification's click: a broadcast's board opens over the sidebar, a task's window comes forward.
         operatorPorts.notifications.onOpen = { [weak self] in self?.openNote($0) }
         // The broadcast's group and the driven task rows read what the Operator is acting on, which the
         // operator controller owns; a change to it derives the rows again.
@@ -279,11 +279,11 @@ final class AppController {
         focus.onChoosingOperatedTaskWithoutWindow { [weak operators] id in
             Task { await operators?.reopenWorker(task: id) }
         }
-        // A notification's click on a waiting plan, a done or a blocked operation opens its overview:
+        // A notification's click on a waiting plan, a done or a blocked broadcast opens its board:
         // D7 records the request on the operator controller; this presents it, and any made before now.
-        sheets.onDismiss = { [weak self] in self?.presentRequestedOverview() }
-        presentRequestedOverview()
-        watchOverviewRequests()
+        sheets.onDismiss = { [weak self] in self?.presentRequestedBoard() }
+        presentRequestedBoard()
+        watchBoardRequests()
     }
 
     // -- workspace ------------------------------------------------------------------
@@ -551,12 +551,12 @@ final class AppController {
     var canCreateTask: Bool { canUseFileMenu && targetProject.map { $0.provider != .none } == true }
 
     // -- the selected row -------------------------------------------------------------
-    /// What a notification's click opens (spec §10.3): an operation's overview — the sidebar presents
-    /// what `presentOverview` names — or the task whose prompt waits on you, its tab that asks in front
+    /// What a notification's click opens (spec §10.3): a broadcast's board — the sidebar presents
+    /// what `presentBoard` names — or the task whose prompt waits on you, its tab that asks in front
     /// (`choose(task:)`), as a click on its row brings it.
     func openNote(_ target: OperatorNote.Target) {
         switch target {
-        case .overview(let id): operatorController.presentOverview = id
+        case .board(let id): operatorController.presentBoard = id
         case .task(let id): choose(task: id)
         }
     }

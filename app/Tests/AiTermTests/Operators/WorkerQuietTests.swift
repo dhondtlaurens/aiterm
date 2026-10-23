@@ -7,7 +7,7 @@ import Testing
 /// A worker whose session says working while its transcript has not grown for `liveQuietMinutes` (spec §H): the daemon's
 /// state may have stuck, so `run_status` reads it `working?` and lists it as uncertain, on a task in any state.
 @MainActor @Suite struct WorkerQuietTests {
-    let clock = StepClock()
+    let clock = TestClock.operators()
 
     /// A task PLUTO-1 in `state` whose worker, in conversation `conv-1`, is `worker`, and the minute the world starts at.
     func makeWorld(_ state: OperatedState, worker: SessionState = .working) throws -> (OperatorWorld, OperatorRun, TaskItem) {

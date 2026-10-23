@@ -407,7 +407,7 @@ extension OperatorToolHandler {
         }
     }
 
-    /// The critique and the reply, in the decisions log the overview shows; `objection` when the Operator
+    /// The critique and the reply, in the decisions log the board shows; `objection` when the Operator
     /// kept its act against the critique.
     private func record(_ call: ToolCall, in run: OperatorRun, challenge: String, reply: String, objection: String? = nil) {
         let taskId = (try? task(call, in: run))?.id

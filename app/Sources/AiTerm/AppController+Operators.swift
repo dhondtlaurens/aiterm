@@ -88,13 +88,13 @@ extension AppController {
 extension AppController {
     /// The broadcast header's board button or Open Board (`openBoard`), or a notification's click: its
     /// board, over whatever sheet is up.
-    func presentOverview(run id: UUID) {
+    func presentBoard(run id: UUID) {
         guard state.activeRun?.id == id else { return }
         sheets.present(operatorSheet: .broadcastBoard(id))
     }
 
     /// Open on the Shelf, for an ended broadcast: its sheet, read-only on Summary, in the Shelf's place. The live
-    /// broadcast's is the sidebar's (`presentOverview`).
+    /// broadcast's is the sidebar's (`presentBoard`).
     func presentShelved(run id: UUID) {
         guard state.run(id: id)?.hasEnded == true else { return }
         sheets.present(operatorSheet: .shelvedBroadcast(id))
@@ -111,28 +111,28 @@ extension AppController {
         return await attemptNow("Couldn’t remove “\(run.name)”") { try await controller.forget(run: id) }
     }
 
-    /// The board a notification's click asked for (D7 sets `OperatorController.presentOverview`),
+    /// The board a notification's click asked for (D7 sets `OperatorController.presentBoard`),
     /// held behind an editing sheet, then presented and cleared so it opens once.
-    func presentRequestedOverview() {
-        guard let id = operatorController.presentOverview else { return }
+    func presentRequestedBoard() {
+        guard let id = operatorController.presentBoard else { return }
         if let sheet {
             guard case .broadcastBoard = sheet else { return }
         }
-        operatorController.presentOverview = nil
-        presentOverview(run: id)
+        operatorController.presentBoard = nil
+        presentBoard(run: id)
     }
 
-    /// Watches `OperatorController.presentOverview` for as long as the app runs: each request is
+    /// Watches `OperatorController.presentBoard` for as long as the app runs: each request is
     /// presented on the main actor's next turn — Observation reports a change before it is stored —
     /// and the watch re-armed.
-    func watchOverviewRequests() {
+    func watchBoardRequests() {
         withObservationTracking {
-            _ = operatorController.presentOverview
+            _ = operatorController.presentBoard
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                presentRequestedOverview()
-                watchOverviewRequests()
+                presentRequestedBoard()
+                watchBoardRequests()
             }
         }
     }
@@ -159,7 +159,7 @@ extension AppController {
     /// opens over the sidebar, and nothing else moves. The header's click and ↩ fold its group; the
     /// Operator's window is its own row's.
     func openBoard(_ id: UUID) {
-        presentOverview(run: id)
+        presentBoard(run: id)
     }
 
     /// The folded header's amber chip (or ↩ on it): the group opens and its first row that needs you is

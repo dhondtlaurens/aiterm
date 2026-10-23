@@ -6,7 +6,7 @@ import AiTermCore
 /// last message names are looked up in the repository. A transcript is read again only once it was written since it
 /// was last read (`WorkerTranscript.modified`): an idle tab's is the same 512 KB tail every tick otherwise. What it finds is kept on the task, shown in `run_status`, and
 /// a newly found drift wakes the Operator once: `[AiTerm] PAY-2 committed off its task branch, call
-/// run_status`. A task taken over, not at work, or in an operation paused or ended, is not read.
+/// run_status`. A task taken over, not at work, or in a broadcast paused or ended, is not read.
 @MainActor
 final class BranchWatch {
     private let workspace: WorkspaceStore
@@ -32,7 +32,7 @@ final class BranchWatch {
     private var state: AppState { workspace.state }
 
     /// Whether `task` is read now: working, or fixing its review, in its own worktree, still the Operator's,
-    /// in an operation that runs and that you have neither paused nor ended.
+    /// in a broadcast that runs and that you have neither paused nor ended.
     func isWatched(_ task: TaskItem) -> Bool {
         guard let operated = task.operated, [.working, .inReview].contains(operated.state), !operated.takenOver,
               task.hasCheckout, let run = state.run(id: operated.runId), run.intent == nil else { return false }

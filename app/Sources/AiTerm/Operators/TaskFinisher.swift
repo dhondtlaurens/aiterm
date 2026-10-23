@@ -67,7 +67,7 @@ final class TaskFinisher {
     /// Told when the host merged the task's request with a head nobody accepted, and why: a question for
     /// you (the controller's), never retried. Set like `changed`.
     var mergedOnHost: @MainActor (UUID, String) -> Void = { _, _ in }
-    /// Told when a watch stopped because a poll was refused for a reason that is not the operation's own
+    /// Told when a watch stopped because a poll was refused for a reason that is not the broadcast's own
     /// state — the branch moved, the task changed hands — with that reason, recorded as the problem. Set
     /// like `changed`.
     var watchStopped: @MainActor (UUID, String) -> Void = { _, _ in }
@@ -123,8 +123,8 @@ final class TaskFinisher {
             && publication?.pushedSHA != operated.acceptance?.resultSHA
     }
 
-    /// At launch, and whenever an operation runs again — your Resume, its operator back from offline:
-    /// watch every merge end (of `run`, or of every operation) that was waiting and is watchable. A task
+    /// At launch, and whenever a broadcast runs again — your Resume, its operator back from offline:
+    /// watch every merge end (of `run`, or of every broadcast) that was waiting and is watchable. A task
     /// watched already is not watched twice, and one with a recorded problem waits for `finish_task`.
     func resumeWatching(inRun run: UUID? = nil) {
         for task in store.state.tasks where run == nil || task.operated?.runId == run { watch(task.id) }
@@ -152,12 +152,12 @@ final class TaskFinisher {
         watchers.removeValue(forKey: id)?.cancel()
     }
 
-    /// On a Pause or an End: every watch of the operation's tasks.
+    /// On a Pause or an End: every watch of the broadcast's tasks.
     func stopWatching(inRun run: UUID) {
         for id in Array(watchers.keys) where store.state.task(id: id)?.operated?.runId == run { stopWatching(id) }
     }
 
-    /// A merge end opened and waiting, not stuck, in an operation that runs and that you have neither
+    /// A merge end opened and waiting, not stuck, in a broadcast that runs and that you have neither
     /// paused nor ended, and still the operator's.
     private func isWatchable(_ id: UUID) -> Bool {
         guard let operated = store.state.task(id: id)?.operated, operated.end == .merge, operated.state == .accepted,
@@ -235,7 +235,7 @@ final class TaskFinisher {
         let repository = Repository(project.path, git: git), branch = task.branch, path = project.path, git = self.git
         let remote: RemoteInfo
         do {
-            // What the plan or the operation rules out is said before any host is asked for.
+            // What the plan or the broadcast rules out is said before any host is asked for.
             let (defaultBranch, tip) = try await BackgroundWork.run { (repository.defaultBranch(), try repository.tip(of: branch)) }
             guard let fresh = context(of: id) else { return Result(result: .refused, reason: PublicationGuard.gone) }
             if let refusal = PublicationGuard.refusal(task: fresh.task, run: fresh.run, parent: fresh.parent,
@@ -348,7 +348,7 @@ final class TaskFinisher {
         }
     }
 
-    /// The task, its record, its operation, its project and the parent it is stacked on, as they are now.
+    /// The task, its record, its broadcast, its project and the parent it is stacked on, as they are now.
     private struct Context {
         let task: TaskItem, operated: OperatedTask, run: OperatorRun, project: Project, parent: TaskItem?
     }
@@ -397,8 +397,8 @@ final class TaskFinisher {
         guard store.flush() else { throw NotSaved() }
     }
 
-    /// The task's operation does not run now — paused, ended, its operator offline, its plan not submitted:
-    /// a watch refused for that is suspended, not stopped, and picked up when the operation runs again.
+    /// The task's broadcast does not run now — paused, ended, its operator offline, its plan not submitted:
+    /// a watch refused for that is suspended, not stopped, and picked up when the broadcast runs again.
     private func isSuspended(_ id: UUID) -> Bool {
         guard let operated = store.state.task(id: id)?.operated, let run = store.state.run(id: operated.runId) else { return false }
         return run.intent != nil || !(run.state == .active || run.state == .complete)
@@ -409,7 +409,7 @@ final class TaskFinisher {
         + "Have its agent fix the feedback, accept the new commit and call finish_task to push it. Call finish_task once more to end the review."
 
     /// Ends a task's review: nil once a merge end is accepted again and may go on to its merge, otherwise the
-    /// answer. Refused while the operation does not run or you have the task.
+    /// answer. Refused while the broadcast does not run or you have the task.
     private func endReview(_ context: Context) -> Result? {
         let id = context.task.id, operated = context.operated
         if let why = PublicationGuard.runRefusal(context.run) { return Result(operated.publication, result: .refused, reason: why) }
@@ -467,9 +467,9 @@ final class TaskFinisher {
 
     /// Polls until the merge is done or stuck, each poll through `run`, so it never overlaps the
     /// operator's own call. A watch never ends without a word:
-    /// - refused while the operation does not run (a pause, an end, the operator offline), it is
+    /// - refused while the broadcast does not run (a pause, an end, the operator offline), it is
     ///   suspended — your own act has its own line, and the operator back is told `reconnected` — and
-    ///   `resumeWatching(inRun:)` picks it up when the operation runs again;
+    ///   `resumeWatching(inRun:)` picks it up when the broadcast runs again;
     /// - refused for anything else (the branch moved, the task changed hands, gone), the reason is
     ///   recorded as the problem and the operator told once (`watchStopped`);
     /// - three failures in a row to reach the host end it as a stuck one, the last reason recorded;

@@ -1,7 +1,7 @@
 import Foundation
 import AiTermCore
 
-/// An `AppState` holding a project, operations and the tasks operators made in them, for the tests
+/// An `AppState` holding a project, broadcasts and the tasks operators made in them, for the tests
 /// of parts F and G — slots, stalls, publication. The one place those tests build part C's types,
 /// with C's initialisers (`OperatorModels.swift`).
 struct OperatedWorld {
@@ -21,7 +21,7 @@ struct OperatedWorld {
                                          oracle: OracleSetting(isOn: false, agent: .codex, model: "gpt-6-astra", reasoning: "medium"),
                                          instructions: "You keep changes small.")
 
-    /// A new operation in `runState`, made `age` seconds after `createdAt`, its slices frozen as `slices`; its id.
+    /// A new broadcast in `runState`, made `age` seconds after `createdAt`, its slices frozen as `slices`; its id.
     @discardableResult
     mutating func addRun(_ runState: OperatorRunState = .active, age: TimeInterval = 0, slices: Slices = Self.profile.slices) -> UUID {
         var profile = Self.profile

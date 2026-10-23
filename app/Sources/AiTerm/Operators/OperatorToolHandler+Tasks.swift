@@ -175,7 +175,7 @@ extension OperatorToolHandler {
         return answer
     }
 
-    /// An accepted task back to its worker, in one change; a complete operation holding work again settles once it is
+    /// An accepted task back to its worker, in one change; a complete broadcast holding work again settles once it is
     /// done. False where the task moved on while its message was delivered: the worker has it, the task stays as it is.
     private func reopen(_ task: TaskItem) -> Bool {
         do {
@@ -187,7 +187,7 @@ extension OperatorToolHandler {
         } catch { return false }
     }
 
-    /// A complete operation holding work again is not complete: it settles once that is done, and its summary, which no
+    /// A complete broadcast holding work again is not complete: it settles once that is done, and its summary, which no
     /// longer tells the whole of it, goes with its completion.
     private static func reactivateCompleteRuns(holding ids: [UUID], in state: inout AppState) {
         let runs = Set(ids.compactMap { state.task(id: $0)?.operated?.runId })
@@ -276,7 +276,7 @@ extension OperatorToolHandler {
     /// An accepted or published task accepted again on another commit, in one change: its acceptance
     /// replaced (a published draft keeps its request, which `finish_task` pushes the new commit to), its
     /// accepted code dependents back to working and every started one flagged. The answer names them, and
-    /// each operation holding one is woken once (`finish_task` of one of them refuses meanwhile).
+    /// each broadcast holding one is woken once (`finish_task` of one of them refuses meanwhile).
     private func reaccept(_ task: TaskItem, as acceptance: TaskAcceptance) throws -> JSONValue {
         try recheck(task)
         return try answerRevoking(task) { state in
@@ -307,7 +307,7 @@ extension OperatorToolHandler {
         }
     }
 
-    /// `change` made in one mutation, which returns the dependents it revoked: an operation that was complete holds work
+    /// `change` made in one mutation, which returns the dependents it revoked: a broadcast that was complete holds work
     /// again, each one holding a revoked task is woken once, and the answer names them.
     private func answerRevoking(_ task: TaskItem, _ change: (inout AppState) throws -> [UUID]) throws -> JSONValue {
         let revoked = try mutate(in: task.operated?.runId) { state in
@@ -362,7 +362,7 @@ extension OperatorToolHandler {
         }
     }
 
-    /// Work moves only in an active or complete operation (spec §9).
+    /// Work moves only in an active or complete broadcast (spec §9).
     func acceptsWork(_ run: OperatorRun) throws(ToolRefusal) {
         if run.intent == .stopped { throw ToolRefusal("This broadcast was stopped; its tools no longer act.") }
         if run.intent == .paused { throw ToolRefusal("The person paused this broadcast. Wait until they resume it.") }

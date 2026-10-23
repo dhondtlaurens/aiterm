@@ -180,7 +180,7 @@ import Testing
                 "the news, then one line for both dependents")
     }
 
-    @Test func aCompleteOperationHoldingWorkAgainIsActive() async throws {
+    @Test func aCompleteBroadcastHoldingWorkAgainIsActive() async throws {
         let family = try makeFamily(childState: .published, runState: .complete)
         #expect(RunScheduler.isComplete(try #require(family.world.run(family.run.id)), in: family.world.state), "both drafts are out")
         let second = try commit("b.swift", in: family.parent.worktreePath)

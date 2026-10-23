@@ -311,7 +311,7 @@ extension OperatorToolHandler {
 
     // -- writes read fresh, and kept as pending while they may have landed ----------------------------
 
-    /// The check before each write to the task's request, read fresh: the operation takes work (no Pause, no End),
+    /// The check before each write to the task's request, read fresh: the broadcast takes work (no Pause, no End),
     /// its Review slice is on, and the task is still the operator's under the same ownership (no takeover, none handed
     /// back since) with the same request in the same repository.
     func writeCheck(_ original: TaskItem, number: Int, in runId: UUID) -> @Sendable () async throws -> Void {

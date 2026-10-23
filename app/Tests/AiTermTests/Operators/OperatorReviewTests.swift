@@ -39,7 +39,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
     /// app (`OperatorTiming.operatorRequestTimeout`) the same text to the same tab is answered from the record; past
     /// it, it is typed again.
     @Test func deliveredMessagesReplayForTwiceTheRequestTimeout() async throws {
-        let clock = StepClock()
+        let clock = TestClock.operators()
         let window = 2 * OperatorTiming.operatorRequestTimeout
         let (world, run, _) = try fixture { $0.now = { clock.now } }
         let args: JSONValue = ["task": "A", "text": "Continue"]

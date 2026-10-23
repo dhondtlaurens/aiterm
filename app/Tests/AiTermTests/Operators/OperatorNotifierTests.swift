@@ -46,7 +46,7 @@ import Testing
         #expect(note?.title == "Payment broadcast")
         #expect(note?.body == "The Operator asks: Which locale is the default?")
         #expect(note?.id == "request-\(run.id.uuidString)-question-q1")
-        #expect(note?.target == .overview(run.id))
+        #expect(note?.target == .board(run.id))
     }
 
     @Test func aRequestAlreadyPostedIsNotPostedAgain() {
@@ -71,12 +71,12 @@ import Testing
         #expect(notifications.posted.first?.target == .task(task.id))
     }
 
-    @Test func aBlockedTaskAndAProblemNotifyOnTheOverview() {
+    @Test func aBlockedTaskAndAProblemNotifyOnTheBoard() {
         let notifier = makeNotifier()
         change { $0.updateOperated(task.id) { $0.state = .blocked; $0.blockedReason = "Retries used up." } }
         notifier.requestsChanged(run: current)
         #expect(notifications.posted.map(\.body) == ["Task PAY-1 is blocked: Retries used up."])
-        #expect(notifications.posted.first?.target == .overview(run.id))
+        #expect(notifications.posted.first?.target == .board(run.id))
         change { $0.updateOperated(task.id) { $0.problem = "git-rebase-1"; $0.blockedReason = "Couldn’t rebase it." } }
         notifier.requestsChanged(run: current)
         #expect(notifications.posted.last?.body == "Task PAY-1: Couldn’t rebase it.")
@@ -106,7 +106,7 @@ import Testing
         #expect(notifications.withdrawn == ["request-\(run.id.uuidString)-question-a"])
     }
 
-    func leftOver() -> (open: String, resolved: String, debrief: String) {
+    func leftOver() -> (open: String, resolved: String, summary: String) {
         let ids = ("request-\(run.id.uuidString)-question-open", "request-\(run.id.uuidString)-question-gone", "debrief-\(UUID().uuidString)")
         notifications.delivered = [ids.0, ids.1, ids.2, "unrelated-id"]
         return ids
@@ -119,7 +119,7 @@ import Testing
         await notifier.lastListing?.value
         notifier.requestsChanged(run: current)
         #expect(notifications.posted.isEmpty, "the one still asked is already showing")
-        #expect(Set(notifications.withdrawn) == [ids.resolved, ids.debrief], "only what no run asks, and only AiTerm's ids")
+        #expect(Set(notifications.withdrawn) == [ids.resolved, ids.summary], "only what no run asks, and only AiTerm's ids")
         notifier.requestsChanged(run: current)
         #expect(notifications.posted.isEmpty && notifications.withdrawn.count == 2)
     }
@@ -133,7 +133,7 @@ import Testing
         notifier.requestsChanged(run: current)
         #expect(notifications.posted.map(\.id) == [ids.open] && notifications.withdrawn.isEmpty)
         await notifier.lastListing?.value
-        #expect(Set(notifications.withdrawn) == [ids.resolved, ids.debrief])
+        #expect(Set(notifications.withdrawn) == [ids.resolved, ids.summary])
         notifier.requestsChanged(run: current)
         #expect(notifications.posted.count == 1, "nothing is posted twice")
     }
@@ -206,7 +206,7 @@ import Testing
         notifier.requestsChanged(run: current)
         #expect(notifications.posted.map(\.id) == ["debrief-\(run.id.uuidString)"], "the id delivered notes already carry")
         #expect(notifications.posted.first?.body == "The summary is ready.")
-        #expect(notifications.posted.first?.target == .overview(run.id))
+        #expect(notifications.posted.first?.target == .board(run.id))
         change { $0.updateRun(id: run.id) { $0.state = .stopped } }
         notifier.requestsChanged(run: current)
         #expect(notifications.withdrawn == ["debrief-\(run.id.uuidString)"], "End takes the note away")
@@ -251,7 +251,8 @@ import Testing
     @Test func aTargetSurvivesTheTripThroughANotificationsUserInfo() {
         let id = UUID()
         #expect(OperatorNote.Target(userInfo: OperatorNote.Target.task(id).userInfo) == .task(id))
-        #expect(OperatorNote.Target(userInfo: OperatorNote.Target.overview(id).userInfo) == .overview(id))
+        #expect(OperatorNote.Target(userInfo: OperatorNote.Target.board(id).userInfo) == .board(id))
+        #expect(OperatorNote.Target.board(id).userInfo == ["aiterm.overview": id.uuidString], "the key notifications already posted carry")
         #expect(OperatorNote.Target(userInfo: [:]) == nil)
     }
 }

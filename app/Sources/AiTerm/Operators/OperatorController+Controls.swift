@@ -42,7 +42,7 @@ extension OperatorController {
 
     /// Stop Task…, in the row's menu (E6, confirmed first): the task ends `stopped`, its dependents
     /// blocked; its workers, in every tab, run on, and none is steered or opened again (`TabOpener.holds`). A question about it has nothing left to ask, so it is
-    /// resolved — an open one would keep the operation from completing. The operation is then settled the
+    /// resolved — an open one would keep the broadcast from completing. The broadcast is then settled the
     /// way every other end settles it: the last open task stopped completes it.
     func stop(task id: UUID) throws {
         guard let runId = workspace.state.task(id: id)?.operated?.runId else { throw ActionUnavailable("That task isn’t the Operator’s.") }
@@ -64,7 +64,7 @@ extension OperatorController {
     }
 
     /// A worker window you closed, back on your click or ↩ on its row (integration decision 7): its
-    /// conversation resumed in a window behind your work under the operation's flags (`WorkerStarter.reopen`),
+    /// conversation resumed in a window behind your work under the broadcast's flags (`WorkerStarter.reopen`),
     /// the row's `windowId` left on that window so the click can raise it — whether it still names the closed
     /// one or not. Never a second worker, and never a fresh launch: a tab still tagged with the task is
     /// brought forward instead, and with iTerm2's tabs not known none is opened. A launch that never showed a window
@@ -108,9 +108,9 @@ extension OperatorController {
         if let failure { throw failure }
     }
 
-    // -- an operation -----------------------------------------------------------------------------
+    // -- a broadcast -----------------------------------------------------------------------------
     /// Pause (spec §9): no task starts, no message is delivered, nothing is accepted; workers finish
-    /// their turn. Persisted as your intent: a pause that cannot be saved is taken back, so the operation
+    /// their turn. Persisted as your intent: a pause that cannot be saved is taken back, so the broadcast
     /// never reads as paused for what the file would not hold. A delivery already in flight is not
     /// cancelled — the daemon offers no way to — it ends as the daemon's rules end it.
     func pause(run id: UUID) throws {
@@ -125,7 +125,7 @@ extension OperatorController {
 
     /// Resume (spec §9), from paused or offline: an operator still there is kept and woken; one gone is
     /// reopened — its conversation resumed, or a fresh operator briefed from the run — before anything
-    /// changes, so a reopening that fails leaves the operation as it was. Then whatever was held back starts.
+    /// changes, so a reopening that fails leaves the broadcast as it was. Then whatever was held back starts.
     /// `background`: the window reopens behind what is in front, the board.
     func resume(run id: UUID, background: Bool = false) async throws {
         guard let run = self.run(id: id), run.state == .paused || run.state == .operatorOffline else { return }
@@ -224,7 +224,7 @@ extension OperatorController {
         return OperatorAlerts.endBroadcast(run, unstarted: ending.dropped.count, running: ending.handed.count)
     }
 
-    /// The first connected snapshot after the helper attaches (spec §9): an ended operation whose operator
+    /// The first connected snapshot after the helper attaches (spec §9): an ended broadcast whose operator
     /// tab is listed — one an end could not close, as no helper was there — has its window closed, once the
     /// snapshot shows it holds nothing else. No tab listed, nothing is closed: a recorded window id proves
     /// nothing about what a window holds now (iTerm2 restores windows under saved ids, and you may have
@@ -338,10 +338,10 @@ extension OperatorController {
     /// fresh start). A conversation whose file is gone from Claude's folder is refused (`cannotResume`): Start
     /// Fresh lets it go. The run folder is written afresh with its token kept. Nothing when its window is
     /// open, is being opened, or was opened a moment ago and iTerm2 has not listed its tab yet; refused
-    /// while iTerm2's tabs are not known, as a tab not listed then is not a tab closed. An operation ended
+    /// while iTerm2's tabs are not known, as a tab not listed then is not a tab closed. A broadcast ended
     /// meanwhile (an await passed) is left ended: the token registered is revoked and the window opened is
     /// closed. Says whether it opened one, or left it to a reopening already under way (or within its
-    /// wait): a caller that goes on to change the operation waits for that one instead. `background`
+    /// wait): a caller that goes on to change the broadcast waits for that one instead. `background`
     /// opens it behind what is in front.
     @discardableResult
     func reopenOperatorWindow(_ id: UUID, background: Bool = false) async throws -> OperatorReopening {

@@ -207,10 +207,10 @@ struct BroadcastBoardSheetTests {
         defer { controller.shutdown() }
         try controller.loadWorkspace()
         let run = OperatorUIFixtures.run()
-        controller.presentOverview(run: run.id)
+        controller.presentBoard(run: run.id)
         #expect(controller.sheet == nil, "no such broadcast")
         controller.workspace.mutate { $0.runs = [run] }
-        controller.presentOverview(run: run.id)
+        controller.presentBoard(run: run.id)
         guard case .broadcastBoard(let id) = controller.sheet else { Issue.record("no board"); return }
         #expect(id == run.id)
         #expect(controller.sheet?.id == "board-\(run.id)")
@@ -358,11 +358,11 @@ struct BroadcastBoardSheetTests {
         try controller.loadWorkspace()
         let run = OperatorUIFixtures.run(state: .complete)
         controller.workspace.mutate { $0.runs = [run] }
-        controller.openNote(.overview(run.id))
+        controller.openNote(.board(run.id))
         await eventually(describing: "the board in the sheet slot") {
             if case .broadcastBoard(run.id) = controller.sheet { true } else { false }
         }
-        #expect(controller.operatorController.presentOverview == nil, "presented once, then cleared")
+        #expect(controller.operatorController.presentBoard == nil, "presented once, then cleared")
     }
 
     /// A request already there when the app starts watching — a click that launched it — is presented too.
@@ -372,11 +372,11 @@ struct BroadcastBoardSheetTests {
         try controller.loadWorkspace()
         let run = OperatorUIFixtures.run()
         controller.workspace.mutate { $0.runs = [run] }
-        controller.operatorController.presentOverview = run.id
-        controller.presentRequestedOverview()
+        controller.operatorController.presentBoard = run.id
+        controller.presentRequestedBoard()
         guard case .broadcastBoard(let id) = controller.sheet else { Issue.record("no board"); return }
         #expect(id == run.id)
-        #expect(controller.operatorController.presentOverview == nil)
+        #expect(controller.operatorController.presentBoard == nil)
     }
 
     /// Rename… is the `NameSheet` every other rename is, with the broadcast's own copy.

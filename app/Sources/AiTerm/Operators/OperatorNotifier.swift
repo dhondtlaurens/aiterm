@@ -1,22 +1,22 @@
 import Foundation
 import AiTermCore
 
-/// One notification: what it says, and what a click on it opens — a broadcast's overview, or a task's
+/// One notification: what it says, and what a click on it opens — a broadcast's board, or a task's
 /// window for a prompt only you can answer (spec §10.3). Its `id` replaces an earlier one with the same id.
 struct OperatorNote: Equatable, Sendable {
     enum Target: Equatable, Sendable {
-        case overview(UUID), task(UUID)
+        case board(UUID), task(UUID)
 
         /// The target as a notification carries it.
         var userInfo: [String: String] {
             switch self {
-            case .overview(let id): ["aiterm.overview": id.uuidString]
+            case .board(let id): ["aiterm.overview": id.uuidString]
             case .task(let id): ["aiterm.task": id.uuidString]
             }
         }
 
         init?(userInfo: [AnyHashable: Any]) {
-            if let id = (userInfo["aiterm.overview"] as? String).flatMap(UUID.init(uuidString:)) { self = .overview(id) }
+            if let id = (userInfo["aiterm.overview"] as? String).flatMap(UUID.init(uuidString:)) { self = .board(id) }
             else if let id = (userInfo["aiterm.task"] as? String).flatMap(UUID.init(uuidString:)) { self = .task(id) }
             else { return nil }
         }
@@ -27,7 +27,7 @@ struct OperatorNote: Equatable, Sendable {
 /// Where notes go: macOS's notification centre in the app, a recording in a test.
 @MainActor
 protocol OperatorNotifications: AnyObject {
-    /// Asks macOS, once, whether AiTerm may post. Denied, the attention counts and the overview still show everything.
+    /// Asks macOS, once, whether AiTerm may post. Denied, the attention counts and the board still show everything.
     func requestAuthorization()
     func post(_ note: OperatorNote)
     /// Takes the notes with these ids away: out of the notification centre if shown, and unsent if not yet.
@@ -88,8 +88,8 @@ final class OperatorNotifier {
     /// summary settled, that it is ready — or, given up on, that the tasks are done.
     private func wanted(for run: OperatorRun, in state: AppState) -> [OperatorNote] {
         var notes: [OperatorNote] = OperatorRequests.open(run: run, state: state).map { request in
-            // A prompt only you can answer opens its task's window; anything else, the broadcast's overview.
-            var target = OperatorNote.Target.overview(run.id)
+            // A prompt only you can answer opens its task's window; anything else, the broadcast's board.
+            var target = OperatorNote.Target.board(run.id)
             if request.kind == .permission, let task = request.taskId { target = .task(task) }
             return OperatorNote(id: request.id, title: run.name, body: request.text, target: target)
         }
@@ -97,7 +97,7 @@ final class OperatorNotifier {
             let count = state.tasks(inRun: run.id).count
             let body = if case .written = summary { "The summary is ready." }
                 else { count == 1 ? "The task is done." : "All \(count) tasks are done." }
-            notes.append(OperatorNote(id: Self.debriefId(run.id), title: run.name, body: body, target: .overview(run.id)))
+            notes.append(OperatorNote(id: Self.debriefId(run.id), title: run.name, body: body, target: .board(run.id)))
         }
         return notes
     }

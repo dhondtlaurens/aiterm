@@ -93,7 +93,7 @@ import Testing
         #expect(OperatorToolHandler.mutating.contains(.writeSummary))
     }
 
-    /// An off-brief find goes to the debrief, once per key, and run_status shows it.
+    /// An off-brief find goes to the summary, once per key, and run_status shows it.
     @Test func reportFindRecordsIt() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)
@@ -132,7 +132,7 @@ import Testing
         #expect(missing.message == "report_snag needs `actual`.")
     }
 
-    /// The Operator says why in a sentence, and the debrief shows it under the decision.
+    /// The Operator says why in a sentence, and the summary shows it under the decision.
     @Test func aDecisionCarriesItsWhy() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)
@@ -162,7 +162,7 @@ import Testing
         #expect(agents["codex"]?["defaultModel"]?.stringValue == fallback.model)
     }
 
-    @Test func jiraSearchIsKeptToTheOperationsLinkedJiraProjects() async throws {
+    @Test func jiraSearchIsKeptToTheBroadcastsLinkedJiraProjects() async throws {
         let jira = FakeJira(tickets: [JiraTicket(key: "PLUTO-231", summary: "Login", description: "Fix it.", issueType: "Bug",
                                                   status: "To Do", url: "https://acme.atlassian.net/browse/PLUTO-231")])
         let run = OperatorServiceFixtures.run(projects: [project])
@@ -682,7 +682,7 @@ import Testing
         #expect(bare.run(unconnected.id)?.finds.map(\.ticket) == [nil])
     }
 
-    @Test func finishTaskComesInM3AndAnUnknownToolOrRunIsAnError() async throws {
+    @Test func finishTaskIsAToolAndAnUnknownToolOrRunIsAnError() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)
         #expect(await world.call(run.id, "finish_task", ["task": "x"]).message == "No task x in this broadcast.")
@@ -789,7 +789,7 @@ import Testing
         #expect(world.run(run.id)?.questions.first?.resolution == "nl-BE")
     }
 
-    @Test func anEndedOperationsToolsDoNotAct() async throws {
+    @Test func anEndedBroadcastsToolsDoNotAct() async throws {
         let stopped = OperatorServiceFixtures.run(projects: [project], state: .stopped)
         let world = try makeWorld(stopped)
         let ended = "This broadcast has ended; its tools no longer act."
@@ -802,7 +802,7 @@ import Testing
         #expect(await second.call(live.id, "run_status").message == ended)
     }
 
-    @Test func jiraSearchNeedsAJiraProjectLinkedToTheOperation() async throws {
+    @Test func jiraSearchNeedsAJiraProjectLinkedToTheBroadcast() async throws {
         let unlinked = OperatorServiceFixtures.project(name: "Plain")
         let run = OperatorServiceFixtures.run(projects: [unlinked])
         let jira = FakeJira(tickets: [])
@@ -871,7 +871,7 @@ import Testing
         #expect(OperatorToolHandler.actsOnBroadcast[.reportSnag] == nil, "it files nothing")
     }
 
-    // MARK: - Gate C: Jira writes wait while the operation does not run, and a lost answer makes no second ticket
+    // MARK: - Gate C: Jira writes wait while the broadcast does not run, and a lost answer makes no second ticket
 
     /// The label `jira_create` gives the ticket for `key` in `run`.
     static func label(_ run: OperatorRun, _ key: String) -> String {
@@ -882,7 +882,7 @@ import Testing
 
     @Test(arguments: [(OperatorRunState.active, OperatorRunState?.some(.paused)), (.paused, .paused), (.operatorOffline, nil),
                       (.planning, .paused)])
-    func jiraWritesWaitWhileTheOperationDoesNotRun(_ state: OperatorRunState, _ intent: OperatorRunState?) async throws {
+    func jiraWritesWaitWhileTheBroadcastDoesNotRun(_ state: OperatorRunState, _ intent: OperatorRunState?) async throws {
         let jira = FakeJira()
         var run = jiraRun(slice: true)
         run.state = state

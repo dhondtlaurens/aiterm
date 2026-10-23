@@ -7,13 +7,13 @@ import Testing
 /// Reconciliation (spec §7.3, §8, §11): hints are never trusted alone; every minute and on every
 /// reconnect AiTerm looks at the real tabs and says what it finds.
 @MainActor @Suite(.blocking) struct RunReconcilerTests {
-    let clock = StepClock()
+    let clock = TestClock.operators()
 
     func makeWorld(_ state: AppState, daemon: RecordingDaemon = RecordingDaemon()) throws -> OperatorWorld {
         try OperatorWorld(state, daemon: daemon) { [clock] ports in ports.now = { clock.now } }
     }
 
-    @Test func anOperatorsTabGoneTakesItsOperationOfflineAndItsReturnBringsItBackButNeverUnpauses() throws {
+    @Test func anOperatorsTabGoneTakesItsBroadcastOfflineAndItsReturnBringsItBackButNeverUnpauses() throws {
         let project = OperatorServiceFixtures.project()
         let active = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var paused = OperatorServiceFixtures.run(projects: [project], state: .paused)
@@ -129,7 +129,7 @@ import Testing
         restarted.controller.reconcileTick()
         let blocked = try #require(restarted.task(task.id)?.operated)
         #expect(blocked.state == .blocked && blocked.blockedReason == "Worked its 90 minutes without finishing.")
-        #expect(restarted.notifications.posted.last?.target == .overview(run.id))
+        #expect(restarted.notifications.posted.last?.target == .board(run.id))
     }
 
     @Test func aWorkerWorkingWithNoChangeForTwentyMinutesIsPossiblyStalledUntilItChanges() async throws {
@@ -275,7 +275,7 @@ import Testing
         #expect(adopted.windowId == "w9" && adopted.operated?.launch?.openedAt != nil)
     }
 
-    /// A resumed operation, and a helper that attached again, start what was waiting: the tick
+    /// A resumed broadcast, and a helper that attached again, start what was waiting: the tick
     /// triggers the scheduler as the tool paths do.
     @Test func aResumedRunAndAReattachedHelperStartWhatWasWaiting() async throws {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-resume-"))
@@ -314,7 +314,7 @@ import Testing
         world.controller.reconcileTick()
         let blocked = try #require(world.task(task.id)?.operated)
         #expect(blocked.state == .blocked && blocked.blockedReason == "Failed with no retries left (2 allowed).")
-        #expect(world.notifications.posted.last?.target == .overview(run.id))
+        #expect(world.notifications.posted.last?.target == .board(run.id))
     }
 
     /// A paused run's workers are not working time.
@@ -332,9 +332,9 @@ import Testing
         #expect(world.task(task.id)?.operated?.runtimeUsed == 0)
     }
 
-    /// A prompt question left open on a task that has ended would keep its operation from completing:
+    /// A prompt question left open on a task that has ended would keep its broadcast from completing:
     /// its tab leaving the prompt resolves it, and the run then settles.
-    @Test func resolvingTheLastPromptOfAnEndedTaskCompletesItsOperation() async throws {
+    @Test func resolvingTheLastPromptOfAnEndedTaskCompletesItsBroadcast() async throws {
         let project = OperatorServiceFixtures.project()
         var run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-16", state: .accepted, worktree: "/tmp/aiterm-wt")

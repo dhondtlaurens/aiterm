@@ -107,7 +107,7 @@ final class OperatorWaker {
         acknowledged(after, of: run)
     }
 
-    /// A fixed reason to wake it — `reconnected`, `operation complete` — which is the line when it is the only news
+    /// A fixed reason to wake it — `reconnected`, `broadcast complete` — which is the line when it is the only news
     /// and plain (`isPlain`). `colon` joins it to the call with a colon, after news about one task:
     /// `[AiTerm] <reason>: call run_status`.
     func say(_ reason: String, to run: UUID, unlessAcknowledged status: RunStatus? = nil, colon: Bool = false) {

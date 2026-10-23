@@ -6,7 +6,7 @@ import Testing
 
 /// Possibly stalled with several workers at work, as the controller runs it: each task on its own clock.
 @MainActor @Suite(.blocking) struct OperatorStallTests {
-    let clock = StepClock()
+    let clock = TestClock.operators()
 
     @Test func aQuietWorkerIsFlaggedOnceBesideABusyOneAndClearedByItsNextSign() async throws {
         let project = OperatorServiceFixtures.project()

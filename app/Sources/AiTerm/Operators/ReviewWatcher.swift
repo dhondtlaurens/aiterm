@@ -25,7 +25,7 @@ enum ReviewHosts {
 /// the Operator is woken once for the task (`review feedback on PAY-2`, a reason its key keeps out of the line
 /// typed: `OperatorWaker.isPlain`). What was read
 /// is kept on the task (`PeopleReview`), so a restart wakes it for what came meanwhile and for nothing else.
-/// A task taken over, or one whose operation is paused or ended, is not read.
+/// A task taken over, or one whose broadcast is paused or ended, is not read.
 @MainActor
 final class ReviewWatcher {
     private let workspace: WorkspaceStore
@@ -43,7 +43,7 @@ final class ReviewWatcher {
 
     private var state: AppState { workspace.state }
 
-    /// Whether `task` is watched now: in review with a request, still the operator's, in an operation that runs
+    /// Whether `task` is watched now: in review with a request, still the operator's, in a broadcast that runs
     /// and that you have neither paused nor ended.
     func isWatched(_ task: TaskItem) -> Bool {
         guard let operated = task.operated, operated.state == .inReview, !operated.takenOver,

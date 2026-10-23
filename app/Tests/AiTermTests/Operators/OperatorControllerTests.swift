@@ -4,7 +4,7 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// An operation's start and the operator's own tab (spec §4.0.1, §5, §11).
+/// A broadcast's start and the operator's own tab (spec §4.0.1, §5, §11).
 @MainActor @Suite struct OperatorControllerTests {
     let project = OperatorServiceFixtures.project()
 
@@ -106,7 +106,7 @@ import Testing
     }
 
     /// The operator's window closed (spec §9): the run forgets the window and session, and a broadcast under
-    /// way goes offline while a complete one keeps its debrief: nothing ends, and a click on its row reopens it. A tab not yet seen,
+    /// way goes offline while a complete one keeps its summary: nothing ends, and a click on its row reopens it. A tab not yet seen,
     /// or tabs not known while iTerm2 is away, close nothing.
     @Test func closingTheOperatorsWindowForgetsItAndTakesTheBroadcastOffline() async throws {
         let active = OperatorServiceFixtures.run(projects: [project], state: .active)
@@ -124,18 +124,18 @@ import Testing
         #expect(world.run(active.id)?.operatorWindowId == nil && world.run(active.id)?.operatorSessionId == nil)
         #expect(world.run(active.id)?.state == .operatorOffline && world.run(active.id)?.intent == nil)
         #expect(world.run(opening.id)?.operatorWindowId == "w-new", "a window whose tab was never seen may still be opening")
-        #expect(world.run(complete.id)?.state == .complete && world.run(complete.id)?.intent == nil, "the debrief stays until End")
+        #expect(world.run(complete.id)?.state == .complete && world.run(complete.id)?.intent == nil, "the summary stays until End")
         #expect(world.daemon.requests("operator.revoke").isEmpty)
     }
 
-    /// A notification's click on an overview (spec §10.3) is for the sidebar to present: it reads
-    /// `presentOverview` and clears it.
-    @Test func aNotificationsClickOnAnOverviewAsksTheSidebarToPresentIt() {
+    /// A notification's click on a board (spec §10.3) is for the sidebar to present: it reads
+    /// `presentBoard` and clears it.
+    @Test func aNotificationsClickOnABoardAsksTheSidebarToPresentIt() {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
         let id = UUID()
-        controller.openNote(.overview(id))
-        #expect(controller.operatorController.presentOverview == id)
+        controller.openNote(.board(id))
+        #expect(controller.operatorController.presentBoard == id)
     }
 
     /// News that came while the run was paused is not lost: the wake line goes when it resumes.
@@ -154,7 +154,7 @@ import Testing
     // -- the summary: when it is ready (Operator sheet spec, Summary) ------------------------------
     /// An active broadcast of one working task, its Operator's tab listed, on a clock the test moves. Stop Task
     /// ends the task, which completes it.
-    private func broadcast(_ clock: StepClock, adjust: @escaping (inout OperatorPorts) -> Void = { _ in }) throws
+    private func broadcast(_ clock: TestClock, adjust: @escaping (inout OperatorPorts) -> Void = { _ in }) throws
         -> (OperatorWorld, OperatorRun, TaskItem) {
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working, worktree: "/tmp/aiterm-wt")
@@ -169,7 +169,7 @@ import Testing
     /// Completing records when, and asks for the summary: nothing is ready, and nothing is posted, until it is
     /// written or `summaryWait` has passed with none — read on any change of the run, as after a relaunch.
     @Test func completingRecordsWhenAndWaitsForTheSummary() throws {
-        let clock = StepClock()
+        let clock = TestClock.operators()
         let (world, run, task) = try broadcast(clock)
         try world.controller.stop(task: task.id)
         let done = try #require(world.run(run.id))
@@ -188,7 +188,7 @@ import Testing
 
     /// The wait completing schedules: its end gives up on a summary that did not come, and the note goes then.
     @Test func theWaitEndingWithNoSummaryGivesUpAndNotifies() async throws {
-        let clock = StepClock()
+        let clock = TestClock.operators()
         let gate = SleepGate(opened: true)
         let (world, run, task) = try broadcast(clock) { $0.summarySleep = { await gate.wait($0) } }
         try world.controller.stop(task: task.id)
@@ -202,7 +202,7 @@ import Testing
 
     /// A summary written before the wait ends: never given up, and the note says it is ready.
     @Test func aSummaryWrittenFirstIsNeverGivenUp() async throws {
-        let clock = StepClock(), gate = SleepGate()
+        let clock = TestClock.operators(), gate = SleepGate()
         let (world, run, task) = try broadcast(clock) { $0.summarySleep = { await gate.wait($0) } }
         try world.controller.stop(task: task.id)
         #expect(await world.call(run.id, "write_summary", ["text": "It merged."]).value?["written"] == true)
@@ -217,7 +217,7 @@ import Testing
 
     /// The Operator's window gone after completion: no summary is coming, at once.
     @Test func theOperatorsWindowGoneAfterCompletionGivesUpAtOnce() throws {
-        let clock = StepClock()
+        let clock = TestClock.operators()
         let (world, run, task) = try broadcast(clock)
         try world.controller.stop(task: task.id)
         world.show([])
@@ -232,7 +232,7 @@ import Testing
     }
 
     @Test func endingRecordsWhen() async throws {
-        let clock = StepClock()
+        let clock = TestClock.operators()
         let (world, run, _) = try broadcast(clock)
         clock.advance(by: 90)
         try await world.controller.end(run: run.id)
@@ -300,7 +300,7 @@ import Testing
 
     /// A new plan on a complete broadcast: its completion, and its summary, belonged to the old one.
     @Test func aPlanSubmittedAfterCompletionReopensIt() async throws {
-        let clock = StepClock()
+        let clock = TestClock.operators()
         let (world, run, task) = try broadcast(clock)
         try world.controller.stop(task: task.id)
         world.link.attached = false
@@ -377,39 +377,39 @@ import Testing
         #expect(world.daemon.requests("operator.register").isEmpty)
     }
 
-    @Test func aNotificationOverviewWaitsForTheRenameSheetToDismiss() throws {
+    @Test func aNotificationsBoardWaitsForTheRenameSheetToDismiss() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
         try controller.loadWorkspace()
         let run = OperatorServiceFixtures.run(projects: [project])
         controller.workspace.mutate { $0.runs = [run] }
         controller.sheet = .rename(.broadcast(run))
-        controller.openNote(.overview(run.id))
-        controller.presentRequestedOverview()
+        controller.openNote(.board(run.id))
+        controller.presentRequestedBoard()
         #expect(controller.sheet?.id == "rename-\(run.id)")
-        #expect(controller.operatorController.presentOverview == run.id)
+        #expect(controller.operatorController.presentBoard == run.id)
         controller.sheets.sheet = nil
         guard case .broadcastBoard(let id)? = controller.sheet else { Issue.record("No deferred board"); return }
         #expect(id == run.id)
-        #expect(controller.operatorController.presentOverview == nil)
+        #expect(controller.operatorController.presentBoard == nil)
         controller.sheet = nil
         #expect(controller.sheet == nil)
     }
 
-    @Test func aDeferredOverviewForARemovedRunClearsSilently() throws {
+    @Test func aDeferredBoardForARemovedRunClearsSilently() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
         try controller.loadWorkspace()
         let run = OperatorServiceFixtures.run(projects: [project])
         controller.workspace.mutate { $0.runs = [run] }
         controller.sheet = .newDivider
-        controller.openNote(.overview(run.id))
-        controller.presentRequestedOverview()
-        #expect(controller.operatorController.presentOverview == run.id)
+        controller.openNote(.board(run.id))
+        controller.presentRequestedBoard()
+        #expect(controller.operatorController.presentBoard == run.id)
         controller.workspace.mutate { $0.runs = [] }
         controller.sheets.sheet = nil
         #expect(controller.sheet == nil)
-        #expect(controller.operatorController.presentOverview == nil)
+        #expect(controller.operatorController.presentBoard == nil)
     }
 
     // -- an answer typed in a worker's window (spec §I) ---------------------------------------------------

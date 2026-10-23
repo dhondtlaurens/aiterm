@@ -3,7 +3,7 @@ import AiTermCore
 
 /// Runs the second opinion and says what came of it. It never blocks the act (spec §4.4): a CLI that is
 /// missing, a run that fails, says nothing or outlasts `timeout` is `unchallenged`, with the reason the
-/// overview shows. An agent review (`review`) runs the same way, headless and read-only, in a task's worktree.
+/// board shows. An agent review (`review`) runs the same way, headless and read-only, in a task's worktree.
 struct SecondOpinionRunner: Sendable {
     enum Verdict: Equatable, Sendable { case critique(String), unchallenged(String) }
     /// What an agent review came to: its findings, or why there are none.

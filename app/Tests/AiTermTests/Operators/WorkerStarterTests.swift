@@ -52,7 +52,7 @@ import Testing
     }
 
     /// A claude task whose agent is near its weekly limit starts on codex: its agent and model rewritten before
-    /// the window, and the switch logged once for the debrief.
+    /// the window, and the switch logged once for the summary.
     @Test func aTaskStartsOnTheOtherAgentNearTheLimit() async throws {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-start-"))
         let run = OperatorServiceFixtures.run(projects: [project], state: .active)
@@ -122,7 +122,7 @@ import Testing
         #expect(blocked.operated?.launch == nil, "no worker was ever launched for it")
         #expect(!blocked.hasCheckout, "no worktree was made")
         #expect(world.daemon.requests("window.createTask").isEmpty)
-        #expect(world.notifications.posted.map(\.target) == [.overview(run.id)])
+        #expect(world.notifications.posted.map(\.target) == [.board(run.id)])
     }
 
     @Test func aTaskWhoseWorkerCannotOpenIsBlockedWithTheReasonAndYouAreTold() async throws {
@@ -134,7 +134,7 @@ import Testing
         let blocked = try #require(world.task(task.id)?.operated)
         #expect(blocked.state == .blocked)
         #expect(blocked.blockedReason == "AiTerm couldn’t start it: AiTerm’s helper ran into a problem.")
-        #expect(world.notifications.posted.map(\.target) == [.overview(run.id)])
+        #expect(world.notifications.posted.map(\.target) == [.board(run.id)])
     }
 
     @Test func aWindowThatMayStillBeOpeningIsLeftForTheReconciler() async throws {
@@ -202,7 +202,7 @@ import Testing
         #expect(blocked.state == .blocked)
         #expect(blocked.blockedReason == "AiTerm couldn’t start it: its worker is still busy; stop it or wait.")
         #expect(world.daemon.requests("session.deliver").isEmpty && world.daemon.requests("window.createTask").isEmpty)
-        #expect(world.notifications.posted.map(\.target) == [.overview(run.id)])
+        #expect(world.notifications.posted.map(\.target) == [.board(run.id)])
     }
 
     /// The run is paused between the claim and the window: no window opens, and the claim is taken back so the

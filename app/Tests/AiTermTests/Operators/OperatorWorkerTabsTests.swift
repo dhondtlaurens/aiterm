@@ -9,7 +9,7 @@ import Testing
 /// waits on you, naming the tab. The Operator reaches one tab by its key; a takeover, a hand back and a stop reach
 /// them all; and an extra tab once closed stays closed.
 @MainActor @Suite(.blocking) struct OperatorWorkerTabsTests {
-    let clock = StepClock()
+    let clock = TestClock.operators()
 
     /// An active run with one working task, PLUTO-1, its extra tab `review` recorded as `tab` leaves it: by default
     /// opened as `s-review`.

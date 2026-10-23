@@ -1,7 +1,7 @@
 import Foundation
 @testable import AiTermCore
 
-/// The Operator's broadcasts and the tasks they drive, for the sidebar's, the sheets' and the overview's
+/// The Operator's broadcasts and the tasks they drive, for the sidebar's, the sheets' and the board's
 /// tests — built here, in one place, so a change to the operator types' initialisers is one edit.
 /// The example is the design's: "Newsletter signup" over pluto-cms and pluto-web.
 enum OperatorUIFixtures {

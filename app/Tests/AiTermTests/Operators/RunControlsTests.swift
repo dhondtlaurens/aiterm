@@ -4,7 +4,7 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// What you do to an operation and its tasks (spec §8, §9): every one persisted, none the operator's to undo.
+/// What you do to a broadcast and its tasks (spec §8, §9): every one persisted, none the operator's to undo.
 @MainActor @Suite struct RunControlsTests {
     let project = OperatorServiceFixtures.project()
 
@@ -95,9 +95,9 @@ import Testing
         #expect(world.controller.endPrompt(run: counted) == OperatorAlerts.endBroadcast(counted, unstarted: 1, running: 1))
     }
 
-    /// Spec §9, §13: the window closing ends nothing. A complete broadcast keeps its debrief until End, and a
+    /// Spec §9, §13: the window closing ends nothing. A complete broadcast keeps its summary until End, and a
     /// click brings its Operator back to it.
-    @Test func closingTheWindowOfACompleteRunKeepsTheDebrief() async throws {
+    @Test func closingTheWindowOfACompleteRunKeepsTheSummary() async throws {
         let (world, run, task) = try makeWorld(runState: .complete, taskState: .accepted)
         world.show([])
         #expect(world.run(run.id)?.state == .complete && world.run(run.id)?.intent == nil)
@@ -127,7 +127,7 @@ import Testing
         let lines = world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
         #expect(lines.contains { $0.contains("broadcast complete") || $0.contains("updates") }, "its Operator is told: \(lines)")
         _ = await world.call(run.id, "write_summary", ["text": "Stopped the last task."])
-        #expect(world.notifications.posted.contains { $0.id == "debrief-\(run.id.uuidString)" && $0.target == .overview(run.id) })
+        #expect(world.notifications.posted.contains { $0.id == "debrief-\(run.id.uuidString)" && $0.target == .board(run.id) })
     }
 
     /// AiTerm's own git problem on a driven task (a checkout or a rebase that failed, in the banner): the task
@@ -239,7 +239,7 @@ import Testing
         #expect(world.run(run.id)?.state == .active && world.run(run.id)?.intent == nil)
     }
 
-    @Test func onlyAnOperationUnderWayCanBePaused() throws {
+    @Test func onlyAnBroadcastUnderWayCanBePaused() throws {
         let (world, run, _) = try makeWorld(runState: .complete)
         #expect(throws: ActionUnavailable.self) { try world.controller.pause(run: run.id) }
         #expect(world.run(run.id)?.state == .complete)
@@ -259,7 +259,7 @@ import Testing
     }
 
     /// A resume that could not reopen the operator changes nothing: still paused, still your pause.
-    @Test func aResumeThatCannotReopenTheOperatorLeavesTheOperationPaused() async throws {
+    @Test func aResumeThatCannotReopenTheOperatorLeavesTheBroadcastPaused() async throws {
         let (world, run, _) = try makeWorld(daemon: RecordingDaemon(failing: ["window.createTask": .internal]))
         try world.controller.pause(run: run.id)
         world.show([])
@@ -303,10 +303,10 @@ import Testing
         #expect(daemon.requests("window.createTask").count == 1)
     }
 
-    /// Two clicks on an offline operation's row (or a click and ↩): the second finds the reopening under
+    /// Two clicks on an offline broadcast's row (or a click and ↩): the second finds the reopening under
     /// way and leaves the rest to the first — the state changes once, when the window is there, and the
     /// operator hears of the resume once.
-    @Test func twoClicksOnAnOfflineOperationOpenOneWindowChangeItOnceAndWakeItOnce() async throws {
+    @Test func twoClicksOnAnOfflineBroadcastOpenOneWindowChangeItOnceAndWakeItOnce() async throws {
         let daemon = RecordingDaemon(holding: "window.createTask")
         let (world, run, _) = try makeWorld(runState: .operatorOffline, daemon: daemon)
         world.show([])
@@ -337,8 +337,8 @@ import Testing
         #expect(world.daemon.requests("window.createTask").isEmpty)
     }
 
-    /// Neither the window's own reopening nor a click on the ended operation's row opens it again.
-    @Test func anEndedOperationIsNotReopened() async throws {
+    /// Neither the window's own reopening nor a click on the ended broadcast's row opens it again.
+    @Test func anEndedBroadcastIsNotReopened() async throws {
         let (world, run, _) = try makeWorld()
         try await world.controller.end(run: run.id)
         world.show([])
@@ -358,7 +358,7 @@ import Testing
         #expect(await world.call(run.id, "run_status").message == "This broadcast has ended; its tools no longer act.")
     }
 
-    /// From the debrief: the broadcast is stopped, so the "+" returns, and what ended stays as it ended.
+    /// From the summary: the broadcast is stopped, so the "+" returns, and what ended stays as it ended.
     @Test func endingACompleteBroadcastStopsItAndLeavesItsEndedTasks() async throws {
         let (world, run, task) = try makeWorld(runState: .complete, taskState: .accepted)
         try await world.controller.end(run: run.id)
@@ -367,7 +367,7 @@ import Testing
         #expect(world.controller.activeRun == nil)
     }
 
-    @Test func endingStopsTheOperationsRunningSecondOpinionsAndNoOthers() async throws {
+    @Test func endingStopsTheBroadcastsRunningSecondOpinionsAndNoOthers() async throws {
         let (world, run, _) = try makeWorld()
         let other = OperatorServiceFixtures.run(projects: [project], state: .active)
         world.workspace.mutate { state in
@@ -477,9 +477,9 @@ import Testing
         #expect(world.daemon.requests("window.createTask").isEmpty, "its window is open: the row's click raises it, nothing reopens")
     }
 
-    /// The same completion the tool paths reach: the last open task ended, the operation is complete, its
+    /// The same completion the tool paths reach: the last open task ended, the broadcast is complete, its
     /// operator is told, and you are notified once its summary is written.
-    @Test func stoppingTheLastOpenTaskCompletesTheOperation() async throws {
+    @Test func stoppingTheLastOpenTaskCompletesTheBroadcast() async throws {
         let (world, run, task) = try makeWorld()
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.questions = [OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Claude asks for permission",
                                                                                               task: task.id, askedAt: Date(timeIntervalSince1970: 0), resolution: nil)] } }
@@ -490,7 +490,7 @@ import Testing
         // Its operator is woken; the waker may count the completion among several updates, so only that a line went is pinned.
         try await world.daemon.received("session.deliver")
         _ = await world.call(run.id, "write_summary", ["text": "Stopped the last task."])
-        #expect(world.notifications.posted.contains { $0.id == "debrief-\(run.id.uuidString)" && $0.target == .overview(run.id) }, "you are told it is done")
+        #expect(world.notifications.posted.contains { $0.id == "debrief-\(run.id.uuidString)" && $0.target == .board(run.id) }, "you are told it is done")
     }
 
     @Test func stoppingATaskFreesItsSlotForTheNextQueuedTask() async throws {
@@ -520,7 +520,7 @@ import Testing
     }
 
     /// Integration decision 7: a worker window you closed comes back on your click — its conversation
-    /// resumed behind your work under the operation's flags, a finished worker's too, the row left on the
+    /// resumed behind your work under the broadcast's flags, a finished worker's too, the row left on the
     /// new window — and a tab still open is brought forward instead of a second worker.
     @Test func aClosedWorkerWindowComesBackWithItsConversationAndNeverTwice() async throws {
         let (world, run, task) = try makeWorld()
@@ -596,7 +596,7 @@ import Testing
     }
 
     @Test func aClickBeforeTheNewOperatorTabIsListedOpensNothingUntilItIsListedAndClosedOrTheWaitHasPassed() async throws {
-        let clock = StepClock()
+        let clock = TestClock.operators()
         let (world, run, _) = try makeWorld(runState: .operatorOffline, adjust: { $0.now = { clock.now } })
         world.show([])
         try await world.controller.reopenOperatorWindow(run.id)
@@ -616,7 +616,7 @@ import Testing
     }
 
     /// An end that comes while the operator is reopening: the token registered after its revoke goes again,
-    /// and the window opened after its close is closed. The operation stays ended.
+    /// and the window opened after its close is closed. The broadcast stays ended.
     @Test func anEndWhileResumeIsReopeningTheOperatorLeavesNothingOpen() async throws {
         let daemon = RecordingDaemon(holding: "window.createTask")
         let (world, run, _) = try makeWorld(runState: .operatorOffline, daemon: daemon)
@@ -631,7 +631,7 @@ import Testing
         #expect(daemon.requests("window.close").map { $0.params["windowId"] as? String } == ["reopened"])
     }
 
-    /// An end that lands while the token is being registered: no window is opened for the ended operation at all.
+    /// An end that lands while the token is being registered: no window is opened for the ended broadcast at all.
     @Test func anEndWhileTheTokenIsBeingRegisteredOpensNoWindow() async throws {
         let daemon = RecordingDaemon(holding: "operator.register")
         let (world, run, _) = try makeWorld(runState: .operatorOffline, daemon: daemon)
@@ -684,7 +684,7 @@ import Testing
         #expect(world.run(id)?.state == .stopped && world.controller.activeRun == nil)
     }
 
-    @Test func aClickOnAnOfflineOperationResumesItInFront() async throws {
+    @Test func aClickOnAnOfflineBroadcastResumesItInFront() async throws {
         let (world, run, _) = try makeWorld(runState: .operatorOffline)
         world.show([])
         await world.controller.reopenOperator(run: run.id)

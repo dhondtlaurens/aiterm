@@ -106,7 +106,7 @@ import Testing
     /// The base's fetch is bounded well inside the daemon's 30 s wait for the answer, and done at most once a minute for the
     /// same base: `read_task diff` and the review after it fetch once (spec §9, the reopen and read_task diff fixes).
     @Test func theBaseIsFetchedWithinTenSecondsAndAtMostOnceAMinute() async throws {
-        let recording = RecordingGitRunner(forwardingTo: git), clock = StepClock()
+        let recording = RecordingGitRunner(forwardingTo: git), clock = TestClock.operators()
         let (world, run, _, moved) = try makeWorldBehindOrigin(worldGit: recording) { $0.now = { clock.now } }
         func fetches() -> [RecordingGitRunner.Call] { recording.calls.filter { $0.args.contains("fetch") } }
         func diff() async throws -> JSONValue { try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value) }
@@ -268,7 +268,7 @@ import Testing
         #expect(world.task(task.id)?.operated?.acceptance?.resultSHA == tip)
     }
 
-    @Test func aRepeatedAcceptAnswersWhileThePersonHasPausedTheOperation() async throws {
+    @Test func aRepeatedAcceptAnswersWhileThePersonHasPausedTheBroadcast() async throws {
         let (world, run, task) = try makeWorld()
         let tip = try commit("a.swift", in: task.worktreePath)
         let accepted = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "ok"])
@@ -367,7 +367,7 @@ import Testing
         #expect(answer["lastMessage"] == .null && answer["note"]?.stringValue?.contains("doesn’t mean it said nothing") == true)
     }
 
-    @Test func anOperationWhoseEveryTaskEndedIsCompleteTheOperatorIsToldAndYouAreNotified() async throws {
+    @Test func anBroadcastWhoseEveryTaskEndedIsCompleteTheOperatorIsToldAndYouAreNotified() async throws {
         let (world, run, task) = try makeWorld()
         world.show([OperatorServiceFixtures.session("op", tag: run.id)])
         _ = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "noChange", "note": "Already fixed upstream."])
@@ -399,7 +399,7 @@ import Testing
         #expect(await world.call(run.id, "resume_task", ["task": "PLUTO-1"]).value?["state"] == "working")
     }
 
-    @Test func aPausedOperationDeliversAndAcceptsNothing() async throws {
+    @Test func aPausedBroadcastDeliversAndAcceptsNothing() async throws {
         let (world, run, task) = try makeWorld()
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.state = .paused; $0.intent = .paused } }
         world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .done)])

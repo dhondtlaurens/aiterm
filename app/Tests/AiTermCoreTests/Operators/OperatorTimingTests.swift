@@ -59,7 +59,7 @@ import Foundation
         return first * (number(2) ?? 1)
     }
 
-    /// Each end as the plan, the overview and a refusal say it.
+    /// Each end as the plan, the board and a refusal say it.
     @Test func eachEndIsSaidByItsName() {
         #expect(TaskEnd.allCases.map(\.displayName) == ["commit", "draft MR", "merge", "local merge"])
     }

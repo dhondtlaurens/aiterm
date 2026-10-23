@@ -7,7 +7,7 @@ extension OperatorToolHandler {
     /// The tool's checks run again after each suspension: the repository's branches and the agent's model
     /// list are read off the main actor, and the Oracle may be asked about an addition past the backlog's
     /// threshold. Meanwhile another call may have made this key or taken a branch, or you may have paused or
-    /// ended the operation. Everything after the last read runs without another suspension, so what it
+    /// ended the broadcast. Everything after the last read runs without another suspension, so what it
     /// checked is what it changes, and two calls never pick one branch or make one key twice. An addition past
     /// the backlog's threshold comes here only with the Oracle's yes (the challenge gate's veto, `vettedCalls`).
     func createTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
@@ -22,7 +22,7 @@ extension OperatorToolHandler {
         let delivery = await deliveryStatus()
         // Another call may have made this key while git was read: this one is its repeat.
         if let existing = existingTask(key, in: run) { return Self.taskAnswer(existing, created: false) }
-        // The operation as it is now, not as the call began: a pause or an end since is the person's.
+        // The broadcast as it is now, not as the call began: a pause or an end since is the person's.
         guard let current = state.run(id: run.id), !current.hasEnded else {
             throw ToolRefusal("This broadcast has ended; its tools no longer act.")
         }
@@ -197,7 +197,7 @@ extension OperatorToolHandler {
         } else {
             model = nil
         }
-        // The read may have let the task start, or you pause the operation: check both again.
+        // The read may have let the task start, or you pause the broadcast: check both again.
         guard let current = state.task(id: task.id), let fresh = current.operated, fresh.state == .planned || fresh.state == .queued,
               fresh.launch == nil else {
             throw ToolRefusal("\(task.operated?.key ?? task.title) has started: steer it with message_task, and log the steer with log_decision.")
@@ -230,7 +230,7 @@ extension OperatorToolHandler {
     }
 
     /// Closes the open revision through `PlanRevision.submit`, the plan-validation step, which refuses a plan whose
-    /// dependencies or ends cannot work, with the reason. Its tasks are released at once and the operation is active.
+    /// dependencies or ends cannot work, with the reason. Its tasks are released at once and the broadcast is active.
     /// A revision already submitted changes nothing and says so: it carries no `released` count, which would read as
     /// "nothing was released".
     func submitPlan(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
@@ -256,7 +256,7 @@ extension OperatorToolHandler {
     }
 
     // -- reading a call ------------------------------------------------------------------------
-    /// The plan changes while the operation runs or plans — not while you have paused it.
+    /// The plan changes while the broadcast runs or plans — not while you have paused it.
     func acceptsPlanChanges(_ run: OperatorRun) throws(ToolRefusal) {
         switch run.state {
         case .planning, .active, .complete: return
@@ -266,7 +266,7 @@ extension OperatorToolHandler {
         }
     }
 
-    /// The project a task goes in: one of the operation's. No project joins a broadcast.
+    /// The project a task goes in: one of the broadcast's. No project joins a broadcast.
     private func project(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> Project {
         let ref = try call.string("project")
         let projects = run.projectIds.compactMap(state.project(id:))
@@ -347,7 +347,7 @@ extension OperatorToolHandler {
         return found
     }
 
-    /// The ticket's page, from the Jira project of the operation's project it belongs to; none when no link says.
+    /// The ticket's page, from the Jira project of the broadcast's project it belongs to; none when no link says.
     static func ticketURL(_ key: String, in project: Project) -> String {
         project.jiraProjects.first { key.uppercased().hasPrefix($0.key.uppercased() + "-") }
             .map { $0.siteURL.appendingPathComponent("browse/\(key)").absoluteString } ?? ""

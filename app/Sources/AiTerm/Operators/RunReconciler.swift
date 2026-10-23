@@ -2,7 +2,7 @@ import Foundation
 import AiTermCore
 
 /// Looks at the real tabs and says what it finds (spec §7.3, §8, §11): an operator whose tab has gone
-/// takes its operation offline, and one back brings it back — never a pause or stop of yours; a worker
+/// takes its broadcast offline, and one back brings it back — never a pause or stop of yours; a worker
 /// whose launch never showed a tab is launched again, but only a minute on, never while one may still
 /// be starting, never while a tab tagged with it is alive, and never once its window showed — one you
 /// closed comes back on your click (`OperatorController.reopenWorker`); a worker's time at work is

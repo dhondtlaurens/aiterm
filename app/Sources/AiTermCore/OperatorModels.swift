@@ -297,7 +297,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     /// The plan revision that added or last changed it.
     public var revision: Int
     /// The plan revision that added it: a task whose `revision` is newer was changed since, which
-    /// the overview shows apart from what it adds.
+    /// the board shows apart from what it adds.
     public var firstRevision: Int
     public var acceptance: TaskAcceptance?, publication: TaskPublication?
     /// While true, the operator's tools refuse the task (spec §8, Take over / Hand back).

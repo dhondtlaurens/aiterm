@@ -84,11 +84,9 @@ final class RecordingNotifications: OperatorNotifications {
     func withdraw(ids: [String]) { withdrawn += ids }
 }
 
-/// A wall clock a test moves by hand.
-@MainActor
-final class StepClock {
-    private(set) var now = Date(timeIntervalSince1970: 1_000_000)
-    func advance(by seconds: TimeInterval) { now = now.addingTimeInterval(seconds) }
+extension TestClock {
+    /// The Operator tests' wall clock, a test moves by hand: `ports.now` and `publishNow` alike.
+    static func operators() -> TestClock { TestClock(Date(timeIntervalSince1970: 1_000_000)) }
 }
 
 extension OperatorPorts {
@@ -117,7 +115,7 @@ extension OperatorPorts {
 }
 
 extension WorkspaceStore {
-    /// A loaded workspace holding `state`, saved to a file nothing else uses: an operation's start
+    /// A loaded workspace holding `state`, saved to a file nothing else uses: a broadcast's start
     /// waits for its run to be on disk.
     static func saving(_ state: AppState) throws -> WorkspaceStore {
         let store = WorkspaceStore(file: StateStore(url: FileManager.default.temporaryDirectory
@@ -222,7 +220,7 @@ final class FakeJira: OperatorJira {
     private let lose = Mutex<(reply: Bool, before: Bool)>((false, false))
     func loseNextCreateReply() { lose.withLock { $0.reply = true } }
     func failNextCreateOnTheWay() { lose.withLock { $0.before = true } }
-    /// Awaited inside a move, after Jira's reads and before the move: a test changes the operation with it.
+    /// Awaited inside a move, after Jira's reads and before the move: a test changes the broadcast with it.
     let beforeTransition = Mutex<(@Sendable () async -> Void)?>(nil)
     /// Awaited inside a search, after it is recorded: a test holds a search in flight with it.
     let searchHold = Mutex<(@Sendable () async -> Void)?>(nil)
@@ -263,7 +261,7 @@ final class FakeJira: OperatorJira {
         return agile.withLock { $0.sprints[board] ?? [] }
     }
     func columns(board: Int) async throws -> [JiraColumn] { agile.withLock { $0.columns[board] ?? [] } }
-    /// Awaited inside a sprint write, before its last check: a test changes the operation with it.
+    /// Awaited inside a sprint write, before its last check: a test changes the broadcast with it.
     let beforeSprintWrite = Mutex<(@Sendable () async -> Void)?>(nil)
     func addToSprint(_ sprint: Int, tickets: [String], beforeWrite: @Sendable () async throws -> Void) async throws {
         if let hook = beforeSprintWrite.withLock({ $0 }) { await hook() }
@@ -275,7 +273,7 @@ final class FakeJira: OperatorJira {
         try await beforeWrite()
         try record(.backlog(tickets: tickets))
     }
-    /// Awaited inside an edit or a comment, before its last check: a test changes the operation with it.
+    /// Awaited inside an edit or a comment, before its last check: a test changes the broadcast with it.
     let beforeEditWrite = Mutex<(@Sendable () async -> Void)?>(nil)
     func edit(key: String, fields: JiraEdit, beforeWrite: @Sendable () async throws -> Void) async throws {
         if let hook = beforeEditWrite.withLock({ $0 }) { await hook() }

@@ -263,10 +263,10 @@ import Testing
         #expect(finds(world, run).last?.ticket == nil)
     }
 
-    /// What AiTerm tells the Operator speaks of its summary, never of the debrief it replaced: no string in the
+    /// What AiTerm tells the Operator speaks of its summary, never of the summary it replaced: no string in the
     /// Operator's sources says it, as the daemon's schema test reads its tools. The finished broadcast's
     /// notification id keeps its `debrief-` prefix, so notes already delivered are not posted again.
-    @Test func noRefusalSpeaksOfADebrief() throws {
+    @Test func noRefusalSpeaksOfASummary() throws {
         let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/AiTerm/Operators")
         let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil).filter { $0.pathExtension == "swift" }
@@ -426,7 +426,7 @@ import Testing
         #expect(task.agent == .codex && task.model == "gpt-6-mini")
     }
 
-    @Test func aRefusedCreateTaskLeavesTheOperationsProjectsAsTheyWere() async throws {
+    @Test func aRefusedCreateTaskLeavesTheBroadcastsProjectsAsTheyWere() async throws {
         let (world, run) = try makeWorld()
         let refused = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Shop", "agent": "pi",
                                                                "modelReason": "m"])

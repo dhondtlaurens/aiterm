@@ -8,7 +8,7 @@ import Testing
 /// for, none started twice.
 @MainActor @Suite(.blocking) struct WorkerStarterClaimTests {
     func makeWorld(_ daemon: RecordingDaemon = RecordingDaemon(),
-                   clock: StepClock? = nil) throws -> (OperatorWorld, OperatorRun, Project) {
+                   clock: TestClock? = nil) throws -> (OperatorWorld, OperatorRun, Project) {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-claim-"))
         let run = OperatorServiceFixtures.run(projects: [project], state: .active)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]), daemon: daemon) { ports in
@@ -63,7 +63,7 @@ import Testing
     /// passes each launch runs as it ends.
     @Test func overlappingPassesWhileLaunchesAreHeldNeverClaimATaskTwice() async throws {
         let daemon = RecordingDaemon(holding: "window.createTask")
-        let clock = StepClock()
+        let clock = TestClock.operators()
         let (world, run, project) = try makeWorld(daemon, clock: clock)
         let queued = (1...3).map { OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-\($0)", state: .queued) }
         world.workspace.mutate { $0.tasks += queued }

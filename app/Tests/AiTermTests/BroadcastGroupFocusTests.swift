@@ -338,7 +338,7 @@ struct BroadcastGroupFocusTests {
         #expect(controller.sheet == nil, "nor does its button open its board")
     }
 
-    @Test func anEndedOperationIsNoLongerARow() throws {
+    @Test func anEndedBroadcastIsNoLongerARow() throws {
         let run = OperatorUIFixtures.run()
         let (controller, _) = try controller(run)
         defer { controller.shutdown() }

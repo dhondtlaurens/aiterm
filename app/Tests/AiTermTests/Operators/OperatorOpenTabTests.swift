@@ -7,7 +7,7 @@ import Testing
 /// `open_tab`: another worker tab on a running task, in its window and worktree, behind your work. Recorded on the task
 /// before the daemon is asked, so the reconciler and a restart adopt the tab tagged for it and never open a second.
 @MainActor @Suite(.blocking) struct OperatorOpenTabTests {
-    let clock = StepClock()
+    let clock = TestClock.operators()
     let git = GitRunner.hermetic()
 
     /// An active run with one task in `state`, its worktree a real checkout off `main` and its window `w1` open,

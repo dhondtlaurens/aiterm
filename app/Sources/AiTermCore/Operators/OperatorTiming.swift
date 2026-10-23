@@ -61,7 +61,7 @@ public extension TaskEnd {
     /// A merge through the request, or a local one: what the Merge slice governs.
     var merges: Bool { self == .merge || self == .mergeLocal }
 
-    /// The end as the plan, the overview and a refusal say it.
+    /// The end as the plan, the board and a refusal say it.
     var displayName: String {
         switch self {
         case .commit: return "commit"
