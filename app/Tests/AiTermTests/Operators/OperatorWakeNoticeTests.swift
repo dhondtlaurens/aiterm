@@ -5,8 +5,8 @@ import Testing
 @testable import AiTermTestSupport
 
 /// The sidebar's Notice when the Operator's wake line is refused (`OperatorController.wakeNotice`): shown on a
-/// refusal with what waits on the Operator and why, never for a prompt that waits on the person, and taken down by
-/// the Operator's `run_status` or a later wake line that lands.
+/// refusal with what waits on the Operator and why, and taken down by the Operator's `run_status`. That a prompt waiting on
+/// the person is never reported, and a later line that lands clears it too, is the waker's (`OperatorWakerTests`).
 @MainActor @Suite struct OperatorWakeNoticeTests {
     let project = OperatorServiceFixtures.project()
     static let unrecognised = Delivery(result: .refused, reason: "unrecognised screen", code: .unrecognisedScreen)
@@ -38,27 +38,11 @@ import Testing
         #expect(notice.description == "2 tasks ready to accept in “Sprint 42”. Its tab doesn’t show Claude Code’s input box.")
     }
 
-    @Test func aPromptWaitingOnThePersonShowsNothing() async throws {
-        let (world, run) = try world([Delivery(result: .refused, reason: "a permission prompt is open", code: .prompt)])
-        try await wake(world, run)
-        #expect(world.controller.wakeNotice == nil)
-    }
-
     @Test func theOperatorCallingRunStatusTakesItDown() async throws {
         let (world, run) = try world([Self.unrecognised])
         try await wake(world, run)
         #expect(world.controller.wakeNotice != nil)
         _ = await world.call(run.id, "run_status")
-        #expect(world.controller.wakeNotice == nil)
-    }
-
-    @Test func aLaterWakeLineThatLandsTakesItDown() async throws {
-        let (world, run) = try world([Self.unrecognised, Delivery(result: .delivered, reason: nil)])
-        try await wake(world, run)
-        #expect(world.controller.wakeNotice != nil)
-        world.controller.waker.operatorSessionChanged(run.id)
-        try await world.daemon.received("session.deliver", count: 2)
-        await world.controller.waker.lastSend?.value
         #expect(world.controller.wakeNotice == nil)
     }
 }

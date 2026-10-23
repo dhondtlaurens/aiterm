@@ -337,3 +337,36 @@ extension SecondOpinionRunner {
         })
     }
 }
+
+/// A wait a test holds, and lets go of: `started` returns once something waits.
+actor HeldGate {
+    private var held: CheckedContinuation<Void, Never>?
+    private var entered: CheckedContinuation<Void, Never>?
+    func wait() async { await withCheckedContinuation { held = $0; entered?.resume(); entered = nil } }
+    func started() async { if held == nil { await withCheckedContinuation { entered = $0 } } }
+    func release() { held?.resume(); held = nil }
+}
+
+/// A git whose every read is told (`reads`) and then waits for `release`, answering `new-sha`.
+final class HeldGit: GitRunning, @unchecked Sendable {
+    let reads = AsyncStream<Void>.makeStream()
+    let release = DispatchSemaphore(value: 0)
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        reads.continuation.yield(())
+        release.wait()
+        return "new-sha"
+    }
+}
+
+extension OperatorServiceFixtures {
+    /// A world with one active broadcast holding task `A`, working, its worker's tab listed.
+    @MainActor static func oneWorkingTask(_ daemon: RecordingDaemon = RecordingDaemon(), git: any GitRunning = GitRunner.hermetic(),
+                                          adjust: (inout OperatorPorts) -> Void = { _ in }) throws -> (OperatorWorld, OperatorRun, TaskItem) {
+        let project = Self.project()
+        let run = Self.run(projects: [project], state: .active)
+        let task = Self.task(in: run, project: project, key: "A", state: .working)
+        let world = try OperatorWorld(Self.state(projects: [project], runs: [run], tasks: [task]), daemon: daemon, git: git, adjust: adjust)
+        world.live.sessions = [Self.session("worker", tag: task.id)]
+        return (world, run, task)
+    }
+}

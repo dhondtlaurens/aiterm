@@ -517,3 +517,31 @@ import Testing
         #expect(reports.cleared == 2)
     }
 }
+
+/// Moved from OperatorReviewTests, where it sat apart from its subject.
+extension OperatorWakerTests {
+    @Test func anExternalUpdateDuringDeliveryStillWakes() async throws {
+        let daemon = RecordingDaemon(holding: "session.deliver")
+        let requests = AsyncStream<String>.makeStream()
+        daemon.onRequest = { requests.continuation.yield($0) }
+        var request = requests.stream.makeAsyncIterator()
+        let gate = HeldGate()
+        let (world, run, _) = try OperatorServiceFixtures.oneWorkingTask(daemon) { $0.wakeSleep = { _ in await gate.wait() } }
+        world.live.sessions.append(OperatorServiceFixtures.session("operator", tag: run.id, state: .working))
+        _ = await world.call(run.id, "run_status")
+        let call = Task { await world.call(run.id, "message_task", ["task": "A", "text": "Continue"]) }
+        // run_status asked the helper which agents can be messaged first.
+        var next = await request.next()
+        while next == "delivery.policy" { next = await request.next() }
+        #expect(next == "session.deliver")
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.questions.append(OperatorServiceFixtures.question()) } }
+        await gate.started()
+        daemon.release()
+        _ = await call.value
+        world.live.sessions[1].state = .idle
+        await gate.release()
+        await world.controller.waker.lastCoalesce?.value
+        await world.controller.waker.lastSend?.value
+        #expect(daemon.requests("session.deliver").contains { $0.params["wake"] as? Bool == true })
+    }
+}

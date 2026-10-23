@@ -510,3 +510,21 @@ import Testing
         waiting = []
     }
 }
+
+/// Moved from OperatorReviewTests, where it sat apart from its subject.
+extension OperatorControllerTests {
+    @Test(arguments: [DaemonError.Code.timeout, .disconnected, .itermUnavailable])
+    func anUnknownWindowFateKeepsTheRun(_ code: DaemonError.Code) async throws {
+        let daemon = RecordingDaemon(failing: ["window.createTask": code])
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []), daemon: daemon)
+        _ = try? await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Work", review: nil, done: nil)
+        let run = try #require(world.state.runs.first)
+        #expect(run.state == .operatorOffline)
+        #expect(daemon.requests("operator.revoke").isEmpty)
+        let folder = OperatorCommand.runFolder(run.id, home: world.ports.home)
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent(OperatorCommand.tokenFile).path))
+        #expect(try world.workspace.file.load().run(id: run.id) != nil)
+        world.show([OperatorServiceFixtures.session("operator", window: "late", tag: run.id)])
+        #expect(world.run(run.id)?.operatorWindowId == "late")
+    }
+}

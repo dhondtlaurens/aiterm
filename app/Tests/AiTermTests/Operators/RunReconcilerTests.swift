@@ -132,23 +132,42 @@ import Testing
         #expect(restarted.notifications.posted.last?.target == .board(run.id))
     }
 
+    /// Each working task on its own clock: the quiet one is flagged and its Operator told once across ticks, a busy
+    /// sibling is not, and the quiet one's next sign clears it.
     @Test func aWorkerWorkingWithNoChangeForTwentyMinutesIsPossiblyStalledUntilItChanges() async throws {
         let project = OperatorServiceFixtures.project()
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-2", state: .working, worktree: "/tmp/aiterm-wt")
+        var busy = OperatorServiceFixtures.task(in: run, project: project, key: "BUSY-1", state: .working, worktree: "/tmp/aiterm-wt-busy")
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now)
-        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        busy.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now)
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task, busy]))
         var worker = OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .working)
+        var sibling = OperatorServiceFixtures.session("w2", window: "w8", tag: busy.id, state: .working)
         worker.title = "thinking"
-        world.show([OperatorServiceFixtures.session("op", tag: run.id), worker])
+        sibling.title = "reading"
+        func show() { world.show([OperatorServiceFixtures.session("op", tag: run.id), worker, sibling]) }
+        func stalledLines() -> [String] {
+            world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }.filter { $0.contains("stalled") }
+        }
+        show()
         world.controller.reconcileTick()
-        clock.advance(by: 21 * 60)
+        clock.advance(by: 15 * 60)
+        sibling.title = "editing"
+        show()
+        clock.advance(by: 6 * 60)
         world.controller.reconcileTick()
         #expect(world.task(task.id)?.operated?.flags.contains(.possiblyStalled) == true)
+        #expect(world.task(busy.id)?.operated?.flags.contains(.possiblyStalled) == false)
         try await world.daemon.received("session.deliver")
         #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String == "[AiTerm] one task may be stalled, call run_status")
+        world.controller.reconcileTick()
+        // A second line would be armed with no coalescing delay and typed within a few turns of the main actor.
+        for _ in 0..<50 { await Task.yield() }
+        await world.controller.waker.lastSend?.value
+        #expect(stalledLines().count == 1, "told once")
         worker.title = "editing"
-        world.show([OperatorServiceFixtures.session("op", tag: run.id), worker])
+        show()
         world.controller.reconcileTick()
         #expect(world.task(task.id)?.operated?.flags.contains(.possiblyStalled) == false)
     }

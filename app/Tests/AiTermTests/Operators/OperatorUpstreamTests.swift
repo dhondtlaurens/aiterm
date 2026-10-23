@@ -221,3 +221,38 @@ import Testing
         #expect(refused.message == "PLUTO-240 is merged already; a new commit needs a new task.")
     }
 }
+
+/// Moved from OperatorReviewTests, where it sat apart from its subject.
+extension OperatorUpstreamTests {
+    @Test(arguments: [0, 1, 2, 3], ["pause", "end", "takeover", "handback", "state"])
+    func reacceptRechecksAfterEachRead(_ read: Int, _ change: String) async throws {
+        let git = HeldGit()
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask(git: git)
+        var parent = OperatorServiceFixtures.task(in: run, project: OperatorServiceFixtures.project(), key: "parent", state: .accepted)
+        parent.operated?.acceptance = TaskAcceptance(resultSHA: "parent-sha", prerequisiteSHAs: [], checkOutput: "ok", note: nil,
+                                                    at: Date(timeIntervalSince1970: 0))
+        world.workspace.mutate { $0.tasks.append(parent) }
+        world.workspace.mutate { $0.updateOperated(task.id) {
+            $0.dependsOn = [TaskDependency(task: parent.id, kind: .code)]
+            $0.flags.insert(.upstreamReplaced)
+            $0.state = .accepted
+            $0.acceptance = TaskAcceptance(resultSHA: "old-sha", prerequisiteSHAs: [], checkOutput: "ok", note: nil, at: Date(timeIntervalSince1970: 0))
+        } }
+        let call = Task { await world.call(run.id, "mark_task", ["task": "A", "outcome": "accepted", "sha": "new-sha", "checkOutput": "ok"]) }
+        var iterator = git.reads.stream.makeAsyncIterator()
+        // Repeat check, requested SHA, branch tip, then upstream ancestry.
+        for index in 0...read { _ = await iterator.next(); if index < read { git.release.signal() } }
+        world.workspace.mutate { state in
+            switch change {
+            case "pause": state.updateRun(id: run.id) { $0.state = .paused; $0.intent = .paused }
+            case "end": state.updateRun(id: run.id) { $0.state = .stopped; $0.intent = .stopped }
+            case "takeover": state.updateOperated(task.id) { $0.takenOver = true; $0.ownership += 1 }
+            case "handback": state.updateOperated(task.id) { $0.ownership += 2 }
+            default: state.updateOperated(task.id) { $0.state = .stopped }
+            }
+        }
+        for _ in 0..<5 { git.release.signal() }
+        #expect(await call.value.message != nil)
+        #expect(world.task(task.id)?.operated?.acceptance?.resultSHA == "old-sha")
+    }
+}

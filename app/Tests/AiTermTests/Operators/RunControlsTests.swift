@@ -767,7 +767,7 @@ extension RunControlsTests {
         try Data("{}\n".utf8).write(to: folder.appendingPathComponent("c-9.jsonl"))
         world.show([])
         try await world.controller.resume(run: run.id)
-        let window = try #require(world.daemon.requests("window.createTask").first)
+        _ = try #require(world.daemon.requests("window.createTask").first, "its window opened")
         #expect(try launchLine(world, run.id).contains("c-9"))
     }
 

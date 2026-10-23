@@ -250,3 +250,27 @@ import Testing
         #expect(world.notifications.posted.isEmpty)
     }
 }
+
+/// Moved from OperatorReviewTests, where it sat apart from its subject.
+extension WorkerStarterTests {
+    @Test func aShellWindowStaysUncertainUntilAWorkerAppears() throws {
+        let (world, _, task) = try OperatorServiceFixtures.oneWorkingTask()
+        world.workspace.mutate { $0.updateOperated(task.id) {
+            $0.launch = LaunchAttempt(number: 2, requestedAt: Date(timeIntervalSince1970: 0))
+            $0.retriesUsed = 1
+        } }
+        world.live.sessions = [OperatorServiceFixtures.session("shell", window: "existing", tag: task.id, agent: .shell)]
+        var notices = 0
+        world.controller.starter.onUncertain = { _ in notices += 1 }
+        world.controller.starter.recordWindow("existing", of: task.id)
+        #expect(world.task(task.id)?.operated?.flags.contains(.uncertain) == true)
+        world.controller.starter.recordWindow("existing", of: task.id)
+        world.controller.starter.tabsListed(world.live.sessions)
+        #expect(notices == 1)
+        world.live.sessions[0].agent = .claude
+        world.controller.starter.tabsListed(world.live.sessions)
+        #expect(world.task(task.id)?.operated?.flags.contains(.uncertain) == false)
+        #expect(notices == 1)
+        #expect(world.daemon.requests("session.deliver").isEmpty)
+    }
+}

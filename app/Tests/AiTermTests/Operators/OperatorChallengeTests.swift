@@ -405,3 +405,26 @@ extension OperatorChallengeTests {
         }
     }
 }
+
+/// Moved from OperatorReviewTests, where it sat apart from its subject.
+extension OperatorChallengeTests {
+    @Test(arguments: [OperatorRunState.paused, .stopped], ["mark_task", "submit_plan"])
+    func aChallengeReloadsTheRun(_ changed: OperatorRunState, _ tool: String) async throws {
+        let gate = HeldGate()
+        let runner = SecondOpinionRunner(locate: { _ in "/fake" }, run: { _, _, _, _, _ in
+            await gate.wait()
+            throw CancellationError()
+        })
+        let (world, run, _) = try OperatorServiceFixtures.oneWorkingTask { $0.secondOpinion = runner; $0.challengeReplyBudget = .seconds(3600) }
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.profile.oracle.isOn = true } }
+        let arguments: JSONValue = tool == "mark_task" ? ["task": "A", "outcome": "blocked", "note": "Needs a key."] : ["revision": 1]
+        let call = Task { await world.call(run.id, tool, arguments) }
+        await gate.started()
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.state = changed; $0.intent = changed } }
+        await gate.release()
+        #expect(await call.value.message != nil)
+        #expect(world.daemon.requests("session.deliver").isEmpty)
+        #expect(world.run(run.id)?.planRevision == 0)
+        #expect(world.state.tasks.first?.operated?.state == .working, "a verdict challenged before the change is not recorded after it")
+    }
+}

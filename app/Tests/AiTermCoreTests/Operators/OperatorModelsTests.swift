@@ -230,3 +230,24 @@ import Foundation
         #expect(written.contains(#""flags":["possiblyStalled","waitingOnYou"]"#))
     }
 }
+
+extension OperatorModelsTests {
+    /// A field a newer build wrote is kept through this one's load and save: on a task, its record, a run, a
+    /// publication and the workspace holding them.
+    @Test func knownRecordsKeepNewerFields() throws {
+        let run = OperatorFixtures.run(), task = OperatorFixtures.task("A", .working)
+        func roundTrip<T: Codable>(_ value: T) throws {
+            var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) as? [String: Any])
+            let extra: [String: Any] = ["nested": [1, true, "future", NSNull()] as [Any]]
+            json["futureField"] = extra
+            let decoded = try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: json))
+            let saved = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(decoded)) as? [String: Any])
+            #expect((saved["futureField"] as? NSDictionary) == (extra as NSDictionary))
+        }
+        try roundTrip(task)
+        try roundTrip(OperatorFixtures.state(run, [task]))
+        try roundTrip(run)
+        try roundTrip(try #require(task.operated))
+        try roundTrip(TaskPublication())
+    }
+}

@@ -268,15 +268,6 @@ import Testing
         #expect(world.task(task.id)?.operated?.acceptance?.resultSHA == tip)
     }
 
-    @Test func aRepeatedAcceptAnswersWhileThePersonHasPausedTheBroadcast() async throws {
-        let (world, run, task) = try makeWorld()
-        let tip = try commit("a.swift", in: task.worktreePath)
-        let accepted = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "ok"])
-        world.workspace.mutate { $0.updateRun(id: run.id) { $0.state = .paused; $0.intent = .paused } }
-        #expect(await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "ok"]) == accepted)
-        #expect(world.task(task.id)?.operated?.state == .accepted)
-    }
-
     /// Self-healing (spec §D): an accepted task keeps its worker until its commit is on origin, so a failed push can be
     /// put to it. The message reopens the task; accepting again records what it came back with.
     @Test func anAcceptedTaskIsMessagedAndGoesBackToWork() async throws {
@@ -420,5 +411,27 @@ extension OperatorTaskToolsTests {
             .write(to: file, atomically: true, encoding: .utf8)
         world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .done, conversation: "conv-1")])
         #expect(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "lastMessage"]).value?["lastMessage"] == "Which locale?")
+    }
+}
+
+/// Moved from OperatorReviewTests, where it sat apart from its subject.
+extension OperatorTaskToolsTests {
+    /// A repeat is a retry only while the daemon could still be waiting on the first call: within twice its wait for the
+    /// app (`OperatorTiming.operatorRequestTimeout`) the same text to the same tab is answered from the record; past
+    /// it, it is typed again.
+    @Test func deliveredMessagesReplayForTwiceTheRequestTimeout() async throws {
+        let clock = TestClock.operators()
+        let window = 2 * OperatorTiming.operatorRequestTimeout
+        let (world, run, _) = try OperatorServiceFixtures.oneWorkingTask { $0.now = { clock.now } }
+        let args: JSONValue = ["task": "A", "text": "Continue"]
+        let first = await world.call(run.id, "message_task", args)
+        clock.advance(by: window - 1)
+        #expect(await world.call(run.id, "message_task", args) == first)
+        #expect(world.daemon.requests("session.deliver").count == 1)
+        _ = await world.call(run.id, "message_task", ["task": "A", "text": "Different"])
+        #expect(world.daemon.requests("session.deliver").count == 2)
+        clock.advance(by: 2)
+        _ = await world.call(run.id, "message_task", args)
+        #expect(world.daemon.requests("session.deliver").count == 3, "typed again past the window")
     }
 }
