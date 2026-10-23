@@ -102,6 +102,8 @@ final class OperatorController {
     @ObservationIgnored let turns: WorkerTurnReader
     /// Which workers say working with a transcript gone quiet (spec §H): what `run_status` reads `working?`.
     @ObservationIgnored let quiet: WorkerQuietWatch
+    /// Where the workers' and the Operator's conversations are, shared by every reader of them.
+    @ObservationIgnored let transcripts: TranscriptLocator
     @ObservationIgnored private var loop: Task<Void, Never>?
     /// An attach whose first connected snapshot is still to come: it reconciles and sets ownership again.
     @ObservationIgnored private var reattached = false
@@ -116,8 +118,8 @@ final class OperatorController {
     @ObservationIgnored private(set) var resending: Task<Void, Never>?
     /// The latest start a pass made, for a test to await.
     @ObservationIgnored private(set) var lastStart: Task<Void, Never>?
-    /// Each complete broadcast's wait for its summary, by run: one per completion.
-    @ObservationIgnored private var summaryWaits: [UUID: Task<Void, Never>] = [:]
+    /// Each complete broadcast's wait for its summary, by run, while it waits: one per completion.
+    @ObservationIgnored private(set) var summaryWaits: [UUID: Task<Void, Never>] = [:]
     /// The latest wait for a summary, for a test to await.
     @ObservationIgnored private(set) var summaryWait: Task<Void, Never>?
     /// The operation whose overview a notification's click asked for (spec §10.3): the sidebar presents
@@ -144,8 +146,9 @@ final class OperatorController {
     /// attached and iTerm2 has not gone — so a tab missing from it is a tab closed.
     @ObservationIgnored private(set) var tabsKnown = false
     /// The Operator's acts AiTerm is carrying out now, in the order each began: a tool call in flight, the
-    /// Oracle consulted, a worker starting or its window reopening. The status lines say them (`acting`).
-    private(set) var activities: [OperatorActivity] = [] { didSet { if activities != oldValue { changed() } } }
+    /// Oracle consulted, a worker starting or its window reopening. The status lines say them (`acting`), read by the rows'
+    /// projection when `changed()` says so, never by a view: not observed.
+    @ObservationIgnored private(set) var activities: [OperatorActivity] = [] { didSet { if activities != oldValue { changed() } } }
     /// What the Operator is doing, as the status lines read it: each task's latest act, and each
     /// broadcast's latest, its task named by its key.
     var acting: OperatorActs {
@@ -196,15 +199,18 @@ final class OperatorController {
                               },
                               coalesce: ports.wakeCoalesce, sleep: ports.wakeSleep)
         tabs = TabOpener(workspace: workspace, daemon: daemon, ports: ports)
-        tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, waker: waker, tabs: tabs)
+        let transcripts = TranscriptLocator(home: ports.home, claudeConfig: ports.claudeConfig)
+        self.transcripts = transcripts
+        tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, waker: waker, tabs: tabs,
+                                    transcripts: transcripts)
         starter = WorkerStarter(workspace: workspace, live: live, daemon: daemon, taskFrame: taskFrame, ports: ports)
         // It captures nothing of `self`: its callbacks are installed once every stored property is set.
         finisher = TaskFinisher(store: workspace, git: ports.git, connect: ports.publisher, now: ports.publishNow, sleep: ports.mergeSleep)
         reconciler = RunReconciler(workspace: workspace, live: live, starter: starter, tabs: tabs, waker: waker, ports: ports)
         reviewWatcher = ReviewWatcher(workspace: workspace, ports: ports, waker: waker)
-        branchWatch = BranchWatch(workspace: workspace, live: live, ports: ports, waker: waker)
-        turns = WorkerTurnReader(workspace: workspace, live: live, ports: ports)
-        quiet = WorkerQuietWatch(workspace: workspace, live: live, ports: ports)
+        branchWatch = BranchWatch(workspace: workspace, live: live, ports: ports, waker: waker, transcripts: transcripts)
+        turns = WorkerTurnReader(workspace: workspace, live: live, ports: ports, transcripts: transcripts)
+        quiet = WorkerQuietWatch(workspace: workspace, live: live, ports: ports, transcripts: transcripts)
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         workspace.onChange { [weak self] in
             // A task taken over, stopped or moved on: what its worker's turn left is read again or dropped first.
@@ -254,10 +260,13 @@ final class OperatorController {
         notices.onIssueChanged { [weak self] old, new in self?.bannerChanged(from: old, to: new) }
     }
 
-    /// Adds `handler` to what hears that a run, an operated task or `acting` changed: the UI's
-    /// overview and rows.
+    /// Adds `handler` to what hears that what the Operator is doing changed (`acting`: its acts, what its workers'
+    /// turns left): the UI's board and rows. A change to a run or a task is the workspace's own news (`onChange`),
+    /// which they hear already.
     func onChange(_ handler: @escaping @MainActor () -> Void) { changeHooks.append(handler) }
 
+    /// A workspace change that touched the runs or the operated tasks: a run no longer paused has its held news
+    /// delivered, and what needs you is posted or withdrawn.
     private func heardWorkspace() {
         let now = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         guard now.0 != lastHeard.0 || now.1 != lastHeard.1 else { return }
@@ -269,7 +278,6 @@ final class OperatorController {
         }
         // What needs you follows the state: posted and withdrawn whatever changed it.
         for run in now.0 { notifier.requestsChanged(run: run) }
-        changed()
     }
 
     /// Posts what the run now asks of you and withdraws what is answered or over (`OperatorNotifier`).
@@ -426,6 +434,8 @@ final class OperatorController {
         let sleep = ports.summarySleep
         let wait = Task { [weak self] in
             guard (try? await sleep(.seconds(OperatorTiming.summaryWait))) != nil, !Task.isCancelled, let self else { return }
+            // Not cancelled, so still this completion's wait: a later one cancels it.
+            summaryWaits[id] = nil
             giveUpOnSummary(id, waited: completedAt)
             runChanged(id)
         }

@@ -95,6 +95,8 @@ final class OperatorToolHandler {
     let waker: OperatorWaker
     /// Opens `open_tab`'s extra worker tabs, which the reconciler adopts.
     let tabs: TabOpener
+    /// Where `read_task` finds a worker's conversation.
+    let transcripts: TranscriptLocator
     /// Each run's last `run_status`, and the revision it was numbered.
     private var numbered: [UUID: (content: RunStatus, revision: Int)] = [:]
     /// The second opinions running now, by challenge id: one in a run's records but not here was lost
@@ -202,13 +204,14 @@ final class OperatorToolHandler {
     static func isMutating(_ call: ToolCall) -> Bool { call.operatorTool.map(mutating.contains) ?? false }
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
-         waker: OperatorWaker, tabs: TabOpener) {
+         waker: OperatorWaker, tabs: TabOpener, transcripts: TranscriptLocator) {
         self.workspace = workspace
         self.live = live
         self.daemon = daemon
         self.ports = ports
         self.waker = waker
         self.tabs = tabs
+        self.transcripts = transcripts
     }
 
     var state: AppState { workspace.state }

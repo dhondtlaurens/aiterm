@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import AiTermCore
 
 /// The last thing a worker said, read from its agent's own conversation file — never the screen, where
@@ -77,5 +78,34 @@ enum WorkerTranscript {
               payload?["role"]?.stringValue == "assistant", let content = payload?["content"]?.arrayValue else { return nil }
         let texts = content.compactMap { $0["type"]?.stringValue == "output_text" ? $0["text"]?.stringValue : nil }
         return texts.isEmpty ? nil : texts.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// Where each worker conversation's transcript is, found once and kept for the Operator's readers (`BranchWatch`,
+/// `WorkerTurnReader`, `WorkerQuietWatch`, `read_task`): a lookup lists Claude's project folders or walks every Codex
+/// session, so a file found is used again while it is still there, and looked up afresh once it is not. Under the
+/// `home` and the Claude folder (`ClaudeConfig`) AiTerm is set to. Blocking: read off the main actor.
+final class TranscriptLocator: Sendable {
+    let home: URL
+    let claudeConfig: ClaudeConfig
+    private let found = Mutex<[String: URL]>([:])
+
+    init(home: URL, claudeConfig: ClaudeConfig) {
+        self.home = home
+        self.claudeConfig = claudeConfig
+    }
+
+    /// The conversation's file, as `WorkerTranscript.file` finds it.
+    func file(agent: AgentKind, conversation: String) -> URL? {
+        let key = agent.rawValue + "/" + conversation
+        if let known = found.withLock({ $0[key] }), FileManager.default.fileExists(atPath: known.path) { return known }
+        let file = WorkerTranscript.file(agent: agent, conversation: conversation, home: home, claudeConfig: claudeConfig)
+        found.withLock { $0[key] = file }
+        return file
+    }
+
+    /// The worker's last message in its conversation's file (`WorkerTranscript.lastMessage(in:agent:)`).
+    func lastMessage(agent: AgentKind, conversation: String) -> String? {
+        file(agent: agent, conversation: conversation).flatMap { WorkerTranscript.lastMessage(in: $0, agent: agent) }
     }
 }

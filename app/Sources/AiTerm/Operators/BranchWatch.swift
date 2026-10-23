@@ -3,7 +3,8 @@ import AiTermCore
 
 /// Watches that each worker commits on its task branch (`BranchDrift`), on every reconcile tick: the
 /// worktree's HEAD is read, and once a worker tab (`WorkerTab`) is idle at its prompt or done, the SHAs its
-/// last message names are looked up in the repository. What it finds is kept on the task, shown in `run_status`, and
+/// last message names are looked up in the repository. A transcript is read again only once it was written since it
+/// was last read (`WorkerTranscript.modified`): an idle tab's is the same 512 KB tail every tick otherwise. What it finds is kept on the task, shown in `run_status`, and
 /// a newly found drift wakes the Operator once: `[AiTerm] PAY-2 committed off its task branch, call
 /// run_status`. A task taken over, not at work, or in an operation paused or ended, is not read.
 @MainActor
@@ -12,15 +13,20 @@ final class BranchWatch {
     private let live: LiveSessions
     private let ports: OperatorPorts
     private let waker: OperatorWaker
+    private let transcripts: TranscriptLocator
     private let pass = TickPass()
+    /// Each conversation's last message as last read, by conversation id, with when its transcript was written then.
+    private var lastMessages: [String: Read] = [:]
+    private struct Read: Sendable { let modified: Date, message: String? }
     /// The latest pass, for a test to await.
     var lastPoll: Task<Void, Never>? { pass.last }
 
-    init(workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts, waker: OperatorWaker) {
+    init(workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts, waker: OperatorWaker, transcripts: TranscriptLocator) {
         self.workspace = workspace
         self.live = live
         self.ports = ports
         self.waker = waker
+        self.transcripts = transcripts
     }
 
     private var state: AppState { workspace.state }
@@ -35,6 +41,8 @@ final class BranchWatch {
 
     /// One pass over every watched task, unless the last is still reading.
     func poll() {
+        let open = Set(live.sessions.compactMap(\.conversationId))
+        lastMessages = lastMessages.filter { open.contains($0.key) }
         pass.run(state.tasks.filter(isWatched).map(\.id)) { [weak self] in await self?.check($0) }
     }
 
@@ -47,14 +55,23 @@ final class BranchWatch {
                   let conversation = tab.conversation else { return nil }
             return (tab.agent, conversation)
         }
-        let git = ports.git, home = ports.home, claudeConfig = ports.claudeConfig, worktree = task.worktreePath, branch = task.branch
+        let git = ports.git, transcripts = self.transcripts, known = lastMessages, worktree = task.worktreePath, branch = task.branch
         let reading = await BackgroundWork.run {
-            (head: Self.head(in: worktree, git: git),
-             named: conversations.isEmpty ? nil : conversations.flatMap { conversation in
-                 WorkerTranscript.lastMessage(agent: conversation.agent, conversation: conversation.id, home: home, claudeConfig: claudeConfig)
-                     .map { Self.named(in: $0, branch: branch, worktree: worktree, git: git) } ?? []
-             })
+            var read: [String: Read] = [:]
+            let named: [BranchDrift.Named]? = conversations.isEmpty ? nil : conversations.flatMap { conversation -> [BranchDrift.Named] in
+                guard let file = transcripts.file(agent: conversation.agent, conversation: conversation.id) else { return [] }
+                let modified = WorkerTranscript.modified(file), message: String?
+                if let modified, let kept = known[conversation.id], kept.modified == modified {
+                    message = kept.message
+                } else {
+                    message = WorkerTranscript.lastMessage(in: file, agent: conversation.agent)
+                    if let modified { read[conversation.id] = Read(modified: modified, message: message) }
+                }
+                return message.map { Self.named(in: $0, branch: branch, worktree: worktree, git: git) } ?? []
+            }
+            return (head: Self.head(in: worktree, git: git), named: named, read: read)
         }
+        lastMessages.merge(reading.read) { _, new in new }
         // Read fresh: git was asked meanwhile.
         guard let current = state.task(id: id), isWatched(current), current.worktreePath == worktree, current.branch == branch,
               let fresh = current.operated, fresh.ownership == operated.ownership else { return }

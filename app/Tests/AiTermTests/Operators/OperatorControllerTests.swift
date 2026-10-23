@@ -84,16 +84,18 @@ import Testing
         #expect(world.daemon.requests("session.deliver").first?.params["text"] as? String == "[AiTerm] reconnected, call run_status")
     }
 
-    @Test func aRunChangingIsHeardOnceAndAnUnrelatedChangeNotAtAll() throws {
+    /// What the Operator is doing is the controller's news; a change to a run is the workspace's, which the rows hear
+    /// from it already, so the controller does not say it again.
+    @Test func anActChangingIsHeardOnceAndAWorkspaceChangeNotAtAll() throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
         var heard = 0
         world.controller.onChange { heard += 1 }
         world.workspace.mutate { $0.sidebarFrame = CGRect(x: 0, y: 0, width: 10, height: 10) }
         world.controller.mutateRun(run.id) { $0.name = "Renamed" }
-        #expect(heard == 1)
+        #expect(heard == 0)
         world.controller.setActing(OperatorActivity(run: run.id, task: nil, act: .loadingTheConstruct), true)
-        #expect(heard == 2)
+        #expect(heard == 1)
     }
 
     @Test func aBroadcastIsNamedFromItsBriefsFirstLine() {
@@ -192,6 +194,7 @@ import Testing
         try world.controller.stop(task: task.id)
         await world.controller.summaryWait?.value
         #expect(gate.asked == [.seconds(OperatorTiming.summaryWait)], "one wait per completion")
+        #expect(world.controller.summaryWaits.isEmpty, "the wait that ended is let go")
         let run2 = try #require(world.run(run.id))
         #expect(run2.summaryGivenUp && RunSummary(run2) == .notComing)
         #expect(world.notifications.posted.map(\.body) == ["The task is done."])

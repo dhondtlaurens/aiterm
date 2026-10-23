@@ -24,6 +24,7 @@ final class WorkerTurnReader {
     private let workspace: WorkspaceStore
     private let live: LiveSessions
     private let ports: OperatorPorts
+    private let transcripts: TranscriptLocator
     /// The latest reading of each task's first worker, by task.
     private(set) var readings: [UUID: Reading] = [:]
     /// The state each session was last read at, or seen at while at work: a turn's end is new when it differs.
@@ -35,10 +36,11 @@ final class WorkerTurnReader {
     /// The latest read, for a test to await.
     private(set) var lastRead: Task<Void, Never>?
 
-    init(workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts) {
+    init(workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts, transcripts: TranscriptLocator) {
         self.workspace = workspace
         self.live = live
         self.ports = ports
+        self.transcripts = transcripts
     }
 
     /// Whether `task`'s worker turns are read: started and not stopped, still the Operator's, in a broadcast not ended.
@@ -94,16 +96,14 @@ final class WorkerTurnReader {
     private func read(_ task: TaskItem, _ tab: SessionInfo) {
         guard let operated = task.operated else { return }
         let id = task.id, worker = task.workerTabs(in: live.sessions)[0], state = tab.state, session = tab.sessionId
-        let git = ports.git, home = ports.home, claudeConfig = ports.claudeConfig, agent = worker.agent
+        let git = ports.git, transcripts = self.transcripts, agent = worker.agent
         let conversation = worker.conversation, worktree = task.hasCheckout ? task.worktreePath : nil, baseBranch = task.baseBranch
         let counts = operated.state == .working, reopenedFrom = operated.reopenedFrom
         let parent = RunScheduler.baseCommit(for: id, in: workspace.state)
         let accepted = [.accepted, .inReview, .published].contains(operated.state) ? operated.acceptance?.resultSHA : nil
         lastRead = Task { [weak self] in
             let read = await BackgroundWork.run {
-                let message = conversation.flatMap {
-                    WorkerTranscript.lastMessage(agent: agent, conversation: $0, home: home, claudeConfig: claudeConfig)
-                }
+                let message = conversation.flatMap { transcripts.lastMessage(agent: agent, conversation: $0) }
                 guard let worktree else { return (message: message, ahead: Int?.none, changed: false, atReopened: false) }
                 let ahead = counts
                     ? Repository(worktree, git: git).commitsAhead(reopenedFrom: reopenedFrom, stackedOn: parent, baseBranch: baseBranch)

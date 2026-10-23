@@ -159,6 +159,37 @@ import Testing
         #expect(drift.source == .lastMessage && drift.sha == sha && drift.branch == "feat/tests-elsewhere")
     }
 
+    /// An idle worker's transcript is read again only once it was written since the last pass: a tick that finds it
+    /// as it was reads what it read before, and one after it changed reads it afresh.
+    @Test func anUnchangedTranscriptIsReadOnceAndAChangedOneAgain() async throws {
+        let (world, _, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-4")
+        func offBranch(_ branch: String) throws -> String {
+            let elsewhere = try GitFixture.folder("op-drift-tmp-") + "/other"
+            try git.run(["worktree", "add", "-q", "-b", branch, elsewhere], in: worktree)
+            try git.run(["commit", "--allow-empty", "-q", "-m", "work on \(branch)"], in: elsewhere)
+            return try git.run(["rev-parse", "HEAD"], in: elsewhere)
+        }
+        let file = world.ports.home.appendingPathComponent(".claude/projects/-wt/conv-4.jsonl")
+        let first = try offBranch("feat/first")
+        try saveReply("Committed \(first) on feat/first.", conversation: "conv-4", in: world)
+        // A whole second, which a date set and read back keeps exactly.
+        let written = Date(timeIntervalSince1970: 1_800_000_000)
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift?.sha == first)
+
+        // Rewritten with its date put back: as far as the watch can tell, unchanged, so it is not read again.
+        let second = try offBranch("feat/second")
+        try saveReply("Committed \(second) on feat/second.", conversation: "conv-4", in: world)
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift?.sha == first, "read once")
+
+        try FileManager.default.setAttributes([.modificationDate: written.addingTimeInterval(60)], ofItemAtPath: file.path)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift?.sha == second, "read again once written")
+    }
+
     /// A worker's last reply, in its Claude conversation file under the scratch home.
     /// The reply saved where Claude keeps the conversation: `claudeFolder` under the scratch home.
     func saveReply(_ text: String, conversation: String, in world: OperatorWorld, claudeFolder: String = ".claude") throws {

@@ -3,7 +3,7 @@ import AiTermCore
 
 /// Doubts a worker's `working` when nothing shows it (spec §H): the daemon's session state can stick at working long after
 /// its worker did anything, and nothing else looks at a worker once its task leaves `working`. A task whose first worker's
-/// session says working while its transcript (`WorkerTranscript.file`) has not grown for `OperatorTiming.liveQuietMinutes`
+/// session says working while its transcript (`TranscriptLocator`) has not grown for `OperatorTiming.liveQuietMinutes`
 /// (`StallWatch.isQuietWhileWorking`) is `quiet`: `run_status` reads it `working?` and lists it as uncertain, on a task in
 /// any state but one you took over or not started. The transcripts' dates are read off the main thread on each reconcile
 /// tick (`refresh`), never when a status is built; what the session changes is noted as it happens (`observe`).
@@ -12,6 +12,7 @@ final class WorkerQuietWatch {
     private let workspace: WorkspaceStore
     private let live: LiveSessions
     private let ports: OperatorPorts
+    private let transcripts: TranscriptLocator
     /// The tasks whose worker is quiet now, by task: what `run_status` shows.
     private(set) var quiet: Set<UUID> = []
     /// When each session was first seen working since it last was not: a turn only just begun is not quiet, whatever its
@@ -19,21 +20,20 @@ final class WorkerQuietWatch {
     private var workingSince: [String: Date] = [:]
     /// When each task's transcript last grew, as read for the session it names.
     private var grew: [UUID: (session: String, at: Date)] = [:]
-    /// The transcript found for a conversation, so a Codex tree is walked once.
-    private var files: [String: URL] = [:]
     private var isReading = false
     /// A working worker whose transcript is to be found, and what was found of it.
     private struct Ask: Sendable { let task: UUID, session: String, agent: AgentKind, conversation: String }
-    private struct Reading: Sendable { let task: UUID, session: String, conversation: String, file: URL?, modified: Date? }
+    private struct Reading: Sendable { let task: UUID, session: String, modified: Date? }
     /// What the quiet set changed: what `run_status` and the waker show.
     var changed: @MainActor () -> Void = {}
     /// The latest read, for a test to await.
     private(set) var lastRead: Task<Void, Never>?
 
-    init(workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts) {
+    init(workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts, transcripts: TranscriptLocator) {
         self.workspace = workspace
         self.live = live
         self.ports = ports
+        self.transcripts = transcripts
     }
 
     /// The first worker of `task`, when its task is judged and its session says working.
@@ -66,22 +66,19 @@ final class WorkerQuietWatch {
     func refresh() {
         observe()
         guard !isReading else { return }
-        let sessions = live.sessions, home = ports.home, claudeConfig = ports.claudeConfig
+        let sessions = live.sessions, transcripts = self.transcripts
         let asked: [Ask] = workspace.state.tasks.compactMap { task in
             guard let worker = workingWorker(of: task, in: sessions), let session = worker.session?.sessionId,
                   let conversation = worker.conversation else { return nil }
             return Ask(task: task.id, session: session, agent: worker.agent, conversation: conversation)
         }
         guard !asked.isEmpty else { return }
-        let known = files
         isReading = true
         lastRead = Task { [weak self] in
             let read = await BackgroundWork.run {
                 asked.map { ask in
-                    let file = known[ask.conversation]
-                        ?? WorkerTranscript.file(agent: ask.agent, conversation: ask.conversation, home: home, claudeConfig: claudeConfig)
-                    return Reading(task: ask.task, session: ask.session, conversation: ask.conversation, file: file,
-                                   modified: file.flatMap(WorkerTranscript.modified))
+                    Reading(task: ask.task, session: ask.session,
+                            modified: transcripts.file(agent: ask.agent, conversation: ask.conversation).flatMap(WorkerTranscript.modified))
                 }
             }
             guard let self else { return }
@@ -89,7 +86,6 @@ final class WorkerQuietWatch {
             // Read fresh: a worker may have left working, or been replaced, while the files were read.
             let working = workingSessions()
             for item in read {
-                if let file = item.file { files[item.conversation] = file }
                 guard working[item.task] == item.session else { continue }
                 grew[item.task] = item.modified.map { (item.session, $0) }
             }

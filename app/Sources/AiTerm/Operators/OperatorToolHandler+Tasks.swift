@@ -73,10 +73,8 @@ extension OperatorToolHandler {
             guard let conversation = worker.conversation else {
                 return ["lastMessage": .null, "note": "Its worker hasn’t started a conversation yet."]
             }
-            let home = ports.home, claudeConfig = ports.claudeConfig, agent = worker.agent
-            let text = await BackgroundWork.run {
-                WorkerTranscript.lastMessage(agent: agent, conversation: conversation, home: home, claudeConfig: claudeConfig)
-            }
+            let transcripts = self.transcripts, agent = worker.agent
+            let text = await BackgroundWork.run { transcripts.lastMessage(agent: agent, conversation: conversation) }
             // No reply found is unknown, not silence: the transcript reads only its tail, and a worker may have said it earlier.
             guard let text else {
                 return ["lastMessage": .null, "note": "No reply found in the recent part of its conversation; that doesn’t mean it said nothing. Use read_task with what: diff or prompt."]
