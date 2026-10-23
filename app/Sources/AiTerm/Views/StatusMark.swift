@@ -29,15 +29,6 @@ struct StatusMark: View {
         return [each * backgroundDashShare, each * (1 - backgroundDashShare)]
     }
 
-    /// The one spin every working mark shows, in degrees clockwise from three o'clock: a function
-    /// of Core Animation's clock and nothing else, so an arc that starts later, comes back from a
-    /// collapsed project or outlives a sleep shows the angle every other arc shows. Not the wall
-    /// clock: `Date` runs on through a sleep and media time does not, which put every arc started
-    /// after one on a phase of its own.
-    static func spinnerRotation(atMediaTime time: CFTimeInterval) -> Double {
-        time.truncatingRemainder(dividingBy: spinDuration) / spinDuration * 360
-    }
-
     var body: some View {
         // Every look is a ring of the same stroke inside the same box, `size` across (proposal 1A
         // and 2A, 21 Oct 2026): `strokeBorder` insets by half its width, and the arc, which
@@ -87,7 +78,7 @@ struct StatusMark: View {
 ///
 /// The turn is a Core Animation animation, not a SwiftUI one: each arc's starts a whole number of
 /// turns before media time's zero, so the window server draws every arc at
-/// `StatusMark.spinnerRotation(atMediaTime:)` — in step whenever it started, without a timer, and
+/// Core Animation’s media clock — in step whenever it started, without a timer, and
 /// without a `body` or the main thread doing anything per frame. A SwiftUI animation starts when
 /// its transaction commits, which a busy main thread can put any number of degrees after the seed
 /// it was given; there is no telling it to start in the past.

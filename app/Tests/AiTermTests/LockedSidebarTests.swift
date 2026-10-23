@@ -30,7 +30,6 @@ struct LockedSidebarTests {
         // Tall enough for the list to keep its rows beside SYSTEM and USAGE.
         host.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
         window.orderFront(nil)
@@ -84,7 +83,7 @@ struct LockedSidebarTests {
         let host = NSHostingView(rootView: ProjectHeaderRow(section: section, controller: controller).frame(width: 300))
         host.frame = NSRect(x: 0, y: 0, width: 300, height: 40)
         let panel = testPanel(contentRect: host.frame, styleMask: [.titled, .nonactivatingPanel])
-        panel.isReleasedWhenClosed = false; panel.contentView = host; panel.makeKeyAndOrderFront(nil)
+        panel.contentView = host; panel.makeKeyAndOrderFront(nil)
         defer { panel.orderOut(nil) }
         settle(host) { panel.isKeyWindow }
         try #require(panel.isKeyWindow)

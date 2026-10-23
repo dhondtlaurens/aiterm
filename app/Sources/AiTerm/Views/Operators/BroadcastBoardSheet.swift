@@ -135,7 +135,7 @@ struct BroadcastBoardSheet: View, Equatable {
         #endif
         let footer = BoardFooter(board, reopenFailed: reopenFailed)
         let shown = Self.shownTab(tab, on: board)
-        SheetLayout(title: board.title, height: Sheet.height, width: Sheet.width, bandHeight: nil, scrolls: shown != .board,
+        SheetLayout(title: board.title, height: Sheet.height, bandHeight: nil, scrolls: shown != .board,
                     contentVerticalPadding: Space.block) {
             VStack(alignment: .leading, spacing: Space.base) {
                 BroadcastStatusLine(line: board.band, progress: board.progress)

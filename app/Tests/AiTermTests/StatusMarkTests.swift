@@ -8,20 +8,11 @@ import AiTermTestSupport
 
 @MainActor
 struct StatusMarkTests {
-    private let size: CGFloat = 40
-
-    @Test func spinnerRotationUsesAContinuousSharedClock() {
-        let start: CFTimeInterval = 220
-        let startRotation = StatusMark.spinnerRotation(atMediaTime: start)
-        let quarterRotation = StatusMark.spinnerRotation(atMediaTime: start + 0.275)
-        let nextCycleRotation = StatusMark.spinnerRotation(atMediaTime: start + 1.1)
-        let quarterAdvance = (quarterRotation - startRotation + 360)
-            .truncatingRemainder(dividingBy: 360)
-
-        #expect(abs(quarterAdvance - 90) < 0.0001)
-        let cycleDifference = abs(nextCycleRotation - startRotation)
-        #expect(min(cycleDifference, 360 - cycleDifference) < 0.0001)
+    private static func spinnerRotation(atMediaTime time: CFTimeInterval) -> Double {
+        time.truncatingRemainder(dividingBy: StatusMark.spinDuration) / StatusMark.spinDuration * 360
     }
+
+    private let size: CGFloat = 40
 
     /// A mark drawn offscreen on black, `Space.base` of black around it so a stroke that leaves
     /// its box shows.
@@ -160,7 +151,7 @@ struct StatusMarkTests {
 
     /// How far the arc is from where the shared clock puts it, in degrees.
     private func offsetFromClock(_ host: NSView) throws -> Double {
-        circularDistance(try angle(host), StatusMark.spinnerRotation(atMediaTime: CACurrentMediaTime()))
+        circularDistance(try angle(host), Self.spinnerRotation(atMediaTime: CACurrentMediaTime()))
     }
 
     private func circularDistance(_ a: Double, _ b: Double) -> Double {

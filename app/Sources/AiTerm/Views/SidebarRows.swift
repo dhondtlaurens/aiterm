@@ -349,9 +349,7 @@ struct RowCaption: View {
 
 /// One task or review: its agents, title, badges and branch, and, when there is something to say, why
 /// its window could not come back, or, on a task the Operator drives, its status line as the operator
-/// badge. While the Operator holds the task and nothing on it is yours, the badge line folds away
-/// (`TaskRowCaption.folds`), so the row is its title over that line; it unfolds, over 0.2 s as the toast
-/// moves and at once under Reduce Motion, when it is. A driven task's menu leads with Take Over or Hand Back, and Stop Task… while it is open; a task
+/// badge. A driven task’s menu leads with Take Over or Hand Back, and Stop Task… while it is open; a task
 /// of an ended broadcast is yours, and its menu is any task's.
 struct TaskRowView: View {
     let row: TaskRow
@@ -546,7 +544,7 @@ struct TerminalRowView: View {
         .accessibilityValue(row.status == .background ? BackgroundCard(jobs: row.background).spoken : row.status.label)
         .accessibilityActions {
             if let terminal {
-                ForEach(TerminalRowAccessibility(terminal: terminal, canChangeWorkspace: controller.canChangeWorkspace).actions,
+                ForEach(TerminalRowAccessibility(canChangeWorkspace: controller.canChangeWorkspace).actions,
                         id: \.self) { action in
                     switch action {
                     case .rename: Button(action.rawValue) { controller.presentRename(terminal: terminal) }
@@ -761,6 +759,7 @@ struct TaskRowMarkView: View {
         }
     }
 }
+/// The checkout or reopen failure below a task’s branch; removal progress takes precedence.
 struct TaskRowCaption: Equatable {
     enum Note: Equatable {
         /// What the task is missing — its worktree, or a window that could not be reopened — in the
@@ -824,7 +823,7 @@ struct TerminalRowAccessibility: Equatable {
 
     var actions: [Action]
 
-    init(terminal: TerminalItem, canChangeWorkspace: Bool) {
+    init(canChangeWorkspace: Bool) {
         guard canChangeWorkspace else { actions = []; return }
         actions = [.rename, .remove]
     }

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+@testable import AiTermTestSupport
 @testable import AiTermUI
 
 @MainActor
@@ -19,8 +20,7 @@ struct HairlineTests {
             .frame(width: 200)
             .interfaceScale(scale))
             host.frame = NSRect(x: 0, y: 0, width: 200, height: 40)
-            host.layoutSubtreeIfNeeded()
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            AiTermTestSupport.settle(host) { box.size != .zero }
             #expect(box.size.height == 1, "at ×\(scale.factor)")
             #expect(box.size.width > 50, "at ×\(scale.factor)")
         }

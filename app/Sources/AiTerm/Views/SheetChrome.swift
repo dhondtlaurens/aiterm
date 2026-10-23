@@ -15,8 +15,6 @@ extension DismissAction {
 struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
     let title: String
     let height: CGFloat
-    /// `Sheet.width` for every sheet, the broadcast's included; its board scrolls sideways instead.
-    let width: CGFloat
     /// The band's height: `Size.control` for a step bar, a tab bar or a subtitle; nil for a band of lines
     /// that sizes itself (the board's badge line and Asked line), `Space.base` under the title.
     let bandHeight: CGFloat?
@@ -28,19 +26,20 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
     let onBackgroundTap: (() -> Void)?
     #if DEBUG
     @Environment(\.snapshotRendering) private var isSnapshot
+    #else
+    private let isSnapshot = false
     #endif
     let navigation: Navigation
     let content: Content
     let footer: Footer
 
-    init(title: String, height: CGFloat, width: CGFloat = Sheet.width, bandHeight: CGFloat? = Size.control, scrolls: Bool = true,
+    init(title: String, height: CGFloat, bandHeight: CGFloat? = Size.control, scrolls: Bool = true,
          contentVerticalPadding: CGFloat = Space.margin, onBackgroundTap: (() -> Void)? = nil,
          @ViewBuilder navigation: () -> Navigation,
          @ViewBuilder content: () -> Content,
          @ViewBuilder footer: () -> Footer) {
         self.title = title
         self.height = height
-        self.width = width
         self.bandHeight = bandHeight
         self.scrolls = scrolls
         self.contentVerticalPadding = contentVerticalPadding
@@ -60,18 +59,12 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
             .padding(.horizontal, Space.margin).padding(.top, Space.section).padding(.bottom, Space.block)
             Hairline()
             Group {
-                #if DEBUG
-                // The snapshots' `ImageRenderer` cannot materialise a ScrollView's contents.
-                if isSnapshot || !scrolls {
-                    paddedContent.frame(minHeight: 0, maxHeight: .infinity, alignment: .topLeading).clipped()
-                } else {
+                // ImageRenderer cannot materialise a ScrollView’s contents.
+                if scrolls && !isSnapshot {
                     ScrollView { paddedContent }
-                }
-                #else
-                if scrolls { ScrollView { paddedContent } } else {
+                } else {
                     paddedContent.frame(minHeight: 0, maxHeight: .infinity, alignment: .topLeading).clipped()
                 }
-                #endif
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             Hairline()
@@ -80,7 +73,7 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Palette.surfaceRaised)
         }
-        .frame(width: width, height: Sheet.fittingHeight(height))
+        .frame(width: Sheet.width, height: Sheet.fittingHeight(height))
         .background {
             if let onBackgroundTap {
                 Color.clear.contentShape(Rectangle()).onTapGesture(perform: onBackgroundTap)
@@ -121,7 +114,7 @@ struct SheetPrimaryButton: View {
     let action: () -> Void
 
     var body: some View {
-        if let help { button.help(help) } else { button }
+        button.help(help ?? "")
     }
 
     private var button: some View {

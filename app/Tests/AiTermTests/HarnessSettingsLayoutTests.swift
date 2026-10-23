@@ -9,8 +9,6 @@ import AiTermUI
 @MainActor
 @Suite struct HarnessSettingsLayoutTests {
     @Test func settingsTabsAndCardsStayInHarnessOrder() {
-        #expect(SettingsTab.agents.rawValue == "Agents")
-        #expect(SettingsTab.interface.rawValue == "Interface")
         #expect(HarnessCardPresentation.agents == [.claude, .codex, .pi])
     }
 
@@ -60,15 +58,8 @@ import AiTermUI
                 "the write the sheet ignored is one its pane sees")
     }
 
-    @Test func aCardDrawsItsMarkAndActionsAtTheControlHeight() {
-        // The Install button was `.small`; every button in a sheet is a 28 pt control.
-        #expect(SettingsCard<EmptyView, EmptyView, EmptyView, EmptyView>.markSize == Size.control)
-        #expect(SettingsCard<EmptyView, EmptyView, EmptyView, EmptyView>.actionControlSize == .large)
-    }
-
-    @Test func chipsShowOnlyTheCLIAndTheDriver() {
-        // Models is not a chip: the picker below already carries an empty catalogue, and a test's
-        // daemon and delivery checks surface through the status sentence instead.
+    @Test func modelsAndDeliveryAreNotChips() {
+        // Models stay in the picker; delivery checks stay in the status sentence.
         let snapshot = HarnessSnapshot.reduce(agent: .claude, cliAvailable: true, integrationState: .current,
                                               models: [], checks: [
             HarnessCheck(.cli, passed: true, explanation: nil),

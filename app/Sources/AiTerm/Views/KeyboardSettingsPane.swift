@@ -16,7 +16,7 @@ struct KeyBinding: Equatable, Identifiable {
     private static let spokenNames = [
         "⌘": "Command", "⇧": "Shift", "⌥": "Option", "⌃": "Control", "↩": "Return", "⎋": "Escape",
         "⌫": "Delete", "⇥": "Tab", "↑": "Up Arrow", "↓": "Down Arrow", "←": "Left Arrow", "→": "Right Arrow",
-        "−": "minus", "+": "plus", "1–4": "1 to 4",
+        "−": "minus", "+": "plus", "1–4": "1 to 4", "1–3": "1 to 3",
     ]
 }
 
@@ -60,14 +60,16 @@ enum KeyBindings {
         ]),
         KeyBindingGroup(title: "Sidebar", help: "While the list has the keyboard.", bindings: [
             KeyBinding(action: "Peek at a row’s window", keys: ["↑", "↓"]),
-            KeyBinding(action: "Go to the row’s window, open the broadcast’s overview, fold or open a project, or open an empty one’s menu", keys: ["↩"]),
+            KeyBinding(action: "Go to the row’s window, fold or open a project or the broadcast’s group, or open an empty project’s menu", keys: ["↩"]),
             KeyBinding(action: "Remove the task, review or terminal", keys: ["⌘", "⌫"]),
         ]),
-        KeyBindingGroup(title: "Sheets", help: "New task, New review, New terminal, Add divider, Rename, Jira projects, Shelf, Settings, New Broadcast and a broadcast’s overview.", bindings: [
+        KeyBindingGroup(title: "Sheets", help: "New task, New review, New terminal, Add divider, Rename, Jira projects, Shelf, Settings, New Broadcast and a broadcast’s board.", bindings: [
             KeyBinding(action: "Continue, create or save", keys: ["⌘", "↩"]),
             KeyBinding(action: "Back a step, or close", keys: ["⎋"]),
             // One row for the four: the tabs are numbered in the order the tab bar draws them.
             KeyBinding(action: "Switch Settings tabs", keys: ["⌘", "1–4"]),
+            KeyBinding(action: "Switch the broadcast’s board tabs", keys: ["⌘", "1–3"]),
+            KeyBinding(action: "Remove the selected Shelf item", keys: ["⌘", "⌫"]),
         ]),
         KeyBindingGroup(title: "Lists and the prompt", help: "A picker’s results, and the prompt’s completions.", bindings: [
             KeyBinding(action: "Move through the list", keys: ["↑", "↓"]),
@@ -83,8 +85,6 @@ enum KeyBindings {
 /// help. Each group is a `SettingsGroup`, as "Sidebar badges" is above it, with rows split by a
 /// `Hairline` and the keys in `Kbd`'s caps, inked for the sheet they sit on, at the trailing edge.
 struct KeyboardSettingsPane: View {
-    var groups: [KeyBindingGroup] = KeyBindings.all
-
     var body: some View {
         VStack(alignment: .leading, spacing: Space.block) {
             VStack(alignment: .leading, spacing: Space.tight) {
@@ -92,7 +92,7 @@ struct KeyboardSettingsPane: View {
                     .accessibilityAddTraits(.isHeader)
                 HelpText("Shortcuts can’t be changed yet.")
             }
-            ForEach(groups) { group($0) }
+            ForEach(KeyBindings.all) { group($0) }
         }
     }
 

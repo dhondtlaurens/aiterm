@@ -83,7 +83,7 @@ public struct Badge: View {
 
     // `@State` is a macro shipping only with Xcode, which this machine lacks. This is the storage
     // the macro would generate — the same pattern `EditorBadge` and `JiraChip` hand-expand today.
-    var _hovered = State(initialValue: false)
+    private var _hovered = State(initialValue: false)
     private var hovered: Bool {
         get { _hovered.wrappedValue }
         nonmutating set { _hovered.wrappedValue = newValue }

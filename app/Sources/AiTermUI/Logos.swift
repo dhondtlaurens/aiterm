@@ -36,7 +36,7 @@ enum Logos {
 
     /// Main-actor state: every reader is a view's `body`.
     @MainActor private static var brands: [BrandKey: (path: String, image: NSImage)] = [:]
-    @MainActor private static var documents: [String: NSImage] = [:]
+    @MainActor private static var documents: [String: (svg: String, image: NSImage)] = [:]
 
     /// A single-colour mark — the brand's path in a 24 × 24 viewBox, filled with `fill` —
     /// rasterised once per brand and fill.
@@ -51,10 +51,10 @@ enum Logos {
     }
 
     /// Any small SVG document, rasterised once.
-    @MainActor static func image(svg: String) -> NSImage? {
-        if let hit = documents[svg] { return hit }
+    @MainActor static func image(name: String, svg: String) -> NSImage? {
+        if let hit = documents[name], hit.svg == svg { return hit.image }
         guard let image = rasterise(svg) else { return nil }
-        documents[svg] = image
+        documents[name] = (svg, image)
         return image
     }
 

@@ -16,7 +16,7 @@ struct NewTerminalSheetGeometryTests {
                                           canCreate: true, createTerminal: { _ in })
         let host = NSHostingView(rootView: sheet)
 
-        #expect(host.fittingSize.width == 560)
-        #expect(host.fittingSize.height == 560)
+        #expect(host.fittingSize.width == Sheet.width)
+        #expect(host.fittingSize.height == Sheet.fittingHeight(Sheet.height))
     }
 }

@@ -38,10 +38,10 @@ struct MacSettingsCard: View {
     var body: some View {
         let setup = backpack.setup
         SettingsCard(title: "Mac", status: MacCardPresentation.status(setup)) {
-            SymbolMark(symbol: "macbook", size: Size.control, style: .paper)
+            SymbolMark(symbol: SidebarFooter.macSymbol, size: Size.control)
         } chips: {
-            check("Lid sleep", passed: setup.sleepRule)
-            check("Network discovery", passed: setup.location)
+            CheckChip(label: "Lid sleep", passed: setup.sleepRule)
+            CheckChip(label: "Network discovery", passed: setup.location)
         } actions: {
             if backpack.busy { ProgressView().controlSize(.small) }
             if setup.missingSteps.isEmpty {
@@ -55,8 +55,4 @@ struct MacSettingsCard: View {
         }
     }
 
-    /// A harness card's check chip.
-    private func check(_ label: String, passed: Bool) -> some View {
-        Badge(label, icon: .symbol(passed ? "checkmark" : "exclamationmark"), iconTint: passed ? Palette.green : Palette.amber)
-    }
 }

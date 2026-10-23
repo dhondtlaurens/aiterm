@@ -56,7 +56,6 @@ struct FixFooterPresentation: Equatable {
     let buttons: Buttons
 
     /// Whether the sheet may close: not while a fix is applied, half-made.
-    var canClose: Bool { buttons != .applying }
 
     init(error: CreationFailure?, state: FixSession.State?, fixer: FixerAgent?, lastProposal: FixProposal?) {
         let name = fixer?.shortName ?? "AI"
@@ -141,7 +140,6 @@ struct BannerFixPresentation: Equatable {
     let links: [Link]
 
     /// Whether Dismiss is there: not while the fix holds the banner.
-    var canDismiss: Bool { links.contains(.dismiss) }
 
     init(issue: OperationIssue, state: FixSession.State?, fixer: FixerAgent?) {
         let name = fixer?.shortName ?? "AI"

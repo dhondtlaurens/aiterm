@@ -7,6 +7,24 @@ import AiTermCore
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct NewReviewSheetTests {
+    @Test func theAgentStepShowsTheModelsDefaultReasoning() throws {
+        let model = AgentModel(id: "m", label: "Model", detail: nil, efforts: ["low", "high"], defaultEffort: "high")
+        let view = AgentStep(availableAgents: [.claude], models: [model], catalogueLoaded: true,
+                             agent: .claude, model: "m", reasoning: .constant(nil), selectAgent: { _ in }, setModel: { _ in })
+        let host = NSHostingView(rootView: view)
+        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        func reasoning(in view: NSView) -> NSPopUpButton? {
+            if let button = view as? NSPopUpButton, button.itemTitles == ["Low", "High"] { return button }
+            return view.subviews.lazy.compactMap { reasoning(in: $0) }.first
+        }
+        settle(host, until: { reasoning(in: host) != nil })
+        #expect(try #require(reasoning(in: host)).titleOfSelectedItem == "High")
+    }
+
     /// Step 1 needs both a name and a branch. Unlike a task, a review derives neither — there is
     /// nothing to fall back on if the branch is blank.
     @Test func testStepOneNeedsBothANameAndABranch() {
@@ -100,9 +118,7 @@ import AiTermCore
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
-        host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        host.layoutSubtreeIfNeeded()
+        settle(host) { host.fittingSize.height > 0 }
         #expect(host.fittingSize.height > 0)
         #expect(AgentStep.modelPlaceholder(agent: .pi, catalogueLoaded: true) == "No PI providers are signed in. Run /login in PI.")
         #expect(AgentStep.modelPlaceholder(agent: .claude, catalogueLoaded: true) == "No models are available.")
@@ -116,8 +132,8 @@ import AiTermCore
                              agent: .pi, model: "", reasoning: .constant(nil),
                              selectAgent: { _ in }, setModel: { _ in })
         #expect(view.selectedModel == nil)
-        #expect(view.modelChoices.first?.id == "")
-        #expect(view.modelChoices.first?.label == "Choose a current model…")
+        #expect(view.fields.modelChoices.first?.id == "")
+        #expect(view.fields.modelChoices.first?.label == "Choose a current model…")
     }
 }
 

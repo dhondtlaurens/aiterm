@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import AiTermUI
 import Testing
-import AiTermTestSupport
+@testable import AiTermTestSupport
 import AiTermCore
 @testable import AiTerm
 
@@ -74,8 +74,7 @@ struct SettingsToggleLayoutTests {
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
+        settle(host) { host.firstDescendant(NSSwitch.self) != nil }
 
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)

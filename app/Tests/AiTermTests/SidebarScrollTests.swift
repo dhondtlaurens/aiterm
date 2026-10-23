@@ -28,7 +28,6 @@ struct SidebarScrollTests {
         let host = NSHostingView(rootView: SidebarView(controller: controller))
         host.frame = NSRect(x: 0, y: 0, width: 340, height: 300)
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
         window.orderFront(nil)

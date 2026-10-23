@@ -58,7 +58,6 @@ import Testing
         let host = NSHostingView(rootView: SidebarView(controller: controller).environment(\.rowBodyCounter, counter))
         host.frame = NSRect(x: 0, y: 0, width: 340, height: 700)
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         // OPERATORS, header, two project rows, two terminals and seven tasks.

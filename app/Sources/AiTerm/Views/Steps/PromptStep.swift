@@ -16,7 +16,7 @@ struct PromptStep<Extra: View>: View {
     let placeholder: String?
     let help: String?
     let extra: () -> Extra
-    var _editorFocused = State(initialValue: false)
+    private var _editorFocused = State(initialValue: false)
     private var editorFocused: Bool {
         get { _editorFocused.wrappedValue }
         nonmutating set { _editorFocused.wrappedValue = newValue }
@@ -29,14 +29,6 @@ struct PromptStep<Extra: View>: View {
         self.label = label; self.placeholder = placeholder; self.help = help; self.extra = extra
     }
 
-    /// The empty-prompt placeholder sits where `PromptEditor`'s first glyph would: across, its text
-    /// inset plus the container's line-fragment padding; down, its text inset plus
-    /// ``placeholderDrop``. Read from the editor, so the two move together if its inset changes.
-    private static var placeholderInsetX: CGFloat { PromptEditor.textInset.width + PromptEditor.lineFragmentPadding }
-    private static var placeholderInsetY: CGFloat { PromptEditor.textInset.height + placeholderDrop }
-    /// A point further down, fitted to where the text view draws its first line rather than derived
-    /// from it; bespoke to this one overlay.
-    private static var placeholderDrop: CGFloat { 1 }
     /// Trimmed further than the sheet's own gutters (`Space.margin` on each side) so the completion
     /// popup doesn't run to the prompt field's own edge. Tuned by eye, not derived from a scale.
     private static var completionPopupTrim: CGFloat { 40 }
@@ -52,10 +44,7 @@ struct PromptStep<Extra: View>: View {
                                  onFocusChange: { if editorFocused != $0 { editorFocused = $0 } }, focusOnAppear: true)
                         .frame(height: Self.editorHeight)
                         .fieldBox(focused: editorFocused)
-                    if text.wrappedValue.isEmpty, let placeholder {
-                        Text(placeholder).font(Typography.promptMono).foregroundStyle(Palette.placeholder)
-                            .padding(.horizontal, Self.placeholderInsetX).padding(.top, Self.placeholderInsetY).allowsHitTesting(false)
-                    }
+                    PromptPlaceholder(text: text, placeholder: placeholder)
                 }
                 .overlay(alignment: .topLeading) {
                     CompletionPopup(completions: completions,
@@ -64,6 +53,27 @@ struct PromptStep<Extra: View>: View {
                 if let help { HelpText(help) } else { CompletionHint() }
             }
             extra()
+        }
+    }
+}
+
+/// Reads the changing prompt here, so placeholder updates do not redraw the step.
+private struct PromptPlaceholder: View {
+    @Binding var text: String
+    let placeholder: String?
+    /// The empty-prompt placeholder sits where `PromptEditor`'s first glyph would: across, its text
+    /// inset plus the container's line-fragment padding; down, its text inset plus
+    /// ``placeholderDrop``. Read from the editor, so the two move together if its inset changes.
+    private static var placeholderInsetX: CGFloat { PromptEditor.textInset.width + PromptEditor.lineFragmentPadding }
+    private static var placeholderInsetY: CGFloat { PromptEditor.textInset.height + placeholderDrop }
+    /// A point further down, fitted to where the text view draws its first line rather than derived
+    /// from it; bespoke to this one overlay.
+    private static var placeholderDrop: CGFloat { 1 }
+
+    var body: some View {
+        if text.isEmpty, let placeholder {
+            Text(placeholder).font(Typography.promptMono).foregroundStyle(Palette.placeholder)
+                .padding(.horizontal, Self.placeholderInsetX).padding(.top, Self.placeholderInsetY).allowsHitTesting(false)
         }
     }
 }

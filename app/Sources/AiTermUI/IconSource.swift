@@ -11,15 +11,15 @@ public enum IconSource: Sendable, Equatable {
     case brand(Brand)
     /// A full-colour SVG document, drawn as it is: it has no one colour a tint could replace, so a
     /// tint reaches only `fallback` — what is drawn instead if the document will not decode.
-    indirect case artwork(svg: String, fallback: IconSource)
+    indirect case artwork(name: String, svg: String, fallback: IconSource)
 }
 
 public extension IconSource {
     /// GitLab's four-colour tanuki, drawn for a light ground; the single-colour mark if it will not
     /// decode.
-    static let gitlabTanuki = IconSource.artwork(svg: Logos.gitlabFourColourSVG, fallback: .brand(Palette.gitlab))
+    static let gitlabTanuki = IconSource.artwork(name: "gitlab-tanuki", svg: Logos.gitlabFourColourSVG, fallback: .brand(Palette.gitlab))
     /// Pi's white badge, drawn for `VendorMark`'s black disc.
-    static let piBadge = IconSource.artwork(svg: Logos.piBadgeSVG, fallback: .symbol("square.grid.2x2.fill"))
+    static let piBadge = IconSource.artwork(name: "pi-badge", svg: Logos.piBadgeSVG, fallback: .symbol("square.grid.2x2.fill"))
 }
 
 /// Draws an `IconSource` at a size, optionally overriding its ink. A brand or an artwork fills a
@@ -49,8 +49,8 @@ public struct Icon: View {
                 .foregroundStyle(tint ?? surface.ink)
         case let .brand(brand):
             LogoGlyph(brand: brand, fill: tint.map(Self.hexString) ?? brand.hex, size: size)
-        case let .artwork(svg, fallback):
-            if let image = Logos.image(svg: svg) {
+        case let .artwork(name, svg, fallback):
+            if let image = Logos.image(name: name, svg: svg) {
                 Image(nsImage: image).resizable().interpolation(.high).frame(width: size, height: size)
                     .accessibilityHidden(true)
             } else {
@@ -64,10 +64,6 @@ public struct Icon: View {
     /// Resolved under a forced `.darkAqua` appearance — AiTerm is dark-only, and inheriting the
     /// process appearance instead would make the glyph's fill depend on a system setting the app
     /// doesn't otherwise honour.
-    ///
-    /// `app/Tests/AiTermUITests/ColorProbe.swift` resolves colours the same way, for tests rather
-    /// than for an SVG fill. The two are kept separate deliberately (production vs. test-only), but
-    /// they duplicate this exact `.darkAqua`/sRGB dance — if one changes, check the other.
     ///
     /// Remembered per colour: a body asks again each time it runs, and the resolve costs an
     /// appearance switch and a string format, for the handful of tints there are.

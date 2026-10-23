@@ -24,7 +24,7 @@ struct NameSheet: View {
     @Environment(\.dismiss) private var dismiss
     // `@State` is a macro in the macOS 26 SDK and its SwiftUIMacros plugin ships only with Xcode,
     // which this machine does not have; this is the storage and accessor the macro would generate.
-    var _name: State<String>
+    private var _name: State<String>
     private var name: String {
         get { _name.wrappedValue }
         nonmutating set { _name.wrappedValue = newValue }

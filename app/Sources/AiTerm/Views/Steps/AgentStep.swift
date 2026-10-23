@@ -57,11 +57,10 @@ struct AgentStep: View {
     }
 
     var selectedModel: AgentModel? { models.first { $0.id == model } }
-    private var unselectedModel: AgentModel {
-        AgentModel(id: "", label: "Choose a current model…", detail: nil, efforts: [], defaultEffort: nil)
+    var fields: ModelReasoningFields {
+        ModelReasoningFields(models: models, model: model, reasoning: $reasoning,
+                             selectModel: { setModel($0.id) })
     }
-    var modelChoices: [AgentModel] { selectedModel == nil ? [unselectedModel] + models : models }
-    var efforts: [String] { selectedModel?.efforts ?? [] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.block) {
@@ -73,23 +72,12 @@ struct AgentStep: View {
                 }
             }
 
-            HStack(alignment: .top, spacing: Space.gap) {
+            if models.isEmpty {
                 FormField("Model") {
-                    if models.isEmpty {
-                        HelpText(Self.modelPlaceholder(agent: agent, catalogueLoaded: catalogueLoaded, failure: catalogueFailure)).fieldChrome()
-                    } else {
-                        Select(values: modelChoices, selection: Binding(get: { selectedModel ?? unselectedModel }, set: { setModel($0.id) }),
-                               label: { $0.label }, detail: { $0.detail })
-                    }
+                    HelpText(Self.modelPlaceholder(agent: agent, catalogueLoaded: catalogueLoaded, failure: catalogueFailure)).fieldChrome()
                 }.frame(maxWidth: .infinity)
-                // A model can publish no reasoning levels at all — Haiku's catalogue entry says
-                // `thinking: none` — and then there is no flag to pass and nothing to pick.
-                if !efforts.isEmpty {
-                    FormField("Reasoning") {
-                        Select(values: efforts, selection: Binding(get: { reasoning ?? efforts.first ?? "" }, set: { reasoning = $0 }),
-                               label: { $0.capitalized })
-                    }.frame(maxWidth: .infinity)
-                }
+            } else {
+                fields
             }
 
             if let detail = selectedModel?.detail, !detail.isEmpty { HelpText(detail) }

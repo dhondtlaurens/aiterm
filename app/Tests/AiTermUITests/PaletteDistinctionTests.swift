@@ -199,7 +199,7 @@ struct PaletteDistinctionTests {
         }
         let expected = (r: blended(wash.r, base.r), g: blended(wash.g, base.g), b: blended(wash.b, base.b))
 
-        let actualHex = ColorProbe.hex(solid)
+        let actualHex = Icon.hexString(solid)
         let actual = (r: channel(actualHex, 0), g: channel(actualHex, 1), b: channel(actualHex, 2))
 
         #expect(abs(actual.r - expected.r) <= 1,

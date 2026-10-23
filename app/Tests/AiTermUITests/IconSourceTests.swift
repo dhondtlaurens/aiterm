@@ -24,8 +24,8 @@ struct IconSourceTests {
     /// GitLab project tile and Pi avatar is quietly drawing its fallback instead.
     @Test func theFullColourMarksDecode() throws {
         for source in [IconSource.gitlabTanuki, .piBadge] {
-            guard case let .artwork(svg, _) = source else { Issue.record("\(source) is not artwork"); continue }
-            #expect(Logos.image(svg: svg) != nil)
+            guard case let .artwork(name, svg, _) = source else { Issue.record("\(source) is not artwork"); continue }
+            #expect(Logos.image(name: name, svg: svg) != nil)
         }
     }
 

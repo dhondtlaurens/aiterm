@@ -104,10 +104,7 @@ struct HarnessSettingsPane: View {
             VendorMark(agent: snapshot.agent.session, size: Size.control)
         } chips: {
             ForEach(HarnessCardPresentation.chips(for: snapshot), id: \.id) { check in
-                Badge(check.label,
-                      icon: .symbol(check.passed ? "checkmark" : "exclamationmark"),
-                      help: check.explanation,
-                      iconTint: check.passed ? Palette.green : Palette.amber)
+                CheckChip(label: check.label, passed: check.passed, help: check.explanation)
             }
         } actions: {
             actions(snapshot)
@@ -152,29 +149,13 @@ struct HarnessSettingsPane: View {
             let options = HarnessCardPresentation.modelOptions(snapshot.models, preference: preference)
             let selected = options.first { $0.id == preference?.model } ?? options[0]
             VStack(alignment: .leading, spacing: Space.base) {
-                HStack(alignment: .top, spacing: Space.gap) {
-                    FormField("Default model") {
-                        Select(values: options,
-                               selection: Binding(get: { selected }, set: { model.select($0, for: snapshot.agent) }),
-                               label: { $0.label },
-                               detail: \.detail)
-                            .disabled(snapshot.modelsAreStale)
-                    }
-                    .frame(maxWidth: .infinity)
-                    if let exact = snapshot.models.first(where: { $0.id == preference?.model }),
-                       !exact.efforts.isEmpty {
-                        FormField("Default reasoning") {
-                            Select(values: exact.efforts,
-                                   selection: Binding(
-                                    get: { preference?.reasoning.flatMap { exact.efforts.contains($0) ? $0 : nil }
-                                        ?? exact.defaultEffort ?? exact.efforts[0] },
-                                    set: { model.selectReasoning($0, for: snapshot.agent) }),
-                                   label: { $0.capitalized })
-                                .disabled(snapshot.modelsAreStale)
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                }
+                ModelReasoningFields(
+                    models: options, model: selected.id,
+                    reasoning: Binding(get: { preference?.reasoning },
+                                       set: { if let value = $0 { model.selectReasoning(value, for: snapshot.agent) } }),
+                    prefix: "Default ", disabled: snapshot.modelsAreStale,
+                    reasoningOptions: snapshot.models.first { $0.id == preference?.model }?.efforts ?? [],
+                    selectModel: { model.select($0, for: snapshot.agent) })
                 if snapshot.modelsAreStale {
                     HelpText("Showing the last verified model catalogue.")
                 } else if preference != nil && !snapshot.models.contains(where: { $0.id == preference?.model }) {
@@ -200,16 +181,16 @@ struct CheckFailureDetails: View {
         nonmutating set { _open.wrappedValue = newValue }
     }
 
-    init(failure: String, open: Bool = false) {
+    init(failure: String) {
         self.failure = failure
-        _open = State(initialValue: open)
+        _open = State(initialValue: false)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.snug) {
             Button { open.toggle() } label: {
                 HStack(spacing: Space.tight) {
-                    Image(systemName: open ? "chevron.down" : "chevron.right").font(Typography.micro)
+                    HeaderChevron(collapsed: !open)
                     Text(Self.title).font(Typography.caption)
                 }
                 .foregroundStyle(Palette.muted)
@@ -258,5 +239,18 @@ struct HelpWithProblemsGroup: View {
         } rows: {
             EmptyView()
         }
+    }
+}
+
+
+// The Mac and agent cards use the same check status and ink.
+struct CheckChip: View {
+    let label: String
+    let passed: Bool
+    var help: String? = nil
+
+    var body: some View {
+        Badge(label, icon: .symbol(passed ? "checkmark" : "exclamationmark"),
+              help: help, iconTint: passed ? Palette.green : Palette.amber)
     }
 }

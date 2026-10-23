@@ -69,7 +69,6 @@ import AiTermTestSupport
         let host = NSHostingView(rootView: editor)
         host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false
         window.contentView = host
         defer { window.orderOut(nil) }
         host.layoutSubtreeIfNeeded()

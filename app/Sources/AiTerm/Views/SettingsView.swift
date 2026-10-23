@@ -75,7 +75,7 @@ struct SettingsView: View {
     /// Settings › Operator's edits, staged until Save and handed to the Operator tab, its one
     /// observer. Made once per presentation, as the sheet's task starts, not in `init`, which SwiftUI
     /// runs again on every redraw of the view that presents it; a test or a snapshot hands one in.
-    var _operatorSettings: State<OperatorSettingsModel?>
+    private var _operatorSettings: State<OperatorSettingsModel?>
     var operatorSettings: OperatorSettingsModel? {
         get { _operatorSettings.wrappedValue }
         nonmutating set { _operatorSettings.wrappedValue = newValue }
@@ -225,37 +225,31 @@ struct SettingsView: View {
             }
             SettingsSection("Services") {
                 ServiceCard(title: "Jira", service: .jira, connection: integrations.jira) { fields in
-                    VStack(alignment: .leading, spacing: Space.block) {
-                        FormField("Site URL") { Input(placeholder: "https://yourcompany.atlassian.net", text: fields.site) }
-                        HStack(alignment: .top, spacing: Space.gap) {
-                            FormField("Email") { Input(placeholder: "you@company.com", text: fields.email) }
-                                .frame(maxWidth: .infinity)
-                            FormField("API token") { Input(placeholder: "Atlassian API token", text: fields.token, secure: true) }
-                                .frame(maxWidth: .infinity)
-                        }
-                        if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
+                    FormField("Site URL") { Input(placeholder: "https://yourcompany.atlassian.net", text: fields.site) }
+                    HStack(alignment: .top, spacing: Space.gap) {
+                        FormField("Email") { Input(placeholder: "you@company.com", text: fields.email) }
+                            .frame(maxWidth: .infinity)
+                        FormField("API token") { Input(placeholder: "Atlassian API token", text: fields.token, secure: true) }
+                            .frame(maxWidth: .infinity)
                     }
+                    if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
                 }
                 ServiceCard(title: "GitLab", service: .gitlab, connection: integrations.gitLab) { fields in
-                    VStack(alignment: .leading, spacing: Space.block) {
-                        HStack(alignment: .top, spacing: Space.gap) {
-                            FormField("Host URL") { Input(placeholder: "https://gitlab.com", text: fields.host) }
-                                .frame(maxWidth: .infinity)
-                            FormField("Access token") { Input(placeholder: "Personal access token", text: fields.token, secure: true) }
-                                .frame(maxWidth: .infinity)
-                        }
-                        HelpText("Reading needs read_api. An operator that opens or merges merge requests needs api.")
-                        if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
+                    HStack(alignment: .top, spacing: Space.gap) {
+                        FormField("Host URL") { Input(placeholder: "https://gitlab.com", text: fields.host) }
+                            .frame(maxWidth: .infinity)
+                        FormField("Access token") { Input(placeholder: "Personal access token", text: fields.token, secure: true) }
+                            .frame(maxWidth: .infinity)
                     }
+                    HelpText("Reading needs read_api. An operator that opens or merges merge requests needs api.")
+                    if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
                 }
                 ServiceCard(title: "GitHub", service: .github, connection: integrations.gitHub) { fields in
-                    VStack(alignment: .leading, spacing: Space.block) {
-                        FormField("Access token") {
-                            Input(placeholder: "Fine-grained or classic personal access token", text: fields.token, secure: true)
-                        }
-                        HelpText("Needs read access to pull requests. An operator that opens or merges them needs write access to pull requests and contents, and read access to administration to see branch protection.")
-                        if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
+                    FormField("Access token") {
+                        Input(placeholder: "Fine-grained or classic personal access token", text: fields.token, secure: true)
                     }
+                    HelpText("Needs read access to pull requests. An operator that opens or merges them needs write access to pull requests and contents, and read access to administration to see branch protection.")
+                    if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
                 }
             }
         }
@@ -340,7 +334,7 @@ struct ServiceCard<Fields: ServiceFields, Content: View>: View {
                 Button("Disconnect") { connection.disconnect() }
             }
         } content: {
-            content($connection.fields)
+            VStack(alignment: .leading, spacing: Space.block) { content($connection.fields) }
         }
     }
 }

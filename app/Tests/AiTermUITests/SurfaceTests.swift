@@ -8,7 +8,7 @@ struct SurfaceTests {
         // On a selected row the ground is the accent, so every mark and label turns white — a
         // brand colour or a grey label on the accent reads as a bug. This is the rule the
         // `onSelection` boolean encoded at four separate call sites.
-        #expect(ColorProbe.hex(Surface.accent.ink) == "#FFFFFF")
+        #expect(Icon.hexString(Surface.accent.ink) == "#FFFFFF")
         #expect(Surface.accent.isOnAccent)
     }
 
@@ -56,19 +56,19 @@ struct SurfaceTests {
         // `AvatarGroupView`'s ring painted over a task row's avatars is what these four colours
         // are for (`SidebarView.swift`'s old `ring` computation, folded into `Surface` here), so
         // each one is pinned to the exact palette entry it must render as.
-        #expect(ColorProbe.hex(Surface.sidebar.occludingBackground) == ColorProbe.hex(Palette.sidebar))
-        #expect(ColorProbe.hex(Surface.hover.occludingBackground) == ColorProbe.hex(Palette.rowHoverSolid))
-        #expect(ColorProbe.hex(Surface.accent.occludingBackground) == ColorProbe.hex(Palette.selection))
-        #expect(ColorProbe.hex(Surface.sheet.occludingBackground) == ColorProbe.hex(Palette.surface))
-        #expect(ColorProbe.hex(Surface.washed.occludingBackground) == ColorProbe.hex(Palette.operatorRowSolid))
-        #expect(ColorProbe.hex(Surface.washedHover.occludingBackground) == ColorProbe.hex(Palette.operatorRowHoveredSolid))
+        #expect(Icon.hexString(Surface.sidebar.occludingBackground) == Icon.hexString(Palette.sidebar))
+        #expect(Icon.hexString(Surface.hover.occludingBackground) == Icon.hexString(Palette.rowHoverSolid))
+        #expect(Icon.hexString(Surface.accent.occludingBackground) == Icon.hexString(Palette.selection))
+        #expect(Icon.hexString(Surface.sheet.occludingBackground) == Icon.hexString(Palette.surface))
+        #expect(Icon.hexString(Surface.washed.occludingBackground) == Icon.hexString(Palette.operatorRowSolid))
+        #expect(Icon.hexString(Surface.washedHover.occludingBackground) == Icon.hexString(Palette.operatorRowHoveredSolid))
     }
 
     /// The Operator's row is washed, not selected: its ink is the sidebar's.
     @Test func aWashedRowInksAsTheSidebarDoes() {
         for surface in [Surface.washed, .washedHover] {
             #expect(!surface.isOnAccent)
-            #expect(ColorProbe.hex(surface.ink) == ColorProbe.hex(Surface.sidebar.ink))
+            #expect(Icon.hexString(surface.ink) == Icon.hexString(Surface.sidebar.ink))
         }
     }
 }

@@ -23,11 +23,9 @@ import AiTermCore
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
+        settle(host) { firstTextField(in: host) != nil || host.firstDescendant(NSSwitch.self) != nil }
         // With a field holding the keyboard, as it does when the person has just typed a name.
         if let field = firstTextField(in: host) { window.makeFirstResponder(field) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
                                      windowNumber: window.windowNumber, context: nil, characters: "\r",
                                      charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
@@ -49,7 +47,6 @@ import AiTermCore
                                                                                    set: { presented.isOn = $0 })) { sheet })
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width + 100, height: Sheet.settingsHeight + 100)
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }

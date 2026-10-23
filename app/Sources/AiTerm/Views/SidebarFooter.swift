@@ -82,7 +82,7 @@ struct SidebarFooter: View {
     /// mode. Before the first sample it is still the Mac's button, so it says "Mac".
     private var macReadings: some View {
         macControl(
-            telemetryRow(mark: SymbolMark(symbol: Self.macSymbol, size: scale(Size.vendorMark), style: .paper)) {
+            telemetryRow(mark: SymbolMark(symbol: Self.macSymbol, size: scale(Size.vendorMark))) {
                 usageWindows(machine)
             }
             .accessibilityElement(children: .ignore)

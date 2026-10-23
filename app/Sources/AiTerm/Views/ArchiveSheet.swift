@@ -100,6 +100,13 @@ struct ArchiveRow: View {
     let date: String
     @Environment(\.surface) private var surface
 
+    var badges: TaskBadges {
+        let task = entry.archived.task
+        let host = CodeHost(webURL: task.mr?.url ?? "")
+        return TaskBadges(ticket: task.jira?.key, ticketSummary: task.jira?.summary,
+                          mr: task.mr.map { host.reference($0.iid) }, mrHost: host, mrTitle: task.mr?.title)
+    }
+
     var body: some View {
         let task = entry.archived.task
         HStack(spacing: Space.inset) {
@@ -113,12 +120,7 @@ struct ArchiveRow: View {
                 // The sidebar's order: ticket, merge request, then the branch, which is what truncates;
                 // the project last, kept whole.
                 HStack(spacing: Space.gap) {
-                    if let jira = task.jira { Badge(jira.key, icon: .brand(Palette.jira), help: jira.summary, style: .quiet) }
-                    if let mr = task.mr {
-                        // The project's host, as the badge's mark and the number's `!` or `#` say it.
-                        let host: CodeHost = entry.provider == .github ? .gitHub : .gitLab
-                        Badge(host.reference(mr.iid), icon: .brand(host.brand), help: mr.title, style: .quiet)
-                    }
+                    badges
                     Text(task.branch).font(Typography.mono).foregroundStyle(surface.secondaryInk)
                         .lineLimit(1).truncationMode(.middle)
                     Text(entry.projectName).font(Typography.help).foregroundStyle(surface.secondaryInk).lineLimit(1).fixedSize()

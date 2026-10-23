@@ -315,10 +315,10 @@ import AiTermUI
         let applying = footer(diverged, .applying, last: proposal)
         #expect(applying.lead == .proposal(.claude, proposal))
         #expect(applying.buttons == .applying)
-        #expect(!applying.canClose)
+        #expect(applying.buttons == .applying)
         #expect(footer(diverged, .done(FixLanding(branch: "feat/x", old: "a", new: "b")), last: proposal).buttons == .applying,
                 "landed, the create runs as part of the same press")
-        #expect(up.canClose && footer(conflict, .looking).canClose)
+        #expect(up.buttons != .applying && footer(conflict, .looking).buttons != .applying)
     }
 
     /// State 7: the problem's sentence stays the title, the agent's reason and “Rebase it by hand.”

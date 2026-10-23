@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import AiTermUI
 import Testing
-import AiTermTestSupport
+@testable import AiTermTestSupport
 @testable import AiTermCore
 @testable import AiTerm
 
@@ -54,18 +54,12 @@ struct SidebarRowGeometryTests {
         let host = NSHostingView(rootView: SidebarView(controller: controller).environment(\.hoveredRow, tasks[1].id))
         host.frame = NSRect(x: 0, y: 0, width: size.scale(340), height: 800)
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
-        host.layoutSubtreeIfNeeded()
+        settle(host) { table(in: host)?.numberOfRows ?? 0 > 0 }
 
-        func table(in view: NSView) -> NSTableView? {
-            if let table = view as? NSTableView { return table }
-            return view.subviews.lazy.compactMap { table(in: $0) }.first
-        }
         let list = try #require(table(in: host))
         // The OPERATORS heading, the PROJECTS heading and the project row come first; the three task rows follow in order.
         #expect(list.numberOfRows == 6)
@@ -127,17 +121,11 @@ struct SidebarContextMenuHighlightTests {
         let host = NSHostingView(rootView: SidebarView(controller: controller))
         host.frame = NSRect(x: 0, y: 0, width: 340, height: 300)
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
-        host.layoutSubtreeIfNeeded()
+        settle(host) { table(in: host)?.numberOfRows ?? 0 > 0 }
 
-        func table(in view: NSView) -> NSTableView? {
-            if let table = view as? NSTableView { return table }
-            return view.subviews.lazy.compactMap { table(in: $0) }.first
-        }
         return (host, try #require(table(in: host)), window)
     }
 
@@ -184,4 +172,11 @@ struct SidebarContextMenuHighlightTests {
         let highlighted = try paintedBox(host: host, table: table, row: 3)
         #expect(highlighted == pill, "the context menu ring \(highlighted) grew the row past its pill \(pill)")
     }
+}
+
+
+@MainActor
+private func table(in view: NSView) -> NSTableView? {
+    if let table = view as? NSTableView { return table }
+    return view.subviews.lazy.compactMap { table(in: $0) }.first
 }

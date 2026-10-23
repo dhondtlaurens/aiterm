@@ -151,10 +151,12 @@ struct OracleGroup: View {
 /// House rules for every broadcast, in the prompt editor the creation sheets use.
 private struct OperatorInstructionsGroup: View {
     let model: OperatorSettingsModel
+
+    init(model: OperatorSettingsModel) { self.model = model }
     /// The editor's height: the drawing's, a few lines of rules. Shorter than `PromptStep`'s,
     /// which is a sheet's one field; one view reads it.
     private static let editorHeight: CGFloat = 96
-    var _editorFocused = State(initialValue: false)
+    private var _editorFocused = State(initialValue: false)
     private var editorFocused: Bool {
         get { _editorFocused.wrappedValue }
         nonmutating set { _editorFocused.wrappedValue = newValue }
@@ -193,23 +195,10 @@ private struct ModelFields: View {
         } else {
             let selected = options.first { $0.id == model } ?? options[0]
             let efforts = OperatorSettingsModel.efforts(of: selected, keeping: reasoning)
-            HStack(alignment: .top, spacing: Space.gap) {
-                FormField("Model") {
-                    Select(values: options, selection: Binding(get: { selected }, set: { selectModel($0) }),
-                           label: { $0.label }, detail: \.detail)
-                }
-                .frame(maxWidth: .infinity)
-                if !efforts.isEmpty {
-                    FormField("Reasoning") {
-                        Select(values: efforts,
-                               selection: Binding(get: { reasoning.flatMap { efforts.contains($0) ? $0 : nil }
-                                                         ?? selected.defaultEffort ?? efforts[0] },
-                                                  set: { selectReasoning($0) }),
-                               label: { $0.capitalized })
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            }
+            ModelReasoningFields(
+                models: options, model: selected.id,
+                reasoning: Binding(get: { reasoning }, set: { if let value = $0 { selectReasoning(value) } }),
+                reasoningOptions: efforts, selectModel: selectModel)
         }
     }
 }

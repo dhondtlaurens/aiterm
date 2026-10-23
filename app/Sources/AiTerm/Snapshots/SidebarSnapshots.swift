@@ -216,13 +216,7 @@ enum SidebarSnapshots {
             controller.seedSnapshotRemoval(.stopped(note: "Not removed: branch kept", worktreeRemoved: true), of: fixture.other.id)
             controller.report(.branchKept(fixture.other.branch, of: fixture.other.id, because: .notMerged(base: "develop")))
             if let selecting { controller.focus.browse(.task(fixture[keyPath: selecting].id)) }
-            let rows = controller.rows
-            return VStack(alignment: .leading, spacing: Space.hairline) {
-                SidebarView.taskRows(of: rows.sections[0], in: rows, controller: controller)
-            }
-            .padding(.horizontal, Space.inset)
-            .frame(width: Size.sidebarWidth + 20)
-            .background(Palette.sidebar)
+            return taskRows(controller)
         }
     }
 
@@ -251,14 +245,18 @@ enum SidebarSnapshots {
             controller.workspace.mutate { $0.tasks = reviews }
             for (review, threads) in zip(reviews, counts) { controller.reviewThreads.seedSnapshotThreads(threads, of: review.id) }
             controller.focus.browse(.task(reviews[3].id))
-            let rows = controller.rows
-            return VStack(alignment: .leading, spacing: Space.hairline) {
-                SidebarView.taskRows(of: rows.sections[0], in: rows, controller: controller)
-            }
-            .padding(.horizontal, Space.inset)
-            .frame(width: Size.sidebarWidth + 20)
-            .background(Palette.sidebar)
+            return taskRows(controller)
         }
+    }
+
+    private static func taskRows(_ controller: AppController) -> some View {
+        let rows = controller.rows
+        return VStack(alignment: .leading, spacing: Space.hairline) {
+            SidebarView.taskRows(of: rows.sections[0], in: rows, controller: controller)
+        }
+        .padding(.horizontal, Space.inset)
+        .frame(width: Size.sidebarWidth + 20)
+        .background(Palette.sidebar)
     }
 
     private static func selectedHeader(_ file: String, collapsed: Bool) -> Snapshot {

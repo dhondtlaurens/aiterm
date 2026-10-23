@@ -168,19 +168,7 @@ public enum Palette {
     /// materially distort a dark base colour (measured: it barely moved `sidebar` toward white at
     /// all). sRGB is also the space the wash actually paints in on screen, so blending its
     /// components directly is the faithful composite, not an approximation.
-    public static let rowHoverSolid: Color = {
-        let appearance = NSAppearance(named: .darkAqua) ?? NSAppearance.currentDrawing()
-        var blended = NSColor(sidebar)
-        appearance.performAsCurrentDrawingAppearance {
-            let base = NSColor(sidebar).usingColorSpace(.sRGB) ?? NSColor(sidebar)
-            blended = NSColor(
-                srgbRed: base.redComponent * (1 - rowHoverAlpha) + rowHoverAlpha,
-                green: base.greenComponent * (1 - rowHoverAlpha) + rowHoverAlpha,
-                blue: base.blueComponent * (1 - rowHoverAlpha) + rowHoverAlpha,
-                alpha: 1)
-        }
-        return Color(nsColor: blended)
-    }()
+    public static let rowHoverSolid: Color = composited(rowHover)
     /// The Operator's row at rest, behind it in `RowPill`'s pill, which selection replaces (decided 21 Oct
     /// 2026, wash A): the badge's neutral wash. It says the row is different without a colour meaning anything,
     /// and is never `rowHover`, so it never reads as hover. Hovered, the row takes `badgeHovered` in its place.

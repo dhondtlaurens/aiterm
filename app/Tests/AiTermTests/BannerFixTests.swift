@@ -40,7 +40,7 @@ import Testing
         let looking = shown(conflict, .looking)
         #expect(looking.content == .busy("Looking for a fix…"))
         #expect(looking.links == [.cancel(isEnabled: true)])
-        #expect(!looking.canDismiss)
+        #expect(!looking.links.contains(.dismiss))
     }
 
     /// 3 · proposal: Apply and Cancel take the issue's links' place.
@@ -58,7 +58,7 @@ import Testing
         let applying = shown(conflict, state)
         #expect(applying.content == .busy("Applying Claude’s fix…"))
         #expect(applying.links == [.cancel(isEnabled: false)])
-        #expect(!applying.canDismiss)
+        #expect(!applying.links.contains(.dismiss))
     }
 
     /// 5 · no fix: the agent's reason is the detail, “Rebase it by hand.” back, the issue's own

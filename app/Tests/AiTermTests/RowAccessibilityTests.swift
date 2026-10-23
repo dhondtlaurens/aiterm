@@ -97,12 +97,8 @@ import AiTermCore
 
     /// A terminal's window comes back by itself, so its row offers no Reopen Window, with one or without.
     @Test func aTerminalRowOffersRenameAndRemoveWithOrWithoutItsWindow() {
-        let open = TerminalItem(id: UUID(), projectId: UUID(), name: "Shell", windowId: "w", createdAt: Date())
-        var closed = open
-        closed.windowId = nil
-        #expect(TerminalRowAccessibility(terminal: open, canChangeWorkspace: true).actions == [.rename, .remove])
-        #expect(TerminalRowAccessibility(terminal: closed, canChangeWorkspace: true).actions == [.rename, .remove])
-        #expect(TerminalRowAccessibility(terminal: closed, canChangeWorkspace: false).actions.isEmpty)
+        #expect(TerminalRowAccessibility(canChangeWorkspace: true).actions == [.rename, .remove])
+        #expect(TerminalRowAccessibility(canChangeWorkspace: false).actions.isEmpty)
     }
 
     /// The header's click, VoiceOver default action and button trait follow one rule.

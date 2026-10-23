@@ -85,9 +85,10 @@ environment's `InterfaceScale` (`standard` ×1, `large` ×1.15, `extraLarge` ×1
 
 Only the sidebar is scaled; `SidebarSheet` resets to `.standard`. AppKit's pop-up and push-button
 bezels stop at 28 pt (`.extraLarge` draws `.large` on macOS 26), so a sheet — full of them — keeps
-Apple's sizes. Of the primitives, `Badge` scales, `SidebarHeading` and `HelpText` (under the empty
-sidebar's line) scale through their one token (a `Typography` style) and `Hairline` is a stroke; the
-rest are only drawn in sheets and read their tokens at ×1. A primitive that moves into the sidebar must first read its tokens through `scale`.
+Apple's sizes. Sidebar components read their own tokens through `interfaceScale`: `Badge`,
+`SidebarHeading`, `HelpText`, and the sidebar’s menus and headings. Marks such as `SymbolMark`
+and `Icon` draw the size their caller passes; `Hairline` remains a stroke. Sheet-only components
+read their tokens at ×1. A primitive that moves into the sidebar must first read its tokens through `scale`.
 `Select` can never scale: it is a native bezel.
 
 The person picks the step as `InterfaceSize` (`AiTermCore`, Settings › Interface › Sidebar size,
@@ -166,8 +167,23 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 | `Kbd` | keycaps for a shortcut, inked for the surface it sits on: on `.accent` — `SheetPrimaryButton`'s label declares it — white on the keycap washes; anywhere else the surface's ink on its badge wash, edged in the hairline (Settings › Interface's keyboard section). It takes no style: the ground decides |
 | `SearchField` | a single-line field that hands navigation keys to an open popup first |
 | `SidebarHeading` | `PROJECTS` and a divider's name: micro, uppercase, tracked, secondary ink |
-| `SymbolMark` | a round mark for what is not a vendor: an SF Symbol at half the disc's size, in one of two styles — `.quiet` (the default) in `Palette.text` on a `Palette.controlActive` disc, `IntegrationMark`'s family, with `tint` for a muted glyph; `.paper` in `Palette.markInk` on a `Palette.markPaper` disc, the vendor discs' recipe, so a mark beside Claude's and Codex's reads as one of them. `size` is points on screen — the Mac card passes `Size.control`, the footer's Mac readings row `scale(Size.vendorMark)` |
+| `SymbolMark` | an SF Symbol at half the disc’s size, in `Palette.markInk` on `Palette.markPaper`. The Mac card passes `Size.control`, the footer’s Mac readings row `scale(Size.vendorMark)` |
 | `Hairline` | every 1 pt rule, in one weight: `border` on a filled rectangle, the same stroke as a control's outline — the sidebar's rules, the step bar, a sheet's header and footer edges, under a card's header, between the Interface tab's rows. Never a bare `Divider()` |
+
+### App compositions — `app/Sources/AiTerm/Views/`
+
+| Type | What it is |
+|---|---|
+| `AddMenu` | the sidebar’s project and task creation menu |
+| `HeaderChevron`, `HeaderTitle` | a project header’s disclosure and name |
+| `TaskRowMarkView` | a task’s status, queued or ended mark |
+| `CheckChip`, `CheckFailureDetails` | a Settings check and its expandable failure |
+| `CommandPreview` | the command the selected agent will run |
+| `SidebarBannerText` | the sidebar banner’s title and detail |
+| `SidebarFooterHost`, `SelectedRowSidebarFooter` | footer observation scoped to the selected row |
+| `DecodeWordsView` | the Operator’s animated words |
+| `OracleGroup` | Settings › Operator’s Oracle controls |
+| `ModelReasoningFields` | shared model and reasoning controls; callers keep their missing-model policy |
 
 ### Foundations — not components, no card
 
@@ -206,7 +222,7 @@ vendor needs both.
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
 tab's mark, the `UsageRing` and the percentage; a shell draws its mark alone), then the Mac's rows,
 always there (proposal 1A · 2A · 3A, 6 Oct 2026). The first is its readings, under a `SymbolMark` in
-`.paper` style at `Size.vendorMark` with `macbook`: `cpu ◔ 23% · ram ◔ 61%`, and `bat ◔ 64%` while the
+at `Size.vendorMark` with `macbook`: `cpu ◔ 23% · ram ◔ 61%`, and `bat ◔ 64%` while the
 Mac runs on its battery, drawn by the same renderer as `ctx` and the vendor windows. `MachineMonitor`
 samples them every 5 s through a `MachineSensor` — Mach host statistics, `thermalState` and the
 memory-pressure sysctl, in-process — and `MachineReadings` turns two samples and the battery into
@@ -666,7 +682,7 @@ layout is this app's.
 
 Integrations heads its cards in two `SettingsSection`s, Core (iTerm2, then the Mac) and Services (Jira,
 GitLab, GitHub), each title in `Typography.bodyEmphasis` as Interface heads its keyboard section.
-`MacSettingsCard` is a harness card's anatomy for the Mac: `macbook` in a `.paper` `SymbolMark`, the
+`MacSettingsCard` is a harness card's anatomy for the Mac: `macbook` in a `SymbolMark`, the
 chips “Lid sleep” and “Network discovery”, one action named by its state — Allow… while something is
 missing, Remove once both are granted — and, below its rule, `NumberedSteps` for what is missing or one
 line of `HelpText` when nothing is. A missing permission does not move the tab Settings opens on.
