@@ -95,6 +95,10 @@ final class OperatorToolHandler {
     /// A message to one worker tab: `tab` is an extra tab's key, nil for the first worker.
     struct MessageKey: Hashable { let task: UUID; let tab: String?; let text: String }
     var deliveredMessages: [MessageKey: (at: Date, answer: JSONValue)] = [:]
+    /// How long the same text to the same tab is answered from `deliveredMessages` instead of typed again: a retry of a
+    /// call whose answer the daemon gave up waiting for (`OperatorTiming.operatorRequestTimeout`) comes within it; a
+    /// later one is a new message.
+    static let messageReplayWindow = 2 * OperatorTiming.operatorRequestTimeout
     var sendingMessages: Set<MessageKey> = []
     /// The finds being filed in Jira now, by run and key: a second call for one leaves it to the first.
     var filingFinds: Set<String> = []

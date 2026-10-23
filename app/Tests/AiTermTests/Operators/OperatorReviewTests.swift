@@ -35,19 +35,23 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         return (world, run, task)
     }
 
-    @Test func deliveredMessagesReplayForTenMinutes() async throws {
+    /// A repeat is a retry only while the daemon could still be waiting on the first call: within twice its wait for the
+    /// app (`OperatorTiming.operatorRequestTimeout`) the same text to the same tab is answered from the record; past
+    /// it, it is typed again.
+    @Test func deliveredMessagesReplayForTwiceTheRequestTimeout() async throws {
         let clock = StepClock()
+        let window = 2 * OperatorTiming.operatorRequestTimeout
         let (world, run, _) = try fixture { $0.now = { clock.now } }
         let args: JSONValue = ["task": "A", "text": "Continue"]
         let first = await world.call(run.id, "message_task", args)
-        clock.advance(by: 599)
+        clock.advance(by: window - 1)
         #expect(await world.call(run.id, "message_task", args) == first)
         #expect(world.daemon.requests("session.deliver").count == 1)
         _ = await world.call(run.id, "message_task", ["task": "A", "text": "Different"])
         #expect(world.daemon.requests("session.deliver").count == 2)
-        clock.advance(by: 1)
+        clock.advance(by: 2)
         _ = await world.call(run.id, "message_task", args)
-        #expect(world.daemon.requests("session.deliver").count == 3)
+        #expect(world.daemon.requests("session.deliver").count == 3, "typed again past the window")
     }
 
     @Test(arguments: [OperatorRunState.paused, .stopped], ["mark_task", "submit_plan"])

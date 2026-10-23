@@ -136,7 +136,7 @@ extension OperatorToolHandler {
     func replayedMessage(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> JSONValue? {
         guard call.tool == "message_task" else { return nil }
         let task = try self.task(call, in: run), text = try call.string("text"), now = ports.now()
-        deliveredMessages = deliveredMessages.filter { now.timeIntervalSince($0.value.at) < 600 }
+        deliveredMessages = deliveredMessages.filter { now.timeIntervalSince($0.value.at) < Self.messageReplayWindow }
         return deliveredMessages[MessageKey(task: task.id, tab: Self.tabKey(call), text: text)]?.answer
     }
 
@@ -160,7 +160,7 @@ extension OperatorToolHandler {
         }
         let worker = try self.worker(call, of: task)
         let key = MessageKey(task: task.id, tab: worker.key, text: text), now = ports.now()
-        deliveredMessages = deliveredMessages.filter { now.timeIntervalSince($0.value.at) < 600 }
+        deliveredMessages = deliveredMessages.filter { now.timeIntervalSince($0.value.at) < Self.messageReplayWindow }
         if let recorded = deliveredMessages[key] { return recorded.answer }
         guard sendingMessages.insert(key).inserted else { throw ToolRefusal("This message is still being delivered; call again for its result.") }
         defer { sendingMessages.remove(key) }
