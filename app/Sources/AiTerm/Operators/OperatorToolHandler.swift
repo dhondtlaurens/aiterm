@@ -141,7 +141,7 @@ final class OperatorToolHandler {
     }
 
     /// The tools that act on one task while they run: its line says the act meanwhile (`act(for:on:)`).
-    static let actsOnTask: Set<String> = ["message_task", "open_tab", "mark_task", "finish_task", "review_task", "request_review", "reply_thread"]
+    static let actsOnTask: Set<String> = ["message_task", "mark_task", "finish_task", "review_task", "request_review", "reply_thread"]
     /// The tools that are the broadcast's own acts while they run.
     static let actsOnBroadcast: [String: OperatorAct] = ["create_task": .loadingTheConstruct, "update_task": .loadingTheConstruct,
                                                          "submit_plan": .loadingTheConstruct, "jira_create": .filingATicket,
@@ -280,10 +280,9 @@ final class OperatorToolHandler {
         case "run_status": return try await runStatus(run)
         case "jira_search": return try await jiraSearch(call, in: run)
         case "jira_create":
-            // Keep the legacy find_ reservation alongside the internal raw-key namespace.
-            let key = try call.string("key")
-            guard !key.hasPrefix("find/"), !key.hasPrefix("find_") else {
-                throw ToolRefusal("jira_create keys starting with “find/” or “find_” are reserved for off-brief finds. Choose another key.")
+            // The finds' own keys (`fileFind`) are AiTerm's.
+            guard !(try call.string("key")).hasPrefix("find/") else {
+                throw ToolRefusal("jira_create keys starting with “find/” are reserved for off-brief finds. Choose another key.")
             }
             return try await jiraCreate(call, in: run)
         case "jira_move": return try await jiraMove(call, in: run)

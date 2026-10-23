@@ -11,13 +11,6 @@ enum OperatorUIFixtures {
     static let profile = OperatorProfile(model: "claude-opus-5-5", reasoning: "high",
                                          instructions: "You are a senior frontend engineer on Nuxt and Storyblok projects.")
 
-    /// `profile` with the Oracle on or off.
-    static func profile(oracle: Bool) -> OperatorProfile {
-        var profile = profile
-        profile.oracle.isOn = oracle
-        return profile
-    }
-
     static func run(id: UUID = UUID(), name: String = "Newsletter signup", profile: OperatorProfile = profile,
                     state: OperatorRunState = .active, planRevision: Int = 1,
                     done: String? = "a commit per item, tests green, I review and push",

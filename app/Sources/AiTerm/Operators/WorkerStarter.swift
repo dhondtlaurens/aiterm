@@ -36,7 +36,7 @@ final class WorkerStarter {
     /// lists its tab (up to `launchAdoptAfter`) opens no second window.
     private var reopenedAt: [UUID: Date] = [:]
     /// Said when a start blocks its task: you are asked (spec §8).
-    var onBlocked: @MainActor (TaskItem, String) -> Void = { _, _ in }
+    var onBlocked: @MainActor (TaskItem) -> Void = { _ in }
     var onUncertain: @MainActor (TaskItem) -> Void = { _ in }
     /// Told when a start or a reopen begins and ends: the task's line says `Operator starting it` or
     /// `reopening its window` meanwhile (the controller's `acting`).
@@ -417,6 +417,6 @@ final class WorkerStarter {
             Log.daemon.error("An operator's task could not be blocked: \(String(describing: error), privacy: .public)")
             return
         }
-        if let task = state.task(id: id), task.operated != before { onBlocked(task, reason) }
+        if let task = state.task(id: id), task.operated != before { onBlocked(task) }
     }
 }

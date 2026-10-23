@@ -239,13 +239,13 @@ final class OperatorController {
             guard let operated = task.operated else { return }
             self?.waker.say("one task is uncertain, no worker confirmed in its window", to: operated.runId)
         }
-        starter.onBlocked = { [weak self] task, _ in
+        starter.onBlocked = { [weak self] task in
             guard let self, let runId = task.operated?.runId else { return }
             runChanged(runId)
         }
         finisher.changed = { [weak self] id in self?.publicationChanged(id) }
         finisher.mergedOnHost = { [weak self] id, why in self?.askAboutMergeOnHost(id, why) }
-        finisher.watchStopped = { [weak self] id, why in self?.mergeWatchStopped(id, why) }
+        finisher.watchStopped = { [weak self] id, _ in self?.mergeWatchStopped(id) }
         tools.finish = { [weak self] id, noVerify in
             guard let self else { return TaskFinisher.Result(result: "refused", reason: "AiTerm is closing.") }
             return await self.finisher.finish(id, noVerify: noVerify)
@@ -351,10 +351,11 @@ final class OperatorController {
     }
 
     /// The first line of the brief, whole, as the run's row names it until the person renames it: each
-    /// place that shows it cuts it at its own width, the board's title wider than the sidebar's row.
-    static func operationName(from brief: String) -> String {
+    /// place that shows it cuts it at its own width, the board's title wider than the sidebar's row. Nil for a
+    /// brief with nothing in it.
+    static func broadcastName(from brief: String) -> String? {
         brief.split(whereSeparator: \.isNewline).lazy
-            .map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? "Operation"
+            .map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
     }
 
     /// Changes one run, saved like every workspace change. Nothing for a run that has gone.
@@ -466,7 +467,7 @@ final class OperatorController {
                         done: String?) async throws -> UUID {
         guard activeRun == nil else { throw ActionUnavailable(Self.oneBroadcast) }
         guard workspace.canChangeWorkspace else { throw ActionUnavailable("Save or recover the workspace before starting a broadcast.") }
-        guard OperatorCommand.said(prompt) != nil else { throw ActionUnavailable("Tell the Operator what to work on.") }
+        guard let firstLine = Self.broadcastName(from: prompt) else { throw ActionUnavailable("Tell the Operator what to work on.") }
         let projects = projectIds.compactMap(workspace.state.project(id:))
         guard !projects.isEmpty, projects.count == projectIds.count else {
             throw ActionUnavailable("Choose the projects this broadcast may work in.")
@@ -476,7 +477,7 @@ final class OperatorController {
         let profile = await BackgroundWork.run {
             readProfile?() ?? OperatorProfileStore.load(claudeDefault: OperatorProfileStore.claudeDefault(models: []))
         }
-        let run = OperatorRun(id: UUID(), name: OperatorCommand.said(name) ?? Self.operationName(from: prompt), profile: profile,
+        let run = OperatorRun(id: UUID(), name: OperatorCommand.said(name) ?? firstLine, profile: profile,
                               projectIds: projectIds, jiraProjectKeys: jiraProjectKeys, prompt: prompt,
                               review: OperatorCommand.said(review), done: OperatorCommand.said(done), createdAt: ports.now())
         let home = ports.home
@@ -751,7 +752,7 @@ final class OperatorController {
 
     /// A merge watch stopped for what it found — the branch moved, the task changed hands: its operator
     /// is told once, with the reason recorded on the task.
-    func mergeWatchStopped(_ id: UUID, _ why: String) {
+    func mergeWatchStopped(_ id: UUID) {
         guard let operated = workspace.state.task(id: id)?.operated else { return }
         waker.say("one task’s merge watch stopped", to: operated.runId, colon: true)
     }

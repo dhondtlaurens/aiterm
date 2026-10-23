@@ -93,19 +93,17 @@ extension OperatorToolHandler {
             guard !actingChallenges.contains(id) else {
                 throw ToolRefusal("Challenge \(id) is already acting on \(call.tool); call again for its result.")
             }
-            if kept.stage == .acted {
+            let reply = call.optionalString("challengeReply")
+            switch kept.stage {
+            case .acted:
                 // The acting call again — its reply lost, or AiTerm restarted since: what it answered, and nothing more.
                 guard kept.actedArguments == Self.invocation(call), let result = kept.result,
                       let answer = try? JSONDecoder().decode(JSONValue.self, from: Data(result.utf8)) else {
                     throw ToolRefusal("Challenge \(id) has already acted on \(call.tool). Call again without challengeId for another change.")
                 }
                 return answer
-            }
-            if kept.kind == .veto { return try await vetoAnswer(call, kept, in: run) }
-            let reply = call.optionalString("challengeReply")
-            switch kept.stage {
-            case .acted:
-                return nil
+            case _ where kept.kind == .veto:
+                return try await vetoAnswer(call, kept, in: run)
             case .running where runningChallenges[id] != nil:
                 return Self.pendingAnswer(id)
             case .running:

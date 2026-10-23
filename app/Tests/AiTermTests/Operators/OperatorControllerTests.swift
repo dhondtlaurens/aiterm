@@ -96,10 +96,11 @@ import Testing
         #expect(heard == 2)
     }
 
-    @Test func anOperationIsNamedFromItsBriefsFirstLine() {
-        #expect(OperatorController.operationName(from: "\n  Fix the login bug  \nmore") == "Fix the login bug")
-        #expect(OperatorController.operationName(from: String(repeating: "a", count: 80)) == String(repeating: "a", count: 80),
+    @Test func aBroadcastIsNamedFromItsBriefsFirstLine() {
+        #expect(OperatorController.broadcastName(from: "\n  Fix the login bug  \nmore") == "Fix the login bug")
+        #expect(OperatorController.broadcastName(from: String(repeating: "a", count: 80)) == String(repeating: "a", count: 80),
                 "whole: the views cut it at their width")
+        #expect(OperatorController.broadcastName(from: " \n\t\n") == nil, "a brief with nothing in it, which New Broadcast refuses")
     }
 
     /// The operator's window closed (spec §9): the run forgets the window and session, and a broadcast under

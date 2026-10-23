@@ -358,7 +358,7 @@ extension OperatorController {
     func reopenOperatorWindow(_ id: UUID, background: Bool = false) async throws -> OperatorReopening {
         guard let run = self.run(id: id) else { throw ActionUnavailable("This broadcast is no longer in AiTerm.") }
         guard !hasEnded(id) else { throw ActionUnavailable("This broadcast has ended.") }
-        guard operatorTab(of: id) == nil else { return .open }
+        guard operatorTab(of: id) == nil else { return .done }
         guard !reopeningOperator.contains(id) else { return .underway }
         guard let daemon = daemon(), tabsKnown else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
         if let at = reopenedOperator[id], ports.now().timeIntervalSince(at) < OperatorTiming.launchAdoptAfter { return .underway }
@@ -385,13 +385,13 @@ extension OperatorController {
             await Log.workspace.attempt("Removing the token file of a broadcast ended while its operator reopened") {
                 try await BackgroundWork.run { try FileManager.default.removeItem(at: file) }
             }
-            return .ended
+            return .done
         }
         try await daemon.registerOperator(runId: id.uuidString, token: prepared.token)
         // Ended while the token was registered: no window is opened for it, and the token goes again.
         guard !hasEnded(id) else {
             await revokeAfterEnd(id, window: nil, daemon: daemon)
-            return .ended
+            return .done
         }
         let window: String
         do {
@@ -403,12 +403,12 @@ extension OperatorController {
         }
         guard !hasEnded(id) else {
             await revokeAfterEnd(id, window: window, daemon: daemon)
-            return .ended
+            return .done
         }
         reopenedOperator[id] = ports.now()
         reopenFailed.remove(id)
         mutateRun(id) { $0.operatorWindowId = window }
-        return .opened
+        return .done
     }
 
     func hasEnded(_ id: UUID) -> Bool { run(id: id)?.hasEnded ?? true }
@@ -443,9 +443,9 @@ extension OperatorController {
     }
 }
 
-/// What `reopenOperatorWindow` did: opened the operator's window, found it open already, left the
-/// opening to one already under way (or opened a moment ago and not yet listed), or found the operation
+/// What `reopenOperatorWindow` did: left the opening to one already under way (or opened a moment ago and not
+/// yet listed), or anything else: opened the operator's window, found it open already, or found the broadcast
 /// ended and opened nothing.
 enum OperatorReopening: Equatable {
-    case opened, open, underway, ended
+    case underway, done
 }
