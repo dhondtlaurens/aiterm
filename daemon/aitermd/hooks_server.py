@@ -6,6 +6,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
+from . import mcp
 from .hook_events import HOOK_PARSERS, STATUSLINE_PARSERS
 from .models import ITERM_SESSION_FIELD
 
@@ -19,7 +20,6 @@ MAX_HEADER_LINES = 100
 MAX_HEAD_BYTES = 32 << 10
 # How long a client may take to send its whole request before the connection is dropped.
 READ_TIMEOUT_SECONDS = 5.0
-MCP_PROTOCOL_VERSION = "2025-06-18"
 # The operator's MCP server (operator_mcp.OperatorRoute): apart from the hook routes and the Codex
 # hook MCP, and opened by a run's token rather than by anything a hook may send.
 OPERATOR_ROUTE = "/operator"
@@ -240,44 +240,26 @@ class HookServer:
             await self._reply(writer, 202, "")
             return
 
-        if method == "initialize":
-            result: dict[str, Any] = {
-                "protocolVersion": MCP_PROTOCOL_VERSION,
-                "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "aiterm-hooks", "version": "1"},
-            }
-        elif method == "ping":
-            result = {}
-        elif method == "tools/list":
-            result = {"tools": [{
-                "name": "post_codex_hook",
-                "description": "Deliver a Codex lifecycle event to the local AiTerm daemon.",
-                "inputSchema": {"type": "object", "additionalProperties": True},
-            }]}
-        elif method == "tools/call":
+        tools = [{
+            "name": "post_codex_hook",
+            "description": "Deliver a Codex lifecycle event to the local AiTerm daemon.",
+            "inputSchema": {"type": "object", "additionalProperties": True},
+        }]
+        response = mcp.respond(request_id, method, tools, "aiterm-hooks")
+        if response is None:
             params = message.get("params")
             name = params.get("name") if isinstance(params, dict) else None
             arguments = params.get("arguments") if isinstance(params, dict) else None
             if name != "post_codex_hook" or not isinstance(arguments, dict):
-                await self._mcp_error(writer, request_id, -32602, "invalid tool call")
-                return
-            payload = dict(arguments)
-            self._add_iterm_session(payload, headers)
-            await self._deliver("/hook/codex", payload)
-            # Stop hooks expect an object-shaped result. Returning the same empty object in both
-            # MCP result forms works with clients that prefer structuredContent and older clients
-            # that inspect the text content.
-            result = {"content": [{"type": "text", "text": "{}"}], "structuredContent": {}, "isError": False}
-        else:
-            await self._mcp_error(writer, request_id, -32601, f"method not found: {method}")
-            return
-
-        body = json.dumps({"jsonrpc": "2.0", "id": request_id, "result": result}, separators=(",", ":"))
-        await self._reply(writer, 200, body)
-
-    async def _mcp_error(self, writer: asyncio.StreamWriter, request_id: Any, code: int, message: str) -> None:
-        body = json.dumps({"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}, separators=(",", ":"))
-        await self._reply(writer, 200, body)
+                response = mcp.error(request_id, -32602, "invalid tool call")
+            else:
+                payload = dict(arguments)
+                self._add_iterm_session(payload, headers)
+                await self._deliver("/hook/codex", payload)
+                # Both result forms support clients that read text or structuredContent.
+                response = mcp.answer(request_id, {"content": [{"type": "text", "text": "{}"}],
+                                                   "structuredContent": {}, "isError": False})
+        await self._reply(writer, 200, json.dumps(response, separators=(",", ":")))
 
     @staticmethod
     async def _reply(writer: asyncio.StreamWriter, status: int, text: str) -> None:

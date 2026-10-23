@@ -15,8 +15,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from . import delivery, protocol
-from .hooks_server import MCP_PROTOCOL_VERSION
+from . import delivery, mcp, protocol
 from .rpc_params import optional_param, param
 from .rpc_server import RpcError
 
@@ -433,13 +432,6 @@ TOOLS: tuple[dict[str, Any], ...] = (
 TOOL_NAMES = frozenset(tool["name"] for tool in TOOLS)
 
 
-def _answer(request_id: Any, result: dict[str, Any]) -> str:
-    return json.dumps({"jsonrpc": "2.0", "id": request_id, "result": result}, separators=(",", ":"))
-
-
-def _error(request_id: Any, code: int, message: str) -> str:
-    return json.dumps({"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}, separators=(",", ":"))
-
 
 class OperatorRoute:
     """The operator's MCP server, on the hook server's /operator route (spec §5): MCP's streamable
@@ -473,39 +465,30 @@ class OperatorRoute:
         try:
             request = json.loads(body or b"{}")
         except (ValueError, RecursionError):
-            return 200, _error(None, -32700, "parse error")
+            return 200, json.dumps(mcp.error(None, -32700, "parse error"), separators=(",", ":"))
         if not isinstance(request, dict):
-            return 200, _error(None, -32600, "a message must be a JSON object")
+            return 200, json.dumps(mcp.error(None, -32600, "a message must be a JSON object"), separators=(",", ":"))
         request_id, name = request.get("id"), request.get("method")
         if request_id is None:
             # A notification -- notifications/initialized among them -- has no answer.
             return 202, ""
-        return 200, await self._respond(run_id, request_id, name, request.get("params"))
+        response = mcp.respond(request_id, name, TOOLS)
+        if response is None:
+            response = await self._call(run_id, request_id, request.get("params"))
+        return 200, json.dumps(response, separators=(",", ":"))
 
-    async def _respond(self, run_id: str, request_id: Any, name: Any, params: Any) -> str:
-        if name == "initialize":
-            return _answer(request_id, {"protocolVersion": MCP_PROTOCOL_VERSION, "capabilities": {"tools": {"listChanged": False}},
-                                        "serverInfo": {"name": "aiterm", "version": "1"}})
-        if name == "ping":
-            return _answer(request_id, {})
-        if name == "tools/list":
-            return _answer(request_id, {"tools": list(TOOLS)})
-        if name == "tools/call":
-            return await self._call(run_id, request_id, params)
-        return _error(request_id, -32601, f"method not found: {name}")
-
-    async def _call(self, run_id: str, request_id: Any, params: Any) -> str:
+    async def _call(self, run_id: str, request_id: Any, params: Any) -> dict[str, Any]:
         tool = params.get("name") if isinstance(params, dict) else None
         arguments = params.get("arguments") if isinstance(params, dict) else None
         if arguments is None:
             arguments = {}
         if not isinstance(tool, str) or tool not in TOOL_NAMES or not isinstance(arguments, dict):
-            return _error(request_id, -32602, f"no such tool, or arguments that are not an object: {tool}")
+            return mcp.error(request_id, -32602, f"no such tool, or arguments that are not an object: {tool}")
         try:
             result = await self.ask_app(run_id, tool, arguments)
         except ToolError as exc:
-            return _answer(request_id, {"content": [{"type": "text", "text": str(exc)}], "isError": True})
-        return _answer(request_id, {"content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result,
+            return mcp.answer(request_id, {"content": [{"type": "text", "text": str(exc)}], "isError": True})
+        return mcp.answer(request_id, {"content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result,
                                     "isError": False})
 
     async def ask_app(self, run_id: str, tool: str, arguments: dict[str, Any],

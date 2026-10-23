@@ -27,7 +27,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from aitermd.hooks_server import MCP_PROTOCOL_VERSION, OPERATOR_ROUTE
+from aitermd import mcp
+from aitermd.hooks_server import OPERATOR_ROUTE
 
 
 def reply_for(replies: dict[str, Any], tool: str, arguments: dict[str, Any]) -> Any:
@@ -57,30 +58,15 @@ class Stub:
 
     def respond(self, message: dict[str, Any]) -> dict[str, Any]:
         request_id, method, params = message.get("id"), message.get("method"), message.get("params")
-        if method == "initialize":
-            return _answer(request_id, {"protocolVersion": MCP_PROTOCOL_VERSION, "capabilities": {"tools": {"listChanged": False}},
-                                        "serverInfo": {"name": "aiterm", "version": "1"}})
-        if method == "ping":
-            return _answer(request_id, {})
-        if method == "tools/list":
-            return _answer(request_id, {"tools": self.tools})
-        if method == "tools/call":
-            tool = params.get("name") if isinstance(params, dict) else None
-            arguments = (params.get("arguments") if isinstance(params, dict) else None) or {}
-            if not isinstance(tool, str) or tool not in self.names or not isinstance(arguments, dict):
-                return _error(request_id, -32602, f"no such tool, or arguments that are not an object: {tool}")
-            with self._lock, self.log.open("a", encoding="utf-8") as log:
-                log.write(json.dumps({"tool": tool, "arguments": arguments}) + "\n")
-            return _answer(request_id, tool_result(reply_for(self.replies, tool, arguments)))
-        return _error(request_id, -32601, f"method not found: {method}")
-
-
-def _answer(request_id: Any, result: dict[str, Any]) -> dict[str, Any]:
-    return {"jsonrpc": "2.0", "id": request_id, "result": result}
-
-
-def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
-    return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+        if (response := mcp.respond(request_id, method, self.tools)) is not None:
+            return response
+        tool = params.get("name") if isinstance(params, dict) else None
+        arguments = (params.get("arguments") if isinstance(params, dict) else None) or {}
+        if not isinstance(tool, str) or tool not in self.names or not isinstance(arguments, dict):
+            return mcp.error(request_id, -32602, f"no such tool, or arguments that are not an object: {tool}")
+        with self._lock, self.log.open("a", encoding="utf-8") as log:
+            log.write(json.dumps({"tool": tool, "arguments": arguments}) + "\n")
+        return mcp.answer(request_id, tool_result(reply_for(self.replies, tool, arguments)))
 
 
 def handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
@@ -94,9 +80,9 @@ def handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
             try:
                 message = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
             except ValueError:
-                return self._send(200, json.dumps(_error(None, -32700, "parse error")))
+                return self._send(200, json.dumps(mcp.error(None, -32700, "parse error")))
             if not isinstance(message, dict):
-                return self._send(200, json.dumps(_error(None, -32600, "a message must be a JSON object")))
+                return self._send(200, json.dumps(mcp.error(None, -32600, "a message must be a JSON object")))
             if message.get("id") is None:
                 # A notification, notifications/initialized among them, has no answer.
                 return self._send(202, "")
