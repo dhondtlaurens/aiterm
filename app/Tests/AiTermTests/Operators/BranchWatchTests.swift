@@ -10,7 +10,8 @@ import Testing
     let git = GitRunner.hermetic()
 
     /// A project and a task working in its own worktree on `feat/pluto-1`, its worker's tab in `state`.
-    func makeWorld(worker state: SessionState = .working, conversation: String? = nil)
+    func makeWorld(worker state: SessionState = .working, conversation: String? = nil,
+                   adjust: (inout OperatorPorts) -> Void = { _ in })
         throws -> (OperatorWorld, OperatorRun, TaskItem, worktree: String) {
         let repo = try GitFixture.makeRepo(prefix: "op-drift-")
         let worktree = try GitFixture.folder("op-drift-wt-") + "/wt"
@@ -20,7 +21,7 @@ import Testing
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working, worktree: worktree)
         task.baseBranch = "main"
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: Date(timeIntervalSince1970: 0), openedAt: Date(timeIntervalSince1970: 0))
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), adjust: adjust)
         world.show([OperatorServiceFixtures.session("op", window: "wo", tag: run.id),
                     OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: state, conversation: conversation)])
         return (world, run, task, worktree)
@@ -95,6 +96,19 @@ import Testing
         #expect(drift.found == "Its last message names \(sha), which isn't on its task branch feat/pluto-1: it is on feat/my-own.")
     }
 
+    /// With `CLAUDE_CONFIG_DIR` naming another folder, Claude keeps the conversation there, and it is read there.
+    @Test func aCommitNamedInAConversationUnderAnotherClaudeFolderIsFlagged() async throws {
+        let (world, _, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-alt",
+                                                       adjust: { $0.claudeConfig = ClaudeConfig("~/claude-alt") })
+        let elsewhere = try GitFixture.folder("op-drift-tmp-") + "/other"
+        try git.run(["worktree", "add", "-q", "-b", "feat/my-own", elsewhere], in: worktree)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "the fix"], in: elsewhere)
+        let sha = try git.run(["rev-parse", "HEAD"], in: elsewhere)
+        try saveReply("Done. Committed \(sha) on feat/my-own.", conversation: "conv-alt", in: world, claudeFolder: "claude-alt")
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift != nil)
+    }
+
     @Test func aCommitTheLastMessageNamesOnItsBranchIsNotFlagged() async throws {
         let (world, _, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-2")
         try git.run(["commit", "--allow-empty", "-q", "-m", "the fix"], in: worktree)
@@ -146,8 +160,9 @@ import Testing
     }
 
     /// A worker's last reply, in its Claude conversation file under the scratch home.
-    func saveReply(_ text: String, conversation: String, in world: OperatorWorld) throws {
-        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+    /// The reply saved where Claude keeps the conversation: `claudeFolder` under the scratch home.
+    func saveReply(_ text: String, conversation: String, in world: OperatorWorld, claudeFolder: String = ".claude") throws {
+        let folder = world.ports.home.appendingPathComponent(claudeFolder + "/projects/-wt")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": .string(text)]]]]
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent(conversation + ".jsonl"))

@@ -55,11 +55,11 @@ final class BranchWatch {
                   let conversation = tab.conversation else { return nil }
             return (tab.agent, conversation)
         }
-        let git = ports.git, home = ports.home, worktree = task.worktreePath, branch = task.branch
+        let git = ports.git, home = ports.home, claudeConfig = ports.claudeConfig, worktree = task.worktreePath, branch = task.branch
         let reading = await BackgroundWork.run {
             (head: Self.head(in: worktree, git: git),
              named: conversations.isEmpty ? nil : conversations.flatMap { conversation in
-                 WorkerTranscript.lastMessage(agent: conversation.agent, conversation: conversation.id, home: home)
+                 WorkerTranscript.lastMessage(agent: conversation.agent, conversation: conversation.id, home: home, claudeConfig: claudeConfig)
                      .map { Self.named(in: $0, branch: branch, worktree: worktree, git: git) } ?? []
              })
         }

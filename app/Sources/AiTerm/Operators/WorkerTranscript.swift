@@ -11,7 +11,7 @@ enum WorkerTranscript {
     static let tailBytes = 512 * 1024
 
     /// The conversation's file under `home`, if there is one. An id that could name a path finds none.
-    static func file(agent: AgentKind, conversation: String, home: URL, claudeConfig: ClaudeConfig = ClaudeConfig()) -> URL? {
+    static func file(agent: AgentKind, conversation: String, home: URL, claudeConfig: ClaudeConfig) -> URL? {
         guard TaskConversation.isResumable(conversation), !conversation.contains("/"), !conversation.contains("..") else { return nil }
         let fileManager = FileManager.default
         switch agent {
@@ -37,7 +37,7 @@ enum WorkerTranscript {
         (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date
     }
 
-    static func lastMessage(agent: AgentKind, conversation: String, home: URL, claudeConfig: ClaudeConfig = ClaudeConfig()) -> String? {
+    static func lastMessage(agent: AgentKind, conversation: String, home: URL, claudeConfig: ClaudeConfig) -> String? {
         file(agent: agent, conversation: conversation, home: home, claudeConfig: claudeConfig).flatMap { lastMessage(in: $0, agent: agent) }
     }
 

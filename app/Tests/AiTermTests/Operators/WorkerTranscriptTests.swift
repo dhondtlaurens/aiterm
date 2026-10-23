@@ -24,7 +24,7 @@ import Testing
             #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Should I also migrate the table?"}]}}"#,
             #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}"#,
         ], to: ".claude/projects/-Users-x-shop--worktrees-pluto-1/0d9c-conv.jsonl")
-        #expect(WorkerTranscript.lastMessage(agent: .claude, conversation: "0d9c-conv", home: home) == "Should I also migrate the table?")
+        #expect(WorkerTranscript.lastMessage(agent: .claude, conversation: "0d9c-conv", home: home, claudeConfig: ClaudeConfig()) == "Should I also migrate the table?")
     }
 
     @Test func codexsLastReplyIsItsLastAgentMessage() throws {
@@ -35,7 +35,7 @@ import Testing
             #"{"type":"event_msg","payload":{"type":"agent_message","message":"Tests pass. Commit 4f2a91c."}}"#,
             #"{"type":"event_msg","payload":{"type":"token_count","info":null}}"#,
         ], to: ".codex/sessions/2026/10/16/rollout-2026-10-16T09-00-00-019a-thread.jsonl")
-        #expect(WorkerTranscript.lastMessage(agent: .codex, conversation: "019a-thread", home: home) == "Tests pass. Commit 4f2a91c.")
+        #expect(WorkerTranscript.lastMessage(agent: .codex, conversation: "019a-thread", home: home, claudeConfig: ClaudeConfig()) == "Tests pass. Commit 4f2a91c.")
     }
 
     @Test func onlyTheEndOfALongTranscriptIsRead() throws {
@@ -85,8 +85,8 @@ import Testing
 
     @Test func aConversationIdThatIsAPathFindsNothing() {
         defer { cleanUp() }
-        #expect(WorkerTranscript.file(agent: .claude, conversation: "../../etc/passwd", home: home) == nil)
-        #expect(WorkerTranscript.lastMessage(agent: .codex, conversation: "missing", home: home) == nil)
+        #expect(WorkerTranscript.file(agent: .claude, conversation: "../../etc/passwd", home: home, claudeConfig: ClaudeConfig()) == nil)
+        #expect(WorkerTranscript.lastMessage(agent: .codex, conversation: "missing", home: home, claudeConfig: ClaudeConfig()) == nil)
     }
 }
 
