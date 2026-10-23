@@ -26,10 +26,10 @@ public struct FixPipeline: Sendable {
     /// The least `verify` gets when the agent used up nearly all of Apply's budget.
     static let verifyFloor: Duration = .seconds(30)
 
-    /// The real one. `model` gives the agent's card defaults; `locate` the CLI's path (the harness
+    /// The real one. `model` gives the model and reasoning every agent it hands a fix runs at; `locate` the CLI's path (the harness
     /// runner's locator, which may ask a login shell); `project` the project the fix lands in.
     public static func live(git: any GitRunning, workflow: TaskWorkflow, project: Project,
-                            model: @escaping @Sendable (FixerAgent) -> (model: String, reasoning: String?),
+                            model: @escaping @Sendable () -> (model: String, reasoning: String?),
                             locate: @escaping @Sendable (String) -> String?) -> FixPipeline {
         // Each clone's branch tips as Look found them, by the clone's path, for Apply's “moved only
         // what it said” check. A pipeline serves every fix of its project, so one clone's tips must
@@ -45,7 +45,7 @@ public struct FixPipeline: Sendable {
                     known = known.filter { FileManager.default.fileExists(atPath: $0.key) }   // declined proposals' clones
                     known[clone.path] = tips
                 }
-                let choice = model(agent)
+                let choice = model()
                 let invocation = try FixerLaunch.look(agent, model: choice.model, reasoning: choice.reasoning, clone: clone,
                                                       request: request, sessionID: UUID().uuidString.lowercased())
                 let output = try await run(agent, invocation, in: clone, timeout: lookTimeout, locate: locate)
@@ -64,7 +64,7 @@ public struct FixPipeline: Sendable {
                     throw .checkFailed("Couldn’t check the fix: its branches were not read before it was made, so nothing was changed.")
                 }
                 let started = ContinuousClock.now
-                let choice = model(agent)
+                let choice = model()
                 let invocation = try FixerLaunch.apply(agent, model: choice.model, reasoning: choice.reasoning, clone: clone,
                                                        proposal: proposal, sessionID: session)
                 let output = try await run(agent, invocation, in: clone, timeout: applyTimeout, locate: locate)

@@ -14,7 +14,7 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
 
-        try await fixture.controller.createReview(draft: fixture.draft, project: fixture.project)
+        try await fixture.controller.launcher.createReview(draft: fixture.draft, project: fixture.project)
 
         let tab = try #require(server.requests.first { $0.method == "tab.create" })
         #expect(tab.params["windowId"] as? String == "alive")
@@ -41,7 +41,7 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
 
-        try await fixture.controller.createReview(draft: fixture.draft, project: fixture.project)
+        try await fixture.controller.launcher.createReview(draft: fixture.draft, project: fixture.project)
 
         let window = try #require(server.requests.first { $0.method == "window.createTask" })
         #expect(window.params["taskId"] as? String == fixture.task.id.uuidString)
@@ -59,7 +59,7 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
 
-        try await fixture.controller.createReview(draft: fixture.draft, project: fixture.project)
+        try await fixture.controller.launcher.createReview(draft: fixture.draft, project: fixture.project)
 
         #expect(server.requests.map(\.method).filter { $0 != "sessions.setTitles" }
                 == ["tab.create", "window.createTask"])
@@ -76,7 +76,7 @@ extension AppControllerTests {
         fixture.controller.helper.setDaemonClient(server)
         try fixture.git.run(["switch", "-q", "-c", "feat/other"], in: fixture.task.worktreePath)
 
-        try await fixture.controller.createReview(draft: fixture.draft, project: fixture.project)
+        try await fixture.controller.launcher.createReview(draft: fixture.draft, project: fixture.project)
 
         #expect(!server.requests.contains { $0.method == "tab.create" })
         let window = try #require(server.requests.first { $0.method == "window.createTask" })
@@ -97,7 +97,7 @@ extension AppControllerTests {
         var draft = fixture.draft
         draft.setBranch("feat/other")
 
-        try await fixture.controller.createReview(draft: draft, project: fixture.project)
+        try await fixture.controller.launcher.createReview(draft: draft, project: fixture.project)
 
         let tab = try #require(server.requests.first { $0.method == "tab.create" })
         #expect(tab.params["cwd"] as? String == fixture.task.worktreePath)
@@ -136,7 +136,7 @@ extension AppControllerTests {
         let fixture = try TaskFixture(windowOpen: true, provider: .gitlab)
         defer { fixture.cleanUp() }
         await #expect(throws: ActionUnavailable.self) {
-            try await fixture.controller.createReview(draft: fixture.draft, project: fixture.project)
+            try await fixture.controller.launcher.createReview(draft: fixture.draft, project: fixture.project)
         }
         #expect(fixture.controller.state.tasks == [fixture.task])
         #expect(try fixture.controller.savedWorkspace().tasks == [fixture.task])

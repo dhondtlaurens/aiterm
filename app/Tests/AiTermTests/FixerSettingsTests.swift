@@ -32,7 +32,7 @@ import Foundation
         let defaults = ScratchDefaults.make()
         try OperatorProfileStore.save(OperatorProfile(model: "claude-opus-5-5", reasoning: "high"), defaults)
         let integrations = integrations(defaults: defaults, installed: [.claude])
-        let model = integrations.fixModel(.claude)
+        let model = integrations.fixModel()
         #expect(model.model == "claude-opus-5-5" && model.reasoning == "high")
         #expect(integrations.operatorProfile().model == "claude-opus-5-5")
     }
@@ -41,14 +41,14 @@ import Foundation
     /// Settings › Agents, else the model last picked for that agent, else empty — the agent's own.
     @Test func anAgentRunsWithItsCardsDefaultElseTheModelLastPickedElseItsOwn() {
         let defaults = ScratchDefaults.make()
-        let none = AgentIntegrations.fixerModel(.claude, remembered: [:], defaults: defaults)
+        let none = AgentIntegrations.taskModel(.claude, remembered: [:], defaults: defaults)
         #expect(none.model == "" && none.reasoning == nil)
-        let remembered = AgentIntegrations.fixerModel(.codex, remembered: [.codex: "gpt-5", .claude: "opus"], defaults: defaults)
+        let remembered = AgentIntegrations.taskModel(.codex, remembered: [.codex: "gpt-5", .claude: "opus"], defaults: defaults)
         #expect(remembered.model == "gpt-5" && remembered.reasoning == nil)
         ModelSettings.save(ModelPreference(model: "sonnet", reasoning: "high"), for: .claude, defaults: defaults)
-        let card = AgentIntegrations.fixerModel(.claude, remembered: [.claude: "opus"], defaults: defaults)
+        let card = AgentIntegrations.taskModel(.claude, remembered: [.claude: "opus"], defaults: defaults)
         #expect(card.model == "sonnet" && card.reasoning == "high")
-        let pi = AgentIntegrations.fixerModel(.pi, remembered: [.pi: "openai-codex/gpt-5.6-sol", .claude: "opus"], defaults: defaults)
+        let pi = AgentIntegrations.taskModel(.pi, remembered: [.pi: "openai-codex/gpt-5.6-sol", .claude: "opus"], defaults: defaults)
         #expect(pi.model == "openai-codex/gpt-5.6-sol" && pi.reasoning == nil, "PI's own, never Claude's")
     }
 

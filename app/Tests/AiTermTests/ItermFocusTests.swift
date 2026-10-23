@@ -71,7 +71,7 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
 
-        try await fixture.controller.createTask(draft: fixture.draft("New"), project: fixture.project)
+        try await fixture.controller.launcher.createTask(draft: fixture.draft("New"), project: fixture.project)
 
         let task = try #require(fixture.controller.state.tasks.first { $0.title == "New" })
         #expect(fixture.controller.focus.selectedTaskId == task.id)

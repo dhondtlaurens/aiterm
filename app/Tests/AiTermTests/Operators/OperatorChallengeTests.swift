@@ -153,7 +153,7 @@ import Testing
     @Test func aChallengeCancelledByQuittingIsNotRecordedAsUnchallenged() async throws {
         let (world, run) = try await makeWorld(runner: .answering("Late.", after: .seconds(30)), budget: .milliseconds(20))
         let id = try #require(await world.call(run.id, "submit_plan", ["revision": 1]).value?["challengeId"]?.stringValue)
-        world.controller.tools.cancelChallenges()
+        world.controller.stop()
         await world.controller.tools.lastChallenge?.value
         #expect(world.run(run.id)?.challenges.map(\.stage) == [.running])
         #expect(world.run(run.id)?.challenges.first?.unchallengedReason == nil && world.controller.tools.runningChallenges.isEmpty)

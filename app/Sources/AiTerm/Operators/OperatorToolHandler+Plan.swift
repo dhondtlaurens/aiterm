@@ -316,7 +316,7 @@ extension OperatorToolHandler {
 
     /// `defaultModel(for:)` over the models remembered in `state`, for a launch that moves a task to the other agent.
     static func defaultModel(for agent: AgentKind, remembered: [AgentKind: String]) -> (model: String, reasoning: String?) {
-        AgentIntegrations.fixerModels(remembered: remembered)(agent)
+        AgentIntegrations.taskModels(remembered: remembered)(agent)
     }
 
     private func end(_ call: ToolCall) throws(ToolRefusal) -> TaskEnd? {

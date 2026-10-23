@@ -59,7 +59,7 @@ import Testing
         var state = OperatorServiceFixtures.state(projects: [project], runs: [run])
         state.lastModelByAgent[.codex] = "gpt-6-astra"
         // Codex's default, as create_task finds it: the Settings card on this Mac, else the remembered model.
-        let fallback = AgentIntegrations.fixerModels(remembered: state.lastModelByAgent)(.codex)
+        let fallback = AgentIntegrations.taskModels(remembered: state.lastModelByAgent)(.codex)
         let world = try OperatorWorld(state) { $0.weeklyUsage = { [.claude: 84, .codex: 12] } }
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-7", state: .queued, agent: .claude)
         world.workspace.mutate { $0.tasks.append(task) }

@@ -20,7 +20,7 @@ struct FixLiveTests {
         let world = try ConflictWorld(git: git); defer { world.removeAll() }
         let project = Project(id: UUID(), name: "live", path: world.repo, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         let pipeline = FixPipeline.live(git: git, workflow: TaskWorkflow(git: git), project: project,
-                                        model: { _ in (ModelSettings.load(for: agent.agent)?.model ?? "", nil) }, locate: { _ in cli })
+                                        model: { (ModelSettings.load(for: agent.agent)?.model ?? "", nil) }, locate: { _ in cli })
         let request = FixRequest(title: "Couldn’t create the review.", reason: "Rebasing hit a conflict.", detail: nil,
                                  projectPath: world.repo, branch: "feat/x", recreateRebase: true, retry: .createReview)
         let before = try world.sha("feat/x", in: world.repo)

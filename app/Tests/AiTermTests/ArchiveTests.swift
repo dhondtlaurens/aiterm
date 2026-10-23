@@ -195,10 +195,10 @@ extension AppControllerTests {
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
         await controller.confirmRemove(task: task)?.value
-        #expect(controller.removals[task.id]?.awaitsRetry == true, "removed up to its unmerged branch")
+        #expect(controller.remover.removals[task.id]?.awaitsRetry == true, "removed up to its unmerged branch")
 
         #expect(await controller.archive(task: task) == nil)
-        #expect(controller.removals[task.id] == .stopped(note: "Not removed: branch kept", worktreeRemoved: true), "its retry still held")
+        #expect(controller.remover.removals[task.id] == .stopped(note: "Not removed: branch kept", worktreeRemoved: true), "its retry still held")
     }
 
     @Test func uncommittedWorkWrittenWhileTheWindowClosesIsAskedAboutAndKeepPutsTheTaskBack() async throws {

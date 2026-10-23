@@ -375,7 +375,7 @@ import Testing
         let (world, run) = try makeWorld()
         world.workspace.mutate { $0.lastModelByAgent[.claude] = "claude-remembered" }
         // What Settings › Agents (or the remembered model) gives claude: the fallback create_task uses too.
-        let fallback = AgentIntegrations.fixerModels(remembered: world.state.lastModelByAgent)(.claude)
+        let fallback = AgentIntegrations.taskModels(remembered: world.state.lastModelByAgent)(.claude)
         try #require(!fallback.model.isEmpty)
         _ = await create(world, run, "A")
         world.workspace.mutate { $0.tasks[0].reasoning = "old-agents-reasoning" }

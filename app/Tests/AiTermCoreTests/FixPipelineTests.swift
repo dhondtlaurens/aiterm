@@ -69,7 +69,7 @@ import Foundation
 
     private func live(_ script: String?) -> FixPipeline {
         let project = Project(id: UUID(), name: "repo", path: world.repo, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        return FixPipeline.live(git: git, workflow: TaskWorkflow(git: git), project: project, model: { _ in ("m", nil) },
+        return FixPipeline.live(git: git, workflow: TaskWorkflow(git: git), project: project, model: { ("m", nil) },
                                 locate: { name in name == "claude" ? script : nil })
     }
 

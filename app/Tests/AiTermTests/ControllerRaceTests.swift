@@ -376,11 +376,11 @@ extension AppControllerTests {
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let first = Task { try await controller.createTask(draft: fixture.draft("First"), project: fixture.project) }
+        let first = Task { try await controller.launcher.createTask(draft: fixture.draft("First"), project: fixture.project) }
         try await server.received("window.createTask")
 
         await #expect {
-            try await controller.createTask(draft: fixture.draft("Second"), project: fixture.project)
+            try await controller.launcher.createTask(draft: fixture.draft("Second"), project: fixture.project)
         } throws: { ($0 as? ActionUnavailable)?.message == "A task or review is already being created in Repo. Try again once it is." }
         server.release()
         try await first.value
@@ -399,7 +399,7 @@ extension AppControllerTests {
         let click = controller.focus.select(.task(old.id))
         try await server.received("window.setFrame")
 
-        let create = Task { try await controller.createTask(draft: fixture.draft("New"), project: fixture.project) }
+        let create = Task { try await controller.launcher.createTask(draft: fixture.draft("New"), project: fixture.project) }
         await eventually(describing: "the created task to join the old one") { controller.state.tasks.count == 2 }
         server.release()
         try await create.value
@@ -554,7 +554,7 @@ extension AppControllerTests {
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let create = Task { try await controller.createTask(draft: fixture.draft("Gone"), project: fixture.project) }
+        let create = Task { try await controller.launcher.createTask(draft: fixture.draft("Gone"), project: fixture.project) }
         try await server.received("window.createTask")
 
         controller.workspace.mutate { $0.tasks = [] }

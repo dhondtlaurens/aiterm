@@ -84,7 +84,7 @@ extension AppControllerTests {
         try #require(server.closedWindowIds == ["alive"])
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath), "nothing is deleted while the window is open")
         // The window's own `window.closed` finds the row windowless already: it stays while the removal runs.
-        controller.handleWindowClosed("alive")
+        controller.windows.handleWindowClosed("alive")
         #expect(controller.state.tasks.map(\.id) == [fixture.task.id])
         #expect(controller.state.tasks.map(\.windowId) == [nil], "windowless before the close was sent")
 
@@ -206,7 +206,7 @@ extension AppControllerTests {
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true,
                                                           sessions: [SessionInfo.stub(window: "alive", task: fixture.task)], usage: .empty)))
         #expect(controller.state.tasks.first?.windowId == nil)
-        controller.handleWindowClosed("alive")
+        controller.windows.handleWindowClosed("alive")
         #expect(controller.state.tasks.map(\.id) == [fixture.task.id])
 
         server.release()
@@ -238,7 +238,7 @@ extension AppControllerTests {
 
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath + "/late.txt"))
         #expect(controller.state.tasks.map(\.id) == [fixture.task.id])
-        #expect(controller.removals.isEmpty, "nothing half done: no note")
+        #expect(controller.remover.removals.isEmpty, "nothing half done: no note")
         #expect(controller.issue == nil)
         #expect(server.requests("window.createTask").count == 1)
         #expect(controller.state.task(id: fixture.task.id)?.windowId != nil, "the window is back on its row")
@@ -257,7 +257,7 @@ extension AppControllerTests {
 
         controller.checkouts.refresh()
         try await server.received("window.close")
-        controller.handleWindowClosed("alive")
+        controller.windows.handleWindowClosed("alive")
         #expect(controller.state.tasks.map(\.windowId) == [nil], "windowless while the close is answered")
         server.release()
 
@@ -296,7 +296,7 @@ extension AppControllerTests {
         try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
         await controller.checkouts.refresh().value
         // A close would have marked the row closing within the pass.
-        #expect(controller.removals.isEmpty)
+        #expect(controller.remover.removals.isEmpty)
         #expect(controller.state.tasks == [fixture.task])
 
         controller.live.sessions[0].state = .done
@@ -322,13 +322,13 @@ extension AppControllerTests {
         if errorCode != .notFound {
             #expect(controller.state.tasks == [fixture.task])
             #expect(try controller.savedWorkspace().tasks == [fixture.task])
-            #expect(controller.removals == [fixture.task.id: .closing])
+            #expect(controller.remover.removals == [fixture.task.id: .closing])
             server.failing = [:]
             await controller.checkouts.refresh().value
             await controller.remover.waitForRemoval(of: fixture.task.id)
         }
         #expect(controller.state.tasks.isEmpty)
-        #expect(controller.removals.isEmpty)
+        #expect(controller.remover.removals.isEmpty)
         #expect(try controller.savedWorkspace().tasks.isEmpty)
         #expect(server.closedWindowIds == (errorCode != .notFound ? ["alive", "alive"] : ["alive"]))
     }
@@ -345,12 +345,12 @@ extension AppControllerTests {
         try FileManager.default.moveItem(at: URL(fileURLWithPath: fixture.task.worktreePath), to: aside)
         await controller.checkouts.refresh().value
         await controller.remover.waitForRemoval(of: fixture.task.id)
-        try #require(controller.removals == [fixture.task.id: .closing])
+        try #require(controller.remover.removals == [fixture.task.id: .closing])
 
         try FileManager.default.moveItem(at: aside, to: parent.appendingPathComponent("work"))
         await controller.checkouts.refresh().value
 
-        #expect(controller.removals.isEmpty)
+        #expect(controller.remover.removals.isEmpty)
         #expect(controller.state.tasks == [fixture.task])
     }
 
@@ -369,7 +369,7 @@ extension AppControllerTests {
         await controller.remover.waitForRemoval(of: fixture.task.id)
         #expect(controller.state.tasks == [fixture.task])
         #expect(server.closedWindowIds.isEmpty)
-        #expect(controller.removals.isEmpty)
+        #expect(controller.remover.removals.isEmpty)
     }
 
     /// The confirmation runs off the main actor: a mount that never answers holds its own thread,
@@ -523,16 +523,16 @@ extension AppControllerTests {
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); controller.shutdown() }
         controller.helper.setDaemonClient(server)
-        #expect(controller.removals.isEmpty)
+        #expect(controller.remover.removals.isEmpty)
 
         let removal = await controller.confirmRemove(task: fixture.task)
         try await server.received("window.close")
-        #expect(controller.removals == [fixture.task.id: .removing])
+        #expect(controller.remover.removals == [fixture.task.id: .removing])
 
         server.release()
         await removal?.value
         #expect(controller.state.tasks.isEmpty)
-        #expect(controller.removals.isEmpty)
+        #expect(controller.remover.removals.isEmpty)
     }
 
     @Test func aWindowThatWillNotCloseSaysSoOnTheRow() async throws {
@@ -544,7 +544,7 @@ extension AppControllerTests {
 
         await controller.confirmRemove(task: fixture.task)?.value
 
-        #expect(controller.removals == [fixture.task.id: .stopped(note: "Not removed: its window did not close", worktreeRemoved: false)])
+        #expect(controller.remover.removals == [fixture.task.id: .stopped(note: "Not removed: its window did not close", worktreeRemoved: false)])
         #expect(controller.issue?.subject == fixture.task.id)
     }
 
@@ -559,7 +559,7 @@ extension AppControllerTests {
         await controller.confirmRemove(task: fixture.task)?.value
 
         #expect(controller.state.tasks == [fixture.task])
-        #expect(controller.removals.isEmpty)
+        #expect(controller.remover.removals.isEmpty)
         #expect(controller.issue == nil, "keeping it was the person's answer; there is nothing to explain")
     }
 
@@ -575,11 +575,11 @@ extension AppControllerTests {
         try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
         controller.checkouts.refresh()
         try await server.received("window.close")
-        #expect(controller.removals == [fixture.task.id: .closing])
+        #expect(controller.remover.removals == [fixture.task.id: .closing])
 
         server.release()
         await eventually { controller.state.tasks.isEmpty }
         #expect(controller.state.tasks.isEmpty)
-        #expect(controller.removals.isEmpty)
+        #expect(controller.remover.removals.isEmpty)
     }
 }

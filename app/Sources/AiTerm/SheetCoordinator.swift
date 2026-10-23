@@ -23,6 +23,8 @@ final class SheetCoordinator {
     /// Told when what the slot holds changed: the rows derive the board while its sheet shows.
     @ObservationIgnored var onChange: (@MainActor () -> Void)?
     @ObservationIgnored var onDismiss: (@MainActor () -> Void)?
+    /// New Review's Fix for a project: the controller's `fixPipeline`, which a test replaces with a stub.
+    @ObservationIgnored var fixPipeline: @MainActor (Project) -> FixPipeline
     /// The preparation on its way to the slot, if any; tests await it.
     @ObservationIgnored private(set) var preparingSheet: Task<Void, Never>?
 
@@ -60,6 +62,7 @@ final class SheetCoordinator {
         self.gitHubSettings = gitHubSettings
         self.launcher = launcher
         self.workflow = workflow
+        fixPipeline = { [agents] in agents.fixPipeline(for: $0, git: git, workflow: workflow) }
     }
 
     private var canChangeWorkspace: Bool { workspace.canChangeWorkspace }
@@ -287,9 +290,7 @@ final class SheetCoordinator {
                                    searchMergeRequests: ReviewCreationModel.searcher(gitLab: gitLab, gitHub: gitHub, remote: remote),
                                    createReview: { try await launcher.createReview(draft: $0, project: project) },
                                    recover: { try await launcher.recover($0, in: project) }, fixer: { [agents] in agents.fixer },
-                                   pipeline: .live(git: git, workflow: workflow, project: project,
-                                            model: agents.fixModel,
-                                            locate: { HarnessCommandRunner.live.locate($0) }), fixLanded: { launcher.announceFix($0, by: $1) },
+                                   pipeline: fixPipeline(project), fixLanded: { launcher.announceFix($0, by: $1) },
                                    backupKept: { launcher.announceBackup($0) })
     }
 }

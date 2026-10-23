@@ -87,7 +87,7 @@ import Testing
         #expect(controller.state == original)
         let draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         do {
-            try await controller.createTask(draft: draft, project: project)
+            try await controller.launcher.createTask(draft: draft, project: project)
             Issue.record("An unsaved workspace must reject creation before invoking Git")
         } catch {
             #expect(error.localizedDescription == "Save or recover the workspace before creating a task.")
@@ -358,7 +358,7 @@ import Testing
     /// A completion toast comes down by itself once its lifetime has passed, and is up until then.
     @Test func aToastIsTakenDownAfterItsLifetime() async {
         let controller = AppController(preferences: .scratch(), toastLifetime: .milliseconds(30))
-        controller.showToast("Task removed.")
+        controller.notices.showToast("Task removed.")
         #expect(controller.toastState.toast?.message == "Task removed.")
 
         await eventually { controller.toastState.toast == nil }
@@ -524,7 +524,7 @@ import Testing
         state.items = [.project(project)]; state.tasks = [task]; state.terminals = [terminal]
         controller.workspace.mutate { $0 = state }
         controller.focus.browse(.task(task.id))
-        controller.handleWindowClosed("w1")
+        controller.windows.handleWindowClosed("w1")
         #expect(controller.focus.selectedTaskId == task.id, "the row stays, and so does its selection")
         #expect(controller.state.tasks.map(\.windowId) == [nil])
         #expect(try controller.savedWorkspace().tasks.map(\.windowId) == [nil])
@@ -533,18 +533,18 @@ import Testing
         var replacement = task
         replacement.windowId = "w3"
         controller.workspace.mutate { $0.tasks = [replacement] }
-        controller.handleWindowClosed(task.windowId)
+        controller.windows.handleWindowClosed(task.windowId)
         #expect(controller.state.tasks[0].windowId == "w3")
         controller.focus.browse(.terminal(terminal.id))
         // Observations still update memory when saving is blocked.
         try FileManager.default.createDirectory(at: store.backupURL, withIntermediateDirectories: false)
-        controller.handleWindowClosed("w2")
+        controller.windows.handleWindowClosed("w2")
         #expect(controller.state.terminals.map(\.windowId) == [nil], "the terminal stays, owed")
         #expect(controller.focus.selectedTerminalId == terminal.id)
         #expect(!controller.workspace.flush())
         #expect(controller.persistenceError != nil)
-        controller.handleWindowClosed("w2")
-        controller.handleWindowClosed(nil)
+        controller.windows.handleWindowClosed("w2")
+        controller.windows.handleWindowClosed(nil)
         try FileManager.default.removeItem(at: store.backupURL)
         #expect(controller.workspace.flush())
         #expect(try store.load() == controller.state)
@@ -714,7 +714,7 @@ import Testing
         if failSave { try FileManager.default.createDirectory(at: controller.workspace.file.backupURL, withIntermediateDirectories: false) }
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setTitle("Create once")
-        try await controller.createTask(draft: draft, project: project)
+        try await controller.launcher.createTask(draft: draft, project: project)
         let created = try #require(controller.state.tasks.first)
         #expect(controller.state.tasks.count == 1)
         #expect(created.windowId == nil)
@@ -749,7 +749,7 @@ import Testing
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setTitle("Through the runner")
         draft.promptText = String(repeating: "long ", count: 400)
-        try await controller.createTask(draft: draft, project: project)
+        try await controller.launcher.createTask(draft: draft, project: project)
         let asked = recording.calls.map(\.args)
         #expect(asked.contains { $0.starts(with: ["worktree", "add"]) })
         #expect(asked.filter { $0.contains("info/exclude") }.count == 2, "`.worktrees/` and the first-prompt exclusion are asked of the same runner")
@@ -790,7 +790,7 @@ import Testing
         controller.helper.setDaemonClient(server)
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setTitle("Unreadable env")
-        try await controller.createTask(draft: draft, project: project)
+        try await controller.launcher.createTask(draft: draft, project: project)
         let created = try #require(controller.state.tasks.first)
         #expect(FileManager.default.fileExists(atPath: created.worktreePath))
         #expect(server.requests.map(\.method).last == "window.createTask", "the window opens all the same")
@@ -810,7 +810,7 @@ import Testing
         defer { controller.shutdown() }
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setTitle("Unreadable env")
-        try await controller.createTask(draft: draft, project: project)   // no daemon
+        try await controller.launcher.createTask(draft: draft, project: project)   // no daemon
         #expect(controller.issue?.title == "Task created. Its window opens once AiTerm reconnects; start the agent there manually.")
         #expect(controller.issue?.reason == "Couldn’t copy .env into the new worktree.")
     }
@@ -820,7 +820,7 @@ import Testing
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
-        try await fixture.controller.createTask(draft: fixture.draft("Plain"), project: fixture.project)
+        try await fixture.controller.launcher.createTask(draft: fixture.draft("Plain"), project: fixture.project)
         #expect(fixture.controller.issue == nil)
     }
 

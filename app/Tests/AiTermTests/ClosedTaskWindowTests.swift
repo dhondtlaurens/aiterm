@@ -390,7 +390,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         let task = try fixture.addTask(windowId: "alive")
         controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
-        let create = Task { try await controller.createTask(draft: fixture.draft("New"), project: fixture.project) }
+        let create = Task { try await controller.launcher.createTask(draft: fixture.draft("New"), project: fixture.project) }
         try await server.received("window.createTask")
 
         controller.helper.handle(.windowClosed("alive"))

@@ -779,12 +779,16 @@ final class OperatorController {
         }
     }
 
+    /// AiTerm quits: the reconcile loop, the ownership resend, every merge watch, and the second opinions and agent
+    /// reviews the tools started.
     func stop() {
         loop?.cancel()
         loop = nil
         resending?.cancel()
         resending = nil
         finisher.stopAll()
+        tools.cancelChallenges()
+        tools.cancelReviews()
     }
 
     /// Each operated task's tab, in any state (spec §H): one that needs input has its prompt read (spec §7.2), and a

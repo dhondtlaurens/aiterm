@@ -116,9 +116,8 @@ final class WindowReconciler {
         triage = ClosedWindowTriage()
     }
 
-    /// The helper's events, after `helper` has taken its own.
+    /// The helper's events, after `helper` and the live sessions have taken theirs.
     private func handle(_ event: DaemonEvent) {
-        live.handle(event)
         switch event {
         case .snapshot(let snapshot):
             // A connected snapshot is iTerm2 as it is now: a close after it is one the daemon saw happen.

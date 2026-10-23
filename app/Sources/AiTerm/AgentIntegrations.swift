@@ -62,23 +62,28 @@ final class AgentIntegrations {
 
     /// The model and reasoning every Fix runs with: the Operator's (spec §8, §13), whichever agent it is
     /// handed, since the fixer is always the Operator's own, Claude.
-    var fixModel: @Sendable (FixerAgent) -> (model: String, reasoning: String?) {
+    var fixModel: @Sendable () -> (model: String, reasoning: String?) {
         let profile = operatorProfile
-        return { _ in let operating = profile(); return (operating.model, operating.reasoning) }
+        return { let operating = profile(); return (operating.model, operating.reasoning) }
+    }
+
+    /// The banner's and New Review's Fix for `project`: a clone, the agent at `fixModel`, AiTerm's landing.
+    func fixPipeline(for project: Project, git: any GitRunning, workflow: TaskWorkflow) -> FixPipeline {
+        .live(git: git, workflow: workflow, project: project, model: fixModel, locate: { HarnessCommandRunner.live.locate($0) })
     }
 
     /// The model and reasoning an agent's card gives it: its default in Settings › Agents, else the
     /// model last picked for that agent (`remembered`, the workspace's), else empty — the agent's own
     /// default (`HeadlessRun.modelArguments`). What the Operator's tasks launch with when it names none;
     /// a Fix runs at the Operator's own (`fixModel`). Read as each run starts, off the main actor.
-    nonisolated static func fixerModel(_ agent: AgentKind, remembered: [AgentKind: String],
+    nonisolated static func taskModel(_ agent: AgentKind, remembered: [AgentKind: String],
                                        defaults: UserDefaults = .standard) -> (model: String, reasoning: String?) {
         ModelSettings.load(for: agent, defaults: defaults).map { ($0.model, $0.reasoning) } ?? (remembered[agent] ?? "", nil)
     }
 
-    /// `fixerModel` over the models remembered as a launch asks for it.
-    nonisolated static func fixerModels(remembered: [AgentKind: String]) -> @Sendable (AgentKind) -> (model: String, reasoning: String?) {
-        { fixerModel($0, remembered: remembered) }
+    /// `taskModel` over the models remembered as a launch asks for it.
+    nonisolated static func taskModels(remembered: [AgentKind: String]) -> @Sendable (AgentKind) -> (model: String, reasoning: String?) {
+        { taskModel($0, remembered: remembered) }
     }
     private let defaults: UserDefaults
 

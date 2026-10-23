@@ -14,7 +14,7 @@ extension AppControllerTests {
         #expect(fixture.controller.issue == OperationIssue(
             title: "Branch feat/work kept.", reason: "It has commits that aren’t on main.",
             actions: [.keepBranch(task.id), .deleteBranch(task.id)], subject: task.id))
-        #expect(fixture.controller.removals[task.id] == .stopped(note: "Not removed: branch kept", worktreeRemoved: true))
+        #expect(fixture.controller.remover.removals[task.id] == .stopped(note: "Not removed: branch kept", worktreeRemoved: true))
         #expect(fixture.controller.state.tasks.map(\.id) == [task.id], "the row stays for the answer")
     }
 
@@ -65,7 +65,7 @@ extension AppControllerTests {
 
         #expect(fixture.controller.state.tasks.isEmpty)
         #expect(fixture.controller.issue == nil)
-        #expect(fixture.controller.removals.isEmpty)
+        #expect(fixture.controller.remover.removals.isEmpty)
         #expect(await fixture.controller.perform(.keepBranch(task.id)) == nil, "nothing is left to keep")
     }
 
@@ -77,7 +77,7 @@ extension AppControllerTests {
         fixture.controller.dismissIssue()
 
         #expect(fixture.controller.issue == nil)
-        #expect(fixture.controller.removals[task.id]?.awaitsRetry == true)
+        #expect(fixture.controller.remover.removals[task.id]?.awaitsRetry == true)
     }
 
     /// A report that cannot outrank the question leaves it up; the row keeps its note, and the kept branch its answer.
@@ -86,11 +86,11 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
 
         fixture.controller.report("Couldn’t show the window.")
-        #expect(fixture.controller.removals[task.id] == .stopped(note: "Not removed: branch kept", worktreeRemoved: true))
+        #expect(fixture.controller.remover.removals[task.id] == .stopped(note: "Not removed: branch kept", worktreeRemoved: true))
         await fixture.controller.perform(.keepBranch(task.id))?.value
 
         #expect(fixture.controller.state.tasks.isEmpty)
-        #expect(fixture.controller.removals.isEmpty)
+        #expect(fixture.controller.remover.removals.isEmpty)
     }
 
     /// A background report with nothing to offer — an activation that failed, a send that did not
@@ -120,7 +120,7 @@ extension AppControllerTests {
         controller.report("First.")
         controller.report("Second.")
         #expect(controller.issue == OperationIssue(title: "Second."), "a message replaces a message")
-        #expect(controller.removals[task.id]?.awaitsRetry == true, "the row's retry never rode on the banner")
+        #expect(controller.remover.removals[task.id]?.awaitsRetry == true, "the row's retry never rode on the banner")
     }
 
     /// A removal that stopped with nothing deleted says so on its row only while its banner is up.
@@ -136,7 +136,7 @@ extension AppControllerTests {
         controller.report("Something else.")
 
         #expect(controller.issue?.title == "Something else.")
-        #expect(controller.removals[task.id] == nil)
+        #expect(controller.remover.removals[task.id] == nil)
     }
 
     /// The removal that fails again reports the same task: its new note must not go with its old banner.
@@ -152,7 +152,7 @@ extension AppControllerTests {
         controller.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Still busy.", subject: task.id))
 
         #expect(controller.issue?.reason == "Still busy.")
-        #expect(controller.removals[task.id] == note)
+        #expect(controller.remover.removals[task.id] == note)
     }
 
     /// A report held back replaces nothing, so the row's note stays while it waits: it is still true.
@@ -167,7 +167,7 @@ extension AppControllerTests {
 
         controller.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
 
-        #expect(controller.removals[task.id] == note)
+        #expect(controller.remover.removals[task.id] == note)
     }
 
     /// What a click failed with while a question was up is not lost: it takes the banner when the
@@ -184,11 +184,11 @@ extension AppControllerTests {
 
         controller.dismissIssue()
         #expect(controller.issue == failure)
-        #expect(controller.removals[task.id] != nil, "its note stays while its banner shows")
+        #expect(controller.remover.removals[task.id] != nil, "its note stays while its banner shows")
 
         controller.dismissIssue()
         #expect(controller.issue == nil)
-        #expect(controller.removals[task.id] == nil)
+        #expect(controller.remover.removals[task.id] == nil)
     }
 
     @Test func theNewestHeldBackReportIsTheOneShown() async throws {
@@ -260,11 +260,11 @@ extension AppControllerTests {
         fixture.controller.workspace.mutate { $0.tasks[0].windowId = "w" }
         let issue = fixture.controller.issue
 
-        fixture.controller.handleWindowClosed("w")
+        fixture.controller.windows.handleWindowClosed("w")
 
         #expect(fixture.controller.state.task(id: task.id)?.windowId == nil)
         #expect(fixture.controller.issue == issue && issue != nil)
-        #expect(fixture.controller.removals[task.id] != nil)
+        #expect(fixture.controller.remover.removals[task.id] != nil)
     }
 
     @Test func theIssueGoesWithItsProject() async throws {
@@ -275,7 +275,7 @@ extension AppControllerTests {
 
         #expect(fixture.controller.state.projects.isEmpty)
         #expect(fixture.controller.issue == nil)
-        #expect(fixture.controller.removals.isEmpty)
+        #expect(fixture.controller.remover.removals.isEmpty)
     }
 
     @Test func theIssueGoesWhenABackupWithoutItsRowIsRestored() async throws {
@@ -291,7 +291,7 @@ extension AppControllerTests {
 
         #expect(fixture.controller.state.tasks.isEmpty)
         #expect(fixture.controller.issue == nil)
-        #expect(fixture.controller.removals.isEmpty)
+        #expect(fixture.controller.remover.removals.isEmpty)
     }
 
     /// A removal stopped after its worktree went — its branch kept — leaves the row for a retry, owed a
@@ -317,7 +317,7 @@ extension AppControllerTests {
         await controller.windows.lastRestore?.value
 
         #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
-        #expect(controller.removals[task.id]?.awaitsRetry == true)
+        #expect(controller.remover.removals[task.id]?.awaitsRetry == true)
         #expect(server.requests("window.close").map { $0.params["windowId"] as? String } == ["alive"])
         #expect(server.requests("window.createTask").isEmpty)
     }

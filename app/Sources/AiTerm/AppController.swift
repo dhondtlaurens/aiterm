@@ -188,6 +188,8 @@ final class AppController {
                                   agents: agents, git: git, workflow: workflow, jiraSettings: jiraSettings)
         terminals = TerminalActions(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
                                     tiling: tiling, daemon: daemon, activateIterm: activateIterm)
+        // The live sessions hear each helper event first: every other hook reads the tabs as that event left them.
+        helper.onEvent { [weak live] in live?.handle($0) }
         windows = WindowReconciler(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
                                    remover: remover, archiver: archiver, launcher: launcher, terminals: terminals,
                                    notices: notices, daemon: daemon, now: now, closeHold: closedWindowHold, bringForward: bringForward, launchIterm: launchIterm)
@@ -211,8 +213,7 @@ final class AppController {
             if case .windowClosed(let window) = event { messaging?.windowClosed(window) }
         }
         self.messaging = messaging
-        // After the window lock, which hands the live sessions each event first: the operators read
-        // the operator's tab from them.
+        // After the live sessions and the window lock: the operators read the operator's tab from the sessions.
         let operatorController = OperatorController(workspace: workspace, live: live, notices: notices, daemon: daemon,
                                                     taskFrame: { tiling.taskFrame() }, ports: operatorPorts)
         self.operatorController = operatorController
@@ -233,11 +234,7 @@ final class AppController {
                                       openLocationSettings: openLocationSettings,
                                       toast: { notices.showToast($0, symbol: BackpackController.symbol) })
         machine = MachineMonitor(sensor: machineSensor, power: backpackPorts.power)
-        fixPipeline = { [agents] project in
-            .live(git: git, workflow: workflow, project: project,
-                  model: agents.fixModel,
-                  locate: { HarnessCommandRunner.live.locate($0) })
-        }
+        fixPipeline = { [agents] project in agents.fixPipeline(for: project, git: git, workflow: workflow) }
         // The rows are derived again whenever something they are made of may have changed, and the
         // Dock badge recounted when they did or a removal moved.
         live.onRowSessionsChanged { [weak self] in self?.refreshRows() }
@@ -268,6 +265,8 @@ final class AppController {
         // The board is derived only while its sheet shows: opening it derives the rows with it.
         rows.boardShown = { [weak sheets] in if case .broadcastBoard? = sheets?.sheet { true } else { false } }
         sheets.onChange = { [weak self] in self?.refreshRows() }
+        // New Review's Fix goes through the same seam as the banner's. The sheets live as long as the controller.
+        sheets.fixPipeline = { [unowned self] in self.fixPipeline($0) }
         refreshRows()
         // The Operator's row chosen without a window — closed, or its Operator offline — is the operator
         // controller's to reopen, in front.
@@ -332,8 +331,6 @@ final class AppController {
         focus.cancel()
         windows.stop()
         operatorController.stop()
-        operatorController.tools.cancelChallenges()
-        operatorController.tools.cancelReviews()
         helper.shutdown()
     }
 
@@ -349,10 +346,6 @@ final class AppController {
             sheets.presentBackpack(backpack)
         }
     }
-
-    /// `windows`', forwarded for the tests: a window gone, as a request that found it gone reports it
-    /// (it asks nothing; `window.closed` itself arrives through `helper.handle`).
-    func handleWindowClosed(_ windowId: String?) { windows.handleWindowClosed(windowId) }
 
     // -- the rows and the Dock badge ------------------------------------------------
     /// Something the rows are made of may have changed: they are derived again if it did, and the
@@ -461,11 +454,6 @@ final class AppController {
     func presentNewReview(project: Project) { sheets.presentNewReview(project: project) }
     func presentNewTerminal(project: Project) { sheets.presentNewTerminal(project: project) }
 
-    // -- tasks ----------------------------------------------------------------------
-    /// `launcher`'s, forwarded: the tests start a task here.
-    func createTask(draft: TaskDraft, project: Project) async throws { try await launcher.createTask(draft: draft, project: project) }
-    func createReview(draft: ReviewDraft, project: Project) async throws { try await launcher.createReview(draft: draft, project: project) }
-
     // -- the banner ------------------------------------------------------------------
     /// `notices`', forwarded: the views and the tests reach the banner and the toast here. The
     /// owners above report to `notices` itself.
@@ -474,7 +462,6 @@ final class AppController {
     func report(_ issue: OperationIssue) { notices.report(issue) }
     func report(_ message: String) { notices.report(message) }
     func dismissIssue() { notices.dismissIssue() }
-    func showToast(_ message: String, symbol: String = "checkmark.circle.fill") { notices.showToast(message, symbol: symbol) }
 
     /// Answers the banner. Keeping or deleting a branch a removal kept is `remover`'s (see
     /// `TaskRemover.keepBranch(of:)`). Rebasing rewrites only local commits and aborts on a
@@ -514,8 +501,6 @@ final class AppController {
     }
 
     // -- removing a task ------------------------------------------------------------
-    /// `remover`'s, forwarded: the views and the tests reach a task's removal here.
-    var removals: [UUID: TaskRemoval] { remover.removals }
     func removal(of id: UUID) -> TaskRemoval? { remover.removal(of: id) }
     /// Whether the row's window could not be restored: its caption says so, and choosing it tries again.
     func hasFailedRestore(_ id: UUID) -> Bool { windows.hasFailed(id) }
