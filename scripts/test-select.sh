@@ -19,6 +19,14 @@ why=0
 if [[ "${1:-}" == --why ]]; then why=1; shift; fi
 (( $# == 0 )) || { print -u2 "usage: scripts/test-select.sh [--why] < changed-paths"; exit 2; }
 
+# Read and validate the table once, before matching any changed paths.
+globs=() routes=()
+while IFS=$'\t' read -r glob selectors; do
+    [[ -n "$glob" && "$glob" != \#* ]] || continue
+    [[ -n "${selectors//[[:space:]]/}" ]] || { print -u2 "scripts/test-routes.tsv: the row for $glob names no selectors"; exit 1; }
+    globs+=("$glob"); routes+=("$selectors")
+done <"$ROUTES"
+
 selected=()
 # Not `path`: in zsh that variable is tied to PATH.
 # `|| [[ -n ... ]]` keeps a last path with no trailing newline: read fails on it but has filled the variable.
@@ -26,13 +34,12 @@ while IFS= read -r changed || [[ -n "$changed" ]]; do
     [[ -n "$changed" ]] || continue
     matched=0
     picked=()
-    while IFS=$'\t' read -r glob selectors; do
-        [[ -n "$glob" && "$glob" != \#* ]] || continue
-        if [[ "$changed" == ${~glob} ]]; then
+    for (( i = 1; i <= ${#globs}; i++ )); do
+        if [[ "$changed" == ${~globs[i]} ]]; then
             matched=1
-            picked+=(${=selectors})
+            picked+=(${=routes[i]})
         fi
-    done <"$ROUTES"
+    done
     (( matched )) || picked+=(everything)
     if (( why )); then
         for item in ${(u)picked:#none}; do print -r -- "$item"$'\t'"$changed"; done

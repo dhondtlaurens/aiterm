@@ -11,6 +11,27 @@ It shows only the Swift build's last line; on a failure it prints the last 50 li
 log, where the compiler's diagnostics are, and keeps the whole of it in
 `build/swift-build-release.log` (`snapshots.sh` likewise, in `build/swift-build-debug.log`).
 
+What it produces:
+
+    build/AiTerm.app/Contents/MacOS/AiTerm                     release binary
+    build/AiTerm.app/Contents/Info.plist                       copied from app/Sources/AiTerm/Resources
+    build/AiTerm.app/Contents/Resources/daemon/aitermd/        the daemon package
+    build/AiTerm.app/Contents/Resources/daemon/tools/         delivery check (__init__.py, delivery_check.py)
+    build/AiTerm.app/Contents/Resources/LICENSE               bundled license
+    build/AiTerm.app/Contents/Resources/daemon/<deps>          iterm2, websockets, protobuf (pip --target)
+    build/AiTerm.app/Contents/Resources/hooks/claude-statusline-shim.sh
+    build/AiTerm.app/Contents/Resources/hooks/pi-aiterm-status.ts
+
+Both hook resources are copied from this repository while the app is built. AiTerm never
+downloads executable integration code during installation or at runtime.
+
+The app launches the daemon with `PYTHONPATH=<Contents/Resources/daemon>`, so both `aitermd` and
+its dependencies resolve from the bundle; nothing is installed into the user's Python.
+
+The bundle uses the `AiTerm Release` certificate when available, with ad-hoc signing as the fallback
+and `SIGN_IDENTITY` as the override. Signing and strict verification must succeed. Developer ID
+signing and notarisation are a later task; `build/` is git-ignored.
+
 Environment overrides:
 
 | Variable | Default | Purpose |
@@ -69,6 +90,11 @@ hold every working mark's arc still and read a fixed clock, so two runs draw the
 difference is a visual change. A real window draws it, so the main display must be Retina; on a 1×
 display the script refuses rather than write a half-size picture. `release.sh` runs the check.
 
+## `build-app.sh`
+
+The shared app build and log handling used by `make-app.sh` and `snapshots.sh`. It accepts
+`debug` (the default) or `release` and builds only `--product AiTerm` through `swift.sh`.
+
 ## `swift.sh`
 
 The shared Swift launcher for AiTerm’s build, snapshot, and test commands. It defaults to Swiftly’s
@@ -120,7 +146,7 @@ its own target with no row to say so; it runs before every run that tests anythi
 
 On its first run, the script creates `daemon/.venv` and installs the daemon package with its test
 and lint dependencies (the `dev` extra). Set `PYTHON=/path/to/python3` to use a specific Python
-3.11+ interpreter, or `PYTEST=/path/to/pytest` to use an existing test runner.
+3.11+ interpreter (checked before creating a venv), or `PYTEST=/path/to/pytest` to use an existing test runner.
 
 After pytest it lints the daemon: `mypy aitermd tests tools`, then `ruff check aitermd tests tools`. The tests
 are type-checked too, so `FakeIterm` must keep matching the `ItermPort` it stands in for. The lint
@@ -148,6 +174,12 @@ directly so development and release do not maintain different dependency lists.
 against their source, bundled dependency versions from `daemon/pyproject.toml`,
 and strict code signature. Both signing and signature verification must succeed during a build.
 
+## `snapshots.sh`
+
+Builds only the AiTerm product, then clears the output folder and draws the snapshot suite there.
+The previous images stay in place if the build fails. The default folder is `build/snapshots`;
+pass a folder as the first argument to use another.
+
 Snapshots always use the app’s dark appearance. For captures of actual AppKit controls and native selection materials:
 
     AITERM_SNAPSHOT_HOSTED=1 AITERM_SNAPSHOT_NATIVE_CAPTURE=1 scripts/snapshots.sh build/native-dark
@@ -155,22 +187,3 @@ Snapshots always use the app’s dark appearance. For captures of actual AppKit 
 WindowServer capture requires screen-capture permission. Without it, the renderer falls back
 to view capture, which can show native selection materials as black. Neither capture mode
 establishes VoiceOver behavior or multi-monitor placement.
-
-What it produces:
-
-    build/AiTerm.app/Contents/MacOS/AiTerm                     release binary
-    build/AiTerm.app/Contents/Info.plist                       copied from app/Sources/AiTerm/Resources
-    build/AiTerm.app/Contents/Resources/daemon/aitermd/        the daemon package
-    build/AiTerm.app/Contents/Resources/daemon/<deps>          iterm2, websockets, protobuf (pip --target)
-    build/AiTerm.app/Contents/Resources/hooks/claude-statusline-shim.sh
-    build/AiTerm.app/Contents/Resources/hooks/pi-aiterm-status.ts
-
-Both hook resources are copied from this repository while the app is built. AiTerm never
-downloads executable integration code during installation or at runtime.
-
-The app launches the daemon with `PYTHONPATH=<Contents/Resources/daemon>`, so both `aitermd` and
-its dependencies resolve from the bundle — nothing is installed into the user's Python.
-
-The bundle uses the `AiTerm Release` certificate when available, with ad-hoc signing as the fallback
-and `SIGN_IDENTITY` as the override. Signing and strict verification must succeed. Developer ID
-signing and notarisation are a later task; `build/` is git-ignored.

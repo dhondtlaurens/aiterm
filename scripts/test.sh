@@ -25,7 +25,6 @@ PYTHON="${PYTHON:-python3}"
 DAEMON_VENV="$ROOT/daemon/.venv"
 DEFAULT_PYTEST="$DAEMON_VENV/bin/pytest"
 PYTEST="${PYTEST:-$DEFAULT_PYTEST}"
-ROUTES="$ROOT/scripts/test-routes.tsv"
 
 usage() { print -u2 "usage: scripts/test.sh [changed|all|swift|daemon] [-- <swift test arguments>]"; exit 2; }
 SUITE=changed
@@ -84,6 +83,7 @@ check_swift_selector() {
 # `<selector><TAB><path>` per path that picked it. SINCE says where the paths came from; it is empty
 # when there is no main to compare with, and then the selection is everything.
 select_changed() {
+    local selection_output why_output
     CHANGED=() SELECTION=() WHY=()
     if [[ -n "${AITERM_TEST_PATHS+set}" ]]; then
         CHANGED=(${(f)AITERM_TEST_PATHS})
@@ -95,8 +95,10 @@ select_changed() {
         SELECTION=(everything)
     fi
     if [[ -n "$SINCE" ]]; then
-        SELECTION=(${(f)"$(print -rl -- $CHANGED | "$ROOT/scripts/test-select.sh")"})
-        WHY=(${(f)"$(print -rl -- $CHANGED | "$ROOT/scripts/test-select.sh" --why)"})
+        selection_output="$(print -rl -- $CHANGED | "$ROOT/scripts/test-select.sh")" || exit 1
+        why_output="$(print -rl -- $CHANGED | "$ROOT/scripts/test-select.sh" --why)" || exit 1
+        SELECTION=(${(f)selection_output})
+        WHY=(${(f)why_output})
     fi
 }
 
@@ -141,12 +143,6 @@ use_selection() {
 
 # Chosen before the lock is taken, so a run with nothing to do never waits for one.
 if [[ "$SUITE" == changed ]]; then
-    # A row with a glob and no selectors would route its paths to nothing without a word.
-    while IFS=$'\t' read -r glob selectors; do
-        [[ -n "$glob" && "$glob" != \#* ]] || continue
-        [[ -n "${selectors//[[:space:]]/}" ]] || route_error "the row for $glob names no selectors"
-    done <"$ROUTES"
-
     select_changed
     use_selection
     (( RUN_TOOLCHAIN || RUN_DAEMON || RUN_SWIFT )) || exit 0
@@ -188,7 +184,7 @@ fi
 
 if (( RUN_TOOLCHAIN )); then
     # Validate first, before spending time on daemon tests with an unusable Swift compiler.
-    TEST_SWIFT_TOOLCHAIN_SKIP_AGGREGATE=1 "$ROOT/scripts/test-swift-toolchain.sh"
+    "$ROOT/scripts/test-swift-toolchain.sh"
 fi
 
 # The reader guard: it pins the routing table and fails on a test that reads outside its own target
@@ -210,6 +206,7 @@ daemon_suite() {
             exit 1
         fi
 
+        "$PYTHON" -c 'import sys; sys.exit(sys.version_info < (3, 11))' || { print -u2 "python3 >= 3.11 required"; exit 1; }
         print "Daemon test environment is missing; creating $DAEMON_VENV"
         "$PYTHON" -m venv "$DAEMON_VENV"
         # App launches may export a bundled daemon on PYTHONPATH. It must not satisfy

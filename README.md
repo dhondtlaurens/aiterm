@@ -261,7 +261,7 @@ How the sidebar and AiTerm's terminal windows look.
 
 ## Screenshots worth adding
 
-Only `docs/desktop.png` (above) and `docs/sidebar.png` exist. The snapshot suite
+The README uses `docs/desktop.png` (above). The snapshot suite
 (`scripts/snapshots.sh`) already draws most of these, so each could be added from there:
 
 - **The board while a broadcast runs** (`board-running.png`): the four columns, a request waiting

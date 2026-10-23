@@ -9,17 +9,7 @@ PY="${PYTHON:-python3}"
 # version is validated there too.
 "$PY" -c 'import sys; assert sys.version_info >= (3, 11), sys.version' || { echo "python3 >= 3.11 required"; exit 1; }
 
-# `--product AiTerm`: the app alone. A plain release build works too, but would also build
-# AiTermTestSupport, which a release has no use for. The log is kept: on success only its last line
-# is shown, on a failure its last 50, where the compiler's diagnostics are.
-mkdir -p "$ROOT/build"
-BUILD_LOG="$ROOT/build/swift-build-release.log"
-if ! (cd "$ROOT/app" && "$ROOT/scripts/swift.sh" build -c release --product AiTerm >"$BUILD_LOG" 2>&1); then
-    tail -50 "$BUILD_LOG" >&2
-    print -u2 "swift build failed; the whole log is $BUILD_LOG"
-    exit 1
-fi
-grep -v libSwiftScan "$BUILD_LOG" | tail -1
+"$ROOT/scripts/build-app.sh" release
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources/daemon" "$OUT/Contents/Resources/hooks"
 cp "$ROOT/app/.build/release/AiTerm" "$OUT/Contents/MacOS/AiTerm"
@@ -34,7 +24,8 @@ cp "$ROOT/LICENSE" "$OUT/Contents/Resources/LICENSE"
 "$PY" -m pip install --quiet --no-compile --target "$OUT/Contents/Resources/daemon" "$ROOT/daemon"
 # The delivery check, beside the package it drives: Settings › Agents' Run check runs it from here,
 # with the helper's own Python (`DeliveryCheck.command`).
-cp -R "$ROOT/daemon/tools" "$OUT/Contents/Resources/daemon/tools"
+mkdir -p "$OUT/Contents/Resources/daemon/tools"
+cp "$ROOT/daemon/tools/"{__init__.py,delivery_check.py} "$OUT/Contents/Resources/daemon/tools/"
 find "$OUT/Contents/Resources/daemon" -name '__pycache__' -type d -prune -exec rm -rf {} +
 cp "$ROOT/hooks/claude-statusline-shim.sh" "$OUT/Contents/Resources/hooks/"
 cp "$ROOT/hooks/pi-aiterm-status.ts" "$OUT/Contents/Resources/hooks/"

@@ -37,7 +37,7 @@ Claude Code, Codex & PI  ──HTTP POST 127.0.0.1:47821──>  HookServer → 
   and `~/.codex/config.toml` by the agent's Install action in
   Settings › Agents — merge-only, with a backup, because Emdash owns hook slots in the same files.
 - **PI** — an extension AiTerm writes to `~/.pi/agent/extensions/`. Claude Code and Codex are fully
-  supported; other providers, such as Grok, work through PI.
+  supported; PI reports the provider and model of its active session.
 - **HookServer → StatusEngine** — `/hook/claude` · `/hook/codex` · `/hook/pi` ·
   `/mcp` · `/statusline`. A post is acknowledged before it is handled, so no
   agent waits on the daemon — except a `/mcp` tool call (Codex's Stop hook), which is delivered
@@ -105,7 +105,7 @@ is chosen, and the workspace at quit.
 
 ### Operator
 
-One Operator, one broadcast at a time (`docs/superpowers/specs/2026-10-19-operator-greenfield-design.md`).
+One Operator, one broadcast at a time.
 `OperatorController` owns it; the run is kept in the workspace (`AppState.runs`, `OperatorRun`) and
 changed only through the controller, so it is saved like every other change and a pause or an end
 survives a restart.
@@ -208,7 +208,7 @@ shown in `run_status` and as a board-card note until the task is finished or tak
 next `finish_task`; an accepted task it holds back reads `waiting to merge · refused by the Oracle`. A merge, through the
 request or local, is refused by `PublicationGuard` with the Merge slice off, checked when `finish_task`
 starts and read again in `TaskPublisher` right before the host merges. Each refusal also appends one
-sentence to the run's `leftForYou` (`Merge !418: the Merge slice is off.`), which Summary lists under Left for you.
+sentence to the run's `leftForYou` (`Merge feature/search in Search: The Merge slice is off for this broadcast.`), which Summary lists under Left for you.
 The base needs no slice: a commit on the task's branch, its push, a draft MR, an agent review. Under
 every slice AiTerm's floor holds: only the commit the Operator accepted, a green pipeline, every
 review thread resolved, never a push to a default or protected branch, and a local merge never pushed.
@@ -243,20 +243,21 @@ more. A permission prompt's note opens its task's window; every other note opens
 
 **The tools.** The daemon's `/operator` route (`operator_mcp.py`) serves the Operator's MCP tools to a
 registered token and forwards each call to the app as `operator.request`; `OperatorToolHandler`
-answers with `operator.reply`. Every mutating tool is safe to repeat (a `key`, or a recorded step):
+answers with `operator.reply`. Mutating tools use keys, recorded steps or value-based updates to make retries safe.
+`message_task` deduplicates identical text to the same tab only during its retry window. The 30 tools are:
 `run_status`; `jira_search`, `jira_board`, `jira_create`, `jira_move`, `jira_link`, `jira_sprint`, `jira_edit`, `jira_comment`; `create_task`, `update_task`,
-`submit_plan`; `read_task`, `review_task`, `request_review`, `reply_thread`, `find_user`; `message_task`,
+`submit_plan`; `read_task`, `review_task`, `request_review`, `reply_thread`, `find_user`; `message_task`, `open_tab`,
 `mark_task`, `resume_task`, `retry_task`, `finish_task`; `ask_you`, `resolve_question`; `report_find`,
-`report_snag` and `log_decision`.
+`report_snag`, `leave_for_you`, `log_decision` and `write_summary`.
 
 ### Help with problems
 
 A failure an agent can fix — a diverged branch or a rebase's conflict, in New Review's footer and
 Pull main's banner — offers Find a Fix while Settings › Agents' Help with problems is on. The fix
 runs as the Operator: always Claude Code, at Settings › Operator's model and reasoning
-(`AgentIntegrations.fixModel`), and no button without it. The pipeline can still drive Codex (PI has no
-unattended mode), which the Oracle's runs reuse; PI's one headless run is the Oracle's and agent
-reviews', read-only by its tool list alone (`ChallengeLaunch`), since it has no sandbox. `FixPipeline` runs it off the main
+(`AgentIntegrations.fixModel`), and no button without it. The Oracle and agent reviews use
+`ChallengeLaunch` separately; PI's headless runs are read-only by their tool list, since it has
+no sandbox. `FixPipeline` runs Claude off the main
 actor in four stages, each a closure the app's tests fake; `FixSession` owns one problem's run.
 
 **The clone.** The agent never runs in the real repository. `FixClone` is a `git clone --shared
@@ -274,9 +275,7 @@ with 600 s to write the plan; AiTerm's checks and the plan's `verify` follow, wh
 through `AgentProcess` (dedicated drain threads, a stop that kills the process group), never
 `ProcessRunner`. Claude runs with hooks off, `--setting-sources user` (the clone's own settings are
 the repository's), no MCP servers, its Bash sandbox with the network off, no web tools, and Edit and
-Write confined to the clone. Codex runs with `--ignore-user-config` and `--disable hooks`, a
-`workspace-write` sandbox (read-only for Look) and the clone's `.git` as a writable root, which
-`workspace-write` cannot write on its own.
+Write confined to the clone.
 
 **The checks.** The agent can write the clone, `.git` included, and a `core.fsmonitor` or
 `filter.*.clean` that AiTerm's own git read would run unsandboxed, with the network on. So that git
@@ -338,7 +337,7 @@ socket; the app's tests record it in process instead.
 ## Inside the daemon
 
 `Service` is the composition root: it builds the registry, the status engine and the usage store,
-wires the three parts below to them, registers every RPC handler and runs the 2 s tick.
+wires the modules below to them, registers every RPC handler and runs the 2 s tick.
 
 | Module | What it owns |
 |---|---|
@@ -346,10 +345,11 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | `windows.py` · `WindowManager` | task and terminal windows, their tabs, tagging a tab the user opens in one, titles and the background |
 | `hook_router.py` · `HookRouter` | a hook post, placed on a tab and applied to status or usage |
 | `publisher.py` · `Publisher` | `session.changed` and `usage.changed`, rendered when sent, for the router and the tick alike |
+| `mcp.py` | JSON-RPC envelopes, initialization, tool listing and tool-result formatting shared by the hook and Operator MCP routes and the Operator evaluation stub |
 | `rpc_params.py` | reading parameters, and the errors every handler answers the same way |
-| `delivery.py` · `Deliverer` | typing into an agent's tab (Operators spec §7.1): the prompt markers, the policy the delivery check wrote for each CLI version, paste · re-check · Enter |
+| `delivery.py` · `Deliverer` | typing into an agent's tab: the prompt markers, the policy the delivery check wrote for each CLI version, paste · re-check · Enter |
 | `keystrokes.py` · `TypingGuard` | when you last typed in each tab and whether its input may hold unsent text, from iTerm2's keystroke monitor: never the key itself |
-| `operator_mcp.py` · `OperatorRoute` | the Operator's MCP server on the hook port's `/operator`: a registered run's Bearer token or 401, the tools' schemas, every tool call forwarded to the app as `operator.request`. The tools: `run_status`, `jira_search`, `jira_board`, `jira_create`, `jira_move`, `jira_link`, `jira_sprint`, `jira_edit`, `jira_comment`, `create_task`, `update_task`, `submit_plan`, `read_task`, `review_task`, `request_review`, `reply_thread`, `find_user`, `message_task`, `open_tab`, `mark_task`, `resume_task`, `retry_task`, `finish_task`, `ask_you`, `resolve_question`, `report_find`, `report_snag`, `log_decision` |
+| `operator_mcp.py` · `OperatorRoute` | the Operator's MCP server on the hook port's `/operator`: a registered run's Bearer token or 401, the tools' schemas, every tool call forwarded to the app as `operator.request`. The tool list is in the Operator section above. |
 | `iterm_bridge.py` | the only module that imports `iterm2` |
 | `__main__.py` · `IdleWatchdog` | quitting once no app has been attached for a minute |
 
