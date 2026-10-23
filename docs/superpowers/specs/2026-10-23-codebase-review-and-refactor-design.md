@@ -122,7 +122,18 @@ is fixed on purpose.
 
 ## Decisions for the operator (each changes what gets built)
 
-Listed with the recommendation; the plan follows the recommendation unless told otherwise.
+Answered 2026-10-23: 1-9 as recommended (10: no splits). 11: fix the test only; the existing plists are
+left alone and the final report gives the clean-up command. Fast-forward: at the end, if the main checkout
+is still on feat/refactor-broadcast, clean, and the branch is where it was when last merged in, run
+`git -C <main checkout> merge --ff-only <head>`; otherwise change nothing and report. If the branch moves,
+merge it in at the next lane boundary and re-run the reference checks.
+
+Plan changes from the operator: the daemon lane runs in a separate Codex worker tab in this worktree; it
+owns daemon/ and hooks/ and commits only those paths. This session never touches daemon/ or hooks/; the wire
+task, scripts and docs run here after the Codex tab reports done. At most two subagents at a time, Opus 5.5
+at high effort, no optional extra review passes. A commit that meets index.lock waits and retries.
+
+The questions as put:
 
 1. Retire the Operator's milestone ladder (M1/M2/M3): production is always M3; M1/M2 rules live only
    in tests. Recommend yes.
