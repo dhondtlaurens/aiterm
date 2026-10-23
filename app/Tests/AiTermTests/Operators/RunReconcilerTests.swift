@@ -161,7 +161,7 @@ import Testing
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         world.controller.daemonAttached()
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id)])
-        try await world.daemon.received("session.setOwnership")
+        await world.controller.resending?.value
         let sent = try #require(world.daemon.requests("session.setOwnership").first)
         #expect(sent.params["sessionId"] as? String == "w1" && sent.params["ownership"] as? Int == 3)
     }

@@ -112,6 +112,8 @@ final class OperatorController {
     @ObservationIgnored private var stallWatch = StallWatch()
     /// The latest prompt probe, for a test to await.
     @ObservationIgnored private(set) var lastProbe: Task<Void, Never>?
+    /// The ownership being set again on a new daemon's tabs (`resendOwnership`), for a test to await; `stop()` cancels it.
+    @ObservationIgnored private(set) var resending: Task<Void, Never>?
     /// The latest start a pass made, for a test to await.
     @ObservationIgnored private(set) var lastStart: Task<Void, Never>?
     /// Each complete broadcast's wait for its summary, by run: one per completion.
@@ -771,6 +773,8 @@ final class OperatorController {
     func stop() {
         loop?.cancel()
         loop = nil
+        resending?.cancel()
+        resending = nil
         finisher.stopAll()
     }
 
@@ -857,9 +861,11 @@ final class OperatorController {
         guard let daemon = daemon() else { return }
         let owned = workspace.state.tasks.compactMap { task in task.operated.map { (task.id, $0.ownership) } }
         let sessions = live.sessions
-        Task {
+        resending?.cancel()
+        resending = Task {
             for (id, ownership) in owned {
                 for tab in sessions where tab.taskUUID == id {
+                    guard !Task.isCancelled else { return }
                     await Log.daemon.attempt("Setting the ownership of task \(id.uuidString) on its tab") {
                         try await daemon.setOwnership(sessionId: tab.sessionId, ownership: ownership)
                     }
