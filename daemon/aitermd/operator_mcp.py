@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import stat
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,8 @@ class OperatorTokens:
         self._runs: dict[str, str] = {}    # token -> run id
         self._tokens: dict[str, str] = {}  # run id -> token
         self._revoked: set[str] = set()
+        self._loaded_at = float("-inf")
+        self._root_stamp: int | None = None
         self._load()
 
     def register(self, run_id: str, token: str) -> None:
@@ -110,6 +113,10 @@ class OperatorTokens:
         if self._root is None:
             return
         try:
+            stamp = self._root.stat().st_mtime_ns
+            if stamp == self._root_stamp and time.monotonic() - self._loaded_at < 1:
+                return
+            self._root_stamp, self._loaded_at = stamp, time.monotonic()
             folders = [path for path in self._root.iterdir() if path.is_dir()]
         except OSError:
             return  # no runs yet

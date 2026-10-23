@@ -311,6 +311,8 @@ class Service:
             self._last_good_tick = number
 
     async def _tick(self) -> None:
+        if self.codex_files is not None:
+            self.codex_files.begin_tick()
         try:
             await self._read_codex_usage()
         except Exception:  # noqa: BLE001 - another process's file must not stop session polling

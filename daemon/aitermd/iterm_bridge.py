@@ -471,7 +471,10 @@ class ItermBridge:
             self._conn = None
             self._forget_app()
             for cb in self._disc_cbs:
-                await cb()
+                try:
+                    await cb()
+                except Exception:  # noqa: BLE001 - every subscriber must learn the connection ended
+                    log.exception("disconnect callback failed")
 
     async def _on_new(self, _conn, notif) -> None:
         for cb in self._new_cbs:

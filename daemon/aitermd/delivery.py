@@ -157,9 +157,18 @@ def load_policy(path: Path) -> dict[AgentKind, Verdict]:
     return verdicts
 
 
+@functools.lru_cache(maxsize=1)
+def _policy_at(path: Path, stamp: tuple[int, int, int, int]) -> dict[AgentKind, Verdict]:
+    return load_policy(path)
+
+
 def read_policy() -> dict[AgentKind, Verdict]:
-    """The policy as the delivery check last wrote it: the daemon's, read on every delivery."""
-    return load_policy(POLICY_PATH)
+    """Read the policy again when replaced, rewritten or its permissions change."""
+    try:
+        st = POLICY_PATH.stat()
+    except OSError:
+        return dict.fromkeys(HARNESS_BY_AGENT, NOT_CHECKED)
+    return _policy_at(POLICY_PATH, (st.st_ino, st.st_mtime_ns, st.st_ctime_ns, st.st_size))
 
 
 def shows_update_offer(agent: AgentKind, screen: str) -> bool:

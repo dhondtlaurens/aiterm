@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from http.client import responses
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
@@ -263,8 +264,7 @@ class HookServer:
 
     @staticmethod
     async def _reply(writer: asyncio.StreamWriter, status: int, text: str) -> None:
-        reason = {200: "OK", 202: "Accepted", 400: "Bad Request", 401: "Unauthorized", 404: "Not Found", 405: "Method Not Allowed",
-                  413: "Payload Too Large", 431: "Request Header Fields Too Large", 500: "Internal Server Error"}[status]
+        reason = responses.get(status, "Unknown")
         body = text.encode()
         head = f"HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {len(body)}\r\nConnection: close\r\n\r\n"
         writer.write(head.encode() + body)

@@ -840,3 +840,24 @@ async def test_paste_attribution_is_stamped_when_send_finishes(rig, monkeypatch)
     monkeypatch.setattr(rig.iterm, "send_text", slow_send)
     assert (await rig.deliverer.deliver(rig.sid, "hello", 1)).result == "delivered"
     assert rig.deliverer.delivered_within(rig.sid, rig.clock.now, 1)
+
+
+def test_policy_is_read_again_only_when_its_file_changes(tmp_path, monkeypatch):
+    path = tmp_path / "policy.json"
+    monkeypatch.setattr(delivery, "POLICY_PATH", path)
+    path.write_text(json.dumps({"claude": {"version": "2.1.301", "pasteSafe": True, "submitSafe": True}}))
+    reads = []
+    original = type(path).read_text
+
+    def counted(file, *args, **kwargs):
+        reads.append(file)
+        return original(file, *args, **kwargs)
+
+    monkeypatch.setattr(type(path), "read_text", counted)
+    assert delivery.read_policy()["claude"].policy == "auto"
+    assert delivery.read_policy()["claude"].policy == "auto"
+    assert reads == [path]
+    path.write_text('{}')
+    assert delivery.read_policy()["claude"].policy == "off"
+    path.unlink()
+    assert delivery.read_policy()["claude"].policy == "off"

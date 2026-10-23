@@ -40,6 +40,8 @@ class CodexSessionFiles:
         # Thread id -> when a full listing last failed to find its rollout.
         self._missed: dict[str, float] = {}
         self._listed_at: float | None = None
+        self._batch_listing = False
+        self._tree: list[Path] | None = None
         self._recent: list[Path] = []
         # Thread id -> the rollout as last parsed, and the fill it gave.
         self._context: dict[str, tuple[Stamp, int | None]] = {}
@@ -49,6 +51,10 @@ class CodexSessionFiles:
         # tick asks every two seconds, and a file nobody has written to has nothing new to say.
         self._limits_seen: tuple[tuple[Path, int], ...] | None = None
         self._limits_answer: tuple[dict[str, Any], int | None] | None = None
+
+    def begin_tick(self) -> None:
+        """Share any full tree discovery across usage and thread reads in this tick."""
+        self._batch_listing, self._tree = True, None
 
     def retain(self, session_ids: set[str]) -> None:
         """Drops what is cached for threads no tab is running any more."""
@@ -172,10 +178,13 @@ class CodexSessionFiles:
         return path
 
     def _list_all(self) -> list[Path]:
-        if not self.root.is_dir():
-            return []
+        if self._tree is not None:
+            return self._tree
         try:
-            return list(self.root.rglob("rollout-*.jsonl"))
+            paths = list(self.root.rglob("rollout-*.jsonl"))
+            if self._batch_listing:
+                self._tree = paths
+            return paths
         except OSError:
             return []
 

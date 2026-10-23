@@ -306,3 +306,22 @@ def test_unreadable_rollout_is_retried_without_a_file_change(tmp_path, monkeypat
                 "limits": ({"limit_id": "codex", "primary": {"used_percent": 30, "window_minutes": 10080, "resets_at": 1},
                             "secondary": None, "plan_type": "team"}, 1790087469)}[reading]
     assert read() == expected
+
+
+def test_usage_and_multiple_threads_share_one_tree_listing(tmp_path, monkeypatch):
+    write_rollout(tmp_path, "one", [token_count(10, 100)])
+    write_rollout(tmp_path, "two", [token_count(20, 100)])
+    scans = []
+    original = type(tmp_path).rglob
+
+    def counted(path, pattern):
+        scans.append(path)
+        return original(path, pattern)
+
+    monkeypatch.setattr(type(tmp_path), "rglob", counted)
+    files = CodexSessionFiles(tmp_path)
+    files.begin_tick()
+    files.rate_limits()
+    assert files.context_percent("one") == 10
+    assert files.context_percent("two") == 20
+    assert scans == [tmp_path]

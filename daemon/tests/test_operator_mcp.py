@@ -630,3 +630,19 @@ def test_failed_token_unlink_does_not_restore_revoked_authority(tmp_path, monkey
     write_token(tmp_path, "run-2", OTHER)
     assert tokens.run_for(OTHER) == "run-2"
     assert tokens.run_for(TOKEN) is None
+
+
+def test_unknown_tokens_do_not_repeatedly_scan_unchanged_run_folders(tmp_path, monkeypatch):
+    write_token(tmp_path, "run-1", TOKEN)
+    tokens = OperatorTokens(tmp_path)
+    scans = []
+    original = type(tmp_path).iterdir
+
+    def counted(path):
+        scans.append(path)
+        return original(path)
+
+    monkeypatch.setattr(type(tmp_path), "iterdir", counted)
+    assert tokens.run_for(UNKNOWN) is None
+    assert tokens.run_for(OTHER) is None
+    assert scans == []

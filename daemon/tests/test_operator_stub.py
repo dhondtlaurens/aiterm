@@ -77,3 +77,10 @@ def test_the_stub_lists_the_tools_it_was_given_and_logs_each_call(tmp_path):
         stub.wait(timeout=10)
         if stub.stdout is not None:
             stub.stdout.close()
+
+
+def test_stub_wraps_list_results_like_the_operator_route():
+    from tools.operator_stub import tool_result
+    result = tool_result([{"key": "ABC-1"}])
+    assert result["structuredContent"] == {"items": [{"key": "ABC-1"}]}
+    assert json.loads(result["content"][0]["text"]) == {"items": [{"key": "ABC-1"}]}

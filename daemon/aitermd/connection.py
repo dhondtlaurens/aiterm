@@ -28,7 +28,9 @@ Broadcast = Callable[[str, Any], Awaitable[None]]
 
 async def _launch_iterm() -> None:
     try:
-        await asyncio.create_subprocess_exec("open", "-a", "iTerm", stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+        process = await asyncio.create_subprocess_exec(
+            "open", "-a", "iTerm", stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+        await process.wait()
     except Exception:  # noqa: BLE001 - a missing/failing `open` must never break the reconnect loop
         log.exception("failed to launch iTerm2 via 'open -a iTerm'")
 

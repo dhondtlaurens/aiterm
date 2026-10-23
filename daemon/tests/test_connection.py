@@ -1,3 +1,4 @@
+from aitermd.connection import _launch_iterm as real_launch_iterm
 import asyncio
 
 import pytest
@@ -339,3 +340,19 @@ async def test_authentication_backoff_stays_capped_after_thousands_of_failures(h
     for _ in range(2000):
         await h.supervisor._auth_failed(REFUSED)
     assert h.supervisor._retry_delay() == 60.0
+
+
+async def test_launch_waits_for_open_to_exit(monkeypatch):
+    waited = []
+
+    class Process:
+        async def wait(self):
+            waited.append(True)
+            return 0
+
+    async def launch(*args, **kwargs):
+        return Process()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", launch)
+    await real_launch_iterm()
+    assert waited == [True]

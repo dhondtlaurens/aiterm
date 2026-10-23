@@ -542,3 +542,14 @@ async def test_stop_owns_a_finished_request_until_its_buffered_transport_closes(
         with contextlib.suppress(ConnectionResetError):
             await writer.wait_closed()
         await srv.stop()
+
+
+async def test_route_can_reply_with_a_standard_status_outside_hook_errors(server):
+    srv, _ = server
+
+    class Route:
+        async def serve(self, method, headers, body):
+            return 201, '{"created":true}'
+
+    srv.operator_route = Route()
+    assert await operator_post(srv.port, {}, token="token") == (201, {"created": True})

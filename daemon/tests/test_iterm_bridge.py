@@ -1532,3 +1532,22 @@ async def test_closing_stops_the_librarys_reader_before_the_socket_closes():
     await iterm_bridge._close(conn)
     await asyncio.sleep(0)
     assert task.cancelled() and under_the_reader == [] and conn.websocket.closed
+
+
+async def test_one_failed_disconnect_callback_does_not_skip_the_rest(patched_connect):
+    bridge = ItermBridge()
+    called = []
+
+    async def broken():
+        raise RuntimeError("callback failed")
+
+    async def next_callback():
+        called.append(True)
+
+    bridge.on_disconnect(broken)
+    bridge.on_disconnect(next_callback)
+    await bridge.connect()
+    watch = bridge._watch_task
+    await patched_connect[0].websocket.close()
+    await watch
+    assert called == [True]
