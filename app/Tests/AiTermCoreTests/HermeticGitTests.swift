@@ -14,11 +14,12 @@ import Testing
 
     /// `git config --list` is what a `commit.gpgSign`, a `core.hooksPath` or an `init.templateDir`
     /// would show up in: the global, system and XDG files are all out of reach, and the home git
-    /// would read them from is empty.
+    /// would read them from is empty. All it lists is the runner's own: no automatic maintenance.
     @Test func gitReadsNoConfigurationOfTheDevelopers() throws {
         let directory = try scratch()
         defer { try? FileManager.default.removeItem(atPath: directory) }
-        #expect(try GitRunner.hermetic().run(["config", "--list", "--show-origin"], in: directory) == "")
+        #expect(try GitRunner.hermetic().run(["config", "--list", "--show-origin"], in: directory)
+                == "command line:\tgc.auto=0\ncommand line:\tmaintenance.auto=false")
     }
 
     @Test func gitCommitsAsTheTestsIdentity() throws {
@@ -39,7 +40,7 @@ import Testing
                     "GIT_CONFIG_PARAMETERS": "'core.hooksPath=/x'", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "commit.gpgsign",
                     "GIT_CONFIG_VALUE_0": "true", "GIT_TEMPLATE_DIR": "/hook/templates", "PATH": "/usr/bin:/bin"]
         let env = GitRunner.hermetic().commandEnvironment(inheriting: hook, extra: [:])
-        for name in hook.keys where name.hasPrefix("GIT_") { #expect(env[name] == nil, "\(name) is inherited") }
+        for name in hook.keys where name.hasPrefix("GIT_") { #expect(env[name] == HermeticGit.environment[name], "\(name) is inherited") }
         #expect(env["GIT_CONFIG_GLOBAL"] == "/dev/null" && env["GIT_AUTHOR_NAME"] == "AiTerm Tests")
         #expect(env["PATH"] == "/usr/bin:/bin")
     }

@@ -7,12 +7,16 @@ import AiTermCore
 /// attributes and ignore files.
 enum HermeticGit {
     /// No global, system or XDG configuration, a home with nothing in it, and an author and committer
-    /// of our own, so a fixture commits without configuring one.
+    /// of our own, so a fixture commits without configuring one. No automatic maintenance either:
+    /// git 2.54 starts a detached `maintenance run --auto` after every commit, whose repack deletes
+    /// the packs and loose objects a read right after is using ("Could not read <sha>").
     static let environment: [String: String] = [
         "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
         "HOME": ScratchHome.bare.path, "XDG_CONFIG_HOME": ScratchHome.bare.path,
         "GIT_AUTHOR_NAME": "AiTerm Tests", "GIT_AUTHOR_EMAIL": "tests@aiterm.invalid",
         "GIT_COMMITTER_NAME": "AiTerm Tests", "GIT_COMMITTER_EMAIL": "tests@aiterm.invalid",
+        "GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "gc.auto", "GIT_CONFIG_VALUE_0": "0",
+        "GIT_CONFIG_KEY_1": "maintenance.auto", "GIT_CONFIG_VALUE_1": "false",
     ]
 }
 
