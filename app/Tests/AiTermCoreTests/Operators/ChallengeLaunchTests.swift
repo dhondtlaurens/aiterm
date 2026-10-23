@@ -25,6 +25,21 @@ import Testing
         #expect(!granted.contains { $0.contains("Edit") || $0.contains("Write") || $0.contains("Bash") })
     }
 
+    /// Claude's and Codex's whole runs, word for word, as they were before they were built through `HeadlessRun`.
+    @Test func theRunsAreWordForWordAsBefore() {
+        let settings = #"{"disableAllHooks":true,"sandbox":{"enabled":true,"allowUnsandboxedCommands":false,"network":{"allowedDomains":[]}}}"#
+        #expect(ChallengeLaunch.invocation(claude, prompt: "P", runFolder: "/run", projects: ["/shop", "/web"], answerFile: "/run/a").arguments
+                == ["-p", "P", "--permission-mode", "dontAsk", "--tools", "Read,Grep,Glob", "--allowedTools", "Read", "Grep", "Glob",
+                    "--disallowedTools", "Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch",
+                    "--output-format", "json", "--strict-mcp-config", "--settings", settings, "--setting-sources", "user",
+                    "--add-dir", "/shop", "/web", "--model", "claude-opus-5-5", "--effort", "high"])
+        let gpt = OracleSetting(isOn: true, agent: .codex, model: "gpt-6-astra", reasoning: "medium")
+        #expect(ChallengeLaunch.invocation(gpt, prompt: "P", runFolder: "/run", projects: ["/shop"], answerFile: "/run/a").arguments
+                == ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--json", "-C", "/run", "-o", "/run/a",
+                    "--ignore-user-config", "--disable", "hooks"] + AgentKind.codex.harness.modelArguments(model: "gpt-6-astra", reasoning: "medium")
+                    + ["P"])
+    }
+
     @Test func codexRunsInAReadOnlySandboxInTheRunFolder() throws {
         let invocation = ChallengeLaunch.invocation(codex, prompt: "P", runFolder: "/run", projects: [], answerFile: "/run/a")
         #expect(invocation.executable == "codex" && invocation.answerFile == "/run/a")

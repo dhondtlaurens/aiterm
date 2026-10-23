@@ -18,10 +18,10 @@ final class FixerLaunchTests {
     }
     deinit { try? FileManager.default.removeItem(atPath: dir) }
 
-    private func look(_ agent: FixerAgent, in clone: FixClone? = nil, request: FixRequest? = nil) throws -> FixerInvocation {
+    private func look(_ agent: FixerAgent, in clone: FixClone? = nil, request: FixRequest? = nil) throws -> HeadlessInvocation {
         try FixerLaunch.look(agent, model: "m", reasoning: nil, clone: clone ?? self.clone, request: request ?? self.request, sessionID: "S")
     }
-    private func apply(_ agent: FixerAgent, in clone: FixClone? = nil, proposal: FixProposal? = nil) throws -> FixerInvocation {
+    private func apply(_ agent: FixerAgent, in clone: FixClone? = nil, proposal: FixProposal? = nil) throws -> HeadlessInvocation {
         try FixerLaunch.apply(agent, model: "m", reasoning: nil, clone: clone ?? self.clone, proposal: proposal ?? self.proposal, sessionID: "S")
     }
     private func output(_ stdout: String, status: Int32 = 0, timedOut: Bool = false) -> ProcessOutput {

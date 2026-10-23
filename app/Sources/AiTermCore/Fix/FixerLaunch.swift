@@ -1,24 +1,12 @@
 import Foundation
 
-// Kept while the Operator caller moves to HeadlessInvocation.
-public typealias FixerInvocation = HeadlessInvocation
-
 enum FixerLaunch {
     static let readOnlyGit = ["status", "log", "diff", "show", "range-diff", "merge-base", "cherry", "rev-parse"]
         .map { "Bash(git \($0):*)" }
-    static let claudeSettings = HeadlessRun.claudeSettings
-    static let claudeSettingSources = HeadlessRun.claudeSettingSources
-    static let claudeNoWeb = HeadlessRun.claudeNoWeb
-    static let codexQuiet = HeadlessRun.codexQuiet
-    static let answerLimit = HeadlessRun.answerLimit
 
     /// Claude's absolute-path rule form: `//` and the path, so Edit and Write reach only the clone.
     static func claudeWriteRules(_ clone: FixClone) -> [String] {
         ["Edit(/\(clone.path)/**)", "Write(/\(clone.path)/**)"]
-    }
-
-    static func modelWords(_ agent: AgentKind, _ model: String, _ reasoning: String?) -> [String] {
-        HeadlessRun.modelArguments(agent, model: model, reasoning: reasoning)
     }
 
     static func look(_ agent: FixerAgent, model: String, reasoning: String?, clone: FixClone,

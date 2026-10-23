@@ -67,13 +67,11 @@ struct SecondOpinionRunner: Sendable {
         }
     }
 
-    private func perform(_ invocation: FixerInvocation, in directory: String, timeout: Duration) async -> Result<ProcessOutput, NoOutput> {
+    private func perform(_ invocation: HeadlessInvocation, in directory: String, timeout: Duration) async -> Result<ProcessOutput, NoOutput> {
         let name = invocation.executable, locate = self.locate
         guard let executable = await BackgroundWork.run({ locate(name) }) else { return .failure(.missing(name)) }
         // As a fix's agent: a CLI installed by npm needs its own bin on the PATH launchd gives an app.
-        var environment = invocation.environment
-        let bin = (executable as NSString).deletingLastPathComponent
-        environment["PATH"] = [bin, ProcessRunner.inheritedEnvironment["PATH"]].compactMap { $0 }.joined(separator: ":")
+        let environment = ProcessRunner.environment(runningCLI: executable, overrides: invocation.environment)
         let output: ProcessOutput
         do { output = try await run(executable, invocation.arguments, environment, directory, timeout) }
         catch { return .failure(.failed(error.localizedDescription)) }

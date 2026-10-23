@@ -31,12 +31,16 @@ enum HeadlessRun {
     /// An answer file larger than this is not an answer.
     static let answerLimit = 1_000_000
 
+    /// `tools`, when given, is the whole tool set (`--tools`), so no permission rule of the person's adds one to it;
+    /// `directories` are read besides the working folder (`--add-dir`).
     static func claude(prompt: String, allowedTools: [String], deniedTools: [String],
-                       options: [String] = [], model: String, reasoning: String?) -> [String] {
-        ["-p", prompt] + options + ["--permission-mode", "dontAsk", "--allowedTools"] + allowedTools
-            + ["--disallowedTools"] + deniedTools + claudeNoWeb
+                       options: [String] = [], tools: [String]? = nil, directories: [String] = [],
+                       model: String, reasoning: String?) -> [String] {
+        ["-p", prompt] + options + ["--permission-mode", "dontAsk"] + (tools.map { ["--tools", $0.joined(separator: ",")] } ?? [])
+            + ["--allowedTools"] + allowedTools + ["--disallowedTools"] + deniedTools + claudeNoWeb
             + ["--output-format", "json", "--strict-mcp-config", "--settings", claudeSettings]
-            + claudeSettingSources + modelArguments(.claude, model: model, reasoning: reasoning)
+            + claudeSettingSources + (directories.isEmpty ? [] : ["--add-dir"] + directories)
+            + modelArguments(.claude, model: model, reasoning: reasoning)
     }
 
     static func codex(prompt: String, directory: String, answerFile: String,

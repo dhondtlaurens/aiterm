@@ -6,7 +6,7 @@ public enum GateVerdict: Equatable, Sendable {
 }
 
 /// The Oracle's headless run (spec §4.1, §8), read-only the way Fix with AI's look is
-/// (`FixerLaunch.look`): `claude -p` with the read tools alone, `codex exec` in a read-only sandbox, or `pi -p`
+/// (`HeadlessRun`, as `FixerLaunch.look` runs): `claude -p` with the read tools alone, `codex exec` in a read-only sandbox, or `pi -p`
 /// with the read tools alone, in the run folder with the broadcast's projects readable. Its answer is plain text: the critique.
 public enum ChallengeLaunch {
     static let instructions = """
@@ -223,26 +223,23 @@ public enum ChallengeLaunch {
     static let piQuiet = ["--no-session", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-approve", "--offline"]
 
     public static func invocation(_ opinion: OracleSetting, prompt: String, runFolder: String, projects: [String],
-                                  answerFile: String) -> FixerInvocation {
+                                  answerFile: String) -> HeadlessInvocation {
         let effort = opinion.reasoning.flatMap { $0.isEmpty ? nil : $0 }
         switch opinion.agent {
         case .claude:
-            // `--tools` is the whole tool set, so no permission rule of the person's can add a write to it; the
-            // writing tools are denied besides.
-            return FixerInvocation(executable: "claude", arguments: ["-p", prompt, "--permission-mode", "dontAsk",
-                "--tools", readTools.joined(separator: ","), "--allowedTools"] + readTools + ["--disallowedTools"] + writeTools
-                + FixerLaunch.claudeNoWeb
-                + ["--output-format", "json", "--strict-mcp-config", "--settings", FixerLaunch.claudeSettings] + FixerLaunch.claudeSettingSources
-                + (projects.isEmpty ? [] : ["--add-dir"] + projects) + FixerLaunch.modelWords(.claude, opinion.model, effort),
+            // The read tools are its whole tool set (`--tools`), and the writing tools are denied besides.
+            return HeadlessInvocation(executable: "claude",
+                arguments: HeadlessRun.claude(prompt: prompt, allowedTools: readTools, deniedTools: writeTools, tools: readTools,
+                                              directories: projects, model: opinion.model, reasoning: effort),
                 environment: [:], sessionID: nil, answerFile: nil)
         case .codex:
-            return FixerInvocation(executable: "codex", arguments: ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--json",
-                "-C", runFolder, "-o", answerFile] + FixerLaunch.codexQuiet + FixerLaunch.modelWords(.codex, opinion.model, effort) + [prompt],
+            return HeadlessInvocation(executable: "codex",
+                arguments: HeadlessRun.codex(prompt: prompt, directory: runFolder, answerFile: answerFile, model: opinion.model, reasoning: effort),
                 environment: [:], sessionID: nil, answerFile: answerFile)
         case .pi:
             // PI reads any path, so the projects need no naming. `--` keeps a prompt that starts with a dash the prompt.
-            return FixerInvocation(executable: "pi", arguments: ["-p"] + piQuiet + ["--tools", piReadTools.joined(separator: ",")]
-                + FixerLaunch.modelWords(.pi, opinion.model, effort) + ["--", prompt],
+            return HeadlessInvocation(executable: "pi", arguments: ["-p"] + piQuiet + ["--tools", piReadTools.joined(separator: ",")]
+                + HeadlessRun.modelArguments(.pi, model: opinion.model, reasoning: effort) + ["--", prompt],
                 environment: [:], sessionID: nil, answerFile: nil)
         }
     }
@@ -256,7 +253,7 @@ public enum ChallengeLaunch {
         case .claude:
             text = (try? JSONDecoder().decode(ClaudeResult.self, from: Data(output.stdout.utf8)))?.result
         case .codex:
-            guard let answerFile, case .bytes(let data) = RegularFile.read(answerFile, limit: FixerLaunch.answerLimit) else { return nil }
+            guard let answerFile, case .bytes(let data) = RegularFile.read(answerFile, limit: HeadlessRun.answerLimit) else { return nil }
             text = String(decoding: data, as: UTF8.self)
         case .pi:
             text = output.stdout

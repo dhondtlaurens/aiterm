@@ -69,7 +69,7 @@ final class AgentIntegrations {
 
     /// The model and reasoning an agent's card gives it: its default in Settings › Agents, else the
     /// model last picked for that agent (`remembered`, the workspace's), else empty — the agent's own
-    /// default (`FixerLaunch.modelWords`). What the Operator's tasks launch with when it names none;
+    /// default (`HeadlessRun.modelArguments`). What the Operator's tasks launch with when it names none;
     /// a Fix runs at the Operator's own (`fixModel`). Read as each run starts, off the main actor.
     nonisolated static func fixerModel(_ agent: AgentKind, remembered: [AgentKind: String],
                                        defaults: UserDefaults = .standard) -> (model: String, reasoning: String?) {

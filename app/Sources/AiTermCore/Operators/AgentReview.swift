@@ -72,7 +72,7 @@ public enum AgentReview {
 
     /// The reviewer's run, read-only, in `worktree`: the Oracle's recipe with the task's worktree as its folder.
     public static func invocation(agent: AgentKind, model: String, reasoning: String?, prompt: String, worktree: String,
-                                  answerFile: String) -> FixerInvocation {
+                                  answerFile: String) -> HeadlessInvocation {
         ChallengeLaunch.invocation(OracleSetting(isOn: true, agent: agent, model: model, reasoning: reasoning), prompt: prompt,
                                    runFolder: worktree, projects: [], answerFile: answerFile)
     }
