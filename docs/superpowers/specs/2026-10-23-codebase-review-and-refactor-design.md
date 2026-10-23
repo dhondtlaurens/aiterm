@@ -122,7 +122,7 @@ is fixed on purpose.
 
 ## Decisions for the operator (each changes what gets built)
 
-Answered 2026-10-23: 1-9 as recommended (10: no splits). 11: fix the test only; the existing plists are
+Answered 2026-10-23: 1-8 as recommended; 9 (file splits) not now; 10 as below; 11: fix the test only; the existing plists are
 left alone and the final report gives the clean-up command. Fast-forward: at the end, if the main checkout
 is still on feat/refactor-broadcast, clean, and the branch is where it was when last merged in, run
 `git -C <main checkout> merge --ff-only <head>`; otherwise change nothing and report. If the branch moves,
@@ -132,6 +132,13 @@ Plan changes from the operator: the daemon lane runs in a separate Codex worker 
 owns daemon/ and hooks/ and commits only those paths. This session never touches daemon/ or hooks/; the wire
 task, scripts and docs run here after the Codex tab reports done. At most two subagents at a time, Opus 5.5
 at high effort, no optional extra review passes. A commit that meets index.lock waits and retries.
+
+**For the daemon lane (Codex tab):** it does the daemon items of the plan's daemon section and decision 7
+(partial paste). It leaves these daemon edits to this session's wire task, which runs after it reports
+done, because each must land together with a Swift change: `jira_edit`'s `key` in `operator_mcp.py`
+(decision 4), `run_status`'s description promising `lastCommit` and `summary`, the usage `plan` field
+(`models.py`, `usage.py`, golden wire frames), and the five app-only timing constants in `delivery.py`
+(`WAKE_COALESCE`, `RECONCILE_INTERVAL`, `STALL_AFTER`, `CHALLENGE_TIMEOUT`, `LAUNCH_ADOPT_AFTER`).
 
 The questions as put:
 
