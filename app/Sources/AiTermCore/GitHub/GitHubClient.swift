@@ -133,12 +133,7 @@ public struct GitHubClient: Sendable {
         guard let (owner, _) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
         let query = [URLQueryItem(name: "state", value: "open"), URLQueryItem(name: "head", value: "\(owner):\(source)"),
                      URLQueryItem(name: "per_page", value: "100")]
-        // URLComponents leaves a `+` in a value alone, and GitHub reads it as a space: a branch `feat/a+b`
-        // would be looked for as `feat/a b`.
-        guard let url = HTTPJSON.url(Self.api + "/repos/\(repo)/pulls", query: query),
-              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw GitHubError.decoding }
-        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
-        guard let encoded = components.url else { throw GitHubError.decoding }
+        guard let encoded = HTTPJSON.url(Self.api + "/repos/\(repo)/pulls", query: query) else { throw GitHubError.decoding }
         return try await HTTPJSON.decode([PullPayload].self, HTTPJSON.request(encoded, headers: headers), session: session) {
             Self.error(for: $0, notFound: .repoNotFound(repo))
         }.value
@@ -165,8 +160,9 @@ public struct GitHubClient: Sendable {
         if pull.merged == true { return .merged(commit: pull.mergeCommitSha ?? pull.head.sha, head: pull.head.sha, target: pull.base?.ref) }
         guard pull.state == "open" else { return .blocked("the pull request is closed") }
         let commit = "/repos/\(repo)/commits/\(pull.head.sha)"
-        guard let runs = try await listed(CheckRunsPayload.self, path: commit + "/check-runs", repo: repo),
-              let statuses = try await listed(CombinedStatusPayload.self, path: commit + "/status", repo: repo) else {
+        async let readRuns = listed(CheckRunsPayload.self, path: commit + "/check-runs", repo: repo)
+        async let readStatuses = listed(CombinedStatusPayload.self, path: commit + "/status", repo: repo)
+        guard let runs = try await readRuns, let statuses = try await readStatuses else {
             return .waiting("GitHub has not listed all its checks")
         }
         var running = false
@@ -214,8 +210,9 @@ public struct GitHubClient: Sendable {
         let (pull, by) = try await (read, approved)
         let commit = "/repos/\(repo)/commits/\(pull.head.sha)"
         var pipeline: String?
-        if let runs = try await listed(CheckRunsPayload.self, path: commit + "/check-runs", repo: repo),
-           let statuses = try await listed(CombinedStatusPayload.self, path: commit + "/status", repo: repo), !runs.isEmpty || !statuses.isEmpty {
+        async let readRuns = listed(CheckRunsPayload.self, path: commit + "/check-runs", repo: repo)
+        async let readStatuses = listed(CombinedStatusPayload.self, path: commit + "/status", repo: repo)
+        if let runs = try await readRuns, let statuses = try await readStatuses, !runs.isEmpty || !statuses.isEmpty {
             let failed = runs.contains { $0.status == "completed" && ["failure", "timed_out", "startup_failure", "cancelled", "action_required"].contains($0.conclusion ?? "") }
                 || statuses.contains { $0.state == "failure" || $0.state == "error" }
             let done = runs.allSatisfy { $0.status == "completed" && $0.conclusion != nil && $0.conclusion != "stale" }
@@ -319,7 +316,7 @@ public struct GitHubClient: Sendable {
         struct Comment: Decodable { struct Author: Decodable { var login: String? }; var body: String?, author: Author? }
         struct Comments: Decodable { var nodes: [Comment]? }
         struct Node: Decodable { var id: String, isResolved: Bool, comments: Comments? }
-        struct PageInfo: Decodable { var hasNextPage: Bool, endCursor: String? }
+        typealias PageInfo = GraphQLPageInfo
         struct Threads: Decodable { var pageInfo: PageInfo, nodes: [Lenient<Node>] }
         struct PullRequest: Decodable { var reviewThreads: Threads }
         struct Repository: Decodable { var pullRequest: PullRequest? }
@@ -334,8 +331,7 @@ public struct GitHubClient: Sendable {
                 let last = node.comments?.nodes?.last
                 threads.append(ReviewThread(id: node.id, resolved: node.isResolved, lastAuthor: last?.author?.login, lastBody: last?.body ?? ""))
             }
-            guard found.pageInfo.hasNextPage else { return threads }
-            guard let next = found.pageInfo.endCursor, next != cursor else { throw IncompleteRead("review threads") }
+            guard let next = try found.pageInfo.next(after: cursor, invalid: IncompleteRead("review threads")) else { return threads }
             cursor = next
         }
         throw IncompleteRead("review threads")
@@ -490,7 +486,7 @@ public struct GitHubClient: Sendable {
         struct Answer: Decodable {
             struct Problem: Decodable { var message: String? }
             struct Node: Decodable { var pattern: String }
-            struct PageInfo: Decodable { var hasNextPage: Bool, endCursor: String? }
+            typealias PageInfo = GraphQLPageInfo
             struct Rules: Decodable { var pageInfo: PageInfo, nodes: [Node] }
             struct Repository: Decodable { var branchProtectionRules: Rules }
             struct Payload: Decodable { var repository: Repository? }
@@ -508,10 +504,8 @@ public struct GitHubClient: Sendable {
                 throw ProtectionUnknown.unreadable("GitHub didn’t show \(repo)’s branch protection rules")
             }
             patterns += rules.nodes.map(\.pattern)
-            if !rules.pageInfo.hasNextPage { return patterns }
-            guard let next = rules.pageInfo.endCursor, !next.isEmpty, next != cursor else {
-                throw ProtectionUnknown.unreadable("GitHub didn’t page \(repo)’s branch protection rules")
-            }
+            guard let next = try rules.pageInfo.next(after: cursor, allowEmpty: false,
+                invalid: ProtectionUnknown.unreadable("GitHub didn’t page \(repo)’s branch protection rules")) else { return patterns }
             cursor = next
         }
         throw ProtectionUnknown.tooManyRules(Self.listedPages * 100)
@@ -524,9 +518,7 @@ public struct GitHubClient: Sendable {
 
     private func get<Payload: Decodable>(_ type: Payload.Type, path: String, query: [URLQueryItem] = [],
                                          notFound: GitHubError) async throws -> Payload {
-        guard let url = HTTPJSON.url(Self.api + path, query: query) else { throw GitHubError.decoding }
-        let request = HTTPJSON.request(url, headers: headers)
-        return try await HTTPJSON.decode(type, request, session: session) { Self.error(for: $0, notFound: notFound) }.value
+        try await api(notFound).get(type, path: path, query: query)
     }
 
     private func post<Body: Encodable, Payload: Decodable>(_ type: Payload.Type, path: String, body: Body,
@@ -536,14 +528,15 @@ public struct GitHubClient: Sendable {
 
     private func send<Body: Encodable, Payload: Decodable>(_ type: Payload.Type, method: String, path: String, body: Body,
                                                            notFound: GitHubError) async throws -> Payload {
-        guard let url = HTTPJSON.url(Self.api + path) else { throw GitHubError.decoding }
-        var request = HTTPJSON.request(url, headers: headers.merging(["Content-Type": "application/json"]) { $1 })
-        request.httpMethod = method
-        request.httpBody = try JSONEncoder().encode(body)
-        return try await HTTPJSON.decode(type, request, session: session) { Self.error(for: $0, notFound: notFound) }.value
+        try await api(notFound).send(type, method: method, path: path, body: body)
     }
 
     /// `notFound` is what a 404 means for the path asked.
+    private func api(_ notFound: GitHubError) -> HostAPI {
+        HostAPI(base: Self.api, headers: headers, session: session, malformed: GitHubError.decoding,
+                mapping: { Self.error(for: $0, notFound: notFound) })
+    }
+
     static func error(for failure: HTTPJSON.Failure, notFound: GitHubError) -> GitHubError {
         switch failure {
         case .transport(let error): return .network(error.localizedDescription)
@@ -596,7 +589,7 @@ private struct ThreadsRequest: Encodable {
 private struct ThreadsPayload: Decodable {
     struct Problem: Decodable { var type: String? }
     struct Node: Decodable { var isResolved: Bool }
-    struct PageInfo: Decodable { var hasNextPage: Bool, endCursor: String? }
+    typealias PageInfo = GraphQLPageInfo
     struct Threads: Decodable { var pageInfo: PageInfo, nodes: [Lenient<Node>] }
     struct PullRequest: Decodable { var reviewThreads: Threads }
     struct Repository: Decodable { var pullRequest: PullRequest? }
@@ -634,4 +627,14 @@ private struct CombinedStatusPayload: PagedList {
     var totalCount: Int, statuses: [Status]
     var items: [Status] { statuses }
     var total: Int { totalCount }
+}
+
+
+private struct GraphQLPageInfo: Decodable {
+    var hasNextPage: Bool, endCursor: String?
+    func next(after previous: String?, allowEmpty: Bool = true, invalid: any Error) throws -> String? {
+        guard hasNextPage else { return nil }
+        guard let next = endCursor, next != previous, allowEmpty || !next.isEmpty else { throw invalid }
+        return next
+    }
 }

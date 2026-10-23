@@ -223,13 +223,8 @@ private struct CommentPage: Decodable {
         }
         private enum Key: String, CodingKey { case id, properties }
     }
-    var comments: [Lenient<Comment>], total: Int?
-    init(from decoder: Decoder) throws {
-        let fields = try decoder.container(keyedBy: Key.self)
-        comments = try fields.decode([Lenient<Comment>].self, forKey: .comments)
-        total = fields.lenient(Int.self, forKey: .total)
-    }
-    private enum Key: String, CodingKey { case comments, total }
+    var comments: [Lenient<Comment>]
+    @Lenient var total: Int?
 }
 
 /// `/user/assignable/search`: one entry; one that is not one drops alone.
@@ -258,19 +253,4 @@ private struct Transitions: Decodable {
         var id: String, to: Lenient<Status>?
     }
     var transitions: [Lenient<Move>]
-}
-
-extension ADFText {
-    /// `text` as an Atlassian Document Format document: a paragraph for each run of lines, its line breaks kept.
-    static func document(_ text: String) -> [String: Any] {
-        let paragraphs = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        return ["type": "doc", "version": 1, "content": paragraphs.map { paragraph -> [String: Any] in
-            let lines = paragraph.components(separatedBy: "\n")
-            let inline = lines.enumerated().flatMap { index, line -> [[String: Any]] in
-                (index > 0 ? [["type": "hardBreak"]] : []) + (line.isEmpty ? [] : [["type": "text", "text": line]])
-            }
-            return ["type": "paragraph", "content": inline]
-        }]
-    }
 }

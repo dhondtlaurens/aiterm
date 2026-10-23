@@ -21,7 +21,7 @@ struct FixProposalTests {
     }
 
     @Test func noneCarriesItsReason() throws {
-        #expect(try FixLook(validating: answer(outcome: "none", reason: "A product decision."), request: request, localOnly: local, agent: .codex)
+        #expect(try FixLook(validating: answer(outcome: "none", reason: "A product decision."), request: request, localOnly: local, agent: .claude)
                 == .none("A product decision."))
     }
 

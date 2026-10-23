@@ -61,7 +61,7 @@ private final class Spawned: Sendable {
     let pid: pid_t
     private let exit = AsyncLatch()
     private let drains = Countdown(2)
-    private let stdout: CappedDrain, stderr: CappedDrain
+    private let stdout: PipeDrain, stderr: PipeDrain
     private let state = Mutex(State())
 
     init(_ executable: String, _ arguments: [String], environment: [String: String], directory: String,
@@ -109,8 +109,9 @@ private final class Spawned: Sendable {
         }
         pid = spawned
         let onEnd: @Sendable () -> Void = { [drains] in drains.countOne() }
-        stdout = CappedDrain(fd: outPipe[0], limit: outputLimit, onEnd: onEnd)
-        stderr = CappedDrain(fd: errPipe[0], limit: outputLimit, onEnd: onEnd)
+        let outFD = outPipe[0], errFD = errPipe[0]
+        stdout = PipeDrain(fd: outPipe[0], limit: outputLimit, onEnd: { close(outFD); onEnd() })
+        stderr = PipeDrain(fd: errPipe[0], limit: outputLimit, onEnd: { close(errFD); onEnd() })
 
         let source = DispatchSource.makeProcessSource(identifier: spawned, eventMask: .exit, queue: .global(qos: .utility))
         let held = Mutex<(any DispatchSourceProcess)?>(source)
@@ -214,31 +215,4 @@ private final class Countdown: Sendable {
     func countOne() { if left.withLock({ $0 -= 1; return $0 }) == 0 { latch.open() } }
     func giveUp() { latch.open() }
     func wait() async { await latch.wait() }
-}
-
-/// Reads a pipe to EOF on a thread of its own, keeping the first `limit` bytes and dropping the
-/// rest (still reading, so the child never blocks on a full pipe).
-private final class CappedDrain: Sendable {
-    private let data = Mutex(Data())
-
-    init(fd: Int32, limit: Int, onEnd: @escaping @Sendable () -> Void) {
-        let thread = Thread { [self] in
-            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-            while true {
-                let n = buffer.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
-                if n < 0, errno == EINTR { continue }
-                guard n > 0 else { break }
-                data.withLock { d in
-                    let room = limit - d.count
-                    if room > 0 { d.append(contentsOf: buffer[..<min(n, room)]) }
-                }
-            }
-            close(fd)
-            onEnd()
-        }
-        thread.stackSize = 512 * 1024
-        thread.start()
-    }
-
-    func text() -> String { data.withLock { String(decoding: $0, as: UTF8.self) } }
 }

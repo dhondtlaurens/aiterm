@@ -34,10 +34,7 @@ struct PiDriver: HarnessDriver {
 
     func probe() -> DriverProbe {
         let file = self.file
-        switch file.readText() {
-        case .missing: return DriverProbe(.missing)
-        case .refused(let reason): return .refused(file, reason)
-        case .present(let text):
+        return file.readText().probe(file) { text in
             var state = Self.state(of: text, expected: installed)
             // Written by Install for a daemon on another port: out of date, as an older schema is,
             // and mended by a Repair that writes this one's.

@@ -7,6 +7,30 @@ import Foundation
     struct Payload: Decodable, Equatable { var fullName: String }
     let url = URL(string: "https://example.com/thing")!
 
+    /// Credentials survive same-origin hops and stop at the first different origin, for both
+    /// buffered requests and streamed downloads.
+    @Test(arguments: ["https://example.com/moved", "https://example.com:443/moved",
+                      "https://storage.example.com/moved", "http://example.com/moved"], [false, true])
+    func redirectsKeepCredentialsOnlyOnTheirOrigin(_ destination: String, _ download: Bool) async throws {
+        let middle = URL(string: "https://example.com/middle")!
+        let end = URL(string: destination)!
+        let stub = RedirectSession(redirects: [url: middle, middle: end], body: Data("bytes".utf8))
+        let request = HTTPJSON.request(url, headers: ["Authorization": "Bearer token", "PRIVATE-TOKEN": "token"])
+        if download {
+            let (file, _) = try await HTTPJSON.download(request, session: stub.session)
+            defer { try? FileManager.default.removeItem(at: file) }
+            #expect(try Data(contentsOf: file) == Data("bytes".utf8))
+        } else {
+            #expect(try await HTTPJSON.send(request, session: stub.session).0 == Data("bytes".utf8))
+        }
+        #expect(stub.requests.map(\.url) == [url, middle, end])
+        let same = end.isSameOrigin(as: url)
+        for header in HTTPJSON.credentialHeaders {
+            let token = request.value(forHTTPHeaderField: header)
+            #expect(stub.requests.map { $0.value(forHTTPHeaderField: header) } == [token, token, same ? token : nil])
+        }
+    }
+
     @Test func aRequestCarriesItsHeadersAndTheClientsTimeout() {
         let request = HTTPJSON.request(url, headers: ["Accept": "application/json", "X-A": "1"])
         #expect(request.url == url)

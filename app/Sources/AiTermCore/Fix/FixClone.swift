@@ -83,12 +83,9 @@ public struct FixClone: Sendable {
             // Last, once nothing of `make`'s writes the config again: the settings every later check compares with.
             guard let settings = Self.settings(at: path) else { throw FixRefusal.cloneFailed("its git settings could not be read.") }
             return FixClone(path: path, branch: branch, startTip: start, originTip: origin, git: clone, settings: settings)
-        } catch let refusal as FixRefusal {
-            try? FileManager.default.removeItem(atPath: path)
-            throw refusal
         } catch {
             try? FileManager.default.removeItem(atPath: path)
-            throw .cloneFailed(GitError.displayReason(of: error))
+            throw .preserving(error, otherwise: .cloneFailed(GitError.displayReason(of: error)))
         }
     }
 

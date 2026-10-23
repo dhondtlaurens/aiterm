@@ -145,13 +145,16 @@ enum TOMLStatements {
         var text: String { statements.map(\.text).joined() }
     }
 
-    static func tables(_ text: String) -> [Table] {
+    static func tables(_ text: String) -> [Table] { parsed(text).tables }
+
+    static func parsed(_ text: String) -> (tables: [Table], balanced: Bool) {
+        let scanned = scan(text)
         var result = [Table(statements: [])]
-        for statement in statements(text) {
+        for statement in scanned.statements {
             if statement.header != nil { result.append(Table(statements: [])) }
             result[result.count - 1].statements.append(statement)
         }
-        return result
+        return (result, scanned.balanced)
     }
 
     /// Split only at top-level newlines. A table-looking line inside a multiline string or

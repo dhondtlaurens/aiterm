@@ -35,15 +35,16 @@ enum CodexHookConfig {
         return block + end
     }
 
-    /// Exactly the tables a merge writes, so a merge would change nothing.
-    static func isInstalled(_ text: String, daemonPort: Int) -> Bool {
-        merge(text, hookURL: "http://127.0.0.1:\(daemonPort)") == text
-    }
-
-    /// Recognise owned tables even after Codex moves them away from the marker comments.
-    static func isOwned(_ text: String) -> Bool {
-        let parsed = TOMLStatements.tables(text)
-        return parsed.contains(where: \.owned) || parsed.contains { $0.statements.contains(where: \.marker) }
+    /// One scan supplies balance, conflict, ownership and current-install checks for the probe.
+    static func probe(_ text: String, port: Int, file: UserConfigFile) -> DriverProbe {
+        let parsed = TOMLStatements.parsed(text)
+        guard parsed.balanced else { return .refused(file, "cannot be parsed") }
+        if let key = conflict(in: text, tables: parsed.tables) {
+            return .refused(file, "sets \(key) in a form AiTerm cannot merge")
+        }
+        if merge(text, hookURL: "http://127.0.0.1:\(port)", tables: parsed.tables) == text { return DriverProbe(.current) }
+        let owned = parsed.tables.contains { $0.owned || $0.statements.contains(where: \.marker) }
+        return DriverProbe(owned ? .outdated : .missing)
     }
 
     /// The key that makes the merge impossible: an event of ours, or `hooks` itself, already set
@@ -51,10 +52,10 @@ enum CodexHookConfig {
     /// `hooks = {…}`), as a plain `[hooks.Stop]` table, or as a table a deeper header implies
     /// (`[hooks.Stop.x]` with no `[[hooks.Stop]]` before it). TOML forbids extending any of them
     /// with `[[hooks.Stop]]`, so appending AiTerm's block would make Codex refuse the whole file.
-    static func conflict(in text: String) -> String? {
+    static func conflict(in text: String, tables: [TOMLStatements.Table]? = nil) -> String? {
         let events = Set(Self.events)
         var arrayParents: Set<String> = []
-        for table in TOMLStatements.tables(text) {
+        for table in tables ?? TOMLStatements.tables(text) {
             if table.path.count >= 2, table.path[0] == "hooks", events.contains(table.path[1]) {
                 if table.array, table.path.count == 2 { arrayParents.insert(table.path[1]) }
                 else if table.path.count == 2 || !arrayParents.contains(table.path[1]) { return "hooks.\(table.path[1])" }
@@ -72,19 +73,24 @@ enum CodexHookConfig {
 
     /// Codex rewrites TOML tables independently of comments, so markers alone cannot delimit
     /// ownership. Reconcile the actual hook tables, including entries moved outside the markers.
-    static func merge(_ toml: String?, hookURL: String) -> String {
+    static func merge(_ toml: String?, hookURL: String, tables: [TOMLStatements.Table]? = nil) -> String {
         let text = toml ?? ""
-        let parsed = TOMLStatements.tables(text)
+        let parsed = tables ?? TOMLStatements.tables(text)
         let block = Self.block(hookURL: hookURL)
         let markers = parsed.flatMap(\.statements).filter(\.marker)
         // Keep a pristine managed block in place, including on a port change. Do not use this
         // shortcut when there are moved/duplicated hooks or foreign content inside the markers.
-        if markers.count == 2, let range = blockRange(in: text),
+        if markers.count == 2, let range = blockRange(in: text, statements: parsed.flatMap(\.statements)),
            let oldURL = parsed.first(where: { $0.path == ["mcp_servers", "aiterm_hooks"] })?.values["url"],
            oldURL.hasSuffix("/mcp"),
            text[range] == Self.block(hookURL: String(oldURL.dropLast(4))) {
-            let outside = String(text[..<range.lowerBound]) + String(text[range.upperBound...])
-            if !TOMLStatements.tables(outside).contains(where: \.owned) {
+            var offset = text.startIndex
+            let outsideIsOwned = parsed.contains { table in
+                let start = offset
+                offset = text.index(offset, offsetBy: table.text.count)
+                return table.owned && !range.contains(start)
+            }
+            if !outsideIsOwned {
                 var result = text; result.replaceSubrange(range, with: block); return result
             }
         }
@@ -122,9 +128,9 @@ enum CodexHookConfig {
         return base + (base.isEmpty ? "" : "\n") + block + "\n"
     }
 
-    private static func blockRange(in text: String) -> Range<String.Index>? {
+    private static func blockRange(in text: String, statements: [TOMLStatements.Statement]) -> Range<String.Index>? {
         var offset = text.startIndex, begin: String.Index?
-        for statement in TOMLStatements.statements(text) {
+        for statement in statements {
             let end = text.index(offset, offsetBy: statement.text.count)
             if statement.marker {
                 if statement.text.trimmingCharacters(in: .whitespacesAndNewlines) == Self.begin {

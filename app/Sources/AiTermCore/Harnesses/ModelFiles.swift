@@ -48,7 +48,7 @@ public enum ModelFiles {
     /// Claude's models as `home` keeps them, read now.
     static func claudeModels(home: URL, claudeConfig: ClaudeConfig = ClaudeConfig()) -> [AgentModel] {
         claudeModels(catalogJSON: claudeCatalogURL(home: home, claudeConfig: claudeConfig).flatMap { try? Data(contentsOf: $0) },
-                     settingsJSON: try? Data(contentsOf: claudeConfig.directory(home: home).appendingPathComponent("settings.json")),
+                     settingsJSON: try? Data(contentsOf: claudeConfig.settingsURL(home: home)),
                      claudeJSON: try? Data(contentsOf: claudeConfig.globalJSON(home: home)))
     }
 
@@ -58,7 +58,7 @@ public enum ModelFiles {
         let directory = claudeConfig.directory(home: home).appendingPathComponent("cache/model-catalog").path
         let catalogues = ((try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? [])
             .filter { $0.hasSuffix("-cc.json") }.sorted().map { directory + "/" + $0 }
-        return [directory] + catalogues + [claudeConfig.directory(home: home).appendingPathComponent("settings.json").path,
+        return [directory] + catalogues + [claudeConfig.settingsURL(home: home).path,
                                            claudeConfig.globalJSON(home: home).path]
     }
 

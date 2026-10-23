@@ -50,3 +50,18 @@ extension StoredJSON {
         }
     }
 }
+
+extension ADFText {
+    /// `text` as an Atlassian Document Format document: a paragraph for each run of lines, its line breaks kept.
+    static func document(_ text: String) -> [String: Any] {
+        let paragraphs = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return ["type": "doc", "version": 1, "content": paragraphs.map { paragraph -> [String: Any] in
+            let lines = paragraph.components(separatedBy: "\n")
+            let inline = lines.enumerated().flatMap { index, line -> [[String: Any]] in
+                (index > 0 ? [["type": "hardBreak"]] : []) + (line.isEmpty ? [] : [["type": "text", "text": line]])
+            }
+            return ["type": "paragraph", "content": inline]
+        }]
+    }
+}

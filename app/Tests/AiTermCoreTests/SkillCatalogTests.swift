@@ -15,11 +15,11 @@ import Foundation
     }
 
     @Test func testFrontmatterDescription() {
-        #expect(SkillCatalog.frontmatterValue("description", in: "---\nname: brainstorming\ndescription: Use when starting\n---\n\nbody") == "Use when starting")
-        #expect(SkillCatalog.frontmatterValue("description", in: "---\ndescription: \"quoted, with: colon\"\n---\n") == "quoted, with: colon")
-        #expect(SkillCatalog.frontmatterValue("description", in: "no frontmatter here") == nil)
+        #expect(SkillCatalog.frontmatter(in: "---\nname: brainstorming\ndescription: Use when starting\n---\n\nbody")["description"] == "Use when starting")
+        #expect(SkillCatalog.frontmatter(in: "---\ndescription: \"quoted, with: colon\"\n---\n")["description"] == "quoted, with: colon")
+        #expect(SkillCatalog.frontmatter(in: "no frontmatter here")["description"] == nil)
         // A folded block scalar is what longer skill descriptions actually use.
-        #expect(SkillCatalog.frontmatterValue("description", in: "---\ndescription: >-\n  first line\n  second line\nname: x\n---\n") == "first line second line")
+        #expect(SkillCatalog.frontmatter(in: "---\ndescription: >-\n  first line\n  second line\nname: x\n---\n")["description"] == "first line second line")
     }
 
     /// Claude Code namespaces a command in a subdirectory with a colon, and that is the text the

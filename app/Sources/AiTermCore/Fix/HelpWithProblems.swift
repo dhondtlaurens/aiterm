@@ -1,29 +1,11 @@
 import Foundation
 
-/// An agent AiTerm can ask to fix a problem unattended: one whose CLI has a headless mode with a
-/// JSON-schema answer, a sandbox that turns its commands' network off on macOS, a per-run switch
-/// for hooks and a resumable session. PI has none of these.
-public enum FixerAgent: String, Codable, CaseIterable, Sendable {
+/// Help with problems runs as the Operator, whose agent is Claude.
+public enum FixerAgent: Sendable {
+    // Codex remains only until the app's legacy fix-session fixtures are migrated.
     case claude, codex
-
-    public var agent: AgentKind {
-        switch self {
-        case .claude: .claude
-        case .codex: .codex
-        }
-    }
-
-    /// The vendor's short name, not the CLI's display name: “Applies Claude’s fix”.
-    public var shortName: String {
-        switch self {
-        case .claude: "Claude"
-        case .codex: "Codex"
-        }
-    }
-}
-
-public extension AgentKind {
-    var fixer: FixerAgent? { FixerAgent(rawValue: rawValue) }
+    public var agent: AgentKind { self == .claude ? .claude : .codex }
+    public var shortName: String { self == .claude ? "Claude" : "Codex" }
 }
 
 /// Settings › Agents' “Help with problems”: whether a problem AiTerm hits offers Find a Fix. The fix

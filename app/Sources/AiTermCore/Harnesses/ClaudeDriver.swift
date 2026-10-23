@@ -8,16 +8,13 @@ struct ClaudeDriver: HarnessDriver {
     let home: URL, daemonPort: Int, shimPath: String
     var claudeConfig = ClaudeConfig()
 
-    var settings: UserConfigFile { UserConfigFile(home: home, url: claudeConfig.directory(home: home).appendingPathComponent("settings.json")) }
+    var settings: UserConfigFile { UserConfigFile(home: home, url: claudeConfig.settingsURL(home: home)) }
 
     func probe() -> DriverProbe {
         let file = settings
-        switch file.read() {
-        case .missing: return DriverProbe(.missing)
-        case .refused(let reason): return .refused(file, reason)
-        case .present(let data):
+        return file.read().probe(file) { data in
             let object: [String: Any]
-            do { object = try ClaudeSettings.mergeable(data) } catch { return .refused(file, error.reason) }
+            do throws(ClaudeSettings.Unmergeable) { object = try ClaudeSettings.mergeable(data) } catch { return .refused(file, error.reason) }
             // The status-line shim posts to the port in its file, so settings that are current beside
             // another port, or none, are outdated: Repair writes it.
             if ClaudeSettings.isInstalled(object, daemonPort: daemonPort, shimPath: shimPath),
@@ -30,15 +27,10 @@ struct ClaudeDriver: HarnessDriver {
 
     func install() throws {
         let file = settings
-        let data: Data?
-        switch file.read() {
-        case .missing: data = nil
-        case .refused(let reason): throw file.refusal(reason)
-        case .present(let contents): data = contents
-        }
+        let data = try file.read().requiringReadable(file)
         let result: (Data, originalStatusLine: [String: Any]?)
         do {
-            result = try ClaudeSettings.merge(data, hookURL: "http://127.0.0.1:\(daemonPort)" + Harness.claude.hookEndpoint, shimPath: shimPath)
+            result = try ClaudeSettings.merge(data, hookURL: Harness.claude.hookURL(port: daemonPort), shimPath: shimPath)
         } catch let refusal as ClaudeSettings.Unmergeable {
             throw file.refusal(refusal.reason)
         }
@@ -47,9 +39,7 @@ struct ClaudeDriver: HarnessDriver {
         // Claude at the shim: a crash or a failed write between the two can never leave it running
         // a shim that posts nowhere, or without the status line it replaced.
         try ShimPort.record(daemonPort, home: home)
-        try StatusLineOriginal.record(before(original: original, data: data),
-                                      command: AiTermPaths.statusLineOriginalURL(home: home),
-                                      legacy: AiTermPaths.legacyStatusLineOriginalURL(home: home))
+        try StatusLineOriginal.record(before(original: original, data: data), home: home)
         guard !ClaudeSettings.same(data, merged) else { return }
         try file.backUp()
         try file.write(merged)

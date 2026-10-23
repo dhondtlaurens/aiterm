@@ -264,7 +264,7 @@ public struct JiraClient: Sendable {
         let pageSize = 100
         var startAt = 0
         var projects: [JiraProjectRef] = []
-        while true {
+        for _ in 0..<20 {
             let page = try await decode(ProjectPage.self, request(path: "/rest/api/3/project/search", queryItems: [
                 URLQueryItem(name: "startAt", value: String(startAt)),
                 URLQueryItem(name: "maxResults", value: String(pageSize)),
@@ -376,24 +376,11 @@ private struct PickerResponse: Decodable {
 private struct ProjectPage: Decodable {
     struct Project: Decodable { var id: String, key: String, name: String }
     var values: [Lenient<Project>]
-    var isLast: Bool?, total: Int?
-
-    init(from decoder: Decoder) throws {
-        let fields = try decoder.container(keyedBy: Key.self)
-        values = try fields.decode([Lenient<Project>].self, forKey: .values)
-        isLast = fields.lenient(Bool.self, forKey: .isLast)
-        total = fields.lenient(Int.self, forKey: .total)
-    }
-    private enum Key: String, CodingKey { case values, isLast, total }
+    @Lenient var isLast: Bool?
+    @Lenient var total: Int?
 }
 
 private struct Myself: Decodable {
-    var displayName: String?, emailAddress: String?
-
-    init(from decoder: Decoder) throws {
-        let fields = try decoder.container(keyedBy: Key.self)
-        displayName = fields.lenient(String.self, forKey: .displayName)
-        emailAddress = fields.lenient(String.self, forKey: .emailAddress)
-    }
-    private enum Key: String, CodingKey { case displayName, emailAddress }
+    @Lenient var displayName: String?
+    @Lenient var emailAddress: String?
 }

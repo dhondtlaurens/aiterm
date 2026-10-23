@@ -184,7 +184,7 @@ import Synchronization
         let mode = mode(fake)
         _ = try mode.turnOn().get()
         fake.power.value = PowerReading(level: 10, onBattery: true)
-        #expect(mode.tick(agentsWorking: true) == .ended(.batteryLow(level: 10)))
+        #expect(mode.tick(agentsWorking: true) == .ended)
         #expect(mode.state == .off)
         #expect(fake.lid.calls == [true, false])
     }
@@ -195,7 +195,7 @@ import Synchronization
         _ = try mode.turnOn().get()
         #expect(mode.tick(agentsWorking: true) == .unchanged)
         guard case .on(let status) = mode.state else { Issue.record("expected on"); return }
-        #expect(!status.nearCutoff && !status.degraded)
+        #expect(!status.nearCutoff)
     }
 
     @Test func theTickMarksItDegradedOffTheNetworkAndRejoinsWhenBack() throws {
@@ -206,12 +206,12 @@ import Synchronization
         fake.wifi.joinSucceeds = false
         #expect(mode.tick(agentsWorking: true) == .changed)
         guard case .on(let away) = mode.state else { Issue.record("expected on"); return }
-        #expect(!away.joined && away.degraded)
+        #expect(!away.joined)
         fake.wifi.joinSucceeds = true
         clock.advance(by: 5)
         #expect(mode.tick(agentsWorking: true) == .changed)
         guard case .on(let back) = mode.state else { Issue.record("expected on"); return }
-        #expect(back.joined && !back.degraded)
+        #expect(back.joined)
         #expect(fake.wifi.joins == ["Phone", "Phone", "Phone"])
     }
 
@@ -258,7 +258,7 @@ import Synchronization
         clock.advance(by: 119)
         #expect(mode.tick(agentsWorking: false) == .unchanged, "the grace counts from the last working tick")
         clock.advance(by: 1)
-        #expect(mode.tick(agentsWorking: false) == .ended(.agentsStopped))
+        #expect(mode.tick(agentsWorking: false) == .ended)
         #expect(!mode.state.isOn)
         #expect(fake.lid.calls == [true, false])
     }
@@ -273,7 +273,7 @@ import Synchronization
         clock.advance(by: 100)
         #expect(mode.tick(agentsWorking: false) == .unchanged)
         clock.advance(by: 20)
-        #expect(mode.tick(agentsWorking: false) == .ended(.agentsStopped))
+        #expect(mode.tick(agentsWorking: false) == .ended)
     }
 
     /// Turning on with nothing working lets you start a task on the way out: the same two minutes,
@@ -286,7 +286,7 @@ import Synchronization
         let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
         _ = try mode.turnOn().get()
         clock.advance(by: 120)
-        #expect(mode.tick(agentsWorking: false) == .ended(.agentsStopped))
+        #expect(mode.tick(agentsWorking: false) == .ended)
     }
 
     /// An open lid is the person at the Mac: nothing working never ends it then, and the grace
@@ -302,7 +302,7 @@ import Synchronization
         clock.advance(by: 119)
         #expect(mode.tick(agentsWorking: false) == .unchanged)
         clock.advance(by: 1)
-        #expect(mode.tick(agentsWorking: false) == .ended(.agentsStopped))
+        #expect(mode.tick(agentsWorking: false) == .ended)
     }
 
     /// Turned on until turned off, the idle grace never runs: no work, the lid shut, for hours.
@@ -326,7 +326,7 @@ import Synchronization
         let mode = mode(fake)
         _ = try mode.turnOn(until: until).get()
         fake.power.value = PowerReading(level: BackpackSettings.cutoff, onBattery: true)
-        #expect(mode.tick(agentsWorking: false) == .ended(.batteryLow(level: BackpackSettings.cutoff)))
+        #expect(mode.tick(agentsWorking: false) == .ended)
     }
 
     /// A turn-on that names nothing ends with the work, as it always has.
@@ -341,7 +341,7 @@ import Synchronization
         let mode = mode(fake)
         _ = try mode.turnOn().get()
         fake.power.value = PowerReading(level: 10, onBattery: true)
-        #expect(mode.tick(agentsWorking: true) == .ended(.batteryLow(level: 10)))
+        #expect(mode.tick(agentsWorking: true) == .ended)
         #expect(BackpackSettings.cutoff == 10)
     }
 

@@ -298,9 +298,10 @@ import Foundation
 
     @Test func assignableReadsUsers() async throws {
         let stub = StubSession { _ in (200, Data(#"[{"accountId":"a","displayName":"Sofie","emailAddress":"s@example.com"},{"accountId":"b","displayName":"Bram"}]"#.utf8)) }
-        let users = try await JiraClient(config: config, session: stub.session).assignable(project: "PAY", query: "s")
+        let users = try await JiraClient(config: config, session: stub.session).assignable(project: "PAY", query: "me+jira@x.com")
         #expect(users == [JiraUser(accountId: "a", displayName: "Sofie", email: "s@example.com"), JiraUser(accountId: "b", displayName: "Bram", email: nil)])
         #expect(stub.lastRequest?.httpMethod == "GET" && stub.lastRequest?.url?.path == "/rest/api/3/user/assignable/search")
+        #expect(stub.lastRequest?.url?.absoluteString.contains("query=me%2Bjira@x.com") == true)
     }
 
     @Test func anEditStopsWhenItsLastCheckRefuses() async throws {

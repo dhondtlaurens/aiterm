@@ -71,6 +71,11 @@ public enum FixRefusal: Error, Equatable, LocalizedError {
 }
 
 extension FixRefusal {
+    /// Keep a refusal's specific reason; wrap only errors from a lower-level operation.
+    static func preserving(_ error: any Error, otherwise fallback: @autoclosure () -> FixRefusal) -> FixRefusal {
+        error as? FixRefusal ?? fallback()
+    }
+
     /// The clone's git settings are not what `FixClone.make` left: a planted `core.fsmonitor` or
     /// `filter.*.clean` would run as AiTerm's own git, outside every sandbox.
     public static let settingsChanged = FixRefusal.checkFailed("The agent changed the copy’s git settings, so its fix was not used.")

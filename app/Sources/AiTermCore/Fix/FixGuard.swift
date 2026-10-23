@@ -3,13 +3,13 @@ import Foundation
 /// What AiTerm checks in the clone once the agent says it applied — never taking its word for it.
 /// Each check is git's own answer: a stopped operation, `diff --check`'s leftover markers in the
 /// branch that will land, a dirty tree, a branch that moved without being named, and a commit lost.
-public enum FixGuard {
-    public static let localOnlyLimit = 200
+enum FixGuard {
+    static let localOnlyLimit = 200
 
     /// `limit` is the most local-only commits a branch may have; tests pass a small one. Returns the
     /// tip of the branch it checked: the one commit landing may bring in.
     @discardableResult
-    public static func check(_ clone: FixClone, proposal: FixProposal, before: [String: String],
+    static func check(_ clone: FixClone, proposal: FixProposal, before: [String: String],
                              limit: Int = localOnlyLimit) throws(FixRefusal) -> String {
         // First, before any git: a planted setting would run on the `status` below.
         try clone.checkSettings()
@@ -29,11 +29,7 @@ public enum FixGuard {
             }
             for branch in proposal.moves { try keepsCommits(clone, branch: branch, drops: Set(proposal.drops), limit: limit) }
             return landing
-        } catch let refusal as FixRefusal {
-            throw refusal
-        } catch {
-            throw .uncheckable(error)
-        }
+        } catch { throw .preserving(error, otherwise: .uncheckable(error)) }
     }
 
     static func operationInProgress(in dir: String, git: any GitRunning) throws -> Bool {

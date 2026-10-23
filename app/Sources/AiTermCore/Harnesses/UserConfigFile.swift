@@ -29,9 +29,20 @@ struct UserConfigFile: Sendable {
     enum Contents<Value> {
         case missing, present(Value), refused(String)
 
-        var value: Value? {
-            if case .present(let value) = self { return value }
-            return nil
+        func requiringReadable(_ file: UserConfigFile) throws -> Value? {
+            switch self {
+            case .missing: return nil
+            case .present(let value): return value
+            case .refused(let reason): throw file.refusal(reason)
+            }
+        }
+
+        func probe(_ file: UserConfigFile, inspect: (Value) -> DriverProbe) -> DriverProbe {
+            switch self {
+            case .missing: return DriverProbe(.missing)
+            case .refused(let reason): return .refused(file, reason)
+            case .present(let value): return inspect(value)
+            }
         }
     }
 

@@ -21,13 +21,15 @@ public enum StatusLineOriginal {
     /// would bring back a status line the user removed; behind our own shim it stays as it is, which
     /// is how a moved bundle is repaired. `legacy` is an older record of the same command that a
     /// removed status line must not leave to be migrated again.
-    static func record(_ before: Before, command: URL, legacy: URL? = nil) throws {
+    static func record(_ before: Before, home: URL) throws {
+        let command = AiTermPaths.statusLineOriginalURL(home: home)
+        let legacy = AiTermPaths.legacyStatusLineOriginalURL(home: home)
         switch before {
         case .foreign(let original):
             try FileManager.default.createDirectory(at: command.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data(original.utf8).write(to: command, options: .atomic)
         case .missing:
-            for url in [command] + (legacy.map { [$0] } ?? []) where FileManager.default.fileExists(atPath: url.path) {
+            for url in [command, legacy] where FileManager.default.fileExists(atPath: url.path) {
                 try FileManager.default.removeItem(at: url)
             }
         case .ours:
@@ -45,6 +47,6 @@ public enum StatusLineOriginal {
               let data = try? Data(contentsOf: AiTermPaths.legacyStatusLineOriginalURL(home: home)),
               let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let original = saved["command"] as? String, !original.isEmpty else { return }
-        try record(.foreign(original), command: command)
+        try record(.foreign(original), home: home)
     }
 }

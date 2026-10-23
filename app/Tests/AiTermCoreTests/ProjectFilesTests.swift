@@ -14,6 +14,42 @@ import Testing
         try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
+    @Test func outsideResolvesOnlyTheShownEntries() throws {
+        let root = try GitFixture.folder("pf-outside-")
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let limit = 10
+        for n in 0..<(limit + 50) { try write("", "file-\(n)", in: root) }
+        var resolutions = 0
+        let found = ProjectFiles.outside(root + "/", root: root, limit: limit) {
+            resolutions += 1
+            return $0.resolvingSymlinksInPath()
+        }
+        #expect(found.count == limit)
+        #expect(resolutions <= limit)
+    }
+
+    @Test func outsideRanksLinkedFoldersAndSkipsDanglingLinksBeforeLimiting() throws {
+        let parent = try GitFixture.folder("pf-links-")
+        defer { try? FileManager.default.removeItem(atPath: parent) }
+        let root = parent + "/project"
+        try write("", "file", in: root)
+        try write("", "nested/file", in: parent)
+        try FileManager.default.createSymbolicLink(atPath: root + "/z-folder", withDestinationPath: parent + "/nested")
+        try FileManager.default.createSymbolicLink(atPath: root + "/a-dangling", withDestinationPath: parent + "/missing")
+        let found = ProjectFiles.outside(root + "/", root: root, limit: 1)
+        #expect(found.map(\.name) == [root + "/z-folder/"])
+        #expect(found.first?.kind == .folder)
+    }
+
+    @Test func outsideRanksLinksByTheirWrittenPath() throws {
+        let root = try GitFixture.folder("pf-link-rank-")
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try write("", "a-file", in: root)
+        try write("", "match-b", in: root)
+        try FileManager.default.createSymbolicLink(atPath: root + "/match-link", withDestinationPath: root + "/a-file")
+        #expect(ProjectFiles.outside(root + "/match", root: root, limit: 1).map(\.name) == ["a-file"])
+    }
+
     private func names(_ items: [AgentCompletion]) -> [String] { items.map(\.name) }
 
     /// A checkout offers what git tracks — what the task's new worktree will have — and every

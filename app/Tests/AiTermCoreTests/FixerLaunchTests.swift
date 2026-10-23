@@ -11,18 +11,13 @@ final class FixerLaunchTests {
                              projectPath: "/p", branch: "feat/x", recreateRebase: true, retry: .createReview)
     let proposal = FixProposal(headline: "h", why: "w", steps: ["s"], moves: ["feat/x"], drops: [], verify: "pnpm typecheck")
 
-    /// A folder with a `.git` in it: Codex's schema and answer files go there.
+    /// A temporary folder for regular-file boundary checks.
     init() throws {
         dir = try GitFixture.folder("fixer-launch-")
-        try FileManager.default.createDirectory(atPath: dir + "/.git", withIntermediateDirectories: true)
         clone = FixClone(path: dir, branch: "feat/x", startTip: "a", originTip: "b", git: GitRunner.hermetic())
     }
     deinit { try? FileManager.default.removeItem(atPath: dir) }
 
-    private func cloneAt(_ path: String) throws -> FixClone {
-        try FileManager.default.createDirectory(atPath: path + "/.git", withIntermediateDirectories: true)
-        return FixClone(path: path, branch: "feat/x", startTip: "a", originTip: "b", git: GitRunner.hermetic())
-    }
     private func look(_ agent: FixerAgent, in clone: FixClone? = nil, request: FixRequest? = nil) throws -> FixerInvocation {
         try FixerLaunch.look(agent, model: "m", reasoning: nil, clone: clone ?? self.clone, request: request ?? self.request, sessionID: "S")
     }
@@ -93,7 +88,7 @@ final class FixerLaunchTests {
 
     /// An empty model is the agent's own default: neither it nor the reasoning is passed, in either
     /// run of either agent — `--model ""` would fail every fix for someone with no default set.
-    @Test(arguments: FixerAgent.allCases, [true, false])
+    @Test(arguments: [FixerAgent.claude], [true, false])
     func anEmptyModelLeavesTheAgentToItsOwnDefault(_ agent: FixerAgent, _ applying: Bool) throws {
         let inv = applying
             ? try FixerLaunch.apply(agent, model: "", reasoning: "high", clone: clone, proposal: proposal, sessionID: "S")
@@ -104,76 +99,12 @@ final class FixerLaunchTests {
     }
 
     /// A model given is passed with its reasoning, in either run of either agent.
-    @Test(arguments: FixerAgent.allCases, [true, false])
+    @Test(arguments: [FixerAgent.claude], [true, false])
     func aModelIsPassedWithItsReasoning(_ agent: FixerAgent, _ applying: Bool) throws {
         let inv = applying
             ? try FixerLaunch.apply(agent, model: "m1", reasoning: "high", clone: clone, proposal: proposal, sessionID: "S")
             : try FixerLaunch.look(agent, model: "m1", reasoning: "high", clone: clone, request: request, sessionID: "S")
-        switch agent {
-        case .claude: #expect(inv.arguments.containsSequence(["--model", "m1", "--effort", "high"]))
-        case .codex: #expect(inv.arguments.containsSequence(["-m", "m1", "-c", "model_reasoning_effort=high"]))
-        }
-    }
-
-    // -- Codex --
-
-    @Test func codexLooksInAReadOnlySandboxInTheClone() throws {
-        let inv = try FixerLaunch.look(.codex, model: "gpt-5.5", reasoning: "high", clone: clone, request: request, sessionID: "ignored")
-        #expect(inv.executable == "codex")
-        #expect(inv.arguments.starts(with: ["exec"]))
-        #expect(inv.arguments.containsSequence(["--sandbox", "read-only"]))
-        #expect(inv.arguments.containsSequence(["-C", clone.path]))
-        #expect(inv.arguments.contains("--json") && inv.arguments.contains("--output-schema"))
-        #expect(!inv.arguments.contains("--dangerously-bypass-approvals-and-sandbox"))
-        #expect(inv.answerFile != nil)
-        #expect(inv.arguments.last?.contains("Never push") == true, "Codex has the rules in its prompt")
-    }
-
-    @Test func codexAppliesWritableWithoutNetwork() throws {
-        let inv = try FixerLaunch.apply(.codex, model: "gpt-5.5", reasoning: nil, clone: clone, proposal: proposal, sessionID: "T")
-        #expect(inv.arguments.starts(with: ["exec", "resume", "T"]))
-        #expect(inv.arguments.containsSequence(["-c", #"sandbox_mode="workspace-write""#]))
-        #expect(!inv.arguments.contains { $0.contains("network_access=true") })
-    }
-
-    @Test func codexRunsWithoutHooksAndMayWriteTheClonesGitDirectory() throws {
-        let look = try look(.codex), apply = try apply(.codex)
-        #expect(look.arguments.containsSequence(["--disable", "hooks"]) && apply.arguments.containsSequence(["--disable", "hooks"]))
-        #expect(apply.arguments.containsSequence(["-c", "sandbox_workspace_write.writable_roots=[\"\(clone.path)/.git\"]"]))
-        #expect(!look.arguments.contains { $0.contains("writable_roots") }, "looking writes nothing")
-    }
-
-    /// The user's config would load MCP servers that run outside the sandbox.
-    @Test func codexIgnoresTheUsersConfigInBothRuns() throws {
-        #expect(try look(.codex).arguments.contains("--ignore-user-config"))
-        #expect(try apply(.codex).arguments.contains("--ignore-user-config"))
-    }
-
-    @Test func aPathWithAQuoteOrBackslashIsEscapedInItsTOMLValue() throws {
-        let odd = try cloneAt(dir + "/a\"b\\c")
-        let inv = try apply(.codex, in: odd)
-        #expect(inv.arguments.contains(#"sandbox_workspace_write.writable_roots=["\#(dir)/a\"b\\c/.git"]"#))
-    }
-
-    @Test func codexBuildersWriteTheSchemaAndClearAStaleAnswer() throws {
-        let stale = dir + "/.git/aiterm-look-answer.json"
-        try #"{"outcome":"none","reason":"stale"}"#.write(toFile: stale, atomically: true, encoding: .utf8)
-        let inv = try look(.codex)
-        #expect(!FileManager.default.fileExists(atPath: stale), "an answer from an earlier run is not this run's")
-        #expect(FileManager.default.fileExists(atPath: try #require(value(after: "--output-schema", in: inv.arguments))))
-        #expect(throws: FixRefusal.unreadableAnswer(.codex)) {
-            try FixerLaunch.lookAnswer(.codex, output: output(#"{"type":"thread.started","thread_id":"T"}"#), invocation: inv)
-        }
-    }
-
-    @Test(arguments: [true, false])
-    func aCloneThatCannotBeWrittenIntoRefusesToBuildACodexRun(_ applying: Bool) {
-        let missing = FixClone(path: dir + "/not-a-folder", branch: "feat/x", startTip: "a", originTip: "b", git: GitRunner.hermetic())
-        #expect {
-            _ = try applying ? apply(.codex, in: missing) : look(.codex, in: missing)
-        } throws: { error in
-            if case FixRefusal.cloneFailed = error { true } else { false }
-        }
+        #expect(inv.arguments.containsSequence(["--model", "m1", "--effort", "high"]))
     }
 
     // -- the prompts --
@@ -243,46 +174,30 @@ final class FixerLaunchTests {
         #expect(answer.outcome == "applied" && answer.summary == "done")
     }
 
-    @Test func codexsApplyAnswerComesFromItsFile() throws {
-        let inv = try apply(.codex)
-        try #"{"outcome":"failed","summary":"s"}"#.write(toFile: inv.answerFile!, atomically: true, encoding: .utf8)
-        let answer = try FixerLaunch.applyAnswer(.codex, output: output(""), invocation: inv)
-        #expect(answer.outcome == "failed" && answer.summary == "s")
-    }
-
     @Test func anAnswerFileOverAMegabyteIsNoAnswer() throws {
-        let inv = try look(.codex)
-        // Valid JSON with padding after it: only the size can make it unreadable.
-        let big = #"{"outcome":"none","reason":"r"}"# + String(repeating: " ", count: FixerLaunch.answerLimit)
-        try big.write(toFile: inv.answerFile!, atomically: true, encoding: .utf8)
-        #expect(throws: FixRefusal.unreadableAnswer(.codex)) {
-            try FixerLaunch.lookAnswer(.codex, output: output(#"{"type":"thread.started","thread_id":"T"}"#), invocation: inv)
-        }
+        let file = dir + "/answer"
+        try Data(repeating: 32, count: HeadlessRun.answerLimit + 1).write(to: URL(fileURLWithPath: file))
+        #expect(RegularFile.read(file, limit: HeadlessRun.answerLimit) == nil)
     }
 
-    /// The agent can write the clone's `.git`: a FIFO where Codex's answer belongs would make a plain
-    /// read wait for a writer forever. It is no answer, at once.
+    /// A FIFO is rejected without waiting for a writer.
     @Test(.blocking) func anAnswerFileThatIsAFifoIsNoAnswerAndNeverWaitedOn() throws {
-        let inv = try look(.codex)
-        let file = try #require(inv.answerFile)
-        try? FileManager.default.removeItem(atPath: file)
+        let file = dir + "/answer"
         #expect(mkfifo(file, 0o644) == 0)
-        let out = output(#"{"type":"thread.started","thread_id":"T"}"#)
-        let result = Mutex<FixRefusal?>(nil)
         let done = DispatchSemaphore(value: 0)
+        let result = Mutex<RegularFile.Entry?>(.absent)
         Thread.detachNewThread {
-            do throws(FixRefusal) { _ = try FixerLaunch.lookAnswer(.codex, output: out, invocation: inv) } catch { result.withLock { $0 = error } }
+            result.withLock { $0 = RegularFile.read(file, limit: HeadlessRun.answerLimit) }
             done.signal()
         }
         let finished = done.wait(timeout: .now() + 5) == .success
         if !finished {
-            // Hand the stuck reader a writer, so it returns and the thread ends.
             let writer = open(file, O_WRONLY | O_NONBLOCK)
             if writer >= 0 { close(writer) }
             done.wait()
         }
-        #expect(finished, "refused within 5 s, not left waiting on the FIFO")
-        #expect(result.withLock { $0 } == .unreadableAnswer(.codex))
+        #expect(finished)
+        #expect(result.withLock { $0 } == nil)
     }
 
     @Test(arguments: ["I think the fix is to rebase.", "", #"{"type":"result"}"#, "{ not json"])
@@ -293,7 +208,7 @@ final class FixerLaunchTests {
         }
     }
 
-    @Test(arguments: FixerAgent.allCases)
+    @Test(arguments: [FixerAgent.claude])
     func aTimeoutAndANonZeroExitAreTheirOwnRefusals(_ agent: FixerAgent) throws {
         let inv = try look(agent)
         #expect(throws: FixRefusal.timedOut(agent)) {
@@ -304,21 +219,7 @@ final class FixerLaunchTests {
         }
     }
 
-    @Test func codexsThreadComesFromItsFirstEvent() throws {
-        let inv = try look(.codex)
-        try #"{"outcome":"none","reason":"r"}"#.write(toFile: inv.answerFile!, atomically: true, encoding: .utf8)
-        let events = #"{"type":"thread.started","thread_id":"T-1"}"# + "\n" + #"{"type":"turn.completed"}"#
-        let (answer, session) = try FixerLaunch.lookAnswer(.codex, output: output(events), invocation: inv)
-        #expect(answer.reason == "r" && session == "T-1")
-    }
 
-    @Test func codexWithNoThreadEventHasNoSession() throws {
-        let inv = try look(.codex)
-        try #"{"outcome":"none","reason":"r"}"#.write(toFile: inv.answerFile!, atomically: true, encoding: .utf8)
-        #expect(throws: FixRefusal.unreadableAnswer(.codex)) {
-            try FixerLaunch.lookAnswer(.codex, output: output(#"{"type":"turn.completed"}"#), invocation: inv)
-        }
-    }
 }
 
 extension Array where Element: Equatable {

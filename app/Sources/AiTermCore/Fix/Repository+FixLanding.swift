@@ -102,11 +102,7 @@ extension Repository {
                                                + FixLanding(branch: branch, old: old, new: new).keptClause)
             }
             return FixLanding(branch: branch, old: old, new: new)
-        } catch let refusal as FixRefusal {
-            throw refusal
-        } catch {
-            throw .landingFailed(branch, GitError.displayReason(of: error))
-        }
+        } catch { throw .preserving(error, otherwise: .landingFailed(branch, GitError.displayReason(of: error))) }
     }
 
     /// A git write in the real repository (or one of its checkouts), with hooks off.

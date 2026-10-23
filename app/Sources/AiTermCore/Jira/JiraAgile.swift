@@ -88,28 +88,15 @@ extension JiraClient {
 /// A page of an agile list. `values` keeps its malformed entries as empty ones, so `startAt` advances past them.
 private struct AgilePage<Item: Decodable>: Decodable {
     var values: [Lenient<Item>]
-    var isLast: Bool?
-    init(from decoder: Decoder) throws {
-        let fields = try decoder.container(keyedBy: Key.self)
-        values = try fields.decode([Lenient<Item>].self, forKey: .values)
-        isLast = fields.lenient(Bool.self, forKey: .isLast)
-    }
-    private enum Key: String, CodingKey { case values, isLast }
+    @Lenient var isLast: Bool?
 }
 
 private struct AgileBoard: Decodable, Sendable { var id: Int, name: String, type: String }
 
 private struct AgileSprint: Decodable, Sendable {
-    var id: Int, name: String, state: String, startDate: String?, endDate: String?
-    init(from decoder: Decoder) throws {
-        let fields = try decoder.container(keyedBy: Key.self)
-        id = try fields.decode(Int.self, forKey: .id)
-        name = try fields.decode(String.self, forKey: .name)
-        state = try fields.decode(String.self, forKey: .state)
-        startDate = fields.lenient(String.self, forKey: .startDate)
-        endDate = fields.lenient(String.self, forKey: .endDate)
-    }
-    private enum Key: String, CodingKey { case id, name, state, startDate, endDate }
+    var id: Int, name: String, state: String
+    @Lenient var startDate: String?
+    @Lenient var endDate: String?
 }
 
 /// `/board/{id}/configuration`: its columns, each with the ids of its statuses; one that is not one drops alone.

@@ -1,12 +1,12 @@
 import Foundation
 
 public enum HarnessServiceError: Error, Equatable, LocalizedError {
-    case operationNotAllowed(AgentKind, HarnessIntegrationState)
+    case operationNotAllowed(AgentKind)
     case resourceUnavailable(String)
 
     public var errorDescription: String? {
         switch self {
-        case .operationNotAllowed(let agent, _):
+        case .operationNotAllowed(let agent):
             return "The \(agent.displayName) driver cannot be changed in its current state."
         case .resourceUnavailable(let explanation):
             return explanation
@@ -116,7 +116,7 @@ public actor HarnessService {
             throw HarnessServiceError.resourceUnavailable(before.summary)
         }
         guard before.canInstall else {
-            throw HarnessServiceError.operationNotAllowed(agent, before.integrationState)
+            throw HarnessServiceError.operationNotAllowed(agent)
         }
         guard let driver = drivers[agent] else {
             throw HarnessServiceError.resourceUnavailable(

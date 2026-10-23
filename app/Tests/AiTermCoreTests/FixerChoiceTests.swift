@@ -6,12 +6,6 @@ import Foundation
 /// Settings › Agents' “Help with problems”: one switch. The fix runs as the Operator, so its agent is
 /// always Claude, at Settings › Operator's model and reasoning.
 struct FixerChoiceTests {
-    @Test func onlyAgentsWithAnUnattendedModeAreFixers() {
-        #expect(AgentKind.claude.fixer == .claude)
-        #expect(AgentKind.codex.fixer == .codex)
-        #expect(AgentKind.pi.fixer == nil)
-    }
-
     /// The Operator's agent is Claude: without it the switch is off, whatever was saved, and with it
     /// the fixer is Claude, never another vendor.
     @Test func offWithoutClaude() {

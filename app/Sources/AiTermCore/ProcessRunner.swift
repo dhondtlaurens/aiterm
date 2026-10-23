@@ -1,5 +1,4 @@
 import Foundation
-import Synchronization
 #if canImport(Darwin)
 import Darwin
 #endif
@@ -53,6 +52,14 @@ public enum ProcessRunner {
     /// The environment a child gets unless told otherwise: the app's own, minus its launch identity.
     public static var inheritedEnvironment: [String: String] { withoutLaunchIdentity(ProcessInfo.processInfo.environment) }
 
+    /// Overrides for an npm-installed CLI: its own bin must precede launchd's PATH to find node.
+    public static func environment(runningCLI executable: String, overrides: [String: String] = [:]) -> [String: String] {
+        var environment = overrides
+        let bin = (executable as NSString).deletingLastPathComponent
+        environment["PATH"] = [bin, overrides["PATH"] ?? inheritedEnvironment["PATH"]].compactMap { $0 }.joined(separator: ":")
+        return environment
+    }
+
     public static func run(_ executable: URL, _ arguments: [String], environment: [String: String]? = nil,
                            in directory: URL? = nil, timeout: TimeInterval? = nil) throws -> ProcessOutput {
         let process = Process()
@@ -69,7 +76,7 @@ public enum ProcessRunner {
         try process.run()
 
         let drained = DispatchGroup()
-        let stdout = Drain(out, group: drained), stderr = Drain(err, group: drained)
+        let stdout = drain(out, group: drained), stderr = drain(err, group: drained)
         var timedOut = false
         if let timeout {
             if exited.wait(timeout: .now() + max(0, timeout)) == .timedOut {
@@ -85,32 +92,14 @@ public enum ProcessRunner {
         }
         _ = drained.wait(timeout: .now() + drainGrace)
         process.waitUntilExit()
-        return ProcessOutput(status: process.terminationStatus, stdout: stdout.text, stderr: stderr.text, timedOut: timedOut)
+        return ProcessOutput(status: process.terminationStatus, stdout: stdout.text(), stderr: stderr.text(), timedOut: timedOut)
     }
 
-    /// Reads one pipe to EOF on its own thread, a chunk at a time, so `text` has what arrived so
-    /// far when the run stops waiting before EOF. The thread keeps itself alive until then.
-    private final class Drain: Sendable {
-        private let data = Mutex(Data())
-
-        init(_ pipe: Pipe, group: DispatchGroup) {
-            group.enter()
-            let thread = Thread { [self] in
-                // `read(2)` itself: `FileHandle.read(upToCount:)` waits to fill the whole count.
-                let fd = pipe.fileHandleForReading.fileDescriptor
-                var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-                while true {
-                    let n = buffer.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
-                    if n < 0, errno == EINTR { continue }
-                    guard n > 0 else { break }
-                    data.withLock { $0.append(contentsOf: buffer[..<n]) }
-                }
-                group.leave()
-            }
-            thread.stackSize = 512 * 1024
-            thread.start()
+    private static func drain(_ pipe: Pipe, group: DispatchGroup) -> PipeDrain {
+        group.enter()
+        return PipeDrain(fd: pipe.fileHandleForReading.fileDescriptor, limit: Int.max) {
+            try? pipe.fileHandleForReading.close()
+            group.leave()
         }
-
-        var text: String { data.withLock { String(decoding: $0, as: UTF8.self) } }
     }
 }

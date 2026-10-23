@@ -154,7 +154,7 @@ public enum ClaudeSettings {
     }
 
     public static func statusLineIsInstalled(home: URL = FileManager.default.homeDirectoryForCurrentUser, shimPath: String, claudeConfig: ClaudeConfig = ClaudeConfig()) -> Bool {
-        statusLineIsInstalled(try? Data(contentsOf: claudeConfig.directory(home: home).appendingPathComponent("settings.json")), shimPath: shimPath)
+        statusLineIsInstalled(try? Data(contentsOf: claudeConfig.settingsURL(home: home)), shimPath: shimPath)
     }
 
     /// Exactly the hooks and status line a merge writes, and nothing retired left behind. The
@@ -172,7 +172,7 @@ public enum ClaudeSettings {
         guard let hooks = settings["hooks"] as? [String: Any],
               let command = statusLineCommand(settings),
               command == shimPath || (isOurShim(command, shimPath: shimPath) && isRunnable(command)) else { return false }
-        let hookURL = "http://127.0.0.1:\(daemonPort)" + Harness.claude.hookEndpoint
+        let hookURL = Harness.claude.hookURL(port: daemonPort)
         // A retired hook still in place is an outdated install: repairing it is what removes it.
         let retiredRemain = retiredEvents.contains { (hooks[$0] as? [[String: Any]])?.contains(where: holdsOurHook) == true }
         return !retiredRemain && events.allSatisfy { event in

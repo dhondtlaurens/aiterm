@@ -386,7 +386,7 @@ import Synchronization
     @Test func theBackupIsNamedOneWay() {
         let landing = FixLanding(branch: "feat/x", old: "a", new: "b")
         #expect(landing.keptSentence == "The fix is in; your branch as it was is kept as aiterm/backup/feat/x.")
-        #expect(landing.keptSentence(by: .codex) == "Codex’s fix is in; your branch as it was is kept as aiterm/backup/feat/x.")
+        #expect(landing.keptSentence(by: .claude) == "Claude’s fix is in; your branch as it was is kept as aiterm/backup/feat/x.")
     }
 
     @Test func everyLandingFailureHasItsOwnSentence() {

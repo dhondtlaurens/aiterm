@@ -113,7 +113,7 @@ import Testing
     }
 
     /// Only what `record` writes is the port recorded. Anything else in the file — a host, a path,
-    /// the port with space around it — the shims refuse, or might, so the driver's probe calls
+    /// the port with space around it — the shim refuses, or might, so the driver's probe calls
     /// that install outdated and a Repair writes the file again.
     @Test func onlyWhatRecordWritesIsTheRecordedPort() throws {
         let home = try makeHome(); defer { try? FileManager.default.removeItem(at: home.url) }
@@ -130,12 +130,11 @@ import Testing
     @Test func theBundledFilesSpellTheSupportFolderAsAiTermPathsDoesAndNoPort() throws {
         let hooks = Self.shim.deletingLastPathComponent()
         let relative = AiTermPaths.supportDirectory(home: URL(fileURLWithPath: "/h")).path.replacingOccurrences(of: "/h/", with: "")
-        for name in ["claude-statusline-shim.sh"] {
-            let text = try String(contentsOf: hooks.appendingPathComponent(name), encoding: .utf8)
-            #expect(text.contains("$HOME/\(relative)\""), "\(name) reads files from another folder than the app writes")
-            #expect(text.contains(AiTermPaths.hookPortURL(home: URL(fileURLWithPath: "/h")).lastPathComponent))
-            #expect(!text.contains(String(AiTermPaths.hookPort)), "\(name) spells the hook port")
-        }
+        let text = try String(contentsOf: Self.shim, encoding: .utf8)
+        #expect(text.contains("$HOME/\(relative)\""))
+        #expect(text.contains(AiTermPaths.hookPortURL(home: URL(fileURLWithPath: "/h")).lastPathComponent))
+        #expect(!text.contains(String(AiTermPaths.hookPort)))
+
         let extensionText = try String(contentsOf: hooks.appendingPathComponent("pi-aiterm-status.ts"), encoding: .utf8)
         #expect(!extensionText.contains(String(AiTermPaths.hookPort)))
         #expect(extensionText.components(separatedBy: PiDriver.portPlaceholder).count == 2)

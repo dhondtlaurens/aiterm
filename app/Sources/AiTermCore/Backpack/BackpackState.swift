@@ -48,8 +48,6 @@ public struct BackpackStatus: Equatable, Sendable {
     /// On battery, within 5 points of the cutoff.
     public var nearCutoff: Bool { power.nearCutoff }
 
-    /// Drawn amber: off the chosen network, or close to turning itself off.
-    public var degraded: Bool { !joined || nearCutoff }
 }
 
 public enum BackpackState: Equatable, Sendable {
@@ -87,19 +85,10 @@ public enum BackpackRefusal: Error, Equatable, Sendable {
     }
 }
 
-/// Why the mode ended itself.
-public enum BackpackEnding: Equatable, Sendable {
-    /// No session had been working, with the lid shut, for `BackpackMode.idleGrace`; only when it
-    /// was turned on until `.agentsStop`.
-    case agentsStopped
-    /// On battery, at or under `BackpackSettings.cutoff`.
-    case batteryLow(level: Int)
-}
-
 /// What one 5 s check found.
 public enum BackpackTick: Equatable, Sendable {
     case unchanged
     case changed
     /// The mode turned itself off.
-    case ended(BackpackEnding)
+    case ended
 }

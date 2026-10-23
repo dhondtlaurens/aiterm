@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import AiTermCore
 
-@Suite struct ModelCatalogTests {
+@Suite struct ModelFilesTests {
     @Test func piModelsComeFromProviderQualifiedRows() throws {
         let output = """
         provider      model          context  max-out  thinking  images
@@ -36,23 +36,17 @@ import Foundation
             #expect(timeout == 5)
             return ProcessOutput(status: 0, stdout: "\n", stderr: "", timedOut: false)
         })
-        #expect(try PiModelCatalog.discover(runner: empty).isEmpty)
-
-        let missing = HarnessCommandRunner(locate: { _ in nil }, run: { _, _, _, _ in
-            Issue.record("a missing executable must not be launched")
-            return ProcessOutput(status: 0, stdout: "", stderr: "", timedOut: false)
-        })
-        #expect(throws: PiModelCatalogError.self) { try PiModelCatalog.discover(runner: missing) }
+        #expect(try PiModelCatalog.discover(executable: "/usr/local/bin/pi", runner: empty).isEmpty)
 
         let failed = HarnessCommandRunner(locate: { _ in "/usr/local/bin/pi" }, run: { _, _, _, _ in
             ProcessOutput(status: 2, stdout: "", stderr: "bad auth", timedOut: false)
         })
-        #expect(throws: PiModelCatalogError.self) { try PiModelCatalog.discover(runner: failed) }
+        #expect(throws: PiModelCatalogError.self) { try PiModelCatalog.discover(executable: "/usr/local/bin/pi", runner: failed) }
 
         let timedOut = HarnessCommandRunner(locate: { _ in "/usr/local/bin/pi" }, run: { _, _, _, _ in
             ProcessOutput(status: 15, stdout: "", stderr: "", timedOut: true)
         })
-        #expect(throws: PiModelCatalogError.self) { try PiModelCatalog.discover(runner: timedOut) }
+        #expect(throws: PiModelCatalogError.self) { try PiModelCatalog.discover(executable: "/usr/local/bin/pi", runner: timedOut) }
     }
 
     @Test func testClaudeModelsFromSettingsOrDefaults() {

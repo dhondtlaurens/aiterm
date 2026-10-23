@@ -126,14 +126,14 @@ public final class BackpackMode: Sendable {
         let power = ports.power.reading()
         if power.onBattery, let level = power.level, level <= BackpackSettings.cutoff {
             turnOff()
-            return .ended(.batteryLow(level: level))
+            return .ended
         }
         let time = now()
         if agentsWorking || ports.lidSensor.isClosed() == false {
             lastWork.withLock { $0 = time }
         } else if old.until == .agentsStop, let last = lastWork.withLock({ $0 }), time.timeIntervalSince(last) >= Self.idleGrace {
             turnOff()
-            return .ended(.agentsStopped)
+            return .ended
         }
         var joined = ports.wifi.currentNetwork() == old.network
         if !joined, rejoinIsDue() {

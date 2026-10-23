@@ -60,33 +60,55 @@ public enum ProjectFiles {
     /// its dot is typed. A pick in the project is written from the project's root, the project
     /// itself as `./`, and anything else as its absolute path: the task's agent runs in a worktree
     /// under `.worktrees/`, where `../` would be somewhere else.
-    static func outside(_ query: String, root: String, limit: Int) -> [AgentCompletion] {
+    static func outside(_ query: String, root: String, limit: Int,
+                        resolve: (URL) -> URL = { $0.resolvingSymlinksInPath() }) -> [AgentCompletion] {
         guard !root.isEmpty, let slash = query.lastIndex(of: "/") else { return [] }
         let typed = query[query.index(after: slash)...].lowercased()
         let base = URL(fileURLWithPath: root, isDirectory: true)
         let folder = URL(fileURLWithPath: (String(query[...slash]) as NSString).expandingTildeInPath, relativeTo: base)
             .standardizedFileURL
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return [] }
-        let project = base.resolvingSymlinksInPath().path + "/"
-        var items: [(item: AgentCompletion, prefixed: Bool)] = []
-        for name in names {
-            let lowered = name.lowercased()
-            guard typed.hasPrefix(".") || !name.hasPrefix("."), typed.isEmpty || lowered.contains(typed) else { continue }
-            let url = folder.appendingPathComponent(name)
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { continue }
-            let tail = isDirectory.boolValue ? "/" : ""
-            let resolved = url.resolvingSymlinksInPath().path + tail
-            let written = !resolved.hasPrefix(project) ? url.path + tail
-                : resolved == project ? "./" : String(resolved.dropFirst(project.count))
-            items.append((AgentCompletion(name: written, kind: isDirectory.boolValue ? .folder : .file, detail: nil, source: .project),
-                          lowered.hasPrefix(typed)))
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey]
+        guard let entries = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: Array(keys)) else { return [] }
+        let project = base.resolvingSymlinksInPath().path + "/", resolvedFolder = folder.resolvingSymlinksInPath()
+        func written(_ url: URL, resolved: String, directory: Bool) -> String {
+            let tail = directory ? "/" : "", path = resolved + (directory ? "/" : "")
+            return !path.hasPrefix(project) ? url.path + tail : path == project ? "./" : String(path.dropFirst(project.count))
         }
-        return items.sorted { a, b in
+        func completion(_ url: URL, directory: Bool) -> AgentCompletion {
+            AgentCompletion(name: written(url, resolved: resolve(url).path, directory: directory),
+                            kind: directory ? .folder : .file, detail: nil, source: .project)
+        }
+        let candidates = entries.compactMap { entry -> (url: URL, directory: Bool, prefixed: Bool, name: String, cached: AgentCompletion?)? in
+            let name = entry.lastPathComponent, lowered = name.lowercased()
+            guard typed.hasPrefix(".") || !name.hasPrefix("."), typed.isEmpty || lowered.contains(typed) else { return nil }
+            let values = try? entry.resourceValues(forKeys: keys)
+            // Enumeration canonicalizes /var to /private/var; keep the path the query named.
+            let url = folder.appendingPathComponent(name)
+            var directory = values?.isDirectory == true, cached: AgentCompletion?
+            // Links need their target's kind and written name before ranking; ordinary entries
+            // use the enumeration's metadata and resolve only once selected.
+            if values?.isSymbolicLink == true {
+                var targetIsDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: url.path, isDirectory: &targetIsDirectory) else { return nil }
+                directory = targetIsDirectory.boolValue
+                cached = completion(url, directory: directory)
+            }
+            let sortName = cached?.name ?? written(url, resolved: resolvedFolder.appendingPathComponent(name).path, directory: directory)
+            return (url, directory, lowered.hasPrefix(typed), sortName.lowercased(), cached)
+        }.sorted { a, b in
             if a.prefixed != b.prefixed { return a.prefixed }
-            if a.item.kind != b.item.kind { return a.item.kind == .folder }
-            return a.item.name.lowercased() < b.item.name.lowercased()
-        }.prefix(limit).map(\.item)
+            if a.directory != b.directory { return a.directory }
+            return a.name < b.name
+        }
+        var result: [AgentCompletion] = []
+        for entry in candidates {
+            if result.count == limit { break }
+            if let cached = entry.cached { result.append(cached); continue }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: entry.url.path, isDirectory: &isDirectory) else { continue }
+            result.append(completion(entry.url, directory: isDirectory.boolValue))
+        }
+        return result
     }
 
     /// What a picked file or folder writes into the prompt: `@` and its path, whitespace
@@ -123,12 +145,12 @@ public struct FileIndex: Sendable {
         }
         let items = folders.map { AgentCompletion(name: $0, kind: .folder, detail: nil, source: .project) }
             + paths.map { AgentCompletion(name: $0, kind: .file, detail: nil, source: .project) }
-        func depth(_ item: AgentCompletion) -> Int { item.name.split(separator: "/").count }
-        entries = items.sorted { a, b in
-            if depth(a) != depth(b) { return depth(a) < depth(b) }
-            if a.kind != b.kind { return a.kind == .folder }
-            return a.name < b.name
-        }.map { item in
+        entries = items.map { (item: $0, depth: $0.name.split(separator: "/").count) }.sorted { a, b in
+            if a.depth != b.depth { return a.depth < b.depth }
+            if a.item.kind != b.item.kind { return a.item.kind == .folder }
+            return a.item.name < b.item.name
+        }.map { pair in
+            let item = pair.item
             let path = item.name.lowercased()
             let leaf = path.split(separator: "/").last.map(String.init) ?? path
             return Entry(item: item, path: path, leaf: leaf)

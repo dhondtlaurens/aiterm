@@ -12,8 +12,7 @@ public extension Release {
     static func assetName(for version: ReleaseVersion) -> String { "AiTerm-\(version).dmg" }
 }
 
-/// Where releases come from. The only part of self-update that knows a hosting service: GitLab
-/// or GitHub. Everything after `download` — staging, verifying,
+/// Where releases come from. Everything after `download` — staging, verifying,
 /// installing — is the same for any source.
 public protocol ReleaseSource: Sendable {
     func latest() async throws -> Release
@@ -44,7 +43,7 @@ enum ReleaseDownload {
 
 /// Every way a check or an update can stop, each with the one line the alert shows.
 public enum UpdateError: Error, Equatable, LocalizedError {
-    case noFeed, noToken, tokenForOtherHost(String, feed: String), rejected, projectNotFound(CodeHost, String), noRelease(CodeHost)
+    case noFeed, noToken, rejected, projectNotFound(CodeHost, String), noRelease(CodeHost)
     case unreachable(String), badResponse(CodeHost, Int), rateLimited
     case unreadableTag(CodeHost, String), missingAsset(CodeHost, String), unverified, translocated, cannotReplace(String), devBuild, installFailed(String), installAborted(Int32), other(String)
 
@@ -52,7 +51,6 @@ public enum UpdateError: Error, Equatable, LocalizedError {
         switch self {
         case .noFeed: return "This build of AiTerm has no update source."
         case .noToken: return "Add a GitLab token in Settings › Integrations to get updates."
-        case .tokenForOtherHost(let settings, let feed): return "Settings’ GitLab token is for \(settings); updates come from \(feed)."
         case .rejected: return "GitLab rejected the token in Settings › Integrations."
         case .projectNotFound(.gitLab, let path): return "GitLab has no project at \(path), or your token cannot see it."
         case .projectNotFound(.gitHub, let path): return "GitHub has no repository at \(path)."

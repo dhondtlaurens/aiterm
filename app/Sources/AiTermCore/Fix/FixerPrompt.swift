@@ -2,8 +2,8 @@ import Foundation
 
 /// What a fixer is told. The rules are the same for both runs; the problem and git's words go in a
 /// `<problem>` block the instructions call data.
-public enum FixerPrompt {
-    public static let instructions = """
+enum FixerPrompt {
+    static let instructions = """
     You are fixing a git problem for AiTerm, in a throwaway clone of the user's repository. Rules:
     - Never push. Never add or change remotes. Never change git config. Never delete a branch or tag.
     - Never install anything globally. Stay inside this directory. There is no network for your commands.
@@ -21,7 +21,7 @@ public enum FixerPrompt {
     /// swapped for `‹`, so none of it can close the `<problem>` block or open a tag of its own.
     static func neutral(_ text: String) -> String { text.replacingOccurrences(of: "<", with: "‹") }
 
-    public static func look(request: FixRequest, clone: FixClone) -> String {
+    static func look(request: FixRequest, clone: FixClone) -> String {
         """
         AiTerm could not finish an action because of a git problem on branch “\(neutral(request.branch))”. A rebase onto \
         origin/\(neutral(request.branch)) may be stopped in this clone; read the conflict here. Decide whether a safe fix \
@@ -36,7 +36,7 @@ public enum FixerPrompt {
         """
     }
 
-    public static func apply(proposal: FixProposal) -> String {
+    static func apply(proposal: FixProposal) -> String {
         """
         Apply exactly the plan you proposed, in this clone, and nothing else:
         \(proposal.steps.enumerated().map { "\($0.offset + 1). \(neutral($0.element))" }.joined(separator: "\n"))
@@ -46,7 +46,7 @@ public enum FixerPrompt {
     }
 
     /// Strict, as Codex's API requires (spikes): every property required, the unused ones `null`.
-    public static let lookSchema = #"""
+    static let lookSchema = #"""
     {"type":"object","additionalProperties":false,
      "properties":{"outcome":{"type":"string","enum":["fix","none"]},"headline":{"type":["string","null"]},
        "why":{"type":["string","null"]},"steps":{"type":["array","null"],"items":{"type":"string"}},
@@ -55,7 +55,7 @@ public enum FixerPrompt {
      "required":["outcome","headline","why","steps","moves","drops","verify","reason"]}
     """#
 
-    public static let applySchema = #"""
+    static let applySchema = #"""
     {"type":"object","additionalProperties":false,
      "properties":{"outcome":{"type":"string","enum":["applied","failed"]},"summary":{"type":"string"}},
      "required":["outcome","summary"]}

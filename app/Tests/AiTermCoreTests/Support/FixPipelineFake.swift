@@ -1,12 +1,13 @@
 import Foundation
 import Synchronization
-import AiTermCore
+@testable import AiTermCore
+@testable import AiTermTestSupport
 
 extension FixPipeline {
     /// The pipeline with the agent's two runs replaced: `prepare` makes a real clone in `root`,
     /// `look` validates `answer` against the clone as the live one does, `apply` runs `work` in the
     /// clone and then the real `FixGuard.check` against the tips read in `look`, and `land` is the
-    /// real landing on `TaskWorkflow`'s queue — this library sees only what Core makes public.
+    /// real landing on `TaskWorkflow`'s queue.
     static func fake(git: any GitRunning, root: String,
                      look answer: @escaping @Sendable (FixClone) throws -> FixLookAnswer,
                      apply work: @escaping @Sendable (FixClone) throws -> Void) -> FixPipeline {

@@ -261,7 +261,9 @@ import Testing
             return (200, Data(Self.pull().utf8))
         }
         #expect(try await endless.client.mergeReadiness(repo: "octocat/hello", number: 88) == .waiting("GitHub has not listed all its checks"))
-        #expect(endless.stub.requests.count == 1 + GitHubClient.listedPages, "it gives up after the pages it reads")
+        #expect(endless.stub.requests.filter { $0.url?.path.hasSuffix("/check-runs") == true }.count == GitHubClient.listedPages,
+                "it gives up after the pages it reads")
+        #expect(endless.stub.requests.filter { $0.url?.path.hasSuffix("/status") == true }.count == 1)
         let short = makeClient(host(pull: Self.pull(), checkRuns: Self.runs([], total: 3)))
         #expect(try await short.client.mergeReadiness(repo: "octocat/hello", number: 88) == .waiting("GitHub has not listed all its checks"))
     }

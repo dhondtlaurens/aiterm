@@ -1,6 +1,6 @@
 import Foundation
 
-public enum HarnessHealth: String, Equatable, Sendable {
+public enum HarnessHealth: Equatable, Sendable {
     case ready
     case warning
     case unavailable
@@ -19,9 +19,9 @@ public enum HarnessIntegrationState: Equatable, Sendable {
 
 /// What a card's check is about. Core and the app filter, replace and order checks by it, so it is
 /// a type: a misspelt id does not compile, and each check's label is said once.
-public enum HarnessCheckID: String, Sendable {
+public enum HarnessCheckID: Hashable, Sendable {
     case cli, integration, models, daemon, delivery, operation
-    case selectedModel = "selected-model"
+    case selectedModel
     /// Whether AiTerm may type into the CLI: the delivery check's verdict on the version installed
     /// (`DeliveryCheck.messaging`), which the app adds to Claude Code's and Codex's cards.
     case messaging

@@ -81,9 +81,9 @@ struct FakeBackpack {
     let installer: FakeInstaller
     let settings: BackpackSettings
 
-    init(defaults: UserDefaults? = nil) {
+    init() {
         installer = FakeInstaller(lid: lid)
-        settings = BackpackSettings(defaults: defaults)
+        settings = BackpackSettings(defaults: nil)
         settings.network = "Phone"
         wifi.known = ["Home", "Phone"]
         wifi.current = "Home"

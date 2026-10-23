@@ -71,14 +71,11 @@ public enum FixLook: Equatable, Sendable {
     }
 }
 
-/// The Apply run's answer, once it says it applied.
-public struct FixApplied: Equatable, Sendable {
-    public var summary: String
-
-    public init(validating answer: FixApplyAnswer, agent: FixerAgent) throws(FixRefusal) {
-        switch answer.outcome {
-        case "applied": summary = answer.summary ?? ""
-        case "failed": throw .agentFailed(agent, summary: answer.summary ?? "no reason given")
+extension FixApplyAnswer {
+    func check(agent: FixerAgent) throws(FixRefusal) {
+        switch outcome {
+        case "applied": return
+        case "failed": throw .agentFailed(agent, summary: summary ?? "no reason given")
         default: throw .unreadableAnswer(agent)
         }
     }

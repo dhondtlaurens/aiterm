@@ -268,12 +268,6 @@ public enum SkillCatalog {
 
     // -- frontmatter ----------------------------------------------------------------
 
-    /// The value of one key in a `---` frontmatter block, including the folded (`>-`, `|`) form
-    /// that longer skill descriptions use.
-    public static func frontmatterValue(_ key: String, in text: String) -> String? {
-        frontmatter(in: text)[key].flatMap { $0.isEmpty ? nil : $0 }
-    }
-
     /// Every key of a `---` frontmatter block, read in one pass; the first of a key wins, and a key
     /// with nothing after it reads as empty.
     static func frontmatter(in text: String) -> [String: String] {

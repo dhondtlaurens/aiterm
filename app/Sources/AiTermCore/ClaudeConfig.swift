@@ -22,6 +22,8 @@ public struct ClaudeConfig: Sendable {
         return URL(fileURLWithPath: (path as NSString).expandingTildeInPath, relativeTo: home).standardizedFileURL
     }
 
+    func settingsURL(home: URL) -> URL { directory(home: home).appendingPathComponent("settings.json") }
+
     /// Claude moves its global state inside an explicitly configured directory, even if that
     /// directory is ~/.claude. Without an override the historical ~/.claude.json remains in use.
     public func globalJSON(home: URL) -> URL {

@@ -274,6 +274,19 @@ import Synchronization
         #expect(query?.first(where: { $0.name == "orderBy" })?.value == "name")
     }
 
+    @Test func projectsStopWhenTheServerNeverFinishesPaging() async throws {
+        let stub = StubSession { request in
+            let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems }
+            let offset = Int(query?.first { $0.name == "startAt" }?.value ?? "0") ?? 0
+            // Fail promptly on the old unbounded loop instead of hanging the suite.
+            guard offset < 20 else { return (500, Data()) }
+            return (200, Data(#"{"isLast":false,"values":[{"id":"1","key":"A","name":"A"}]}"#.utf8))
+        }
+        let projects = try await JiraClient(config: config, session: stub.session).projects()
+        #expect(projects.count == 20)
+        #expect(stub.requests.count == 20)
+    }
+
     @Test func testProjectsLoadsEveryPage() async throws {
         let stub = StubSession { request in
             let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems }

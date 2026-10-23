@@ -11,7 +11,7 @@ import Foundation
 /// a decline is a finding, not noise.
 @Suite(.blocking, .enabled(if: ProcessInfo.processInfo.environment["AITERM_LIVE_FIXER"] == "1"))
 struct FixLiveTests {
-    @Test(arguments: FixerAgent.allCases)
+    @Test(arguments: [FixerAgent.claude])
     func resolvesARealConflict(_ agent: FixerAgent) async throws {
         guard let cli = HarnessCommandRunner.live.locate(agent.agent.harness.executable) else {
             try Test.cancel("\(agent.agent.harness.executable) is not installed, so \(agent) was not checked.")   // never returns: the case shows as cancelled

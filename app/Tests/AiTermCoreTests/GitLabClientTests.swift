@@ -42,6 +42,7 @@ import Foundation
 
     @Test func testSubgroupPathIsEncodedAsOneSegment() {
         #expect(GitLabClient.encodedProject("a/b/c") == "a%2Fb%2Fc")
+        #expect(GitLabClient.encodedProject("feat/é") == "feat%2F%C3%A9")
         #expect(GitLabClient.encodedProject("group/my project") == "group%2Fmy%20project")
     }
 

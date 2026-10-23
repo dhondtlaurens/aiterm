@@ -11,24 +11,14 @@ struct CodexDriver: HarnessDriver {
 
     func probe() -> DriverProbe {
         let file = config
-        switch file.readText() {
-        case .missing: return DriverProbe(.missing)
-        case .refused(let reason): return .refused(file, reason)
-        case .present(let text):
-            if let reason = Self.unmergeable(text) { return .refused(file, reason) }
-            if CodexHookConfig.isInstalled(text, daemonPort: daemonPort) { return DriverProbe(.current) }
-            return DriverProbe(CodexHookConfig.isOwned(text) ? .outdated : .missing)
+        return file.readText().probe(file) { text in
+            CodexHookConfig.probe(text, port: daemonPort, file: file)
         }
     }
 
     func install() throws {
         let file = config
-        let text: String?
-        switch file.readText() {
-        case .missing: text = nil
-        case .refused(let reason): throw file.refusal(reason)
-        case .present(let contents): text = contents
-        }
+        let text = try file.readText().requiringReadable(file)
         if let text, let reason = Self.unmergeable(text) { throw file.refusal(reason) }
         let merged = CodexHookConfig.merge(text, hookURL: "http://127.0.0.1:\(daemonPort)")
         guard merged != text else { return }

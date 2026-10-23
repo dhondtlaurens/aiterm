@@ -20,14 +20,10 @@ public struct HarnessTestTransport: Sendable {
         defer { session.invalidateAndCancel() }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw HarnessTestTransportError.unsuccessfulResponse
+            throw URLError(.badServerResponse)
         }
         return data
     }
-}
-
-private enum HarnessTestTransportError: Error {
-    case unsuccessfulResponse
 }
 
 /// The daemon and delivery checks a Test adds to a card.
@@ -58,28 +54,13 @@ public struct HarnessTestClient: Sendable {
         }
         let daemon = await daemonCheck(url: url)
         guard daemon.passed else { return HarnessTestResult(checks: [daemon, skippedDeliveryCheck()]) }
-        let id = UUID().uuidString
-        do {
-            let body = try JSONSerialization.data(withJSONObject: ["_aiterm_test_id": id])
-            let data = try await transport.post(url, body, [
-                "Content-Type": "application/json",
-                "X-AiTerm-Hook": "1",
-            ])
-            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  object["ok"] as? Bool == true,
-                  object["testId"] as? String == id else {
-                return HarnessTestResult(checks: [daemon, deliveryCheck(passed: false,
-                                                      explanation: "AiTerm did not receive the test event.")])
-            }
-            return HarnessTestResult(checks: [daemon, deliveryCheck(passed: true, explanation: nil)])
-        } catch {
-            return HarnessTestResult(checks: [daemon, deliveryCheck(passed: false,
-                                                  explanation: "AiTerm did not receive the test event.")])
-        }
+        let passed = await roundTrip(url: url, requestKey: "_aiterm_test_id", responseKey: "testId")
+        return HarnessTestResult(checks: [daemon, deliveryCheck(passed: passed,
+            explanation: passed ? nil : "AiTerm did not receive the test event.")])
     }
 
     public func testPi(extensionPath: String) async -> HarnessTestResult {
-        guard let url = URL(string: "http://127.0.0.1:\(daemonPort)" + Harness.pi.hookEndpoint) else {
+        guard let url = URL(string: Harness.pi.hookURL(port: daemonPort)) else {
             return HarnessTestResult(checks: [deliveryCheck(passed: false, explanation: "AiTerm did not receive the test event.")])
         }
         let daemon = await daemonCheck(url: url)
@@ -116,22 +97,18 @@ public struct HarnessTestClient: Sendable {
     }
 
     private func daemonCheck(url: URL) async -> HarnessCheck {
+        let passed = await roundTrip(url: url, requestKey: "_aiterm_daemon_test_id", responseKey: "daemonTestId")
+        return HarnessCheck(.daemon, passed: passed, explanation: passed ? nil : "AiTerm’s helper is unavailable.")
+    }
+
+    private func roundTrip(url: URL, requestKey: String, responseKey: String) async -> Bool {
         let id = UUID().uuidString
         do {
-            let body = try JSONSerialization.data(withJSONObject: ["_aiterm_daemon_test_id": id])
-            let data = try await transport.post(url, body, [
-                "Content-Type": "application/json",
-                "X-AiTerm-Hook": "1",
-            ])
-            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  object["ok"] as? Bool == true,
-                  object["daemonTestId"] as? String == id else {
-                return HarnessCheck(.daemon, passed: false, explanation: "AiTerm’s helper is unavailable.")
-            }
-            return HarnessCheck(.daemon, passed: true, explanation: nil)
-        } catch {
-            return HarnessCheck(.daemon, passed: false, explanation: "AiTerm’s helper is unavailable.")
-        }
+            let body = try JSONSerialization.data(withJSONObject: [requestKey: id])
+            let data = try await transport.post(url, body, ["Content-Type": "application/json", "X-AiTerm-Hook": "1"])
+            let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            return object?["ok"] as? Bool == true && object?[responseKey] as? String == id
+        } catch { return false }
     }
 
     private func deliveryCheck(passed: Bool, explanation: String?) -> HarnessCheck {

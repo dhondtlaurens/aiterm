@@ -11,7 +11,7 @@ extension Harness {
         noModelsExplanation: "No models are available.",
         skillSigil: "/", hookEndpoint: "/hook/claude",
         bundledResource: .script("claude-statusline-shim.sh"),
-        launchArguments: { model, reasoning in ["--model", model] + (reasoning.map { ["--effort", $0] } ?? []) },
+        launchArguments: { Harness.claude.modelArguments(model: $0, reasoning: $1) },
         resumeArguments: { ["--resume", $0] },
         models: .files(sources: { ModelFiles.claudeSources(home: $0, claudeConfig: config) }, read: { ModelFiles.claudeModels(home: $0, claudeConfig: config) }),
         skillRoots: { home, project in
@@ -28,7 +28,7 @@ extension Harness {
         },
         makeDriver: { home, port, shim in shim.map { ClaudeDriver(home: home, daemonPort: port, shimPath: $0, claudeConfig: config) } }) }
 
-    static let codex = Harness(
+    static let codex: Harness = Harness(
         agent: .codex, executable: "codex", displayName: "Codex",
         installCommand: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
         fallbackEfforts: ModelFiles.codexEfforts, defaultEffort: "medium",
@@ -38,7 +38,7 @@ extension Harness {
         skillSigil: "$", hookEndpoint: "/hook/codex",
         bundledResource: nil,
         launchArguments: { model, reasoning in
-            ["--dangerously-bypass-approvals-and-sandbox", "-m", model] + (reasoning.map { ["-c", "model_reasoning_effort=\($0)"] } ?? [])
+            ["--dangerously-bypass-approvals-and-sandbox"] + Harness.codex.modelArguments(model: model, reasoning: reasoning)
         },
         resumeArguments: { ["resume", $0] },       // a subcommand: its options follow the id
         models: .files(sources: { ModelFiles.codexSources(home: $0) }, read: { ModelFiles.codexModels(home: $0) }),
@@ -59,14 +59,14 @@ extension Harness {
         },
         makeDriver: { home, port, _ in CodexDriver(home: home, daemonPort: port) })
 
-    static let pi = Harness(
+    static let pi: Harness = Harness(
         agent: .pi, executable: "pi", displayName: "PI",
         installCommand: "curl -fsSL https://pi.dev/install.sh | sh",
         fallbackEfforts: PiModelCatalog.thinkingLevels, defaultEffort: "medium",
         noModelsExplanation: "No PI providers are signed in. Run /login in PI.",
         skillSigil: "/", hookEndpoint: "/hook/pi",
         bundledResource: .source("pi-aiterm-status.ts"),
-        launchArguments: { model, reasoning in ["--model", model] + (reasoning.map { ["--thinking", $0] } ?? []) },
+        launchArguments: { Harness.pi.modelArguments(model: $0, reasoning: $1) },
         resumeArguments: { ["--session", $0] },    // a session id or file
         models: .launch(sources: { PiModelCatalog.sources(home: $0) },
                         list: { try PiModelCatalog.discover(executable: $0, runner: $1) }),

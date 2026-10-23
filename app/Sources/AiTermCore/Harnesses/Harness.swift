@@ -38,6 +38,17 @@ public struct Harness: Sendable {
     /// (`HarnessResources`); `nil` without one it needs.
     let makeDriver: @Sendable (_ home: URL, _ daemonPort: Int, _ resource: String?) -> (any HarnessDriver)?
 
+    /// The CLI’s model and reasoning flag spellings, shared by interactive and headless runs.
+    func modelArguments(model: String, reasoning: String?) -> [String] {
+        return switch agent {
+        case .claude: ["--model", model] + (reasoning.map { ["--effort", $0] } ?? [])
+        case .codex: ["-m", model] + (reasoning.map { ["-c", "model_reasoning_effort=\($0)"] } ?? [])
+        case .pi: ["--model", model] + (reasoning.map { ["--thinking", $0] } ?? [])
+        }
+    }
+
+    func hookURL(port: Int) -> String { "http://127.0.0.1:\(port)" + hookEndpoint }
+
     /// The launch command's words before its prompt, unquoted (`AgentCommand` quotes them).
     func launchWords(model: String, reasoning: String?) -> [String] {
         [executable] + launchArguments(model, reasoning)

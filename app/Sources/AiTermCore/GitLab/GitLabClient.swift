@@ -34,8 +34,7 @@ public struct GitLabClient: Sendable {
     /// must be escaped. `.urlPathAllowed` leaves `/` alone, which would split `a/b/c` into three
     /// segments and 404 on every subgroup project.
     public static func encodedProject(_ path: String) -> String {
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~")
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
         return path.addingPercentEncoding(withAllowedCharacters: allowed) ?? path
     }
 
@@ -44,12 +43,7 @@ public struct GitLabClient: Sendable {
     /// setting `queryItems` does not touch it, so the project's `%2F` survives — which assigning
     /// to `components.path` would not (it re-escapes the `%`).
     static func apiURL(host: URL, path: String, query: [URLQueryItem] = []) -> URL? {
-        guard let url = HTTPJSON.url(base(host) + path, query: query) else { return nil }
-        guard !query.isEmpty, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
-        // URLComponents leaves a `+` in a value alone, and GitLab reads it as a space: a branch `feat/a+b`
-        // would be looked for as `feat/a b`.
-        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
-        return components.url
+        HTTPJSON.url(base(host) + path, query: query)
     }
 
     /// The host as written in Settings, less its trailing slashes.
@@ -217,12 +211,11 @@ public struct GitLabClient: Sendable {
     public func assignReviewers(project: String, iid: Int, usernames: [String],
                                 beforeWrite: @Sendable () async throws -> Void = {}) async throws {
         struct User: Decodable { var id: Int, username: String }
-        var ids: [Int] = []
-        for username in usernames {
+        let ids = try await JiraClient.inOrder(usernames) { username in
             let found = try await get([User].self, path: "/api/v4/users", query: [URLQueryItem(name: "username", value: username)],
                                       notFound: .noAPI(Self.base(config.hostURL)))
             guard let user = found.first(where: { $0.username.lowercased() == username.lowercased() }) else { throw GitLabError.noUser(username) }
-            ids.append(user.id)
+            return user.id
         }
         struct Reviewers: Decodable { struct Reviewer: Decodable { var id: Int }; var reviewers: [Reviewer]? }
         let path = Self.requestsPath(project) + "/\(iid)"
@@ -240,21 +233,18 @@ public struct GitLabClient: Sendable {
     /// a thread without an id, throws `IncompleteRead`, so nothing is decided on part of them.
     public func threads(project: String, iid: Int) async throws -> [ReviewThread] {
         let path = Self.requestsPath(project) + "/\(iid)/discussions"
-        var threads: [ReviewThread] = []
-        for page in 1...Self.threadPagesRead {
-            let query = [URLQueryItem(name: "per_page", value: String(Self.discussionsPerPage)),
-                         URLQueryItem(name: "page", value: String(page))]
-            let discussions = try await get([Lenient<DiscussionPayload>].self, path: path, query: query,
-                                            notFound: .projectNotFound(project))
-            if discussions.isEmpty { return threads }
-            for entry in discussions {
+        return try await HTTPJSON.pagesUntilEmpty(limit: Self.threadPagesRead, exhausted: IncompleteRead("review threads")) { page in
+            try await get([Lenient<DiscussionPayload>].self, path: path,
+                query: [URLQueryItem(name: "per_page", value: String(Self.discussionsPerPage)), URLQueryItem(name: "page", value: String(page))],
+                notFound: .projectNotFound(project))
+        } items: { discussions in
+            try discussions.compactMap { entry in
                 guard let discussion = entry.value else { throw IncompleteRead("review threads") }
-                guard discussion.resolution != nil else { continue }
+                guard discussion.resolution != nil else { return nil }
                 guard let thread = discussion.thread else { throw IncompleteRead("review threads") }
-                threads.append(thread)
+                return thread
             }
         }
-        throw IncompleteRead("review threads")
     }
 
     /// A reply in the discussion `discussion`.
@@ -301,16 +291,12 @@ public struct GitLabClient: Sendable {
     /// page is "no rules" when `noneIfMissing` (a group listing); anywhere else it is an error.
     private func protectedRules(path: String, notFound: GitLabError, noneIfMissing: Bool) async throws -> [String] {
         struct Protected: Decodable { var name: String }
-        var names: [String] = []
-        for page in 1...Self.protectedPages {
-            let query = [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
-            let batch: [Protected]
-            do { batch = try await get([Protected].self, path: path, query: query, notFound: notFound) }
-            catch GitLabError.projectNotFound where noneIfMissing && page == 1 { return [] }
-            if batch.isEmpty { return names }
-            names += batch.map(\.name)
-        }
-        throw ProtectionUnknown.tooManyRules(Self.protectedPages * 100)
+        return try await HTTPJSON.pagesUntilEmpty(limit: Self.protectedPages, exhausted: ProtectionUnknown.tooManyRules(Self.protectedPages * 100)) { page in
+            do {
+                return try await get([Protected].self, path: path,
+                    query: [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))], notFound: notFound)
+            } catch GitLabError.projectNotFound where noneIfMissing && page == 1 { return [] }
+        } items: { $0.map(\.name) }
     }
 
     /// The rules of the top-level group `group`, as GitLab's group-level protected branches (Premium and up).
@@ -378,12 +364,7 @@ public struct GitLabClient: Sendable {
 
     private func send<Body: Encodable, Payload: Decodable>(_ type: Payload.Type, method: String, path: String, body: Body,
                                                            notFound: GitLabError) async throws -> Payload {
-        guard let url = Self.apiURL(host: config.hostURL, path: path) else { throw GitLabError.decoding }
-        var request = HTTPJSON.request(url, headers: ["PRIVATE-TOKEN": config.token, "Accept": "application/json",
-                                                      "Content-Type": "application/json"])
-        request.httpMethod = method
-        request.httpBody = try JSONEncoder.snakeCase.encode(body)
-        return try await HTTPJSON.decode(type, request, session: session) { Self.error(for: $0, notFound: notFound) }.value
+        try await api(notFound).send(type, method: method, path: path, body: body, encoder: .snakeCase)
     }
 
     static func iid(_ text: String) -> Int? {
@@ -394,9 +375,12 @@ public struct GitLabClient: Sendable {
     /// `notFound` is what a 404 means for this `path`.
     private func get<Payload: Decodable>(_ type: Payload.Type, path: String, query: [URLQueryItem] = [],
                                          notFound: GitLabError) async throws -> Payload {
-        guard let url = Self.apiURL(host: config.hostURL, path: path, query: query) else { throw GitLabError.decoding }
-        let request = HTTPJSON.request(url, headers: ["PRIVATE-TOKEN": config.token, "Accept": "application/json"])
-        return try await HTTPJSON.decode(type, request, session: session) { Self.error(for: $0, notFound: notFound) }.value
+        try await api(notFound).get(type, path: path, query: query)
+    }
+
+    private func api(_ notFound: GitLabError) -> HostAPI {
+        HostAPI(base: Self.base(config.hostURL), headers: ["PRIVATE-TOKEN": config.token, "Accept": "application/json"], session: session, malformed: GitLabError.decoding,
+                mapping: { Self.error(for: $0, notFound: notFound) })
     }
 
     static func error(for failure: HTTPJSON.Failure, notFound: GitLabError) -> GitLabError {

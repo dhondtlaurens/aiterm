@@ -44,13 +44,8 @@ public struct HarnessCommandRunner: Sendable {
 
     private static let launch: @Sendable (String, [String], [String: String], TimeInterval) throws -> ProcessOutput = {
         executable, arguments, overrides, timeout in
-        var environment = ProcessRunner.inheritedEnvironment
-        for (key, value) in overrides { environment[key] = value }
-        // An npm CLI such as PI is a `#!/usr/bin/env node` script, and an app opened from the
-        // Dock has launchd's `PATH`, with no Homebrew or nvm in it. npm links the CLI into the
-        // same `bin` as the node that installed it, so that directory is where `env` must look.
-        let binDirectory = (executable as NSString).deletingLastPathComponent
-        environment["PATH"] = [binDirectory, environment["PATH"]].compactMap { $0 }.joined(separator: ":")
+        let environment = ProcessRunner.inheritedEnvironment.merging(
+            ProcessRunner.environment(runningCLI: executable, overrides: overrides), uniquingKeysWith: { _, override in override })
         do {
             return try ProcessRunner.run(URL(fileURLWithPath: executable), arguments, environment: environment, timeout: timeout)
         } catch {

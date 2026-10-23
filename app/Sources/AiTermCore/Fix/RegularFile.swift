@@ -5,7 +5,7 @@ import Darwin
 
 /// A file AiTerm reads from a fix's clone, which the agent can write: only a regular file, never
 /// through a symlink, never by waiting on a FIFO, and only up to a limit — the clone's settings
-/// (`FixClone.settings(at:)`) and Codex's answer (`FixerLaunch`).
+/// (`FixClone.settings(at:)`) and the Oracle's answer file.
 enum RegularFile {
     enum Entry: Equatable { case absent, bytes(Data) }
 

@@ -72,7 +72,7 @@ public struct FixPipeline: Sendable {
                 let answer = try await BackgroundWork.run { () throws(FixRefusal) -> FixApplyAnswer in
                     try FixerLaunch.applyAnswer(agent, output: output, invocation: invocation)
                 }
-                _ = try FixApplied(validating: answer, agent: agent)
+                try answer.check(agent: agent)
                 let checked = try await BackgroundWork.run { () throws(FixRefusal) -> String in
                     try FixGuard.check(clone, proposal: proposal, before: before)
                 }
@@ -100,19 +100,14 @@ public struct FixPipeline: Sendable {
             land: { clone, checked throws(FixRefusal) in try await workflow.landFix(from: clone, tip: checked, in: project) })
     }
 
-    /// One agent run in the clone — the process's working directory, which Codex's `exec resume`
-    /// needs as it takes no `-C`.
-    private static func run(_ agent: FixerAgent, _ invocation: FixerInvocation, in clone: FixClone, timeout: Duration,
+    /// One agent run with the clone as its working directory.
+    private static func run(_ agent: FixerAgent, _ invocation: HeadlessInvocation, in clone: FixClone, timeout: Duration,
                             locate: @escaping @Sendable (String) -> String?) async throws(FixRefusal) -> ProcessOutput {
         let name = invocation.executable
         guard let executable = await BackgroundWork.run({ locate(name) }) else {
             throw .agentExited(agent, status: 127, stderr: "\(name) is not installed.")
         }
-        // As the harness runner does: a CLI installed by npm is a `#!/usr/bin/env node` script, and an
-        // app opened from the Dock has launchd's `PATH`, which has no node on it.
-        var environment = invocation.environment
-        let bin = (executable as NSString).deletingLastPathComponent
-        environment["PATH"] = [bin, environment["PATH"] ?? ProcessRunner.inheritedEnvironment["PATH"]].compactMap { $0 }.joined(separator: ":")
+        let environment = ProcessRunner.environment(runningCLI: executable, overrides: invocation.environment)
         do {
             return try await AgentProcess.run(executable, invocation.arguments, environment: environment, in: clone.path, timeout: timeout)
         } catch is CancellationError {

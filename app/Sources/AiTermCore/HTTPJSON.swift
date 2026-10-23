@@ -19,6 +19,18 @@ enum HTTPJSON {
         case undecodable(status: Int)
     }
 
+    /// A bounded listing whose only terminal page is an empty one. Validation stays per page.
+    static func pagesUntilEmpty<Page, Item>(limit: Int, exhausted: any Error,
+        read: (Int) async throws -> [Page], items: ([Page]) throws -> [Item]) async throws -> [Item] {
+        var result: [Item] = []
+        for page in 1...limit {
+            let batch = try await read(page)
+            if batch.isEmpty { return result }
+            result += try items(batch)
+        }
+        throw exhausted
+    }
+
     /// Jira's and GitHub's `Authorization`, and GitLab's `PRIVATE-TOKEN`.
     static let credentialHeaders = ["Authorization", "PRIVATE-TOKEN"]
 
@@ -34,7 +46,11 @@ enum HTTPJSON {
     /// percent-encoded path verbatim, which `url.appendingPathComponent` would not.
     static func url(_ string: String, query: [URLQueryItem] = []) -> URL? {
         guard var components = URLComponents(string: string) else { return nil }
-        if !query.isEmpty { components.queryItems = query }
+        if !query.isEmpty {
+            components.queryItems = query
+            // Servers parse literal + as a space, even though URLComponents leaves it unescaped.
+            components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        }
         return components.url
     }
 
@@ -118,12 +134,20 @@ extension JSONEncoder {
 }
 
 /// An element of a JSON list that may not decode, so one malformed entry drops only itself.
-struct Lenient<Value: Decodable>: Decodable {
+@propertyWrapper struct Lenient<Value: Decodable>: Decodable {
     var value: Value?
+    var wrappedValue: Value? { value }
+    init(wrappedValue: Value?) { value = wrappedValue }
     init(from decoder: Decoder) throws { value = try? Value(from: decoder) }
 }
 
+extension Lenient: Sendable where Value: Sendable {}
+
 extension KeyedDecodingContainer {
+    func decode<Value>(_ type: Lenient<Value>.Type, forKey key: Key) throws -> Lenient<Value> {
+        try decodeIfPresent(type, forKey: key) ?? Lenient(wrappedValue: nil)
+    }
+
     /// `key` as `Value`, or nil when it is absent, null or of another type: one odd field of a
     /// payload that has others worth reading is treated as not sent.
     func lenient<Value: Decodable>(_ type: Value.Type, forKey key: Key) -> Value? {
@@ -171,5 +195,30 @@ extension URL {
 
     func isSameOrigin(as other: URL) -> Bool {
         scheme?.lowercased() == other.scheme?.lowercased() && comparableHost == other.comparableHost && comparablePort == other.comparablePort
+    }
+}
+
+/// Request construction shared by the two code hosts; each call supplies its host's error mapping.
+struct HostAPI: Sendable {
+    var base: String, headers: [String: String], session: URLSession
+    var malformed: any Error
+    var mapping: @Sendable (HTTPJSON.Failure) -> any Error
+
+    func get<Value: Decodable>(_ type: Value.Type, path: String, query: [URLQueryItem] = []) async throws -> Value {
+        try await HTTPJSON.decode(type, request(path, query: query), session: session, mapping: mapping).value
+    }
+
+    func send<Body: Encodable, Value: Decodable>(_ type: Value.Type, method: String, path: String,
+                                                body: Body, encoder: JSONEncoder = JSONEncoder()) async throws -> Value {
+        var request = try request(path)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpMethod = method
+        request.httpBody = try encoder.encode(body)
+        return try await HTTPJSON.decode(type, request, session: session, mapping: mapping).value
+    }
+
+    private func request(_ path: String, query: [URLQueryItem] = []) throws -> URLRequest {
+        guard let url = HTTPJSON.url(base + path, query: query) else { throw malformed }
+        return HTTPJSON.request(url, headers: headers)
     }
 }

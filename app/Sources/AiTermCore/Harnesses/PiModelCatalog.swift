@@ -50,12 +50,6 @@ public enum PiModelCatalog {
         }
     }
 
-    /// PI's models, from `pi --list-models`. `ModelCatalogue` is what the app asks; it keeps them.
-    static func discover(runner: HarnessCommandRunner) throws -> [AgentModel] {
-        guard let executable = runner.locate(Harness.pi.executable) else { throw PiModelCatalogError.unavailable }
-        return try discover(executable: executable, runner: runner)
-    }
-
     /// Where PI keeps its sign-ins and custom models, which is what its list is made from.
     static func sources(home: URL) -> [String] {
         [".pi/agent", ".pi/agent/auth.json", ".pi/agent/models.json", ".pi/agent/settings.json"]

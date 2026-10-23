@@ -10,15 +10,6 @@ import Testing
         #expect(BackpackRefusal.joinFailed(network: "Phone").message == "Couldn’t join Phone: check its password")
     }
 
-    @Test func degradedWhenNotJoinedOrWithinFivePointsOfTheCutoffOnBattery() {
-        let fine = BackpackStatus(network: "P", joined: true, power: PowerReading(level: 16, onBattery: true))
-        #expect(!fine.degraded)
-        #expect(BackpackStatus(network: "P", joined: true, power: PowerReading(level: 15, onBattery: true)).nearCutoff)
-        #expect(BackpackStatus(network: "P", joined: false, power: .mains).degraded)
-        // On AC the battery level never degrades it.
-        #expect(!BackpackStatus(network: "P", joined: true, power: PowerReading(level: 11, onBattery: false)).degraded)
-    }
-
     @Test func setupIsCompleteOnlyWithTheRuleLocationAndANetwork() {
         #expect(BackpackSetup(sleepRule: true, location: true, network: "P").isComplete)
         #expect(!BackpackSetup(sleepRule: false, location: true, network: "P").isComplete)
