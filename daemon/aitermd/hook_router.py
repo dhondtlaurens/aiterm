@@ -5,7 +5,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from .hook_events import HOOK_PARSERS, STATUSLINE_PARSERS
+from .hook_events import HOOK_PARSERS, STATUSLINE_PARSERS, HookEvent
 from .models import AgentKind
 from .publisher import Publisher
 from .resolver import SessionResolver
@@ -46,6 +46,10 @@ class HookRouter:
         self.typed_by_you: Callable[[str], bool] = lambda _sid: False
         # The tabs whose conversation has submitted a prompt since it started: its first is AiTerm's launch prompt.
         self._prompted: set[str] = set()
+        # Posts are placed and applied in the order they arrive: a launch's SessionStart before its first
+        # prompt. Placing one can wait on a scan of Claude's session files, so each holds this, FIFO,
+        # from placing to applying. Uncontended, taking it does not yield.
+        self._in_order = asyncio.Lock()
 
     async def stop(self) -> None:
         """End shared retry ticks, including those shielded from a cancelled HTTP caller."""
@@ -63,21 +67,34 @@ class HookRouter:
             usage = tick.usage
             if usage and (usage.five_hour or usage.seven_day or usage.spend) and self.usage.set(agent, usage):
                 await self.publisher.usage_changed()
-            if (tick.model or tick.context_percent is not None) and (
-                    sid := (await self._resolve_post(agent, tick.session_id, tick.cwd, tick.iterm_session_id))[0]):
-                await self.publisher.session_changed(self.status.apply_metadata(
-                    sid, model=tick.model, context=tick.context_percent))
+            if tick.model or tick.context_percent is not None:
+                async with self._in_order:
+                    sid = (await self._resolve_post(agent, tick.session_id, tick.cwd, tick.iterm_session_id))[0]
+                    changed = self.status.apply_metadata(sid, model=tick.model, context=tick.context_percent) if sid else []
+                if changed:
+                    await self.publisher.session_changed(changed)
             return None
         # Hooks report the agent's state; checkout removal belongs to the app.
         parser = HOOK_PARSERS.get(path)
         ev = parser(body) if parser else None
         if ev is None:
             return None
-        sid, direct = await self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
-        if sid is None and await self._tick_for_unplaced():
-            sid, direct = await self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
-        if sid is None:
+        async with self._in_order:
+            changed = await self._place_and_apply(ev, body)
+        # An unplaced post waits for a tick without holding up the posts behind it, then tries once more.
+        if changed is None and await self._tick_for_unplaced():
+            async with self._in_order:
+                changed = await self._place_and_apply(ev, body)
+        if changed is None:
             log.debug("hook for unknown session: %s %s", ev.agent, ev.cwd)
+            return None
+        await self.publisher.session_changed(changed)
+        return None
+
+    async def _place_and_apply(self, ev: HookEvent, body: dict[str, Any]) -> list[str] | None:
+        """The sessions `ev` changed, once placed on its tab; None when it places on none."""
+        sid, direct = await self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
+        if sid is None:
             return None
         # Placed by evidence -- the agent's pid, or the tab id its hook carries -- rather than by a pin or
         # the directory, either of which can name a sibling tab.
@@ -96,8 +113,7 @@ class HookRouter:
                 self._prompted.discard(sid)
         if ev.event_name == "UserPromptSubmit":
             changed += self._note_prompt(sid, ev.prompt)
-        await self.publisher.session_changed(changed)
-        return None
+        return changed
 
     def forget_session(self, sid: str) -> None:
         self._prompted.discard(sid)

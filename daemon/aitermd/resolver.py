@@ -47,12 +47,16 @@ class SessionResolver:
             return None
         if harness.placement == "pid_file":
             if session_id:
-                # Only file I/O runs off-loop; registry and pin decisions stay on the event loop.
-                while True:
-                    root = self.claude_files.root
-                    pid = await run_detached(lambda: self.claude_files.pid_for_session(session_id))
-                    if root == self.claude_files.root:
-                        break
+                # The indexed file is checked on the loop; only a miss scans, on a worker thread.
+                # Registry and pin decisions stay on the loop. A scan of a root `configure` moved
+                # meanwhile answers for the wrong folder, so it is asked again.
+                pid = self.claude_files.indexed_pid(session_id)
+                if pid is None:
+                    while True:
+                        root = self.claude_files.root
+                        pid = await run_detached(lambda: self.claude_files.pid_for_session(session_id))
+                        if root == self.claude_files.root:
+                            break
                 if pid and (s := self.registry.by_job_pid(pid)):
                     return s.session_id
         elif iterm_session_id:

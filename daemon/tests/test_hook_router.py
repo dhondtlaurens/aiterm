@@ -335,6 +335,54 @@ async def test_claude_file_lookup_does_not_block_hook_event_loop(tmp_path, monke
     assert lookup_threads and loop_thread not in lookup_threads
 
 
+async def test_a_conversation_already_indexed_is_placed_on_the_loop_without_a_scan(tmp_path, monkeypatch):
+    import json
+
+    hooks = Hooks(tmp_path)
+    [sid] = hooks.tabs(("s1", "claude", 101))
+    files = hooks.resolver.claude_files
+    files.root.mkdir(parents=True)
+    (files.root / "101.json").write_text(json.dumps({"pid": 101, "sessionId": "conversation", "cwd": "/wt"}))
+    assert files.read(101) is not None
+
+    def scan(_session_id):
+        raise AssertionError("an indexed conversation needs no scan")
+
+    monkeypatch.setattr(files, "pid_for_session", scan)
+    await hooks.post("/hook/claude", {"hook_event_name": "UserPromptSubmit", "session_id": "conversation", "cwd": "/elsewhere"})
+    assert hooks.state(sid) == "working"
+
+
+async def test_posts_apply_in_arrival_order_when_the_first_resolves_slowly(hooks, monkeypatch):
+    """A launch's SessionStart, then its UserPromptSubmit: the first one's pid lookup misses the index and scans
+    off-loop, slowly. The launch prompt must still apply after the start, or the start forgets it and the person's
+    next prompt is taken for AiTerm's launch prompt."""
+    import threading
+
+    [sid] = hooks.tabs(("s1", "claude", 101))
+    hooks.router.typed_by_you = lambda _: True
+    entered, release, calls = threading.Event(), threading.Event(), []
+
+    def lookup(_session_id):
+        calls.append(_session_id)
+        if len(calls) == 1:
+            entered.set()
+            release.wait(5)
+        return 101
+
+    monkeypatch.setattr(hooks.resolver.claude_files, "pid_for_session", lookup)
+    base = {"session_id": "conversation", "cwd": "/wt"}
+    start = asyncio.create_task(hooks.post("/hook/claude", {**base, "hook_event_name": "SessionStart", "source": "startup"}))
+    await asyncio.to_thread(entered.wait, 5)
+    launch = asyncio.create_task(hooks.post("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit", "prompt": "launch"}))
+    await asyncio.sleep(0.05)
+    release.set()
+    await asyncio.wait_for(asyncio.gather(start, launch), 5)
+    assert hooks.registry.get(sid).your_prompt is None
+    await hooks.post("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit", "prompt": "mine"})
+    assert hooks.registry.get(sid).your_prompt == "mine"
+
+
 async def test_prompt_typed_after_clear_is_still_yours(hooks, monkeypatch):
     [sid] = hooks.tabs(("s1", "claude", 101))
     monkeypatch.setattr(hooks.resolver.claude_files, "pid_for_session", lambda _: 101)

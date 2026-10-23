@@ -44,15 +44,24 @@ class ClaudeSessionFiles:
         self._index[path] = entry
         return entry[1]
 
-    def pid_for_session(self, session_id: str) -> int | None:
+    def indexed_pid(self, session_id: str) -> int | None:
+        """The pid of a conversation already read by a tick or an earlier post, with just that one
+        file checked again: most posts name one. None for a renamed, removed or unknown one."""
         root = self.root
-        # Most posts name a conversation already read by a tick or an earlier post. Validate
-        # just that file; a renamed, removed or unknown conversation falls back to discovery.
         for path, (_, cached) in tuple(self._index.items()):
             if path.parent == root and cached and cached.session_id == session_id:
                 if (current := self.read(cached.pid)) and current.session_id == session_id:
                     return current.pid
+        return None
+
+    def pid_for_session(self, session_id: str) -> int | None:
+        """`indexed_pid`, else every session file read to find the conversation."""
+        if (pid := self.indexed_pid(session_id)) is not None:
+            return pid
+        root = self.root
         index = {path: entry for path in root.glob("*.json") if (entry := self._load(path)) is not None}
+        # `configure` can move the root while a scan runs on a worker thread: an index of the old
+        # root must not replace the new one's.
         if root == self.root:
             self._index = index
         return next((f.pid for _, f in index.values() if f and f.session_id == session_id), None)
