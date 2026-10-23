@@ -291,6 +291,18 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         #expect(read["mergeRequest"]?["iid"] == 12 && read["mergeRequest"]?["approvedBy"] == ["alice"])
     }
 
+    /// Approvals the host can't read are said as its threads' are: a note, not an empty answer.
+    @Test func approvalsTheHostCantReadAreSaidWithANote() async throws {
+        let r = try await reviewed(.inReview)
+        r.host.update { $0.onCall = { [host = r.host] line in
+            if line.hasPrefix("approvals") { host.update { $0.reviewError = URLError(.notConnectedToInternet) } }
+        } }
+        let read = try #require(await r.world.call(r.run.id, "read_task", ["task": "A", "what": "review"]).value)
+        #expect(read["threads"]?.arrayValue != nil, "the threads were read")
+        #expect(read["approvalsNote"]?.stringValue?.hasPrefix("AiTerm couldn’t read its approvals: ") == true)
+        #expect(read.objectValue?.keys.contains("approvals") == false, "no approvals said")
+    }
+
     @Test func peopleNeedTheReviewSlice() async throws {
         let r = try await reviewed(.inReview)
         r.host.update { $0.users = [HostUser(username: "jan", name: "Jan Peeters")] }

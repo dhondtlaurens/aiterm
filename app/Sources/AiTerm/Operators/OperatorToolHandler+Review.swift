@@ -179,7 +179,9 @@ extension OperatorToolHandler {
                  "lastBody": .string(String(thread.lastBody.prefix(4000)))]
             })
             answer["threadsAre"] = .string(Self.threadsAre)
-            answer["approvals"] = (try? await host.approvals(of: number)).map { .array($0.map(JSONValue.string)) } ?? .null
+            do { answer["approvals"] = .array(try await host.approvals(of: number).map(JSONValue.string)) } catch {
+                answer["approvalsNote"] = .string("AiTerm couldn’t read its approvals: \((error as? ToolRefusal)?.message ?? error.localizedDescription)")
+            }
         } catch {
             answer["threads"] = .null
             answer["note"] = .string("AiTerm couldn’t read its threads: \((error as? ToolRefusal)?.message ?? error.localizedDescription)")
