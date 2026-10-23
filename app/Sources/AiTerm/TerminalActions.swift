@@ -46,18 +46,9 @@ final class TerminalActions {
             defer { if let opening { work.end(opening) } }
             guard workspace.canChangeWorkspace else { return }
             // Built before its window, so the window can be tagged with the row's own id.
-            var item = TerminalItem(id: UUID(), projectId: project.id, name: name, windowId: nil, createdAt: Date())
+            let item = TerminalItem(id: UUID(), projectId: project.id, name: name, windowId: nil, createdAt: Date())
             do {
-                let wid = try await openWindow(for: item, in: project, with: daemon)
-                // The project's removal waits for this window (`.openingTerminal`), so the project
-                // should still be here; should it not be, a row whose project is gone would fail
-                // every save, so the window is closed, not adopted.
-                guard workspace.state.project(id: project.id) != nil else {
-                    try? await daemon.closeWindowIfOpen(wid)
-                    return
-                }
-                item.windowId = wid
-                workspace.mutate { $0.terminals.append(item) }
+                guard try await openWindow(for: item, in: project, adding: true, with: daemon) != nil else { return }
                 checkouts.refresh()
                 guard generation == focus.generation else { return }
                 focus.browse(.terminal(item.id))
@@ -66,12 +57,28 @@ final class TerminalActions {
         }
     }
 
-    /// A window for `terminal`, in its project's folder, tagged with the terminal's id: what a new
-    /// terminal and a restored one each open. The caller binds it to the row, or closes it when the
-    /// row went meanwhile.
-    func openWindow(for terminal: TerminalItem, in project: Project, with daemon: any DaemonCommands) async throws -> String {
-        try await daemon.createTerminalWindow(projectId: project.id.uuidString, terminalId: terminal.id.uuidString, cwd: project.path,
-                                              title: terminal.name, frame: tiling.taskFrame())
+    /// A window for `terminal`, in its project's folder, tagged with the terminal's id, and bound to
+    /// its row: what a new terminal (`adding`, its row added with the window) and a restored one (its
+    /// row given the window) each open. A restored row gone meanwhile cannot adopt the window, nor can
+    /// a new one whose project went — the project's removal waits for it (`.openingTerminal`), and a
+    /// row without its project would fail every save — so the window is closed then, not left
+    /// behind, and nil is returned.
+    func openWindow(for terminal: TerminalItem, in project: Project, adding: Bool,
+                    with daemon: any DaemonCommands) async throws -> String? {
+        let wid = try await daemon.createTerminalWindow(projectId: project.id.uuidString, terminalId: terminal.id.uuidString,
+                                                        cwd: project.path, title: terminal.name, frame: tiling.taskFrame())
+        let state = workspace.state
+        if adding, state.project(id: project.id) != nil {
+            var item = terminal
+            item.windowId = wid
+            workspace.mutate { $0.terminals.append(item) }
+        } else if !adding, let i = state.terminals.firstIndex(where: { $0.id == terminal.id }) {
+            workspace.mutate { $0.terminals[i].windowId = wid }
+        } else {
+            try? await daemon.closeWindowIfOpen(wid)
+            return nil
+        }
+        return wid
     }
 
     /// Closing a terminal touches nothing on disk — there is no worktree behind it — so it needs no

@@ -312,13 +312,7 @@ final class WindowReconciler {
             guard let terminal = state.terminal(id: id), terminal.windowId == nil,
                   let project = state.project(id: terminal.projectId) else { return }
             do {
-                let wid = try await terminals.openWindow(for: terminal, in: project, with: daemon)
-                // A row that went meanwhile cannot adopt it, so the window is closed, not left behind.
-                guard let i = state.terminals.firstIndex(where: { $0.id == id }) else {
-                    try? await daemon.closeWindowIfOpen(wid)
-                    return
-                }
-                workspace.mutate { $0.terminals[i].windowId = wid }
+                guard try await terminals.openWindow(for: terminal, in: project, adding: false, with: daemon) != nil else { return }
                 notices.dropIssues(about: id)
             } catch { fail(row, title: "Couldn’t reopen “\(terminal.name)”.", subject: id, error) }
         }
