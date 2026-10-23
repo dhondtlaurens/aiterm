@@ -6,24 +6,19 @@ import Testing
 /// What makes a fixture's git the same on every machine: nothing of the developer's configuration
 /// reaches it, and it commits as an identity of its own.
 @Suite(.blocking) struct HermeticGitTests {
-    private func scratch() throws -> String {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("hermetic-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory.path
-    }
 
     /// `git config --list` is what a `commit.gpgSign`, a `core.hooksPath` or an `init.templateDir`
     /// would show up in: the global, system and XDG files are all out of reach, and the home git
     /// would read them from is empty. All it lists is the runner's own: no automatic maintenance.
     @Test func gitReadsNoConfigurationOfTheDevelopers() throws {
-        let directory = try scratch()
+        let directory = try ScratchFolder.make("hermetic-").path
         defer { try? FileManager.default.removeItem(atPath: directory) }
         #expect(try GitRunner.hermetic().run(["config", "--list", "--show-origin"], in: directory)
                 == "command line:\tgc.auto=0\ncommand line:\tmaintenance.auto=false")
     }
 
     @Test func gitCommitsAsTheTestsIdentity() throws {
-        let directory = try scratch()
+        let directory = try ScratchFolder.make("hermetic-").path
         defer { try? FileManager.default.removeItem(atPath: directory) }
         let git = GitRunner.hermetic()
         try git.run(["init", "-q", "-b", "main"], in: directory)

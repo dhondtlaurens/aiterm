@@ -1,3 +1,4 @@
+import AiTermTestSupport
 import Testing
 import Foundation
 @testable import AiTermCore
@@ -59,8 +60,7 @@ import Foundation
     }
 
     @Test func theShellIsAskedOnceUntilAnExecutableChanges() throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-versions-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = try ScratchFolder.make("aiterm-versions-")
         let codex = folder.appendingPathComponent("codex")
         try Data("v1".utf8).write(to: codex)
         let asked = Counter()

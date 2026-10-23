@@ -42,17 +42,14 @@ import Testing
                                      loadProjects: { Self.projects },
                                      submit: { submissions.calls.append($0) })
             .seeded(projects: seedProjects ? Self.projects : nil, open: listOpen)
-        let host = NSHostingView(rootView: sheet)
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
-        let window = testWindow(contentRect: host.frame, styleMask: [])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(sheet, size: CGSize(width: Sheet.width, height: Sheet.height))
+        let window = testWindow(hosting: host, styleMask: [])
         settle(host)
         return Harness(host: host, window: window, submissions: submissions)
     }
 
     private func field(in host: NSView) -> NSTextField? {
-        descendants(of: NSTextField.self, in: host).first { $0.placeholderString == Self.placeholder }
+        host.descendants(NSTextField.self).first { $0.placeholderString == Self.placeholder }
     }
 
     private func type(_ text: String, into field: NSTextField) {
@@ -65,9 +62,7 @@ import Testing
     }
 
     private func pressCommandReturn(_ h: Harness) {
-        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
-                                     windowNumber: h.window.windowNumber, context: nil, characters: "\r",
-                                     charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
+        let event = keyDown("\r", code: 36, modifiers: [.command], in: h.window)!
         _ = h.window.performKeyEquivalent(with: event)
         settle(h.host, for: 0.1)
     }
@@ -132,9 +127,7 @@ import Testing
         defer { h.window.close() }
         #expect(listIsOpen(in: h.host))
 
-        let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                      windowNumber: h.window.windowNumber, context: nil, characters: "\u{1b}",
-                                      charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
+        let escape = keyDown("\u{1b}", code: 53, in: h.window)!
         _ = h.window.performKeyEquivalent(with: escape)
         settle(h.host)
 
@@ -149,11 +142,5 @@ import Testing
     private func listIsOpen(in host: NSView) -> Bool {
         guard let field = field(in: host) else { return false }
         return send(#selector(NSResponder.moveDown(_:)), to: field)
-    }
-
-    private func descendants<T: NSView>(of type: T.Type, in view: NSView) -> [T] {
-        var matches = view.subviews.compactMap { $0 as? T }
-        for subview in view.subviews { matches += descendants(of: type, in: subview) }
-        return matches
     }
 }

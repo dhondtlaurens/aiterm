@@ -25,26 +25,21 @@ struct NewBroadcastSheetTests {
 
     private func harness() -> Harness {
         let model = NewBroadcastModel(projects: [webshop, blog], slices: .none, skills: { _, _ in [] }) { _ in UUID() }
-        let host = NSHostingView(rootView: NewBroadcastSheet(model: model))
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
-        let window = testWindow(contentRect: host.frame, styleMask: [])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(NewBroadcastSheet(model: model), size: CGSize(width: Sheet.width, height: Sheet.height))
+        let window = testWindow(hosting: host, styleMask: [])
         host.layoutSubtreeIfNeeded()
         settle(host)
         return Harness(model: model, host: host, window: window)
     }
 
     private func commandReturn(in h: Harness) {
-        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
-                                     windowNumber: h.window.windowNumber, context: nil, characters: "\r",
-                                     charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
+        let event = keyDown("\r", code: 36, modifiers: [.command], in: h.window)!
         _ = h.window.performKeyEquivalent(with: event)
         settle(h.host)
     }
 
     /// Prompt, Review and Done are prompt editors; step 1 has none.
-    private func onAPromptStep(_ h: Harness) -> Bool { !descendants(of: NSTextView.self, in: h.host).isEmpty }
+    private func onAPromptStep(_ h: Harness) -> Bool { !h.host.descendants(NSTextView.self).isEmpty }
 
     @Test func commandReturnMovesOnOnlyWithAProject() {
         let h = harness()
@@ -60,7 +55,7 @@ struct NewBroadcastSheetTests {
     @Test func aJiraProjectPickedFromItsListAddsItsChipAndProjects() throws {
         let h = harness()
         defer { h.window.orderOut(nil) }
-        let field = try #require(descendants(of: NSTextField.self, in: h.host).first { $0.placeholderString == "Add a Jira project" })
+        let field = try #require(h.host.descendants(NSTextField.self).first { $0.placeholderString == "Add a Jira project" })
         #expect(h.window.makeFirstResponder(field))
         settle(h.host)
         let editor = try #require(field.currentEditor() as? NSTextView)
@@ -85,20 +80,11 @@ struct NewBroadcastSheetTests {
             Color.clear.frame(height: PickChip.lineHeight)
         }
         .frame(width: fieldWidth)
-        let host = NSHostingView(rootView: flow)
-        host.frame = NSRect(x: 0, y: 0, width: fieldWidth, height: 80)
-        let window = testWindow(contentRect: host.frame, styleMask: [])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(flow, size: CGSize(width: fieldWidth, height: 80))
+        let window = testWindow(hosting: host, styleMask: [])
         defer { window.orderOut(nil) }
         host.layoutSubtreeIfNeeded()
         settle(host) { measured.chip != nil }
         #expect((measured.chip?.width ?? .infinity) <= fieldWidth, "the chip is \(measured.chip?.width ?? 0) wide in a \(fieldWidth) field")
-    }
-
-    private func descendants<T: NSView>(of type: T.Type, in view: NSView) -> [T] {
-        var matches = view.subviews.compactMap { $0 as? T }
-        for subview in view.subviews { matches += descendants(of: type, in: subview) }
-        return matches
     }
 }

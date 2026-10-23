@@ -1,3 +1,4 @@
+import AiTermTestSupport
 import AppKit
 import SwiftUI
 import Testing
@@ -15,8 +16,7 @@ struct ControlChromeTests {
 
     private static func surface(inside wrap: (EnvironmentReader) -> some View) -> Surface? {
         let log = EnvironmentLog()
-        let host = NSHostingView(rootView: wrap(EnvironmentReader(log: log)).surface(.sidebar))
-        host.frame = NSRect(x: 0, y: 0, width: 40, height: 20)
+        let host = testHost(wrap(EnvironmentReader(log: log)).surface(.sidebar), size: CGSize(width: 40, height: 20))
         host.layoutSubtreeIfNeeded()
         return log.surface[0]
     }

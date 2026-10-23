@@ -45,8 +45,7 @@ import Testing
     }
 
     @Test func piProbeCachesTheLastSuccessfulCatalogueAsStaleAfterFailure() async throws {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-harness-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let home = try ScratchFolder.make("aiterm-harness-")
         defer { try? FileManager.default.removeItem(at: home) }
         let source = "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nexport default function aiterm() {}\n"
         try PiDriver(home: home, daemonPort: 47821, source: source).install()
@@ -89,8 +88,7 @@ import Testing
     /// The CLI was already located and executable when the catalogue launch fails, so the failure
     /// is a warning on the models check — never an "Unavailable" card whose actions disappear.
     @Test func piLaunchFailureIsAWarningThatKeepsTheStaleCatalogue() async throws {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-harness-launch-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let home = try ScratchFolder.make("aiterm-harness-launch-")
         defer { try? FileManager.default.removeItem(at: home) }
         let source = "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nexport default function aiterm() {}\n"
         try PiDriver(home: home, daemonPort: 47821, source: source).install()
@@ -117,8 +115,7 @@ import Testing
     }
 
     @Test func piLaunchFailureWithoutAPriorCatalogueIsStillNotUnavailable() async throws {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-harness-launch-empty-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let home = try ScratchFolder.make("aiterm-harness-launch-empty-")
         defer { try? FileManager.default.removeItem(at: home) }
         let source = "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nexport default function aiterm() {}\n"
         try PiDriver(home: home, daemonPort: 47821, source: source).install()
@@ -139,8 +136,7 @@ import Testing
     @Test func everyHarnessCallsItsIntegrationADriver() async throws {
         // Hooks for Claude and Codex, an extension for PI: to the user each is the same thing,
         // the piece AiTerm installs so the harness can report back, and Settings names it once.
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-harness-driver-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let home = try ScratchFolder.make("aiterm-harness-driver-")
         defer { try? FileManager.default.removeItem(at: home) }
         let runner = HarnessCommandRunner(locate: { _ in "/usr/bin/true" }, run: { _, _, _, _ in
             ProcessOutput(status: 0,
@@ -163,8 +159,7 @@ import Testing
     }
 
     @Test func piInstallIsExplicitAndReprobesTheOwnedExtension() async throws {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-harness-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let home = try ScratchFolder.make("aiterm-harness-")
         defer { try? FileManager.default.removeItem(at: home) }
         let source = "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nexport default function aiterm() {}\n"
         let runner = HarnessCommandRunner(locate: { _ in "/usr/bin/true" }, run: { _, _, _, _ in
@@ -244,8 +239,7 @@ import Testing
     }
 
     @Test func harnessTestSkipsMissingIntegrationAndTurnsFailedDeliveryIntoWarning() async throws {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-harness-test-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let home = try ScratchFolder.make("aiterm-harness-test-")
         defer { try? FileManager.default.removeItem(at: home) }
         let calls = CallCounter()
         let transport = HarnessTestTransport { _, body, _ in
@@ -278,8 +272,7 @@ import Testing
 extension HarnessDiagnosticsTests {
     /// A PI probe found the CLI, then the catalogue looked for it again; a Test probed all over.
     @Test func aProbeLocatesOnceAndATestNotAtAll() async throws {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-harness-locate-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let home = try ScratchFolder.make("aiterm-harness-locate-")
         defer { try? FileManager.default.removeItem(at: home) }
         let source = "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nexport default function aiterm() {}\n"
         try PiDriver(home: home, daemonPort: 47821, source: source).install()
@@ -330,8 +323,7 @@ extension HarnessDiagnosticsTests {
     }
 
     private func piHome() throws -> (home: URL, resources: HarnessResources) {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-harness-pool-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let home = try ScratchFolder.make("aiterm-harness-pool-")
         let source = "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nexport default function aiterm() {}\n"
         try PiDriver(home: home, daemonPort: 47821, source: source).install()
         return (home, HarnessResources([.claude: "/usr/bin/true", .pi: source], installationAllowed: true, unavailableReason: nil))

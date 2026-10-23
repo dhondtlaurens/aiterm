@@ -1,3 +1,4 @@
+import AiTermTestSupport
 import AppKit
 import SwiftUI
 import Testing
@@ -8,8 +9,7 @@ import AiTermUI
 @MainActor
 @Suite struct PiVendorMarkTests {
     @Test func piMarkUsesWhiteBadgeOnBlack() throws {
-        let host = NSHostingView(rootView: VendorMark(agent: .pi, size: 40))
-        host.frame = NSRect(x: 0, y: 0, width: 40, height: 40)
+        let host = testHost(VendorMark(agent: .pi, size: 40), size: CGSize(width: 40, height: 40))
         host.layoutSubtreeIfNeeded()
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)

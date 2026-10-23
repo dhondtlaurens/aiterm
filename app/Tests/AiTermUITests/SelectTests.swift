@@ -1,3 +1,4 @@
+import AiTermTestSupport
 import Testing
 import AppKit
 import SwiftUI
@@ -12,7 +13,7 @@ import SwiftUI
     /// control metrics, in which even a bare `.large` pop-up paints 24 pt. The app does not.
     @Test func testThePopUpStaysLarge() throws {
         let host = Self.host(Select(values: ["feat", "fix"], selection: .constant("feat"), label: { $0 }))
-        let button = try #require(host.firstSubview(of: NSPopUpButton.self))
+        let button = try #require(host.firstDescendant( NSPopUpButton.self))
         #expect(button.controlSize == .large)
     }
 
@@ -22,7 +23,7 @@ import SwiftUI
         let picked = Box(0)
         let host = Self.host(Select(values: [1, 2, 3], selection: Binding(get: { picked.value }, set: { picked.value = $0 }),
                                     label: { _ in "Opus" }))
-        let button = try #require(host.firstSubview(of: NSPopUpButton.self))
+        let button = try #require(host.firstDescendant( NSPopUpButton.self))
         #expect(button.numberOfItems == 3)
 
         button.selectItem(at: 2)
@@ -35,19 +36,19 @@ import SwiftUI
     @Test func aTooltipFollowsItsDetail() throws {
         let catalogue = Catalogue()
         let host = Self.host(CatalogueSelect(catalogue: catalogue))
-        let button = try #require(host.firstSubview(of: NSPopUpButton.self))
+        let button = try #require(host.firstDescendant( NSPopUpButton.self))
         #expect(button.item(at: 0)?.toolTip == "Fast")
 
         catalogue.detail = "Fastest"
         settle(host)
-        #expect(host.firstSubview(of: NSPopUpButton.self) === button, "the pop-up was rebuilt rather than updated")
+        #expect(host.firstDescendant( NSPopUpButton.self) === button, "the pop-up was rebuilt rather than updated")
         #expect(button.item(at: 0)?.toolTip == "Fastest")
     }
 
     /// `.disabled(true)` around a `Select` has to reach the pop-up itself, or it stays live.
     @Test func aDisabledSelectCannotBeOpened() throws {
         let host = Self.host(Select(values: ["feat", "fix"], selection: .constant("feat"), label: { $0 }).disabled(true))
-        let button = try #require(host.firstSubview(of: NSPopUpButton.self))
+        let button = try #require(host.firstDescendant( NSPopUpButton.self))
         #expect(!button.isEnabled)
     }
 
@@ -63,9 +64,8 @@ import SwiftUI
     }
 
     private static func host(_ view: some View) -> NSHostingView<AnyView> {
-        let host = NSHostingView(rootView: AnyView(view.frame(width: 120)))
-        host.frame = NSRect(x: 0, y: 0, width: 120, height: Size.control)
-        window(hosting: host, orderFront: false).close()
+        let host = testHost(AnyView(view.frame(width: 120)), size: CGSize(width: 120, height: Size.control))
+        testWindow(hosting: host, orderFront: false).close()
         settle(host)
         return host
     }

@@ -1,6 +1,24 @@
 import Foundation
 import Synchronization
 
+/// Per-session response configuration and the requests observed by a URL protocol.
+final class RequestStore<Value: Sendable>: Sendable {
+    private struct Entry: Sendable {
+        var value: Value
+        var requests: [URLRequest] = []
+    }
+    private let entries = Mutex<[String: Entry]>([:])
+
+    func register(_ token: String, value: Value) { entries.withLock { $0[token] = Entry(value: value) } }
+    func record(_ request: URLRequest, for token: String) -> Value? {
+        entries.withLock {
+            $0[token]?.requests.append(request)
+            return $0[token]?.value
+        }
+    }
+    func requests(for token: String) -> [URLRequest] { entries.withLock { $0[token]?.requests ?? [] } }
+}
+
 /// A stubbed URL protocol shared by every AiTermCore network-client test. State used to live in
 /// two global `static var`s (`handler`, `lastRequest`), which was fine while `JiraClientTests`
 /// was its only consumer. Once `GitLabClientTests` started stubbing through the same class,
@@ -11,12 +29,7 @@ final class StubURLProtocol: URLProtocol {
     static let tokenHeader = "X-Stub-Token"
 
     typealias Handler = @Sendable (URLRequest) -> (Int, Data)
-    private struct Store {
-        var handlers: [String: Handler] = [:]
-        var lastRequests: [String: URLRequest] = [:]
-        var requests: [String: [URLRequest]] = [:]
-    }
-    private static let store = Mutex(Store())
+    private static let store = RequestStore<Handler>()
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -31,11 +44,7 @@ final class StubURLProtocol: URLProtocol {
             recorded.httpBody = Self.drain(stream)
         }
         let token = request.value(forHTTPHeaderField: Self.tokenHeader) ?? ""
-        let handler = Self.store.withLock {
-            $0.lastRequests[token] = recorded
-            $0.requests[token, default: []].append(recorded)
-            return $0.handlers[token]
-        }
+        let handler = Self.store.record(recorded, for: token)
         let (status, data) = handler!(recorded)
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data); client?.urlProtocolDidFinishLoading(self)
@@ -43,13 +52,13 @@ final class StubURLProtocol: URLProtocol {
     override func stopLoading() {}
 
     fileprivate static func register(_ token: String, handler: @escaping Handler) {
-        store.withLock { $0.handlers[token] = handler }
+        store.register(token, value: handler)
     }
     fileprivate static func lastRequest(for token: String) -> URLRequest? {
-        store.withLock { $0.lastRequests[token] }
+        store.requests(for: token).last
     }
     fileprivate static func requests(for token: String) -> [URLRequest] {
-        store.withLock { $0.requests[token] ?? [] }
+        store.requests(for: token)
     }
 
     private static func drain(_ stream: InputStream) -> Data {

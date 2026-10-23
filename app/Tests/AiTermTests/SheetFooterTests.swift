@@ -28,20 +28,15 @@ import Testing
                                  closeList: { guard calls.listOpen else { return false }
                                               calls.listOpen = false; calls.closes += 1; return true },
                                  cancel: { calls.cancels += 1 }, submit: { calls.submits += 1 })
-        let host = NSHostingView(rootView: footer)
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: 60)
-        let window = testWindow(contentRect: host.frame, styleMask: [])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(footer, size: CGSize(width: Sheet.width, height: 60))
+        let window = testWindow(hosting: host, styleMask: [])
         host.layoutSubtreeIfNeeded()
         settle(host)
         return Harness(calls: calls, host: host, window: window)
     }
 
     private func press(_ keyCode: UInt16, _ character: String, _ modifiers: NSEvent.ModifierFlags = [], in h: Harness) {
-        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
-                                     windowNumber: h.window.windowNumber, context: nil, characters: character,
-                                     charactersIgnoringModifiers: character, isARepeat: false, keyCode: keyCode)!
+        let event = keyDown(character, code: keyCode, modifiers: modifiers, in: h.window)!
         _ = h.window.performKeyEquivalent(with: event)
         settle(h.host)
     }

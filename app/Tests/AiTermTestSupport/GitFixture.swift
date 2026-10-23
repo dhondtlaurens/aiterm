@@ -6,9 +6,7 @@ enum GitFixture {
     /// A fresh folder in the temporary directory, named from `prefix`. Its real path, because git
     /// reports `/private/var/…` where Foundation says `/var/…`, and the two must agree.
     static func folder(_ prefix: String) throws -> String {
-        let dir = NSTemporaryDirectory() + prefix + UUID().uuidString
-        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        return URL(fileURLWithPath: dir).resolvingSymlinksInPath().path
+        try ScratchFolder.make(prefix).resolvingSymlinksInPath().path
     }
 
     /// A repository in `folder`, on `branch`, with one empty commit.

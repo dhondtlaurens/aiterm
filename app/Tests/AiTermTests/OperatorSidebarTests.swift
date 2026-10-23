@@ -11,10 +11,7 @@ import Testing
 @MainActor
 struct OperatorSidebarTests {
     private func hosted(_ controller: AppController) -> (NSHostingView<SidebarView>, NSWindow) {
-        let host = NSHostingView(rootView: SidebarView(controller: controller))
-        host.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
-        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 340, height: 500))
         return (host, window)
     }
 

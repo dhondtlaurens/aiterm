@@ -11,11 +11,8 @@ import AiTermCore
         let model = AgentModel(id: "m", label: "Model", detail: nil, efforts: ["low", "high"], defaultEffort: "high")
         let view = AgentStep(availableAgents: [.claude], models: [model], catalogueLoaded: true,
                              agent: .claude, model: "m", reasoning: .constant(nil), selectAgent: { _ in }, setModel: { _ in })
-        let host = NSHostingView(rootView: view)
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
-        let window = testWindow(contentRect: host.frame, styleMask: [])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(view, size: CGSize(width: Sheet.width, height: Sheet.height))
+        let window = testWindow(hosting: host, styleMask: [])
         defer { window.orderOut(nil) }
         func reasoning(in view: NSView) -> NSPopUpButton? {
             if let button = view as? NSPopUpButton, button.itemTitles == ["Low", "High"] { return button }
@@ -112,11 +109,8 @@ import AiTermCore
         let view = AgentStep(availableAgents: [.pi], models: [], catalogueLoaded: true,
                              agent: .pi, model: "", reasoning: .constant(nil),
                              selectAgent: { _ in }, setModel: { _ in })
-        let host = NSHostingView(rootView: view)
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: 260)
-        let window = testWindow(contentRect: host.frame, styleMask: [])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(view, size: CGSize(width: Sheet.width, height: 260))
+        let window = testWindow(hosting: host, styleMask: [])
         defer { window.orderOut(nil) }
         settle(host) { host.fittingSize.height > 0 }
         #expect(host.fittingSize.height > 0)
@@ -186,11 +180,8 @@ import AiTermCore
         // The search's answer, as `.task` would land it; a bare `NSHostingView` never runs it.
         model.results = mergeRequests
         let sheet = NewReviewSheet(model: model).seeded(step: step, mergeRequestsOpen: mrOpen, branchesOpen: branchOpen)
-        let host = NSHostingView(rootView: sheet)
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
-        let window = testWindow(contentRect: host.frame, styleMask: [])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(sheet, size: CGSize(width: Sheet.width, height: Sheet.height))
+        let window = testWindow(hosting: host, styleMask: [])
         host.layoutSubtreeIfNeeded()
         settle(host)
         return Harness(model: model, host: host, window: window, created: created)
@@ -200,7 +191,7 @@ import AiTermCore
     private static let branchPlaceholder = "Search branches"
 
     private func field(_ placeholder: String, in host: NSView) -> NSTextField? {
-        descendants(of: NSTextField.self, in: host).first { $0.placeholderString == placeholder }
+        host.descendants(NSTextField.self).first { $0.placeholderString == placeholder }
     }
 
     private func send(_ selector: Selector, to field: NSTextField) -> Bool {
@@ -215,17 +206,13 @@ import AiTermCore
     }
 
     private func pressEscape(_ h: Harness) {
-        let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                      windowNumber: h.window.windowNumber, context: nil, characters: "\u{1b}",
-                                      charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
+        let escape = keyDown("\u{1b}", code: 53, in: h.window)!
         _ = h.window.performKeyEquivalent(with: escape)
         settle(h.host)
     }
 
     private func pressCommandReturn(_ h: Harness) {
-        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
-                                     windowNumber: h.window.windowNumber, context: nil, characters: "\r",
-                                     charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
+        let event = keyDown("\r", code: 36, modifiers: [.command], in: h.window)!
         _ = h.window.performKeyEquivalent(with: event)
         settle(h.host, for: 0.1)
     }
@@ -248,7 +235,7 @@ import AiTermCore
         // Both search fields are gone: each picker draws its selection chrome instead.
         #expect(self.field(Self.mrPlaceholder, in: h.host) == nil)
         #expect(self.field(Self.branchPlaceholder, in: h.host) == nil)
-        #expect(descendants(of: NSTextField.self, in: h.host).contains { $0.stringValue == "Drop the legacy importer" },
+        #expect(h.host.descendants(NSTextField.self).contains { $0.stringValue == "Drop the legacy importer" },
                 "the review name follows the merge request")
     }
 
@@ -312,24 +299,22 @@ import AiTermCore
         defer { h.window.orderOut(nil) }
         h.model.completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .user)]
         settle(h.host)
-        #expect(!descendants(of: NSTextView.self, in: h.host).isEmpty, "step 3: Prompt")
+        #expect(!h.host.descendants(NSTextView.self).isEmpty, "step 3: Prompt")
         try #require(h.model.completions.isOpen, "the popup is open before ⎋")
 
         pressEscape(h)
         #expect(!h.model.completions.isOpen, "⎋ closed the popup")
-        #expect(!descendants(of: NSTextView.self, in: h.host).isEmpty, "and only the popup: step 3 is still up")
+        #expect(!h.host.descendants(NSTextView.self).isEmpty, "and only the popup: step 3 is still up")
 
         pressEscape(h)
-        #expect(descendants(of: NSTextView.self, in: h.host).isEmpty, "the next ⎋ went back to step 2")
+        #expect(h.host.descendants(NSTextView.self).isEmpty, "the next ⎋ went back to step 2")
     }
 
     /// The primary button answers ⌘↩ only, the keycaps it shows; a plain ↩ leaves step 1 up.
     @Test func plainReturnDoesNotPressThePrimaryButton() throws {
         let h = harness(title: "Review it", branch: "main", mrOpen: false, createFails: true)
         defer { h.window.orderOut(nil) }
-        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                     windowNumber: h.window.windowNumber, context: nil, characters: "\r",
-                                     charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
+        let event = keyDown("\r", code: 36, in: h.window)!
         _ = h.window.performKeyEquivalent(with: event)
         settle(h.host, for: 0.1)
         #expect(self.field("Describe the review", in: h.host) != nil, "still step 1")
@@ -348,12 +333,12 @@ import AiTermCore
         await eventually { h.model.catalogueLoaded }
         settle(h.host)
         #expect(self.field("Describe the review", in: h.host) == nil)
-        #expect(!descendants(of: NSPopUpButton.self, in: h.host).isEmpty, "step 2: Agent, with its model select")
+        #expect(!h.host.descendants(NSPopUpButton.self).isEmpty, "step 2: Agent, with its model select")
         #expect(h.created.drafts.isEmpty, "Continue must not create")
 
         pressCommandReturn(h)
-        #expect(descendants(of: NSPopUpButton.self, in: h.host).isEmpty)
-        #expect(!descendants(of: NSTextView.self, in: h.host).isEmpty, "step 3: Prompt, with its editor")
+        #expect(h.host.descendants(NSPopUpButton.self).isEmpty)
+        #expect(!h.host.descendants(NSTextView.self).isEmpty, "step 3: Prompt, with its editor")
         #expect(h.created.drafts.isEmpty)
 
         pressCommandReturn(h)
@@ -364,12 +349,6 @@ import AiTermCore
         #expect(h.created.drafts.first?.branch == "main")
         // The failure came back through the sheet's own model, so this really went the whole way.
         #expect(h.model.error == CreationFailure(reason: "Refused.", detail: nil))
-        #expect(!descendants(of: NSTextView.self, in: h.host).isEmpty, "a refused create leaves step 3 up to correct")
-    }
-
-    private func descendants<T: NSView>(of type: T.Type, in view: NSView) -> [T] {
-        var matches = view.subviews.compactMap { $0 as? T }
-        for subview in view.subviews { matches += descendants(of: type, in: subview) }
-        return matches
+        #expect(!h.host.descendants(NSTextView.self).isEmpty, "a refused create leaves step 3 up to correct")
     }
 }

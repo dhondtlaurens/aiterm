@@ -8,7 +8,7 @@ import Testing
 struct SidebarTilingTests {
     private func sidebarWindow() -> NSWindow {
         let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 600), styleMask: [.titled, .resizable])
-        window.isReleasedWhenClosed = false
+
         window.minSize = NSSize(width: 360, height: 400)
         return window
     }

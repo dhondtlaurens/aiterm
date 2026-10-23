@@ -102,9 +102,7 @@ struct HiddenWindowsTests {
         #expect(window.alphaValue == 0)
         window.makeFirstResponder(field)
 
-        window.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                                       windowNumber: window.windowNumber, context: nil, characters: "a",
-                                                       charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0)))
+        window.sendEvent(try #require(keyDown("a", code: 0, in: window)))
         #expect(field.stringValue == "a")
     }
 

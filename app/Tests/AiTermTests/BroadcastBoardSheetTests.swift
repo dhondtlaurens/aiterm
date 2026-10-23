@@ -279,10 +279,9 @@ struct BroadcastBoardSheetTests {
         }
         controller.sheet = .broadcastBoard(run.id)
         let counter = RowBodyCounter()
-        let host = NSHostingView(rootView: BroadcastBoardHost(runId: run.id, controller: controller).environment(\.rowBodyCounter, counter))
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
+        let host = testHost(BroadcastBoardHost(runId: run.id, controller: controller).environment(\.rowBodyCounter, counter), size: CGSize(width: Sheet.width, height: Sheet.height))
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false
+
         window.contentView = host
         defer { window.orderOut(nil) }
         settle(host) { counter.counts[run.id] != nil && counter.counts[waiting.id] != nil }

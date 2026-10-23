@@ -15,8 +15,7 @@ import AiTermTestSupport
 
     @Test func aReusedRowAnchorAnswersForItsNewIdOnly() throws {
         let old = UUID(), new = UUID()
-        let host = NSHostingView(rootView: Row(id: old))
-        host.frame = NSRect(x: 0, y: 0, width: 80, height: 20)
+        let host = testHost(Row(id: old), size: CGSize(width: 80, height: 20))
         let window = testWindow(contentRect: host.frame, styleMask: [])
         window.contentView = host
         window.orderFront(nil)
@@ -42,8 +41,7 @@ import AiTermTestSupport
     /// has just taken over, which is still the one it was registered for before.
     @Test func twoReusedRowsThatSwapIdsEachAnswerForTheirNewId() throws {
         let a = UUID(), b = UUID()
-        let host = NSHostingView(rootView: TwoRows(first: a, second: b))
-        host.frame = NSRect(x: 0, y: 0, width: 80, height: 40)
+        let host = testHost(TwoRows(first: a, second: b), size: CGSize(width: 80, height: 40))
         let window = testWindow(contentRect: host.frame, styleMask: [])
         window.contentView = host
         window.orderFront(nil)

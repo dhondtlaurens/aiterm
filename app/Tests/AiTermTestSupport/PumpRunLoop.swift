@@ -55,6 +55,11 @@ public func settle(_ host: NSView, for seconds: TimeInterval = 0.05) {
 }
 
 extension NSView {
+    /// Matching children, then their descendants, preserving AppKit's subview order.
+    public func descendants<T: NSView>(_ type: T.Type) -> [T] {
+        subviews.compactMap { $0 as? T } + subviews.flatMap { $0.descendants(type) }
+    }
+
     /// The first descendant of `type`, depth first.
     public func firstDescendant<T: NSView>(_ type: T.Type) -> T? {
         for subview in subviews {

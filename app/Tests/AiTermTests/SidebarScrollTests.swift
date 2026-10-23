@@ -25,20 +25,14 @@ struct SidebarScrollTests {
             }
         }
 
-        let host = NSHostingView(rootView: SidebarView(controller: controller))
-        host.frame = NSRect(x: 0, y: 0, width: 340, height: 300)
+        let host = testHost(SidebarView(controller: controller), size: CGSize(width: 340, height: 300))
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
         window.orderFront(nil)
         defer { window.orderOut(nil) }
-
-        func table(in view: NSView) -> NSTableView? {
-            if let table = view as? NSTableView { return table }
-            return view.subviews.lazy.compactMap { table(in: $0) }.first
-        }
-        settle(host, describing: "the sidebar's table") { table(in: host) != nil }
-        let list = try #require(table(in: host))
+        settle(host, describing: "the sidebar's table") { host.firstDescendant(NSTableView.self) != nil }
+        let list = try #require(host.firstDescendant(NSTableView.self))
         let last = try #require(controller.state.terminals.last)
         controller.workspace.mutate { $0.updateProject(id: last.projectId) { $0.collapsed = false } }
         controller.focus.browse(.terminal(last.id))

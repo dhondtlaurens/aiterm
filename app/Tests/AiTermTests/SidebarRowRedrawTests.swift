@@ -55,11 +55,8 @@ import Testing
         controller.focus.browse(.task(tasks[0].id))
 
         let counter = RowBodyCounter()
-        let host = NSHostingView(rootView: SidebarView(controller: controller).environment(\.rowBodyCounter, counter))
-        host.frame = NSRect(x: 0, y: 0, width: 340, height: 700)
-        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(SidebarView(controller: controller).environment(\.rowBodyCounter, counter), size: CGSize(width: 340, height: 700))
+        let window = testWindow(hosting: host, styleMask: [.titled])
         // OPERATORS, header, two project rows, two terminals and seven tasks.
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows == 13 } ?? false }
         let list = try #require(host.firstDescendant(NSTableView.self))

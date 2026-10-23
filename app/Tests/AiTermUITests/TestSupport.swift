@@ -7,22 +7,6 @@ import AiTermTestSupport
 // Helpers every AiTermUI suite shares: hosting a view in a window, letting it settle, reading what
 // it drew, and reading the environment it was drawn in.
 
-/// Hosts `host` as the content of a titled window at its current frame — key and on screen unless
-/// `orderFront` is false, for a test that needs a window but not the keyboard. The caller orders an
-/// on-screen one out when done.
-@MainActor func window(hosting host: NSView, orderFront: Bool = true) -> NSWindow {
-    let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-    window.contentView = host
-    if orderFront { window.makeKeyAndOrderFront(nil) }
-    return window
-}
-
-/// One turn of the run loop, then layout: long enough for SwiftUI to push a state change into a
-/// hosted AppKit view.
-@MainActor func settle(_ host: NSView) {
-    AiTermTestSupport.settle(host)
-}
-
 /// What `view` drew, as PNG data, for comparing two renders.
 @MainActor func pixels(in view: NSView) throws -> Data {
     let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
@@ -50,13 +34,6 @@ import AiTermTestSupport
         }
     }
     return best
-}
-
-extension NSView {
-    /// The first descendant of `type`, depth first.
-    func firstSubview<T: NSView>(of type: T.Type) -> T? {
-        firstDescendant(type)
-    }
 }
 
 /// What each `EnvironmentReader` saw, by its id.

@@ -1,3 +1,4 @@
+import AiTermTestSupport
 import Testing
 import Foundation
 @testable import AiTermCore
@@ -5,11 +6,6 @@ import Foundation
 /// The activity log's file: one JSON line per Operator tool call, appended as they happen and read back in
 /// order from wherever the reader stopped.
 @Suite struct ActivityLogTests {
-    private func folder() throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("activity-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
 
     private func entry(_ n: Int = 0, tool: String = "mark_task") -> ActivityEntry {
         ActivityEntry(id: UUID(), at: Date(timeIntervalSince1970: 1_800_000_000 + Double(n)), tool: tool, task: nil,
@@ -32,7 +28,7 @@ import Foundation
     }
 
     @Test func appendsAndReadsInOrder() throws {
-        let dir = try folder()
+        let dir = try ScratchFolder.make("activity-")
         let first = entry(1), second = entry(2, tool: "log_decision")
         try ActivityLog.append(first, runFolder: dir)
         try ActivityLog.append(second, runFolder: dir)
@@ -42,14 +38,14 @@ import Foundation
     }
 
     @Test func aMalformedLineIsSkipped() throws {
-        let dir = try folder()
+        let dir = try ScratchFolder.make("activity-")
         let first = entry(1), second = entry(2)
         try write(try line(first) + "\n{\"x\":\n" + (try line(second)) + "\n", in: dir)
         #expect(ActivityLog.read(runFolder: dir).entries == [first, second])
     }
 
     @Test func aTornLastLineWaits() throws {
-        let dir = try folder()
+        let dir = try ScratchFolder.make("activity-")
         let first = entry(1), second = entry(2)
         let firstLine = try line(first) + "\n"
         let secondLine = try line(second)
@@ -64,13 +60,13 @@ import Foundation
     }
 
     @Test func aMissingFileIsEmpty() throws {
-        let read = ActivityLog.read(runFolder: try folder())
+        let read = ActivityLog.read(runFolder: try ScratchFolder.make("activity-"))
         #expect(read.entries.isEmpty)
         #expect(read.end == 0)
     }
 
     @Test func fiveHundredAppends() throws {
-        let dir = try folder()
+        let dir = try ScratchFolder.make("activity-")
         let all = (0..<500).map { entry($0) }
         for entry in all { try ActivityLog.append(entry, runFolder: dir) }
         #expect(ActivityLog.read(runFolder: dir).entries == all)

@@ -1,3 +1,4 @@
+import AiTermTestSupport
 import AppKit
 import SwiftUI
 import Testing
@@ -11,7 +12,7 @@ import Testing
         for host in [one, two] as [NSView] {
             host.frame = NSRect(x: 0, y: 0, width: 200, height: 40)
         }
-        let windows = [one, two].map { window(hosting: $0) }
+        let windows = [one, two].map { testWindow(hosting: $0) }
         defer { windows.forEach { $0.orderOut(nil) } }
         settle(one)
         settle(two)
@@ -27,7 +28,7 @@ import Testing
         for host in [kbd, blank] as [NSView] {
             host.frame = NSRect(x: 0, y: 0, width: 40, height: 24)
         }
-        let windows = [kbd, blank].map { window(hosting: $0) }
+        let windows = [kbd, blank].map { testWindow(hosting: $0) }
         defer { windows.forEach { $0.orderOut(nil) } }
         settle(kbd)
         settle(blank)
@@ -54,7 +55,7 @@ import Testing
         for host in [accent, quiet] as [NSView] {
             host.frame = NSRect(x: 0, y: 0, width: 40, height: 24)
         }
-        let windows = [accent, quiet].map { window(hosting: $0) }
+        let windows = [accent, quiet].map { testWindow(hosting: $0) }
         defer { windows.forEach { $0.orderOut(nil) } }
         settle(accent)
         settle(quiet)

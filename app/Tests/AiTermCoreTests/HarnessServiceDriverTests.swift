@@ -1,3 +1,4 @@
+import AiTermTestSupport
 import Foundation
 import Testing
 @testable import AiTermCore
@@ -8,12 +9,6 @@ import Testing
 @Suite struct HarnessServiceDriverTests {
     let shim = "/Applications/AiTerm.app/Contents/Resources/hooks/claude-statusline-shim.sh"
 
-    func tempHome() throws -> URL {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-svc-drv-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-        return home
-    }
-
     func service(home: URL) -> HarnessService {
         HarnessService(home: home, daemonPort: 47821,
                        runner: HarnessCommandRunner(locate: { _ in "/bin/sh" },
@@ -23,7 +18,7 @@ import Testing
 
     @Test(arguments: [(AgentKind.claude, ".claude/settings.json"), (AgentKind.codex, ".codex/config.toml")])
     func aDanglingSettingsLinkIsUnreadableAndNotOffered(agent: AgentKind, path: String) async throws {
-        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let home = try ScratchFolder.make("aiterm-svc-drv-"); defer { try? FileManager.default.removeItem(at: home) }
         let link = home.appendingPathComponent(path)
         try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
         let missing = home.appendingPathComponent("dotfiles/gone")
@@ -39,7 +34,7 @@ import Testing
 
     /// The card shows `localizedDescription`, so a refusal must carry its own sentence.
     @Test func aRefusedMergeExplainsItself() throws {
-        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let home = try ScratchFolder.make("aiterm-svc-drv-"); defer { try? FileManager.default.removeItem(at: home) }
         let settings = home.appendingPathComponent(".claude/settings.json")
         try FileManager.default.createDirectory(at: settings.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: settings, withDestinationURL: home.appendingPathComponent("gone.json"))

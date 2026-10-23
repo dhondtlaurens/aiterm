@@ -1,3 +1,4 @@
+import AiTermTestSupport
 import AppKit
 import SwiftUI
 import AiTermUI
@@ -15,8 +16,7 @@ struct SidebarSheetScaleTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.loadWorkspace()
-        let host = NSHostingView(rootView: SidebarSheet(kind: .newDivider, controller: controller).interfaceScale(scale))
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
+        let host = testHost(SidebarSheet(kind: .newDivider, controller: controller).interfaceScale(scale), size: CGSize(width: Sheet.width, height: Sheet.height))
         host.appearance = NSAppearance(named: .darkAqua)
         host.layoutSubtreeIfNeeded()
         // The title band only: below it sits a text field, whose caret would make two renders differ.

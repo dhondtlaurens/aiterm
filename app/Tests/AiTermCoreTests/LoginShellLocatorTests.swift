@@ -25,8 +25,7 @@ import Testing
     /// deadline.
     @Test func theLaunchAndTheFirstSettingsOpeningShareOneLoginShell() async throws {
         for missing in [[], [AgentKind.codex, .pi]] {
-            let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-locator-\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+            let home = try ScratchFolder.make("aiterm-locator-")
             defer { try? FileManager.default.removeItem(at: home) }
             let installed = AgentKind.allCases.filter { !missing.contains($0) }
             let shell = CountingShell(Self.output(installed), gated: true)

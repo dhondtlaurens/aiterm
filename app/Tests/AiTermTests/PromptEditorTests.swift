@@ -14,11 +14,10 @@ import AiTermTestSupport
         let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
                                   agent: .claude, completions: completions)
             .frame(width: 420, height: 150)
-        let host = NSHostingView(rootView: editor)
-        host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
+        let host = testHost(editor, size: CGSize(width: 420, height: 150))
         host.layoutSubtreeIfNeeded()
 
-        let scrollView = try #require(descendant(of: NSScrollView.self, in: host))
+        let scrollView = try #require(host.firstDescendant(NSScrollView.self))
         let textView = try #require(scrollView.documentView as? NSTextView)
         let longPrompt = (1...100).map { "Prompt line \($0)" }.joined(separator: "\n")
         textView.insertText(longPrompt, replacementRange: textView.selectedRange())
@@ -66,14 +65,13 @@ import AiTermTestSupport
                                   agent: .claude, completions: PromptCompletions(),
                                   onFocusChange: { focus.append($0) })
             .frame(width: 420, height: 150)
-        let host = NSHostingView(rootView: editor)
-        host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
+        let host = testHost(editor, size: CGSize(width: 420, height: 150))
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.contentView = host
         defer { window.orderOut(nil) }
         host.layoutSubtreeIfNeeded()
 
-        let textView = try #require(descendant(of: NSScrollView.self, in: host)?.documentView as? NSTextView)
+        let textView = try #require(host.firstDescendant(NSScrollView.self)?.documentView as? NSTextView)
         window.makeFirstResponder(textView)
         #expect(focus == [true])
         window.makeFirstResponder(nil)
@@ -87,10 +85,9 @@ import AiTermTestSupport
         let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
                                   agent: .claude, completions: PromptCompletions())
             .frame(width: 420, height: 150)
-        let host = NSHostingView(rootView: editor)
-        host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
+        let host = testHost(editor, size: CGSize(width: 420, height: 150))
         host.layoutSubtreeIfNeeded()
-        let textView = try #require(descendant(of: NSScrollView.self, in: host)?.documentView as? NSTextView)
+        let textView = try #require(host.firstDescendant(NSScrollView.self)?.documentView as? NSTextView)
         #expect(textView.textContainerInset == PromptEditor.textInset)
         #expect(textView.textContainer?.lineFragmentPadding == PromptEditor.lineFragmentPadding)
     }
@@ -116,11 +113,10 @@ import AiTermTestSupport
         let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
                                   agent: .claude, completions: completions)
             .frame(width: 420, height: 150)
-        let host = NSHostingView(rootView: editor)
-        host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
+        let host = testHost(editor, size: CGSize(width: 420, height: 150))
         host.layoutSubtreeIfNeeded()
 
-        let scrollView = try #require(descendant(of: NSScrollView.self, in: host))
+        let scrollView = try #require(host.firstDescendant(NSScrollView.self))
         let textView = try #require(scrollView.documentView as? NSTextView)
         textView.insertText("Please look at this and then run /bra", replacementRange: textView.selectedRange())
 
@@ -142,11 +138,10 @@ import AiTermTestSupport
         let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
                                   agent: .claude, completions: completions)
             .frame(width: 420, height: 150)
-        let host = NSHostingView(rootView: editor)
-        host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
+        let host = testHost(editor, size: CGSize(width: 420, height: 150))
         host.layoutSubtreeIfNeeded()
 
-        let scrollView = try #require(descendant(of: NSScrollView.self, in: host))
+        let scrollView = try #require(host.firstDescendant(NSScrollView.self))
         let textView = try #require(scrollView.documentView as? NSTextView)
         let delegate = try #require(textView.delegate)
         textView.insertText("/bra", replacementRange: textView.selectedRange())
@@ -168,10 +163,9 @@ import AiTermTestSupport
         let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
                                   agent: .claude, completions: completions)
             .frame(width: 420, height: 150)
-        let host = NSHostingView(rootView: editor)
-        host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
+        let host = testHost(editor, size: CGSize(width: 420, height: 150))
         host.layoutSubtreeIfNeeded()
-        let textView = try #require(descendant(of: NSScrollView.self, in: host)?.documentView as? NSTextView)
+        let textView = try #require(host.firstDescendant(NSScrollView.self)?.documentView as? NSTextView)
         let delegate = try #require(textView.delegate)
         func send(_ selector: Selector) -> Bool { delegate.textView?(textView, doCommandBy: selector) ?? false }
 
@@ -203,10 +197,9 @@ import AiTermTestSupport
         let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
                                   agent: .claude, completions: completions)
             .frame(width: 420, height: 150)
-        let host = NSHostingView(rootView: editor)
-        host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
+        let host = testHost(editor, size: CGSize(width: 420, height: 150))
         host.layoutSubtreeIfNeeded()
-        let textView = try #require(descendant(of: NSScrollView.self, in: host)?.documentView as? NSTextView)
+        let textView = try #require(host.firstDescendant(NSScrollView.self)?.documentView as? NSTextView)
         let delegate = try #require(textView.delegate)
         func accept() -> Bool { delegate.textView?(textView, doCommandBy: #selector(NSResponder.insertNewline(_:))) ?? false }
 
@@ -231,11 +224,10 @@ import AiTermTestSupport
         let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
                                   agent: .codex, completions: completions)
             .frame(width: 420, height: 150)
-        let host = NSHostingView(rootView: editor)
-        host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
+        let host = testHost(editor, size: CGSize(width: 420, height: 150))
         host.layoutSubtreeIfNeeded()
 
-        let textView = try #require(descendant(of: NSScrollView.self, in: host)?.documentView as? NSTextView)
+        let textView = try #require(host.firstDescendant(NSScrollView.self)?.documentView as? NSTextView)
         let delegate = try #require(textView.delegate)
         textView.insertText("draw /imag", replacementRange: textView.selectedRange())
         #expect(completions.isOpen)
@@ -254,11 +246,10 @@ import AiTermTestSupport
         let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
                                   agent: .claude, completions: PromptCompletions())
             .frame(width: 420, height: 150)
-        let host = NSHostingView(rootView: editor)
-        host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
+        let host = testHost(editor, size: CGSize(width: 420, height: 150))
         host.layoutSubtreeIfNeeded()
 
-        let scrollView = try #require(descendant(of: NSScrollView.self, in: host))
+        let scrollView = try #require(host.firstDescendant(NSScrollView.self))
         let textView = try #require(scrollView.documentView as? NSTextView)
         #expect(textView.acceptableDragTypes.contains(.fileURL))
         textView.insertText("Look at", replacementRange: textView.selectedRange())
@@ -280,10 +271,9 @@ import AiTermTestSupport
         let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
                                   agent: .claude, completions: PromptCompletions())
             .frame(width: 420, height: 150)
-        let host = NSHostingView(rootView: editor)
-        host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
+        let host = testHost(editor, size: CGSize(width: 420, height: 150))
         host.layoutSubtreeIfNeeded()
-        let textView = try #require(descendant(of: NSScrollView.self, in: host)?.documentView as? NSTextView)
+        let textView = try #require(host.firstDescendant(NSScrollView.self)?.documentView as? NSTextView)
         let typed = TypedText.text("Prompt", bytes: 110_000)
 
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("aiterm-test-\(UUID().uuidString)"))
@@ -305,11 +295,4 @@ import AiTermTestSupport
 
     private final class TextBox { var value = "" }
 
-    private func descendant<T: NSView>(of type: T.Type, in view: NSView) -> T? {
-        if let match = view as? T { return match }
-        for subview in view.subviews {
-            if let match = descendant(of: type, in: subview) { return match }
-        }
-        return nil
-    }
 }

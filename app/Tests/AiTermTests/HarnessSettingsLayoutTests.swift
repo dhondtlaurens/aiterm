@@ -170,18 +170,17 @@ import AiTermUI
                                     itermConnection: { .connected(version: "3.7.2") },
                                     checkIterm: { ItermEnvironment(installed: true, pythonAPIEnabled: true) },
                                     preferences: .scratch(), setMatchItermBackground: { _ in }, setInterfaceSize: { _ in }, initialTab: .agents)
-        let host = NSHostingView(rootView: settings)
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.settingsHeight)
+        let host = testHost(settings, size: CGSize(width: Sheet.width, height: Sheet.settingsHeight))
         let window = testWindow(contentRect: host.frame, styleMask: [])
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
         // Laid out once the settings have scrolled content: taller than what shows of it.
-        settle(host) { firstScrollView(in: host).map { ($0.documentView?.frame.height ?? 0) > $0.contentView.bounds.height } ?? false }
+        settle(host) { host.firstDescendant(NSScrollView.self).map { ($0.documentView?.frame.height ?? 0) > $0.contentView.bounds.height } ?? false }
 
         #expect(host.fittingSize.width <= Sheet.width)
-        let scroll = try #require(firstScrollView(in: host))
+        let scroll = try #require(host.firstDescendant(NSScrollView.self))
         let document = try #require(scroll.documentView)
         #expect(document.frame.height > scroll.contentView.bounds.height)
         let bottom = max(0, document.frame.height - scroll.contentView.bounds.height)
@@ -195,10 +194,6 @@ import AiTermUI
         #expect(bitmap.pixelsHigh > 0)
     }
 
-    private func firstScrollView(in view: NSView) -> NSScrollView? {
-        if let scroll = view as? NSScrollView { return scroll }
-        return view.subviews.lazy.compactMap(firstScrollView).first
-    }
 }
 
 private let readyModel = AgentModel(id: "opus", label: "Opus", detail: nil, efforts: [], defaultEffort: nil)

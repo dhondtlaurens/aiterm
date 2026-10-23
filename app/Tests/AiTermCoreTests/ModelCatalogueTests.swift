@@ -1,3 +1,4 @@
+import AiTermTestSupport
 import Foundation
 import Synchronization
 import Testing
@@ -5,12 +6,6 @@ import Testing
 
 @Suite struct ModelCatalogueTests {
     private static let piTable = "provider model context max-out thinking images\nopenai model-x 128k 16k yes no\n"
-
-    private func scratchHome() throws -> URL {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-catalogue-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-        return home
-    }
 
     /// A PI that lists `piTable`, or fails as told, and counts its launches. `/usr/bin/true` is
     /// where it is found: a real file, so its stamp is a real one.
@@ -26,7 +21,7 @@ import Testing
     /// Each sheet opening and each agent switch used to launch PI. Now a list read stands while
     /// PI's sign-ins, its custom models and the CLI itself are unchanged.
     @Test func piIsLaunchedOnceUntilItsConfigurationChanges() throws {
-        let home = try scratchHome()
+        let home = try ScratchFolder.make("aiterm-catalogue-")
         defer { try? FileManager.default.removeItem(at: home) }
         let launches = Launches()
         let catalogue = ModelCatalogue(home: home, runner: pi(launches))
@@ -50,7 +45,7 @@ import Testing
     /// PI's failure is said, not swallowed into an empty list: the sheet shows it in place of the
     /// models. Once a list has been read, a failed read again offers that one, marked stale.
     @Test func aFailedPiReadSaysWhyAndIsNeverKept() throws {
-        let home = try scratchHome()
+        let home = try ScratchFolder.make("aiterm-catalogue-")
         defer { try? FileManager.default.removeItem(at: home) }
         let launches = Launches(failing: true)
         let catalogue = ModelCatalogue(home: home, runner: pi(launches))
@@ -84,7 +79,7 @@ import Testing
     @Test func aSignedOutPiListsNoModelsAndIsKept() async throws {
         #expect(try PiModelCatalog.parse(Self.piSignedOut).isEmpty)
 
-        let home = try scratchHome()
+        let home = try ScratchFolder.make("aiterm-catalogue-")
         defer { try? FileManager.default.removeItem(at: home) }
         let launches = Launches()
         let runner = HarnessCommandRunner(locate: { _ in "/usr/bin/true" }, run: { _, _, _, _ in
@@ -112,7 +107,7 @@ import Testing
     /// place with its size and date kept, the cached list still answers; given a new date, the
     /// file is read again.
     @Test func aFileCatalogueStandsUntilAFileChanges() throws {
-        let home = try scratchHome()
+        let home = try ScratchFolder.make("aiterm-catalogue-")
         defer { try? FileManager.default.removeItem(at: home) }
         let config = home.appendingPathComponent(".codex/config.toml")
         try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)

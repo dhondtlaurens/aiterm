@@ -151,7 +151,7 @@ import Testing
 
     /// The slices froze when the broadcast started: turning Merge on in Settings changes only the next one.
     @Test func theSliceIsFrozen() throws {
-        let defaults = UserDefaults(suiteName: "aiterm-guard-\(UUID().uuidString)")!
+        let defaults = ScratchDefaults.make()
         var stored = OperatorProfileStore.load(defaults, claudeDefault: (model: "claude-opus-5-5", reasoning: "high"))
         stored.slices = Slices(jira: true, review: true, merge: true)
         try OperatorProfileStore.save(stored, defaults)

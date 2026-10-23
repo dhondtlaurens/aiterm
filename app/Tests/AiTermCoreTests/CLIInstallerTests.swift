@@ -50,7 +50,7 @@ import Testing
     }
 
     @Test func missingCLIIsInstalledThenItsDriver() async throws {
-        let home = try temporaryHome()
+        let home = try ScratchFolder.make("aiterm-cli-install-")
         defer { try? FileManager.default.removeItem(at: home) }
         let installed = Calls()
         let runner = HarnessCommandRunner(locate: { _ in installed.all.isEmpty ? nil : "/usr/bin/true" },
@@ -69,7 +69,7 @@ import Testing
     }
 
     @Test func aPresentCLIIsNeverReinstalled() async throws {
-        let home = try temporaryHome()
+        let home = try ScratchFolder.make("aiterm-cli-install-")
         defer { try? FileManager.default.removeItem(at: home) }
         let shells = Calls()
         let runner = HarnessCommandRunner(locate: { _ in "/usr/bin/true" }, run: { executable, arguments, environment, timeout in
@@ -84,7 +84,7 @@ import Testing
     }
 
     @Test func aFailedInstallerWritesNoDriver() async throws {
-        let home = try temporaryHome()
+        let home = try ScratchFolder.make("aiterm-cli-install-")
         defer { try? FileManager.default.removeItem(at: home) }
         let runner = HarnessCommandRunner(locate: { _ in nil }, run: { _, _, _, _ in
             ProcessOutput(status: 1, stdout: "", stderr: "curl: (6) Could not resolve host: chatgpt.com\n", timedOut: false)
@@ -101,7 +101,7 @@ import Testing
     /// that failed read as "installed, but not on your PATH". The runner here answers as zsh
     /// would — curl's failure only reaches the exit status under `pipefail`.
     @Test func aFailedDownloadIsReportedAsCurlsError() async throws {
-        let home = try temporaryHome()
+        let home = try ScratchFolder.make("aiterm-cli-install-")
         defer { try? FileManager.default.removeItem(at: home) }
         let runner = HarnessCommandRunner(locate: { _ in nil }, run: { _, arguments, _, _ in
             let pipefail = arguments.last?.hasPrefix("set -o pipefail; ") == true
@@ -124,7 +124,7 @@ import Testing
     /// The installer can finish without the CLI being where a task window's shell will look — the
     /// Claude installer, say, when `~/.local/bin` is on no profile's `PATH`.
     @Test func anInstalledCLIOffThePathSaysSo() async throws {
-        let home = try temporaryHome()
+        let home = try ScratchFolder.make("aiterm-cli-install-")
         defer { try? FileManager.default.removeItem(at: home) }
         let runner = HarnessCommandRunner(locate: { _ in nil }, run: { _, _, _, _ in
             ProcessOutput(status: 0, stdout: "", stderr: "", timedOut: false)
@@ -137,12 +137,6 @@ import Testing
     }
 
     private let resources = HarnessResources([.claude: "/usr/bin/true"], installationAllowed: true, unavailableReason: nil)
-
-    private func temporaryHome() throws -> URL {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-cli-install-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-        return home
-    }
 }
 
 /// Unchecked because its stored `var`s are mutable: every access holds `lock`.

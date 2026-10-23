@@ -12,8 +12,7 @@ import Testing
     /// `/bin/sh` can take longer than a tenth of a second on a loaded machine, so such a run is
     /// tried again with twice the time, until the child gets there.
     @Test func liveRunnerReapsAChildThatIgnoresTerminate() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("harness-process-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let directory = try ScratchFolder.make("harness-process-")
         defer { try? FileManager.default.removeItem(at: directory) }
         let pidFile = directory.appendingPathComponent("pid"), readyFile = directory.appendingPathComponent("ready")
         let script = "trap '' TERM; echo $$ > '\(pidFile.path)'; : > '\(readyFile.path)'; exec /usr/bin/tail -f /dev/null"
@@ -42,8 +41,7 @@ import Testing
     /// launchd's `PATH`, which has no Homebrew in it. The interpreter an npm CLI needs sits in
     /// the same `bin` as the CLI, so the runner puts that directory on the child's `PATH`.
     @Test func liveRunnerFindsAnInterpreterNextToTheExecutable() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("harness-process-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let directory = try ScratchFolder.make("harness-process-")
         defer { try? FileManager.default.removeItem(at: directory) }
         let interpreter = "fake-node-\(UUID().uuidString.prefix(8))"
         let files = [interpreter: "#!/bin/sh\necho interpreted\n", "tool": "#!/usr/bin/env \(interpreter)\n"]

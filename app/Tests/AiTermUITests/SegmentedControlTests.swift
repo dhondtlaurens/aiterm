@@ -1,3 +1,4 @@
+import AiTermTestSupport
 import AppKit
 import SwiftUI
 import Testing
@@ -19,7 +20,7 @@ import Testing
             .padding(4)
         )
         host.frame = NSRect(x: 0, y: 0, width: 248, height: 36)
-        let window = window(hosting: host)
+        let window = testWindow(hosting: host)
         defer { window.orderOut(nil) }
         settle(host)
 
@@ -99,9 +100,7 @@ import Testing
     }
 
     private func keyEvent(_ characters: String, keyCode: UInt16, window: NSWindow) throws -> NSEvent {
-        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                      windowNumber: window.windowNumber, context: nil, characters: characters,
-                                      charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode))
+        try #require(keyDown(characters, code: keyCode, in: window))
     }
 
     private func focusRingSample(focused: Bool) -> some View {

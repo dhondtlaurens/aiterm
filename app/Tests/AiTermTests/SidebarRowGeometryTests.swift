@@ -51,16 +51,15 @@ struct SidebarRowGeometryTests {
         controller.focus.browse(.task(tasks[0].id))
         controller.preferences.interfaceSize = size
 
-        let host = NSHostingView(rootView: SidebarView(controller: controller).environment(\.hoveredRow, tasks[1].id))
-        host.frame = NSRect(x: 0, y: 0, width: size.scale(340), height: 800)
+        let host = testHost(SidebarView(controller: controller).environment(\.hoveredRow, tasks[1].id), size: CGSize(width: size.scale(340), height: 800))
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
-        settle(host) { table(in: host)?.numberOfRows ?? 0 > 0 }
+        settle(host) { host.firstDescendant(NSTableView.self)?.numberOfRows ?? 0 > 0 }
 
-        let list = try #require(table(in: host))
+        let list = try #require(host.firstDescendant(NSTableView.self))
         // The OPERATORS heading, the PROJECTS heading and the project row come first; the three task rows follow in order.
         #expect(list.numberOfRows == 6)
         let selectedRow = host.convert(list.rect(ofRow: 3), from: list)
@@ -118,15 +117,14 @@ struct SidebarContextMenuHighlightTests {
         controller.workspace.mutate { $0.items = [.project(project)] }; controller.workspace.mutate { $0.tasks = [task] }
         controller.focus.browse(.task(task.id))
 
-        let host = NSHostingView(rootView: SidebarView(controller: controller))
-        host.frame = NSRect(x: 0, y: 0, width: 340, height: 300)
+        let host = testHost(SidebarView(controller: controller), size: CGSize(width: 340, height: 300))
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
-        settle(host) { table(in: host)?.numberOfRows ?? 0 > 0 }
+        settle(host) { host.firstDescendant(NSTableView.self)?.numberOfRows ?? 0 > 0 }
 
-        return (host, try #require(table(in: host)), window)
+        return (host, try #require(host.firstDescendant(NSTableView.self)), window)
     }
 
     /// The ink a row lays down over the sidebar's backdrop, as a box relative to the row.
@@ -172,11 +170,4 @@ struct SidebarContextMenuHighlightTests {
         let highlighted = try paintedBox(host: host, table: table, row: 3)
         #expect(highlighted == pill, "the context menu ring \(highlighted) grew the row past its pill \(pill)")
     }
-}
-
-
-@MainActor
-private func table(in view: NSView) -> NSTableView? {
-    if let table = view as? NSTableView { return table }
-    return view.subviews.lazy.compactMap { table(in: $0) }.first
 }

@@ -23,15 +23,12 @@ import AiTermCore
         // The search's answer, as `.task` would land it; a bare `NSHostingView` never runs it.
         model.results = tickets
         let sheet = NewTaskSheet(model: model).seeded(step: 1, ticketsOpen: true)
-        let host = NSHostingView(rootView: sheet)
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
-        let window = testWindow(contentRect: host.frame, styleMask: [])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(sheet, size: CGSize(width: Sheet.width, height: Sheet.height))
+        let window = testWindow(hosting: host, styleMask: [])
         defer { window.orderOut(nil) }
         host.layoutSubtreeIfNeeded()
 
-        let field = try #require(descendants(of: NSTextField.self, in: host)
+        let field = try #require(host.descendants(NSTextField.self)
             .first { $0.placeholderString == "Search by key or title" })
         #expect(window.makeFirstResponder(field))
         RunLoop.main.run(until: Date().addingTimeInterval(0.01))
@@ -47,41 +44,35 @@ import AiTermCore
         #expect(accepted)
         RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         host.layoutSubtreeIfNeeded()
-        let fieldsAfterSelection = descendants(of: NSTextField.self, in: host)
+        let fieldsAfterSelection = host.descendants(NSTextField.self)
         #expect(!fieldsAfterSelection.contains { $0.placeholderString == "Search by key or title" })
         #expect(fieldsAfterSelection.contains { $0.stringValue == "Second ticket" })
     }
 
     @Test func ticketSearchFieldTakesFocusWhenItsPopupRequestsIt() throws {
         let state = FocusState()
-        let host = NSHostingView(rootView: TicketFieldHarness(state: state))
-        host.frame = NSRect(x: 0, y: 0, width: 500, height: 28)
-        let window = testWindow(contentRect: host.frame, styleMask: [])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(TicketFieldHarness(state: state), size: CGSize(width: 500, height: 28))
+        let window = testWindow(hosting: host, styleMask: [])
         defer { window.orderOut(nil) }
         host.layoutSubtreeIfNeeded()
-        _ = try #require(descendants(of: NSTextField.self, in: host).first)
+        _ = try #require(host.descendants(NSTextField.self).first)
 
         state.focused = true
         RunLoop.main.run(until: Date().addingTimeInterval(0.01))
 
-        let focusedField = try #require(descendants(of: NSTextField.self, in: host).first)
+        let focusedField = try #require(host.descendants(NSTextField.self).first)
         #expect(focusedField.currentEditor() != nil)
     }
 
     @Test func ticketSearchFieldTakesFocusWhenInsertedForAnOpenPopup() throws {
         let state = FocusState(focused: true)
-        let host = NSHostingView(rootView: TicketFieldHarness(state: state))
-        host.frame = NSRect(x: 0, y: 0, width: 500, height: 28)
-        let window = testWindow(contentRect: host.frame, styleMask: [])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(TicketFieldHarness(state: state), size: CGSize(width: 500, height: 28))
+        let window = testWindow(hosting: host, styleMask: [])
         defer { window.orderOut(nil) }
         host.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.01))
 
-        let field = try #require(descendants(of: NSTextField.self, in: host).first)
+        let field = try #require(host.descendants(NSTextField.self).first)
         #expect(field.currentEditor() != nil)
     }
 
@@ -94,16 +85,13 @@ import AiTermCore
                               remoteUrl: nil, addedAt: Date(), collapsed: false)
         let draft = TaskDraft.initial(project: project, state: .empty, git: controller.git, home: ScratchHome.bare, defaults: ScratchDefaults.make())
         let model = controller.sheets.makeCreationModel(project: project, draft: draft, jira: nil)
-        let host = NSHostingView(rootView: NewTaskSheet(model: model).seeded(step: 1))
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
-        let window = testWindow(contentRect: host.frame, styleMask: [])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(NewTaskSheet(model: model).seeded(step: 1), size: CGSize(width: Sheet.width, height: Sheet.height))
+        let window = testWindow(hosting: host, styleMask: [])
         defer { window.orderOut(nil) }
         host.layoutSubtreeIfNeeded()
         #expect(model.draft.branchType != .fix)
 
-        let field = try #require(descendants(of: NSTextField.self, in: host)
+        let field = try #require(host.descendants(NSTextField.self)
             .first { $0.placeholderString == "branch-name" })
         #expect(window.makeFirstResponder(field))
         let editor = try #require(field.currentEditor() as? NSTextView)
@@ -122,20 +110,17 @@ import AiTermCore
     /// caret has to land in the editor without a click, so typing starts the prompt.
     @Test func thePromptStepTakesTheKeyboardWhenItAppears() throws {
         let state = StepState()
-        let host = NSHostingView(rootView: PromptStepHarness(state: state))
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: 300)
-        let window = testWindow(contentRect: host.frame, styleMask: [])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(PromptStepHarness(state: state), size: CGSize(width: Sheet.width, height: 300))
+        let window = testWindow(hosting: host, styleMask: [])
         defer { window.orderOut(nil) }
         host.layoutSubtreeIfNeeded()
-        #expect(descendants(of: PromptTextView.self, in: host).isEmpty)
+        #expect(host.descendants(PromptTextView.self).isEmpty)
 
         state.onPrompt = true
         RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         host.layoutSubtreeIfNeeded()
 
-        let editor = try #require(descendants(of: PromptTextView.self, in: host).first)
+        let editor = try #require(host.descendants(PromptTextView.self).first)
         #expect(window.firstResponder === editor)
     }
 
@@ -167,11 +152,5 @@ import AiTermCore
             SearchField(placeholder: "Ticket", text: $state.text,
                         focused: $state.focused, onCommand: { _ in false })
         }
-    }
-
-    private func descendants<T: NSView>(of type: T.Type, in view: NSView) -> [T] {
-        var matches = view.subviews.compactMap { $0 as? T }
-        for subview in view.subviews { matches += descendants(of: type, in: subview) }
-        return matches
     }
 }

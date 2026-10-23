@@ -22,21 +22,13 @@ struct SidebarInteractionTests {
         controller.workspace.mutate { $0.items = [.project(project)] }; controller.workspace.mutate { $0.tasks = tasks }; controller.workspace.mutate { $0.terminals = [terminal] }
         controller.focus.browse(.task(tasks[0].id))
 
-        let host = NSHostingView(rootView: SidebarView(controller: controller))
-        host.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
-        let sidebar = testWindow(contentRect: host.frame, styleMask: [.titled])
-        sidebar.isReleasedWhenClosed = false; sidebar.contentView = host; sidebar.orderFront(nil)
+        let (host, sidebar) = HostedSidebar.make(controller, size: CGSize(width: 340, height: 500))
         let other = testWindow(contentRect: NSRect(x: 500, y: 0, width: 200, height: 200), styleMask: [.titled])
-        other.isReleasedWhenClosed = false; other.makeKeyAndOrderFront(nil)
+        other.makeKeyAndOrderFront(nil)
         defer { sidebar.orderOut(nil); other.orderOut(nil) }
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
         #expect(!sidebar.isKeyWindow)
-
-        func table(in view: NSView) -> NSTableView? {
-            if let table = view as? NSTableView { return table }
-            return view.subviews.lazy.compactMap { table(in: $0) }.first
-        }
-        let list = try #require(table(in: host))
+        let list = try #require(host.firstDescendant(NSTableView.self))
         #expect(list.numberOfRows == 6)
         func click(row: Int, eventNumber: Int) throws {
             let point = list.convert(NSPoint(x: list.bounds.midX, y: list.rect(ofRow: row).midY), to: nil)
@@ -78,19 +70,10 @@ struct SidebarInteractionTests {
         let server = RecordingDaemon()
         controller.helper.setDaemonClient(server)
         defer { controller.shutdown() }
-        let host = NSHostingView(rootView: SidebarView(controller: controller))
-        host.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
-        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 340, height: 500), key: true)
         defer { window.orderOut(nil) }
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
-        func table(in view: NSView) -> NSTableView? {
-            if let table = view as? NSTableView { return table }
-            return view.subviews.lazy.compactMap { table(in: $0) }.first
-        }
-        let list = try #require(table(in: host))
+        let list = try #require(host.firstDescendant(NSTableView.self))
         #expect(list.selectionHighlightStyle == .none)
         #expect(window.makeFirstResponder(list))
         let arrow = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
@@ -116,19 +99,10 @@ struct SidebarInteractionTests {
         let controller = fixture.controller
         let task = try fixture.addTask(windowId: "alive")
         controller.focus.browse(.task(task.id))
-        let host = NSHostingView(rootView: SidebarView(controller: controller))
-        host.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
-        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 340, height: 500), key: true)
         defer { window.orderOut(nil) }
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
-        func table(in view: NSView) -> NSTableView? {
-            if let table = view as? NSTableView { return table }
-            return view.subviews.lazy.compactMap { table(in: $0) }.first
-        }
-        let list = try #require(table(in: host))
+        let list = try #require(host.firstDescendant(NSTableView.self))
         #expect(window.makeFirstResponder(list))
         func backspace(_ flags: NSEvent.ModifierFlags) throws -> NSEvent {
             try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
@@ -173,17 +147,10 @@ struct SidebarInteractionTests {
         controller.workspace.mutate { $0.tasks = tasks }; controller.workspace.mutate { $0.terminals = [terminal] }
         controller.focus.browse(.task(tasks[1].id))
 
-        let host = NSHostingView(rootView: SidebarView(controller: controller))
-        host.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
-        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+        let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 340, height: 500), key: true)
         defer { window.orderOut(nil) }
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
-        func table(in view: NSView) -> NSTableView? {
-            if let table = view as? NSTableView { return table }
-            return view.subviews.lazy.compactMap { table(in: $0) }.first
-        }
-        let list = try #require(table(in: host))
+        let list = try #require(host.firstDescendant(NSTableView.self))
         #expect(window.makeFirstResponder(list))
         func press(_ keyCode: UInt16, _ character: String) throws {
             let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
@@ -219,17 +186,10 @@ struct SidebarInteractionTests {
         #expect(task.projectId == project.id)
         controller.focus.browse(.project(project.id))
 
-        let host = NSHostingView(rootView: SidebarView(controller: controller))
-        host.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
-        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+        let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 340, height: 500), key: true)
         defer { window.orderOut(nil) }
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
-        func table(in view: NSView) -> NSTableView? {
-            if let table = view as? NSTableView { return table }
-            return view.subviews.lazy.compactMap { table(in: $0) }.first
-        }
-        let list = try #require(table(in: host))
+        let list = try #require(host.firstDescendant(NSTableView.self))
         #expect(window.makeFirstResponder(list))
         func press(_ keyCode: UInt16, _ character: String, _ flags: NSEvent.ModifierFlags = []) throws {
             let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
@@ -269,17 +229,10 @@ struct SidebarInteractionTests {
         var asked: [UUID] = []
         controller.openRowMenu = { asked.append($0) }
 
-        let host = NSHostingView(rootView: SidebarView(controller: controller))
-        host.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
-        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
+        let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 340, height: 500), key: true)
         defer { window.orderOut(nil) }
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
-        func table(in view: NSView) -> NSTableView? {
-            if let table = view as? NSTableView { return table }
-            return view.subviews.lazy.compactMap { table(in: $0) }.first
-        }
-        let list = try #require(table(in: host))
+        let list = try #require(host.firstDescendant(NSTableView.self))
         #expect(window.makeFirstResponder(list))
         let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
                                                 windowNumber: window.windowNumber, context: nil,
@@ -337,18 +290,10 @@ struct SidebarInteractionTests {
             state.append(project: b)
         }
 
-        let host = NSHostingView(rootView: SidebarView(controller: controller))
-        host.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
-        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 340, height: 500))
         defer { window.orderOut(nil) }
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
-
-        func table(in view: NSView) -> NSTableView? {
-            if let table = view as? NSTableView { return table }
-            return view.subviews.lazy.compactMap { table(in: $0) }.first
-        }
-        let list = try #require(table(in: host))
+        let list = try #require(host.firstDescendant(NSTableView.self))
         // OPERATORS, header, project a, the divider, project b. Both projects are collapsed, so nothing else.
         #expect(list.numberOfRows == 5)
     }
@@ -362,17 +307,10 @@ struct SidebarInteractionTests {
         try controller.loadWorkspace()
         controller.workspace.mutate { $0.append(divider: SidebarDivider(id: UUID(), name: "Work")) }
 
-        let host = NSHostingView(rootView: SidebarView(controller: controller))
-        host.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
-        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 340, height: 500))
         defer { window.orderOut(nil) }
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
-        func table(in view: NSView) -> NSTableView? {
-            if let table = view as? NSTableView { return table }
-            return view.subviews.lazy.compactMap { table(in: $0) }.first
-        }
-        let list = try #require(table(in: host))
+        let list = try #require(host.firstDescendant(NSTableView.self))
         // OPERATORS, header, the block, the divider.
         #expect(list.numberOfRows == 4)
 

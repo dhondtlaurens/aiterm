@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import AiTermTestWindowHook
 
 // Windows for tests. AppKit animates a window's opening and closing (NSWindowTransformAnimation) as
@@ -17,12 +18,12 @@ import AiTermTestWindowHook
 /// a window.
 @MainActor private enum WindowAnimations {
     static let off: Void = {
-        UserDefaults.standard.set(false, forKey: "NSAutomaticWindowAnimationsEnabled")
+        UserDefaults.standard.register(defaults: ["NSAutomaticWindowAnimationsEnabled": false])
     }()
 }
 
 /// Turns window animations off if nothing has yet. For a window a test makes some other way.
-@MainActor public func disableWindowAnimations() {
+@MainActor private func disableWindowAnimations() {
     _ = WindowAnimations.off
 }
 
@@ -61,4 +62,36 @@ public enum LoginSession {
     public static var isLocked: Bool {
         (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false
     }
+}
+
+/// Hosts an AppKit view at its existing frame. The caller closes or orders out the window.
+@MainActor public func testWindow(hosting host: NSView, styleMask: NSWindow.StyleMask = [.titled], orderFront: Bool = true) -> NSWindow {
+    let window = testWindow(contentRect: host.frame, styleMask: styleMask)
+    window.contentView = host
+    if orderFront { window.makeKeyAndOrderFront(nil) }
+    return window
+}
+
+/// Prepares a SwiftUI host without adding a window or running the run loop.
+@MainActor public func testHost<V: View>(_ view: V, size: CGSize? = nil,
+                                       appearance: NSAppearance? = nil) -> NSHostingView<V> {
+    let host = NSHostingView(rootView: view)
+    if let appearance { host.appearance = appearance }
+    host.frame = NSRect(origin: .zero, size: size ?? host.fittingSize)
+    return host
+}
+
+/// Hosts SwiftUI at a specified size or its fitting size, in the app's dark appearance.
+@MainActor public func testWindow<V: View>(hosting view: V, size: CGSize? = nil) -> (NSWindow, NSHostingView<V>) {
+    let host = testHost(view, size: size, appearance: NSAppearance(named: .darkAqua))
+    let window = testWindow(hosting: host)
+    host.layoutSubtreeIfNeeded()
+    return (window, host)
+}
+
+/// A key press addressed to a hosted test window.
+@MainActor public func keyDown(_ characters: String, code: UInt16, modifiers: NSEvent.ModifierFlags = [], in window: NSWindow) -> NSEvent? {
+    NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, characters: characters,
+                    charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)
 }

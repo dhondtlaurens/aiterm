@@ -1,13 +1,9 @@
+import AiTermTestSupport
 import Foundation
 import Testing
 @testable import AiTermCore
 
 @Suite struct PiDriverTests {
-    private func tempHome() throws -> URL {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-pi-home-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-        return home
-    }
 
     private func ownedSource(version: Int) -> String {
         "// AiTerm PI extension schema: \(version)\nexport default function aiterm() {}\n"
@@ -24,7 +20,7 @@ import Testing
     private func url(_ home: URL) -> URL { home.appendingPathComponent(PiDriver.path) }
 
     @Test func piInstallerCreatesAndUpdatesOnlyOwnedFiles() throws {
-        let home = try tempHome()
+        let home = try ScratchFolder.make("aiterm-pi-home-")
         defer { try? FileManager.default.removeItem(at: home) }
 
         #expect(driver(home).state == .missing)
@@ -51,7 +47,7 @@ import Testing
     /// Schema 3 forwards `session_start`'s reason and keeps the last ctx in `relay`, so a schema-2
     /// install reads as out of date and Repair (a plain reinstall) brings it to the current schema.
     @Test func aSchemaTwoInstallIsOutdatedAndRepairInstallsTheCurrentSchema() throws {
-        let home = try tempHome()
+        let home = try ScratchFolder.make("aiterm-pi-home-")
         defer { try? FileManager.default.removeItem(at: home) }
         let url = url(home)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -64,7 +60,7 @@ import Testing
     }
 
     @Test func piInstallerRefusesForeignFileWithoutChangingIt() throws {
-        let home = try tempHome()
+        let home = try ScratchFolder.make("aiterm-pi-home-")
         defer { try? FileManager.default.removeItem(at: home) }
         let url = url(home)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -78,7 +74,7 @@ import Testing
     }
 
     @Test func malformedOwnedMarkerCanBeRepairedButUnreadableTargetCannot() throws {
-        let home = try tempHome()
+        let home = try ScratchFolder.make("aiterm-pi-home-")
         defer { try? FileManager.default.removeItem(at: home) }
         let url = url(home)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -98,7 +94,7 @@ import Testing
     }
 
     @Test func installerRejectsASourceWithoutTheCurrentOwnershipMarker() throws {
-        let home = try tempHome()
+        let home = try ScratchFolder.make("aiterm-pi-home-")
         defer { try? FileManager.default.removeItem(at: home) }
 
         #expect(throws: HarnessDriverError.invalidSource) { try driver(home, source: ownedSource(version: 0)).install() }
@@ -106,7 +102,7 @@ import Testing
     }
 
     @Test func currentMarkerWithCorruptedBodyIsInvalidAgainstTheBundledSource() throws {
-        let home = try tempHome()
+        let home = try ScratchFolder.make("aiterm-pi-home-")
         defer { try? FileManager.default.removeItem(at: home) }
         let url = url(home)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -117,7 +113,7 @@ import Testing
 
     /// A dotfiles-managed extension stays a link; the file it names is what gets written.
     @Test func aSymlinkedExtensionIsWrittenThroughAndStaysALink() throws {
-        let home = try tempHome()
+        let home = try ScratchFolder.make("aiterm-pi-home-")
         defer { try? FileManager.default.removeItem(at: home) }
         let link = url(home), elsewhere = home.appendingPathComponent("dotfiles/aiterm-status.ts")
         try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -133,7 +129,7 @@ import Testing
     }
 
     @Test func aDanglingExtensionLinkIsUnreadableNotReplaced() throws {
-        let home = try tempHome()
+        let home = try ScratchFolder.make("aiterm-pi-home-")
         defer { try? FileManager.default.removeItem(at: home) }
         let link = url(home), missing = home.appendingPathComponent("dotfiles/gone.ts")
         try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -149,7 +145,7 @@ import Testing
     /// written for another port is outdated: Repair writes the daemon's, as for an older schema,
     /// where a file whose body was changed is broken.
     @Test func theExtensionIsWrittenWithTheDaemonsPort() throws {
-        let home = try tempHome()
+        let home = try ScratchFolder.make("aiterm-pi-home-")
         defer { try? FileManager.default.removeItem(at: home) }
         let source = "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nconst endpoint = \"http://127.0.0.1:\(PiDriver.portPlaceholder)/hook/pi\";\n"
 

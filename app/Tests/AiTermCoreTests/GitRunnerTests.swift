@@ -6,8 +6,7 @@ import Testing
 @Suite(.blocking) struct GitRunnerTests {
     /// A stand-in for git: a script whose body is `script`, in a directory of its own.
     private func fakeGit(_ script: String) throws -> (git: GitRunner, directory: String) {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("git-runner-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let directory = try ScratchFolder.make("git-runner-")
         let url = directory.appendingPathComponent("git")
         try ("#!/bin/sh\n" + script + "\n").write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)

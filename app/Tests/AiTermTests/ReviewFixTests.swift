@@ -383,20 +383,15 @@ import AiTermUI
         let footer = CreationFooter(step: 3, error: failure, availableAgents: [.claude], createLabel: "Create Review", creating: false,
                                     canAdvance: true, closeList: { false }, back: { calls.backs += 1 },
                                     advance: { calls.advances += 1 }, recover: {}, fix: session, applyFix: { calls.applies += 1 })
-        let host = NSHostingView(rootView: footer)
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: 240)
-        let window = testWindow(contentRect: host.frame, styleMask: [])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(footer, size: CGSize(width: Sheet.width, height: 240))
+        let window = testWindow(hosting: host, styleMask: [])
         host.layoutSubtreeIfNeeded()
         settle(host)
         return Harness(calls: calls, session: session, host: host, window: window)
     }
 
     private func press(_ keyCode: UInt16, _ character: String, _ modifiers: NSEvent.ModifierFlags = [], in h: Harness) {
-        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
-                                     windowNumber: h.window.windowNumber, context: nil, characters: character,
-                                     charactersIgnoringModifiers: character, isARepeat: false, keyCode: keyCode)!
+        let event = keyDown(character, code: keyCode, modifiers: modifiers, in: h.window)!
         _ = h.window.performKeyEquivalent(with: event)
         settle(h.host)
     }

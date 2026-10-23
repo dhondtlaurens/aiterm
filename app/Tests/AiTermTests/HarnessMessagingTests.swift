@@ -75,8 +75,7 @@ import AiTermCore
     // -- the checks, read and run ---------------------------------------------------------------
 
     private func scratchPolicy() throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-messaging-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = try ScratchFolder.make("aiterm-messaging-")
         return folder.appendingPathComponent("delivery-policy.json")
     }
 

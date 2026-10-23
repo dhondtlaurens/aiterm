@@ -67,8 +67,7 @@ struct SettingsToggleLayoutTests {
         preferences.matchItermBackground = true
         let settings = settings(preferences)
         #expect(settings._matchItermBackground.wrappedValue)
-        let host = NSHostingView(rootView: settings)
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.settingsHeight)
+        let host = testHost(settings, size: CGSize(width: Sheet.width, height: Sheet.settingsHeight))
         let window = testWindow(contentRect: host.frame, styleMask: [])
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host

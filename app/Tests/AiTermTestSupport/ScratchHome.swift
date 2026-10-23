@@ -21,7 +21,7 @@ enum ScratchHome {
     static let catalogue: @Sendable (AgentKind) -> [AgentModel] = { models.read($0).models }
 
     /// The bare home's catalogue, with no CLI installed.
-    static let models = ModelCatalogue(home: bare, runner: .nothingInstalled)
+    private static let models = ModelCatalogue(home: bare, runner: .nothingInstalled)
 
     private static let created = Mutex<URL?>(nil)
 

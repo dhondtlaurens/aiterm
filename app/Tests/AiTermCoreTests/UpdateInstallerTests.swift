@@ -6,8 +6,7 @@ import Testing
 @Suite(.blocking) struct UpdateInstallerTests {
     /// Review focus 1: a home folder with a space in it.
     func workspace() throws -> URL {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("installer \(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dir = try ScratchFolder.make("installer ")
         return dir
     }
 

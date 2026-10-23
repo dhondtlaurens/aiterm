@@ -62,11 +62,8 @@ import SwiftUI
     }
 
     private func host(_ sheet: Sheet) -> (NSHostingView<Harness>, NSWindow) {
-        let host = NSHostingView(rootView: Harness(sheet: sheet))
-        host.frame = NSRect(x: 0, y: 0, width: 400, height: 240)
-        let window = testWindow(contentRect: host.frame, styleMask: [])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(Harness(sheet: sheet), size: CGSize(width: 400, height: 240))
+        let window = testWindow(hosting: host, styleMask: [])
         settle(host)
         return (host, window)
     }

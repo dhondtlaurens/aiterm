@@ -190,8 +190,7 @@ import Testing
         #expect(fake.settings.engaged)
         lid.onSet = { _ in }
         lid.succeeds = true
-        let deadline = Date().addingTimeInterval(2)
-        while fake.settings.engaged, Date() < deadline { try? await Task.sleep(for: .milliseconds(5)) }
+        await eventually(describing: "sleep restored") { !fake.settings.engaged }
         #expect(!fake.settings.engaged, "the checks put sleep back")
         backpack.shutdown()
     }
@@ -354,8 +353,7 @@ import Testing
         try? await Task.sleep(for: .milliseconds(40))
         #expect(yields.withLock { $0 } == 0, "an opening is not a close")
         fake.lidSensor.closed = true
-        let deadline = Date().addingTimeInterval(2)
-        while yields.withLock({ $0 }) == 0, Date() < deadline { try? await Task.sleep(for: .milliseconds(5)) }
+        await eventually(describing: "the lid close") { yields.withLock { $0 } > 0 }
         // Long enough for a second, wrong yield to show while the lid stays closed.
         try? await Task.sleep(for: .milliseconds(40))
         #expect(yields.withLock { $0 } == 1, "open → closed yields, once")

@@ -1,5 +1,4 @@
 import Foundation
-import Synchronization
 
 /// A stubbed server that answers some URLs with a `302` to another URL and everything else with
 /// `200` and a fixed body, and records every request it sees in order. The redirected request it
@@ -9,11 +8,7 @@ import Synchronization
 final class RedirectURLProtocol: URLProtocol {
     static let tokenHeader = "X-Redirect-Stub-Token"
 
-    private struct Store {
-        var routes: [String: (redirects: [URL: URL], body: Data)] = [:]
-        var requests: [String: [URLRequest]] = [:]
-    }
-    private static let store = Mutex(Store())
+    private static let store = RequestStore<(redirects: [URL: URL], body: Data)>()
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -21,10 +16,7 @@ final class RedirectURLProtocol: URLProtocol {
     override func startLoading() {
         let token = request.value(forHTTPHeaderField: Self.tokenHeader) ?? ""
         let request = self.request
-        let route = Self.store.withLock {
-            $0.requests[token, default: []].append(request)
-            return $0.routes[token]
-        }
+        let route = Self.store.record(request, for: token)
         let url = request.url!
         if let target = route?.redirects[url] {
             var next = request
@@ -41,10 +33,10 @@ final class RedirectURLProtocol: URLProtocol {
     override func stopLoading() {}
 
     fileprivate static func register(_ token: String, redirects: [URL: URL], body: Data) {
-        store.withLock { $0.routes[token] = (redirects, body) }
+        store.register(token, value: (redirects, body))
     }
     fileprivate static func requests(for token: String) -> [URLRequest] {
-        store.withLock { $0.requests[token] ?? [] }
+        store.requests(for: token)
     }
 }
 

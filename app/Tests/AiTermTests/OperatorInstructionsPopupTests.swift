@@ -23,8 +23,7 @@ struct OperatorInstructionsPopupTests {
                                     checkIterm: { ItermEnvironment(installed: true, pythonAPIEnabled: true) },
                                     preferences: .scratch(), setMatchItermBackground: { _ in }, setInterfaceSize: { _ in },
                                     initialTab: .operator, testRecord: ServiceTestRecord(), operatorSettings: model)
-        let host = NSHostingView(rootView: settings)
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.settingsHeight)
+        let host = testHost(settings, size: CGSize(width: Sheet.width, height: Sheet.settingsHeight))
         let window = testWindow(contentRect: host.frame, styleMask: [])
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
@@ -72,8 +71,7 @@ struct OperatorInstructionsPopupTests {
                                     preferences: .scratch(), setMatchItermBackground: { _ in },
                                     setInterfaceSize: { _ in cancels += 1 },
                                     initialTab: .operator, testRecord: ServiceTestRecord(), operatorSettings: model)
-        let host = NSHostingView(rootView: settings)
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.settingsHeight)
+        let host = testHost(settings, size: CGSize(width: Sheet.width, height: Sheet.settingsHeight))
         let window = testWindow(contentRect: host.frame, styleMask: [])
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
@@ -86,9 +84,7 @@ struct OperatorInstructionsPopupTests {
         settle(host)
         #expect(model.completions.isOpen)
 
-        let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                      windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
-                                      charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
+        let escape = keyDown("\u{1b}", code: 53, in: window)!
         _ = window.performKeyEquivalent(with: escape)
         settle(host)
         #expect(!model.completions.isOpen, "the first ⎋ closes the popup")

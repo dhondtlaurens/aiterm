@@ -17,25 +17,15 @@ import AiTermCore
     /// loop turned until `done` says the sheet's action ran.
     private func pressCommandReturn(on view: some View, width: CGFloat = Sheet.width, height: CGFloat = Sheet.height,
                                     until done: () -> Bool) {
-        let host = NSHostingView(rootView: view)
-        host.frame = NSRect(x: 0, y: 0, width: width, height: height)
-        let window = testWindow(contentRect: host.frame, styleMask: [])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let host = testHost(view, size: CGSize(width: width, height: height))
+        let window = testWindow(hosting: host, styleMask: [])
         defer { window.orderOut(nil) }
-        settle(host) { firstTextField(in: host) != nil || host.firstDescendant(NSSwitch.self) != nil }
+        settle(host) { host.firstDescendant(NSTextField.self) != nil || host.firstDescendant(NSSwitch.self) != nil }
         // With a field holding the keyboard, as it does when the person has just typed a name.
-        if let field = firstTextField(in: host) { window.makeFirstResponder(field) }
-        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
-                                     windowNumber: window.windowNumber, context: nil, characters: "\r",
-                                     charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
+        if let field = host.firstDescendant(NSTextField.self) { window.makeFirstResponder(field) }
+        let event = keyDown("\r", code: 36, modifiers: [.command], in: window)!
         _ = window.performKeyEquivalent(with: event)
         pumpRunLoop(describing: "the sheet's action to run", until: done)
-    }
-
-    private func firstTextField(in view: NSView) -> NSTextField? {
-        if let field = view as? NSTextField, field.isEditable { return field }
-        return view.subviews.lazy.compactMap { firstTextField(in: $0) }.first
     }
 
     /// `sheet` presented as the app presents its sheets, over a window of its own, with its first
@@ -46,18 +36,14 @@ import AiTermCore
         let host = NSHostingView(rootView: Color.clear.sheet(isPresented: Binding(get: { presented.isOn },
                                                                                    set: { presented.isOn = $0 })) { sheet })
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width + 100, height: Sheet.settingsHeight + 100)
-        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        let window = testWindow(hosting: host, styleMask: [.titled])
         defer { window.orderOut(nil) }
         guard pumpRunLoop(describing: "the sheet to be presented", until: { window.attachedSheet != nil }),
               let sheetWindow = window.attachedSheet, let content = sheetWindow.contentView else { return true }
         settle(content)
-        if let field = firstTextField(in: content) { sheetWindow.makeFirstResponder(field) }
+        if let field = content.firstDescendant(NSTextField.self) { sheetWindow.makeFirstResponder(field) }
         settle(content)
-        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                     windowNumber: sheetWindow.windowNumber, context: nil, characters: "\u{1b}",
-                                     charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
+        let event = keyDown("\u{1b}", code: 53, in: sheetWindow)!
         _ = sheetWindow.performKeyEquivalent(with: event)
         await eventually(describing: "the sheet to close") {
             RunLoop.main.run(until: Date().addingTimeInterval(0.005))
