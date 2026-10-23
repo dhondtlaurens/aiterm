@@ -117,6 +117,29 @@ import Testing
         #expect(try git.run(["for-each-ref", "--format=%(refname)", "refs/heads/" + draft.branch], in: project.path).isEmpty)
     }
 
+    /// Shelve keeps Remove's record: its own archive that git refused halfway, the folder since gone
+    /// from git's list, is cleaned up on a retry without asking.
+    @Test func shelvesOwnHalfFinishedArchiveIsCleanedUpOnARetry() async throws {
+        let (project, draft) = try fixture()
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
+        let created = try await workflow.create(draft: draft, project: project)
+        let path = created.task.worktreePath, file = path + "/unsaved"
+        try "work".write(toFile: file, atomically: true, encoding: .utf8)
+        await #expect(throws: GitError.self) { try await workflow.archive(task: created.task, project: project, force: false) }
+        try FileManager.default.removeItem(atPath: file)
+        try git.run(["worktree", "unlock", path], in: project.path)
+        try git.run(["worktree", "remove", path], in: project.path)
+        try FileManager.default.createDirectory(atPath: path + "/app/node_modules/.cache", withIntermediateDirectories: true)
+
+        #expect(try await !workflow.needsRemovalConfirmation(task: created.task, project: project))
+        try await workflow.archive(task: created.task, project: project, force: false)
+
+        #expect(!FileManager.default.fileExists(atPath: path))
+        #expect(try !git.run(["for-each-ref", "--format=%(refname)", "refs/heads/" + draft.branch], in: project.path).isEmpty,
+                "Shelve keeps the branch")
+    }
+
     /// The project's checkout is rarely sitting on the base branch — users often keep another task's
     /// branch checked out there. `git branch -d` judges "merged" against HEAD and the branch's
     /// upstream only, so a branch already merged into its base was refused with "not fully merged".

@@ -68,6 +68,30 @@ extension AppControllerTests {
         #expect(FileManager.default.fileExists(atPath: task.worktreePath))
     }
 
+    /// Shelve asks Remove's question about a folder git no longer lists: it may hold files AiTerm
+    /// did not make. Keep, the safe default, keeps the folder and the task, and shelves nothing.
+    @Test(arguments: ["Keep", "Delete Folder", "↩", "⎋"])
+    func shelvingAnUnknownFolderKeepsItUnlessExplicitlyConfirmed(answer: String) async throws {
+        let prompter = ScriptedPrompter(answering: answer)
+        let fixture = try RaceFixture(prompter: prompter)
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(RecordingDaemon())
+        let task = try fixture.addTask(windowId: "alive")
+        try fixture.git.run(["worktree", "remove", task.worktreePath], in: fixture.repo.path)
+        try FileManager.default.createDirectory(atPath: task.worktreePath, withIntermediateDirectories: true)
+        let file = URL(fileURLWithPath: task.worktreePath).appendingPathComponent("unknown")
+        try Data("keep me".utf8).write(to: file)
+
+        await (await fixture.controller.archive(task: task))?.value
+
+        let deleted = answer == "Delete Folder"
+        #expect(prompter.asked.map(\.buttons) == [["Keep", "Delete Folder"]])
+        #expect(FileManager.default.fileExists(atPath: file.path) == !deleted)
+        #expect(fixture.controller.state.tasks.map(\.id) == (deleted ? [] : [task.id]))
+        #expect(fixture.controller.state.archive.map(\.id) == (deleted ? [task.id] : []))
+        #expect(fixture.controller.removal(of: task.id) == nil, "kept before anything moved: no note")
+    }
+
     @Test func aWorktreeDetachedWhileTheWindowClosesIsNotArchived() async throws {
         // Clean and on its branch when the archive started; its agent detached it before the window
         // went, so removing it now would lose whatever that detached head holds.

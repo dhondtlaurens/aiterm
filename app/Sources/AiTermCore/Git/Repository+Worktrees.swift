@@ -150,12 +150,16 @@ extension Repository {
     }
 
     /// The worktree at `worktreePath` removed, and then `deleteBranch` with it when one is named —
-    /// `-D` under `force`, else `-d`.
+    /// `-D` under `force`, else `-d`. A folder git does not list is not evidence of anything of
+    /// ours, so it is refused unless `allowUnlisted`: the person agreed, or it is what our own
+    /// removal left. `onRemoving` runs once the removal reaches git, for the caller to record that.
     public func removeWorktree(at worktreePath: String, deleteBranch: String?, force: Bool, allowUnlisted: Bool = false,
                                onRemoving: () -> Void = {}) throws {
         if let worktree = try worktree(at: worktreePath) {
             try removeRegistered(worktreePath, lockedWith: worktree.lockReason, force: force, onRemoving: onRemoving)
         } else {
+            // A removal git gave up on halfway, or a folder we know nothing of: only the first goes
+            // without asking.
             guard allowUnlisted || !FileManager.default.fileExists(atPath: worktreePath) else {
                 throw WorktreeError.notAWorktree(worktreePath)
             }

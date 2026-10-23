@@ -31,7 +31,10 @@ public struct TaskWorkflow: Sendable {
     /// Internal, not private, for the workflow jobs that live in the folder of the feature they serve
     /// (`TaskWorkflow+FixLanding`): Core's folders may not depend on each other in a loop.
     static let queue = DispatchQueue(label: "aiterm.task-workflows", qos: .userInitiated)
-    /// Only a removal that reached git may clean up an unlisted folder on retry.
+    /// Only a removal that reached git, Remove's or Shelve's, may clean up an unlisted folder on retry.
+    /// Kept in memory, so after a relaunch an own leftover asks again; and written before `git
+    /// worktree remove` runs, so a removal git refused outright counts as reached too. Both err
+    /// towards asking.
     private final class RemovalAttempts: Sendable { let paths = Mutex<[UUID: String]>([:]) }
     private let removalAttempts = RemovalAttempts()
     /// Runs every git command through the injected runner.
@@ -100,23 +103,27 @@ public struct TaskWorkflow: Sendable {
         }
     }
 
+    /// `allowUnlisted` is the person's consent to delete a folder git no longer lists
+    /// (`needsRemovalConfirmation`).
     public func remove(task: TaskItem, project: Project, deleteBranch: Bool, force: Bool,
                        allowUnlisted: Bool = false) async throws -> Removed {
         let git = git, attempts = removalAttempts
         return try await BackgroundWork.run(on: Self.queue) {
-            try Self.takeWorktree(of: task, from: project, force: force, git: git,
-                                  allowUnlisted: allowUnlisted || attempts.paths.withLock { $0[task.id] == task.worktreePath },
-                                  onRemoving: { attempts.paths.withLock { $0[task.id] = task.worktreePath } })
+            try Self.takeWorktree(of: task, from: project, force: force, git: git, allowUnlisted: allowUnlisted, attempts: attempts)
             let result = Self.releaseBranch(of: task, in: project, deleteBranch: deleteBranch, git: git)
             if result.branchRefusal == nil { attempts.paths.withLock { _ = $0.removeValue(forKey: task.id) } }
             return result
         }
     }
 
-    /// Archive's git: the worktree, and nothing else — the branch stays as it is.
-    public func archive(task: TaskItem, project: Project, force: Bool) async throws {
-        let git = git
-        try await BackgroundWork.run(on: Self.queue) { try Self.takeWorktree(of: task, from: project, force: force, git: git) }
+    /// Archive's git: the worktree, and nothing else — the branch stays as it is. `allowUnlisted` as
+    /// for `remove`.
+    public func archive(task: TaskItem, project: Project, force: Bool, allowUnlisted: Bool = false) async throws {
+        let git = git, attempts = removalAttempts
+        try await BackgroundWork.run(on: Self.queue) {
+            try Self.takeWorktree(of: task, from: project, force: force, git: git, allowUnlisted: allowUnlisted, attempts: attempts)
+            attempts.paths.withLock { _ = $0.removeValue(forKey: task.id) }
+        }
     }
 
     /// An archived row's branch, its worktree long gone: deleted when asked for — a review's released —
@@ -136,14 +143,17 @@ public struct TaskWorkflow: Sendable {
         return try await BackgroundWork.run(on: Self.queue) { try TaskCreator.restore(task, project: project, git: git) }
     }
 
-    /// The task's worktree removed — or, already gone, unlocked and pruned.
-    private static func takeWorktree(of task: TaskItem, from project: Project, force: Bool, git: any GitRunning, allowUnlisted: Bool = false,
-                                     onRemoving: () -> Void = {}) throws {
+    /// The task's worktree removed — or, already gone, unlocked and pruned. A folder git no longer
+    /// lists goes only with consent, or when this workflow's own removal of it reached git before.
+    private static func takeWorktree(of task: TaskItem, from project: Project, force: Bool, git: any GitRunning,
+                                     allowUnlisted: Bool, attempts: RemovalAttempts) throws {
         // An operator's task not started yet has no worktree to remove, unlock or prune.
         guard task.hasCheckout else { return }
         let repository = Repository(project.path, git: git)
         if FileManager.default.fileExists(atPath: task.worktreePath) {
-            try repository.removeWorktree(at: task.worktreePath, deleteBranch: nil, force: force, allowUnlisted: allowUnlisted, onRemoving: onRemoving)
+            try repository.removeWorktree(at: task.worktreePath, deleteBranch: nil, force: force,
+                                          allowUnlisted: allowUnlisted || attempts.paths.withLock { $0[task.id] == task.worktreePath },
+                                          onRemoving: { attempts.paths.withLock { $0[task.id] = task.worktreePath } })
         } else {
             try repository.forgetWorktreeRecord(at: task.worktreePath)
         }

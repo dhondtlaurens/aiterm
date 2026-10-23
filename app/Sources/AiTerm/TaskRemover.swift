@@ -224,6 +224,14 @@ final class TaskRemover: CheckoutRemovals {
             buttons: ["Delete Branch", "Cancel"], defaultDeletes: true)
     }
 
+    /// The question before a folder git no longer lists is deleted: it may hold files AiTerm did not
+    /// make. Keep is the default and ⎋. One wording for Remove and Shelve.
+    static func unlistedFolderQuestion(for task: TaskItem) -> AlertPrompt {
+        AlertPrompt(message: "Delete the unlisted folder for “\(task.title)”?",
+                    detail: "Git no longer lists this folder as a worktree. It may contain files AiTerm did not create.\n\(task.worktreePath)",
+                    buttons: ["Keep", "Delete Folder"], escape: 0)
+    }
+
     /// The task and its project, the task now held for a removal's retry — only while its removal is
     /// still waiting on one.
     private func heldForRetry(_ id: UUID) -> (TaskItem, Project, WorkInFlight.Token)? {
@@ -270,9 +278,7 @@ final class TaskRemover: CheckoutRemovals {
         var task = task, force = false
         let unlisted = try await workflow.needsRemovalConfirmation(task: task, project: project)
         if unlisted {
-            let answer = await prompter.ask(AlertPrompt(message: "Delete the unlisted folder for “\(task.title)”?",
-                detail: "Git no longer lists this folder as a worktree. It may contain files AiTerm did not create.\n\(task.worktreePath)",
-                buttons: ["Keep", "Delete Folder"], escape: 0))
+            let answer = await prompter.ask(Self.unlistedFolderQuestion(for: task))
             guard answer.button == 1, let still = workspace.state.task(id: task.id),
                   still.worktreePath == task.worktreePath, still.projectId == project.id else { return nil }
             task = still

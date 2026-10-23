@@ -83,7 +83,15 @@ final class TaskArchiver {
         // window is closed (below): until then its agent can still move it.
         let head = try await workflow.head(of: task, in: project)
         if head == .detached { throw Stop.detached }
-        var force = false
+        var task = task, force = false
+        // Remove's question about a folder git no longer lists, and Keep keeps it, unshelved.
+        let unlisted = try await workflow.needsRemovalConfirmation(task: task, project: project)
+        if unlisted {
+            let answer = await prompter.ask(TaskRemover.unlistedFolderQuestion(for: task))
+            guard answer.button == 1, let still = workspace.state.task(id: task.id),
+                  still.worktreePath == task.worktreePath, still.projectId == project.id else { throw Stop.kept }
+            task = still
+        }
         if try await workflow.hasUnsavedWork(task: task, project: project) {
             guard await teardown.confirmDeletingUnsavedWork(of: task, verb: .archive),
                   workspace.state.task(id: task.id) != nil else { throw Stop.kept }
@@ -110,11 +118,11 @@ final class TaskArchiver {
             throw ActionUnavailable("Its place on the shelf couldn’t be saved, so nothing was deleted.")
         }
         do {
-            do { try await workflow.archive(task: task, project: project, force: force) }
+            do { try await workflow.archive(task: task, project: project, force: force, allowUnlisted: unlisted) }
             catch let error as GitError where error.refusedForUnsavedWork {
                 // Written after the check, before the window closed.
                 guard await teardown.confirmDeletingUnsavedWork(of: task, verb: .archive) else { throw Stop.keptLate }
-                try await workflow.archive(task: task, project: project, force: true)
+                try await workflow.archive(task: task, project: project, force: true, allowUnlisted: unlisted)
             }
         } catch {
             // Back in the sidebar, owed its window, which the window lock brings back.
