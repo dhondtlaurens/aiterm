@@ -33,6 +33,8 @@ struct OperatorScene {
 
     init(projects: [Project] = [OperatorScene.project("webshop"), OperatorScene.project("payments-api")]) {
         self.projects = projects
+        // The board's images draw its sheet straight from the rows, with no sheet slot showing it.
+        controller.rows.boardShown = { true }
         controller.workspace.mutate { state in for project in projects { state.append(project: project) } }
     }
 

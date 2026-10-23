@@ -265,6 +265,9 @@ final class AppController {
         let operators = operatorController
         rows.actingSource = { [weak operators] in operators?.acting ?? .none }
         operators.onChange { [weak self] in self?.refreshRows() }
+        // The board is derived only while its sheet shows: opening it derives the rows with it.
+        rows.boardShown = { [weak sheets] in if case .broadcastBoard? = sheets?.sheet { true } else { false } }
+        sheets.onChange = { [weak self] in self?.refreshRows() }
         refreshRows()
         // The Operator's row chosen without a window — closed, or its Operator offline — is the operator
         // controller's to reopen, in front.

@@ -32,6 +32,21 @@ struct OperatorProjectionTests {
         #expect(rows.runs[run.id] == run)
     }
 
+    /// The board is derived only while its sheet shows: no other derivation builds it, and presenting the sheet derives
+    /// the rows once, with it.
+    @Test func theBoardIsDerivedOnlyWhileItsSheetShows() throws {
+        let controller = try controller(), rows = controller.rows
+        let run = OperatorUIFixtures.run()
+        controller.workspace.mutate { $0.runs = [run] }
+        #expect(rows.broadcast?.id == run.id && rows.board == nil, "the sheet is not showing")
+        let start = rows.derivations
+        controller.sheet = .broadcastBoard(run.id)
+        #expect(rows.board?.runId == run.id)
+        #expect(rows.derivations == start + 1)
+        controller.sheet = nil
+        #expect(rows.board == nil)
+    }
+
     @Test func whatTheOperatorDoesIsTheBroadcastsLine() throws {
         let controller = try controller(), rows = controller.rows
         let project = OperatorUIFixtures.project("pluto-web"), run = OperatorUIFixtures.run()
@@ -60,6 +75,7 @@ struct OperatorProjectionTests {
             SessionInfo(sessionId: "w1", windowId: "w9", tabIndex: 0, taskId: task.id.uuidString, projectId: project.id.uuidString,
                         agent: .claude, model: nil, state: state, title: "", cwd: "/")
         }
+        controller.sheet = .broadcastBoard(run.id)
         controller.live.sessions = [worker(.working)]
         #expect(rows.broadcast?.header.line == OperatorLine("1 working", look: .acting))
         controller.live.sessions = [worker(.idle)]

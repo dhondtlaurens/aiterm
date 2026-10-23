@@ -71,6 +71,11 @@ struct SidebarProjectionTests {
         }, "a remembered choice draws no row")
         #expect(rows.derivations == start)
 
+        #expect(!invalidates(readsTheList(rows)) {
+            controller.workspace.mutate { $0.tasks[0].conversations = [TaskConversation(agent: .claude, id: "c1")] }
+        }, "a remembered conversation draws no row")
+        #expect(rows.derivations == start)
+
         for _ in 1...10 { _ = controller.canShowFocusView; _ = controller.canShowListView }
         #expect(rows.derivations == start, "the menus read the rows the list draws")
 

@@ -18,7 +18,7 @@ final class SidebarProjection {
     private(set) var entries: [SidebarEntry] = []
     /// The projects of `entries`.
     private(set) var sections: [ProjectSection] = []
-    /// Each task and terminal by id: the saved item a drawn row also reads.
+    /// Each task and terminal by id: the saved item a drawn row also reads, a task without its remembered conversations.
     private(set) var tasks: [UUID: TaskItem] = [:]
     private(set) var terminals: [UUID: TerminalItem] = [:]
     /// The broadcast's group under the OPERATOR heading, above the projects: its header, the Operator's row
@@ -26,15 +26,18 @@ final class SidebarProjection {
     private(set) var broadcast: BroadcastSection?
     /// Each live or ended run by id: what the broadcast header's menu reads.
     private(set) var runs: [UUID: OperatorRun] = [:]
-    /// The broadcast's board, what its sheet draws (`BroadcastBoardHost`); nil while no broadcast exists.
-    /// Derived with the rows and written only when it differs, so a change it draws nothing of (another
-    /// project's task, the sidebar's frame) redraws no board.
+    /// The broadcast's board, what its sheet draws (`BroadcastBoardHost`); nil while no broadcast exists, and while its
+    /// sheet is not showing (`boardShown`), since nothing else reads it. Derived with the rows and written only when it
+    /// differs, so a change it draws nothing of (another project's task, the sidebar's frame) redraws no board.
     private(set) var board: BroadcastBoard?
     /// What the Operator is doing now, to each task and each broadcast, as `actingSource` last said.
     private(set) var acting: OperatorActs = .none
     /// What the Operator is doing, read on every derivation. The app points it at its
     /// `OperatorController`; a test or a snapshot at values of its own.
     @ObservationIgnored var actingSource: @MainActor () -> OperatorActs = { .none }
+    /// Whether the board's sheet is showing, read on every derivation: the app points it at its sheet slot; a test or
+    /// a snapshot that reads `board` alone leaves it true.
+    @ObservationIgnored var boardShown: @MainActor () -> Bool = { true }
 
     /// Whether the sidebar has a project, as `AppState.hasProjects` says: every project is a section.
     var hasProjects: Bool { !sections.isEmpty }
@@ -55,13 +58,21 @@ final class SidebarProjection {
         refresh()
     }
 
-    /// Everything the rows are made of. Not the whole workspace: `sidebarFrame` and the last-used
-    /// agents and models are saved with the rows but drawn by none of them.
+    /// Everything the rows are made of. Not the whole workspace: `sidebarFrame`, the last-used agents and models, and
+    /// each task's remembered conversations are saved with the rows but drawn by none of them.
     private struct Inputs: Equatable {
         var items: [SidebarItem], tasks: [TaskItem], terminals: [TerminalItem]
         var sessions: [SessionInfo]
         var branchByCwd: [String: String], projectBranch: [UUID: String], diffByTask: [UUID: DiffStat]
-        var runs: [OperatorRun], acting: OperatorActs, folded: Set<UUID>
+        var runs: [OperatorRun], acting: OperatorActs, folded: Set<UUID>, boardShown: Bool
+    }
+
+    /// `task` as the rows read it: without the conversations its window last showed, which no row draws.
+    private static func drawn(_ task: TaskItem) -> TaskItem {
+        guard !task.conversations.isEmpty else { return task }
+        var task = task
+        task.conversations = []
+        return task
     }
 
     /// Derives the rows again if what they are made of changed since they last were. Run by
@@ -71,10 +82,10 @@ final class SidebarProjection {
     @discardableResult
     func refresh() -> Bool {
         let state = workspace.state
-        let next = Inputs(items: state.items, tasks: state.tasks, terminals: state.terminals, sessions: live.rowSessions,
+        let next = Inputs(items: state.items, tasks: state.tasks.map(Self.drawn), terminals: state.terminals, sessions: live.rowSessions,
                           branchByCwd: checkouts.branchByCwd, projectBranch: checkouts.projectBranch,
                           diffByTask: checkouts.diffByTask,
-                          runs: state.runs, acting: actingSource(), folded: state.foldedRuns)
+                          runs: state.runs, acting: actingSource(), folded: state.foldedRuns, boardShown: boardShown())
         guard next != inputs else { return false }
         let previous = inputs
         inputs = next
@@ -88,7 +99,7 @@ final class SidebarProjection {
                                                       diffByTask: next.diffByTask, acting: next.acting)
         let broadcastChanged = broadcast != self.broadcast
         if broadcastChanged { self.broadcast = broadcast }
-        let board = state.activeRun.map { run in
+        let board = !next.boardShown ? nil : state.activeRun.map { run in
             BroadcastBoard.make(run: run, state: state, acting: next.acting,
                                 requests: OperatorRequests.open(run: run, state: state), sessions: next.sessions)
         }

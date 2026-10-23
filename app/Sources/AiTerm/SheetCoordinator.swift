@@ -15,8 +15,13 @@ final class SheetCoordinator {
     typealias SheetKind = AppController.SheetKind
 
     var sheet: SheetKind? {
-        didSet { if sheet == nil { onDismiss?() } }
+        didSet {
+            if sheet?.id != oldValue?.id { onChange?() }
+            if sheet == nil { onDismiss?() }
+        }
     }
+    /// Told when what the slot holds changed: the rows derive the board while its sheet shows.
+    @ObservationIgnored var onChange: (@MainActor () -> Void)?
     @ObservationIgnored var onDismiss: (@MainActor () -> Void)?
     /// The preparation on its way to the slot, if any; tests await it.
     @ObservationIgnored private(set) var preparingSheet: Task<Void, Never>?
