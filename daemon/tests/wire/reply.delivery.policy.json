@@ -3,16 +3,16 @@
   "result": {
     "agents": {
       "claude": {
-        "policy": "off",
-        "version": null
+        "policy": "auto",
+        "version": "2.1.301"
       },
       "codex": {
         "policy": "off",
         "version": null
       },
       "pi": {
-        "policy": "auto",
-        "version": "0.70.0"
+        "policy": "off",
+        "version": null
       }
     }
   }

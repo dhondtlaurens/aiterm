@@ -2,6 +2,15 @@
 """The delivery check's verdicts: what it writes for each run of scenarios, and that the daemon
 reads it as meant. Live dependencies are faked here; real iTerm2 and logged-in CLIs are checked by hand."""
 import json
+from aitermd.delivery import ESC, PASTE_START, PASTE_END
+from aitermd.iterm_bridge import ItermUnavailable
+from aitermd.models import Frame, HARNESS_BY_AGENT
+from dataclasses import replace
+from tests.fake_iterm import FakeIterm
+from tools import delivery_check as check
+from tools.delivery_check import COMMANDS
+from types import SimpleNamespace
+import tomllib
 
 import pytest
 
@@ -97,7 +106,6 @@ def test_the_scratch_codex_home_gets_only_the_login_and_the_settings(tmp_path):
 def test_the_scratch_codex_settings_keep_only_what_its_screens_have_shown_you(tmp_path):
     # Hooks trusted by the real config's path would all ask for review again, servers would start and
     # fill the context, and a reviewer would answer the approvals the check pastes into.
-    import tomllib
     real = tmp_path / "real"
     real.mkdir()
     (real / "auth.json").write_text("{}", encoding="utf-8")
@@ -164,7 +172,6 @@ def test_invalid_agents_are_refused(value):
 
 @pytest.mark.parametrize("value", ["claude-code", "claude codex", ""])
 def test_main_rejects_agents_before_running(value, capsys, monkeypatch):
-    from tools import delivery_check as check
     monkeypatch.setattr(check, "run", lambda *args: pytest.fail("must not run"))
     with pytest.raises(SystemExit) as error:
         check.main(["--agents", value])
@@ -173,8 +180,6 @@ def test_main_rejects_agents_before_running(value, capsys, monkeypatch):
 
 
 async def fake_session():
-    from aitermd.models import Frame
-    from tests.fake_iterm import FakeIterm
     bridge = FakeIterm()
     _, sid = await bridge.create_window("/tmp", "test", {}, Frame(0, 0, 100, 100))
     return bridge, sid
@@ -192,9 +197,6 @@ async def no_sleep(seconds):
     ("permission_paste", "Do you want to proceed?"),
 ])
 async def test_failed_scenario_keeps_expected_marker_and_screen(scenario, marker, tmp_path, monkeypatch):
-    from types import SimpleNamespace
-    from tools import delivery_check as check
-
     class NeverReady(check.Live):
         async def wait_for(self, sid, seen, seconds):
             return await super().wait_for(sid, seen, 0)
@@ -219,8 +221,6 @@ async def test_failed_scenario_keeps_expected_marker_and_screen(scenario, marker
 
 
 async def test_background_waits_for_app_switch():
-    from tools import delivery_check as check
-    from tests.fake_iterm import FakeIterm
     bridge = FakeIterm()
     apps = iter(["iterm", "iterm", "other", "other"])
     sleeps = []
@@ -236,8 +236,6 @@ async def test_background_waits_for_app_switch():
 
 
 async def test_background_timeout_creates_no_window():
-    from tools import delivery_check as check
-    from tests.fake_iterm import FakeIterm
     bridge = FakeIterm()
     result = await check.background_window(check.Live(bridge), front=lambda: "iterm", sleep=no_sleep,
                                            iterm_asn="iterm", seconds=1)
@@ -249,9 +247,6 @@ async def test_background_timeout_creates_no_window():
 
 @pytest.mark.parametrize("scenario", ["idle_submit", "multi_line", "busy_queue", "takeover", "permission_paste"])
 async def test_delivery_refusal_includes_screen(scenario, tmp_path):
-    from types import SimpleNamespace
-    from tools import delivery_check as check
-
     class Refused(check.Live):
         def deliverer(self, agent, **kwargs):
             async def deliver(*args):
@@ -270,9 +265,6 @@ async def test_delivery_refusal_includes_screen(scenario, tmp_path):
 
 
 async def test_not_idle_failure_is_kept_in_scenarios(tmp_path, monkeypatch):
-    from tools import delivery_check as check
-    from tests.fake_iterm import FakeIterm
-
     class NotIdle(check.Live):
         async def ready(self, agent, sid, seconds=180):
             self.bridge.screens[sid] = "login expired"
@@ -292,7 +284,6 @@ async def test_not_idle_failure_is_kept_in_scenarios(tmp_path, monkeypatch):
 
 
 async def test_screen_diagnostic_is_bounded_and_keeps_last_read():
-    from tools import delivery_check as check
     bridge, sid = await fake_session()
     bridge.screens[sid] = "discard me\n" + "\n".join(f"line {i}" for i in range(50)) + "\n \n"
     live = check.Live(bridge)
@@ -308,10 +299,6 @@ async def test_screen_diagnostic_is_bounded_and_keeps_last_read():
 @pytest.mark.parametrize("agent", ["claude", "codex"])
 @pytest.mark.parametrize("kind", ["startup", "permission"])
 async def test_paste_failure_keeps_prompt_markers_and_screen(agent, kind, tmp_path, monkeypatch):
-    from types import SimpleNamespace
-    from aitermd.models import HARNESS_BY_AGENT
-    from tools import delivery_check as check
-
     class Prompt(check.Live):
         async def wait_for(self, sid, seen, seconds):
             return True
@@ -336,9 +323,6 @@ async def test_paste_failure_keeps_prompt_markers_and_screen(agent, kind, tmp_pa
 
 @pytest.mark.parametrize("waiting,submitted,answered", [(False, False, True), (True, True, True), (True, False, False)])
 async def test_takeover_keeps_screen_from_each_failed_stage(waiting, submitted, answered):
-    from types import SimpleNamespace
-    from tools import delivery_check as check
-
     class Takeover(check.Live):
         async def wait_for(self, sid, seen, seconds):
             outcome, screen = next(stages)
@@ -361,9 +345,6 @@ async def test_takeover_keeps_screen_from_each_failed_stage(waiting, submitted, 
 
 
 async def test_keystroke_failure_names_echo_and_screen(monkeypatch):
-    from tools import delivery_check as check
-    from tests.fake_iterm import FakeIterm
-
     class NoEcho(check.Live):
         async def wait_for(self, sid, seen, seconds):
             self.bridge.screens[sid] = "shell did not echo"
@@ -378,9 +359,6 @@ async def test_keystroke_failure_names_echo_and_screen(monkeypatch):
 
 
 async def test_background_failure_reports_front_apps_and_screen():
-    from tools import delivery_check as check
-    from tests.fake_iterm import FakeIterm
-
     class Screen(check.Live):
         async def screen(self, sid):
             self.bridge.screens[sid] = "background shell"
@@ -396,9 +374,6 @@ async def test_background_failure_reports_front_apps_and_screen():
 
 @pytest.mark.parametrize("queued", ["blocked", "delivered"])
 async def test_busy_queue_failure_after_working_keeps_screen(queued, monkeypatch):
-    from types import SimpleNamespace
-    from tools import delivery_check as check
-
     deliveries = iter(["delivered", queued])
 
     class Busy(check.Live):
@@ -421,8 +396,6 @@ async def test_busy_queue_failure_after_working_keeps_screen(queued, monkeypatch
 
 
 async def test_busy_queue_types_the_second_message_only_while_the_story_is_unfinished(monkeypatch):
-    from types import SimpleNamespace
-    from tools import delivery_check as check
     sent = []
 
     class Done(check.Live):
@@ -442,9 +415,6 @@ async def test_busy_queue_types_the_second_message_only_while_the_story_is_unfin
 
 
 async def test_busy_queue_passes_once_the_message_typed_while_busy_is_answered(monkeypatch):
-    from types import SimpleNamespace
-    from tools import delivery_check as check
-
     class Busy(check.Live):
         def deliverer(self, agent, **kwargs):
             async def deliver(sid, text, *args):
@@ -461,7 +431,6 @@ async def test_busy_queue_passes_once_the_message_typed_while_busy_is_answered(m
 
 
 async def test_screen_diagnostic_caps_long_lines():
-    from tools import delivery_check as check
     bridge, sid = await fake_session()
     bridge.screens[sid] = "x" * 10000 + "last characters"
     result = await check.Live(bridge).failure(sid, "codex", "expected marker")
@@ -471,9 +440,6 @@ async def test_screen_diagnostic_caps_long_lines():
 
 @pytest.mark.parametrize("agent", ["claude", "codex"])
 async def test_check_agent_runs_all_required_scenarios(agent, tmp_path, monkeypatch):
-    from tools import delivery_check as check
-    from tests.fake_iterm import FakeIterm
-
     class Ready(check.Live):
         async def ready(self, *args, **kwargs):
             return True
@@ -499,10 +465,6 @@ async def test_check_agent_runs_all_required_scenarios(agent, tmp_path, monkeypa
 @pytest.mark.parametrize("agent", ["claude", "codex"])
 @pytest.mark.parametrize("failure", [None, "missing", "closed", "changed", "rules"])
 async def test_menu_paste_checks_screen_and_rules(agent, failure, tmp_path, monkeypatch):
-    from aitermd.delivery import ESC, PASTE_START, PASTE_END
-    from aitermd.models import HARNESS_BY_AGENT
-    from tools import delivery_check as check
-
     menu = "Model picker\n" + "\n".join(HARNESS_BY_AGENT[agent].menu_prompt)
     bridge, sid = await fake_session()
 
@@ -537,10 +499,6 @@ def write_allow_rule(agent, folder):
 
 
 async def test_update_paste_without_markers_is_not_applicable(tmp_path, monkeypatch):
-    from aitermd.models import HARNESS_BY_AGENT
-    from tests.fake_iterm import FakeIterm
-    from tools import delivery_check as check
-
     assert not HARNESS_BY_AGENT["claude"].update_prompt
     bridge = FakeIterm()
     live = check.Live(bridge)
@@ -562,10 +520,6 @@ async def test_update_paste_without_markers_is_not_applicable(tmp_path, monkeypa
 
 @pytest.mark.parametrize("failure", [None, "missing", "unrecognised", "closed", "rules", "dismiss"])
 async def test_update_paste_checks_offer_and_declines(failure, tmp_path, monkeypatch):
-    from dataclasses import replace
-    from aitermd.delivery import ESC, PASTE_START, PASTE_END
-    from tools import delivery_check as check
-
     agent = "codex"
     offer = "Update now\nSkip until next version"
     bridge, sid = await fake_session()
@@ -611,11 +565,6 @@ async def test_update_paste_checks_offer_and_declines(failure, tmp_path, monkeyp
 @pytest.mark.parametrize("failure", [
     None, "request", "setup_partial", "early", "missing", "closed", "command", "rules", "enter", "enter_error"])
 async def test_approval_race_uses_adapter_and_requires_paste_in_approval(agent, failure, tmp_path, monkeypatch):
-    from dataclasses import replace
-    from aitermd.delivery import ESC, PASTE_START, PASTE_END
-    from aitermd.models import HARNESS_BY_AGENT
-    from tools import delivery_check as check
-
     bridge, sid = await fake_session()
     bridge.sessions[sid] = replace(bridge.sessions[sid], command_line=agent)
     prompt = HARNESS_BY_AGENT[agent].permission_prompt[0]
@@ -626,7 +575,6 @@ async def test_approval_race_uses_adapter_and_requires_paste_in_approval(agent, 
     original_send = bridge.send_text
 
     async def send(session_id, text):
-        from aitermd.iterm_bridge import ItermUnavailable
         await original_send(session_id, text)
         if failure == "enter_error" and text == "\r" and len(adapters) == 2:
             bridge.screens[sid] = prompt
@@ -686,9 +634,6 @@ async def test_approval_race_uses_adapter_and_requires_paste_in_approval(agent, 
 
 @pytest.mark.parametrize("update_first", [False, True])
 async def test_startup_checks_update_on_either_side_of_trust(update_first, tmp_path, monkeypatch):
-    from tools import delivery_check as check
-    from tests.fake_iterm import FakeIterm
-
     calls = []
 
     class Startup(check.Live):
@@ -720,8 +665,6 @@ async def test_startup_checks_update_on_either_side_of_trust(update_first, tmp_p
 
 @pytest.mark.parametrize("changed_to_update", [False, True])
 async def test_startup_paste_waits_past_stale_update_frame(changed_to_update, monkeypatch):
-    from tools import delivery_check as check
-
     bridge, sid = await fake_session()
     frames = iter(["Update now\nSkip until next version", "Trust this folder?"])
     pasted_on = []
@@ -755,7 +698,6 @@ IDLE = {"claude": "────────────────\n❯\x20\n�
 
 async def keyed_session(screens):
     """A session whose screen answers each key as `screens` says: (screen, key) -> the next screen."""
-    from tests.fake_iterm import FakeIterm
 
     class Keyed(FakeIterm):
         async def send_text(self, session_id, text):
@@ -773,7 +715,6 @@ async def keyed_session(screens):
     ("codex", CODEX_TRUST, ["\r"]),
 ])
 async def test_the_check_trusts_its_own_scratch_folder(agent, start, keys, monkeypatch):
-    from tools import delivery_check as check
     bridge, sid = await keyed_session({(CLAUDE_TRUST["No"], "\x1b[B"): CLAUDE_TRUST["Yes"],
                                        (CLAUDE_TRUST["Yes"], "\r"): IDLE["claude"], (CODEX_TRUST, "\r"): IDLE["codex"]})
     bridge.screens[sid] = start
@@ -783,7 +724,6 @@ async def test_the_check_trusts_its_own_scratch_folder(agent, start, keys, monke
 
 
 async def test_the_check_never_enters_on_an_option_it_did_not_select(monkeypatch):
-    from tools import delivery_check as check
     # Down moves nothing: the selection never reaches the trust, so no Enter answers "No, exit".
     bridge, sid = await keyed_session({})
     bridge.screens[sid] = CLAUDE_TRUST["No"]
@@ -793,7 +733,6 @@ async def test_the_check_never_enters_on_an_option_it_did_not_select(monkeypatch
 
 
 async def test_a_folder_already_trusted_needs_no_answer(monkeypatch):
-    from tools import delivery_check as check
     bridge, sid = await keyed_session({})
     bridge.screens[sid] = IDLE["claude"]
     assert await check.answer_trust(check.Live(bridge), "claude", sid)
@@ -801,8 +740,6 @@ async def test_a_folder_already_trusted_needs_no_answer(monkeypatch):
 
 
 async def test_an_unanswered_trust_ends_the_agents_check_at_once(tmp_path, monkeypatch):
-    from tools import delivery_check as check
-    from tests.fake_iterm import FakeIterm
     ran = []
 
     class Stuck(check.Live):
@@ -828,13 +765,11 @@ async def _ok():
 
 
 def test_each_cli_runs_on_its_cheapest_model():
-    from tools.delivery_check import COMMANDS
     assert "--model haiku --effort low" in COMMANDS["claude"]
     assert "-m gpt-6-luna -c model_reasoning_effort=low" in COMMANDS["codex"]
 
 
 def test_the_window_says_a_failure_briefly_and_the_file_keeps_it_whole(capsys):
-    from tools import delivery_check as check
     screen = "\n".join(f"line {n}" for n in range(40))
     detail = ("Expected answer marker 'ALPHA 42'. \nopen_prompt=None, shows_input_box=True\n"
               f"Last screen (up to 40 lines, 8000 characters):\n{screen}")
@@ -848,7 +783,6 @@ def test_the_window_says_a_failure_briefly_and_the_file_keeps_it_whole(capsys):
 
 @pytest.mark.parametrize("agent,idle_screen", [("codex", "› Ask Codex to do anything"), ("claude", "────\n❯\x20\n────")])
 async def test_a_cli_that_opens_on_its_idle_screen_has_no_trust_dialog_to_paste_into(agent, idle_screen, monkeypatch):
-    from tools import delivery_check as check
     bridge, sid = await fake_session()
     bridge.screens[sid] = idle_screen
     monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
@@ -858,7 +792,6 @@ async def test_a_cli_that_opens_on_its_idle_screen_has_no_trust_dialog_to_paste_
 
 
 async def test_a_trust_dialog_after_the_idle_screen_is_still_pasted_into(monkeypatch):
-    from tools import delivery_check as check
     bridge, sid = await fake_session()
     bridge.screens[sid] = "› Ask Codex to do anything"
 
@@ -886,9 +819,6 @@ def _scenarios_that(monkeypatch, check, called, outcome):
 
 
 async def test_the_first_failure_ends_the_agents_check(tmp_path, monkeypatch):
-    from tools import delivery_check as check
-    from tests.fake_iterm import FakeIterm
-
     class Ready(check.Live):
         async def ready(self, *args, **kwargs):
             return True
@@ -904,10 +834,6 @@ async def test_the_first_failure_ends_the_agents_check(tmp_path, monkeypatch):
 
 
 async def test_an_error_mid_check_is_that_steps_failure(tmp_path, monkeypatch):
-    from tools import delivery_check as check
-    from tests.fake_iterm import FakeIterm
-    from aitermd.iterm_bridge import ItermUnavailable
-
     class Ready(check.Live):
         async def ready(self, *args, **kwargs):
             return True
@@ -947,9 +873,6 @@ def test_the_entrys_failure_is_the_windows_brief_one():
 @pytest.mark.parametrize("scenario", ["idle_submit", "multi_line", "busy_queue", "takeover", "menu_paste",
                                       "permission_paste", "startup_paste", "update_paste"])
 async def test_no_step_waits_longer_than_its_limit(scenario, tmp_path, monkeypatch):
-    from dataclasses import replace
-    from types import SimpleNamespace
-    from tools import delivery_check as check
     waits: list[float] = []
 
     class Timed(check.Live):
@@ -973,20 +896,15 @@ async def test_no_step_waits_longer_than_its_limit(scenario, tmp_path, monkeypat
 
 
 def test_the_limits_are_fifteen_seconds_a_step_and_thirty_to_start():
-    from tools import delivery_check as check
     assert (check.STEP_SECONDS, check.START_SECONDS) == (15, 30)
 
 
 def test_codex_is_asked_to_escalate_so_it_must_ask_for_approval(tmp_path):
-    from tools import delivery_check as check
     assert "require_escalated" in check.permission_request("codex", tmp_path / "x")
     assert "require_escalated" not in check.permission_request("claude", tmp_path / "x")
 
 
 async def test_no_iterm2_is_written_as_each_agents_failure(tmp_path, monkeypatch):
-    from tools import delivery_check as check
-    from aitermd.iterm_bridge import ItermUnavailable
-
     class Unreachable:
         async def connect(self):
             raise ItermUnavailable("iTerm2 is not running")

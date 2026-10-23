@@ -1,6 +1,7 @@
 """The JSON-RPC envelopes and stateless methods shared by AiTerm's MCP endpoints."""
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from typing import Any
 
@@ -32,3 +33,12 @@ def respond(request_id: Any, method: Any, tools: Sequence[dict[str, Any]], serve
 def bearer(authorization: str) -> str | None:
     scheme, _, token = authorization.partition(" ")
     return token.strip() or None if scheme.lower() == "bearer" else None
+
+
+def tool_result(value: Any, *, is_error: bool = False) -> dict[str, Any]:
+    if isinstance(value, list):
+        value = {"items": value}
+    result = {"content": [{"type": "text", "text": value if is_error else json.dumps(value)}], "isError": is_error}
+    if isinstance(value, dict) and not is_error:
+        result["structuredContent"] = value
+    return result

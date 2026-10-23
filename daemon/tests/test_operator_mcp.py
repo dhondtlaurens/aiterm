@@ -3,7 +3,6 @@
 the forwarding of tool calls to the app, driven directly rather than over HTTP."""
 import asyncio
 import json
-import os
 import re
 from uuid import UUID
 
@@ -12,19 +11,11 @@ import pytest
 from aitermd import delivery, operator_mcp
 from aitermd.operator_mcp import CHALLENGED_TOOLS, TOOL_NAMES, TOOLS, OperatorRoute, OperatorTokens, well_formed
 from aitermd.rpc_server import RpcError
+from tests.conftest import write_token
 
 TOKEN = "ab" * 32
 OTHER = "cd" * 32
 UNKNOWN = "ef" * 32
-
-
-def write_token(root, run_id, token, mode=0o600):
-    """A run folder's token file, as the app writes it."""
-    folder = root / run_id
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / "token").write_text(token + "\n", encoding="utf-8")
-    os.chmod(folder / "token", mode)
-    return folder / "token"
 
 
 def test_a_token_opens_its_own_run_only():
@@ -646,3 +637,44 @@ def test_unknown_tokens_do_not_repeatedly_scan_unchanged_run_folders(tmp_path, m
     assert tokens.run_for(UNKNOWN) is None
     assert tokens.run_for(OTHER) is None
     assert scans == []
+
+
+def finish_task():
+    return next(tool for tool in operator_mcp.TOOLS if tool["name"] == "finish_task")
+
+
+def test_finish_task_takes_one_task() -> None:
+    schema = finish_task()["inputSchema"]
+    assert schema["required"] == ["task"]
+    # The Oracle's verdict on a merge's conditions may answer pending: the call again names it.
+    assert "pending" in schema["properties"]["challengeId"]["description"]
+    assert schema["properties"]["task"]["type"] == "string"
+    assert schema.get("additionalProperties") is False
+
+
+@pytest.mark.parametrize("phrases", [
+    ('draft MR', 'merge', 'commit', 'waitingToMerge', 'blocked', 'accepted commit', 'calling again resumes',
+     'protected'),
+    ('published', 'waitingToMerge', 'blocked', 'refused', 'failed', 'reason', 'mergeRequest', 'pushedSHA', 'merged',
+     'mergedSHA'),
+    ('pipelines', '30 seconds', 'hour', 'may have landed', 'taken over', 'handed back', 'parent'),
+    ('paused', 'stopped', 'offline', 'taken over', 'moved past', 'accepted again', 'cannot say', 'default branch',
+     'never deploys', 'force-pushes'),
+    ('Merge slice', 'mergeLocal', 'never pushes', 'uncommitted', 'Push', 'review threads', 'resolved',
+     "the Oracle's yes", 'marks it ready'),
+])
+def test_finish_task_describes_its_outcomes_and_constraints(phrases):
+    description = finish_task()["description"]
+    assert all(phrase in description for phrase in phrases)
+
+
+def test_finish_task_can_skip_the_push_hooks_on_the_oracles_word() -> None:
+    properties = finish_task()["inputSchema"]["properties"]
+    assert properties["noVerify"] == {
+        "type": "boolean",
+        "description": "Skip the repository's push hooks: only when the hook failed on the environment and your repair "
+                       "didn't work. The Oracle judges it.",
+    }
+    # What was tried goes to the Oracle with the hook's output.
+    assert properties["reason"]["type"] == "string"
+    assert "noVerify" in finish_task()["description"]

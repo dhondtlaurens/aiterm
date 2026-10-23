@@ -1,5 +1,5 @@
 import asyncio
-import http.client
+from http.client import HTTPConnection
 import json
 import os
 import tempfile
@@ -120,7 +120,7 @@ def posted_before_a_last_post(server):
     order they were made, so a post started earlier has been read and recorded by the time this
     one is answered. A test that shows nothing was posted asks this instead of waiting out a window
     that a loaded machine could overrun, and that cost half a second a test."""
-    connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=10)
+    connection = HTTPConnection("127.0.0.1", server.server_port, timeout=10)
     try:
         connection.request("POST", "/last", body=b"{}", headers={"Content-Type": "application/json"})
         connection.getresponse().read()
@@ -131,7 +131,7 @@ def posted_before_a_last_post(server):
     return before
 
 
-async def operator_post(port, body, token=None, *, method="POST", hook=True, path="/operator"):
+async def http_request(port, path, body, *, token=None, method="POST", hook=True, iterm_session_id=None):
     """One request to the daemon's /operator route, sent as the operator's Claude sends it: the
     status, and the body as JSON -- as text when it is not JSON, None when there is none."""
     r, w = await asyncio.open_connection("127.0.0.1", port)
@@ -139,15 +139,70 @@ async def operator_post(port, body, token=None, *, method="POST", hook=True, pat
     head = f"{method} {path} HTTP/1.1\r\nHost: x\r\n"
     if hook:
         head += "X-AiTerm-Hook: 1\r\n"
+    if iterm_session_id:
+        head += f"X-AiTerm-iTerm-Session: {iterm_session_id}\r\n"
     if token is not None:
         head += f"Authorization: Bearer {token}\r\n"
     w.write((head + f"Content-Type: application/json\r\nContent-Length: {len(data)}\r\n\r\n").encode() + data)
     await w.drain()
-    raw = await asyncio.wait_for(r.read(), 5)
+    status_and_headers = await asyncio.wait_for(r.readuntil(b"\r\n\r\n"), 5)
+    headers = dict(line.decode().lower().split(":", 1) for line in status_and_headers.split(b"\r\n")[1:] if b":" in line)
+    payload = await asyncio.wait_for(r.readexactly(int(headers.get("content-length", "0"))), 5)
     w.close()
-    status_and_headers, _, payload = raw.partition(b"\r\n\r\n")
+    await w.wait_closed()
     try:
         parsed = json.loads(payload) if payload else None
     except ValueError:
         parsed = payload.decode()
     return int(status_and_headers.split()[1]), parsed
+
+
+async def operator_post(port, body, token=None, *, method="POST", hook=True, path="/operator"):
+    return await http_request(port, path, body, token=token, method=method, hook=hook)
+
+
+async def http(port, method, path, body=None, header=True, iterm_session_id=None):
+    return (await http_request(port, path, body, method=method, hook=header, iterm_session_id=iterm_session_id))[0]
+
+
+async def mcp(port, body, iterm_session_id=None):
+    return await http_request(port, "/mcp", body, iterm_session_id=iterm_session_id)
+
+
+async def post_hook(port, path, body):
+    return (await http_request(port, path, body))[0]
+
+
+FRAME = {"x": 324, "y": 36, "w": 1104, "h": 852}
+
+
+def write_token(root, run_id, token, mode=0o600):
+    folder = root / run_id
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "token"
+    path.write_text(token + "\n", encoding="utf-8")
+    path.chmod(mode)
+    return path
+
+
+async def send(w, request_id, method, params):
+    w.write((json.dumps({"id": request_id, "method": method, "params": params}) + "\n").encode())
+    await w.drain()
+
+
+async def read_until(r, matches):
+    while True:
+        line = json.loads(await asyncio.wait_for(r.readline(), 2))
+        if matches(line):
+            return line
+
+
+async def call(r, w, method, params=None, id_=1):
+    await send(w, id_, method, params)
+    return await read_until(r, lambda message: message.get("id") == id_)
+
+
+async def task_tab(svc, r, w):
+    window = (await call(r, w, "window.createTask", {
+        "taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    return window, svc.iterm.windows[window]["sessions"][0]

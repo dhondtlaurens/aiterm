@@ -5,57 +5,7 @@ import pytest
 import pytest_asyncio
 from aitermd import hooks_server
 from aitermd.hooks_server import HookServer
-from tests.conftest import operator_post
-
-
-async def http(port, method, path, body=None, header=True, iterm_session_id=None):
-    r, w = await asyncio.open_connection("127.0.0.1", port)
-    data = json.dumps(body).encode() if body is not None else b""
-    hook_header = "X-AiTerm-Hook: 1\r\n" if header else ""
-    session_header = f"X-AiTerm-iTerm-Session: {iterm_session_id}\r\n" if iterm_session_id else ""
-    w.write(f"{method} {path} HTTP/1.1\r\nHost: x\r\n{hook_header}{session_header}"
-            f"Content-Type: application/json\r\nContent-Length: {len(data)}\r\n\r\n".encode() + data)
-    await w.drain()
-    status_line = await asyncio.wait_for(r.readline(), 2)
-    w.close()
-    return int(status_line.split()[1])
-
-
-async def mcp(port, body, iterm_session_id=None):
-    r, w = await asyncio.open_connection("127.0.0.1", port)
-    data = json.dumps(body).encode()
-    session_header = f"X-AiTerm-iTerm-Session: {iterm_session_id}\r\n" if iterm_session_id else ""
-    w.write(
-        f"POST /mcp HTTP/1.1\r\nHost: x\r\nX-AiTerm-Hook: 1\r\n{session_header}"
-        f"Content-Type: application/json\r\nContent-Length: {len(data)}\r\n\r\n".encode() + data
-    )
-    await w.drain()
-    status = int((await asyncio.wait_for(r.readline(), 2)).split()[1])
-    headers = {}
-    while line := (await r.readline()).decode().strip():
-        key, _, value = line.partition(":")
-        headers[key.lower()] = value.strip()
-    response = await r.readexactly(int(headers.get("content-length", "0"))) if headers.get("content-length") else b""
-    w.close()
-    return status, json.loads(response) if response else None
-
-
-async def post_json(port, path, body):
-    r, w = await asyncio.open_connection("127.0.0.1", port)
-    data = json.dumps(body).encode()
-    w.write(
-        f"POST {path} HTTP/1.1\r\nHost: x\r\nX-AiTerm-Hook: 1\r\n"
-        f"Content-Type: application/json\r\nContent-Length: {len(data)}\r\n\r\n".encode() + data
-    )
-    await w.drain()
-    status = int((await asyncio.wait_for(r.readline(), 2)).split()[1])
-    headers = {}
-    while line := (await r.readline()).decode().strip():
-        key, _, value = line.partition(":")
-        headers[key.lower()] = value.strip()
-    response = await r.readexactly(int(headers.get("content-length", "0")))
-    w.close()
-    return status, json.loads(response)
+from tests.conftest import http, http_request as post_json, mcp, operator_post
 
 
 class Received(list):
@@ -142,8 +92,8 @@ async def test_header_routes_take_the_tab_from_the_header_over_the_body(server, 
     assert (path, {"hook_event_name": "Stop"}) in received
 
 
-@pytest.mark.parametrize("path", ["/hook/grok", "/statusline/grok"])
-async def test_grok_is_not_served(server, path):
+@pytest.mark.parametrize("path", ["/hook/unknown", "/statusline/unknown"])
+async def test_unknown_agents_are_not_served(server, path):
     srv, received = server
     assert await http(srv.port, "POST", path, {"hook_event_name": "Stop"}, iterm_session_id="w0t0p0:tab") == 404
     assert received == []

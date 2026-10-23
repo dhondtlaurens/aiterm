@@ -498,9 +498,8 @@ class OperatorRoute:
         try:
             result = await self.ask_app(run_id, tool, arguments)
         except ToolError as exc:
-            return mcp.answer(request_id, {"content": [{"type": "text", "text": str(exc)}], "isError": True})
-        return mcp.answer(request_id, {"content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result,
-                                    "isError": False})
+            return mcp.answer(request_id, mcp.tool_result(str(exc), is_error=True))
+        return mcp.answer(request_id, mcp.tool_result(result))
 
     async def ask_app(self, run_id: str, tool: str, arguments: dict[str, Any],
                       timeout: float | None = None) -> dict[str, Any]:

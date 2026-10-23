@@ -41,13 +41,8 @@ def tool_result(reply: Any) -> dict[str, Any]:
     """A tools/call result as OperatorRoute answers one: an {"error"} reply as a failed call with its text,
     anything else as the JSON it is, with structuredContent when it is an object, as MCP has it."""
     if isinstance(reply, dict) and set(reply) == {"error"} and isinstance(reply["error"], str):
-        return {"content": [{"type": "text", "text": reply["error"]}], "isError": True}
-    if isinstance(reply, list):
-        reply = {"items": reply}
-    result: dict[str, Any] = {"content": [{"type": "text", "text": json.dumps(reply)}], "isError": False}
-    if isinstance(reply, dict):
-        result["structuredContent"] = reply
-    return result
+        return mcp.tool_result(reply["error"], is_error=True)
+    return mcp.tool_result(reply)
 
 
 class Stub:

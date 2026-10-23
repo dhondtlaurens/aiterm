@@ -9,7 +9,7 @@ import pytest
 from aitermd import delivery
 from aitermd.delivery import PASTE_END, PASTE_START
 
-FRAME = {"x": 324, "y": 36, "w": 1104, "h": 852}
+from tests.conftest import FRAME, call as rpc_call
 IDLE = "────────────────\n❯\x20\n────────────────\n  ? for shortcuts"
 
 
@@ -27,13 +27,7 @@ async def claude(make_service, monkeypatch, tmp_path):
     ids = iter(range(1, 1000))
 
     async def call(method, params=None):
-        request_id = next(ids)
-        w.write((json.dumps({"id": request_id, "method": method, "params": params}) + "\n").encode())
-        await w.drain()
-        while True:
-            message = json.loads(await asyncio.wait_for(r.readline(), 2))
-            if message.get("id") == request_id:
-                return message
+        return await rpc_call(r, w, method, params, id_=next(ids))
 
     wid = (await call("window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
     sid = svc.iterm.windows[wid]["sessions"][0]

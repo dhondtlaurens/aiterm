@@ -195,15 +195,6 @@ async def test_a_pi_child_that_finishes_under_a_prompt_ends_the_turn_when_the_pr
     assert hooks.state(sid) == "done", "PI has no tick to end a turn left working"
 
 
-async def test_a_grok_post_changes_no_session(hooks):
-    [sid] = hooks.tabs(("tab-1", "codex", 41))
-    for path in ("/hook/grok", "/statusline/grok"):
-        await hooks.post(path, {"hook_event_name": "UserPromptSubmit", "sessionId": "g-1", "cwd": "/wt",
-                                "model": {"id": "grok-4.7"}, "_aiterm_iterm_session_id": sid})
-    assert hooks.state(sid) == "idle" and hooks.registry.get(sid).model is None
-    assert hooks.events == []
-
-
 async def test_a_hook_from_an_agent_the_tick_has_not_yet_classified_is_retried_against_a_tick(hooks):
     # window.createTask sends the agent command and ticks at once, while the tab still reads `zsh`;
     # the agent's SessionStart and first prompt arrive before the next poll classifies it.

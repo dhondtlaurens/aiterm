@@ -135,7 +135,8 @@ def load_policy(path: Path) -> dict[AgentKind, Verdict]:
     whose pasted text might act as keys in one of its prompts gets none at all (spec §7.1)."""
     raw: Any
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        st = path.stat()
+        raw = _policy_at(path, (st.st_ino, st.st_mtime_ns, st.st_ctime_ns, st.st_size))
     except (OSError, ValueError, RecursionError):  # ValueError: not JSON, or bytes that are not UTF-8
         raw = None
     entries = raw if isinstance(raw, dict) else {}
@@ -153,17 +154,13 @@ def load_policy(path: Path) -> dict[AgentKind, Verdict]:
 
 
 @functools.lru_cache(maxsize=1)
-def _policy_at(path: Path, stamp: tuple[int, int, int, int]) -> dict[AgentKind, Verdict]:
-    return load_policy(path)
+def _policy_at(path: Path, stamp: tuple[int, int, int, int]) -> Any:
+    # Cache successful reads only; a transient I/O failure must be retried even without a rewrite.
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def read_policy() -> dict[AgentKind, Verdict]:
-    """Read the policy again when replaced, rewritten or its permissions change."""
-    try:
-        st = POLICY_PATH.stat()
-    except OSError:
-        return dict.fromkeys(HARNESS_BY_AGENT, NOT_CHECKED)
-    return _policy_at(POLICY_PATH, (st.st_ino, st.st_mtime_ns, st.st_ctime_ns, st.st_size))
+    return load_policy(POLICY_PATH)
 
 
 def shows_update_offer(agent: AgentKind, screen: str) -> bool:

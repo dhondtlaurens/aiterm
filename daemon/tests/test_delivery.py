@@ -173,18 +173,11 @@ def test_paste_and_submit_safe_is_auto_and_paste_safe_alone_is_paste_only(tmp_pa
         "codex": {"version": "0.160.0", "pasteSafe": True, "submitSafe": False, "checkedAt": "2026-10-16T08:00:00Z"},
         # The delivery check's own iTerm2 entry is no harness: it is read past.
         "iterm": {"version": "3.7.5", "keystrokesPassThrough": True},
+        "grok": {"version": "1.0.44", "pasteSafe": True, "submitSafe": True},
     })
     assert load_policy(path) == {"claude": ("auto", "2.1.301"), "codex": ("pasteOnly", "0.160.0"),
                                  "pi": ("off", None)}
     assert load_policy(path)["claude"].version == "2.1.301"
-
-
-def test_an_entry_for_a_harness_that_is_gone_is_read_past(tmp_path):
-    # A policy file written before Grok Build was removed still lists it.
-    entry = {"version": "1.0.44", "pasteSafe": True, "submitSafe": True}
-    verdicts = load_policy(_policy_file(tmp_path, {"claude": {**entry, "version": "2.1.301"}, "grok": entry}))
-    assert set(verdicts) == {"claude", "codex", "pi"}
-    assert verdicts["claude"] == ("auto", "2.1.301")
 
 
 @pytest.mark.parametrize("entry", [
@@ -861,3 +854,15 @@ def test_policy_is_read_again_only_when_its_file_changes(tmp_path, monkeypatch):
     assert delivery.read_policy()["claude"].policy == "off"
     path.unlink()
     assert delivery.read_policy()["claude"].policy == "off"
+
+
+def test_policy_retries_a_transient_read_failure(tmp_path, monkeypatch):
+    path = tmp_path / "policy.json"
+    path.write_text(json.dumps({"claude": {"version": "2.1.301", "pasteSafe": True}}))
+    monkeypatch.setattr(delivery, "POLICY_PATH", path)
+    with monkeypatch.context() as patch:
+        def fail(*args, **kwargs):
+            raise OSError("temporary read failure")
+        patch.setattr(type(path), "read_text", fail)
+        assert delivery.read_policy()["claude"].policy == "off"
+    assert delivery.read_policy()["claude"].policy == "pasteOnly"

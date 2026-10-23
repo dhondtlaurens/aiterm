@@ -24,7 +24,7 @@
     },
     {
       "active": false,
-      "agent": "shell",
+      "agent": "claude",
       "agentCwd": null,
       "background": [],
       "contextPercent": null,

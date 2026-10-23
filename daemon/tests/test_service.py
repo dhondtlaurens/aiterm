@@ -17,10 +17,8 @@ from aitermd.codex_sessions import CodexSessionFiles
 from aitermd.hooks_server import HookServer
 from aitermd.iterm_bridge import ItermUnavailable
 from aitermd.models import BackgroundJob, Frame
-from tests.conftest import wait_until
+from tests.conftest import FRAME, call, post_hook, task_tab, wait_until
 from tests.fake_iterm import FakeIterm
-
-FRAME = {"x": 324, "y": 36, "w": 1104, "h": 852}
 
 
 @pytest.fixture
@@ -32,15 +30,6 @@ async def stack(make_service):
     r, w = await asyncio.open_unix_connection(svc.rpc.path)
     yield svc, svc.iterm, svc.claude_files, r, w
     w.close()
-
-
-async def call(r, w, method, params=None, id_=1):
-    w.write((json.dumps({"id": id_, "method": method, "params": params}) + "\n").encode())
-    await w.drain()
-    while True:
-        msg = json.loads(await asyncio.wait_for(r.readline(), 2))
-        if msg.get("id") == id_:
-            return msg
 
 
 async def next_event(r, name):
@@ -59,20 +48,6 @@ async def drain_events(r) -> list[dict]:
         except TimeoutError:
             return messages
         messages.append(json.loads(line))
-
-
-async def post_hook(port, path, body):
-    """Real HTTP POST against the daemon's HookServer port, the way the
-    installed Claude/Codex hooks and the statusline shim actually talk to it
-    (unlike svc.hook_router.handle_hook(...), which every other test calls in-process)."""
-    r, w = await asyncio.open_connection("127.0.0.1", port)
-    data = json.dumps(body).encode()
-    w.write(f"POST {path} HTTP/1.1\r\nHost: x\r\nX-AiTerm-Hook: 1\r\n"
-            f"Content-Type: application/json\r\nContent-Length: {len(data)}\r\n\r\n".encode() + data)
-    await w.drain()
-    status_line = await asyncio.wait_for(r.readline(), 2)
-    w.close()
-    return int(status_line.split()[1])
 
 
 async def test_status_and_create_task_window(stack):
@@ -282,8 +257,7 @@ async def test_an_agent_command_iterm_would_not_take_still_returns_the_window(st
 
 async def test_interface_background_only_changes_aiterm_sessions_and_future_tabs(stack):
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     result = await call(r, w, "interface.setMatchItermBackground", {"matchItermBackground": True}, id_=2)
     assert result["result"] == {}
     assert it.background_requests[-1] == ([sid], True)
@@ -295,8 +269,7 @@ async def test_interface_background_only_changes_aiterm_sessions_and_future_tabs
 
 async def test_claude_hook_updates_status_via_pid_mapping(stack, tmp_path):
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "claude", job_pid=555, title="✳ Claude Code")
     files.root.mkdir(parents=True)
     (files.root / "555.json").write_text(json.dumps({"pid": 555, "sessionId": "abc", "cwd": "/wt", "status": "idle", "updatedAt": 1}))
@@ -317,8 +290,7 @@ async def test_claude_hook_updates_status_via_pid_mapping(stack, tmp_path):
 
 async def test_hook_over_http_updates_session(stack, tmp_path):
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "claude", job_pid=888, title="✳ Claude Code")
     files.root.mkdir(parents=True)
     (files.root / "888.json").write_text(json.dumps({"pid": 888, "sessionId": "http-abc", "cwd": "/wt", "status": "idle", "updatedAt": 1}))
@@ -365,9 +337,7 @@ async def test_stop_and_cleanup_commands_never_schedule_task_deletion(stack, tmp
 
 async def test_tick_reads_codex_context_after_a_hook_identifies_the_thread(stack):
     svc, it, files, r, w = stack
-    svc.codex_files = CodexSessionFiles(files.root.parent / "codex-sessions")
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "codex", job_pid=104, title="Codex")
     await svc.tick()
     await svc.hook_router.handle_hook("/hook/codex", {
@@ -390,11 +360,7 @@ async def test_tick_reads_codex_context_after_a_hook_identifies_the_thread(stack
 
 async def test_new_codex_process_cannot_reuse_the_previous_threads_context(stack):
     svc, it, files, r, w = stack
-    svc.codex_files = CodexSessionFiles(files.root.parent / "codex-sessions")
-    wid = (await call(r, w, "window.createTask", {
-        "taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME,
-    }))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "codex", job_pid=106, title="Codex")
     await svc.tick()
     await svc.hook_router.handle_hook("/hook/codex", {
@@ -427,10 +393,7 @@ async def test_new_codex_process_cannot_reuse_the_previous_threads_context(stack
 
 async def test_new_codex_hook_before_snapshot_binds_to_the_replacement_process(stack):
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {
-        "taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME,
-    }))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "codex", job_pid=109, title="Codex")
     await svc.tick()
     await svc.hook_router.handle_hook("/hook/codex", {
@@ -453,11 +416,7 @@ async def test_new_codex_hook_before_snapshot_binds_to_the_replacement_process(s
 
 async def test_tick_uses_claude_file_status_and_agent_exit(stack):
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
-    await it.user_runs(sid, "claude", job_pid=777)
-    files.root.mkdir(parents=True)
-    (files.root / "777.json").write_text(json.dumps({"pid": 777, "sessionId": "z", "cwd": "/wt", "status": "busy", "updatedAt": 1}))
+    sid = await _claude_tab_busy(svc, r, w, 777, "z")
     await svc.tick()
     assert svc.registry.get(sid).state == "working"
     (files.root / "777.json").write_text(json.dumps({"pid": 777, "sessionId": "z", "cwd": "/wt", "status": "idle", "updatedAt": 2}))
@@ -474,8 +433,7 @@ async def test_a_claude_trust_prompt_needs_input_until_it_is_answered(stack):
     """Claude asks whether to trust a new folder before it writes its session file or loads its
     hooks, so the screen is all that shows it."""
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "claude", job_pid=779)
     it.screens[sid] = " ❯ 1. No, exit\n   2. Yes, I trust this folder\n Enter to confirm · Esc to cancel"
     await svc.tick()
@@ -491,8 +449,7 @@ async def test_a_claude_trust_prompt_needs_input_until_it_is_answered(stack):
 
 async def test_a_claude_trust_prompt_dismissed_without_a_file_goes_back_to_idle(stack):
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "claude", job_pid=780)
     it.screens[sid] = "Do you trust the files in this folder?"
     await svc.tick()
@@ -504,8 +461,7 @@ async def test_a_claude_trust_prompt_dismissed_without_a_file_goes_back_to_idle(
 
 async def test_a_screen_that_cannot_be_read_leaves_the_row_alone(stack):
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "claude", job_pid=781)
     it.screens[sid] = "Yes, I trust this folder"
     await svc.tick()
@@ -523,8 +479,7 @@ def write_claude_file(files, pid, status, written_at):
 async def test_a_session_file_older_than_the_last_hook_does_not_override_it(stack):
     """The stack's clock stamps every hook at 1000."""
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "claude", job_pid=778)
     files.root.mkdir(parents=True)
     write_claude_file(files, 778, "idle", 900)
@@ -557,8 +512,7 @@ async def test_statusline_updates_usage_and_broadcasts(stack):
 
 async def test_statusline_hangs_the_context_fill_on_the_session(stack):
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "claude", job_pid=666, title="✳ Claude Code")
     files.root.mkdir(parents=True)
     (files.root / "666.json").write_text(json.dumps({"pid": 666, "sessionId": "ctx-abc", "cwd": "/wt", "status": "idle", "updatedAt": 1}))
@@ -1043,11 +997,7 @@ async def test_snapshot_survives_a_failing_tick(stack, caplog):
 
 async def test_a_new_claude_process_in_the_tab_is_not_held_working_by_the_old_ones_subagent(stack):
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
-    await it.user_runs(sid, "claude", job_pid=901)
-    files.root.mkdir(parents=True)
-    (files.root / "901.json").write_text(json.dumps({"pid": 901, "sessionId": "old", "cwd": "/wt", "status": "busy", "updatedAt": 1}))
+    sid = await _claude_tab_busy(svc, r, w, 901, "old")
     await svc.tick()
     await svc.hook_router.handle_hook("/hook/claude", {"hook_event_name": "SubagentStart", "session_id": "old", "cwd": "/wt",
                                                        "agent_id": "lost"})
@@ -1083,8 +1033,7 @@ async def test_malformed_params_are_bad_params_not_internal_errors(stack, method
 
 async def test_set_titles_skips_malformed_items(stack):
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     result = await call(r, w, "sessions.setTitles", {"titles": ["junk", None, {"sessionId": sid, "title": "main"}]}, id_=2)
     assert result["result"] == {"changed": 1}
 
@@ -1103,9 +1052,7 @@ async def test_a_failing_window_activated_broadcast_is_contained(stack, caplog):
 
 async def test_closed_sessions_leave_nothing_behind(stack):
     svc, it, files, r, w = stack
-    svc.codex_files = CodexSessionFiles(files.root.parent / "codex-sessions")
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "codex", job_pid=301, title="Codex")
     await svc.tick()
     for event in ("SessionStart", "SubagentStart"):
@@ -1140,11 +1087,7 @@ async def test_a_compaction_mid_turn_keeps_the_turn_open_for_its_subagents(stack
     """Claude reports SessionStart with `source: compact` in the middle of a turn. Its background
     children are still running, so the foreground Stop must stay deferred until the last one ends."""
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
-    await it.user_runs(sid, "claude", job_pid=911)
-    files.root.mkdir(parents=True)
-    (files.root / "911.json").write_text(json.dumps({"pid": 911, "sessionId": "c1", "cwd": "/wt", "status": "busy", "updatedAt": 1}))
+    sid = await _claude_tab_busy(svc, r, w, 911, "c1")
     await svc.tick()
     base = {"session_id": "c1", "cwd": "/wt"}
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
@@ -1160,11 +1103,7 @@ async def test_a_subagent_killed_without_subagent_stop_no_longer_holds_its_row(s
     """Claude's stream watchdog kills a stalled background child: its transcript ends in an
     interruption and no SubagentStop is ever sent. The tick finds that and lands the deferred done."""
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
-    await it.user_runs(sid, "claude", job_pid=931)
-    files.root.mkdir(parents=True)
-    (files.root / "931.json").write_text(json.dumps({"pid": 931, "sessionId": "c1", "cwd": "/wt", "status": "busy", "updatedAt": 1}))
+    sid = await _claude_tab_busy(svc, r, w, 931, "c1")
     await svc.tick()
     base = {"session_id": "c1", "cwd": "/wt", "transcript_path": str(tmp_path / "c1.jsonl")}
     child = tmp_path / "c1" / "subagents" / "agent-a1.jsonl"
@@ -1187,11 +1126,7 @@ async def test_a_stop_listing_no_running_subagent_ends_the_turn(stack, tmp_path)
     """A Stop's `background_tasks` lists what is still in flight. A counted child it leaves out is gone,
     whatever its transcript says -- here there is none to read."""
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
-    await it.user_runs(sid, "claude", job_pid=934)
-    files.root.mkdir(parents=True)
-    (files.root / "934.json").write_text(json.dumps({"pid": 934, "sessionId": "c4", "cwd": "/wt", "status": "busy", "updatedAt": 1}))
+    sid = await _claude_tab_busy(svc, r, w, 934, "c4")
     await svc.tick()
     base = {"session_id": "c4", "cwd": "/wt", "transcript_path": str(tmp_path / "c4.jsonl")}
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
@@ -1208,11 +1143,7 @@ async def test_a_turn_that_ends_with_background_work_says_what_still_runs(stack,
     """A Claude turn that ends while a background shell runs is paused, not done: the session says what still runs,
     until its next turn starts, and the next Stop says what runs then."""
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
-    await it.user_runs(sid, "claude", job_pid=935)
-    files.root.mkdir(parents=True)
-    (files.root / "935.json").write_text(json.dumps({"pid": 935, "sessionId": "c5", "cwd": "/wt", "status": "busy", "updatedAt": 1}))
+    sid = await _claude_tab_busy(svc, r, w, 935, "c5")
     await svc.tick()
     base = {"session_id": "c5", "cwd": "/wt", "transcript_path": str(tmp_path / "c5.jsonl")}
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
@@ -1275,11 +1206,7 @@ async def test_a_prompt_you_type_into_a_worker_is_yours_until_its_turn_ends(make
 
 async def test_a_turn_with_nothing_deferred_reads_no_transcript(stack, tmp_path, monkeypatch):
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
-    await it.user_runs(sid, "claude", job_pid=932)
-    files.root.mkdir(parents=True)
-    (files.root / "932.json").write_text(json.dumps({"pid": 932, "sessionId": "c2", "cwd": "/wt", "status": "busy", "updatedAt": 1}))
+    sid = await _claude_tab_busy(svc, r, w, 932, "c2")
     await svc.tick()
     base = {"session_id": "c2", "cwd": "/wt", "transcript_path": str(tmp_path / "c2.jsonl")}
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
@@ -1292,11 +1219,7 @@ async def test_a_turn_with_nothing_deferred_reads_no_transcript(stack, tmp_path,
 async def test_a_transcript_read_that_hangs_releases_nothing(stack, tmp_path, monkeypatch):
     monkeypatch.setattr(service, "OFF_LOOP_CHECK_SECONDS", 0.05)
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
-    await it.user_runs(sid, "claude", job_pid=933)
-    files.root.mkdir(parents=True)
-    (files.root / "933.json").write_text(json.dumps({"pid": 933, "sessionId": "c3", "cwd": "/wt", "status": "busy", "updatedAt": 1}))
+    sid = await _claude_tab_busy(svc, r, w, 933, "c3")
     await svc.tick()
     base = {"session_id": "c3", "cwd": "/wt", "transcript_path": str(tmp_path / "c3.jsonl")}
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
@@ -1323,11 +1246,7 @@ async def test_a_session_start_matched_only_by_directory_resets_no_tab(stack):
     """A SessionStart the daemon can only place by its directory, or by a pin that may be stale,
     must not wipe the subagents of whichever tab it lands on."""
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
-    await it.user_runs(sid, "claude", job_pid=921)
-    files.root.mkdir(parents=True)
-    (files.root / "921.json").write_text(json.dumps({"pid": 921, "sessionId": "live", "cwd": "/wt", "status": "busy", "updatedAt": 1}))
+    sid = await _claude_tab_busy(svc, r, w, 921, "live")
     await svc.tick()
     await svc.hook_router.handle_hook("/hook/claude", {"hook_event_name": "SubagentStart", "session_id": "live", "cwd": "/wt",
                                                        "agent_id": "child"})
@@ -1442,8 +1361,7 @@ async def replies(r, ids):
 async def test_background_changes_take_effect_in_the_order_they_were_sent(stack):
     """Requests are answered concurrently, but a later toggle must not be overtaken by an earlier one."""
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     gate, calls = gate_first_call(it, "set_aiterm_background")
     await send(w, 2, "interface.setMatchItermBackground", {"matchItermBackground": True})
     await wait_until(lambda: calls[0] == 1)
@@ -1457,8 +1375,7 @@ async def test_background_changes_take_effect_in_the_order_they_were_sent(stack)
 
 async def test_titles_take_effect_in_the_order_they_were_sent(stack):
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     gate, calls = gate_first_call(it, "set_session_titles")
     await send(w, 2, "sessions.setTitles", {"titles": [{"sessionId": sid, "title": "main"}]})
     await wait_until(lambda: calls[0] == 1)
@@ -1595,8 +1512,7 @@ async def test_the_first_hooks_of_an_agent_launched_after_the_last_poll_are_not_
     # window.createTask ticks right after sending the command, while the tab still reads as a shell;
     # the agent's first prompt then arrives before the next poll has seen it start.
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await svc.tick()
     assert svc.registry.get(sid).agent == "shell"
     await it.user_runs(sid, "codex", job_pid=77)
@@ -1631,8 +1547,7 @@ async def _published_until(r, matches):
 
 async def test_a_tick_that_raises_after_the_snapshot_still_publishes_what_the_snapshot_changed(stack, monkeypatch):
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await svc.tick()
     await it.user_runs(sid, "claude", job_pid=5)
 
@@ -1737,8 +1652,7 @@ async def test_a_session_that_cannot_be_forgotten_is_still_announced_closed(stac
 async def test_a_part_that_cannot_forget_a_closed_session_does_not_keep_the_others_from_it(stack, monkeypatch, caplog, part, method):
     svc, it, files, r, w = stack
     what = {"windows": "window state", "status": "turn", "resolver": "bindings"}[part]
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "codex", job_pid=301, title="Codex")
     await svc.tick()
     for event in ("SessionStart", "SubagentStart"):
@@ -1869,8 +1783,7 @@ def test_a_daemon_with_a_stuck_worker_thread_still_exits():
 
 async def test_a_title_only_change_is_not_broadcast_yet_still_drives_a_codex_turn(stack):
     svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "codex", job_pid=401, title="Codex")
     await svc.tick()
     assert svc.registry.get(sid).state == "idle"
@@ -1908,8 +1821,7 @@ async def test_codex_rollouts_are_read_off_the_event_loop(stack):
             super().retain(session_ids)
 
     svc.codex_files = Recording(files.root.parent / "codex-sessions")
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "codex", job_pid=402, title="Codex")
     await svc.tick()
     await svc.hook_router.handle_hook("/hook/codex", {"hook_event_name": "SessionStart", "session_id": "thread-off",
@@ -1943,8 +1855,7 @@ async def test_a_codex_context_read_that_timed_out_holds_back_both_reads_until_i
             calls["limits"] += 1
             return super().rate_limits()
 
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "codex", job_pid=403, title="Codex")
     await svc.tick()
     await svc.hook_router.handle_hook("/hook/codex", {"hook_event_name": "SessionStart", "session_id": "thread-slow",
@@ -2023,7 +1934,6 @@ async def test_windows_iterm2_lost_while_away_are_announced_after_it_reconnects_
 
 async def test_the_tick_reads_each_clis_version_from_its_own_files(stack):
     svc, it, files, r, w = stack
-    svc.codex_files = CodexSessionFiles(files.root.parent / "codex-sessions")
     first = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
     second = (await call(r, w, "window.createTask", {"taskId": "t2", "cwd": "/wt2", "title": "y", "frame": FRAME},
                          id_=2))["result"]["windowId"]
@@ -2052,9 +1962,7 @@ async def test_the_tick_reads_each_clis_version_from_its_own_files(stack):
 
 async def test_codex_rollout_cannot_change_a_replacement_thread(stack, monkeypatch):
     svc, it, files, r, w = stack
-    svc.codex_files = CodexSessionFiles(files.root.parent / "codex-sessions")
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
+    wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "codex", job_pid=500, title="Codex")
     await svc.tick()
     svc.resolver.bind(sid, "codex", "old-thread", "SessionStart")

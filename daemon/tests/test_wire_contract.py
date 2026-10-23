@@ -17,7 +17,6 @@ outside the `aitermd` package, so nothing ships them in the app bundle."""
 from __future__ import annotations
 import asyncio
 import json
-import dataclasses
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -25,13 +24,12 @@ from typing import Any, get_args
 
 from aitermd import delivery, protocol, service
 from uuid import UUID
-from aitermd.models import HARNESS_BY_AGENT, AgentKind, State
-from tests.conftest import operator_post
+from aitermd.models import AgentKind, State
+from tests.conftest import FRAME, operator_post
 from tests.fake_iterm import FakeIterm
 
 WIRE = Path(__file__).parent / "wire"
 UPDATE = "AITERM_UPDATE_WIRE_FIXTURES"
-FRAME = {"x": 324, "y": 36, "w": 1104, "h": 852}
 TASK_ID = "2F9C4B7E-5A1D-4C3B-9E8F-0A1B2C3D4E5F"
 PROJECT_ID = "7D6E5F4A-3B2C-4D1E-8F9A-0B1C2D3E4F5A"
 WORKTREE = "/repo/.worktrees/feat-wire"
@@ -100,18 +98,15 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
     # on timing.
     monkeypatch.setattr(service, "POLL_SECONDS", 3600)
     monkeypatch.setattr(delivery, "SUBMIT_DELAY", 0)
-    # PI has no input-box marker of its own, so no screen of its is recognised: the script's PI tab
-    # shows `›` as Codex's does, for the deliveries only.
-    monkeypatch.setitem(HARNESS_BY_AGENT, "pi", dataclasses.replace(HARNESS_BY_AGENT["pi"], input_box=("›",)))
 
     async def no_pause(_seconds: float) -> None:
         await asyncio.sleep(0)
 
     iterm = FakeIterm(connected=False)
-    # PI's tab takes the deliveries: a policy that lets its version is all the script needs.
+    # A Claude worker takes deliveries using its real screen markers.
     svc = make_service(iterm=iterm, supervisor={"cookies_from_app": True, "apply_cookie": lambda cookie, key: None,
                                                 "reconnect_sleep": no_pause},
-                       delivery_policy=lambda: {"pi": ("auto", "0.70.0")})
+                       delivery_policy=lambda: {"claude": ("auto", "2.1.301")})
     await svc.start()
     app = App(*await asyncio.open_unix_connection(svc.rpc.path))
     events: dict[str, dict[str, Any]] = {}
@@ -178,14 +173,16 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
         replies["window.setFrame"] = await app.call("window.setFrame", {"windowId": task_window, "frame": FRAME})
         replies["sessions.setTitles"] = await app.call("sessions.setTitles", {"titles": [{"sessionId": pi, "title": "feat/wire"}]})
         replies["sessions.markSeen"] = await app.call("sessions.markSeen", {"taskId": TASK_ID})
-        iterm.screens[pi] = "› "
-        # The tick reads Claude's and Codex's versions from their files, and no file of PI's: set as it would be.
-        svc.registry.set_cli_version(pi, "0.70.0")
-        replies["session.setOwnership"] = await app.call("session.setOwnership", {"sessionId": pi, "ownership": 1})
+        worker = replies["tab.create"]["result"]["sessionId"]
+        await iterm.user_runs(worker, "claude", job_pid=4243)
+        await svc.tick()
+        iterm.screens[worker] = "❯ "
+        svc.registry.set_cli_version(worker, "2.1.301")
+        replies["session.setOwnership"] = await app.call("session.setOwnership", {"sessionId": worker, "ownership": 1})
         replies["session.deliver"] = await app.call("session.deliver", {
-            "sessionId": pi, "text": "Run the tests.", "ownership": 1, "wake": False, "worktree": None})
-        replies["session.prompt"] = await app.call("session.prompt", {"sessionId": pi})
-        replies["session.dismissStartup"] = await app.call("session.dismissStartup", {"sessionId": pi})
+            "sessionId": worker, "text": "Run the tests.", "ownership": 1, "wake": False, "worktree": None})
+        replies["session.prompt"] = await app.call("session.prompt", {"sessionId": worker})
+        replies["session.dismissStartup"] = await app.call("session.dismissStartup", {"sessionId": worker})
         replies["delivery.policy"] = await app.call("delivery.policy")
 
         # The operator asks for run_status over /operator; the app answers the request it is sent.

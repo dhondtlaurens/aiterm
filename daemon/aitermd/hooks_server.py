@@ -257,9 +257,7 @@ class HookServer:
                 payload = dict(arguments)
                 self._add_iterm_session(payload, headers)
                 await self._deliver("/hook/codex", payload)
-                # Both result forms support clients that read text or structuredContent.
-                response = mcp.answer(request_id, {"content": [{"type": "text", "text": "{}"}],
-                                                   "structuredContent": {}, "isError": False})
+                response = mcp.answer(request_id, mcp.tool_result({}))
         await self._reply(writer, 200, json.dumps(response, separators=(",", ":")))
 
     @staticmethod
