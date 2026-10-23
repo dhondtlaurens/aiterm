@@ -30,7 +30,7 @@ public struct WorkerTab: Equatable, Sendable {
 
     /// What it left running in the background when its turn ended (`SessionInfo.background`), which wakes it again;
     /// nothing while its turn is under way.
-    public var background: [String] { status == .idle || status == .done ? session?.background.map(\.text) ?? [] : [] }
+    public var background: [String] { status?.turnEnded == true ? session?.background.map(\.text) ?? [] : [] }
 
     /// An extra tab that opened and is listed no more: closed, and never opened again. A first worker is never closed
     /// here; its window comes back on your click.
@@ -63,26 +63,30 @@ public extension TaskItem {
     /// every worker ended its turn with nothing left running in the background (`RunStatus.isReadyForAcceptance`).
     /// A question it waits on you for (`waitingOnYou`) holds it too, as `run_status` says.
     func isReadyForAcceptance(in sessions: [SessionInfo]) -> Bool {
+        return isReadyForAcceptance(tabs: workerTabs(in: sessions))
+    }
+
+    /// `isReadyForAcceptance(in:)` from its worker tabs (`workerTabs(in:)`), for a caller that has them already.
+    func isReadyForAcceptance(tabs: [WorkerTab]) -> Bool {
         guard let operated, !operated.flags.contains(.waitingOnYou) else { return false }
-        let tabs = workerTabs(in: sessions), workers = tabs.map(\.status)
+        let workers = tabs.map(\.status)
         return RunStatus.isReadyForAcceptance(operated, live: workers[0], extraTabs: Array(workers.dropFirst()),
                                               background: tabs.flatMap(\.background))
     }
 
     /// The tab a click on its row brings forward (P5 A, 21 Oct 2026), its tabs as `sessions` list them: the worker tab
     /// that asks, a request of `requests` naming it (`BroadcastRequest.tab`) or its tab at a prompt not recorded yet;
-    /// of several, the first by `OperatorLine.first`'s order, then by tab order (`main`, then the extra tabs as they
+    /// of several, the most urgent (`BroadcastRequest.Kind.rank`), then by tab order (`main`, then the extra tabs as they
     /// opened). With none asking, the tab of the task last in front in its window, else its first worker. Nil while
     /// none is listed: its window comes back as a row's click brings it.
     func tabToBring(sessions: [SessionInfo], requests: [BroadcastRequest]) -> SessionInfo? {
         let tabs = workerTabs(in: sessions)
-        let order: [BroadcastRequest.Kind] = [.permission, .question, .blocked, .problem]
         var asking: [(rank: Int, place: Int, session: SessionInfo)] = []
         for (place, tab) in tabs.enumerated() {
             guard let session = tab.session else { continue }
             let key = tab.key ?? WorkerTab.firstKey
-            var ranks = requests.filter { $0.taskId == id && $0.tab == key }.compactMap { order.firstIndex(of: $0.kind) }
-            if session.state == .needsInput { ranks.append(order.firstIndex(of: .permission)!) }
+            var ranks = requests.filter { $0.taskId == id && $0.tab == key }.map(\.kind.rank)
+            if session.state == .needsInput { ranks.append(BroadcastRequest.Kind.permission.rank) }
             if let rank = ranks.min() { asking.append((rank, place, session)) }
         }
         if let first = asking.min(by: { ($0.rank, $0.place) < ($1.rank, $1.place) }) { return first.session }

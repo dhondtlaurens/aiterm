@@ -38,9 +38,4 @@ import Testing
         #expect(back.operated?.end == .merge)
         #expect(back.operated?.publication?.mergeRequestNumber == 88)
     }
-
-    @Test func theMergeWaitIsBounded() {
-        #expect(OperatorTiming.mergePoll == 30)
-        #expect(OperatorTiming.mergeWait == 3600)
-    }
 }

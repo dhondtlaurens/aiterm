@@ -17,7 +17,7 @@ public enum OperatorTiming {
     public static let reconcileInterval: TimeInterval = 60
     /// A working task with no hook, transcript or screen change for this long is possibly stalled.
     public static let stallAfter: TimeInterval = 20 * 60
-    /// A second opinion that takes longer is abandoned, and the act proceeds unchallenged (§4.4).
+    /// An Oracle that takes longer is abandoned, and the act proceeds unchallenged (§4.4).
     public static let challengeTimeout: TimeInterval = 180
     /// The Oracle's answer on a shell command takes longer than this and the command runs, unchallenged (spec §A.3).
     public static let gateTimeout: TimeInterval = 200

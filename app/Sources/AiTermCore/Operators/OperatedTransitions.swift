@@ -26,7 +26,7 @@ public enum OperatedAction: Equatable, Sendable {
     /// The operator's `message_task` to an accepted task whose commit is not on origin yet (spec §D): back to `working`,
     /// the worker kept, `reopenedFrom` the commit it was accepted on.
     case reopen
-    /// You: Stop task, or Stop on the whole operation.
+    /// You: Stop task, or Stop on the whole broadcast.
     case stop
 }
 

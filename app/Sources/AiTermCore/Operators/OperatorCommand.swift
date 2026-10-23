@@ -70,21 +70,21 @@ public enum OperatorCommand {
     /// `mcp.json`: one HTTP server, `aiterm` — so its tools are `mcp__aiterm__*` — at the daemon's
     /// `/operator` route, with the run's bearer token and the `X-AiTerm-Hook` header every route on
     /// the hook port requires (part B: without it the daemon answers 404).
-    public static func mcpConfig(hookPort: Int, token: String) -> String {
+    public static func mcpConfig(hookPort: Int, token: String) throws -> String {
         struct Server: Encodable { var type = "http"; var url: String; var headers: [String: String] }
         struct Config: Encodable { var mcpServers: [String: Server] }
         let config = Config(mcpServers: ["aiterm": Server(url: "http://127.0.0.1:\(hookPort)/operator",
                                                           headers: ["Authorization": "Bearer \(token)", "X-AiTerm-Hook": "1"])])
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return String(decoding: (try? encoder.encode(config)) ?? Data(), as: UTF8.self)
+        return String(decoding: try encoder.encode(config), as: UTF8.self)
     }
 
     /// `gate.json`, the settings the Operator's launch is given: a PreToolUse hook on `Bash` that posts each
     /// command to the daemon's `/operator/gate` with the run's bearer token and the `X-AiTerm-Hook` header, and
     /// Claude's own cap on a command's output (`BASH_MAX_OUTPUT_LENGTH`, characters, with Claude's truncation
     /// note). The hook's timeout, 240 s, outlasts the 200 s the daemon waits for the gate's answer.
-    public static func gateSettings(hookPort: Int, token: String) -> String {
+    public static func gateSettings(hookPort: Int, token: String) throws -> String {
         struct Hook: Encodable { var type = "http"; var url: String; var headers: [String: String]; var timeout = 240 }
         struct Matcher: Encodable { var matcher = "Bash"; var hooks: [Hook] }
         struct Settings: Encodable { var env: [String: String]; var hooks: [String: [Matcher]] }
@@ -93,7 +93,7 @@ public enum OperatorCommand {
         let settings = Settings(env: ["BASH_MAX_OUTPUT_LENGTH": "16000"], hooks: ["PreToolUse": [Matcher(hooks: [hook])]])
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return String(decoding: (try? encoder.encode(settings)) ?? Data(), as: UTF8.self)
+        return String(decoding: try encoder.encode(settings), as: UTF8.self)
     }
 
     /// A run's token: 32 random bytes as 64 hex digits, from the system's secure generator.
@@ -130,9 +130,9 @@ public enum OperatorCommand {
         try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
         try Data(brief(run: run, projects: projects).utf8)
             .write(to: folder.appendingPathComponent(briefFile), options: .atomic)
-        try writePrivate(Data(mcpConfig(hookPort: hookPort, token: token).utf8), to: folder.appendingPathComponent(mcpFile))
+        try writePrivate(Data(try mcpConfig(hookPort: hookPort, token: token).utf8), to: folder.appendingPathComponent(mcpFile))
         // On a resume too: a reopened Operator gets the gate with its shell.
-        try writePrivate(Data(gateSettings(hookPort: hookPort, token: token).utf8), to: folder.appendingPathComponent(gateFile))
+        try writePrivate(Data(try gateSettings(hookPort: hookPort, token: token).utf8), to: folder.appendingPathComponent(gateFile))
         // Exactly the 64 hex digits: the daemon reads the file back after a restart.
         try writePrivate(Data(token.utf8), to: folder.appendingPathComponent(tokenFile))
         let first = conversation == nil && !run.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

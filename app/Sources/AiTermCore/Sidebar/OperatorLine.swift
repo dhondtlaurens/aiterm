@@ -117,7 +117,7 @@ public struct OperatorLine: Equatable, Sendable {
     public static func task(_ task: TaskItem, run: OperatorRun, acting: OperatorAct?, requests: [BroadcastRequest],
                             tasks: [UUID: TaskItem] = [:], sessions: [SessionInfo] = [], turn: WorkerTurn.Ending? = nil) -> OperatorLine? {
         guard let operated = task.operated, operated.runId == run.id, !operated.takenOver, operated.state != .stopped,
-              run.state != .stopped, run.intent != .stopped else { return nil }
+              !run.hasEnded else { return nil }
         // A finished task's leftover asks nothing, and a question the Operator asks about it is the Operator's row's,
         // answered in its window (2A, 22 Oct 2026).
         if !operated.isFinished {
@@ -142,18 +142,18 @@ public struct OperatorLine: Equatable, Sendable {
             // The Operator holds it: the line moves with the row's mark, whether the agent works or the Operator
             // checks it next. The row's icon names the agent, so the line names the Operator.
             // Its worker ended its turn asking the Operator something, or with nothing committed: the Operator's to read.
-            let first = sessions.isEmpty ? nil : task.workerTabs(in: sessions)[0].status
-            if turn == .asks, first == .idle || first == .done { return OperatorLine("asking the Operator", look: .acting) }
-            if !sessions.isEmpty, task.isReadyForAcceptance(in: sessions) {
+            let tabs = task.workerTabs(in: sessions)
+            if turn == .asks, !sessions.isEmpty, tabs[0].status?.turnEnded == true { return OperatorLine("asking the Operator", look: .acting) }
+            if !sessions.isEmpty, task.isReadyForAcceptance(tabs: tabs) {
                 return OperatorLine(turn == .noCommit ? Count.working.words + " · no commit" : Count.ready.words, look: .acting)
             }
             // Its turn ended with work running in the background, which wakes it again: still at work.
-            let background = task.workerTabs(in: sessions).flatMap(\.background)
+            let background = tabs.flatMap(\.background)
             if !background.isEmpty {
                 return OperatorLine(Count.working.words + " · in background", look: .acting,
                                     tooltip: "Running in the background: " + background.joined(separator: ", "))
             }
-            let open = task.workerTabs(in: sessions).filter { !$0.isClosed }.count
+            let open = tabs.filter { !$0.isClosed }.count
             if open > 1 { return OperatorLine(Count.working.words + " · \(open) tabs", look: .acting) }
             return OperatorLine(Count.working.words, look: .acting)
         case .inReview:
@@ -187,7 +187,7 @@ public struct OperatorLine: Equatable, Sendable {
     /// What a finished task ended at, as its line and its card say it: `done · 4f2a91c`,
     /// `done · no change`, `merged · 9b3e07d`, `merged locally · 1c84e20`, `draft MR · !412`. Nil for a task
     /// that has not finished.
-    public static func ending(of operated: OperatedTask) -> String? {
+    static func ending(of operated: OperatedTask) -> String? {
         let sha = String((operated.publication?.mergedSHA ?? operated.acceptance?.resultSHA ?? "").prefix(7))
         switch operated.state {
         case .accepted:
@@ -234,7 +234,7 @@ public struct OperatorLine: Equatable, Sendable {
         }
         func quiet(_ text: String) -> OperatorLine { OperatorLine(text) }
         if run.state == .operatorOffline { return quiet("paused · the Operator’s window is closed") }
-        if run.state == .paused || run.intent == .paused { return quiet("paused") }
+        if run.isPaused { return quiet("paused") }
         if let summary = summary(of: run) {
             switch summary {
             case .written: return quiet("done · summary ready")
@@ -242,7 +242,7 @@ public struct OperatorLine: Equatable, Sendable {
             case .notYet, .writing, .endedEarly: return quiet("done · writing summary")
             }
         }
-        if run.state == .stopped || run.intent == .stopped { return quiet("ended") }
+        if run.hasEnded { return quiet("ended") }
         if let (act, ref) = acting {
             let task = ref.flatMap { ref in driven.first { $0.operated?.key == ref || $0.id.uuidString == ref } }
             return self.act(act, task: task, named: act.namesItsTask ? (label(of: task) ?? ref) : nil)
@@ -268,7 +268,7 @@ public struct OperatorLine: Equatable, Sendable {
     /// what you must do is amber. A task row says it with the Operator named, since the row's icon already names
     /// the agent and a bare verb would read as the agent's; the broadcast's line counts them as task states,
     /// leaving the watching to the Operator. Kept here alone, so renaming one is one edit.
-    public enum Count: Sendable {
+    enum Count: Sendable {
         /// Its agent is at work: `Operator watching`, `Operator watching · 2 tabs`.
         case working
         /// Its workers all ended their turn: the Operator checks and accepts its result next.
@@ -358,11 +358,10 @@ public struct OperatorLine: Equatable, Sendable {
         return OperatorLine(label.map { fit(words, $0) } ?? cut(words), look: .acting, tooltip: whole)
     }
 
-    /// The request a line says, of several: an agent's prompt first, then a question, then what blocks.
-    /// The board's card opens the place of the same one.
+    /// The request a line says, of several: the most urgent (`BroadcastRequest.Kind.rank`). The board's card opens the
+    /// place of the same one.
     static func first(_ requests: [BroadcastRequest]) -> BroadcastRequest? {
-        let order: [BroadcastRequest.Kind] = [.permission, .question, .blocked, .problem]
-        return requests.min { order.firstIndex(of: $0.kind)! < order.firstIndex(of: $1.kind)! }
+        requests.min { $0.kind.rank < $1.kind.rank }
     }
 
     /// A request as a line: `waiting on you` for a prompt or a question, its sentence the tooltip, and the tab
@@ -407,7 +406,7 @@ public struct OperatorLine: Equatable, Sendable {
     }
 
     /// `state · detail`, the detail cut at a word, with an ellipsis, so the whole is at most `maxLength`.
-    public static func fit(_ state: String, _ detail: String) -> String {
+    static func fit(_ state: String, _ detail: String) -> String {
         let whole = state + " · " + detail
         guard whole.count > maxLength else { return whole }
         let room = maxLength - state.count - 4   // the separator and the ellipsis

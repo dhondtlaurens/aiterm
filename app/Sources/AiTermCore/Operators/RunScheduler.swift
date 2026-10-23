@@ -4,10 +4,10 @@ import Foundation
 /// the operator. Stateless and pure: the caller starts what this returns, saving each launch intent
 /// first (`OperatedAction.start`), and asks again when anything changes.
 ///
-/// There is no cap: every ready task of every active operation starts, operations oldest first,
+/// There is no cap: every ready task of every active broadcast starts, broadcasts oldest first,
 /// each in its plan order. A blocked task is resumed by `resume_task`, not by this.
 public enum RunScheduler {
-    /// Every task that may start now, across all operations, in the order to start them.
+    /// Every task that may start now, across all broadcasts, in the order to start them.
     ///
     /// A task may start when its run is active, it is queued and not taken over, each `order`
     /// parent is accepted, published or ended with no change, and each `code` parent is accepted
@@ -28,7 +28,7 @@ public enum RunScheduler {
         return startable(in: view)
     }
 
-    /// The tasks of `run` among `startable(in:)`: what this operation may start now.
+    /// The tasks of `run` among `startable(in:)`: what this broadcast may start now.
     public static func startable(in state: AppState, run id: UUID) -> [UUID] {
         let index = TaskIndex(state.tasks)
         return state.runs.filter { $0.id == id && $0.state == .active }

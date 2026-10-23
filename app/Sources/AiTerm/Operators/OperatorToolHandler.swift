@@ -224,7 +224,7 @@ final class OperatorToolHandler {
         guard let id = UUID(uuidString: request.runId), let run = state.run(id: id) else {
             return (.error("This broadcast is no longer in AiTerm."), .refused)
         }
-        guard run.state != .stopped, run.intent != .stopped else { return (.error("This broadcast has ended; its tools no longer act."), .refused) }
+        guard !run.hasEnded else { return (.error("This broadcast has ended; its tools no longer act."), .refused) }
         let call = ToolCall(tool: request.tool, arguments: request.arguments)
         let activity = activity(for: call, in: id)
         if let activity { onActing(activity, true) }
@@ -242,11 +242,10 @@ final class OperatorToolHandler {
             let acting = call.optionalString("challengeId").flatMap { actingChallenges.contains($0) ? $0 : nil }
             defer { if let acting { actingChallenges.remove(acting) } }
             guard let current = state.run(id: id) else { throw ToolRefusal("This broadcast is no longer in AiTerm.") }
-            guard current.state != .stopped, current.intent != .stopped else {
+            guard !current.hasEnded else {
                 throw ToolRefusal("This broadcast has ended; its tools no longer act.")
             }
-            if Self.mutating.contains(call.tool), current.state != run.state || current.intent != run.intent,
-               current.state == .paused || current.state == .operatorOffline || current.intent == .paused {
+            if Self.mutating.contains(call.tool), current.state != run.state || current.intent != run.intent, current.isPaused {
                 try acceptsWork(current)
             }
             let value = try await perform(call, in: current)

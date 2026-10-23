@@ -204,7 +204,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                     text.map(oneLine).flatMap { $0.isEmpty ? nil : Clause(label: label, text: $0) }
                 },
             columns: columns,
-            isPaused: run.state == .paused || run.state == .operatorOffline || run.intent == .paused,
+            isPaused: run.isPaused,
             isComplete: run.state == .complete, summary: RunSummary(run), leftForYou: run.leftForYou, snags: run.snags)
     }
 
@@ -234,13 +234,13 @@ public struct BroadcastBoard: Equatable, Sendable {
 
     /// `2 of 8 done`, once the first plan is in Todo: the finished tasks of those not stopped, as the board's
     /// band says it.
-    public static func progress(of run: OperatorRun, tasks: [TaskItem], keepsHanded: Bool = false) -> String? {
+    static func progress(of run: OperatorRun, tasks: [TaskItem], keepsHanded: Bool = false) -> String? {
         count(of: run, tasks: tasks, keepsHanded: keepsHanded).map { $0 + " done" }
     }
 
     /// `2 of 8`, the progress as the broadcast's header in the sidebar says it; nil until the first plan is
     /// in Todo. A stopped task is not counted, unless `keepsHanded` and End handed it to you.
-    public static func count(of run: OperatorRun, tasks: [TaskItem], keepsHanded: Bool = false) -> String? {
+    static func count(of run: OperatorRun, tasks: [TaskItem], keepsHanded: Bool = false) -> String? {
         guard run.firstPlanSize != nil else { return nil }
         let counted = tasks.filter { task in
             guard let operated = task.operated, operated.runId == run.id else { return false }

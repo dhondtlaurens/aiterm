@@ -3,9 +3,12 @@ import Foundation
 public extension OperatorRun {
     /// Ended, or being ended: stopped, or asked to stop.
     var hasEnded: Bool { state == .stopped || intent == .stopped }
+
+    /// Paused by you, its window closed, or being paused: what its header and board say as paused.
+    var isPaused: Bool { state == .paused || state == .operatorOffline || intent == .paused }
 }
 
-/// Finding an operation and its tasks in the workspace, for the engines and the app alike.
+/// Finding a broadcast and its tasks in the workspace, for the engines and the app alike.
 public extension AppState {
     func run(id: UUID) -> OperatorRun? { runs.first { $0.id == id } }
 

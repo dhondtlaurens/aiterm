@@ -51,7 +51,7 @@ final class BranchWatch {
         // A tab's last message is its final word only once its turn ended. The first worker's conversation is known
         // from its window's tabs too; an extra tab's from its own (`WorkerTab.conversation`).
         let conversations: [(agent: AgentKind, id: String)] = task.workerTabs(in: live.sessions).compactMap { tab in
-            guard let session = tab.session, session.state == .idle || session.state == .done,
+            guard let session = tab.session, session.state.turnEnded,
                   let conversation = tab.conversation else { return nil }
             return (tab.agent, conversation)
         }

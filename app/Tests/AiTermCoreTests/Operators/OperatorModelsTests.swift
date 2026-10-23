@@ -58,7 +58,7 @@ import Foundation
     }
 
     /// A broadcast keeps the profile it started with: Settings › Operator changed since changes the next one.
-    @Test func theRunFreezesItsProfile() {
+    @Test func theRunFreezesItsProfile() throws {
         let defaults = ScratchDefaults.make()
         let started = OperatorProfileStore.load(defaults, claudeDefault: (model: "claude-opus-5-5", reasoning: "high"))
         let run = OperatorRun(id: UUID(), name: "Sprint 42", profile: started, prompt: "Do the sprint", createdAt: Date(timeIntervalSince1970: 0))
@@ -66,7 +66,7 @@ import Foundation
         var changed = started
         changed.slices = Slices(jira: true, review: true, merge: true)
         changed.oracle.isOn = false
-        OperatorProfileStore.save(changed, defaults)
+        try OperatorProfileStore.save(changed, defaults)
 
         #expect(OperatorProfileStore.load(defaults, claudeDefault: (model: "other", reasoning: nil)).slices == changed.slices)
         #expect(run.profile.slices == .none)

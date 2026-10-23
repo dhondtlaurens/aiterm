@@ -27,7 +27,7 @@ extension OperatorToolHandler {
     /// when the Oracle can't answer is about the Oracle, never about an ended broadcast, so these deny.
     private func ended(_ id: UUID) -> String? {
         guard let run = state.run(id: id) else { return Self.goneReason }
-        return run.state == .stopped || run.intent == .stopped ? "This broadcast has ended; its shell no longer acts." : nil
+        return run.hasEnded ? "This broadcast has ended; its shell no longer acts." : nil
     }
 
     private static func gateAnswer(_ decision: String, _ reason: String, rewrite: String?) -> JSONValue {

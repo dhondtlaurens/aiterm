@@ -36,13 +36,13 @@ final class OperatorSettingsModel {
     /// The profile as loaded, so Save writes only a change.
     @ObservationIgnored private var original: OperatorProfile?
     @ObservationIgnored private let read: @Sendable () -> Loaded
-    @ObservationIgnored private let write: @MainActor (OperatorProfile) -> Void
+    @ObservationIgnored private let write: @MainActor (OperatorProfile) throws -> Void
     /// The agent CLIs this machine has, read live (`AgentIntegrations.availableAgents`), so the
     /// Oracle's Agent follows a probe or an install landing while Settings is open.
     @ObservationIgnored private let installed: @MainActor () -> Set<AgentKind>
 
     init(installed: @escaping @MainActor () -> Set<AgentKind> = { Set(AgentKind.allCases) },
-         load: @escaping @Sendable () -> Loaded, save: @escaping @MainActor (OperatorProfile) -> Void) {
+         load: @escaping @Sendable () -> Loaded, save: @escaping @MainActor (OperatorProfile) throws -> Void) {
         self.installed = installed
         read = load
         write = save
@@ -102,7 +102,8 @@ final class OperatorSettingsModel {
                                           model: original.oracle.model, reasoning: original.oracle.reasoning)
         }
         guard saving != original else { return }
-        write(saving)
+        // One that could not be written is still a change to save.
+        guard (try? write(saving)) != nil else { return }
         self.original = saving
     }
 
@@ -189,6 +190,6 @@ extension OperatorSettingsModel {
             }
             return Loaded(profile: OperatorProfileStore.load(store, claudeDefault: claude, installed: installedNow), models: models,
                           agentDefaults: agentDefaults, skills: found)
-        }, save: { OperatorProfileStore.save($0, store) })
+        }, save: { try OperatorProfileStore.save($0, store) })
     }
 }

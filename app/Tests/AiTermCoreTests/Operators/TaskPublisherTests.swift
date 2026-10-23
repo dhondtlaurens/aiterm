@@ -299,7 +299,7 @@ import Synchronization
     }
 
     /// A repeat on a task already published answers what was done, whatever has changed since —
-    /// here the operation was stopped and the branch moved on.
+    /// here the broadcast was stopped and the branch moved on.
     @Test func aPublishedTaskAnswersFromItsRecord() async throws {
         var s = try setUp(end: .draftMR)
         let done = TaskPublication(pushedSHA: s.sha, mergeRequestURL: FakeMergeHost.url, mergeRequestNumber: 12, targetBranch: "main")

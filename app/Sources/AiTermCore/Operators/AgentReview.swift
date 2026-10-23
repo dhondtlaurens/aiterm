@@ -3,7 +3,7 @@ import Foundation
 /// An agent review of a task's branch (spec §3.1, §5's base): another agent reads the task's work and
 /// reports what it finds, which the Operator then has the task's agent fix. Nobody is notified, so it needs
 /// no slice. It runs headless and read-only the way the Oracle does (`ChallengeLaunch`): `codex exec` in a
-/// read-only sandbox, or `claude -p` with the read tools alone, in the task's worktree. A skill the Review
+/// read-only sandbox, or `claude -p` or `pi -p` with the read tools alone, in the task's worktree. A skill the Review
 /// names is handed to it as text, since a headless run cannot invoke one. Its answer is plain text: the findings.
 public enum AgentReview {
     static let instructions = """
@@ -24,7 +24,7 @@ public enum AgentReview {
     }
 
     /// Who reviews a task by default: the other of Claude and Codex when it is installed, else the task's own
-    /// agent when that is one of them and installed. Nil when neither is.
+    /// agent when that is one of them and installed. Nil when neither is: PI reviews only when the call names it.
     public static func defaultReviewer(for agent: AgentKind, installed: Set<AgentKind>) -> AgentKind? {
         let other: AgentKind = agent == .codex ? .claude : .codex
         if installed.contains(other) { return other }

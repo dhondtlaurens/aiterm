@@ -1,6 +1,6 @@
 import Foundation
 
-/// An operation's plan, in numbered revisions (spec §6 `submit_plan`, §8 "Plan revisions").
+/// A broadcast's plan, in numbered revisions (spec §6 `submit_plan`, §8 "Plan revisions").
 ///
 /// `OperatorRun.planRevision` is the last submitted revision, 0 while none is. The operator adds
 /// and changes unstarted tasks in the open revision (`openRevision`, one past it); `submit_plan`

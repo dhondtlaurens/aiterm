@@ -27,7 +27,7 @@ import Foundation
                                 .codex: ModelPreference(model: "gpt-6-mini", reasoning: "low"),
                                 .pi: ModelPreference(model: "openai-codex/gpt-5.6-sol", reasoning: "medium")],
                 skills: [])
-        }, save: { OperatorProfileStore.save($0, defaults) })
+        }, save: { try OperatorProfileStore.save($0, defaults) })
     }
 
     /// A model already loaded with `profile`, over `installed` agents and the catalogues given.
@@ -37,7 +37,7 @@ import Foundation
                         into defaults: UserDefaults = ScratchDefaults.make()) -> OperatorSettingsModel {
         nonisolated(unsafe) let defaults = defaults
         let settings = OperatorSettingsModel(installed: { installed }, load: { fatalError("handed in") },
-                                             save: { OperatorProfileStore.save($0, defaults) })
+                                             save: { try OperatorProfileStore.save($0, defaults) })
         settings.received(.init(profile: profile, models: models, agentDefaults: agentDefaults, skills: []))
         return settings
     }
@@ -69,10 +69,10 @@ import Foundation
     }
 
     /// Cancel is not saving: the edits stay in the model the sheet drops.
-    @Test func cancelDiscards() async {
+    @Test func cancelDiscards() async throws {
         let defaults = ScratchDefaults.make()
         let kept = OperatorProfile(model: "claude-opus-5-5", reasoning: "low", slices: Slices(review: true))
-        OperatorProfileStore.save(kept, defaults)
+        try OperatorProfileStore.save(kept, defaults)
         let settings = settings(defaults)
         await settings.load()
         #expect(settings.profile == kept)

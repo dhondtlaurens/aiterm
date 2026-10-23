@@ -332,6 +332,19 @@ import Testing
         }
     }
 
+    /// Claude's backstop names nothing the gate lets through: each `OperatorCommand.shellDenials` pattern, its wildcards
+    /// filled, is a hard denial. A reset is the hard one: Claude's prefix match can't find `--hard` after `-C <dir>` or
+    /// `-c k=v`, so those two patterns refuse every reset, where the gate sends a soft one to the Oracle
+    /// (`readsAndOtherCommandsAreNoHardDenial`).
+    @Test(arguments: OperatorCommand.shellDenials)
+    func everyBackstopPatternIsAHardDenial(_ pattern: String) throws {
+        let inner = try #require(pattern.wholeMatch(of: /Bash\((.+):\*\)/)?.1, "\(pattern) is no Bash(…:*) pattern")
+        var command = String(inner.replacing("-C *", with: "-C /code/shop").replacing("-c *", with: "-c core.pager=cat")
+            .replacing(" * ", with: " --no-pager "))
+        if command.hasSuffix(" reset") { command += " --hard" }
+        #expect(ShellGate.hardDenial(command) != nil, "\(command)")
+    }
+
     @Test func readsAndOtherCommandsAreNoHardDenial() {
         for command in ["git status", "git log --grep push", "git log -- commit.ts", "git show HEAD:checkout.md", "git reset --soft HEAD~1",
                         "git reset HEAD file", "git fetch origin", "git branch --contains abc", "git diff main", "git stash list",

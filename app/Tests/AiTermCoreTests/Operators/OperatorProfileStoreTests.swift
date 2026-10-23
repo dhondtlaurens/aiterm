@@ -19,12 +19,12 @@ import Foundation
         #expect(Slices.none == Slices(jira: false, review: false, merge: false))
     }
 
-    @Test func saveThenLoadRoundTrips() {
+    @Test func saveThenLoadRoundTrips() throws {
         let defaults = ScratchDefaults.make()
         let profile = OperatorProfile(model: "claude-sonnet-5", reasoning: nil, slices: Slices(jira: true, review: false, merge: true),
                                       oracle: OracleSetting(isOn: false, agent: .claude, model: "claude-opus-5-5", reasoning: "low"),
                                       instructions: "Run the linter before you accept.")
-        OperatorProfileStore.save(profile, defaults)
+        try OperatorProfileStore.save(profile, defaults)
         #expect(OperatorProfileStore.load(defaults, claudeDefault: (model: "claude-opus-5-5", reasoning: "high")) == profile)
         #expect(defaults.data(forKey: "operator.profile") != nil, "kept as JSON under operator.profile")
     }
@@ -49,5 +49,16 @@ import Foundation
         ModelSettings.save(ModelPreference(model: "claude-sonnet-5", reasoning: "low"), for: .claude, defaults: defaults)
         let saved = OperatorProfileStore.claudeDefault(models: models, defaults: defaults)
         #expect(saved.model == "claude-sonnet-5" && saved.reasoning == "low")
+    }
+
+    /// The first profile's Oracle is on only with Codex installed; a saved choice wins over that.
+    @Test func firstRunOracleNeedsCodexButSavedPreferenceWins() throws {
+        let defaults = ScratchDefaults.make()
+        let first = OperatorProfileStore.load(defaults, claudeDefault: ("opus", nil), installed: [.claude])
+        #expect(!first.oracle.isOn)
+        var chosen = first
+        chosen.oracle.isOn = true
+        try OperatorProfileStore.save(chosen, defaults)
+        #expect(OperatorProfileStore.load(defaults, claudeDefault: ("opus", nil), installed: [.claude]).oracle.isOn)
     }
 }

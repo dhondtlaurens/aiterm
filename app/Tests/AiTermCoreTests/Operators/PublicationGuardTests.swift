@@ -36,7 +36,7 @@ import Testing
         #expect(refusal(w, task, run) == "PLUTO-231 ends in a commit: its plan opens no merge request, so there is nothing to finish.")
     }
 
-    @Test func anOperationThatIsNotRunningPublishesNothing() {
+    @Test func aBroadcastThatIsNotRunningPublishesNothing() {
         for (state, line) in [(OperatorRunState.paused, "The broadcast is paused; nothing is published until it runs again."),
                               (.operatorOffline, "The Operator is offline; nothing is published until the broadcast resumes."),
                               (.stopped, "The broadcast was stopped; it publishes nothing."),
@@ -100,7 +100,7 @@ import Testing
     }
 
     /// Your Pause or End is your intent, said before the run's state follows — and an ended complete
-    /// operation stays `complete` with `intent == .stopped`.
+    /// broadcast stays `complete` with `intent == .stopped`.
     @Test func yourPauseOrEndIsHeardThroughTheIntent() {
         var (w, task, run) = world(run: .complete)
         w.state.runs[0].intent = .stopped
@@ -150,11 +150,11 @@ import Testing
     }
 
     /// The slices froze when the broadcast started: turning Merge on in Settings changes only the next one.
-    @Test func theSliceIsFrozen() {
+    @Test func theSliceIsFrozen() throws {
         let defaults = UserDefaults(suiteName: "aiterm-guard-\(UUID().uuidString)")!
         var stored = OperatorProfileStore.load(defaults, claudeDefault: (model: "claude-opus-5-5", reasoning: "high"))
         stored.slices = Slices(jira: true, review: true, merge: true)
-        OperatorProfileStore.save(stored, defaults)
+        try OperatorProfileStore.save(stored, defaults)
         #expect(OperatorProfileStore.load(defaults, claudeDefault: (model: "claude-opus-5-5", reasoning: "high")).slices.merge)
         let (w, task, run) = world(end: .merge, slices: .none)
         #expect(refusal(w, task, run) == PublicationGuard.mergeSliceOff, "the running broadcast keeps its own slices")

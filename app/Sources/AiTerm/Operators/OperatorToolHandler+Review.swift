@@ -75,7 +75,9 @@ extension OperatorToolHandler {
         let installed = installedAgents
         guard let named = call.optionalString("agent") else {
             guard let agent = AgentReview.defaultReviewer(for: task.agent, installed: installed) else {
-                throw ToolRefusal("Neither Claude nor Codex is installed, so no agent can review it.")
+                throw ToolRefusal(installed.contains(.pi)
+                    ? "No default reviewer agent is installed: name pi as the agent to review it with PI."
+                    : "No reviewer agent is installed, so no agent can review it.")
             }
             return agent
         }

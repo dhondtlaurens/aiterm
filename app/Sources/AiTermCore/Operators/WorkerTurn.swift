@@ -28,14 +28,14 @@ public enum WorkerTurn {
 
     /// Whether the message's last line that says something, its markdown emphasis and spaces stripped, ends with `?`. A
     /// question earlier in the message is one the worker went on past.
-    public static func endsWithQuestion(_ lastMessage: String?) -> Bool {
+    static func endsWithQuestion(_ lastMessage: String?) -> Bool {
         guard let line = lastMessage?.split(whereSeparator: \.isNewline).last(where: { !$0.trimmingCharacters(in: trailing).isEmpty })
         else { return false }
         return line.trimmingCharacters(in: trailing).hasSuffix("?")
     }
 
     /// The question as `run_status` carries it: the message's last paragraph, cut to `questionLimit` characters.
-    public static func question(_ lastMessage: String) -> String {
+    static func question(_ lastMessage: String) -> String {
         let lines = lastMessage.components(separatedBy: .newlines)
         var paragraph: [String] = []
         for line in lines.reversed() {
@@ -55,6 +55,11 @@ public enum WorkerTurn {
         guard let head, !head.isEmpty else { return false }
         return !OperatedTransitions.sameCommit(head, accepted)
     }
+}
+
+public extension SessionState {
+    /// Its turn ended: idle at its prompt, or done.
+    var turnEnded: Bool { self == .idle || self == .done }
 }
 
 public extension Repository {

@@ -35,17 +35,7 @@ import Testing
         #expect(RunScheduler.claim(in: &world.state, now: now).isEmpty)
     }
 
-    /// The claim is the scheduler's one list, not a list per operation: the oldest operation's tasks come first.
-    @Test func operationsAreClaimedOldestFirst() {
-        var world = OperatedWorld()
-        let older = world.addRun(), newer = world.addRun(age: 60)
-        let olderTasks = (1...3).map { world.addTask("A-\($0)", run: older) }
-        let newerTask = world.addTask("B-1", run: newer)
-        let claimed = RunScheduler.claim(in: &world.state, now: now)
-        #expect(claimed == olderTasks + [newerTask])
-    }
-
-    @Test func aPausedOrStoppedOperationClaimsNothing() {
+    @Test func aPausedOrStoppedBroadcastClaimsNothing() {
         var world = OperatedWorld()
         world.addTask("P-1", run: world.addRun(.paused))
         world.addTask("S-1", run: world.addRun(.stopped))

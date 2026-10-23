@@ -18,7 +18,7 @@ public enum ShellGate {
     /// and judged one at a time, so a value of several lines is masked whole, and a value that holds a
     /// line like `NAME=x` is never taken for a variable of its own. The programs are named in full: the
     /// command has to work with nothing but `/bin` on the PATH.
-    public static let maskedEnv = """
+    static let maskedEnv = """
         /usr/bin/env -0 | /usr/bin/tr '\\000' '\\001' | /usr/bin/awk 'BEGIN { RS = "\\001" } /^[A-Za-z_][A-Za-z0-9_]*=/ { name = $0; sub(/=.*/, "", name); if (toupper(name) ~ /TOKEN|SECRET|KEY|PASSWORD/) print name "=***"; else print $0 }'
         """
 
@@ -183,21 +183,18 @@ public enum ShellGate {
         let hosts: Set<String>
         let resolve: (String) -> String
 
-        /// Built on each use: a table of closures is not Sendable, so it cannot be a stored static.
-        static var programs: [String: (Judge) -> ([String]) -> Bool] { [
-            "git": Judge.git, "glab": Judge.glab, "gh": Judge.gh, "npm": Judge.npm, "npx": Judge.npx, "node": Judge.node,
-            "which": { _ in { _ in true } }, "type": { _ in { _ in true } }, "command": Judge.commandV, "pwd": Judge.pwd,
-            "cat": files("cat"), "head": files("head"), "tail": files("tail"), "ls": files("ls"), "wc": files("wc"),
-            "stat": files("stat"), "file": files("file"), "grep": files("grep"), "rg": files("rg"),
-        ] }
-
-        private static func files(_ program: String) -> (Judge) -> ([String]) -> Bool {
-            { judge in { judge.files(program, $0) } }
-        }
+        /// Each program read, and the judge of its arguments: closures that capture nothing, so the table is stored once.
+        static let programs: [String: @Sendable (Judge, [String]) -> Bool] = [
+            "git": { $0.git($1) }, "glab": { $0.glab($1) }, "gh": { $0.gh($1) }, "npm": { $0.npm($1) }, "npx": { $0.npx($1) },
+            "node": { $0.node($1) }, "which": { _, _ in true }, "type": { _, _ in true }, "command": { $0.commandV($1) },
+            "pwd": { $0.pwd($1) }, "cat": { $0.files("cat", $1) }, "head": { $0.files("head", $1) }, "tail": { $0.files("tail", $1) },
+            "ls": { $0.files("ls", $1) }, "wc": { $0.files("wc", $1) }, "stat": { $0.files("stat", $1) },
+            "file": { $0.files("file", $1) }, "grep": { $0.files("grep", $1) }, "rg": { $0.files("rg", $1) },
+        ]
 
         func isRead(_ words: [String]) -> Bool {
             guard let program = words.first, let judge = Judge.programs[program] else { return false }
-            return judge(self)(Array(words.dropFirst()))
+            return judge(self, Array(words.dropFirst()))
         }
 
         // MARK: Paths

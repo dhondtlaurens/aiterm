@@ -6,7 +6,7 @@ import Foundation
 // the engines in `Operators/` name these freely. Everything here is plain data; what may change
 // it, and when, is the engines' (`OperatedTransitions`, `PlanRevision`, `RunScheduler`).
 
-/// Where an operation stands (spec §9). `paused` and `stopped` are only ever yours.
+/// Where a broadcast stands (spec §9). `paused` and `stopped` are only ever yours.
 public enum OperatorRunState: String, Codable, Sendable { case planning, active, paused, operatorOffline, complete, stopped }
 
 /// Where a task's work ends, from the plan (spec §5): a commit in its worktree, a draft MR, a merge
@@ -543,7 +543,7 @@ public struct OperatorSnag: Codable, Equatable, Sendable {
     }
 }
 
-/// Where a challenged tool call stands (spec §4.4): its second opinion running, its critique ready
+/// Where a challenged tool call stands (spec §4.4): the Oracle running, its critique ready
 /// but not yet read, read by the operator, unavailable — the act then proceeds unchallenged — or acted on.
 public enum ChallengeStage: String, Codable, CaseIterable, Sendable { case running, ready, delivered, unchallenged, acted }
 
@@ -552,7 +552,7 @@ public enum ChallengeStage: String, Codable, CaseIterable, Sendable { case runni
 public enum ChallengeKind: String, Codable, Sendable { case critique, veto }
 
 /// One challenged tool call, kept in its run (spec §4.4, §11): the call it challenged, what the
-/// second opinion said, and — once a call with its id acted — that call and its answer. A repeat of
+/// Oracle said, and — once a call with its id acted — that call and its answer. A repeat of
 /// the acting call (its reply lost, AiTerm restarted) returns the recorded answer and acts no
 /// further. `id` is the `challengeId` the operator calls again with.
 public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
@@ -561,7 +561,7 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     /// A critique, or a veto; a record saved before vetoes is a critique.
     public var kind: ChallengeKind
     public var stage: ChallengeStage
-    /// The second opinion's critique, once it gave one; for a veto, the Oracle's reason.
+    /// The Oracle's critique, once it gave one; for a veto, the Oracle's reason.
     public var critique: String?
     /// A veto's answer once the Oracle gave one: true only for its yes.
     public var approved: Bool?
@@ -574,7 +574,7 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     /// hook. False for one asked about the hook alone, whose yes is no merge's. Nil on a record saved before `noVerify`,
     /// when every finish_task veto was a merge's (`asksMerge`).
     public var askedMerge: Bool?
-    /// Why the act proceeded unchallenged: the second opinion missing, failed or too slow.
+    /// Why the act proceeded unchallenged: the Oracle missing, failed or too slow.
     public var unchallengedReason: String?
     /// The acting call's arguments as canonical JSON, `challengeId` and `challengeReply` left out:
     /// a repeat is the same call when these are the same.

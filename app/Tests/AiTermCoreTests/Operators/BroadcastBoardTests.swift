@@ -412,12 +412,6 @@ import Testing
         #expect(column(BroadcastBoard.shelved(run: run, state: state), .done) == ["Live one", "Live two", "Archived one", "Archived two"])
     }
 
-    @Test func aPauseOrAClosedWindowIsPaused() {
-        #expect(BroadcastBoard.make(run: run(.paused), state: state(run(.paused)), acting: .none, requests: []).isPaused)
-        #expect(BroadcastBoard.make(run: run(.operatorOffline), state: state(run(.operatorOffline)), acting: .none, requests: []).isPaused)
-        #expect(!BroadcastBoard.make(run: run(), state: state(run()), acting: .none, requests: []).isPaused)
-    }
-
     /// A card whose task has several worker tabs lists each under a hairline (P5 A): its agent, its key (`main` for the
     /// first worker), what it does and its mark. A tab's click closes the board and brings that tab forward; a closed
     /// tab is listed, muted, and is no button. A task with one tab lists none.
@@ -448,5 +442,33 @@ import Testing
         let working = BroadcastBoard.make(run: run, state: state(run, [price]), acting: .none, requests: [],
                                           sessions: [OperatorUIFixtures.tab("s1", of: price, .working, agent: .codex)])
         #expect(working.columns.flatMap(\.cards).first?.tabs.first?.line == OperatorLine("at work"))
+    }
+
+    /// An accepted task whose end is still ahead is not done: it counts as open and stays In progress.
+    @Test func acceptedPublicationStillNeedsItsEnd() {
+        var run = OperatorFixtures.run()
+        run.firstPlanSize = 1
+        var task = OperatorFixtures.task("PAY-1", .accepted, run: run.id)
+        task.operated?.end = .merge
+        task.operated?.acceptance = TaskAcceptance(resultSHA: "4f2a91c", prerequisiteSHAs: [], checkOutput: "passed", note: nil, at: OperatorFixtures.epoch)
+        let state = OperatorFixtures.state(run, [task])
+        #expect(BroadcastBoard.progress(of: run, tasks: [task]) == "0 of 1 done")
+        #expect(OperatorLine.ending(of: task.operated!) == nil)
+        let board = BroadcastBoard.make(run: run, state: state, acting: OperatorActs(), requests: [])
+        #expect(board.columns.first { $0.column == .inProgress }?.cards.count == 1)
+    }
+
+    /// A publication left for you is the task's end: Done on the board, the broadcast complete, kept through coding.
+    @Test func leftForYouReachesTheEndAndSurvivesCoding() throws {
+        let run = OperatorFixtures.run()
+        var task = OperatorFixtures.task("PAY-1", .accepted, run: run.id, end: .draftMR)
+        task.operated?.acceptance = OperatorFixtures.acceptance()
+        task.operated?.publication = TaskPublication(leftForYou: true)
+        let decoded = try JSONDecoder().decode(TaskPublication.self, from: JSONEncoder().encode(task.operated!.publication!))
+        #expect(decoded.leftForYou)
+        let board = BroadcastBoard.make(run: run, state: OperatorFixtures.state(run, [task]), acting: .none, requests: [])
+        #expect(board.columns.first { $0.column == .done }?.cards.count == 1)
+        #expect(RunScheduler.isComplete(run, in: OperatorFixtures.state(run, [task])))
+        #expect(OperatorLine.ending(of: task.operated!) == "left for you · 4f2a91c")
     }
 }

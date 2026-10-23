@@ -4,7 +4,13 @@ import Foundation
 /// row and the banner say it. A request lasts exactly as long as what asks stands: answered, unblocked or
 /// ended, it is gone.
 public struct BroadcastRequest: Equatable, Sendable, Identifiable {
-    public enum Kind: String, Sendable { case permission, question, blocked, problem }
+    /// What asks, most urgent first: an agent's prompt, then a question, then what blocks, then a problem in AiTerm.
+    public enum Kind: String, CaseIterable, Sendable {
+        case permission, question, blocked, problem
+
+        /// Its place in that order, 0 the most urgent: of several requests, a line says and a click opens the lowest.
+        public var rank: Int { Self.allCases.firstIndex(of: self) ?? Self.allCases.count }
+    }
     public var kind: Kind
     public var runId: UUID
     /// The task it is about; nil for the Operator's own question.
@@ -34,12 +40,13 @@ public enum OperatorRequests {
     /// a blocked task and a task whose `problem` is set. A waiting worker's prompt is said by what its question
     /// recorded. A task you took over contributes none, and an ended run has none.
     public static func open(run: OperatorRun, state: AppState) -> [BroadcastRequest] {
-        guard run.state != .stopped, run.intent != .stopped else { return [] }
+        guard !run.hasEnded else { return [] }
         let tasks = state.tasks(inRun: run.id)
-        let takenOver = Set(tasks.filter { $0.operated?.takenOver == true || $0.operated.map(\.isFinished) == true }.map(\.id))
+        // Taken over or finished: what is left open on it asks nothing.
+        let silent = Set(tasks.filter { $0.operated?.takenOver == true || $0.operated.map(\.isFinished) == true }.map(\.id))
         var requests: [BroadcastRequest] = []
 
-        for task in tasks where !takenOver.contains(task.id) {
+        for task in tasks where !silent.contains(task.id) {
             guard let operated = task.operated else { continue }
             // Of several tabs' prompts, the first by tab order: the first worker's, then the extra tabs' as they opened.
             let order = [nil] + operated.extraTabs.map(\.key)
@@ -60,7 +67,7 @@ public enum OperatorRequests {
             }
         }
         for question in run.questions where question.resolution == nil && !question.id.hasPrefix("prompt-") {
-            if let task = question.task, takenOver.contains(task) { continue }
+            if let task = question.task, silent.contains(task) { continue }
             requests.append(BroadcastRequest(kind: .question, runId: run.id, taskId: question.task, text: "The Operator asks: \(question.text)", key: question.id))
         }
         return requests

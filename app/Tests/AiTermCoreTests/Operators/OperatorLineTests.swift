@@ -408,4 +408,14 @@ import Testing
         #expect(line(asking: true, windowClosed: true) == OperatorLine("window closed"), "no window, nothing it can ask in")
         for said in [line(), line(asking: true), line(windowClosed: true)] { #expect(said.text.count <= OperatorLine.maxLength) }
     }
+
+    /// A merge the host is not ready for waits quietly, with the host's reason.
+    @Test func waitingPublicationUsesTheHostsQuietReason() {
+        let run = OperatorFixtures.run()
+        var task = OperatorFixtures.task("PAY-1", .accepted, run: run.id, end: .merge)
+        task.operated?.publication = TaskPublication(waitingSince: OperatorFixtures.epoch, waitingReason: "CI is running")
+        let line = OperatorLine.task(task, run: run, acting: nil, requests: [])
+        #expect(line?.text == "waiting to merge · CI is running")
+        #expect(line?.look == .quiet)
+    }
 }

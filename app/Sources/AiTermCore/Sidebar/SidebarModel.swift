@@ -266,7 +266,7 @@ public enum SidebarModel {
     /// What a row's tabs that ended their turn left running, in tab order: a tab still at work has started a new
     /// turn, which waits on nothing yet.
     public static func backgroundJobs(of tabs: [SessionInfo]) -> [BackgroundJob] {
-        tabs.filter { $0.state == .idle || $0.state == .done }.sorted { $0.tabIndex < $1.tabIndex }.flatMap(\.background)
+        tabs.filter(\.state.turnEnded).sorted { $0.tabIndex < $1.tabIndex }.flatMap(\.background)
     }
 
     /// The order the chips are drawn in: a task's life, left to right. Not the urgency order
@@ -380,7 +380,7 @@ public enum SidebarModel {
     /// sessions are deliberately omitted. Tags are matched as the ids they name, as rows are.
     public static func sessionTitles(state: AppState, sessions: [SessionInfo],
                                      branchByCwd: [String: String], projectBranch: [UUID: String]) -> [SessionTitle] {
-        let taskBranches = Dictionary(uniqueKeysWithValues: state.tasks.map { ($0.id, $0.branch) })
+        let taskBranches = Dictionary(state.tasks.map { ($0.id, $0.branch) }, uniquingKeysWith: { first, _ in first })
         return sessions.compactMap { session in
             let fallback = session.taskUUID.flatMap { taskBranches[$0] }
                 ?? session.projectId.flatMap(UUID.init(uuidString:)).flatMap { projectBranch[$0] }
@@ -629,6 +629,4 @@ public extension SidebarModel {
         case .pi: "PI"
         }
     }
-
-
 }

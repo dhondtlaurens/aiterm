@@ -4,8 +4,8 @@ import Foundation
 @testable import AiTermTestSupport
 
 /// The Operator's brief, live (spec §5): each scenario of `OperatorEvalGrading` run through `claude -p` three times on
-/// each brief, the brief before this branch (`Fixtures/operator-eval-baseline`, with the tools as they were served then)
-/// and the brief now (`OperatorCommand.brief`, with the daemon's tools now), against the stub MCP server
+/// each brief, the baseline brief as of edf7c43, 21 Oct 2026 (`Fixtures/operator-eval-baseline`, with the tools as
+/// they were served then) and the brief now (`OperatorCommand.brief`, with the daemon's tools now), against the stub MCP server
 /// (`daemon/tools/operator_stub.py`), and graded on the calls and the final reply. Uses quota, so it runs only with
 /// `AITERM_LIVE_OPERATOR=1`.
 ///

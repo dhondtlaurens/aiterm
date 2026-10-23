@@ -127,4 +127,25 @@ import Foundation
         run.questions = [OperatorQuestion(id: "q", text: "Which one?", task: nil, askedAt: OperatorFixtures.epoch)]
         #expect(open(run, [task]).allSatisfy { !$0.text.contains("—") })
     }
+
+    /// A finished task's prompt left open asks nothing and holds the broadcast open no longer.
+    @Test func aFinishedTasksPromptIsNoRequestAndHoldsNothing() {
+        var run = OperatorFixtures.run()
+        var task = OperatorFixtures.task("PAY-1", .accepted, run: run.id)
+        task.operated?.end = .commit
+        run.questions = [OperatorQuestion(id: "prompt-old", text: "Permission?", task: task.id, askedAt: OperatorFixtures.epoch)]
+        let state = OperatorFixtures.state(run, [task])
+        #expect(OperatorRequests.open(run: run, state: state).isEmpty)
+        #expect(RunScheduler.isComplete(run, in: state))
+    }
+
+    /// A publication's problem is a request with its sentence, and the task's line needs you.
+    @Test func aPublicationProblemNeedsYou() {
+        var task = OperatorFixtures.task("PAY-1", .accepted, run: run.id)
+        task.operated?.end = .merge
+        task.operated?.publication = TaskPublication(problem: "CI failed.")
+        let requests = open(run, [task])
+        #expect(requests.first?.text == "\(task.title): CI failed.")
+        #expect(OperatorLine.task(task, run: run, acting: nil, requests: requests)?.look == .needsYou)
+    }
 }

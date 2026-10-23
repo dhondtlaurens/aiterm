@@ -14,9 +14,9 @@ public enum OperatorProfileStore {
         return profile
     }
 
-    public static func save(_ profile: OperatorProfile, _ defaults: UserDefaults = .standard) {
-        guard let data = try? JSONEncoder().encode(profile) else { return }
-        defaults.set(data, forKey: key)
+    /// Writes `profile`; an encoding failure throws and leaves what was saved before.
+    public static func save(_ profile: OperatorProfile, _ defaults: UserDefaults = .standard) throws {
+        defaults.set(try JSONEncoder().encode(profile), forKey: key)
     }
 
     /// Claude's default as `load` takes it: the model Settings › Agents makes Claude's default, or

@@ -150,12 +150,13 @@ import Testing
         #expect(board.band == OperatorLine("1 to check"))
     }
 
-    @Test func aPauseIsReadFromTheIntentToo() throws {
+    /// Paused by you, its window closed, or being paused (`OperatorRun.isPaused`): the header and the board say it alike.
+    @Test func aPauseIsReadFromTheStateOrTheIntent() throws {
         var pausing = run()
         pausing.intent = .paused
-        let row = try #require(SidebarModel.broadcastRow(state: state(pausing)))
-        #expect(row.isPaused)
-        #expect(try #require(SidebarModel.broadcastRow(state: state(run(.operatorOffline)))).isPaused)
-        #expect(try !#require(SidebarModel.broadcastRow(state: state(run()))).isPaused)
+        #expect(pausing.isPaused && run(.paused).isPaused && run(.operatorOffline).isPaused)
+        #expect(!run().isPaused && !run(.complete).isPaused)
+        #expect(try #require(SidebarModel.broadcastRow(state: state(pausing))).isPaused)
+        #expect(BroadcastBoard.make(run: pausing, state: state(pausing), acting: .none, requests: []).isPaused)
     }
 }

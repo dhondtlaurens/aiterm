@@ -3,7 +3,7 @@ import Testing
 @testable import AiTermCore
 
 /// The Oracle runs as Fix with AI's look does: headless and read-only, in the run
-/// folder, the operation's projects readable.
+/// folder, the broadcast's projects readable.
 @Suite struct ChallengeLaunchTests {
     let claude = OracleSetting(isOn: true, agent: .claude, model: "claude-opus-5-5", reasoning: "high")
     let codex = OracleSetting.standard

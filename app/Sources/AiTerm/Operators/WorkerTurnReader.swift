@@ -59,7 +59,7 @@ final class WorkerTurnReader {
             // ended meanwhile, or before it was handed back, is new.
             if !watched, let worker { seen[worker.sessionId] = nil }
             let tab = watched ? worker : nil
-            guard let tab, tab.state == .idle || tab.state == .done else {
+            guard let tab, tab.state.turnEnded else {
                 // A turn under way, or no worker: what its last turn left no longer holds, and its end will be new.
                 if let tab { seen[tab.sessionId] = tab.state }
                 messagedWhileReading.remove(task.id)

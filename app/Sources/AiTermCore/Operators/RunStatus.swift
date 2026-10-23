@@ -61,10 +61,10 @@ public struct TaskLiveFacts: Equatable, Sendable {
     }
 
     /// Its first worker is idle at its prompt or done: what its turn left is its final word.
-    var turnEnded: Bool { status == .idle || status == .done }
+    var turnEnded: Bool { status?.turnEnded == true }
 }
 
-/// What AiTerm knows beyond `state.json` that belongs to the whole operation rather than one task:
+/// What AiTerm knows beyond `state.json` that belongs to the whole broadcast rather than one task:
 /// each agent's weekly usage, in percent, for the agents whose window is still open, and what each
 /// installed agent may run. Gathered by the caller from the sidebar's usage readings and Settings ›
 /// Agents; `RunStatus` only passes it on.
@@ -78,7 +78,7 @@ public struct RunLiveFacts: Equatable, Sendable {
     }
 }
 
-/// The `run_status()` answer (spec §6): a numbered snapshot of the operation and every task, and
+/// The `run_status()` answer (spec §6): a numbered snapshot of the broadcast and every task, and
 /// the **open obligations** — what waits on you or on the operator. It is the operator's memory
 /// after a restart or a compaction, so it says everything the operator acts on, and only that.
 public struct RunStatus: Encodable, Equatable, Sendable {
@@ -390,7 +390,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     /// one with no commit past where its work starts is told apart by `build`, as `finishedWithoutCommit`.
     public static func isReadyForAcceptance(_ task: OperatedTask, live status: SessionState?, extraTabs: [SessionState?] = [],
                                             background: [String] = [], asks: Bool = false) -> Bool {
-        let ended: (SessionState?) -> Bool = { $0 == .idle || $0 == .done }
+        let ended: (SessionState?) -> Bool = { $0?.turnEnded == true }
         return task.state == .working && !task.takenOver && ended(status) && extraTabs.allSatisfy { $0 == nil || ended($0) }
             && background.isEmpty && !asks
     }

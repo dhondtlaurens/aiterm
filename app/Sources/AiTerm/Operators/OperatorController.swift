@@ -332,7 +332,7 @@ final class OperatorController {
                                          background: workers.flatMap(\.background),
                                          yourPrompt: workers.lazy.compactMap { $0.session?.yourPrompt }.first,
                                          quiet: quiet.contains(task.id))
-                if let tab, live.status == .idle || live.status == .done {
+                if let tab, live.status?.turnEnded == true {
                     if let turn = turns[task.id], turn.session == tab.sessionId, !turn.messaged {
                         live.lastMessage = turn.lastMessage
                         live.commitsAhead = turn.commitsAhead

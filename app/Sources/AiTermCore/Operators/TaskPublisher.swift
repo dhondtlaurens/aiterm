@@ -18,7 +18,7 @@ import Foundation
 /// nothing is pushed. Each completed step is handed to `record`, which saves it before the next starts,
 /// so a repeat resumes at the next step — and a step that cannot be saved is the last. Before each step
 /// that changes something outside this machine, and right after looking for an open request, `recheck`
-/// must still answer nil (the operation running, the task accepted on the same commit and still the
+/// must still answer nil (the broadcast running, the task accepted on the same commit and still the
 /// operator's) or the publisher stops there. One advance per task runs at a time (the caller's
 /// in-flight registry); any partial run may be followed by another.
 public struct TaskPublisher: Sendable {
@@ -97,6 +97,10 @@ public struct TaskPublisher: Sendable {
         catch let refused as Refused { return .refused(refused.reason) }
     }
 
+    /// Said if a task with no accepted commit got past `PublicationGuard.refusal`, which refuses one that isn't accepted:
+    /// the guard after it, never reached.
+    static let noAcceptedCommit = "This task has no accepted commit to publish."
+
     private func advancing(_ context: Context, restart: Bool, noVerify: Bool,
                            recheck: @escaping @Sendable () async -> String?,
                            record: @escaping @Sendable (TaskPublication) async throws -> Void) async throws -> Outcome {
@@ -117,7 +121,7 @@ public struct TaskPublisher: Sendable {
                                                   defaultBranch: defaultBranch, branchTip: tip) {
             return .refused(refusal)
         }
-        guard let acceptance = operated.acceptance else { return .refused(PublicationGuard.notOperated) }
+        guard let acceptance = operated.acceptance else { return .refused(Self.noAcceptedCommit) }
         // A request already opened is acted on only in the repository it was opened in: origin may name another now.
         if let why = PublicationGuard.otherRepository(publication, repository: host.repository) { return .refused(why) }
         let sha = acceptance.resultSHA
@@ -278,7 +282,7 @@ public struct TaskPublisher: Sendable {
             publication.readySince = nil
             return try await blocked(publication, why, record)
         }
-        // Read fresh right before the host merges: the Merge slice, the operation, the task.
+        // Read fresh right before the host merges: the Merge slice, the broadcast, the task.
         if let why = await recheck() { return .refused(why) }
         return try await settle(try await host.merge(number, at: sha), sha: sha, key: operated.key, branch: branch, expectedTarget: defaultBranch, publication, record, verifiedTarget: live.targetBranch)
     }
@@ -298,7 +302,7 @@ public struct TaskPublisher: Sendable {
                                                   defaultBranch: defaultBranch, branchTip: tip) {
             return .refused(refusal)
         }
-        guard let sha = operated.acceptance?.resultSHA else { return .refused(PublicationGuard.notOperated) }
+        guard let sha = operated.acceptance?.resultSHA else { return .refused(Self.noAcceptedCommit) }
         if let why = await recheck() { return .refused(why) }
         let commit: String
         do { commit = try await LocalMerge.merge(sha: sha, into: defaultBranch, in: repository) }

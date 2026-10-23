@@ -28,9 +28,9 @@ import Foundation
     }
 
     /// A Fix runs at the Operator's model and reasoning, Settings › Operator's, whichever agent it is handed.
-    @Test func aFixRunsAtTheOperatorsModel() {
+    @Test func aFixRunsAtTheOperatorsModel() throws {
         let defaults = ScratchDefaults.make()
-        OperatorProfileStore.save(OperatorProfile(model: "claude-opus-5-5", reasoning: "high"), defaults)
+        try OperatorProfileStore.save(OperatorProfile(model: "claude-opus-5-5", reasoning: "high"), defaults)
         let integrations = integrations(defaults: defaults, installed: [.claude])
         let model = integrations.fixModel(.claude)
         #expect(model.model == "claude-opus-5-5" && model.reasoning == "high")

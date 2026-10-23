@@ -95,7 +95,7 @@ import Foundation
         }
     }
 
-    @Test func aTaskOutsideAnOperationIsSaid() {
+    @Test func aTaskOutsideABroadcastIsSaid() {
         var s = F.state(F.run(), [])
         var mine = F.task("MINE")
         mine.operated = nil

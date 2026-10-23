@@ -55,8 +55,8 @@ import Foundation
         #expect(startable(s).count == 2)
     }
 
-    /// Operations are listed oldest first, each in its plan order.
-    @Test func operationsAreListedOldestFirst() {
+    /// Broadcasts are listed oldest first, each in its plan order.
+    @Test func broadcastsAreListedOldestFirst() {
         var older = F.run(id: UUID()), newer = F.run(id: UUID())
         older.createdAt = F.epoch
         newer.createdAt = F.epoch.addingTimeInterval(60)
@@ -122,8 +122,8 @@ import Foundation
         #expect(RunScheduler.startable(in: world.state, run: run) == [first])
     }
 
-    /// Corrupt state may reuse an id in another operation: its first copy cannot decide whether
-    /// the requested operation's copy is ready or make the other operation's tasks appear here.
+    /// Corrupt state may reuse an id in another broadcast: its first copy cannot decide whether
+    /// the requested broadcast's copy is ready or make the other broadcast's tasks appear here.
     @Test(arguments: [OperatedState.queued, .blocked])
     func aSingleRunUsesItsOwnCopyOfADuplicateTaskId(_ requestedState: OperatedState) {
         let requested = F.run(), other = F.run(id: UUID()), sharedId = UUID()

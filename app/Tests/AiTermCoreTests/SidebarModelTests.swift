@@ -363,6 +363,20 @@ import Synchronization
                            SessionTitle(sessionId: "s3", title: "main")])
     }
 
+    /// A workspace holding two tasks with one id (a hand-edited or merged save) still titles its tabs, by the first.
+    @Test func twoTasksSharingAnIdStillTitleTheirTabs() {
+        var state = AppState.empty
+        let project = Project(id: UUID(), name: "repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let task = TaskItem(id: UUID(), projectId: project.id, title: "Task", branch: "feat/first", worktreePath: "/repo/.worktrees/first", baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w1")
+        var twin = task; twin.branch = "feat/twin"
+        state.items = [.project(project)]; state.tasks = [task, twin]
+        let tab = session("s1", task: task.id.uuidString, agent: .shell, state: .idle, tab: 0, cwd: "/Users/me")
+
+        let titles = SidebarModel.sessionTitles(state: state, sessions: [tab], branchByCwd: [:], projectBranch: [:])
+
+        #expect(titles == [SessionTitle(sessionId: "s1", title: "feat/first")])
+    }
+
     /// Renders on several threads share the kept formatters; each still gets its own answer. On
     /// today's Foundation a shared `DateFormatter` rarely misbehaves, so this cannot catch the
     /// formatter leaving its lock — Swift 6's `sending` check does — but it holds the cache to

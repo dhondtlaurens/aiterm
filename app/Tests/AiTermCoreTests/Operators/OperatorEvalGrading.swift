@@ -29,8 +29,8 @@ struct EvalScenario: Sendable {
 
 /// The live evals' broadcast, its scenarios and their grading (spec §5, §6): the cases where the Operator should ask
 /// the person, and where it shouldn't, graded by code on its calls and its final reply. `OperatorEvalTests` runs
-/// them against the brief before this branch and the brief now; `OperatorEvalGradingTests` checks each grader on a
-/// good and a bad transcript written by hand.
+/// them against the baseline brief, as of edf7c43 (21 Oct 2026), and the brief now; `OperatorEvalGradingTests`
+/// checks each grader on a good and a bad transcript written by hand.
 enum OperatorEvalGrading {
     static let evalProject = Project(id: UUID(uuidString: "E7A1C0DE-0000-4000-8000-00000000A001")!, name: "Shop",
                                      path: "/Users/you/Sites/shop", provider: .git, remoteUrl: nil,
@@ -39,8 +39,8 @@ enum OperatorEvalGrading {
     /// The one broadcast both briefs are rendered for. Two tickets, an agent review then a person's, ending at draft MRs:
     /// the Review slice is on, so the Operator asks Sofie with request_review and needs her username, and Merge is off.
     /// The Oracle is off because the stub can't play it: a challenged call would answer as if unchallenged.
-    /// The baseline fixture's brief was rendered from this same literal at edf7c43 (feat/operator-sheet, this branch's
-    /// base); a change here means rendering that brief again.
+    /// The baseline fixture's brief was rendered from this same literal at edf7c43 (feat/operator-sheet, 21 Oct
+    /// 2026); a change here means rendering that brief again.
     static let evalRun = OperatorRun(
         id: UUID(uuidString: "E7A1C0DE-0000-4000-8000-000000000042")!, name: "Orders export",
         profile: OperatorProfile(model: "claude-opus-5-5", reasoning: "high", slices: Slices(jira: true, review: true, merge: false),

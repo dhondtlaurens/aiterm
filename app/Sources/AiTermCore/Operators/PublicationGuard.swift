@@ -73,7 +73,7 @@ public enum PublicationGuard {
     }
 
     /// Why `threads` keep `request` from merging: any of them still open. Nil when every one is resolved.
-    public static func openThreads(_ threads: [ReviewThread], request: String) -> String? {
+    static func openThreads(_ threads: [ReviewThread], request: String) -> String? {
         let open = threads.filter { !$0.resolved }.count
         guard open == 0 else {
             return open == 1 ? "1 review thread is still open on \(request)." : "\(open) review threads are still open on \(request)."
@@ -81,7 +81,7 @@ public enum PublicationGuard {
         return nil
     }
 
-    /// What may have changed since the first step, read fresh before the next: the operation's state and
+    /// What may have changed since the first step, read fresh before the next: the broadcast's state and
     /// your intent (a Pause or End), and the task's state, ownership (a takeover, even one handed back)
     /// and accepted commit.
     public static func recheck(task: TaskItem?, run: OperatorRun?, ownership: Int, acceptedSHA: String) -> String? {
@@ -95,7 +95,7 @@ public enum PublicationGuard {
         return nil
     }
 
-    /// An operation publishes while it is active or complete and you have neither paused nor ended it.
+    /// A broadcast publishes while it is active or complete and you have neither paused nor ended it.
     public static func runRefusal(_ run: OperatorRun) -> String? {
         if run.intent == .stopped { return "The broadcast was stopped; it publishes nothing." }
         if run.intent == .paused { return "The broadcast is paused; nothing is published until it runs again." }

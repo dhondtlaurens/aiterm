@@ -23,7 +23,7 @@ extension OperatorToolHandler {
         // Another call may have made this key while git was read: this one is its repeat.
         if let existing = existingTask(key, in: run) { return Self.taskAnswer(existing, created: false) }
         // The operation as it is now, not as the call began: a pause or an end since is the person's.
-        guard let current = state.run(id: run.id), current.state != .stopped, current.intent != .stopped else {
+        guard let current = state.run(id: run.id), !current.hasEnded else {
             throw ToolRefusal("This broadcast has ended; its tools no longer act.")
         }
         if current.intent == .paused { throw ToolRefusal("The person paused this broadcast. Wait until they resume it.") }

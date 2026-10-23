@@ -68,15 +68,15 @@ import Foundation
     /// Part B's contract: server `aiterm`, type `http`, the `/operator` route on the hook port, the
     /// bearer token and the `X-AiTerm-Hook` header, which every hook-port route requires.
     @Test func mcpJSONReachesTheOperatorRouteWithTheBearerToken() throws {
-        let json = OperatorCommand.mcpConfig(hookPort: 47821, token: "t0k")
+        let json = try OperatorCommand.mcpConfig(hookPort: 47821, token: "t0k")
         #expect(json == #"{"mcpServers":{"aiterm":{"headers":{"Authorization":"Bearer t0k","X-AiTerm-Hook":"1"},"type":"http","url":"http://127.0.0.1:47821/operator"}}}"#)
     }
 
     /// The Operator's shell: every Bash call goes to `/operator/gate` as a PreToolUse hook with the run's
     /// bearer token. The hook outlasts the daemon's 200 s gate wait (240 s), and Claude's own output cap
     /// is `BASH_MAX_OUTPUT_LENGTH`.
-    @Test func gateSettingsReachTheGateRouteWithTheBearerToken() {
-        let json = OperatorCommand.gateSettings(hookPort: 47821, token: "t0k")
+    @Test func gateSettingsReachTheGateRouteWithTheBearerToken() throws {
+        let json = try OperatorCommand.gateSettings(hookPort: 47821, token: "t0k")
         #expect(json == #"{"env":{"BASH_MAX_OUTPUT_LENGTH":"16000"},"hooks":{"PreToolUse":[{"hooks":[{"headers":{"Authorization":"Bearer t0k","X-AiTerm-Hook":"1"},"timeout":240,"type":"http","url":"http://127.0.0.1:47821/operator/gate"}],"matcher":"Bash"}]}}"#)
     }
 
@@ -571,5 +571,14 @@ import Foundation
         guard let start = brief.range(of: "\n" + heading + "\n") else { return "" }
         let rest = brief[start.upperBound...]
         return String(rest[..<(rest.range(of: "\n## ")?.lowerBound ?? rest.endIndex)])
+    }
+
+    /// The brief names the broadcast's Jira projects, and a fresh start recalls each decision with its why.
+    @Test func theBriefNamesItsJiraProjectsAndAFreshStartEachDecisionsWhy() {
+        var run = F.run()
+        run.jiraProjectKeys = ["PAY", "SHOP"]
+        run.decisions = [OperatorDecision(key: "d", text: "Kept the endpoint.", task: nil, at: F.epoch, why: "Clients still use it.")]
+        #expect(OperatorCommand.brief(run: run, projects: []).contains("Jira projects: PAY, SHOP"))
+        #expect(OperatorCommand.freshStartMessage(for: run, status: "{}").contains("Kept the endpoint. Why: Clients still use it."))
     }
 }

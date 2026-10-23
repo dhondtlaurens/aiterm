@@ -111,11 +111,11 @@ public extension SidebarModel {
     /// now, as `OperatorController.acting` says it; `sessions` the tabs as iTerm2 lists them.
     static func broadcastSection(state: AppState, sessions: [SessionInfo], branchByCwd: [String: String] = [:],
                                  diffByTask: [UUID: DiffStat] = [:], acting: OperatorActs = .none) -> BroadcastSection? {
-        guard let run = state.activeRun, let header = broadcastRow(state: state, acting: acting, sessions: sessions) else { return nil }
-        let tasks = state.tasks(inRun: run.id)
+        guard let run = state.activeRun else { return nil }
+        let tasks = state.tasks(inRun: run.id), requests = OperatorRequests.open(run: run, state: state)
+        let header = broadcastRow(run, state: state, tasks: tasks, requests: requests, acting: acting, sessions: sessions)
         let tabs = Tabs(sessions), operated = OperatedLookup(state: state, acting: acting.tasks, turns: acting.turns)
         let rows = tasks.map { taskRow($0, tabs: tabs, operated: operated, branchByCwd: branchByCwd, diffByTask: diffByTask) }
-        let requests = OperatorRequests.open(run: run, state: state)
         return BroadcastSection(header: header,
                                 operatorRow: operatorRow(run, tasks: tasks, acting: acting, requests: requests, sessions: sessions),
                                 tasks: rows.filter { !$0.queued } + rows.filter(\.queued),
@@ -126,14 +126,19 @@ public extension SidebarModel {
     /// workers are done (`readyForAcceptance`), which its line reads.
     static func broadcastRow(state: AppState, acting: OperatorActs = .none, sessions: [SessionInfo] = []) -> BroadcastRow? {
         guard let run = state.activeRun else { return nil }
-        let tasks = state.tasks.filter { $0.operated?.runId == run.id }
-        let requests = OperatorRequests.open(run: run, state: state)
+        return broadcastRow(run, state: state, tasks: state.tasks(inRun: run.id), requests: OperatorRequests.open(run: run, state: state),
+                            acting: acting, sessions: sessions)
+    }
+
+    /// The header of `run`, `tasks` its tasks and `requests` its open requests, as the section has them already.
+    private static func broadcastRow(_ run: OperatorRun, state: AppState, tasks: [TaskItem], requests: [BroadcastRequest],
+                                     acting: OperatorActs, sessions: [SessionInfo]) -> BroadcastRow {
         let line = OperatorLine.broadcast(run, tasks: tasks, acting: acting.broadcast(run.id), requests: requests,
                                           ready: readyForAcceptance(tasks, sessions: sessions))
         let projects = run.projectIds.compactMap(state.project(id:))
         return BroadcastRow(id: run.id, title: run.name, progress: BroadcastBoard.count(of: run, tasks: tasks),
                             projectsHelp: OperatorLine.list(projects.map(\.name)), line: line,
-                            isPaused: run.state == .paused || run.state == .operatorOffline || run.intent == .paused,
+                            isPaused: run.isPaused,
                             isDone: run.state == .complete)
     }
 
@@ -160,7 +165,7 @@ public extension SidebarModel {
                                         asking: !questions.isEmpty || tab?.state == .needsInput, about: about,
                                         asks: questions.isEmpty ? nil : questions.map(\.text).joined(separator: "\n"),
                                         windowClosed: run.state == .operatorOffline,
-                                        paused: run.state == .paused || run.intent == .paused,
+                                        paused: run.isPaused,
                                         summary: summary ?? .notYet, tasks: tasks)
         let status: TaskStatus = switch line.look {
         case .needsYou: .needsInput
