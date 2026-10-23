@@ -70,9 +70,9 @@ class HookRouter:
             if tick.model or tick.context_percent is not None:
                 async with self._in_order:
                     sid = (await self._resolve_post(agent, tick.session_id, tick.cwd, tick.iterm_session_id))[0]
-                    changed = self.status.apply_metadata(sid, model=tick.model, context=tick.context_percent) if sid else []
-                if changed:
-                    await self.publisher.session_changed(changed)
+                    ticked = self.status.apply_metadata(sid, model=tick.model, context=tick.context_percent) if sid else []
+                if ticked:
+                    await self.publisher.session_changed(ticked)
             return None
         # Hooks report the agent's state; checkout removal belongs to the app.
         parser = HOOK_PARSERS.get(path)
