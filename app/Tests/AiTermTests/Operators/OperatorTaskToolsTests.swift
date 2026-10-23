@@ -358,7 +358,7 @@ import Testing
         #expect(answer["lastMessage"] == .null && answer["note"]?.stringValue?.contains("doesn’t mean it said nothing") == true)
     }
 
-    @Test func anBroadcastWhoseEveryTaskEndedIsCompleteTheOperatorIsToldAndYouAreNotified() async throws {
+    @Test func aBroadcastWhoseEveryTaskEndedIsCompleteTheOperatorIsToldAndYouAreNotified() async throws {
         let (world, run, task) = try makeWorld()
         world.show([OperatorServiceFixtures.session("op", tag: run.id)])
         _ = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "noChange", "note": "Already fixed upstream."])

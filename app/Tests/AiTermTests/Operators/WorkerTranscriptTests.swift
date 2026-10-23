@@ -24,7 +24,7 @@ import Testing
             #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Should I also migrate the table?"}]}}"#,
             #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}"#,
         ], to: ".claude/projects/-Users-x-shop--worktrees-pluto-1/0d9c-conv.jsonl")
-        #expect(WorkerTranscript.lastMessage(agent: .claude, conversation: "0d9c-conv", home: home, claudeConfig: ClaudeConfig()) == "Should I also migrate the table?")
+        #expect(TranscriptLocator(home: home, claudeConfig: ClaudeConfig()).lastMessage(agent: .claude, conversation: "0d9c-conv") == "Should I also migrate the table?")
     }
 
     @Test func codexsLastReplyIsItsLastAgentMessage() throws {
@@ -35,7 +35,7 @@ import Testing
             #"{"type":"event_msg","payload":{"type":"agent_message","message":"Tests pass. Commit 4f2a91c."}}"#,
             #"{"type":"event_msg","payload":{"type":"token_count","info":null}}"#,
         ], to: ".codex/sessions/2026/10/16/rollout-2026-10-16T09-00-00-019a-thread.jsonl")
-        #expect(WorkerTranscript.lastMessage(agent: .codex, conversation: "019a-thread", home: home, claudeConfig: ClaudeConfig()) == "Tests pass. Commit 4f2a91c.")
+        #expect(TranscriptLocator(home: home, claudeConfig: ClaudeConfig()).lastMessage(agent: .codex, conversation: "019a-thread") == "Tests pass. Commit 4f2a91c.")
     }
 
     @Test func onlyTheEndOfALongTranscriptIsRead() throws {
@@ -86,7 +86,7 @@ import Testing
     @Test func aConversationIdThatIsAPathFindsNothing() {
         defer { cleanUp() }
         #expect(WorkerTranscript.file(agent: .claude, conversation: "../../etc/passwd", home: home, claudeConfig: ClaudeConfig()) == nil)
-        #expect(WorkerTranscript.lastMessage(agent: .codex, conversation: "missing", home: home, claudeConfig: ClaudeConfig()) == nil)
+        #expect(TranscriptLocator(home: home, claudeConfig: ClaudeConfig()).lastMessage(agent: .codex, conversation: "missing") == nil)
     }
 }
 
@@ -98,7 +98,7 @@ extension WorkerTranscriptTests {
         try write([reply("From ~/.claude.")], to: ".claude/projects/-Users-x-shop/0d9c-conv.jsonl")
         try write([reply("From the profile.")], to: "profile/projects/-Users-x-shop/0d9c-conv.jsonl")
         let config = ClaudeConfig("~/profile")
-        #expect(WorkerTranscript.lastMessage(agent: .claude, conversation: "0d9c-conv", home: home, claudeConfig: config) == "From the profile.")
+        #expect(TranscriptLocator(home: home, claudeConfig: config).lastMessage(agent: .claude, conversation: "0d9c-conv") == "From the profile.")
         try FileManager.default.removeItem(at: home.appendingPathComponent("profile"))
         #expect(WorkerTranscript.file(agent: .claude, conversation: "0d9c-conv", home: home, claudeConfig: config) == nil,
                 "a conversation only ~/.claude holds is another configuration's")

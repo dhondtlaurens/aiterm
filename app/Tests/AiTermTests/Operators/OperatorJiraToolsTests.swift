@@ -432,6 +432,14 @@ import Testing
         #expect(jira.searches.isEmpty)
     }
 
+    /// With no Jira connected, a search says so first, before it would ask for a linked Jira project.
+    @Test func jiraSearchWithoutJiraSaysWhereBeforeAskingForALinkedProject() async throws {
+        let unlinked = OperatorServiceFixtures.project(name: "Plain")
+        let run = OperatorServiceFixtures.run(projects: [unlinked])
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [unlinked], runs: [run]))
+        #expect(await world.call(run.id, "jira_search", ["jql": "x"]).message == "Jira isn’t connected in AiTerm’s Settings › Integrations.")
+    }
+
     // MARK: - Gate C: Jira writes wait while the broadcast does not run, and a lost answer makes no second ticket
 
     /// The label `jira_create` gives the ticket for `key` in `run`.

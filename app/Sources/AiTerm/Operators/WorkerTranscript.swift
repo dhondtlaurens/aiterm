@@ -38,10 +38,6 @@ enum WorkerTranscript {
         (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date
     }
 
-    static func lastMessage(agent: AgentKind, conversation: String, home: URL, claudeConfig: ClaudeConfig) -> String? {
-        file(agent: agent, conversation: conversation, home: home, claudeConfig: claudeConfig).flatMap { lastMessage(in: $0, agent: agent) }
-    }
-
     /// The newest reply in the file's last `tailBytes`, read from the end.
     static func lastMessage(in file: URL, agent: AgentKind) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }

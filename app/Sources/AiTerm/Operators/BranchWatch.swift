@@ -3,10 +3,11 @@ import AiTermCore
 
 /// Watches that each worker commits on its task branch (`BranchDrift`), on every reconcile tick: the
 /// worktree's HEAD is read, and once a worker tab (`WorkerTab`) is idle at its prompt or done, the SHAs its
-/// last message names are looked up in the repository. A transcript is read again only once it was written since it
-/// was last read (`WorkerTranscript.modified`): an idle tab's is the same 512 KB tail every tick otherwise. What it finds is kept on the task, shown in `run_status`, and
-/// a newly found drift wakes the Operator once: `[AiTerm] PAY-2 committed off its task branch, call
-/// run_status`. A task taken over, not at work, or in a broadcast paused or ended, is not read.
+/// last message names are looked up in the repository. A transcript is read again only once it was written
+/// since it was last read (`WorkerTranscript.modified`): an idle tab's is the same 512 KB tail every tick
+/// otherwise. What it finds is kept on the task, shown in `run_status`, and a newly found drift wakes the
+/// Operator once: `[AiTerm] PAY-2 committed off its task branch, call run_status`. A task taken over, not
+/// at work, or in a broadcast paused or ended, is not read.
 @MainActor
 final class BranchWatch {
     private let workspace: WorkspaceStore

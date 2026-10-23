@@ -102,13 +102,13 @@ import Testing
         world.show([])
         #expect(world.run(run.id)?.state == .complete && world.run(run.id)?.intent == nil)
         #expect(world.run(run.id)?.operatorWindowId == nil, "its window is gone")
-        #expect(world.controller.activeRun?.id == run.id, "not ended: the debrief stays until End")
+        #expect(world.controller.activeRun?.id == run.id, "not ended: the summary stays until End")
         #expect(world.task(task.id)?.operated?.state == .accepted)
         #expect(world.daemon.requests("operator.revoke").isEmpty)
         #expect(try world.workspace.file.load().run(id: run.id)?.intent == nil)
         await world.controller.reopenOperator(run: run.id)
         #expect(world.daemon.requests("window.createTask").count == 1)
-        #expect(world.run(run.id)?.state == .complete, "still its debrief, not planning again")
+        #expect(world.run(run.id)?.state == .complete, "still its summary, not planning again")
     }
 
     /// A broadcast whose last open task ends while its Operator is offline completes on resume, as every end
@@ -239,7 +239,7 @@ import Testing
         #expect(world.run(run.id)?.state == .active && world.run(run.id)?.intent == nil)
     }
 
-    @Test func onlyAnBroadcastUnderWayCanBePaused() throws {
+    @Test func onlyABroadcastUnderWayCanBePaused() throws {
         let (world, run, _) = try makeWorld(runState: .complete)
         #expect(throws: ActionUnavailable.self) { try world.controller.pause(run: run.id) }
         #expect(world.run(run.id)?.state == .complete)

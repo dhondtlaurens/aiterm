@@ -147,7 +147,7 @@ import Testing
         #expect(lines == ["[AiTerm] updates waiting, call run_status"])
     }
 
-    @Test func anBroadcastThatMayNotBeWokenIsNot() async throws {
+    @Test func aBroadcastThatMayNotBeWokenIsNot() async throws {
         let waker = makeWaker()
         op.awake = false
         waker.acknowledged(status(questions: 0), of: run.id)
