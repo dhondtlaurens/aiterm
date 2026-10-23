@@ -1,5 +1,4 @@
 import Foundation
-import Synchronization
 import AiTermCore
 
 /// The Oracle's challenge (spec §8), enforced by AiTerm rather than the Operator: a challenged call does not
@@ -190,10 +189,11 @@ extension OperatorToolHandler {
         }
         runningChallenges[id] = settled
         lastChallenge = settled
-        let answered = await Self.first(challenge, within: ports.challengeReplyBudget)
+        // Nil out of budget, or cancelled with AiTerm quitting.
+        let answered = try? await Self.within(ports.challengeReplyBudget, cancelling: false) { await challenge.value }.get()
         if kind == .veto {
             // Within the budget the answer is this call's, and the record goes: its id was never named to the operator.
-            guard case .some(.some(let verdict)) = answered else { return try vetoPendingAnswer(call, id, merges: merges, in: run) }
+            guard let verdict = answered else { return try vetoPendingAnswer(call, id, merges: merges, in: run) }
             mutate(in: run.id) { $0.updateRun(id: run.id) { $0.challenges.removeAll { $0.id == id } } }
             switch verdict {
             case .critique(let text):
@@ -207,14 +207,14 @@ extension OperatorToolHandler {
             }
         }
         switch answered {
-        case nil, .some(nil):
+        case nil:
             // Out of budget, or cancelled with AiTerm quitting: its record stays running, and the next call
             // with the id reads it as lost with the restart.
             return Self.pendingAnswer(id)
-        case .critique(let critique)??:
+        case .critique(let critique)?:
             updateChallenge(id, in: run.id) { $0.stage = .delivered; $0.critique = critique }
             return Self.challengedAnswer(id, critique)
-        case .unchallenged(let reason)??:
+        case .unchallenged(let reason)?:
             // Its id was never named to the operator, so nothing calls with it: the record goes.
             mutate(in: run.id) { $0.updateRun(id: run.id) { $0.challenges.removeAll { $0.id == id } } }
             record(call, in: run, challenge: "unchallenged: \(reason)", reply: "proceeded")
@@ -461,20 +461,4 @@ extension OperatorToolHandler {
         encoder.outputFormatting = .sortedKeys
         return (try? encoder.encode(value)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
     }
-
-    /// The task's value, or nil once `budget` has passed: whichever comes first. The task itself goes on.
-    static func first<Value: Sendable>(_ task: Task<Value, Never>, within budget: Duration) async -> Value? {
-        let once = Once()
-        return await withCheckedContinuation { (continuation: CheckedContinuation<Value?, Never>) in
-            let finish: @Sendable (Value?) -> Void = { verdict in
-                if once.done.withLock({ done in defer { done = true }; return !done }) { continuation.resume(returning: verdict) }
-            }
-            // A ready value cancels the timer, so no sleep outlasts it by the rest of the budget.
-            let timer = Task { try? await Task.sleep(for: budget); finish(nil) }
-            Task { finish(await task.value); timer.cancel() }
-        }
-    }
 }
-
-/// Whichever of two racing tasks finishes first resumes the continuation; the other is ignored.
-private final class Once: Sendable { let done = Mutex(false) }

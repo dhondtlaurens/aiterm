@@ -64,8 +64,7 @@ extension OperatorToolHandler {
 
     /// Why `task` may not have a tab opened now, in the words the other tools' refusals use.
     private func tabRefusal(_ task: TaskItem, in run: OperatorRun) throws(ToolRefusal) {
-        try acceptsWork(run)
-        let operated = try notTakenOver(task)
+        let operated = try self.operated(task, in: run)
         guard [.working, .inReview].contains(operated.state) else {
             throw ToolRefusal("\(operated.key) is \(operated.state.rawValue): only a working task, or one in review, takes another tab.")
         }

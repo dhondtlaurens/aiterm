@@ -148,8 +148,7 @@ extension OperatorToolHandler {
     /// worker, or to the tab `tab` names.
     func messageTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let task = try self.task(call, in: run), text = try call.string("text")
-        try acceptsWork(run)
-        let operated = try notTakenOver(task)
+        let operated = try self.operated(task, in: run)
         // An ended task is left as it ended: more steering would move its branch past what was accepted. A task in
         // review is steered to fix its reviewers' feedback, and accepted again after; one accepted keeps its worker until
         // its commit is on origin, so a push the hook refused can be put to it (spec §D).
@@ -207,8 +206,7 @@ extension OperatorToolHandler {
         // A repeat of what was recorded changes nothing, so it answers even while paused or taken over.
         if let operated = task.operated, try await isRepeat(of: outcome, call, operated, in: task) { return Self.taskAnswer(task, created: false) }
         try recheck(task)
-        try acceptsWork(run)
-        let operated = try notTakenOver(task)
+        let operated = try self.operated(task, in: run)
         let action: OperatedAction
         switch outcome {
         case "accepted":
@@ -334,8 +332,7 @@ extension OperatorToolHandler {
     /// `blocked` → `working`, once the reason is resolved; a working task answers as it is.
     func resumeTask(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let task = try self.task(call, in: run)
-        try acceptsWork(run)
-        let operated = try notTakenOver(task)
+        let operated = try self.operated(task, in: run)
         if operated.state != .working { try apply(.resume, to: task) }
         return Self.taskAnswer(state.task(id: task.id) ?? task, created: false)
     }
@@ -343,8 +340,7 @@ extension OperatorToolHandler {
     /// `failed` → `queued` while retries are left; AiTerm then starts it again (`WorkerStarter`).
     func retryTask(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let task = try self.task(call, in: run)
-        try acceptsWork(run)
-        let operated = try notTakenOver(task)
+        let operated = try self.operated(task, in: run)
         guard operated.state == .failed else { return Self.taskAnswer(task, created: false) }
         let limit = OperatorTiming.retries
         guard operated.retriesUsed < limit else {
@@ -360,8 +356,7 @@ extension OperatorToolHandler {
               let run = state.run(id: operated.runId), operated.runId == original.operated?.runId else {
             throw ToolRefusal("This task is no longer in this broadcast.")
         }
-        try acceptsWork(run)
-        _ = try notTakenOver(task)
+        _ = try self.operated(task, in: run)
         guard operated.ownership == original.operated?.ownership, operated.state == original.operated?.state,
               operated.acceptance == original.operated?.acceptance, operated.dependsOn == original.operated?.dependsOn,
               operated.flags == original.operated?.flags else {
@@ -380,6 +375,13 @@ extension OperatorToolHandler {
         case .operatorOffline: throw ToolRefusal("AiTerm has this broadcast offline; it resumes it first.")
         case .stopped: throw ToolRefusal("This broadcast was stopped; its tools no longer act.")
         }
+    }
+
+    /// The task's record, once its broadcast takes work (`acceptsWork`) and the person hasn't taken it over (`notTakenOver`),
+    /// refused in that order.
+    func operated(_ task: TaskItem, in run: OperatorRun) throws(ToolRefusal) -> OperatedTask {
+        try acceptsWork(run)
+        return try notTakenOver(task)
     }
 
     func notTakenOver(_ task: TaskItem) throws(ToolRefusal) -> OperatedTask {

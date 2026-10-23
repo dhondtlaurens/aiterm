@@ -74,8 +74,6 @@ final class NewBroadcastModel: Identifiable {
     static let reviewPlaceholder = "An adversarial review with /code-review, then fix what it finds"
     static let donePlaceholder = "A draft MR per ticket"
 
-    /// The agents whose skills `/` lists: the two a task can run on.
-    static let skillAgents: [AgentKind] = [.claude, .codex]
 
     /// `readiness` is what Start waits for as it stands; `checkReadiness` reads it, for as long as the
     /// sheet is open. A test or a snapshot that leaves them out is ready at once.
@@ -249,19 +247,30 @@ final class NewBroadcastModel: Identifiable {
     func loadCompletions() async {
         let paths: [String?] = projects.isEmpty ? [nil] : projects.map(\.path)
         let only = projects.count == 1 ? projects.first?.path : nil
-        let skills = self.skills, files = self.files, agents = Self.skillAgents
+        let skills = self.skills, files = self.files
         let found = await BackgroundWork.run {
-            var seen = Set<String>(), all: [AgentCompletion] = []
-            for agent in agents {
-                for path in paths {
-                    for item in skills(agent, path) where seen.insert(item.name).inserted { all.append(item) }
-                }
-            }
-            return (skills: all, files: only.map(files) ?? .empty)
+            (skills: OperatorSkills.listed(at: paths, skills), files: only.map(files) ?? .empty)
         }
         guard !Task.isCancelled else { return }
         completions.all = found.skills
         completions.files = found.files
         completions.close()
+    }
+}
+
+/// The skills `/` lists in the Operator's editors (New Broadcast's, Settings › Operator's Instructions): those of the two
+/// agents a task can run on, Claude's first, then each of Codex's whose name is not listed yet.
+enum OperatorSkills {
+    static let agents: [AgentKind] = [.claude, .codex]
+
+    /// Each agent's skills at each of `paths` (nil: the home alone), every name once, in that order. Blocking.
+    static func listed(at paths: [String?], _ skills: (AgentKind, String?) -> [AgentCompletion]) -> [AgentCompletion] {
+        var seen = Set<String>(), all: [AgentCompletion] = []
+        for agent in agents {
+            for path in paths {
+                for item in skills(agent, path) where seen.insert(item.name).inserted { all.append(item) }
+            }
+        }
+        return all
     }
 }

@@ -425,11 +425,7 @@ enum OperatorSnapshots {
     /// No broadcast: the heading and its "+", over webshop and a task of your own.
     private static func headingEmpty() -> some View {
         let scene = OperatorScene(projects: [OperatorScene.project("webshop")])
-        let footer = TaskItem(id: UUID(), projectId: scene.webshop.id, title: "Fix the footer links", branch: "fix/web-88-footer",
-                              worktreePath: "/Users/me/Sites/webshop/.worktrees/web-88-footer", baseBranch: "main",
-                              jira: JiraRef(key: "WEB-88", summary: "Footer links", url: "https://example.atlassian.net/browse/WEB-88"),
-                              agent: .claude, model: "claude-opus-5-5", reasoning: "high", firstPrompt: nil, appendTicket: false,
-                              createdAt: Snapshots.clock.now, windowId: "w-footer")
+        let footer = scene.footerTask()
         scene.controller.workspace.mutate { $0.tasks = [footer] }
         scene.controller.live.sessions = [Fixture.session("s-footer", "w-footer", footer.id, "claude", "idle", 0,
                                                           cwd: footer.worktreePath, active: true)].compactMap { $0 }
@@ -590,8 +586,7 @@ enum OperatorSnapshots {
                                      readiness: BroadcastReadiness = .ready) -> some View {
         let projects = [OperatorScene.project("webshop"), OperatorScene.project("payments-api")]
         // What `/` lists: seeded, and found again by the load the sheet starts when hosted.
-        let skills = [AgentCompletion(name: "superpowers:brainstorming", kind: .skill,
-                                      detail: "You MUST use this before any creative work", source: .plugin("superpowers"))]
+        let skills = [brainstorming]
         let model = NewBroadcastModel(projects: projects, slices: slices, skills: { _, _ in skills },
                                       readiness: { readiness }) { _ in UUID() }
         model.received([OperatorScene.payments])
@@ -603,6 +598,10 @@ enum OperatorSnapshots {
         if slices.merge { model.done = "Merged after Jan’s approval, pipeline green." }
         return NewBroadcastSheet(model: model).seeded(step: step)
     }
+
+    /// The skill `/` lists in New Broadcast's and Settings › Operator's editors.
+    private static let brainstorming = AgentCompletion(name: "superpowers:brainstorming", kind: .skill,
+                                                       detail: "You MUST use this before any creative work", source: .plugin("superpowers"))
 
     // -- Settings -----------------------------------------------------------------------
 
@@ -618,8 +617,7 @@ enum OperatorSnapshots {
             models: [.claude: [AgentModel(id: "claude-opus-5-5", label: "Opus 5.5", detail: nil, efforts: efforts, defaultEffort: "high")],
                      .codex: [AgentModel(id: "gpt-6-astra", label: "gpt-6-astra", detail: nil, efforts: efforts, defaultEffort: "medium")]],
             agentDefaults: [:],
-            skills: [AgentCompletion(name: "superpowers:brainstorming", kind: .skill, detail: "You MUST use this before any creative work",
-                                     source: .plugin("superpowers"))])
+            skills: [brainstorming])
         let model = OperatorSettingsModel(installed: { [.claude, .codex] }, load: { loaded }, save: { _ in })
         model.received(loaded)
         return model

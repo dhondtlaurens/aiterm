@@ -190,8 +190,8 @@ struct PickChip: View {
 }
 
 /// A field of several picks: each a `PickChip`, then a search field after them that adds one more,
-/// its results hanging under the field in a `DropdownList` as `SearchPicker`'s do, keyed by
-/// `DropdownKeys`. The field wraps onto more lines as the chips fill it (`ChipFlow`). Focusing it, or
+/// its results hanging under the field in a `DropdownList` as `SearchPicker`'s do, keyed as its are
+/// (`DropdownKeys.perform`). The field wraps onto more lines as the chips fill it (`ChipFlow`). Focusing it, or
 /// typing, opens the list; a pick joins the chips and the field stays for the next one. The caller
 /// keeps `open`, since the sheet closes the list from outside: ⎋, and a click past it.
 struct ChipsPicker<Item: Identifiable, Row: View>: View {
@@ -253,13 +253,7 @@ struct ChipsPicker<Item: Identifiable, Row: View>: View {
     }
 
     private func command(_ selector: Selector) -> Bool {
-        let shown = visible
-        switch DropdownKeys.handle(selector: selector, count: shown.count, index: index, open: open) {
-        case .moved(let i): index = i; return true
-        case .accepted(let i): pick(shown[i]); return true
-        case .closed: open = false; index = 0; return true
-        case .unhandled: return false
-        }
+        DropdownKeys.perform(selector, on: visible, index: _index.projectedValue, open: $open, listening: open, pick: pick)
     }
 
     private func pick(_ item: Item) {

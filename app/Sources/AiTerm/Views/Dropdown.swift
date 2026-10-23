@@ -19,6 +19,19 @@ enum DropdownKeys {
         default: return .unhandled
         }
     }
+
+    /// `handle` carried out for a picker whose list shows `shown`, open or not: an arrow moves `index`, ↩ picks the row
+    /// (`pick`), ⎋ closes the list and starts the highlight over. Whether the key was the list's. `SearchPicker` and
+    /// `ChipsPicker` answer their keys through it.
+    static func perform<Item>(_ selector: Selector, on shown: [Item], index: Binding<Int>, open: Binding<Bool>, listening: Bool,
+                              pick: (Item) -> Void) -> Bool {
+        switch handle(selector: selector, count: shown.count, index: index.wrappedValue, open: listening) {
+        case .moved(let i): index.wrappedValue = i; return true
+        case .accepted(let i): pick(shown[i]); return true
+        case .closed: open.wrappedValue = false; index.wrappedValue = 0; return true
+        case .unhandled: return false
+        }
+    }
 }
 
 /// The panel every dropdown hangs in: a menu-shaped list of rows, `Size.menuRow` tall, with the

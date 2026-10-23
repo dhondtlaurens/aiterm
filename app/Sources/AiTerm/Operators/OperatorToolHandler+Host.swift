@@ -11,7 +11,7 @@ extension OperatorToolHandler {
         case state(MergeRequestState), note(String)
     }
 
-    /// The host, or Jira for `jira_search`, did not answer within the limit (`within`).
+    /// The host, Jira or the Oracle did not answer within the limit (`within`).
     struct NoAnswer: Error {}
 
     /// Fills `mergeRequest`, or `mergeRequestNote`, on every task of `status` that has a request, asking the hosts together.
@@ -59,8 +59,10 @@ extension OperatorToolHandler {
     }
 
     /// `work`, or `NoAnswer` when it has not ended within `limit`. The race is between two tasks started here, not a task
-    /// group, so a host call that ignores cancellation is left behind instead of holding the answer up.
-    static func within<Value: Sendable>(_ limit: Duration, _ work: @escaping @MainActor @Sendable () async throws -> Value) async -> Result<Value, any Error> {
+    /// group, so a host call that ignores cancellation is left behind instead of holding the answer up. The loser is
+    /// cancelled, `work` too unless `cancelling` is false: a wait that must go on after the answer (an Oracle's critique).
+    static func within<Value: Sendable>(_ limit: Duration, cancelling: Bool = true,
+                                        _ work: @escaping @MainActor @Sendable () async throws -> Value) async -> Result<Value, any Error> {
         let (finished, report) = AsyncStream<Result<Value, any Error>>.makeStream()
         let working = Task { @MainActor in
             do { report.yield(.success(try await work())) } catch { report.yield(.failure(error)) }
@@ -71,7 +73,7 @@ extension OperatorToolHandler {
         }
         var first: Result<Value, any Error> = .failure(NoAnswer())
         for await result in finished { first = result; break }
-        working.cancel()
+        if cancelling { working.cancel() }
         timer.cancel()
         return first
     }

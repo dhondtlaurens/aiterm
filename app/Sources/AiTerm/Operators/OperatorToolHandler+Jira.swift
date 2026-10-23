@@ -8,7 +8,6 @@ import AiTermCore
 /// while the operation is paused, offline or ended. A comment messages people, so it is a write of the slice like the rest.
 /// `jira_board` only reads, so it needs no slice.
 extension OperatorToolHandler {
-    private static let sliceOff = "The Jira slice is off for this broadcast."
     private static let notConnected = "Jira isn’t connected in AiTerm’s Settings › Integrations."
 
     func jiraCreate(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
@@ -19,9 +18,7 @@ extension OperatorToolHandler {
         let summary = try call.string("summary"), description = try call.string("description")
         let projectKey = try inScope(project: project, of: run)
         let parent = try call.optionalString("parent").map { try inScope(ticket: $0, of: run) }
-        try requireSlice(in: run, otherwise: "Create the Jira ticket “\(summary)” in \(projectKey)")
-        try jiraWritable(run.id)
-        let jira = try connectedJira()
+        let jira = try jiraWrite(in: run, otherwise: "Create the Jira ticket “\(summary)” in \(projectKey)")
         // Another call with this key is creating now: this one would make the ticket twice.
         let flight = "\(run.id.uuidString)/create/\(callKey)"
         guard filingFinds.insert(flight).inserted else { throw ToolRefusal("jira_create with this key is still running: call it again for its ticket.") }
@@ -68,18 +65,17 @@ extension OperatorToolHandler {
     /// paused or ended it, its Operator is offline, or its slice is off.
     func jiraWritable(_ runId: UUID) throws(ToolRefusal) {
         guard let run = state.run(id: runId) else { throw ToolRefusal("This broadcast is no longer in AiTerm.") }
-        guard run.profile.slices.jira else { throw ToolRefusal(Self.sliceOff) }
+        guard run.profile.slices.jira else { throw ToolRefusal(WriteSlice.jira.off) }
         if run.state == .planning, run.intent == nil { return }
         try acceptsWork(run)
     }
 
     func jiraMove(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let key = try inScope(ticket: try call.string("key"), of: run), status = try call.string("status")
-        try requireSlice(in: run, otherwise: "Move \(key) to \(status)")
-        try jiraWritable(run.id)
+        let jira = try jiraWrite(in: run, otherwise: "Move \(key) to \(status)")
         let runId = run.id
         // Jira's status and transitions are read first: the move is checked again after them.
-        let moved = try await connectedJira().transition(key: key, to: status, beforeWrite: { @MainActor [weak self] in
+        let moved = try await jira.transition(key: key, to: status, beforeWrite: { @MainActor [weak self] in
             guard let self else { throw ToolRefusal("AiTerm is closing; nothing more is written.") }
             try self.jiraWritable(runId)
         })
@@ -90,9 +86,7 @@ extension OperatorToolHandler {
     func jiraLink(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let key = try inScope(ticket: try call.string("key"), of: run), other = try inScope(ticket: try call.string("to"), of: run)
         let type = try call.string("type")
-        try requireSlice(in: run, otherwise: "Link \(key) to \(other) (\(type))")
-        let jira = try connectedJira()
-        try jiraWritable(run.id)
+        let jira = try jiraWrite(in: run, otherwise: "Link \(key) to \(other) (\(type))")
         try await jira.link(key: key, to: other, type: type)
         return ["key": .string(key), "to": .string(other), "type": .string(type), "linked": true]
     }
@@ -155,12 +149,11 @@ extension OperatorToolHandler {
         }
         let target = try sprintTarget(call)
         let list = tickets.joined(separator: ", ")
+        let jira: any OperatorJira
         switch target {
-        case .sprint(let id): try requireSlice(in: run, otherwise: "Put \(list) in sprint \(id)")
-        case .backlog: try requireSlice(in: run, otherwise: "Move \(list) to the backlog")
+        case .sprint(let id): jira = try jiraWrite(in: run, otherwise: "Put \(list) in sprint \(id)")
+        case .backlog: jira = try jiraWrite(in: run, otherwise: "Move \(list) to the backlog")
         }
-        try jiraWritable(run.id)
-        let jira = try connectedJira()
         let runId = run.id, projects = run.jiraProjectKeys, moved = tickets
         let budget = ports.jiraSearchBudget
         // Jira's boards and sprints are read first: the move is checked again after them, right before it is sent.
@@ -197,9 +190,7 @@ extension OperatorToolHandler {
         guard !fields.isEmpty else {
             throw ToolRefusal("jira_edit needs at least one of summary, description, labelsAdd, labelsRemove, priority, fixVersions or assignee.")
         }
-        try requireSlice(in: run, otherwise: "Edit \(ticket)")
-        try jiraWritable(run.id)
-        let jira = try connectedJira()
+        let jira = try jiraWrite(in: run, otherwise: "Edit \(ticket)")
         let runId = run.id
         // An assignee is looked up first: the edit is checked again after it, right before it is sent.
         try await jira.edit(key: ticket, fields: fields, beforeWrite: { @MainActor [weak self] in
@@ -219,9 +210,7 @@ extension OperatorToolHandler {
             return ["commentId": .string(id), "commented": false, "note": "The first call with this key already posted it."]
         }
         let ticket = try inScope(ticket: try call.string("ticket"), of: run), body = try call.string("body")
-        try requireSlice(in: run, otherwise: "Comment on \(ticket)")
-        try jiraWritable(run.id)
-        let jira = try connectedJira()
+        let jira = try jiraWrite(in: run, otherwise: "Comment on \(ticket)")
         let runId = run.id
         // Another call with this key is posting now: this one would post it twice.
         let flight = "\(runId.uuidString)/comment/\(callKey)"
@@ -297,14 +286,12 @@ extension OperatorToolHandler {
         return false
     }
 
-    /// Refuses a write the Jira slice does not allow, and leaves `otherwise` (what was not done) for the person once.
-    private func requireSlice(in run: OperatorRun, otherwise left: String) throws(ToolRefusal) {
-        guard !run.profile.slices.jira else { return }
-        let sentence = "\(left): the Jira slice is off."
-        mutate(in: run.id) { state in
-            state.updateRun(id: run.id) { if !$0.leftForYou.contains(sentence) { $0.leftForYou.append(sentence) } }
-        }
-        throw ToolRefusal(Self.sliceOff)
+    /// The Jira a write goes through, refused in this order: the slice off (`left`, what was not done, left for the
+    /// person once), the broadcast not taking writes now (`jiraWritable`), Jira not connected.
+    private func jiraWrite(in run: OperatorRun, otherwise left: String) throws(ToolRefusal) -> any OperatorJira {
+        try requireSlice(.jira, in: run, otherwise: left)
+        try jiraWritable(run.id)
+        return try connectedJira()
     }
 
     private func connectedJira() throws(ToolRefusal) -> any OperatorJira {

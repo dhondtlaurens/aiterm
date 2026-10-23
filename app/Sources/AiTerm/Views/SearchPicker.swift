@@ -90,12 +90,7 @@ struct SearchPicker<Item: Identifiable, Row: View, Selected: View>: View {
     }
 
     private func command(_ selector: Selector) -> Bool {
-        switch DropdownKeys.handle(selector: selector, count: visible.count, index: index, open: open && selection == nil) {
-        case .moved(let i): index = i; return true
-        case .accepted(let i): pick(visible[i]); return true
-        case .closed: open = false; index = 0; return true
-        case .unhandled: return false
-        }
+        DropdownKeys.perform(selector, on: visible, index: _index.projectedValue, open: $open, listening: open && selection == nil, pick: pick)
     }
 
     private func pick(_ item: Item) {

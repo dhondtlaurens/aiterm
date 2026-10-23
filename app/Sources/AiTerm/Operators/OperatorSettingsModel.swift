@@ -19,8 +19,6 @@ final class OperatorSettingsModel {
 
     /// The agents that can be the Oracle: every one, since `ChallengeLaunch` runs each headless.
     nonisolated static let oracleAgents: [AgentKind] = AgentKind.allCases
-    /// The agents whose skills `/` lists in Instructions.
-    nonisolated static let skillAgents: [AgentKind] = [.claude, .codex]
 
     private(set) var isLoaded = false
     /// The Operator's model and reasoning: always Claude's.
@@ -184,12 +182,8 @@ extension OperatorSettingsModel {
             }
             let claude = OperatorProfileStore.claudeDefault(models: models[.claude] ?? [], defaults: store)
             agentDefaults[.claude] = ModelPreference(model: claude.model, reasoning: claude.reasoning)
-            var seen = Set<String>(), found: [AgentCompletion] = []
-            for agent in skillAgents {
-                for item in skills(agent) where seen.insert(item.name).inserted { found.append(item) }
-            }
             return Loaded(profile: OperatorProfileStore.load(store, claudeDefault: claude, installed: installedNow), models: models,
-                          agentDefaults: agentDefaults, skills: found)
+                          agentDefaults: agentDefaults, skills: OperatorSkills.listed(at: [nil]) { agent, _ in skills(agent) })
         }, save: { try OperatorProfileStore.save($0, store) })
     }
 }

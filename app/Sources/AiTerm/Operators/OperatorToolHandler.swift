@@ -33,6 +33,15 @@ struct ToolCall {
     func optionalBool(_ key: String) -> Bool? { arguments[key]?.boolValue }
 }
 
+/// A slice of the broadcast's profile that a tool's write needs (spec §5): off, the write is refused and left for the person.
+enum WriteSlice {
+    case jira, review
+    var name: String { self == .jira ? "Jira" : "Review" }
+    func isOn(in slices: Slices) -> Bool { self == .jira ? slices.jira : slices.review }
+    /// The refusal while it is off.
+    var off: String { "The \(name) slice is off for this broadcast." }
+}
+
 /// The Jira search behind `jira_search`: the app's client, or a test's.
 protocol OperatorJira: Sendable {
     /// The site Settings is connected to: where the broadcast's chosen Jira projects live.
@@ -279,6 +288,16 @@ final class OperatorToolHandler {
             waker.ownChange(from: before, to: after, of: id)
         }
         return result
+    }
+
+    /// Refuses a write `slice` does not allow, and leaves `left` (what was not done) for the person once.
+    func requireSlice(_ slice: WriteSlice, in run: OperatorRun, otherwise left: String) throws(ToolRefusal) {
+        guard !slice.isOn(in: run.profile.slices) else { return }
+        let sentence = "\(left): the \(slice.name) slice is off."
+        mutate(in: run.id) { state in
+            state.updateRun(id: run.id) { if !$0.leftForYou.contains(sentence) { $0.leftForYou.append(sentence) } }
+        }
+        throw ToolRefusal(slice.off)
     }
 
     /// One tool, by its name.
