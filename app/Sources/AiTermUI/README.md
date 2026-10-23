@@ -216,7 +216,7 @@ vendor needs both.
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
 `HelpWithProblemsGroup`, `OperatorSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
 `NewBroadcastSheet` (with `ChipsPicker`, `PickChip`, `ChipFlow` and `ProjectResultRow`), `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardTabLine`, `BoardHeading`, `BoardScroll`,
-`TaskBadges`, `BroadcastActivityView`, `BroadcastSummaryView`, `ArchiveSheet`, `ArchiveRow`, `ShelvedBroadcastRow`, `ShelvedBroadcastHost`.
+`TaskBadges`, `BroadcastActivityView`, `BroadcastSummaryView`, `ArchiveSheet`, `ArchiveRow`, `ShelvedBroadcastRow`.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
@@ -559,7 +559,7 @@ below rather than `Space.margin`, since the pills pad themselves (`SheetLayout`'
 `contentVerticalPadding`). An ended broadcast is a `ShelvedBroadcastRow` among them, by the day it ended: the
 broadcast header's mark (`ProviderIcon` on `BroadcastHeaderRow.glyph`, in its `Size.avatar` square), the
 `RowTitle` with its name, and that day trailing as a task's does; its tooltip is what it was asked. On it the
-primary button reads Open: the Shelf gives its slot to the broadcast's sheet (`ShelvedBroadcastHost`), the
+primary button reads Open: the Shelf gives its slot to the broadcast's sheet (`BroadcastBoardHost` from the shelved source), the
 `BroadcastBoardSheet` of `BroadcastBoard.shelved` — read-only, on Summary, Close alone. The footer counts — "5 shelved", "1 of 5" — beside Close and Restore;
 with no row shown Restore is absent. Nothing shelved reads "Nothing on the shelf yet." over a
 `HelpText`, as `SidebarEmptyState` does; a search that finds nothing, "No shelved task matches

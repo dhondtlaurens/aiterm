@@ -74,7 +74,7 @@ extension AppController {
         /// The broadcast's sheet, Board · Activity · Summary: read live from the workspace and its run
         /// folder, so it carries only the run's id.
         case broadcastBoard(UUID)
-        /// An ended broadcast's sheet, opened from the Shelf: read-only, on Summary (`ShelvedBroadcastHost`).
+        /// An ended broadcast's sheet, opened from the Shelf: read-only, on Summary (`BroadcastBoardHost`, shelved).
         case shelvedBroadcast(UUID)
         var id: String {
             switch self {

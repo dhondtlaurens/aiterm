@@ -140,7 +140,7 @@ final class OperatorToolHandler {
     var onMessaged: @MainActor (UUID) -> Void = { _ in }
     /// Carries out a task's recorded end (G10), past the push hooks when told (`noVerify`): the controller's `TaskFinisher`.
     var finish: @MainActor (UUID, Bool) async -> TaskFinisher.Result = { _, _ in
-        TaskFinisher.Result(result: "refused", reason: "AiTerm isn’t ready to publish yet.")
+        TaskFinisher.Result(result: .refused, reason: "AiTerm isn’t ready to publish yet.")
     }
 
     /// The tools that act on one task while they run: its line says the act meanwhile (`act(for:on:)`).

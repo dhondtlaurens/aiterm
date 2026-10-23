@@ -17,7 +17,12 @@ import AiTermCore
 final class TaskFinisher {
     /// What `finish_task` answers the operator: what was done, whatever the outcome.
     struct Result: Codable, Equatable, Sendable {
-        var result: String
+        /// How the call ended, by the word the Operator reads in `result`.
+        enum Kind: String, Codable, Sendable {
+            case published, inReview, waitingToMerge, blocked, refused, failed, leftForYou
+        }
+
+        var result: Kind
         var reason: String?
         var mergeRequest: String?
         var pushedSHA: String?
@@ -27,13 +32,13 @@ final class TaskFinisher {
         /// `left as a draft`, `marked ready`): so the Operator needn't ask the host. Nil when this call did nothing to it.
         var draftNote: String?
 
-        init(result: String, reason: String? = nil, mergeRequest: String? = nil, pushedSHA: String? = nil,
+        init(result: Kind, reason: String? = nil, mergeRequest: String? = nil, pushedSHA: String? = nil,
              merged: Bool = false, mergedSHA: String? = nil, draftNote: String? = nil) {
             self.result = result; self.reason = reason; self.mergeRequest = mergeRequest
             self.pushedSHA = pushedSHA; self.merged = merged; self.mergedSHA = mergedSHA; self.draftNote = draftNote
         }
 
-        init(_ publication: TaskPublication?, result: String, reason: String?) {
+        init(_ publication: TaskPublication?, result: Kind, reason: String?) {
             let publication = publication ?? TaskPublication()
             self.init(result: result, reason: reason, mergeRequest: publication.mergeRequestURL,
                       pushedSHA: publication.pushedSHA, merged: publication.merged, mergedSHA: publication.mergedSHA)
@@ -103,7 +108,7 @@ final class TaskFinisher {
     func finish(_ id: UUID, noVerify: Bool = false) async -> Result {
         if noVerify, let operated = store.state.task(id: id)?.operated, Self.stillToPush(operated),
            operated.publication?.pushFailure(for: operated.acceptance?.resultSHA) == nil {
-            return Result(operated.publication, result: "refused", reason: Self.noFailedPush)
+            return Result(operated.publication, result: .refused, reason: Self.noFailedPush)
         }
         return await run(id, restart: watchers[id] == nil, noVerify: noVerify)
     }
@@ -180,22 +185,19 @@ final class TaskFinisher {
     /// A publication's step, and what the Merge slice kept from happening left for you once (spec §5).
     private func advance(_ id: UUID, restart: Bool, noVerify: Bool) async -> Result {
         let result = await publish(id, restart: restart, noVerify: noVerify)
-        if result.result == "refused", let reason = result.reason,
+        if result.result == .refused, let reason = result.reason,
            let task = store.state.task(id: id), let operated = task.operated,
            operated.state == .accepted, Self.permanent(reason) {
             let project = store.state.project(id: task.projectId)?.name ?? "its project"
             let remaining = operated.end.merges ? "Merge \(task.branch) in \(project)" : "Push \(task.branch) in \(project) and open its merge request"
-            let sentence = "\(remaining): \(reason)"
-            store.mutate { state in
+            leaveForYou("\(remaining): \(reason)", in: operated.runId) { state in
                 state.updateOperated(id) {
                     var publication = $0.publication ?? TaskPublication()
                     publication.leftForYou = true
                     publication.problem = nil
                     $0.publication = publication
                 }
-                state.updateRun(id: operated.runId) { if !$0.leftForYou.contains(sentence) { $0.leftForYou.append(sentence) } }
             }
-            _ = store.flush()
         }
         return result
     }
@@ -206,26 +208,27 @@ final class TaskFinisher {
             || reason.contains("branch is the default branch")
     }
 
-    /// `sentence` in the run's Left for you, once.
-    private func leaveForYou(_ sentence: String, in run: UUID) {
+    /// `sentence` in the run's Left for you, once, saved in one change with `also`.
+    private func leaveForYou(_ sentence: String, in run: UUID, also: (inout AppState) -> Void = { _ in }) {
         store.mutate { state in
+            also(&state)
             state.updateRun(id: run) { if !$0.leftForYou.contains(sentence) { $0.leftForYou.append(sentence) } }
         }
         _ = store.flush()
     }
 
     private func publish(_ id: UUID, restart: Bool, noVerify: Bool) async -> Result {
-        guard var first = context(of: id) else { return Result(result: "refused", reason: PublicationGuard.gone) }
+        guard var first = context(of: id) else { return Result(result: .refused, reason: PublicationGuard.gone) }
         // A task in review: this finish_task ends the review (spec §5). A draft end is then published; a merge end
         // goes on to its merge.
         if first.operated.state == .inReview {
             if let ended = endReview(first) { return ended }
-            guard let fresh = context(of: id) else { return Result(result: "refused", reason: PublicationGuard.gone) }
+            guard let fresh = context(of: id) else { return Result(result: .refused, reason: PublicationGuard.gone) }
             first = fresh
         }
         let task = first.task, operated = first.operated, project = first.project
         // What is done is answered from the record, whatever the host's connection is now.
-        if operated.publication?.leftForYou == true { return Result(operated.publication, result: "leftForYou", reason: nil) }
+        if operated.publication?.leftForYou == true { return Result(operated.publication, result: .leftForYou, reason: nil) }
         if operated.state == .published || operated.publication?.merged == true {
             return apply(.published(operated.publication ?? TaskPublication()), to: id)
         }
@@ -234,51 +237,43 @@ final class TaskFinisher {
         do {
             // What the plan or the operation rules out is said before any host is asked for.
             let (defaultBranch, tip) = try await BackgroundWork.run { (repository.defaultBranch(), try repository.tip(of: branch)) }
-            guard let fresh = context(of: id) else { return Result(result: "refused", reason: PublicationGuard.gone) }
+            guard let fresh = context(of: id) else { return Result(result: .refused, reason: PublicationGuard.gone) }
             if let refusal = PublicationGuard.refusal(task: fresh.task, run: fresh.run, parent: fresh.parent,
                                                       defaultBranch: defaultBranch, branchTip: tip) {
-                return Result(fresh.operated.publication, result: "refused", reason: refusal)
+                return Result(fresh.operated.publication, result: .refused, reason: refusal)
             }
             // A local merge asks no host and pushes nothing.
             if fresh.operated.end == .mergeLocal { return await mergeLocally(fresh, repository: repository) }
             guard let origin = try await BackgroundWork.run({ try git.ask(["remote", "get-url", "origin"], in: path, none: [2]) }) else {
-                return Result(fresh.operated.publication, result: "refused", reason: PublishRefusal.noOrigin.localizedDescription)
+                return Result(fresh.operated.publication, result: .refused, reason: PublishRefusal.noOrigin.localizedDescription)
             }
             remote = ProviderDetector.detect(remoteUrl: origin, repoPath: path)
         } catch {
             let why = GitError.displayReason(of: error)
             recordFailure(why, on: id)
-            return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: why)
+            return Result(store.state.task(id: id)?.operated?.publication, result: .failed, reason: why)
         }
         let host: any MergeRequestPublishing
         do { host = try connect(remote) }
         catch {
             let reason = error is MergeRequestSearch.Unavailable ? "\(project.name) has no connected code host." : Self.unavailable(error)
-            return Result(store.state.task(id: id)?.operated?.publication, result: "refused", reason: reason)
+            return Result(store.state.task(id: id)?.operated?.publication, result: .refused, reason: reason)
         }
         // Read fresh: the checks above awaited git.
-        guard let current = context(of: id) else { return Result(result: "refused", reason: PublicationGuard.gone) }
+        guard let current = context(of: id) else { return Result(result: .refused, reason: PublicationGuard.gone) }
         let ownership = current.operated.ownership, accepted = current.operated.acceptance?.resultSHA ?? ""
-        let drafted = DraftNews()
+        let drafted = DraftNews(), step = steps(of: id, ownership: ownership, sha: accepted)
         let publisher = TaskPublisher(repository: repository, host: host, now: now, noted: { drafted.record($0) })
         do {
             let outcome = try await publisher.advance(
                 TaskPublisher.Context(task: current.task, run: current.run, parent: current.parent,
                                       forReview: TaskPublisher.Context.entersReview(current.operated, run: current.run)),
-                restart: restart, noVerify: noVerify,
-                recheck: { @MainActor [weak self] in
-                    guard let self else { return PublicationGuard.gone }
-                    return self.recheck(id, ownership: ownership, sha: accepted)
-                },
-                record: { @MainActor [weak self] publication in
-                    guard let self else { throw NotSaved() }
-                    try self.record(publication, for: id, ownership: ownership)
-                })
+                restart: restart, noVerify: noVerify, recheck: step.recheck, record: step.record)
             var result = apply(outcome, to: id, forReview: TaskPublisher.Context.entersReview(current.operated, run: current.run))
             result.draftNote = draftNote(drafted, of: id)
             return result
         } catch is NotSaved {
-            var failed = Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: Self.notSavedReason)
+            var failed = Result(store.state.task(id: id)?.operated?.publication, result: .failed, reason: Self.notSavedReason)
             failed.draftNote = draftNote(drafted, of: id)
             return failed
         } catch {
@@ -288,7 +283,7 @@ final class TaskFinisher {
                 await BackgroundWork.run { refresh() }
             }
             recordFailure(why, on: id, hookSaid: (error as? GitError).flatMap(Self.hookRefusal).map { ($0, accepted) })
-            var failed = Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: why)
+            var failed = Result(store.state.task(id: id)?.operated?.publication, result: .failed, reason: why)
             failed.draftNote = draftNote(drafted, of: id)
             return failed
         }
@@ -313,9 +308,10 @@ final class TaskFinisher {
         }
     }
 
-    /// A publication that failed — a push its pre-push hook refused, a host that errored — recorded as the
-    /// task's problem and saved, so its line says `blocked` and why, not `opening the MR` for as long as it
-    /// waits for you. The next `finish_task` clears it (`TaskPublisher`). `hookSaid`, for a push the hook
+    /// A publication that failed — a push its pre-push hook refused, a host that errored — or a watch that has to
+    /// stop for what it found, recorded as the task's problem and saved, so its line says `blocked` and why, not
+    /// `opening the MR` for as long as it waits for you, and nothing watches it again: the next `finish_task` clears
+    /// it (`TaskPublisher`). `hookSaid`, for a push the hook
     /// refused, is kept as `lastPushFailure` with the commit it refused, for the Oracle to judge a `noVerify` by.
     private func recordFailure(_ why: String, on id: UUID, hookSaid: (output: String, sha: String)? = nil) {
         store.mutate { state in
@@ -332,29 +328,23 @@ final class TaskFinisher {
     /// A local merge end (spec §5): merged into the project's own checkout's default branch and recorded as published;
     /// pushing that branch is left for you.
     private func mergeLocally(_ current: Context, repository: Repository) async -> Result {
-        let id = current.task.id, ownership = current.operated.ownership, accepted = current.operated.acceptance?.resultSHA ?? ""
+        let id = current.task.id
+        let step = steps(of: id, ownership: current.operated.ownership, sha: current.operated.acceptance?.resultSHA ?? "")
         do {
             let outcome = try await TaskPublisher.mergeLocally(
                 TaskPublisher.Context(task: current.task, run: current.run, parent: current.parent), repository: repository,
-                recheck: { @MainActor [weak self] in
-                    guard let self else { return PublicationGuard.gone }
-                    return self.recheck(id, ownership: ownership, sha: accepted)
-                },
-                record: { @MainActor [weak self] publication in
-                    guard let self else { throw NotSaved() }
-                    try self.record(publication, for: id, ownership: ownership)
-                })
+                recheck: step.recheck, record: step.record)
             let result = apply(outcome, to: id)
-            if result.result == "published", let into = result.merged ? store.state.task(id: id)?.operated?.publication?.targetBranch : nil {
+            if result.result == .published, let into = result.merged ? store.state.task(id: id)?.operated?.publication?.targetBranch : nil {
                 leaveForYou("Push \(into) in \(current.project.name): merged locally.", in: current.run.id)
             }
             return result
         } catch is NotSaved {
-            return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: Self.notSavedReason)
+            return Result(store.state.task(id: id)?.operated?.publication, result: .failed, reason: Self.notSavedReason)
         } catch {
             let why = GitError.displayReason(of: error)
             recordFailure(why, on: id)
-            return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: why)
+            return Result(store.state.task(id: id)?.operated?.publication, result: .failed, reason: why)
         }
     }
 
@@ -368,6 +358,19 @@ final class TaskFinisher {
         guard let task = state.task(id: id), let operated = task.operated,
               let run = state.run(id: operated.runId), let project = state.project(id: task.projectId) else { return nil }
         return Context(task: task, operated: operated, run: run, project: project, parent: operated.stackedOn.flatMap { state.task(id: $0) })
+    }
+
+    /// What a publication of `id` checks before each step and saves after it (`recheck`, `record`), under the ownership
+    /// and accepted commit it started with.
+    private func steps(of id: UUID, ownership: Int, sha: String)
+        -> (recheck: @Sendable () async -> String?, record: @Sendable (TaskPublication) async throws -> Void) {
+        ({ @MainActor [weak self] in
+            guard let self else { return PublicationGuard.gone }
+            return self.recheck(id, ownership: ownership, sha: sha)
+        }, { @MainActor [weak self] publication in
+            guard let self else { throw NotSaved() }
+            try self.record(publication, for: id, ownership: ownership)
+        })
     }
 
     /// Read fresh before every step that changes something outside this machine.
@@ -401,13 +404,6 @@ final class TaskFinisher {
         return run.intent != nil || !(run.state == .active || run.state == .complete)
     }
 
-    /// A watch that has to stop for what it found: the reason recorded as the problem and saved, so
-    /// nothing watches it again until `finish_task`.
-    private func recordProblem(_ why: String, on id: UUID) {
-        store.mutate { $0.updateOperated(id) { $0.publication?.problem = why } }
-        _ = store.flush()
-    }
-
     /// What `finish_task` answers once a task went into review.
     static let inReviewReason = "People review it now: AiTerm wakes you when a reviewer opens or resolves a thread or approves it. "
         + "Have its agent fix the feedback, accept the new commit and call finish_task to push it. Call finish_task once more to end the review."
@@ -416,9 +412,9 @@ final class TaskFinisher {
     /// answer. Refused while the operation does not run or you have the task.
     private func endReview(_ context: Context) -> Result? {
         let id = context.task.id, operated = context.operated
-        if let why = PublicationGuard.runRefusal(context.run) { return Result(operated.publication, result: "refused", reason: why) }
+        if let why = PublicationGuard.runRefusal(context.run) { return Result(operated.publication, result: .refused, reason: why) }
         if operated.takenOver {
-            return Result(operated.publication, result: "refused", reason: "You've taken \(operated.key) over; its review ends only once you hand it back.")
+            return Result(operated.publication, result: .refused, reason: "You've taken \(operated.key) over; its review ends only once you hand it back.")
         }
         let merges = operated.end == .merge
         store.mutate { state in
@@ -430,13 +426,13 @@ final class TaskFinisher {
             }
         }
         _ = store.flush()
-        return merges ? nil : Result(operated.publication, result: "published", reason: nil)
+        return merges ? nil : Result(operated.publication, result: .published, reason: nil)
     }
 
     private func apply(_ outcome: TaskPublisher.Outcome, to id: UUID, forReview: Bool = false) -> Result {
         switch outcome {
         case .refused(let reason):
-            return Result(store.state.task(id: id)?.operated?.publication, result: "refused", reason: reason)
+            return Result(store.state.task(id: id)?.operated?.publication, result: .refused, reason: reason)
         case .published(let publication) where forReview:
             // Its request is open as a draft: people review it now, and nothing ends until the review does.
             store.mutate { state in
@@ -448,7 +444,7 @@ final class TaskFinisher {
                 }
             }
             _ = store.flush()
-            return Result(publication, result: "inReview", reason: Self.inReviewReason)
+            return Result(publication, result: .inReview, reason: Self.inReviewReason)
         case .published(let publication):
             // The end is carried out on the host already: the state follows whatever the save does.
             store.mutate { state in
@@ -456,16 +452,16 @@ final class TaskFinisher {
                 state.tasks[index].operated?.state = .published
             }
             _ = store.flush()
-            return Result(publication, result: "published", reason: nil)
+            return Result(publication, result: .published, reason: nil)
         case .waiting(let publication, let why):
             store.mutate { $0.updateOperated(id) { $0.publication?.waitingReason = why } }
             _ = store.flush()
             watch(id)
-            return Result(publication, result: "waitingToMerge", reason: why)
+            return Result(publication, result: .waitingToMerge, reason: why)
         case .blocked(let publication, let why):
             // Merged on the host with commits nobody accepted: yours to decide, never polled again.
             if publication.mergedSHA != nil, !publication.merged { mergedOnHost(id, why) }
-            return Result(publication, result: "blocked", reason: why)
+            return Result(publication, result: .blocked, reason: why)
         }
     }
 
@@ -492,18 +488,18 @@ final class TaskFinisher {
                 let result = await self.run(id, restart: false)
                 guard !Task.isCancelled else { return }
                 switch result.result {
-                case "waitingToMerge":
+                case .waitingToMerge:
                     failures = 0
                     continue
-                case "refused":
+                case .refused:
                     guard !self.isSuspended(id), self.store.state.task(id: id)?.operated != nil else { return }
                     let why = result.reason ?? PublicationGuard.changedMidway
-                    self.recordProblem(why, on: id)
+                    self.recordFailure(why, on: id)
                     self.watchStopped(id, why)
-                case "failed":
+                case .failed:
                     failures += 1
                     if failures < 3 { continue }
-                    self.recordProblem(result.reason ?? "AiTerm couldn’t reach the host", on: id)
+                    self.recordFailure(result.reason ?? "AiTerm couldn’t reach the host", on: id)
                     self.changed(id)
                 default:
                     self.changed(id)

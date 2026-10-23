@@ -228,6 +228,7 @@ final class OperatorController {
         waker.cleared = { [weak self] run in
             if self?.wakeNotice?.run == run { self?.wakeNotice = nil }
         }
+        reconciler.tabsKnown = { [weak self] in self?.tabsKnown ?? false }
         tools.onActing = { [weak self] activity, on in self?.setActing(activity, on) }
         starter.onActing = { [weak self] activity, on in self?.setActing(activity, on) }
         tools.onChange = { [weak self] in self?.runChanged($0) }
@@ -247,7 +248,7 @@ final class OperatorController {
         finisher.mergedOnHost = { [weak self] id, why in self?.askAboutMergeOnHost(id, why) }
         finisher.watchStopped = { [weak self] id, _ in self?.mergeWatchStopped(id) }
         tools.finish = { [weak self] id, noVerify in
-            guard let self else { return TaskFinisher.Result(result: "refused", reason: "AiTerm is closing.") }
+            guard let self else { return TaskFinisher.Result(result: .refused, reason: "AiTerm is closing.") }
             return await self.finisher.finish(id, noVerify: noVerify)
         }
         notices.onIssueChanged { [weak self] old, new in self?.bannerChanged(from: old, to: new) }
@@ -549,7 +550,6 @@ final class OperatorController {
         switch event {
         case .snapshot(let snapshot):
             tabsKnown = snapshot.connected
-            reconciler.synced = snapshot.connected
             sessionsChanged()
             // After a reconnect: the daemon forgot every ownership generation, and what happened meanwhile
             // is looked at now rather than in a minute (spec §11).
@@ -561,7 +561,6 @@ final class OperatorController {
             }
         case .itermDisconnected, .itermAuthFailed:
             tabsKnown = false
-            reconciler.synced = false
             // iTerm2 back with the helper still there: its tabs are looked at on the next snapshot, as after an attach.
             reattached = true
         case .sessionOpened, .sessionChanged, .sessionClosed, .windowClosed: sessionsChanged()
@@ -576,7 +575,6 @@ final class OperatorController {
     func daemonAttached() {
         // A new daemon's tabs are known once its first connected snapshot comes.
         tabsKnown = false
-        reconciler.synced = false
         guard let daemon = daemon() else { return }
         reattached = true
         let open = runs.filter { !$0.hasEnded }.map { ($0.id, folder(of: $0.id)) }
@@ -694,7 +692,7 @@ final class OperatorController {
         observeRuns()
         // A summary overdue while AiTerm was not running, or whose wait went with it, is given up on here.
         for run in runs where run.state == .complete { giveUpOnSummary(run.id) }
-        guard reconciler.synced else { return }
+        guard tabsKnown else { return }
         for id in reconciler.tick() { runChanged(id) }
         applyStallFlags()
         quiet.refresh()

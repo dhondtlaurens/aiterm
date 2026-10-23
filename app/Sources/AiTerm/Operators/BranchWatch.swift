@@ -12,9 +12,9 @@ final class BranchWatch {
     private let live: LiveSessions
     private let ports: OperatorPorts
     private let waker: OperatorWaker
-    private var polling: Task<Void, Never>?
+    private let pass = TickPass()
     /// The latest pass, for a test to await.
-    private(set) var lastPoll: Task<Void, Never>?
+    var lastPoll: Task<Void, Never>? { pass.last }
 
     init(workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts, waker: OperatorWaker) {
         self.workspace = workspace
@@ -35,15 +35,7 @@ final class BranchWatch {
 
     /// One pass over every watched task, unless the last is still reading.
     func poll() {
-        guard polling == nil else { return }
-        let ids = state.tasks.filter(isWatched).map(\.id)
-        guard !ids.isEmpty else { return }
-        let pass = Task { [weak self] in
-            for id in ids { await self?.check(id) }
-            self?.polling = nil
-        }
-        polling = pass
-        lastPoll = pass
+        pass.run(state.tasks.filter(isWatched).map(\.id)) { [weak self] in await self?.check($0) }
     }
 
     private func check(_ id: UUID) async {

@@ -16,9 +16,9 @@ final class RunReconciler {
     private let tabs: TabOpener
     private let waker: OperatorWaker
     private let ports: OperatorPorts
-    /// Whether a connected snapshot has come since the helper attached: until then, a tab not listed
-    /// is not a tab gone.
-    var synced = false
+    /// Whether a connected snapshot has come since the helper attached (the controller's `tabsKnown`): until then, a
+    /// tab not listed is not a tab gone.
+    var tabsKnown: @MainActor () -> Bool = { false }
     /// The latest relaunch, for a test to await.
     private(set) var lastLaunch: Task<Void, Never>?
     /// The latest extra tab asked for again, for a test to await.
@@ -44,7 +44,7 @@ final class RunReconciler {
     /// One pass. The runs whose state it changed or in which it blocked a task, for their scheduling and completion.
     @discardableResult
     func tick() -> Set<UUID> {
-        guard synced else { return [] }
+        guard tabsKnown() else { return [] }
         let sessions = live.sessions, now = ports.now()
         firstSynced = firstSynced ?? now
         var changed: Set<UUID> = []

@@ -95,7 +95,7 @@ final class MergeClock: Sendable {
     @Test func aDraftMREndIsPushedOpenedSavedAndPublished() async throws {
         let s = try setUp(end: .draftMR)
         let result = await s.finisher.finish(s.task)
-        #expect(result == TaskFinisher.Result(result: "published", reason: nil, mergeRequest: FakeMergeHost.url,
+        #expect(result == TaskFinisher.Result(result: .published, reason: nil, mergeRequest: FakeMergeHost.url,
                                               pushedSHA: s.sha, merged: false, mergedSHA: nil, draftNote: "MR !12 opened as a draft"))
         #expect(operated(s)?.state == .published)
         #expect(s.store.state.task(id: s.task)?.mr == MergeRequestRef(iid: 12, title: "PLUTO-231", url: FakeMergeHost.url))
@@ -118,7 +118,7 @@ final class MergeClock: Sendable {
         // A merge end opens a request that is ready, and waits for the host.
         let merge = try setUp(end: .merge)
         let opened = await merge.finisher.finish(merge.task)
-        #expect(opened.result == "waitingToMerge" && opened.draftNote == "MR !12 opened, ready")
+        #expect(opened.result == .waitingToMerge && opened.draftNote == "MR !12 opened, ready")
 
         // A draft the host already has, which nothing else stops, is marked ready to merge it.
         let ready = try setUp(end: .merge)
@@ -138,7 +138,7 @@ final class MergeClock: Sendable {
             $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this")]
         }
         let blocked = await kept.finisher.finish(kept.task)
-        #expect(blocked.result == "blocked" && blocked.draftNote == "MR !12 left as a draft")
+        #expect(blocked.result == .blocked && blocked.draftNote == "MR !12 left as a draft")
         #expect(kept.host.log.contains { $0.hasPrefix("ready") } == false)
     }
 
@@ -150,7 +150,7 @@ final class MergeClock: Sendable {
                                        state: "opened", draft: false, url: FakeMergeHost.url)
         }
         let result = await s.finisher.finish(s.task)
-        #expect(result.result == "published" && result.draftNote == nil)
+        #expect(result.result == .published && result.draftNote == nil)
         #expect(!s.host.log.contains { $0.hasPrefix("create") }, "the open request was adopted")
     }
 
@@ -164,7 +164,7 @@ final class MergeClock: Sendable {
             $0.readinessFailsAfterReady = true
         }
         let failed = await s.finisher.finish(s.task)
-        #expect(failed.result == "failed" && failed.draftNote == "MR !12 marked ready")
+        #expect(failed.result == .failed && failed.draftNote == "MR !12 marked ready")
     }
 
     @Test func aGitHubRequestIsNumberedWithAHash() {
@@ -187,7 +187,7 @@ final class MergeClock: Sendable {
         let s = try setUp(end: .merge)
         s.host.update { $0.readiness = [.waiting("its pipeline is running"), .ready(head: s.sha)] }
         let first = await s.finisher.finish(s.task)
-        #expect(first.result == "waitingToMerge")
+        #expect(first.result == .waitingToMerge)
         #expect(first.reason == "its pipeline is running")
         #expect(first.mergeRequest == FakeMergeHost.url && first.pushedSHA == s.sha && !first.merged)
         #expect(s.finisher.watching == [s.task])
@@ -276,7 +276,7 @@ final class MergeClock: Sendable {
         s.finisher.resumeWatching()
         #expect(s.finisher.watching.isEmpty)
         #expect(s.stopped.all.isEmpty && s.changed.ids.isEmpty, "you did it: no word to the operator from here")
-        #expect(await s.finisher.finish(s.task).result == "waitingToMerge")
+        #expect(await s.finisher.finish(s.task).result == .waitingToMerge)
         #expect(s.finisher.watching == [s.task])
         #expect(operated(s)?.publication?.problem == nil)
     }
@@ -306,7 +306,7 @@ final class MergeClock: Sendable {
         s.finisher.resumeWatching()
         #expect(s.finisher.watching.isEmpty, "paused: nothing to watch")
         let again = await s.finisher.finish(s.task)
-        #expect(again.result == "refused")
+        #expect(again.result == .refused)
         #expect(again.reason == "The broadcast is paused; nothing is published until it runs again.")
         #expect(again.mergeRequest == FakeMergeHost.url && again.pushedSHA == s.sha, "a refusal says what was done so far")
         #expect(!s.host.log.contains { $0.hasPrefix("merge") })
@@ -329,7 +329,7 @@ final class MergeClock: Sendable {
         await gate.tick()
         let (a, b) = (await first.value, await second.value)
         #expect(a == b)
-        #expect(a.result == "published")
+        #expect(a.result == .published)
         #expect(s.host.log.filter { $0.hasPrefix("create") }.count == 1)
         #expect(s.host.log.filter { $0.hasPrefix("protection") }.count == 1, "pushed once")
         #expect(s.finisher.running.isEmpty)
@@ -341,7 +341,7 @@ final class MergeClock: Sendable {
         #expect(s.store.flush(), "the workspace saves at first")
         try FileManager.default.createDirectory(at: s.store.file.backupURL, withIntermediateDirectories: true)
         let result = await s.finisher.finish(s.task)
-        #expect(result.result == "failed")
+        #expect(result.result == .failed)
         #expect(result.reason == TaskFinisher.notSavedReason)
         #expect(result.pushedSHA == s.sha, "it says the push it made")
         #expect(s.host.log == ["protection feat/pluto-231"], "pushed, then stopped")
@@ -352,7 +352,7 @@ final class MergeClock: Sendable {
     @Test func aPushThatTimedOutMayHaveLanded() async throws {
         let s = try setUp(end: .draftMR, git: PushTimesOut())
         let result = await s.finisher.finish(s.task)
-        #expect(result.result == "failed")
+        #expect(result.result == .failed)
         #expect(result.reason == "The push of feat/pluto-231 timed out, so the push may have landed; call finish_task again, which asks origin before it pushes.")
         #expect(s.host.log == ["protection feat/pluto-231"])
         #expect(operated(s)?.publication?.pushedSHA == nil)
@@ -368,7 +368,7 @@ final class MergeClock: Sendable {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
         let result = await s.finisher.finish(s.task)
         let why = "The pre-push hook refused the push of feat/pluto-231: lefthook: running pre-push\nsh: npm: command not found"
-        #expect(result.result == "failed")
+        #expect(result.result == .failed)
         #expect(result.reason == why)
         #expect(operated(s)?.publication?.problem == why)
         #expect(try StateStore(url: s.store.file.url).load().task(id: s.task)?.operated?.publication?.problem == why, "saved")
@@ -377,7 +377,7 @@ final class MergeClock: Sendable {
 
         try FileManager.default.removeItem(at: hook)
         let again = await s.finisher.finish(s.task)
-        #expect(again.result == "published")
+        #expect(again.result == .published)
         #expect(operated(s)?.publication?.problem == nil)
     }
 
@@ -395,7 +395,7 @@ final class MergeClock: Sendable {
         _ = try writeHook("#!/bin/sh\necho 'lefthook: running pre-push'\necho 'lint failed: src/a.ts'\necho '  1:5  error  no-unused-vars' >&2\n"
                           + "echo 'tsc: 2 errors'\necho 'pre-push script failed' >&2\nexit 1\n", in: s)
         let result = await s.finisher.finish(s.task)
-        #expect(result.result == "failed")
+        #expect(result.result == .failed)
         let reason = try #require(result.reason)
         for line in ["lefthook: running pre-push", "lint failed: src/a.ts", "1:5  error  no-unused-vars", "tsc: 2 errors", "pre-push script failed"] {
             #expect(reason.contains(line), "\(line) is in: \(reason)")
@@ -410,17 +410,17 @@ final class MergeClock: Sendable {
     @Test func noVerifyNeedsAFailedPushFirst() async throws {
         let s = try setUp(end: .draftMR)
         let first = await s.finisher.finish(s.task, noVerify: true)
-        #expect(first.result == "refused" && first.reason == "Push without noVerify first, so the hook's output is known.")
+        #expect(first.result == .refused && first.reason == "Push without noVerify first, so the hook's output is known.")
         #expect(s.host.log.isEmpty, "nothing asked, nothing pushed")
 
         _ = try writeHook("#!/bin/sh\necho 'lefthook: running pre-push'\necho 'sh: npm: command not found' >&2\nexit 1\n", in: s)
-        #expect(await s.finisher.finish(s.task).result == "failed")
+        #expect(await s.finisher.finish(s.task).result == .failed)
         #expect(operated(s)?.publication?.lastPushFailure == "lefthook: running pre-push\nsh: npm: command not found")
         #expect(operated(s)?.publication?.lastPushFailureSHA == s.sha, "the commit the hook refused")
         #expect(try StateStore(url: s.store.file.url).load().task(id: s.task)?.operated?.publication?.lastPushFailure != nil, "saved")
 
         let past = await s.finisher.finish(s.task, noVerify: true)
-        #expect(past.result == "published" && past.pushedSHA == s.sha)
+        #expect(past.result == .published && past.pushedSHA == s.sha)
         #expect(try git.run(["rev-parse", "refs/heads/feat/pluto-231"], in: s.origin) == s.sha)
         #expect(operated(s)?.publication?.lastPushFailure == nil, "a push that landed leaves no failure to judge")
         // Asked again, its reply lost: what was done, not a refusal. (The note says what a call did to the draft: this one did nothing.)
@@ -431,12 +431,12 @@ final class MergeClock: Sendable {
     @Test func aRefusalOfAnotherCommitIsNoReasonToSkipTheHook() async throws {
         let s = try setUp(end: .draftMR)
         let hook = try writeHook("#!/bin/sh\necho 'sh: npm: command not found' >&2\nexit 1\n", in: s)
-        #expect(await s.finisher.finish(s.task).result == "failed")
+        #expect(await s.finisher.finish(s.task).result == .failed)
         try git.run(["commit", "--allow-empty", "-q", "-m", "the fix"], in: s.path)
         let head = try git.run(["rev-parse", "HEAD"], in: s.path)
         s.store.mutate { $0.updateOperated(s.task) { $0.acceptance?.resultSHA = head } }
         let refused = await s.finisher.finish(s.task, noVerify: true)
-        #expect(refused.result == "refused" && refused.reason == "Push without noVerify first, so the hook's output is known.")
+        #expect(refused.result == .refused && refused.reason == "Push without noVerify first, so the hook's output is known.")
         #expect(try Repository(s.path, git: git).originTip(of: "feat/pluto-231") == nil)
         try FileManager.default.removeItem(at: hook)
     }
@@ -447,7 +447,7 @@ final class MergeClock: Sendable {
         let s = try setUp(end: .draftMR)
         _ = try writeHook("#!/bin/sh\necho 'fakenpm: command not found' >&2\nexit 1\n", in: s)
         let result = await s.finisher.finish(s.task)
-        #expect(result.result == "failed")
+        #expect(result.result == .failed)
         #expect(result.reason?.contains("fakenpm: command not found") == true)
         #expect(s.forgotten.all.count == 1)
     }
@@ -455,7 +455,7 @@ final class MergeClock: Sendable {
     @Test func aHostThatIsNotConnectedIsRefusedBeforeAnythingIsPushed() async throws {
         let s = try setUp(end: .draftMR, connect: { _ in throw MergeRequestSearch.Unavailable.notConnected(.gitLab) })
         let result = await s.finisher.finish(s.task)
-        #expect(result == TaskFinisher.Result(result: "refused", reason: "acme-web has no connected code host.",
+        #expect(result == TaskFinisher.Result(result: .refused, reason: "acme-web has no connected code host.",
                                               mergeRequest: nil, pushedSHA: nil, merged: false, mergedSHA: nil))
         #expect((try? git.run(["rev-parse", "--verify", "--quiet", "refs/heads/feat/pluto-231"], in: s.origin)) == nil)
     }
@@ -464,7 +464,7 @@ final class MergeClock: Sendable {
     @Test func aCommitEndIsRefusedWithoutAHost() async throws {
         let s = try setUp(end: .commit, connect: { _ in throw MergeRequestSearch.Unavailable.notConnected(.gitLab) })
         let result = await s.finisher.finish(s.task)
-        #expect(result.result == "refused")
+        #expect(result.result == .refused)
         #expect(result.reason == "PLUTO-231 ends in a commit: its plan opens no merge request, so there is nothing to finish.")
         #expect(s.remotes.all.isEmpty)
     }
@@ -473,7 +473,7 @@ final class MergeClock: Sendable {
         let s = try setUp(end: .merge)
         s.store.mutate { state in state.runs[0].state = .stopped }
         let result = await s.finisher.finish(s.task)
-        #expect(result.result == "refused")
+        #expect(result.result == .refused)
         #expect(result.reason == "The broadcast was stopped; it publishes nothing.")
         s.finisher.resumeWatching()
         #expect(s.finisher.watching.isEmpty)
@@ -484,7 +484,7 @@ final class MergeClock: Sendable {
         let s = try setUp(end: .merge)
         s.host.update { $0.readiness = [.merged(commit: "f00df00d", head: "0123456789abcdef")] }
         let result = await s.finisher.finish(s.task)
-        #expect(result.result == "blocked")
+        #expect(result.result == .blocked)
         #expect(result.mergedSHA == "f00df00d" && !result.merged)
         #expect(result.reason == "PLUTO-231 was merged on the host at 0123456, not the accepted \(s.sha.prefix(7)): it holds commits that weren't accepted.")
         #expect(s.mergedOnHost.all == [s.task])
@@ -502,7 +502,7 @@ final class MergeClock: Sendable {
     @Test func aMergeWithTheSliceOffIsLeftForYou() async throws {
         let s = try setUp(end: .merge, slices: .none)
         let result = await s.finisher.finish(s.task)
-        #expect(result.result == "refused" && result.reason == "The Merge slice is off for this broadcast.")
+        #expect(result.result == .refused && result.reason == "The Merge slice is off for this broadcast.")
         _ = await s.finisher.finish(s.task)
         #expect(s.store.state.run(id: s.run)?.leftForYou.count == 1, "said once")
         #expect(operated(s)?.publication?.leftForYou == true)
@@ -518,7 +518,7 @@ final class MergeClock: Sendable {
         let origin = try git.run(["for-each-ref", "--format=%(refname) %(objectname)"], in: s.origin)
         let result = await s.finisher.finish(s.task)
         let main = try git.run(["rev-parse", "main"], in: s.path)
-        #expect(result == TaskFinisher.Result(result: "published", reason: nil, mergeRequest: nil, pushedSHA: nil, merged: true, mergedSHA: main))
+        #expect(result == TaskFinisher.Result(result: .published, reason: nil, mergeRequest: nil, pushedSHA: nil, merged: true, mergedSHA: main))
         #expect(operated(s)?.state == .published)
         #expect(try git.run(["rev-parse", "main^2"], in: s.path) == s.sha)
         #expect(try git.run(["for-each-ref", "--format=%(refname) %(objectname)"], in: s.origin) == origin, "nothing pushed")
@@ -537,7 +537,7 @@ final class MergeClock: Sendable {
         try "x".write(toFile: s.path + "/notes.txt", atomically: true, encoding: .utf8)
         try git.run(["add", "notes.txt"], in: s.path)
         let result = await s.finisher.finish(s.task)
-        #expect(result.result == "refused")
+        #expect(result.result == .refused)
         #expect(result.reason == LocalMerge.Refusal.uncommittedChanges(s.path).localizedDescription)
         #expect(operated(s)?.state == .accepted)
         #expect(s.store.state.run(id: s.run)?.leftForYou.isEmpty == true)
@@ -708,10 +708,10 @@ extension TaskFinisherTests {
         let s = try setUp(end: .draftMR)
         s.host.update { $0.protected["feat/pluto-231"] = "release policy" }
         let first = await s.finisher.finish(s.task)
-        #expect(first.result == "refused")
+        #expect(first.result == .refused)
         #expect(operated(s)?.publication?.leftForYou == true)
         #expect(RunScheduler.isComplete(s.store.state.run(id: s.run)!, in: s.store.state))
-        #expect(await s.finisher.finish(s.task).result == "leftForYou")
+        #expect(await s.finisher.finish(s.task).result == .leftForYou)
         #expect(s.store.state.run(id: s.run)?.leftForYou.count == 1)
     }
 
@@ -719,7 +719,7 @@ extension TaskFinisherTests {
     @Test func aFailedProtectionLookupIsNotLeftForYou() async throws {
         let s = try setUp(end: .draftMR)
         s.host.update { $0.protectionFails = true }
-        #expect(await s.finisher.finish(s.task).result == "refused")
+        #expect(await s.finisher.finish(s.task).result == .refused)
         #expect(operated(s)?.publication?.leftForYou != true)
         #expect(s.store.state.run(id: s.run)?.leftForYou.isEmpty == true)
         #expect(!RunScheduler.isComplete(s.store.state.run(id: s.run)!, in: s.store.state))
@@ -728,7 +728,7 @@ extension TaskFinisherTests {
     @Test func aProjectWithNoOriginSettlesAsLeftForYou() async throws {
         let s = try setUp(end: .draftMR)
         _ = try git.run(["remote", "remove", "origin"], in: s.path)
-        #expect(await s.finisher.finish(s.task).result == "refused")
+        #expect(await s.finisher.finish(s.task).result == .refused)
         #expect(operated(s)?.publication?.leftForYou == true)
         #expect(s.store.state.run(id: s.run)?.leftForYou.first?.contains("feat/pluto-231") == true)
         #expect(RunScheduler.isComplete(s.store.state.run(id: s.run)!, in: s.store.state))

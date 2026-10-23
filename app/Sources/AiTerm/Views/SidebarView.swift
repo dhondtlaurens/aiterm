@@ -439,7 +439,7 @@ struct SidebarSheet: View {
                 case .archive(let model): ArchiveSheet(model: model)
                 case .newBroadcast(let model): NewBroadcastSheet(model: model)
                 case .broadcastBoard(let id): BroadcastBoardHost(runId: id, controller: controller)
-                case .shelvedBroadcast(let id): ShelvedBroadcastHost(runId: id, controller: controller)
+                case .shelvedBroadcast(let id): BroadcastBoardHost(runId: id, source: .shelved, controller: controller)
             }
         }
         .interfaceScale(.standard)

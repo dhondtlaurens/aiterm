@@ -117,11 +117,8 @@ extension OperatorController {
         guard let run = self.run(id: id), [.planning, .active, .operatorOffline].contains(run.state) else {
             throw ActionUnavailable("Only a broadcast under way can be paused.")
         }
-        let before = snapshot()
-        mutateRun(id) { $0.intent = .paused; $0.state = .paused }
-        guard workspace.flush() else {
-            restore(before)
-            throw ActionUnavailable("The pause couldn’t be saved, so the broadcast was left as it was.")
+        try savedOrTakenBack("The pause couldn’t be saved, so the broadcast was left as it was.") { state in
+            state.updateRun(id: id) { $0.intent = .paused; $0.state = .paused }
         }
         finisher.stopWatching(inRun: id)
     }
@@ -153,11 +150,9 @@ extension OperatorController {
     /// the "+" returns.
     func end(run id: UUID) async throws {
         guard let run = self.run(id: id), run.state != .stopped else { return }
-        let before = snapshot(), now = ports.now()
-        let ending = workspace.mutate { state in Self.applyEnd(id, at: now, to: &state) }
-        guard workspace.flush() else {
-            restore(before)
-            throw ActionUnavailable("The end couldn’t be saved, so the broadcast was left as it was.")
+        let now = ports.now()
+        let ending = try savedOrTakenBack("The end couldn’t be saved, so the broadcast was left as it was.") { state in
+            Self.applyEnd(id, at: now, to: &state)
         }
         finisher.stopWatching(inRun: id)
         for challenge in run.challenges { tools.runningChallenges[challenge.id]?.cancel() }
@@ -183,15 +178,9 @@ extension OperatorController {
     func forget(run id: UUID) async throws {
         guard let run = self.run(id: id) else { return }
         guard run.hasEnded else { throw ActionUnavailable("Only an ended broadcast can be removed from the Shelf.") }
-        let before = snapshot(), folded = workspace.state.foldedRuns.contains(id)
-        workspace.mutate { state in
+        try savedOrTakenBack("The removal couldn’t be saved, so the broadcast was left on the Shelf.") { state in
             state.runs.removeAll { $0.id == id }
             state.foldedRuns.remove(id)
-        }
-        guard workspace.flush() else {
-            restore(before)
-            if folded { workspace.mutate { $0.foldedRuns.insert(id) } }
-            throw ActionUnavailable("The removal couldn’t be saved, so the broadcast was left on the Shelf.")
         }
         let folder = self.folder(of: id)
         await tools.lastRecording?.value
@@ -427,19 +416,21 @@ extension OperatorController {
     }
 
     // -- taking a change back ---------------------------------------------------------------------
-    /// The runs and tasks as they stand, for a change that is taken back when it cannot be saved.
-    private struct Snapshot {
-        let runs: [OperatorRun], tasks: [TaskItem]
-    }
-
-    private func snapshot() -> Snapshot { Snapshot(runs: workspace.state.runs, tasks: workspace.state.tasks) }
-
-    /// Puts `before` back. Nothing awaits between a change and its save, so nothing else has moved since.
-    private func restore(_ before: Snapshot) {
-        workspace.mutate { state in
-            state.runs = before.runs
-            state.tasks = before.tasks
+    /// `change`, saved, or taken back when it cannot be saved: the runs, the tasks and the folded broadcasts put back
+    /// as they stood, and `refusal` thrown. Nothing awaits between the change and its save, so nothing else has moved since.
+    @discardableResult
+    private func savedOrTakenBack<Value>(_ refusal: String, _ change: (inout AppState) -> Value) throws -> Value {
+        let before = (runs: workspace.state.runs, tasks: workspace.state.tasks, folded: workspace.state.foldedRuns)
+        let value = workspace.mutate(change)
+        guard workspace.flush() else {
+            workspace.mutate { state in
+                state.runs = before.runs
+                state.tasks = before.tasks
+                state.foldedRuns = before.folded
+            }
+            throw ActionUnavailable(refusal)
         }
+        return value
     }
 }
 
