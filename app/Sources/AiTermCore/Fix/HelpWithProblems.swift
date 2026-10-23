@@ -1,11 +1,11 @@
 import Foundation
 
-/// Help with problems runs as the Operator, whose agent is Claude.
+/// Help with problems runs as the Operator, whose agent is Claude: the one place that says so, for
+/// the refusals, launches and views that name the fixer.
 public enum FixerAgent: Sendable {
-    // Codex remains only until the app's legacy fix-session fixtures are migrated.
-    case claude, codex
-    public var agent: AgentKind { self == .claude ? .claude : .codex }
-    public var shortName: String { self == .claude ? "Claude" : "Codex" }
+    case claude
+    public var agent: AgentKind { .claude }
+    public var shortName: String { "Claude" }
 }
 
 /// Settings › Agents' “Help with problems”: whether a problem AiTerm hits offers Find a Fix. The fix

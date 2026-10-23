@@ -30,7 +30,7 @@ import Testing
         #expect(alone.content == .text("Couldn’t rebase the default branch.",
                                        detail: "Rebasing “main” onto origin’s hit a conflict, so it was left as it was.", help: "CONFLICT x"))
         #expect(alone.links.map(\.title) == ["Find a Fix", "Dismiss"])
-        let beside = shown(diverged, .offered, fixer: .codex)
+        let beside = shown(diverged, .offered)
         #expect(beside.links.map(\.title) == ["Rebase", "Find a Fix", "Dismiss"])
         #expect(beside.links[0] == .action(.rebaseDefault(project)))
     }

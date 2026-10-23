@@ -167,10 +167,10 @@ import Synchronization
     }
 
     @Test func aFailedLookRemovesTheCloneAndSaysWhy() async {
-        let session = FixSession(request: request, fixer: .ready(.codex),
-                                 pipeline: pipeline(look: { _ throws(FixRefusal) in throw .unreadableAnswer(.codex) }), retry: { _ in })
+        let session = FixSession(request: request, fixer: .ready(.claude),
+                                 pipeline: pipeline(look: { _ throws(FixRefusal) in throw .unreadableAnswer(.claude) }), retry: { _ in })
         session.start(); await session.settled()
-        #expect(session.state == .failed("Codex’s answer was not a plan AiTerm can check."))
+        #expect(session.state == .failed("Claude’s answer was not a plan AiTerm can check."))
         #expect(!cloneExists)
     }
 

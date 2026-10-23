@@ -66,7 +66,7 @@ import AiTermUI
         let model = ReviewCreationModelTests.makeModel(create: { _ in
             created += 1
             if created == 1 { throw WorktreeError.branchDiverged("feat/x", local: 2, remote: 4) }
-        }, fixer: .ready(.codex), pipeline: .stub(look: .fix(proposal)), fixLanded: { landed.append(($0, $1)) })
+        }, fixer: .ready(.claude), pipeline: .stub(look: .fix(proposal)), fixLanded: { landed.append(($0, $1)) })
         model.draft.setBranch("feat/x")
         await model.loadAgentCatalogue()
         _ = await model.create()
@@ -77,7 +77,7 @@ import AiTermUI
         #expect(model.createdAfterFix)
         #expect(model.error == nil)
         #expect(landed.map(\.0.backup) == ["aiterm/backup/feat/x"])
-        #expect(landed.map(\.1) == [.codex])
+        #expect(landed.map(\.1) == [.claude])
     }
 
     /// A retried create that fails again shows its own failure, which may offer a Fix of its own;
@@ -287,7 +287,7 @@ import AiTermUI
         #expect(!alone.showsRecovery)
         #expect(alone.buttons == .sheet)
 
-        let beside = footer(diverged, .offered, fixer: .codex)
+        let beside = footer(diverged, .offered)
         #expect(beside.showsRecovery)
         #expect(beside.offer?.title == "Find a Fix")
         #expect(beside.lead == .failure(diverged.reason, description: nil, help: diverged.reason))
@@ -299,7 +299,7 @@ import AiTermUI
         #expect(looking.lead == .busy("Looking for a fix…"))
         #expect(looking.offer == nil && !looking.showsRecovery)
         #expect(looking.buttons == .looking)
-        #expect(footer(diverged, .looking, fixer: .codex).lead == .busy("Looking for a fix…"))
+        #expect(footer(diverged, .looking).lead == .busy("Looking for a fix…"))
     }
 
     /// States 4 and 5: the plan where the failure was, Apply in the primary's place; while it is
