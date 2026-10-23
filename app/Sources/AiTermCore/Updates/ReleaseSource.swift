@@ -43,17 +43,14 @@ enum ReleaseDownload {
 
 /// Every way a check or an update can stop, each with the one line the alert shows.
 public enum UpdateError: Error, Equatable, LocalizedError {
-    case noFeed, noToken, rejected, projectNotFound(CodeHost, String), noRelease(CodeHost)
+    case noFeed, projectNotFound(CodeHost, String), noRelease(CodeHost)
     case unreachable(String), badResponse(CodeHost, Int), rateLimited
     case unreadableTag(CodeHost, String), missingAsset(CodeHost, String), unverified, translocated, cannotReplace(String), devBuild, installFailed(String), installAborted(Int32), other(String)
 
     public var message: String {
         switch self {
         case .noFeed: return "This build of AiTerm has no update source."
-        case .noToken: return "Add a GitLab token in Settings › Integrations to get updates."
-        case .rejected: return "GitLab rejected the token in Settings › Integrations."
-        case .projectNotFound(.gitLab, let path): return "GitLab has no project at \(path), or your token cannot see it."
-        case .projectNotFound(.gitHub, let path): return "GitHub has no repository at \(path)."
+        case .projectNotFound(let host, let path): return "\(host.name) has no repository at \(path)."
         case .noRelease(let host): return "\(host.name) has no AiTerm release yet."
         case .unreachable(let host): return "Couldn’t reach \(host)."
         case .badResponse(let host, let status): return "\(host.name) returned an error (HTTP \(status)). Try again."

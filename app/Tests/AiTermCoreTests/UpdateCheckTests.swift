@@ -32,7 +32,7 @@ private struct ThrowingSource: ReleaseSource {
     }
 
     @Test func sourceErrorsPassThrough() async {
-        #expect(await UpdateCheck.run(source: FixedSource(result: .failure(.noToken)), current: current) == .failed(.noToken))
+        #expect(await UpdateCheck.run(source: FixedSource(result: .failure(.rateLimited)), current: current) == .failed(.rateLimited))
     }
 
     @Test func foreignErrorsBecomeOther() async {
@@ -40,11 +40,8 @@ private struct ThrowingSource: ReleaseSource {
     }
 
     @Test func everyErrorHasItsExactLine() {
-        #expect(UpdateError.noToken.message == "Add a GitLab token in Settings › Integrations to get updates.")
-        #expect(UpdateError.rejected.message == "GitLab rejected the token in Settings › Integrations.")
         #expect(UpdateError.noRelease(.gitLab).message == "GitLab has no AiTerm release yet.")
         #expect(UpdateError.noRelease(.gitHub).message == "GitHub has no AiTerm release yet.")
-        #expect(UpdateError.projectNotFound(.gitLab, "ai/aiterm").message == "GitLab has no project at ai/aiterm, or your token cannot see it.")
         #expect(UpdateError.projectNotFound(.gitHub, "octocat/hello").message == "GitHub has no repository at octocat/hello.")
         #expect(UpdateError.unreachable("git.example.net").message == "Couldn’t reach git.example.net.")
         #expect(UpdateError.unverified.message == "The downloaded update couldn’t be verified. Nothing was changed.")
@@ -57,6 +54,6 @@ private struct ThrowingSource: ReleaseSource {
         #expect(UpdateError.rateLimited.message == "GitHub is limiting update checks from this network. Try again later.")
         #expect(UpdateError.installFailed("Permission denied.").message == "AiTerm couldn’t start the update. Permission denied.")
         #expect(UpdateError.other("Something odd.").message == "Something odd.")
-        #expect(UpdateError.rejected.errorDescription == UpdateError.rejected.message)
+        #expect(UpdateError.rateLimited.errorDescription == UpdateError.rateLimited.message)
     }
 }

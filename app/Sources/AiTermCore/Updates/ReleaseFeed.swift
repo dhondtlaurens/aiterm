@@ -25,9 +25,4 @@ public enum ReleaseFeed: Equatable, Sendable {
         guard let text, let feed = ReleaseFeed(text) else { throw UpdateError.noFeed }
         return feed.source()
     }
-
-    // Kept until UpdateController adopts the anonymous source.
-    public static func source(for text: String?, secrets: SecretStore) throws -> any ReleaseSource {
-        try source(for: text)
-    }
 }

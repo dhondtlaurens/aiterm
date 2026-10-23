@@ -189,14 +189,14 @@ private final class FakeSource: ReleaseSource, @unchecked Sendable {
 
     @Test func sourceFailureIsOneLine() async {
         let prompter = ScriptedPrompter(answering: "OK"), log = Log()
-        await controller(prompter, source: FakeSource(.failure(.rejected)), log: log).checkForUpdates()
-        #expect(prompter.asked.map(\.message) == ["GitLab rejected the token in Settings › Integrations."])
+        await controller(prompter, source: FakeSource(.failure(.rateLimited)), log: log).checkForUpdates()
+        #expect(prompter.asked.map(\.message) == ["GitHub is limiting update checks from this network. Try again later."])
     }
 
-    @Test func missingTokenIsExplained() async {
+    @Test func aBuildWithoutAnUpdateSourceSaysSo() async {
         let prompter = ScriptedPrompter(answering: "OK"), log = Log()
-        await controller(prompter, sourceError: .noToken, log: log).checkForUpdates()
-        #expect(prompter.asked.map(\.message) == ["Add a GitLab token in Settings › Integrations to get updates."])
+        await controller(prompter, sourceError: .noFeed, log: log).checkForUpdates()
+        #expect(prompter.asked.map(\.message) == ["This build of AiTerm has no update source."])
     }
 
     @Test func translocatedAppIsToldToMove() async {
