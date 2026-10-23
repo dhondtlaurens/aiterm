@@ -173,14 +173,13 @@ private final class WorkspaceWriter: Sendable {
             return waiting == nil
         }
         guard starts else { return }
-        let delay = self.delay
-        // Weak: a store gone by then has nothing left to save. The delay occupies no worker.
-        Task { [weak self, worker] in
-            try? await Task.sleep(for: delay)
-            await worker.run { [weak self] in
-                guard let self, let latest = waiting.withLock({ waiting in defer { waiting = nil }; return waiting }) else { return }
-                done(latest.revision, write(latest.state, revision: latest.revision))
-            }
+        let seconds = Double(delay.components.seconds) + Double(delay.components.attoseconds) / 1e18
+        // The wait runs on the writer's thread too, so no pool worker is needed to end it. Weak: a
+        // store gone by then has nothing left to save.
+        worker.enqueue { [weak self] in
+            Thread.sleep(forTimeInterval: seconds)
+            guard let self, let latest = waiting.withLock({ waiting in defer { waiting = nil }; return waiting }) else { return }
+            done(latest.revision, write(latest.state, revision: latest.revision))
         }
     }
 

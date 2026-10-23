@@ -27,6 +27,11 @@ public final class SerialThread: Sendable {
         }
     }
 
+    /// Queues `work` on the thread, after what is already queued, and returns at once.
+    public func enqueue(_ work: @escaping @Sendable () -> Void) {
+        worker.add(work)
+    }
+
     /// Blocks the caller until `work` has run on the thread, after what is already queued.
     public func sync<Value: Sendable>(_ work: @escaping @Sendable () -> Value) -> Value {
         let done = DispatchSemaphore(value: 0)
