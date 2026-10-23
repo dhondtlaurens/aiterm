@@ -62,7 +62,7 @@ public enum LocalMerge {
             try git.run(["merge", "--no-ff", "--no-edit", "--quiet", sha], in: path, timeout: GitRunner.checkoutTimeout)
         } catch let error as GitError {
             // Whatever stopped it, a conflict, a hook or the deadline, no merge is left half done in your checkout.
-            let merging = (try? git.ask(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"], in: path, none: [1])) ?? nil
+            let merging = try git.ask(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"], in: path, none: [1])
             guard merging != nil else { throw error }
             let conflicted = (try? git.run(["diff", "--name-only", "--diff-filter=U"], in: path)) ?? ""
             Log.git.attempt("Taking back the stopped merge of \(sha.prefix(7)) in \(path)") { try git.run(["merge", "--abort"], in: path) }

@@ -5,7 +5,7 @@ import Synchronization
 /// enough to be asked for every tab and every project on every refresh pass.
 ///
 /// A directory is resolved once and then re-validated by `stat`ing the files git itself rewrites —
-/// `HEAD` for the branch, `config` for the remote, the refs a default branch is read from — which is
+/// `HEAD` for the branch, `HEAD` and `config` for the remote, the default branch refs — which is
 /// exactly what a `git checkout` or a `git remote add` in a terminal touches, so either shows up with
 /// no polling and no watcher. When none of the watched files can be read any more, the checkout
 /// moved or went away, so it is probed again rather than answered from the cache. Directories that
@@ -98,6 +98,27 @@ final class WatchedFileCache<Value: Sendable>: Sendable {
         let value = try read(directory, files)
         entry = Entry(stamps: stamps, value: value, probedAt: now())
         return .found(value)
+    }
+}
+
+/// The three resolvers share probing, cache lifetime and empty-directory handling. Each keeps
+/// its own watched files, value reader and mapping of missing or failed answers.
+struct RepositoryResolver<Value: Sendable>: Sendable {
+    let git: any GitRunning
+    let probe: RepositoryProbe
+    let cache: WatchedFileCache<Value>
+
+    init(git: any GitRunning, now: @escaping @Sendable () -> Date, negativeTTL: TimeInterval, probe: RepositoryProbe?) {
+        self.git = git
+        self.probe = probe ?? RepositoryProbe(git: git, now: now, negativeTTL: negativeTTL)
+        cache = WatchedFileCache(now: now, negativeTTL: negativeTTL)
+    }
+
+    func answer(for directory: String, locate: (RepositoryProbe.Locations) -> [String],
+                read: (String, [String], any GitRunning) throws -> Value) throws -> WatchedFileCache<Value>.Answer {
+        guard !directory.isEmpty else { return .notARepository }
+        return try cache.answer(for: directory, locate: { try probe.locations(of: $0).map(locate) },
+                                read: { try read($0, $1, git) })
     }
 }
 

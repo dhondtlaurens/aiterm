@@ -20,9 +20,6 @@ public final class SerialThread: Sendable {
 
     deinit { worker.stop() }
 
-    /// Queues `job` behind whatever is already queued.
-    public func enqueue(_ job: @escaping @Sendable () -> Void) { worker.add(job) }
-
     /// Runs `work` on the thread, after what is already queued, and hands back its answer.
     public func run<Value: Sendable>(_ work: @escaping @Sendable () -> Value) async -> Value {
         await withCheckedContinuation { continuation in

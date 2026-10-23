@@ -1,8 +1,5 @@
 import Testing
 import Foundation
-#if canImport(Darwin)
-import Darwin
-#endif
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
@@ -12,21 +9,9 @@ import Darwin
     var repo: String
     var project: Project
 
-    /// See `WorktreesTests.realPath`: POSIX `realpath(3)` matches what git reports, while
-    /// Foundation's `URL.resolvingSymlinksInPath()` normalizes `/private/var/...` back to
-    /// `/var/...` and so can never agree with git's output for a temp-directory repo.
-    private static func realPath(_ path: String) -> String {
-        guard let cResolved = realpath(path, nil) else { return path }
-        defer { free(cResolved) }
-        return String(cString: cResolved)
-    }
-
     init() throws {
-        let raw = FileManager.default.temporaryDirectory.appendingPathComponent("tc-\(UUID().uuidString)").path
-        try FileManager.default.createDirectory(atPath: raw, withIntermediateDirectories: true)
-        repo = Self.realPath(raw)
-        try git.run(["init", "-q", "-b", "main"], in: repo)
-        try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"], in: repo)
+        let folder = try GitFixture.makeRepo(prefix: "tc-", git: git)
+        repo = try git.run(["rev-parse", "--show-toplevel"], in: folder)
         project = Project(id: UUID(), name: "repo", path: repo, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
     }
 
@@ -207,6 +192,17 @@ import Darwin
         #expect(draft.reasoning == "low")
         draft.setModel("opus", catalog: ModelCatalogue(home: home, runner: .nothingInstalled).read(.claude).models)
         #expect(ModelSettings.load(for: .claude, defaults: defaults)?.model == "sonnet")
+    }
+
+    @Test func aBranchValidationTimeoutIsNotAnInvalidBranch() throws {
+        var draft = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
+        draft.setTitle("Valid branch")
+        do {
+            _ = try TaskCreator.create(draft: draft, project: project, git: TimingOutGitRunner(["check-ref-format"], code: 128))
+            Issue.record("expected a timeout")
+        } catch {
+            #expect((error as? GitError)?.timedOut == true)
+        }
     }
 
     @Test func testCreateBuildsWorktreeAndTaskItem() throws {

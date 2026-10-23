@@ -12,7 +12,13 @@ struct CodexDriver: HarnessDriver {
     func probe() -> DriverProbe {
         let file = config
         return file.readText().probe(file) { text in
-            CodexHookConfig.probe(text, port: daemonPort, file: file)
+            let parsed = TOMLStatements.parsed(text)
+            guard parsed.balanced else { return .refused(file, "cannot be parsed") }
+            if let key = CodexHookConfig.conflict(in: text, tables: parsed.tables) {
+                return .refused(file, "sets \(key) in a form AiTerm cannot merge")
+            }
+            if CodexHookConfig.merge(text, hookURL: "http://127.0.0.1:\(daemonPort)", tables: parsed.tables) == text { return DriverProbe(.current) }
+            return DriverProbe(CodexHookConfig.containsOwnedTables(parsed.tables) ? .outdated : .missing)
         }
     }
 

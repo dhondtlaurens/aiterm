@@ -36,7 +36,7 @@ public enum ADFText {
     }
 }
 
-extension StoredJSON {
+extension JSONValue {
     /// The value as `JSONSerialization` would have read it, which is what `ADFText` walks.
     var foundationValue: Any {
         switch self {

@@ -13,41 +13,29 @@ public enum RepoRemote: Equatable, Sendable {
 }
 
 /// Maps a project's directory to the remote it points at, cheaply enough to be asked for every
-/// project on every refresh pass: the answer is cached against the `config` file git rewrites on
-/// `git remote add` (see ``WatchedFileCache``). From inside a linked worktree, `config` resolves to
-/// the *shared* one, which is the one holding the remotes.
-///
-/// The answer is ``Repository/remoteUrl()``, so it matches what adding the project would
-/// have stored. That prefers the checked-out branch's upstream, which `config` also holds — but a
-/// checkout alone does not rewrite `config`, so switching to a branch tracking a *different* remote
-/// is only picked up once something else touches it.
+/// project on every refresh pass: the answer is cached against the shared `config` and the
+/// checkout's `HEAD` (or reftable list). Switching upstreams invalidates it even without a config edit.
 ///
 /// Thread-safe, and meant to be called off the main actor: every miss runs git.
 public final class RemoteResolver: Sendable {
-    private let git: any GitRunning
-    private let probe: RepositoryProbe
-    private let cache: WatchedFileCache<String?>
+    private let resolver: RepositoryResolver<String?>
 
     /// Resolvers given the same `probe` ask git where a directory's files are once between them.
     public init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30,
                 probe: RepositoryProbe? = nil) {
-        self.git = git
-        self.probe = probe ?? RepositoryProbe(git: git, now: now, negativeTTL: negativeTTL)
-        self.cache = WatchedFileCache(now: now, negativeTTL: negativeTTL)
+        resolver = RepositoryResolver(git: git, now: now, negativeTTL: negativeTTL, probe: probe)
     }
 
     /// Forgets every project directory not in `live`.
-    public func retain(only live: Set<String>) { cache.retain(only: live) }
+    public func retain(only live: Set<String>) { resolver.cache.retain(only: live) }
 
     /// The remote configured in `repo`, `.notARepository` when that is not a git checkout, and
     /// `.unavailable` when git could not be asked and nothing was known before. A failure is never
     /// kept; one after an answer leaves that answer standing until the next lookup.
     public func remote(for repo: String) -> RepoRemote {
-        guard !repo.isEmpty else { return .notARepository }
-        let git = self.git, probe = self.probe
         do {
-            switch try cache.answer(for: repo, locate: { try probe.locations(of: $0).map { [$0.config] } },
-                                    read: { repo, _ in try Repository(repo, git: git).remoteUrl() }) {
+            switch try resolver.answer(for: repo, locate: { [$0.config, $0.head, $0.reftableList] },
+                                    read: { repo, _, git in try Repository(repo, git: git).remoteUrl() }) {
             case .notARepository: return .notARepository
             case .found(let remote): return .remote(remote)
             }

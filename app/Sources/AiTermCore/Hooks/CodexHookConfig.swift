@@ -35,16 +35,8 @@ enum CodexHookConfig {
         return block + end
     }
 
-    /// One scan supplies balance, conflict, ownership and current-install checks for the probe.
-    static func probe(_ text: String, port: Int, file: UserConfigFile) -> DriverProbe {
-        let parsed = TOMLStatements.parsed(text)
-        guard parsed.balanced else { return .refused(file, "cannot be parsed") }
-        if let key = conflict(in: text, tables: parsed.tables) {
-            return .refused(file, "sets \(key) in a form AiTerm cannot merge")
-        }
-        if merge(text, hookURL: "http://127.0.0.1:\(port)", tables: parsed.tables) == text { return DriverProbe(.current) }
-        let owned = parsed.tables.contains { $0.owned || $0.statements.contains(where: \.marker) }
-        return DriverProbe(owned ? .outdated : .missing)
+    static func containsOwnedTables(_ tables: [TOMLStatements.Table]) -> Bool {
+        tables.contains { $0.owned || $0.statements.contains(where: \.marker) }
     }
 
     /// The key that makes the merge impossible: an event of ours, or `hooks` itself, already set

@@ -20,31 +20,25 @@ public final class DefaultBranchResolver: Sendable {
     private static let refs = ["refs/remotes/origin/HEAD", "refs/remotes/origin/main", "refs/remotes/origin/master",
                                "refs/heads/main", "refs/heads/master", "packed-refs", "reftable/tables.list", "config"]
 
-    private let git: any GitRunning
-    private let probe: RepositoryProbe
-    private let cache: WatchedFileCache<String>
+    private let resolver: RepositoryResolver<String>
 
     /// Resolvers given the same `probe` ask git where a directory's files are once between them.
     public init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30,
                 probe: RepositoryProbe? = nil) {
-        self.git = git
-        self.probe = probe ?? RepositoryProbe(git: git, now: now, negativeTTL: negativeTTL)
-        self.cache = WatchedFileCache(now: now, negativeTTL: negativeTTL)
+        resolver = RepositoryResolver(git: git, now: now, negativeTTL: negativeTTL, probe: probe)
     }
 
     /// Forgets every project directory not in `live`.
-    public func retain(only live: Set<String>) { cache.retain(only: live) }
+    public func retain(only live: Set<String>) { resolver.cache.retain(only: live) }
 
     /// The default branch of the repository `repo` is in — ``Repository/fallbackDefaultBranch`` when
     /// it does not say — or `nil` when it is not a git checkout, or git could not be asked and nothing
     /// was known before. A failure is never kept; one after an answer leaves that answer standing
     /// until the next lookup.
     public func defaultBranch(for repo: String) -> String? {
-        guard !repo.isEmpty else { return nil }
-        let git = self.git, probe = self.probe
         do {
-            switch try cache.answer(for: repo, locate: { try probe.locations(of: $0).map(Self.watched) },
-                                    read: { repo, _ in try Repository(repo, git: git).detectDefaultBranch() ?? Repository.fallbackDefaultBranch }) {
+            switch try resolver.answer(for: repo, locate: Self.watched,
+                                    read: { repo, _, git in try Repository(repo, git: git).detectDefaultBranch() ?? Repository.fallbackDefaultBranch }) {
             case .notARepository: return nil
             case .found(let branch): return branch
             }

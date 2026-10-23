@@ -349,7 +349,7 @@ private struct SearchResponse: Decodable {
     struct Fields: Decodable {
         var summary: String
         /// Atlassian Document Format, or plain text; `ADFText` reads either.
-        var description: StoredJSON?
+        var description: JSONValue?
         var issuetype: Lenient<Named>?, status: Lenient<Named>?
     }
     struct Named: Decodable { var name: String? }

@@ -16,11 +16,14 @@ import Testing
     }
 
     /// `sync` waits behind what is already queued, then hands back its own answer.
-    @Test func syncWaitsBehindQueuedWork() {
+    @Test func syncWaitsBehindQueuedWork() async {
         let worker = SerialThread(name: "test.serial")
         let log = Mutex<[String]>([])
-        worker.enqueue { Thread.sleep(forTimeInterval: 0.05); log.withLock { $0.append("queued") } }
+        let started = DispatchSemaphore(value: 0)
+        async let queued: Void = worker.run { started.signal(); Thread.sleep(forTimeInterval: 0.05); log.withLock { $0.append("queued") } }
+        await ThreadWork.run { started.wait() }
         let answer = worker.sync { log.withLock { $0.append("sync") }; return 42 }
+        await queued
         #expect(answer == 42)
         #expect(log.withLock { $0 } == ["queued", "sync"])
     }

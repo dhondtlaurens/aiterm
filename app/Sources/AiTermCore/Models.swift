@@ -5,11 +5,9 @@ import CoreGraphics
 
 /// What hosts a project's remote. A raw value this build does not know — one a newer build saved —
 /// decodes as `.git`: the project keeps working as a plain repository instead of failing the load.
-public enum Provider: String, Codable, Equatable, Sendable {
+public enum Provider: String, Codable, LenientRawDecodable, Equatable, Sendable {
     case gitlab, github, git, none
-    public init(from decoder: Decoder) throws {
-        self = Provider(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .git
-    }
+    static var unrecognized: Self { .git }
 }
 /// One step of an item along the sidebar, from its context menu.
 public enum MoveStep: Sendable { case up, down }
@@ -21,19 +19,15 @@ public enum AgentKind: String, Codable, Equatable, Hashable, CaseIterable, Senda
 /// A skewed daemon (an app build adopting a worktree's daemon whose build is a different vintage)
 /// can send a raw value this app has never heard of. Decoding it to `.shell` keeps that one session
 /// from failing the whole `DaemonSnapshot`, instead of turning it into a reconnect loop.
-public enum SessionAgent: String, Codable, Equatable, CaseIterable, Sendable {
+public enum SessionAgent: String, Codable, LenientRawDecodable, Equatable, CaseIterable, Sendable {
     case claude, codex, pi, shell
-    public init(from decoder: Decoder) throws {
-        self = SessionAgent(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .shell
-    }
+    static var unrecognized: Self { .shell }
 }
 /// See `SessionAgent`'s decoding note: an unrecognized raw value decodes to `.idle` rather than
 /// failing the session, and with it the snapshot, it came in.
-public enum SessionState: String, Codable, Equatable, CaseIterable, Sendable {
+public enum SessionState: String, Codable, LenientRawDecodable, Equatable, CaseIterable, Sendable {
     case idle, working, needsInput, done
-    public init(from decoder: Decoder) throws {
-        self = SessionState(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .idle
-    }
+    static var unrecognized: Self { .idle }
 }
 
 public extension SessionAgent {
@@ -89,8 +83,7 @@ public struct Project: Codable, Identifiable, Equatable, Sendable {
     }
 
     // `jiraProject` is where a workspace saved before a project could link several Jira projects
-    // keeps its one. It is read only when `jiraProjects` is absent, and still written, as the first
-    // link: a build of that vintage saving this file would otherwise drop the project's links.
+    // keeps its one. It is read only when `jiraProjects` is absent; new saves write only the list.
     private enum CodingKeys: String, CodingKey {
         case id, name, path, provider, remoteUrl, addedAt, collapsed, jiraProjects, jiraProject
     }
@@ -119,7 +112,6 @@ public struct Project: Codable, Identifiable, Equatable, Sendable {
         try c.encode(addedAt, forKey: .addedAt)
         try c.encode(collapsed, forKey: .collapsed)
         try c.encode(jiraProjects, forKey: .jiraProjects)
-        try c.encodeIfPresent(jiraProjects.first, forKey: .jiraProject)
     }
 }
 
@@ -130,36 +122,6 @@ public struct SidebarDivider: Codable, Identifiable, Equatable, Sendable {
     public init(id: UUID, name: String) { self.id = id; self.name = name }
 }
 
-/// Any JSON value, kept as read so a row this build does not understand can be written back as it
-/// came. Integers stay integers: a number routed through `Double` would not survive a resave.
-indirect enum StoredJSON: Codable, Equatable, Sendable {
-    case null, bool(Bool), int(Int), double(Double), string(String), array([StoredJSON]), object([String: StoredJSON])
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.singleValueContainer()
-        if c.decodeNil() { self = .null }
-        else if let v = try? c.decode(Bool.self) { self = .bool(v) }
-        else if let v = try? c.decode(Int.self) { self = .int(v) }
-        else if let v = try? c.decode(Double.self) { self = .double(v) }
-        else if let v = try? c.decode(String.self) { self = .string(v) }
-        else if let v = try? c.decode([StoredJSON].self) { self = .array(v) }
-        else { self = .object(try c.decode([String: StoredJSON].self)) }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.singleValueContainer()
-        switch self {
-        case .null: try c.encodeNil()
-        case .bool(let v): try c.encode(v)
-        case .int(let v): try c.encode(v)
-        case .double(let v): try c.encode(v)
-        case .string(let v): try c.encode(v)
-        case .array(let v): try c.encode(v)
-        case .object(let v): try c.encode(v)
-        }
-    }
-}
-
 /// Fields from a newer build, written alongside the fields this build understands.
 struct PreservedFields: Equatable, Sendable {
     private struct Key: CodingKey {
@@ -168,14 +130,14 @@ struct PreservedFields: Equatable, Sendable {
         init?(stringValue: String) { self.stringValue = stringValue }
         init?(intValue: Int) { return nil }
     }
-    private var values: [String: StoredJSON] = [:]
+    private var values: [String: JSONValue] = [:]
     init() {}
     /// `retired`: keys an older build wrote and this one dropped on purpose — not a newer build's, so
     /// they go on the next save instead of being kept.
     init<K: CodingKey>(_ decoder: Decoder, known: K.Type, retired: Set<String> = []) throws {
         let c = try decoder.container(keyedBy: Key.self)
         for key in c.allKeys where K(stringValue: key.stringValue) == nil && !retired.contains(key.stringValue) {
-            values[key.stringValue] = try c.decode(StoredJSON.self, forKey: key)
+            values[key.stringValue] = try c.decode(JSONValue.self, forKey: key)
         }
     }
     func encode(to encoder: Encoder) throws {
@@ -191,7 +153,7 @@ struct PreservedFields: Equatable, Sendable {
 public struct UnknownSidebarItem: Equatable, Sendable {
     /// Per load: the row has no id this build can read, and nothing looks it up.
     public let id = UUID()
-    let raw: StoredJSON
+    let raw: JSONValue
     public static func == (a: Self, b: Self) -> Bool { a.raw == b.raw }
 }
 
@@ -230,7 +192,7 @@ public enum SidebarItem: Codable, Identifiable, Equatable, Sendable {
         switch kind {
         case .project: self = .project(try c.decode(Project.self, forKey: .project))
         case .divider: self = .divider(try c.decode(SidebarDivider.self, forKey: .divider))
-        case nil: self = .unknown(UnknownSidebarItem(raw: try decoder.singleValueContainer().decode(StoredJSON.self)))
+        case nil: self = .unknown(UnknownSidebarItem(raw: try decoder.singleValueContainer().decode(JSONValue.self)))
         }
     }
 
@@ -255,11 +217,9 @@ public struct JiraRef: Codable, Equatable, Sendable {
 /// `TaskItem` keeps what the file had for the resave.
 /// So a row of a kind only a newer build knows is removed here as a task is: its Remove offers
 /// "Delete local branch" — unticked, the person's to tick — where a review's never does.
-public enum TaskKind: String, Codable, Equatable, Sendable {
+public enum TaskKind: String, Codable, LenientRawDecodable, Equatable, Sendable {
     case task, review
-    public init(from decoder: Decoder) throws {
-        self = TaskKind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .task
-    }
+    static var unrecognized: Self { .task }
 
     /// The kind as copy names it — "Remove Review…", "Review removed." — capitalised, as a menu
     /// item has it; a sentence lowercases it.
@@ -302,8 +262,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     public var conversations: [TaskConversation]
     /// The raw `agent` a newer build saved, when this build has no case for it. The task reads as a
     /// `.claude` task meanwhile, and a save writes the raw value back, so a downgrade and a later
-    /// upgrade lose nothing. Nothing launches from a saved `agent`: a task's tabs are started by
-    /// the daemon from the draft, at creation.
+    /// upgrade lose nothing.
     public private(set) var unrecognizedAgent: String?
     /// `kind` as the file has it, written back as it was: none for a task saved without one, and a
     /// raw value a newer build saved, which this build reads as `.task`.
@@ -313,7 +272,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     public var operated: OperatedTask? { didSet { unreadableOperated = nil } }
     /// `operated` as the file had it when this build cannot read it — a state or an end only a
     /// newer build knows. The task reads as one you made meanwhile, and a save writes it back.
-    private var unreadableOperated: StoredJSON?
+    private var unreadableOperated: JSONValue?
     /// A `.task` is made with no `kind` to save, as every task has been: only a review is stamped.
     public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind = .task, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?, conversations: [TaskConversation] = [], operated: OperatedTask? = nil) {
         self.id = id; self.projectId = projectId; self.title = title; self.branch = branch; self.worktreePath = worktreePath; self.baseBranch = baseBranch
@@ -395,10 +354,10 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
 
     /// `operated` as the file has it: read when this build can, kept whole when it cannot.
     private enum SavedOperated: Decodable {
-        case known(OperatedTask), unknown(StoredJSON)
+        case known(OperatedTask), unknown(JSONValue)
         init(from decoder: Decoder) throws {
             if let task = try? OperatedTask(from: decoder) { self = .known(task) }
-            else { self = .unknown(try StoredJSON(from: decoder)) }
+            else { self = .unknown(try JSONValue(from: decoder)) }
         }
     }
 
@@ -473,7 +432,7 @@ public struct AppState: Codable, Equatable, Sendable {
     public var foldedRuns: Set<UUID> = []
     /// Runs this build cannot read — a state or field only a newer build knows — kept as they came
     /// and written back after `runs`, so a downgrade and a later upgrade lose none.
-    private var unreadableRuns: [StoredJSON] = []
+    private var unreadableRuns: [JSONValue] = []
     public static let empty = AppState()
     public init() {}
 
@@ -563,10 +522,10 @@ public struct AppState: Codable, Equatable, Sendable {
 
     /// A run as the file has it: read when this build can, kept whole when it cannot.
     private enum SavedRun: Decodable {
-        case known(OperatorRun), unknown(StoredJSON)
+        case known(OperatorRun), unknown(JSONValue)
         init(from decoder: Decoder) throws {
             if let run = try? OperatorRun(from: decoder) { self = .known(run) }
-            else { self = .unknown(try StoredJSON(from: decoder)) }
+            else { self = .unknown(try JSONValue(from: decoder)) }
         }
     }
 

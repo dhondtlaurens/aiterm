@@ -54,8 +54,8 @@ import Darwin
         #expect(try Repository.toplevel(of: FileManager.default.temporaryDirectory.path, git: git) == nil)
         #expect(Repository(repo, git: git).defaultBranch() == "main")
         #expect(try Repository(repo, git: git).remoteUrl() == nil)
-        #expect(BranchNaming.isValid("feat/x-1", git: git))
-        #expect(!BranchNaming.isValid("feat//bad..name", git: git))
+        #expect(try BranchNaming.isValid("feat/x-1", git: git))
+        #expect(try !BranchNaming.isValid("feat//bad..name", git: git))
     }
 
     /// "No remote" is git's answer; a timeout is not, and reads as an error rather than as `nil`.

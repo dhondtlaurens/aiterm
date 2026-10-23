@@ -165,6 +165,9 @@ public final class DaemonClient: Sendable {
         // belonging to a brand-new connection. `shutdown` makes the pending `read` return 0, and
         // the reader closes its own descriptor on the way out.
         waiting.values.forEach { $0.fail(DaemonError(code: .disconnected, message: "helper connection closed")) }
+        if continuation != nil, reason != .closedHere {
+            Log.daemon.error("Helper connection ended: \(String(describing: reason), privacy: .public)")
+        }
         continuation?.finish()
     }
 
@@ -362,13 +365,6 @@ public final class DaemonClient: Sendable {
     /// hands it, so it is encoded as that type, with no untyped value in between.
     private struct Envelope<P: Encodable>: Encodable {
         let id: Int, method: String, params: P?
-        private enum CodingKeys: String, CodingKey { case id, method, params }
-        func encode(to encoder: Encoder) throws {
-            var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(id, forKey: .id)
-            try container.encode(method, forKey: .method)
-            try container.encodeIfPresent(params, forKey: .params) // omit the key entirely, not `null`
-        }
     }
     private struct NoParams: Encodable {}
 

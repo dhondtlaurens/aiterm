@@ -6,6 +6,23 @@ import Testing
 @Suite(.blocking) struct RemoteResolverTests {
     private func makeRepo() throws -> String { try GitFixture.makeRepo(prefix: "rr-") }
 
+    @Test(arguments: ["files", "reftable"]) func followsTheCheckedOutBranchesUpstream(refFormat: String) throws {
+        let repo = try GitFixture.makeRepo(prefix: "rr-", refFormat: refFormat)
+        defer { try? FileManager.default.removeItem(atPath: repo) }
+        let git = GitRunner.hermetic(), resolver = RemoteResolver(git: .hermetic())
+        for remote in ["origin", "fork"] {
+            try git.run(["remote", "add", remote, "git@example.com:\(remote).git"], in: repo)
+            try git.run(["branch", remote], in: repo)
+            try git.run(["update-ref", "refs/remotes/\(remote)/main", "HEAD"], in: repo)
+            try git.run(["config", "branch.\(remote).remote", remote], in: repo)
+            try git.run(["config", "branch.\(remote).merge", "refs/heads/main"], in: repo)
+        }
+        for remote in ["origin", "fork"] {
+            try git.run(["switch", "-q", remote], in: repo)
+            #expect(resolver.remote(for: repo) == .remote("git@example.com:\(remote).git"))
+        }
+    }
+
     @Test func followsARemoteUrlBeingChanged() throws {
         let repo = try makeRepo(), git = GitRunner.hermetic(), resolver = RemoteResolver(git: .hermetic())
         try git.run(["remote", "add", "origin", "git@example.com:app.git"], in: repo)

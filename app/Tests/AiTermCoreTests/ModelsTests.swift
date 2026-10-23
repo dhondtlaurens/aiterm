@@ -3,6 +3,13 @@ import Foundation
 @testable import AiTermCore
 
 @Suite struct ModelsTests {
+    @Test func preservedWorkspaceValuesSaveBackByteIdentically() throws {
+        let bytes = Data(#"{"future":{"array":[null,true,9007199254740993,1.25,"text"]},"items":[],"lastAgentByProject":[],"lastModelByAgent":[],"runs":[{"future":true}],"tasks":[],"terminals":[]}"#.utf8)
+        let state = try JSONDecoder().decode(AppState.self, from: bytes)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        #expect(try encoder.encode(state) == bytes)
+    }
+
     @Test func agentsAreOrderedClaudeCodexPi() {
         #expect(AgentKind.allCases == [.claude, .codex, .pi])
         #expect(AgentKind.pi.displayName == "PI")
@@ -171,7 +178,7 @@ import Foundation
     }
 
     /// A project linked before it could have several Jira projects stored the one under
-    /// `jiraProject`; it loads as a list of one and is written back as the list, and as the one.
+    /// `jiraProject`; it loads as a list of one and is written back only as the list.
     @Test func testProjectWithTheSingleJiraProjectOfAnOlderStateFileDecodesAsAListOfOne() throws {
         let json = """
         {"id":"1EB4C0DE-0000-0000-0000-000000000001","name":"Repo","path":"/repo",\
@@ -183,23 +190,19 @@ import Foundation
         #expect(project.jiraProjects.map(\.key) == ["SHOP"])
 
         let written = try JSONSerialization.jsonObject(with: JSONEncoder().encode(project)) as? [String: Any]
-        #expect((written?["jiraProject"] as? [String: Any])?["key"] as? String == "SHOP")
+        #expect(written?["jiraProject"] == nil)
         #expect((written?["jiraProjects"] as? [Any])?.count == 1)
     }
 
-    /// A build from before projects could link several reads only `jiraProject`, and saves the
-    /// project without it. So the first link is written there too, and the list still wins on reading.
-    @Test func testProjectAlsoWritesItsFirstJiraProjectForOlderBuilds() throws {
+    /// New saves carry only the list; an empty list needs no legacy single-project key.
+    @Test(arguments: [[], ["SHOP", "PAY"]]) func testProjectWritesOnlyItsJiraProjectList(keys: [String]) throws {
         let site = URL(string: "https://example.atlassian.net")!
-        var project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 1),
-                              collapsed: false, jiraProjects: ["SHOP", "PAY"].map { JiraProjectRef(id: $0, key: $0, name: $0, siteURL: site) })
-        var written = try JSONSerialization.jsonObject(with: JSONEncoder().encode(project)) as? [String: Any]
-        #expect((written?["jiraProject"] as? [String: Any])?["key"] as? String == "SHOP")
-        #expect(try JSONDecoder().decode(Project.self, from: JSONEncoder().encode(project)).jiraProjects.map(\.key) == ["SHOP", "PAY"])
-
-        project.jiraProjects = []
-        written = try JSONSerialization.jsonObject(with: JSONEncoder().encode(project)) as? [String: Any]
+        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 1),
+                              collapsed: false, jiraProjects: keys.map { JiraProjectRef(id: $0, key: $0, name: $0, siteURL: site) })
+        let data = try JSONEncoder().encode(project)
+        let written = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         #expect(written?["jiraProject"] == nil)
+        #expect(try JSONDecoder().decode(Project.self, from: data).jiraProjects.map(\.key) == keys)
     }
 
     @Test func testLinkedJiraProjectsReadAsTheirKeysInOrder() {

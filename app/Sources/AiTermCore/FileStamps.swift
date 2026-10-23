@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// File versions shared by persistence, catalogues and git caches: inode, modification time and
 /// size distinguish atomic replacements and edits in place. A missing file has no stamp; appearing
@@ -31,11 +32,12 @@ struct FileStamps: Equatable, Sendable {
     var noneExist: Bool { stamps.allSatisfy { $0 == nil } }
 
     static func stamp(_ path: String) -> Stamp? {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
-              let modified = attributes[.modificationDate] as? Date,
-              let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value,
-              let size = (attributes[.size] as? NSNumber)?.uint64Value else { return nil }
-        return Stamp(modified: modified, inode: inode, size: size)
+        var info = stat()
+        guard lstat(path, &info) == 0 else { return nil }
+        // Subtract the epoch before adding nanoseconds, preserving Foundation's Date precision.
+        let seconds = Double(info.st_mtimespec.tv_sec) - Date.timeIntervalBetween1970AndReferenceDate
+        let modified = Date(timeIntervalSinceReferenceDate: seconds + Double(info.st_mtimespec.tv_nsec) / 1e9)
+        return Stamp(modified: modified, inode: UInt64(info.st_ino), size: UInt64(info.st_size))
     }
 
     /// One line of a `rev-parse --git-path` answer, made absolute: git answers with an absolute

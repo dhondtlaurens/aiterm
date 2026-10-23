@@ -78,11 +78,9 @@ extension SessionInfo {
 /// command, a monitor or any other task by its description.
 public struct BackgroundJob: Codable, Equatable, Hashable, Sendable {
     /// See `SessionAgent`'s decoding note: a kind this app does not know reads as `.task`.
-    public enum Kind: String, Codable, Sendable {
+    public enum Kind: String, Codable, LenientRawDecodable, Sendable {
         case shell, monitor, task
-        public init(from decoder: Decoder) throws {
-            self = Kind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .task
-        }
+        static var unrecognized: Self { .task }
     }
     public var kind: Kind, text: String
     public init(kind: Kind, text: String) { self.kind = kind; self.text = text }
@@ -171,23 +169,19 @@ public enum ItermCookieAnswer: Equatable, Sendable {
 
 /// How a `session.deliver` went: typed and submitted, typed but left unsent, or not typed at all.
 /// An outcome a newer daemon names that this app does not decodes as `.refused`: nothing is assumed typed.
-public enum DeliveryOutcome: String, Codable, Sendable {
+public enum DeliveryOutcome: String, Codable, LenientRawDecodable, Sendable {
     case delivered, partial, refused
-    public init(from decoder: Decoder) throws {
-        self = DeliveryOutcome(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .refused
-    }
+    static var unrecognized: Self { .refused }
 }
 
 /// Why a delivery was refused, or its Enter held back, in one word (the daemon's `delivery.RefusalCode`):
 /// what the app tells apart and says in its own words, where `Delivery.reason` says it in the daemon's. A
 /// code a newer daemon names that this app does not know decodes as `.unknown`.
-public enum DeliveryCode: String, Codable, CaseIterable, Sendable {
+public enum DeliveryCode: String, Codable, LenientRawDecodable, CaseIterable, Sendable {
     case ownership, itermDisconnected, sessionClosed, replaced, notChecked, unsupported, typing, unsentInput
     case screenUnread, prompt, unrecognisedScreen, nothing, messageFile, wakeText, itermRefused, pasteOnly
     case unknown
-    public init(from decoder: Decoder) throws {
-        self = DeliveryCode(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
-    }
+    static var unrecognized: Self { .unknown }
 }
 
 /// A delivery's result and, unless it was delivered, why: in the daemon's words, and as a code.
@@ -205,11 +199,9 @@ public struct Delivery: Codable, Equatable, Sendable {
 /// `delivery.load_policy`): `auto` pastes and presses Enter, `pasteOnly` pastes and leaves the Enter to
 /// the person, `off` types nothing. A policy a newer daemon names that this app does not know reads as
 /// `off`: delivery fails closed.
-public enum DeliveryPolicy: String, Codable, CaseIterable, Sendable {
+public enum DeliveryPolicy: String, Codable, LenientRawDecodable, CaseIterable, Sendable {
     case auto, pasteOnly, off
-    public init(from decoder: Decoder) throws {
-        self = DeliveryPolicy(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .off
-    }
+    static var unrecognized: Self { .off }
 }
 
 /// The delivery check's verdict on one CLI: its policy, and the one version it vouches for.
@@ -222,11 +214,9 @@ public struct DeliveryVerdict: Codable, Equatable, Sendable {
 /// The prompt a session has open, as the daemon's screen markers classify it.
 /// A kind a newer daemon names that this app does not decodes as `.menu`: a prompt is open, never
 /// "none", which would read as safe to type. (A JSON null kind is still nil, at `DaemonClient.PromptResult`.)
-public enum PromptKind: String, Codable, CaseIterable, Sendable {
+public enum PromptKind: String, Codable, LenientRawDecodable, CaseIterable, Sendable {
     case permission, startup, menu
-    public init(from decoder: Decoder) throws {
-        self = PromptKind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .menu
-    }
+    static var unrecognized: Self { .menu }
 }
 
 /// One tool call from an operator: answered with `operator.reply` and the same `requestId`.

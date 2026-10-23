@@ -126,10 +126,7 @@ public struct TaskWorkflow: Sendable {
         if FileManager.default.fileExists(atPath: task.worktreePath) {
             try repository.removeWorktree(at: task.worktreePath, deleteBranch: nil, force: force)
         } else {
-            // Locked worktrees cannot be pruned until their lock is released. Refused for one
-            // that is not locked, which is no reason to stop.
-            _ = try? git.run(["worktree", "unlock", task.worktreePath], in: project.path, timeout: GitRunner.checkoutTimeout)
-            try git.run(["worktree", "prune"], in: project.path)
+            try repository.forgetWorktreeRecord(at: task.worktreePath)
         }
     }
 

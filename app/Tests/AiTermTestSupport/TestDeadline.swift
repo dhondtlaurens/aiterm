@@ -6,5 +6,4 @@ import Foundation
 /// absence window instead, and stays as short as it was.
 enum TestDeadline {
     static let seconds: TimeInterval = 10
-    static func fromNow() -> Date { Date().addingTimeInterval(seconds) }
 }

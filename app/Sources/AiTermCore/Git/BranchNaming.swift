@@ -20,7 +20,7 @@ public enum BranchNaming {
     /// The part of a task branch after its type: the ticket key, then the slugged summary. A summary
     /// that opens with its own key (`FE-1783 Dependency updates`, as Jira titles often do) is not
     /// said twice.
-    public static func branchSlug(key: String?, summary: String) -> String {
+    static func branchSlug(key: String?, summary: String) -> String {
         [key?.lowercased(), slug(withoutLeading(key, in: summary))].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "-")
     }
 
@@ -64,7 +64,7 @@ public enum BranchNaming {
     }
 
     /// Whether git takes `name` as a branch name.
-    public static func isValid(_ name: String, git: any GitRunning) -> Bool {
-        (try? git.run(["check-ref-format", "--branch", name], in: "/")) != nil
+    static func isValid(_ name: String, git: any GitRunning) throws -> Bool {
+        try git.ask(["check-ref-format", "--branch", name], in: "/", none: [128]) != nil
     }
 }

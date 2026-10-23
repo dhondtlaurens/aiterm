@@ -3,6 +3,25 @@ import Foundation
 @testable import AiTermCore
 
 @Suite struct StateStoreTests {
+    @Test func fileStampsKeepFileAndSymlinkMetadata() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("file"), link = dir.appendingPathComponent("link")
+        try Data("contents".utf8).write(to: file)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+        for url in [file, link] {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            let stamp = try #require(FileStamps.stamp(url.path))
+            #expect(stamp.inode == (attributes[.systemFileNumber] as? NSNumber)?.uint64Value)
+            #expect(stamp.size == (attributes[.size] as? NSNumber)?.uint64Value)
+            #expect(stamp.modified == attributes[.modificationDate] as? Date)
+        }
+        try FileManager.default.removeItem(at: file)
+        #expect(FileStamps.stamp(file.path) == nil)
+        #expect(FileStamps.stamp(link.path) != nil)
+    }
+
     @Test func testLoadOfMissingFileGivesEmptyState() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("state.json")
         #expect(try StateStore(url: url).load() == .empty)

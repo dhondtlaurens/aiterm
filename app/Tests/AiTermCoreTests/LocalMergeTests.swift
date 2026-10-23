@@ -121,6 +121,18 @@ import Testing
         try git.ask(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"], in: path, none: [1])
     }
 
+    @Test func aFailedMergeStateCheckReportsItsOwnFailure() async throws {
+        let c = try checkout()
+        let runner = TimingOutGitRunner(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"], inner: MergeTimesOut())
+        defer { _ = try? git.run(["merge", "--abort"], in: c.repo.path) }
+        do {
+            _ = try await LocalMerge.merge(sha: c.sha, into: "main", in: Repository(c.repo.path, git: runner))
+            Issue.record("expected a failed MERGE_HEAD check")
+        } catch {
+            #expect((error as? GitError)?.args == ["rev-parse", "--verify", "--quiet", "MERGE_HEAD"])
+        }
+    }
+
     /// A merge killed at its deadline leaves no merge half done in your checkout.
     @Test func aTimedOutMergeIsTakenBack() async throws {
         let c = try checkout()

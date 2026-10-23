@@ -8,26 +8,20 @@ import Foundation
 ///
 /// Thread-safe, and meant to be called off the main actor: every miss runs git.
 public final class BranchResolver: Sendable {
-    private let git: any GitRunning
-    private let probe: RepositoryProbe
-    private let cache: WatchedFileCache<String?>
+    private let resolver: RepositoryResolver<String?>
 
     /// Resolvers given the same `probe` ask git where a directory's files are once between them.
     public init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30,
                 probe: RepositoryProbe? = nil) {
-        self.git = git
-        self.probe = probe ?? RepositoryProbe(git: git, now: now, negativeTTL: negativeTTL)
-        self.cache = WatchedFileCache(now: now, negativeTTL: negativeTTL)
+        resolver = RepositoryResolver(git: git, now: now, negativeTTL: negativeTTL, probe: probe)
     }
 
     /// The branch checked out in `cwd`, or `nil` when that is not a git checkout — or git could not
     /// be asked and nothing was known before. A failure is never kept; one after an answer leaves
     /// that answer standing until the next lookup.
     public func branch(for cwd: String) -> String? {
-        guard !cwd.isEmpty else { return nil }
-        let git = self.git, probe = self.probe
         do {
-            switch try cache.answer(for: cwd, locate: { try Self.locate($0, probe: probe).map { [$0] } }, read: { try Self.read($0, head: $1[0], git: git) }) {
+            switch try resolver.answer(for: cwd, locate: { [Self.locate($0)] }, read: { try Self.read($0, head: $1[0], git: $2) }) {
             case .notARepository: return nil
             case .found(let branch): return branch
             }
@@ -47,16 +41,15 @@ public final class BranchResolver: Sendable {
     /// Forgets every directory not in `live`: the cwds and project paths the next pass asks about.
     /// The probe it shares is kept to the same set, the widest of the three resolvers'.
     public func retain(only live: Set<String>) {
-        cache.retain(only: live)
-        probe.retain(only: live)
+        resolver.cache.retain(only: live)
+        resolver.probe.retain(only: live)
     }
 
     /// The file a checkout rewrites: `HEAD`, or in a reftable repository the list of the stack
     /// that holds HEAD — there the `HEAD` file is a stub no checkout touches, and every ref update
     /// adds a table and rewrites that list instead. Its content says nothing `parseHead` reads, so
     /// such a repository's answer comes from git.
-    private static func locate(_ cwd: String, probe: RepositoryProbe) throws -> String? {
-        guard let found = try probe.locations(of: cwd) else { return nil }
+    private static func locate(_ found: RepositoryProbe.Locations) -> String {
         guard (try? String(contentsOfFile: found.head, encoding: .utf8)).map(isReftableStub) == true else { return found.head }
         return found.reftableList
     }

@@ -12,8 +12,7 @@ public struct Repository: Sendable {
 
     /// The top of the checkout `path` is in; `nil` when it is in none.
     public static func toplevel(of path: String, git: any GitRunning) throws -> String? {
-        do { return try git.run(["rev-parse", "--show-toplevel"], in: path) }
-        catch let e as GitError where e.code == 128 { return nil }
+        try git.ask(["rev-parse", "--show-toplevel"], in: path, none: [128])
     }
 
     /// The remote a project pushes to: the one the checked-out branch tracks, else `origin`, else the

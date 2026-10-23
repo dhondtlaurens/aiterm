@@ -14,7 +14,7 @@ enum HeadlessRun {
     /// Headless runs leave an empty model to the CLI and give PI only a level it accepts.
     static func modelArguments(_ agent: AgentKind, model: String, reasoning: String?) -> [String] {
         guard !model.isEmpty else { return [] }
-        let effort = agent == .pi ? reasoning.flatMap { PiModelCatalog.thinkingLevels.contains($0) ? $0 : nil } : reasoning
+        let effort = agent == .pi ? reasoning.flatMap { agent.harness.fallbackEfforts.contains($0) ? $0 : nil } : reasoning
         return agent.harness.modelArguments(model: model, reasoning: effort)
     }
 

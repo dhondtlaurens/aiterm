@@ -99,7 +99,7 @@ public enum TaskCreator {
     public static func create(draft: TaskDraft, project: Project, reserved: Set<String> = [], git: any GitRunning) throws -> Made {
         guard isNamed(draft.title) else { throw Failure.emptyTitle }
         guard !draft.model.isEmpty else { throw Failure.emptyModel }
-        guard BranchNaming.isValid(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
+        guard try BranchNaming.isValid(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
         let slug = BranchNaming.unused(BranchNaming.worktreeSlug(branch: draft.branch), in: project.path, reserved: reserved)
         let repository = Repository(project.path, git: git)
         let path = try repository.addTaskWorktree(slug: slug, branch: draft.branch, base: draft.baseBranch)
@@ -113,7 +113,7 @@ public enum TaskCreator {
         guard isNamed(draft.title) else { throw Failure.emptyTitle }
         guard !draft.model.isEmpty else { throw Failure.emptyModel }
         guard !draft.branch.trimmingCharacters(in: .whitespaces).isEmpty,
-              BranchNaming.isValid(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
+              try BranchNaming.isValid(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
         let slug = BranchNaming.unused(BranchNaming.reviewSlug(branch: draft.branch), in: project.path, reserved: reserved)
         let repository = Repository(project.path, git: git)
         let path = try repository.addReviewWorktree(slug: slug, branch: draft.branch)

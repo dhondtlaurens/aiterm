@@ -14,6 +14,12 @@ import Testing
         return (GitRunner(git: url.path), directory.path)
     }
 
+    @Test func aToplevelTimeoutIsNotANonRepository() throws {
+        #expect(throws: GitError.self) {
+            try Repository.toplevel(of: "/", git: TimingOutGitRunner(["rev-parse"], code: 128))
+        }
+    }
+
     /// A credential helper or `ssh` that git starts must not check in with LaunchServices as AiTerm.
     @Test func gitIsRunWithoutTheLaunchIdentity() throws {
         let (git, directory) = try fakeGit("/usr/bin/env")
