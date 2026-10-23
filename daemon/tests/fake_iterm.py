@@ -21,7 +21,6 @@ class FakeIterm:
         # Whether create_window / create_tab / close_window announce themselves. Off for a test that
         # wants the daemon to hear nothing of its own work.
         self.notify_on_create = notify_on_create
-        self.closed = False
         # Set to make connect() fail the way a refused cookie request does, iTerm2 running.
         self.auth_error: str | None = None
         # Set to make the next connect() fail the way a running iTerm2 that does not answer does.
@@ -66,7 +65,7 @@ class FakeIterm:
         return self._connected
 
     async def close(self) -> None:
-        self.closed, self._connected = True, False
+        self._connected = False
 
     async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame,
                             background: bool = False) -> tuple[str, str]:

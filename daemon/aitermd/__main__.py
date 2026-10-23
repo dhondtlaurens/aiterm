@@ -3,7 +3,6 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 import signal
 import sys
 import time
@@ -11,7 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from . import __version__, protocol
+from . import protocol
 from .rpc_server import AlreadyRunning
 
 #: Exit status for "another daemon already owns the socket". Kept distinct from the
@@ -106,10 +105,6 @@ async def run_daemon(ns: argparse.Namespace) -> None:
     await svc.start()
     watchdog = asyncio.get_running_loop().create_task(
         IdleWatchdog(lambda: rpc.client_count, ns.idle_exit_seconds, stop.set, check_seconds=IDLE_CHECK_SECONDS).run())
-    support_dir = Path.home() / "Library" / "Application Support" / "AiTerm"
-    support_dir.mkdir(parents=True, exist_ok=True)
-    info = support_dir / "daemon.json"
-    info.write_text(json.dumps({"pid": os.getpid(), "socket": ns.socket, "hookPort": svc.hooks.port, "version": __version__}))
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop.set)
@@ -119,7 +114,6 @@ async def run_daemon(ns: argparse.Namespace) -> None:
         watchdog.cancel()
         await asyncio.gather(watchdog, return_exceptions=True)
         await svc.stop()
-        info.unlink(missing_ok=True)
 
 
 def main(argv: list[str] | None = None) -> int:

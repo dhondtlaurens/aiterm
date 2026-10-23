@@ -5,17 +5,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, NamedTuple
 
+from .text import nonempty_string
 from .models import HARNESSES, ITERM_SESSION_FIELD, AgentKind, BackgroundJob, Transition, Usage
 from .usage import finite_number, parse_claude_rate_limits
 
 NEEDS_INPUT_NOTIFICATIONS = {"permission_prompt", "agent_needs_input", "elicitation_dialog", "elicitation_url_dialog"}
 SIMPLE_EVENTS: dict[str, Transition] = {"UserPromptSubmit": "working", "Stop": "done", "PermissionRequest": "needsInput"}
 
-
-def _nonempty_string(value: Any) -> str | None:
-    """A payload field as the string it should be, or None. Every value a parser tests against a
-    set goes through this first: a list or dict from another process would otherwise raise."""
-    return value if isinstance(value, str) and value else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +48,7 @@ class HookEvent:
 
 
 def _subagent(name: str, p: dict[str, Any]) -> tuple[Transition, str] | None:
-    child = _nonempty_string(p.get("agent_id"))
+    child = nonempty_string(p.get("agent_id"))
     return ("subagentStart" if name == "SubagentStart" else "subagentStop", child) if child else None
 
 
@@ -60,9 +56,9 @@ def _claude_subagent_transcript(p: dict[str, Any], child: str) -> str | None:
     """The child's transcript. SubagentStart carries only the session's, `<dir>/<session>.jsonl`;
     Claude Code writes the child's beside it, at `<dir>/<session>/subagents/agent-<id>.jsonl`. A path
     the hook gives for the child itself (SubagentStop's `agent_transcript_path`) wins."""
-    if (own := _nonempty_string(p.get("agent_transcript_path"))) is not None:
+    if (own := nonempty_string(p.get("agent_transcript_path"))) is not None:
         return own
-    session = _nonempty_string(p.get("transcript_path"))
+    session = nonempty_string(p.get("transcript_path"))
     if session is None or not session.endswith(".jsonl"):
         return None
     return os.path.join(session.removesuffix(".jsonl"), "subagents", f"agent-{child}.jsonl")
@@ -88,12 +84,12 @@ def _claude_background_work(tasks: Any) -> tuple[BackgroundJob, ...] | None:
         return None
     work: list[BackgroundJob] = []
     for task in tasks:
-        if not isinstance(task, dict) or (kind := _nonempty_string(task.get("type"))) in (None, "subagent"):
+        if not isinstance(task, dict) or (kind := nonempty_string(task.get("type"))) in (None, "subagent"):
             continue
-        if _nonempty_string(task.get("status")) not in CLAUDE_IN_FLIGHT_TASK_STATUSES or _claude_artifact_watch(task):
+        if nonempty_string(task.get("status")) not in CLAUDE_IN_FLIGHT_TASK_STATUSES or _claude_artifact_watch(task):
             continue
-        said = _nonempty_string(task.get("command")) if kind == "shell" else None
-        if (said := said or _nonempty_string(task.get("description"))) is not None:
+        said = nonempty_string(task.get("command")) if kind == "shell" else None
+        if (said := said or nonempty_string(task.get("description"))) is not None:
             work.append(BackgroundJob("shell" if kind == "shell" else "monitor" if kind == "monitor" else "task", said))
     return tuple(work)
 
@@ -101,7 +97,7 @@ def _claude_background_work(tasks: Any) -> tuple[BackgroundJob, ...] | None:
 def _claude_artifact_watch(task: dict[str, Any]) -> bool:
     """Whether a `background_tasks` entry is Claude Code watching an artifact for comments, which never ends and
     wakes the session only when someone comments: no work in flight."""
-    said = _nonempty_string(task.get("description"))
+    said = nonempty_string(task.get("description"))
     return (task.get("type") == "monitor" and task.get("server") is None
             and said is not None and said.startswith(CLAUDE_ARTIFACT_WATCH_PREFIX))
 
@@ -114,11 +110,11 @@ def _claude_running_subagents(tasks: Any) -> frozenset[str] | None:
         return None
     running: set[str] = set()
     for task in tasks:
-        if not isinstance(task, dict) or _nonempty_string(task.get("type")) not in CLAUDE_MATCHABLE_TASK_TYPES:
+        if not isinstance(task, dict) or nonempty_string(task.get("type")) not in CLAUDE_MATCHABLE_TASK_TYPES:
             return None
-        if task["type"] != "subagent" or _nonempty_string(task.get("status")) not in CLAUDE_IN_FLIGHT_TASK_STATUSES:
+        if task["type"] != "subagent" or nonempty_string(task.get("status")) not in CLAUDE_IN_FLIGHT_TASK_STATUSES:
             continue
-        if (child := _nonempty_string(task.get("id"))) is None:
+        if (child := nonempty_string(task.get("id"))) is None:
             return None
         running.add(child)
     return frozenset(running)
@@ -133,7 +129,7 @@ def _session_start(p: dict[str, Any]) -> Transition | None:
 
 def _submitted(name: str, p: dict[str, Any]) -> str | None:
     """The prompt a UserPromptSubmit submitted; None for any other event."""
-    return _nonempty_string(p.get("prompt")) if name == "UserPromptSubmit" else None
+    return nonempty_string(p.get("prompt")) if name == "UserPromptSubmit" else None
 
 
 def parse_claude_hook(p: dict[str, Any]) -> HookEvent | None:
@@ -141,12 +137,12 @@ def parse_claude_hook(p: dict[str, Any]) -> HookEvent | None:
     # which Claude never does: such a post is not Claude's.
     if not isinstance(p, dict) or "hookEventName" in p:
         return None
-    name = _nonempty_string(p.get("hook_event_name"))
-    sid, cwd = _nonempty_string(p.get("session_id")), _nonempty_string(p.get("cwd"))
+    name = nonempty_string(p.get("hook_event_name"))
+    sid, cwd = nonempty_string(p.get("session_id")), nonempty_string(p.get("cwd"))
     if name == "SessionStart":
-        return HookEvent("claude", _session_start(p), _nonempty_string(p.get("model")), sid, cwd, event_name=name)
+        return HookEvent("claude", _session_start(p), nonempty_string(p.get("model")), sid, cwd, event_name=name)
     if name == "PostModelSwitch":
-        return HookEvent("claude", None, _nonempty_string(p.get("to_model")), sid, cwd, event_name=name)
+        return HookEvent("claude", None, nonempty_string(p.get("to_model")), sid, cwd, event_name=name)
     if name in {"SubagentStart", "SubagentStop"}:
         if (child := _subagent(name, p)) is None:
             return None
@@ -159,7 +155,7 @@ def parse_claude_hook(p: dict[str, Any]) -> HookEvent | None:
     if name in SIMPLE_EVENTS:
         return HookEvent("claude", SIMPLE_EVENTS[name], None, sid, cwd, event_name=name, prompt=_submitted(name, p))
     if name == "Notification":
-        nt = _nonempty_string(p.get("notification_type"))
+        nt = nonempty_string(p.get("notification_type"))
         if nt in NEEDS_INPUT_NOTIFICATIONS:
             return HookEvent("claude", "needsInput", None, sid, cwd, event_name=name)
         if nt == "agent_completed":
@@ -170,9 +166,9 @@ def parse_claude_hook(p: dict[str, Any]) -> HookEvent | None:
 def parse_codex_hook(p: dict[str, Any]) -> HookEvent | None:
     if not isinstance(p, dict):
         return None
-    name = _nonempty_string(p.get("hook_event_name"))
-    model, sid, cwd = (_nonempty_string(p.get(key)) for key in ("model", "session_id", "cwd"))
-    iterm_session_id = _nonempty_string(p.get(ITERM_SESSION_FIELD))
+    name = nonempty_string(p.get("hook_event_name"))
+    model, sid, cwd = (nonempty_string(p.get(key)) for key in ("model", "session_id", "cwd"))
+    iterm_session_id = nonempty_string(p.get(ITERM_SESSION_FIELD))
     if name == "SessionStart":
         return HookEvent("codex", _session_start(p), model, sid, cwd, iterm_session_id=iterm_session_id, event_name=name)
     if name in {"SubagentStart", "SubagentStop"}:
@@ -214,24 +210,24 @@ def _clamped_percent(value: Any) -> int | None:
 def parse_pi_hook(p: dict[str, Any]) -> HookEvent | None:
     if not isinstance(p, dict):
         return None
-    name = _nonempty_string(p.get("hook_event_name"))
+    name = nonempty_string(p.get("hook_event_name"))
     if name is None or name not in PI_EVENTS:
         return None
     kind = PI_EVENTS[name]
-    if name == "session_start" and _nonempty_string(p.get("reason")) in PI_NEW_CONVERSATION_REASONS:
+    if name == "session_start" and nonempty_string(p.get("reason")) in PI_NEW_CONVERSATION_REASONS:
         kind = "sessionStart"
     child = None
-    if kind in {"subagentStart", "subagentStop"} and (child := _nonempty_string(p.get("agent_id"))) is None:
+    if kind in {"subagentStart", "subagentStop"} and (child := nonempty_string(p.get("agent_id"))) is None:
         return None
     return HookEvent(
         agent="pi",
         kind=kind,
-        model=_nonempty_string(p.get("model")),
-        session_id=_nonempty_string(p.get("session_id")),
-        cwd=_nonempty_string(p.get("cwd")),
+        model=nonempty_string(p.get("model")),
+        session_id=nonempty_string(p.get("session_id")),
+        cwd=nonempty_string(p.get("cwd")),
         subagent_id=child,
-        iterm_session_id=_nonempty_string(p.get(ITERM_SESSION_FIELD)),
-        reasoning=_nonempty_string(p.get("reasoning")),
+        iterm_session_id=nonempty_string(p.get(ITERM_SESSION_FIELD)),
+        reasoning=nonempty_string(p.get("reasoning")),
         context_percent=_clamped_percent(p.get("context_percent")),
         event_name=name,
     )
@@ -263,14 +259,14 @@ class StatusLine(NamedTuple):
 def _object_field(p: dict[str, Any], key: str, field: str) -> str | None:
     """`p[key][field]` as a string, as in `model.id`."""
     value = p.get(key)
-    return _nonempty_string(value.get(field)) if isinstance(value, dict) else None
+    return nonempty_string(value.get(field)) if isinstance(value, dict) else None
 
 
 def parse_claude_statusline(p: dict[str, Any], now: int) -> StatusLine:
     return StatusLine(
         parse_claude_rate_limits(p.get("rate_limits"), now),
-        _nonempty_string(p.get("session_id")), _nonempty_string(p.get("cwd")),
-        _nonempty_string(p.get(ITERM_SESSION_FIELD)),
+        nonempty_string(p.get("session_id")), nonempty_string(p.get("cwd")),
+        nonempty_string(p.get(ITERM_SESSION_FIELD)),
         _object_field(p, "model", "id"), _context_percent(p),
     )
 

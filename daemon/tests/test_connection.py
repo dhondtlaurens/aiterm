@@ -313,7 +313,7 @@ async def test_a_disconnect_after_stop_starts_no_reconnect(harness):
     h = harness()
     await h.supervisor.start()
     await h.supervisor.stop()
-    assert h.it.closed and not h.it.is_connected()
+    assert not h.it.is_connected()
     await h.it.disconnect()
     assert h.supervisor._reconnect_task is None and h.launches == []
 

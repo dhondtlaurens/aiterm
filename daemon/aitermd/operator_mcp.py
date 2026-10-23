@@ -464,9 +464,8 @@ class OperatorRoute:
         self._prefix = uuid.uuid4().hex
 
     def _run(self, headers: dict[str, str]) -> str | None:
-        scheme, _, token = headers.get("authorization", "").partition(" ")
-        token = token.strip()
-        return self.tokens.run_for(token) if scheme.lower() == "bearer" and token else None
+        token = mcp.bearer(headers.get("authorization", ""))
+        return self.tokens.run_for(token) if token else None
 
     async def serve(self, method: str, headers: dict[str, str], body: bytes) -> tuple[int, str]:
         if (run_id := self._run(headers)) is None:

@@ -241,7 +241,7 @@ class WindowManager:
             session = self.registry.get(session_id)
             if session is None or not (session.task_id or session.project_id):
                 continue
-            # Each title costs three iTerm2 calls; one already on its tab is not applied again.
+            # Each title requires iTerm2 calls; one already on its tab is not applied again.
             if self._applied_titles.get(session_id) != title:
                 wanted[session_id] = title
         if not wanted:

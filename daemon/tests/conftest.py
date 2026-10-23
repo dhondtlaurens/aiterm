@@ -10,6 +10,7 @@ import pytest
 
 from aitermd import connection
 from aitermd.claude_sessions import ClaudeSessionFiles
+from aitermd.codex_sessions import CodexSessionFiles
 from aitermd.connection import ItermSupervisor
 from aitermd.hooks_server import HookServer
 from aitermd.rpc_server import RpcServer
@@ -75,7 +76,7 @@ async def make_service(tmp_path, sock_dir):
             options = {"launch_iterm": LaunchRecorder(), **(supervisor or {})}
             supervisor = ItermSupervisor(iterm, rpc.broadcast, lambda: rpc.client_count, **options)
         arguments = {"hooks": HookServer(on_post=None, port=0), "claude_files": ClaudeSessionFiles(tmp_path / "claude-sessions"),
-                     "clock": lambda: 1000,
+                     "clock": lambda: 1000, "codex_files": CodexSessionFiles(tmp_path / "codex-sessions"),
                      "operator_runs": tmp_path / "operator-runs", **overrides}
         built.append(Service(iterm=iterm, rpc=rpc, supervisor=supervisor, **arguments))
         return built[-1]

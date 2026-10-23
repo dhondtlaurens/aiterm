@@ -27,3 +27,8 @@ def respond(request_id: Any, method: Any, tools: Sequence[dict[str, Any]], serve
     if method == "tools/call":
         return None
     return error(request_id, -32601, f"method not found: {method}")
+
+
+def bearer(authorization: str) -> str | None:
+    scheme, _, token = authorization.partition(" ")
+    return token.strip() or None if scheme.lower() == "bearer" else None

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from .claude_subagents import TranscriptTail
 from .hook_events import HookEvent
+from .text import shows
 from .models import HARNESS_BY_AGENT, AgentKind, State
 from .sessions import SessionRegistry
 
@@ -59,8 +60,7 @@ def shows_trust_prompt(agent: AgentKind, screen: str) -> bool:
     can come back with its spaces drawn as cursor moves, or wrapped where the window is narrow."""
     if (harness := HARNESS_BY_AGENT.get(agent)) is None:
         return False
-    text = "".join(screen.split())
-    return any("".join(phrase.split()) in text for phrase in harness.trust_prompt)
+    return shows(screen, harness.trust_prompt)
 
 
 def _has_spinner(title: str) -> bool:

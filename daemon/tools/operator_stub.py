@@ -76,8 +76,7 @@ def handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
         def do_POST(self) -> None:
             if self.path != OPERATOR_ROUTE or self.headers.get("X-AiTerm-Hook") != "1":
                 return self._send(404, "")
-            scheme, _, token = (self.headers.get("Authorization") or "").partition(" ")
-            if scheme.lower() != "bearer" or not token.strip():
+            if not mcp.bearer(self.headers.get("Authorization") or ""):
                 return self._send(401, json.dumps({"error": "a registered run's token is required"}))
             try:
                 message = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")

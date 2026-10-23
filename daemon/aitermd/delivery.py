@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 from .iterm_bridge import ItermPort, ItermUnavailable
 from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
 from .offload import run_detached
+from .text import shows
 from .sessions import SessionRegistry
 
 if TYPE_CHECKING:  # keystrokes imports this module's TYPING_QUIET
@@ -52,23 +53,17 @@ LAUNCH_ADOPT_AFTER = 60.0
 PromptKind = Literal["permission", "startup", "menu"]
 
 
-def _shows(screen: str, phrases: tuple[str, ...]) -> bool:
-    """Compared without whitespace, as status.shows_trust_prompt does: a line can come back with its
-    spaces drawn as cursor moves, or wrapped where the window is narrow."""
-    text = "".join(screen.split())
-    return any("".join(phrase.split()) in text for phrase in phrases)
-
 
 def open_prompt(agent: AgentKind, screen: str) -> PromptKind | None:
     """The prompt `screen` shows open in the agent's session, if any. A harness without markers
     shows none, which proves nothing: delivery to it stays off (`load_policy`) until it has them."""
     if (harness := HARNESS_BY_AGENT.get(agent)) is None:
         return None
-    if _shows(screen, harness.permission_prompt):
+    if shows(screen, harness.permission_prompt):
         return "permission"
-    if _shows(screen, harness.startup_prompt):
+    if shows(screen, harness.startup_prompt):
         return "startup"
-    if _shows(screen, harness.menu_prompt):
+    if shows(screen, harness.menu_prompt):
         return "menu"
     return None
 
@@ -177,7 +172,7 @@ def shows_update_offer(agent: AgentKind, screen: str) -> bool:
     harness = HARNESS_BY_AGENT.get(agent)
     if harness is None or not harness.update_prompt or open_prompt(agent, screen) != "startup":
         return False
-    return all(_shows(screen, (phrase,)) for phrase in harness.update_prompt)
+    return all(shows(screen, (phrase,)) for phrase in harness.update_prompt)
 
 
 # Bracketed paste: what a terminal wraps pasted text in, so the CLI reads it as text, not keys. A

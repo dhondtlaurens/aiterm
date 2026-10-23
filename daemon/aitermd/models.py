@@ -52,15 +52,17 @@ class Harness:
     input_box: tuple[str, ...] = ()
 
 
+CLAUDE_TRUST_PROMPT = ("Yes, I trust this folder", "Do you trust the files in this folder?")
+
 HARNESSES: tuple[Harness, ...] = (
     # HTTP hooks and a session file.
     Harness("claude", "/hook/claude", placement="pid_file", corroboration="claude_file",
             statusline_route="/statusline", reports_usage=True,
             # 2.1.299's option, and the dialog's question before it.
-            trust_prompt=("Yes, I trust this folder", "Do you trust the files in this folder?"),
+            trust_prompt=CLAUDE_TRUST_PROMPT,
             permission_prompt=("Do you want to proceed?",), menu_prompt=("Enter to select", "Esc to cancel"),
             # The trust dialog, by the same words as `trust_prompt`.
-            startup_prompt=("Yes, I trust this folder", "Do you trust the files in this folder?"),
+            startup_prompt=CLAUDE_TRUST_PROMPT,
             input_box=("❯",)),
     # `Stop` over MCP; the other hooks are spawned curl.
     Harness("codex", "/hook/codex", corroboration="codex_title", reports_usage=True,

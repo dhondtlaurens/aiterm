@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .text import nonempty_string
 from .jsonl import JsonlCursor
 from .usage import finite_number
 
@@ -259,9 +260,6 @@ def _epoch(timestamp: Any) -> int | None:
     return int(parsed.timestamp())
 
 
-def _string(value: Any) -> str | None:
-    return value if isinstance(value, str) and value else None
-
 
 def _meta_version(line: bytes, thread_id: str) -> str | None:
     """The `cli_version` of a `session_meta` record for `thread_id`; None for any other line."""
@@ -272,4 +270,4 @@ def _meta_version(line: bytes, thread_id: str) -> str | None:
     payload = record.get("payload") if isinstance(record, dict) and record.get("type") == "session_meta" else None
     if not isinstance(payload, dict) or payload.get("id") != thread_id:
         return None
-    return _string(payload.get("cli_version"))
+    return nonempty_string(payload.get("cli_version"))

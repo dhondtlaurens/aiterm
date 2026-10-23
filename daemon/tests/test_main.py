@@ -185,7 +185,7 @@ async def test_run_daemon_quits_once_its_last_app_has_left(monkeypatch, tmp_path
     ns = build_parser().parse_args(["run", "--socket", sock, "--hook-port", "0", "--idle-exit-seconds", "0.2"])
     daemon = asyncio.create_task(entry.run_daemon(ns))
     try:
-        await wait_until(lambda: os.path.exists(tmp_path / "Library/Application Support/AiTerm/daemon.json"))
+        await wait_until(lambda: os.path.exists(sock))
         r, w = await asyncio.open_unix_connection(sock)
         await asyncio.sleep(0.5)  # well past the idle timeout, with the app attached
         assert not daemon.done()

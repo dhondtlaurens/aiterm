@@ -1,4 +1,4 @@
-"""Minimal HTTP/1.1 receiver for agent hooks and the Codex hook MCP bridge."""
+"""HTTP/1.1 receiver for agent hooks, Codex hook MCP and the Operator routes."""
 from __future__ import annotations
 import asyncio
 import json
@@ -41,7 +41,7 @@ class _HeadTooLarge(Exception):
 
 
 class HookServer:
-    def __init__(self, on_post: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any] | None]] | None = None,
+    def __init__(self, on_post: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
                  host: str = "127.0.0.1", port: int = 47821, read_timeout: float = READ_TIMEOUT_SECONDS):
         self.host, self.port, self.on_post = host, port, on_post
         self.read_timeout = read_timeout
@@ -208,11 +208,11 @@ class HookServer:
             status, text = 500, json.dumps({"error": "internal"})
         await self._reply(writer, status, text)
 
-    async def _deliver(self, path: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+    async def _deliver(self, path: str, payload: dict[str, Any]) -> None:
         if self.on_post is None:
             return None
         try:
-            return await self.on_post(path, payload)
+            await self.on_post(path, payload)
         except Exception:  # noqa: BLE001 - telemetry must never break the agent hook
             log.exception("hook handler failed for %s", path)
             return None

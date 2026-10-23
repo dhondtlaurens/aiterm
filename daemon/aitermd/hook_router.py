@@ -56,7 +56,7 @@ class HookRouter:
         await asyncio.gather(*pending, return_exceptions=True)
         self._pending_tick = None
 
-    async def handle_hook(self, path: str, body: dict[str, Any]) -> dict[str, Any] | None:
+    async def handle_hook(self, path: str, body: dict[str, Any]) -> None:
         if (statusline := STATUSLINE_PARSERS.get(path)) is not None:
             agent, parse = statusline
             tick = parse(body, int(self.clock()))
@@ -68,8 +68,7 @@ class HookRouter:
                 await self.publisher.session_changed(self.status.apply_metadata(
                     sid, model=tick.model, context=tick.context_percent))
             return None
-        # Tool text and Stop hooks are telemetry, never checkout-removal authority.
-        # Leave shell commands intact; explicit cleanup belongs to the app's Remove action.
+        # Hooks report the agent's state; checkout removal belongs to the app.
         parser = HOOK_PARSERS.get(path)
         ev = parser(body) if parser else None
         if ev is None:

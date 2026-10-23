@@ -9,7 +9,6 @@ import logging
 import os
 import plistlib
 import subprocess
-import threading
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from typing import Any, ParamSpec, Protocol, TypeVar
 
@@ -99,19 +98,15 @@ def request_cookie(runner_class: type | None = None) -> None:
     error back afterwards."""
     if iterm2.auth.applescript_auth_disabled() or os.environ.get("ITERM2_COOKIE"):
         return
-    # NSAppleScript belongs on the main thread; off it, the osascript runner does the same job.
-    appkit = runner_class is None and iterm2.auth.gAppKitAvailable and threading.current_thread() is threading.main_thread()
-    base = runner_class or (iterm2.auth.AppKitApplescriptRunner if appkit else iterm2.auth.CommandLineApplescriptRunner)
+    base = runner_class or iterm2.auth.CommandLineApplescriptRunner
     runners: list = []
 
     def runner(script: str):
         runners.append(base(script))
         return runners[-1]
 
-    background = iterm2.auth.LSBackgroundContextManager() if appkit else contextlib.nullcontext()
     try:
-        with background:
-            reply = iterm2.auth.request_cookie_and_key(False, None, runner)
+        reply = iterm2.auth.request_cookie_and_key(False, None, runner)
     except iterm2.auth.AuthenticationException as exc:
         if str(exc) == "iTerm2 not running":
             raise ItermNotRunning(str(exc)) from exc

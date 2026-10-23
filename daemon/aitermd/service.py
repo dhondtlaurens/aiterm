@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, TypeVar
@@ -61,7 +61,7 @@ class Service:
     of those own, and polls iTerm2 into the registry."""
 
     def __init__(self, iterm: ItermPort, rpc: RpcServer, hooks: HookServer, claude_files: ClaudeSessionFiles,
-                 clock: Callable[[], float], codex_files: CodexSessionFiles | None = None,
+                 clock: Callable[[], float], codex_files: CodexSessionFiles,
                  supervisor: ItermSupervisor | None = None, monotonic: Callable[[], float] = time.monotonic,
                  delivery_policy: Callable[[], Mapping[AgentKind, Verdict]] | None = None,
                  operator_runs: Path | None = None):
@@ -152,9 +152,9 @@ class Service:
         r("workspace.snapshot", self._h_snapshot)
         r("window.createTask", self.windows.create_task)
         r("window.createTerminal", self.windows.create_terminal)
-        r("window.activate", self._h_activate)
-        r("session.activate", self._h_activate_session)
-        r("window.setFrame", self._h_set_frame)
+        r("window.activate", lambda p: self._place(self.iterm.activate_window, param(p, "windowId", str)))
+        r("session.activate", lambda p: self._place(self.iterm.activate_session, param(p, "sessionId", str)))
+        r("window.setFrame", lambda p: self._place(self.iterm.set_frame, param(p, "windowId", str), frame_param(p)))
         r("window.close", self._h_close)
         r("tab.create", self.windows.create_tab)
         r("sessions.list", self._h_sessions_list)
@@ -190,26 +190,11 @@ class Service:
                 "sessions": [s.to_json() for s in self.registry.all()],
                 "usage": self.usage.snapshot()}
 
-    async def _h_activate(self, p: Any) -> dict[str, Any]:
-        window_id = param(p, "windowId", str)
+    async def _place(self, action: Callable[..., Awaitable[None]], *args: Any) -> dict[str, Any]:
+        """Serialize changes to the selected tab, front window and its frame."""
         async with self._placement_lock:
             require_iterm(self.iterm)
-            await guard(self.iterm.activate_window(window_id))
-        return {}
-
-    async def _h_activate_session(self, p: Any) -> dict[str, Any]:
-        # One tab selected and its window raised: in turn with window.activate, whose state it replaces.
-        session_id = param(p, "sessionId", str)
-        async with self._placement_lock:
-            require_iterm(self.iterm)
-            await guard(self.iterm.activate_session(session_id))
-        return {}
-
-    async def _h_set_frame(self, p: Any) -> dict[str, Any]:
-        window_id, frame = param(p, "windowId", str), frame_param(p)
-        async with self._placement_lock:
-            require_iterm(self.iterm)
-            await guard(self.iterm.set_frame(window_id, frame))
+            await guard(action(*args))
         return {}
 
     async def _h_close(self, p: Any) -> dict[str, Any]:
@@ -311,8 +296,7 @@ class Service:
             self._last_good_tick = number
 
     async def _tick(self) -> None:
-        if self.codex_files is not None:
-            self.codex_files.begin_tick()
+        self.codex_files.begin_tick()
         try:
             await self._read_codex_usage()
         except Exception:  # noqa: BLE001 - another process's file must not stop session polling
@@ -401,7 +385,7 @@ class Service:
                 screens.append(s.session_id)
         elif corroboration == "codex_title":
             changed += self.status.apply_codex_title(s.session_id, s.title)
-            if self.codex_files is not None and (thread_id := self.resolver.codex_thread(s.session_id)):
+            if thread_id := self.resolver.codex_thread(s.session_id):
                 threads[s.session_id] = thread_id
 
     async def _apply_trust_prompts(self, session_ids: list[str]) -> list[str]:
@@ -420,8 +404,7 @@ class Service:
         """The sessions whose context fill their Codex rollouts changed, and the rollouts'
         caches pruned to the threads still running. A rollout grows without bound and a hung mount can
         stall its read, so it is read on a worker thread: everything that touches the caches runs there."""
-        if (files := self.codex_files) is None:
-            return []
+        files = self.codex_files
 
         def read() -> dict[str, tuple[int | None, str | None]]:
             readings: dict[str, tuple[int | None, str | None]] = {}
@@ -506,8 +489,6 @@ class Service:
         # file, so the number arrives the way Claude's does -- as data the agent already emits --
         # with no subprocess to spawn, time out or kill. Account-wide, hence once per tick rather
         # than per session, and before the iTerm2 check: the feed does not depend on the terminal.
-        if self.codex_files is None:
-            return
         # On a worker thread, as the contexts are: a rollout without a `token_count` is read to its start.
         found = await self._off_loop(CODEX_READ, self.codex_files.rate_limits, None)
         if found is None:
