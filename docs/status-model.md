@@ -29,7 +29,7 @@ order — the chips sit still, so a stable reading order beats ranking.
 | `PermissionRequest` | needsInput | Claude Code and Codex. |
 | `Notification` | needsInput | Claude only: `permission_prompt`, `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`. |
 | `Notification` | done | Claude only: `agent_completed`. |
-| `SubagentStart` / `Stop` | working | Tracked per child id. A needs-input row is *not* overwritten — an input request must stay visible. A Claude child that died without its `SubagentStop` is found from its transcript (below). |
+| `SubagentStart` / `Stop` | working | Tracked per child id. A needs-input row is *not* overwritten — an input request must stay visible. A Claude child's `SubagentStop` ends it only once its transcript shows the run over, and a child that died without one is found there too (below). |
 | `SessionStart` | model | Not a state: it updates the model, and forgets the previous conversation's subagents and deferred completion — but not after a compaction (`source: "compact"`), and only in the tab the post provably came from. |
 | `PostModelSwitch` | model | Not a state: it updates which model the row reports. |
 
@@ -140,25 +140,52 @@ lands its own. The list proves nothing, and nothing is dropped, when:
 transcript (`StatusEngine.release_dead_subagents`) and counts the child as gone when:
 
 - its last record is the interruption the watchdog, or Esc, leaves (`[Request interrupted by
-  user]`), or the attachment of a `SubagentStop` hook the daemon never received, written after the
-  child's latest `SubagentStart`; or
+  user]`), or the attachment of a `SubagentStop` hook, written — by the time the record gives —
+  after the child's latest `SubagentStart`, unless the last message before that attachment is a
+  prompt the child has yet to answer (the hand-back reminder below), since Claude then runs the
+  child on; or
 - its transcript has not changed for `SUBAGENT_QUIET_SECONDS` (45 minutes), timed on the monotonic
   clock from the first tick that saw it unchanged. That clock stops while the Mac sleeps. The
   window is long because live children have gone 28 minutes without writing, during a long
   generation or a stream retry. It only catches a child that died without writing anything: every
   watchdog kill observed left the interruption.
 
-A transcript that does not exist yet proves nothing, so that child stays counted. A gone child is
-dropped exactly as its `SubagentStop` would have dropped it, so the last one lands the deferred
-done. A real `SubagentStop` that arrives later changes nothing. A stalled child that is resumed
-fires `SubagentStart` again under the same id, which counts it again. Its transcript's old
-interruption is then ignored, because it was written before that start.
+A transcript that does not exist yet proves nothing, so that child stays counted until its
+`SubagentStop`. A gone child is dropped exactly as its `SubagentStop` would have dropped it, so the
+last one lands the deferred done. A real `SubagentStop` that arrives later changes nothing. A child
+that is resumed fires `SubagentStart` again under the same id, which counts it again: a stalled one,
+or a finished one its parent sends a message (`SendMessage`; Claude Code 2.1.308 writes the message
+to the child's transcript, then fires `SubagentStart`). Its transcript's old interruption or
+`SubagentStop` is then ignored, because the time that record gives is before that start. Its time,
+not the file's: Claude writes its transcripts in batches, and a resume can come 30 ms after a run
+ends, so the end of the earlier run can reach the file after the new `SubagentStart`.
+
+A `SubagentStop` is not always the end of a Claude child's run either. Claude Code fires it each
+time the child's turn ends, and (2.1.283 to 2.1.308 at least) then runs on a background child that
+ended its turn without handing back its report: it writes a reminder to the child's transcript
+(`[handback-send-enforce] Your report has not been delivered. Call SubagentHandback(…)`), fires
+`SubagentStop`, and the child answers the reminder, hands its report back and fires `SubagentStop`
+again. On 22 Oct 2026 the two were 11 s apart, and the task read done, ready for acceptance, in
+between. So a Claude child with a transcript stays counted through its `SubagentStop`, and the tick
+reads its transcript as it does for a deferred done's children, until the rules above show the run
+over. Claude writes its transcript in batches, a median 70 ms after a record's time and up to 1.6 s,
+so a tick right after the hook may not find the stop's attachment yet and waits for the next; and
+the reminder comes before the attachment, so the tick never finds that attachment without it. A
+child of Codex or PI, which have no transcript to read, ends at its `SubagentStop`; a Claude child
+whose transcript a read looked for and did not find ends with that read. A read that did not answer
+in time, or that began before the stop came, says nothing of the child, which waits for the next.
+The cost: a Claude child's end lands with the first tick that finds its stop's attachment, usually
+the next poll, 2 s after the hook, sometimes the one after, rather than with the hook. It relies on
+Claude Code writing each `SubagentStop` hook's attachment to the child's transcript, as every
+version seen does (2.1.283 to 2.1.308); without it, a stopped child would stay counted until its
+parent's next `Stop` drops it, or the quiet window does.
 
 `SubagentStart` carries only the session's `transcript_path`, `<dir>/<session>.jsonl`. The child's
 transcript sits beside it at `<dir>/<session>/subagents/agent-<id>.jsonl`, or one directory
 further down, where Claude Code files some agents. Only the last 64 KiB of each transcript is read,
 on a worker thread with the one-second bound of the Codex rollout read above, and again only once its
-mtime or size changes. A turn with nothing deferred reads none.
+mtime or size changes. A turn with nothing deferred reads none but those of the children a
+`SubagentStop` came for.
 
 Claude's own session file cannot do this job. It stays `busy` while a background child runs past the
 end of the turn, and it names no child. Only Claude children are checked. PI relays a crashed
@@ -233,3 +260,8 @@ uniformly wrong — the worst kind of bug in a status display.
 **A turn that ended too early** — A foreground `Stop` arrives while background subagents are still
 running. Marking the row done there made it go quiet mid-work; the turn's deferred done holds the
 change until the last child reports back.
+
+**A child that ran on after its stop** — Claude Code fires a child's `SubagentStop` when its turn
+ends, even one it then runs on to hand back its report. Taking that first stop as the child's end
+landed the deferred done early: the Operator found the task ready for acceptance while its review
+still ran. The child's transcript now says which stop ended it.

@@ -22,6 +22,15 @@ STOPPED = {"type": "attachment", "isSidechain": True, "agentId": "c1",
 STOP_FAILED = {"type": "attachment", "attachment": {"type": "hook_non_blocking_error", "hookEvent": "SubagentStop"}}
 STARTED = {"type": "attachment", "attachment": {"type": "hook_success", "hookName": "SubagentStart:general-purpose",
                                                 "hookEvent": "SubagentStart"}}
+# What Claude Code 2.1.308 writes when a background child ends its turn without handing back its report: this
+# reminder, then the SubagentStop hook's attachment; then it runs the child on to answer the reminder.
+REMINDED = {"type": "user", "isSidechain": True, "agentId": "c1", "isMeta": True, "message": {"role": "user", "content": (
+    "[handback-send-enforce] Your report has not been delivered. Call SubagentHandback({message: <your full report>}) now; "
+    "the call ends your run.")}}
+# The answer to the call that hands the report back, which ends the run.
+HANDED_BACK = {"type": "user", "isSidechain": True, "agentId": "c1", "message": {"role": "user", "content": [
+    {"tool_use_id": "toolu_1", "type": "tool_result",
+     "content": [{"type": "text", "text": '{"success":true,"message":"Report delivered to your caller."}'}]}]}}
 
 
 def write(path, *records, tail=""):
@@ -40,6 +49,25 @@ def test_a_transcript_has_ended_only_on_an_interruption_or_a_subagent_stop(tmp_p
     path = write(tmp_path / "agent-c1.jsonl", PROMPT, ASSISTANT, last)
     tail = SubagentTranscripts().read(path)
     assert tail is not None and tail.ended is ended
+
+
+@pytest.mark.parametrize("records,ended", [
+    ((ASSISTANT, HANDED_BACK, STOPPED), True),
+    ((ASSISTANT, INTERRUPTED, STOPPED), True),
+    # Reminded to hand its report back, the child answers that next: the stop is not its end, whichever hooks ran.
+    ((ASSISTANT, REMINDED, STOPPED), False),
+    ((ASSISTANT, REMINDED, STOPPED, STOP_FAILED), False),
+])
+def test_a_subagent_stop_after_a_prompt_the_child_has_yet_to_answer_has_not_ended(tmp_path, records, ended):
+    path = write(tmp_path / "agent-c1.jsonl", PROMPT, *records)
+    assert SubagentTranscripts().read(path).ended is ended
+
+
+def test_a_stop_stands_when_the_tail_cannot_show_what_came_before_it(tmp_path, monkeypatch):
+    # A final message longer than the tail window: nothing shows a prompt waiting on the child.
+    monkeypatch.setattr(claude_subagents, "TAIL_BYTES", 256)
+    path = write(tmp_path / "agent-c1.jsonl", PROMPT, {**ASSISTANT, "pad": "x" * 1000}, STOPPED)
+    assert SubagentTranscripts().read(path).ended is True
 
 
 def test_a_missing_transcript_reads_as_none(tmp_path):
@@ -74,7 +102,7 @@ def test_an_unchanged_transcript_is_not_read_again(tmp_path, monkeypatch):
     path = write(tmp_path / "agent-c1.jsonl", PROMPT, INTERRUPTED)
     transcripts = SubagentTranscripts()
     first = transcripts.read(path)
-    monkeypatch.setattr(claude_subagents, "_has_ended", lambda _tail: pytest.fail("reparsed an unchanged file"))
+    monkeypatch.setattr(claude_subagents, "_ending", lambda _tail: pytest.fail("reparsed an unchanged file"))
     assert transcripts.read(path) == first
 
 
@@ -85,7 +113,26 @@ def test_a_transcript_in_a_subdirectory_of_subagents_is_found(tmp_path):
     assert SubagentTranscripts().read(str(subagents / "agent-c1.jsonl")).ended is True
 
 
-def test_read_all_answers_only_the_transcripts_that_exist(tmp_path):
+def test_read_all_answers_every_transcript_asked_for(tmp_path):
+    # One it cannot find is answered with None: unlike one it was not asked for, it was looked for.
     present = write(tmp_path / "agent-c1.jsonl", PROMPT)
     missing = str(tmp_path / "agent-c2.jsonl")
-    assert set(SubagentTranscripts().read_all({present, missing})) == {present}
+    tails = SubagentTranscripts().read_all({present, missing})
+    assert set(tails) == {present, missing}
+    assert tails[present] is not None and tails[missing] is None
+
+
+def test_a_tail_ends_at_the_time_its_ending_record_gives(tmp_path):
+    # Claude writes in batches: a record can reach the file well after its own time, after a resume's SubagentStart.
+    path = write(tmp_path / "agent-c1.jsonl", PROMPT, ASSISTANT, {**STOPPED, "timestamp": "2026-10-22T20:34:55.612Z"})
+    os.utime(path, (1_900_000_000, 1_900_000_000))
+    tail = SubagentTranscripts().read(path)
+    assert tail.ended_at == 1_792_701_295.612 and tail.written_at == 1_900_000_000
+
+
+def test_a_tail_ending_in_a_record_without_a_time_ends_at_its_write(tmp_path):
+    path = write(tmp_path / "agent-c1.jsonl", PROMPT, ASSISTANT, STOPPED)
+    os.utime(path, (1_900_000_000, 1_900_000_000))
+    assert SubagentTranscripts().read(path).ended_at == 1_900_000_000
+    path = write(tmp_path / "agent-c2.jsonl", PROMPT, ASSISTANT)
+    assert SubagentTranscripts().read(path).ended_at is None
