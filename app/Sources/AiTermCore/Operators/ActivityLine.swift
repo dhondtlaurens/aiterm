@@ -46,7 +46,12 @@ public enum ActivityLine {
         case "retry_task": words = ("Queued \(named) again", "queue \(named) again")
         case "finish_task": words = ("Finished \(named)", "finish \(named)")
         case "ask_you": words = ("Asked you: \(text("question"))", "ask you: \(text("question"))")
-        case "resolve_question": words = ("Noted your answer: \(text("summary"))", "note your answer: \(text("summary"))")
+        case "resolve_question":
+            if arguments["withdrawn"] == true {
+                words = ("Withdrew question: \(text("summary"))", "withdraw question: \(text("summary"))")
+            } else {
+                words = ("Noted your answer: \(text("summary"))", "note your answer: \(text("summary"))")
+            }
         case "report_find": words = ("Noted a find: \(text("title"))", "note a find: \(text("title"))")
         case "report_snag": words = ("Noted a snag in AiTerm: \(text("title"))", "note a snag in AiTerm: \(text("title"))")
         case "leave_for_you": words = ("Left for you: \(text("text"))", "leave for you: \(text("text"))")
@@ -69,7 +74,7 @@ public enum ActivityLine {
 
     /// Why the call went the way it did: AiTerm's answer to a refused or failed one, the Oracle's critique of
     /// a challenged one (or that it is still awaited, while the challenge's answer carries none), the note on an
-    /// accepted mark and the why of a decision. Nil for the rest.
+    /// accepted mark, the why of a decision and a withdrawal reason the line had to cut. Nil for the rest.
     public static func reason(tool: String, arguments: JSONValue, outcome: ActivityEntry.Outcome, result: String) -> String? {
         switch outcome {
         case .refused, .failed: return result
@@ -80,6 +85,9 @@ public enum ActivityLine {
             switch tool {
             case "mark_task": return arguments["note"]?.stringValue
             case "log_decision": return arguments["why"]?.stringValue
+            case "resolve_question" where arguments["withdrawn"] == true:
+                guard let summary = arguments["summary"]?.stringValue, cut(summary) != summary else { return nil }
+                return summary
             default: return nil
             }
         case .repeated: return nil

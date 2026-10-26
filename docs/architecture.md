@@ -250,6 +250,13 @@ answers with `operator.reply`. Mutating tools use keys, recorded steps or value-
 `mark_task`, `resume_task`, `retry_task`, `finish_task`; `ask_you`, `resolve_question`; `report_find`,
 `report_snag`, `leave_for_you`, `log_decision` and `write_summary`.
 
+`resolve_question` records the person's answer, or withdraws the Operator's own moot question or gate
+with `withdrawn: true` and a one-line reason in `summary`, which the Operator also tells the person.
+Withdrawal stops the wait and keeps its reason in the run and activity records, grants no gate allowance,
+and leaves a later command to be judged afresh.
+Retries preserve the recorded outcome; `answeredInWindow` answers, worker prompts and host-merge
+questions cannot be withdrawn.
+
 ### Help with problems
 
 A failure an agent can fix — a diverged branch or a rebase's conflict, in New Review's footer and

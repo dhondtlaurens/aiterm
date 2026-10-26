@@ -451,16 +451,20 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// instead of answering in the Operator's chat (spec §I). AiTerm writes it while the question is open and never closes
     /// the question: the Operator checks whether it is answered and calls `resolve_question`. Nil for any other question.
     public var answeredInWindow: String?
+    /// True when the Operator withdrew the question; `resolution` is its reason, not the person's answer.
+    /// Nil in older runs and for questions that were not withdrawn.
+    public var withdrawn: Bool?
     public init(id: String, text: String, task: UUID?, askedAt: Date, resolution: String? = nil, tab: String? = nil,
-                gate: GateRequest? = nil, answeredInWindow: String? = nil) {
+                gate: GateRequest? = nil, answeredInWindow: String? = nil, withdrawn: Bool? = nil) {
         self.id = id; self.text = text; self.task = task; self.askedAt = askedAt; self.resolution = resolution; self.tab = tab
-        self.gate = gate; self.answeredInWindow = answeredInWindow
+        self.gate = gate; self.answeredInWindow = answeredInWindow; self.withdrawn = withdrawn
     }
 
     /// The keys AiTerm records its own questions under: a worker's prompt is `prompt-<task>-<n>`, a merge on the host
     /// `merged-on-host-<task>`, a command the Oracle stopped `gate-<n>`. The Operator picks no key in these namespaces.
     /// AiTerm closes a prompt's question itself; a merge on the host and a stopped command are the person's to decide,
     /// and the Operator closes them once they have answered, a stopped command with whether they allowed it.
+    /// The Operator may instead withdraw a stopped command it no longer needs, without allowing it.
     public static let promptPrefix = "prompt-", mergedOnHostPrefix = "merged-on-host-", gatePrefix = "gate-"
     public static let aitermPrefixes = [promptPrefix, mergedOnHostPrefix, gatePrefix]
 }

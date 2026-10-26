@@ -97,7 +97,7 @@ import Testing
         let answer = await gate(world, run, "npm run migrate", in: worktree + "/packages/api")
         #expect(changed == [run.id], "the run changed, as after ask_you: what the question holds waits")
         #expect(answer["decision"] == "deny")
-        #expect(answer["reason"] == "The Oracle stopped this and asked the person (question gate-1). Wait for their answer, then resolve_question with allow.")
+        #expect(answer["reason"] == "The Oracle stopped this and asked the person (question gate-1). Wait for their answer, then resolve_question with allow, or withdraw the question if the command becomes moot.")
         let question = try #require(world.run(run.id)?.questions.first)
         #expect(question.id == "gate-1" && question.task == task.id && question.resolution == nil)
         #expect(question.text == "The Oracle stopped `npm run migrate` in \(worktree)/packages/api: it reaches the staging database.")
@@ -158,6 +158,26 @@ import Testing
         #expect(resolved.value?["open"] == false && world.run(run.id)?.gateAllowances.isEmpty == true)
         #expect(await gate(world, run, "npm run deploy", in: worktree)["decision"] == "deny")
         #expect(asked.count == 2)
+    }
+
+    @Test func aWithdrawnGateGrantsNothingAndALaterCommandIsJudgedAfresh() async throws {
+        let asked = Asked()
+        let (world, run, task) = try makeWorld(runner: answering("ASK: it deploys.", asked))
+        _ = await gate(world, run, "npm run deploy", in: worktree)
+        let conflict = await world.call(run.id, "resolve_question", ["key": "gate-1", "summary": "Moved to a worker.", "withdrawn": true, "allow": true])
+        #expect(conflict.message != nil)
+        #expect(world.run(run.id)?.questions.first?.resolution == nil)
+        #expect(world.run(run.id)?.gateAllowances.isEmpty == true)
+        let answer = await world.call(run.id, "resolve_question", ["key": "gate-1", "summary": "Moved to a worker.", "withdrawn": true])
+        #expect(answer.value?["withdrawn"] == true && answer.value?["open"] == false)
+        #expect(world.run(run.id)?.gateAllowances.isEmpty == true)
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+        #expect(asked.count == 1)
+        let again = await world.call(run.id, "resolve_question", ["key": "gate-1", "summary": "Yes.", "allow": true])
+        #expect(again.value == answer.value && world.run(run.id)?.gateAllowances.isEmpty == true)
+        #expect(await gate(world, run, "npm run deploy", in: worktree)["decision"] == "deny")
+        #expect(asked.count == 2)
+        #expect(world.run(run.id)?.questions.last?.id == "gate-2")
     }
 
     @Test func noOracleMeansItRuns() async throws {
