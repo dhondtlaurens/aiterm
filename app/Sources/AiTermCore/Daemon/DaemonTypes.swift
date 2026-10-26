@@ -90,7 +90,8 @@ public struct SlashCommand: Codable, Equatable, Sendable {
     /// `delivered`: typed, nothing of it seen yet. `queued`: Claude Code queued it, and nothing has been taken from the
     /// queue since. `ran`: its own command record is there. `unknown`: nothing of it seen within a minute, or a
     /// transcript that can't be read; something taken from the queue since it was queued; or an hour passed without its
-    /// run. Within that hour it can still become `ran`; a /model or /effort run mid-turn takes effect and writes nothing.
+    /// run. Within that hour it can still become `ran`, but not once a remove, popAll or popOne named it, nor, never
+    /// queued, once the same text was sent again; a /model or /effort run mid-turn takes effect and writes nothing.
     /// See `SessionAgent`'s decoding note: a state this app does not know reads as unknown.
     public enum State: String, Codable, LenientRawDecodable, Sendable {
         case delivered, queued, ran, unknown

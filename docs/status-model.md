@@ -204,7 +204,8 @@ that has not run is unknown. A tab keeps its last three, and the same text typed
 each record taken by the older that can. One queued runs in its turn, the same text queued twice first
 in first out, unless a `remove`, `popAll` or `popOne` named it first: then no run is its own. One never
 seen queued ran at once if at all, so only a run recorded before the next of its text was typed is its
-own.
+own, and a run of its text before any enqueue of it is one it ran at once: that enqueue is a later
+command's, such as the person's.
 
 ## A turn that removes its own checkout
 

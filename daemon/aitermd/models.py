@@ -177,7 +177,8 @@ class BackgroundJob:
 # (slash_commands.settle): typed and nothing seen yet; queued, its enqueue there and nothing taken from the queue
 # since; ran, its own command record there; or unknown: nothing seen within UNSEEN_SECONDS, or a transcript that
 # cannot be read; something taken from the queue since it was queued; or WATCH_SECONDS passed without its run. Until
-# then an unknown command can still become ran.
+# then an unknown command can still become ran, but not one a remove, popAll or popOne named, nor one never queued once
+# the same text was typed again.
 SlashState = Literal["delivered", "queued", "ran", "unknown"]
 
 

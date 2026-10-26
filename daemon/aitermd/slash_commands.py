@@ -201,10 +201,12 @@ def _settle(command: SlashCommand, until: float, records: Sequence[TranscriptRec
     if records is None:
         return replace(command, state="unknown", seen_at=None)
     watched = command.delivered_at + WATCH_SECONDS
-    if (queued := _own(records, taken, "enqueue", text, command.delivered_at, min(until, watched))) is None:
-        # Never seen queued, it ran at once if at all: before the next of its text was typed.
-        run = _own(records, taken, "command", text, command.delivered_at, min(until, watched))
-    else:
+    queued = _own(records, taken, "enqueue", text, command.delivered_at, min(until, watched))
+    # Run at once, it ran before the next of its text was typed, and before any enqueue of its text, which is then a
+    # later command's: the person may type the same.
+    if (run := _own(records[:queued], taken, "command", text, command.delivered_at, min(until, watched))) is not None:
+        queued = None
+    elif queued is not None:
         taken.add(queued)
         # Queued, it runs in its turn, the same text queued twice first in first out, unless something took it from the
         # queue by its text first: a remove, a popAll or popOne.
@@ -233,11 +235,11 @@ def _next_typed(commands: Sequence[SlashCommand], index: int) -> float:
 def settle(commands: Sequence[SlashCommand], records: Sequence[TranscriptRecord] | None, now: float) -> tuple[SlashCommand, ...]:
     """What each of a session's commands, oldest first, became as `records` show it at `now`: its transcript's, in file
     order, None when the transcript cannot be read. A command's own records are written within WATCH_SECONDS of its
-    typing, and each is one command's, the oldest's that can take it. One queued (its enqueue written before the next
-    of its text was typed) runs in its turn, the same text queued twice first in first out, unless a remove, a popAll
-    or popOne named it first; one never seen queued ran at once if at all, so only a run written before the next of
-    its text was typed is its own. A command ran once its command record is there, its output attached once it
-    follows. It is queued while its enqueue is there and nothing has left the queue since that names it or names
+    typing, and each is one command's, the oldest's that can take it. One run at once ran before the next of its text
+    was typed, and before any enqueue of its text, which is then a later command's, such as the person's. One queued
+    (its enqueue written before the next of its text was typed) runs in its turn, the same text queued twice first in
+    first out, unless a remove, a popAll or popOne named it first. A command ran once its command record is there, its
+    output attached once it follows. It is queued while its enqueue is there and nothing has left the queue since that names it or names
     nothing, as a dequeue does; it is unknown once something did and it has not run, once UNSEEN_SECONDS pass with
     nothing of it there at all, and once WATCH_SECONDS pass without its run. One that ran stays as it ran."""
     taken: set[int] = set()

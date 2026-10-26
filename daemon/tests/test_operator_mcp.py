@@ -240,6 +240,8 @@ def test_run_status_says_what_a_worker_runs_now_and_what_became_of_a_slash_comma
     for said in ("within a minute", "no transcript to read", "left the queue after it was queued", "an hour passed",
                  "can still become ran"):
         assert said in status, said
+    # But not every unknown command can.
+    assert "a remove, popAll or popOne named" in status and "never queued" in status
     message = tools["message_task"]["description"]
     assert "slashCommands" in message and "tabs[].slashCommands" in message
     assert "/model or /effort" in message and "default for new sessions" in message

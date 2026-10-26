@@ -239,6 +239,18 @@ def test_a_command_that_ran_at_once_leaves_the_queue_to_the_next_of_its_text(tmp
         ("ran", pytest.approx(T0 + 1)), ("ran", pytest.approx(T0 + 50.05))]
 
 
+def test_a_command_that_ran_at_once_takes_no_later_enqueue_of_its_text(tmp_path):
+    # It ran at once; the person typed the same later, while the session worked: that enqueue and the run after it are
+    # theirs, however much of it one read takes in.
+    path = tmp_path / "t.jsonl"
+    records = read(path, ran("compact", "", T0 + 1), output("Compacted.", T0 + 1), queue("enqueue", T0 + 100, "/compact"))
+    first = settled(typed("/compact"), records, T0 + 101)
+    assert (first.state, first.seen_at, first.output) == ("ran", pytest.approx(T0 + 1), "Compacted.")
+    records = read(path, queue("dequeue", T0 + 200), ran("compact", "", T0 + 200.05, prompt="p9"),
+                   output("Theirs.", T0 + 200.05, prompt="p9"))
+    assert settled(typed("/compact"), records, T0 + 201) == first
+
+
 def test_a_command_taken_back_from_the_queue_takes_no_later_run(tmp_path):
     # Taken back into the input to be edited, it did not run from the queue: a /compact run since is another's, five
     # minutes on or seventy.
