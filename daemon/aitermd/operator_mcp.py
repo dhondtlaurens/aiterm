@@ -352,8 +352,9 @@ TOOLS: tuple[dict[str, Any], ...] = (
            "checkOutput": _text("The worker's check output: tests, lint, build."), "note": _text("Why, for blocked and failed.")},
           ("task", "outcome")),
     _tool("resume_task", "Puts a blocked task back to work once its reason is resolved; the same worker session continues. "
-          "AiTerm blocks after 90 working minutes without a new task-branch commit or four total working hours since starting "
-          "or the last resume. Any worker tab's commit resets only the no-commit clock. readyForAcceptance is exempt. "
+          "AiTerm blocks after 90 minutes of work without a new task-branch commit or 4 hours of total work since starting "
+          "or the last resume. Any worker tab's commit resets only the no-commit clock. "
+          "A task ready for acceptance is never blocked on runtime. "
           "Inspect before resuming; resume_task resets both clocks.",
           {"task": _TASK}, ("task",)),
     _tool("retry_task", "Queues a failed task again, if it has retries left.", {"task": _TASK}, ("task",)),

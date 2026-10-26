@@ -23,6 +23,7 @@ import Foundation
         oracle: OracleSetting(isOn: true, agent: .codex, model: "gpt-6-astra", reasoning: "medium"),
         instructions: "Keep changes small.")
 
+    /// Older saves keep their no-commit time and seed total work from it.
     @Test func oldSavedRuntimeStillCountsTowardTheStuckLimit() throws {
         let data = Data("""
         {"runId":"00000000-0000-0000-0000-000000000001","key":"A","state":"working",
@@ -37,13 +38,14 @@ import Foundation
         #expect(try roundTrip(task) == task)
     }
 
+    /// Recent progress does not extend total work; acceptance is exempt and resume resets both clocks.
     @Test func totalRuntimeBlocksEvenWithARecentCommit() throws {
         let data = Data("""
         {"runId":"00000000-0000-0000-0000-000000000001","key":"A","state":"working",
          "end":"commit","brief":"Work","revision":1,"runtimeUsed":60,"totalRuntimeUsed":14400}
         """.utf8)
         let task = try JSONDecoder().decode(OperatedTask.self, from: data)
-        #expect(OperatedTransitions.limitReason(for: task) == "Worked 4 hours since it started or was last resumed")
+        #expect(OperatedTransitions.limitReason(for: task) == "Worked 4 hours since it started or the Operator last resumed it.")
         #expect(OperatedTransitions.limitReason(for: task, readyForAcceptance: true) == nil)
         let blocked = try OperatedTransitions.apply(.block(reason: "runtime"), to: task, by: .aiterm,
                                                     context: OperatedContext(runState: .active, retryLimit: 2))

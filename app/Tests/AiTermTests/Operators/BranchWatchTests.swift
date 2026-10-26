@@ -5,7 +5,7 @@ import Testing
 @testable import AiTermTestSupport
 
 /// A worker that commits off its task branch is flagged in `run_status` on the next reconcile tick, and its
-/// Operator told, instead of the task sitting with an empty branch until its runtime runs out.
+/// Operator told. Task-branch commits reset the no-commit clock; limits use the fresh reading and spare idle workers.
 @MainActor @Suite(.blocking) struct BranchWatchTests {
     let git = GitRunner.hermetic()
     let clock = TestClock.operators()
@@ -40,6 +40,7 @@ import Testing
         world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }.filter { $0.hasSuffix("call run_status") }
     }
 
+    /// Each new task-branch head resets the stuck clock; its first reading only sets a baseline.
     @Test func newCommitsRestartTheStuckClockButAnUnchangedHeadDoesNot() async throws {
         let (world, _, task, worktree) = try makeWorld()
         world.workspace.mutate { $0.updateOperated(task.id) { $0.runtimeUsed = 30 * 60 } }
@@ -56,6 +57,7 @@ import Testing
         #expect(world.task(task.id)?.operated?.runtimeUsed == 1800.0)
     }
 
+    /// Progress on the tick that reaches the limit is read before that limit is decided.
     @Test func aCommitOnTheLimitTickIsReadBeforeBlocking() async throws {
         let (world, _, task, worktree) = try makeWorld()
         await tick(world)
@@ -67,6 +69,7 @@ import Testing
         #expect(world.notifications.posted.isEmpty)
     }
 
+    /// Work on another branch does not count as progress on the task.
     @Test func offBranchCommitsDoNotRestartTheStuckClock() async throws {
         let (world, _, task, worktree) = try makeWorld()
         await tick(world)
@@ -77,9 +80,10 @@ import Testing
         #expect(world.task(task.id)?.operated?.runtimeUsed == 1800.0)
     }
 
+    /// A branch read without progress still applies the stuck limit and notifies the person.
     @Test(arguments: ["unchanged", "offBranch", "unreadable"])
     func aHeadReadingWithoutProgressStillBlocksAtNinetyMinutes(_ reading: String) async throws {
-        let (world, _, task, worktree) = try makeWorld()
+        let (world, run, task, worktree) = try makeWorld()
         await tick(world)
         if reading == "offBranch" {
             try git.run(["checkout", "-q", "-b", "fix/elsewhere"], in: worktree)
@@ -91,10 +95,12 @@ import Testing
         await tick(world)
         #expect(world.task(task.id)?.operated?.state == .blocked)
         #expect(world.task(task.id)?.operated?.blockedReason == "Worked 90 minutes without a new commit.")
+        #expect(world.notifications.posted.last?.target == .board(run.id))
     }
 
+    /// Committing grants more no-commit time, but never more unattended time.
     @Test func commitsDoNotResetTotalWorkAndTheTotalCapStillBlocks() async throws {
-        let (world, _, task, worktree) = try makeWorld()
+        let (world, run, task, worktree) = try makeWorld()
         await tick(world)
         world.workspace.mutate { $0.updateOperated(task.id) {
             $0.runtimeUsed = 89 * 60
@@ -111,9 +117,36 @@ import Testing
         await tick(world)
         #expect(world.task(task.id)?.operated?.totalRuntimeUsed == 14400.0)
         #expect(world.task(task.id)?.operated?.state == .blocked)
-        #expect(world.task(task.id)?.operated?.blockedReason == "Worked 4 hours since it started or was last resumed")
+        #expect(world.task(task.id)?.operated?.blockedReason == "Worked 4 hours since it started or the Operator last resumed it.")
+        #expect(world.notifications.posted.last?.target == .board(run.id))
     }
 
+    /// The branch-read callback exempts an idle worker even past both limits, until it works again.
+    @Test func aWatchedIdleWorkerPastBothLimitsIsBlockedOnlyOnceItWorksAgain() async throws {
+        let (world, run, task, _) = try makeWorld(worker: .idle)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.runtimeHead != nil)
+        world.workspace.mutate { $0.updateOperated(task.id) {
+            $0.runtimeUsed = 91 * 60
+            $0.totalRuntimeUsed = 241 * 60
+        } }
+        clock.advance(by: 60)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.state == .working)
+        #expect(world.task(task.id)?.operated?.runtimeUsed == 5460.0)
+        #expect(world.task(task.id)?.operated?.totalRuntimeUsed == 14460.0)
+        #expect(world.notifications.posted.isEmpty)
+
+        // Change the live tab without a tick: the branch read's checkLimits must decide and notify.
+        world.live.sessions = [OperatorServiceFixtures.session("op", window: "wo", tag: run.id),
+                               OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .working)]
+        world.controller.branchWatch.poll()
+        await world.controller.branchWatch.lastPoll?.value
+        #expect(world.task(task.id)?.operated?.state == .blocked)
+        #expect(world.notifications.posted.last?.target == .board(run.id))
+    }
+
+    /// Every worker shares the branch, so an extra tab makes progress for the whole task.
     @Test func anExtraWorkersCommitRestartsTheSharedClock() async throws {
         let (world, run, task, worktree) = try makeWorld(worker: .idle)
         await tick(world)
@@ -135,6 +168,7 @@ import Testing
         #expect(world.task(task.id)?.operated?.totalRuntimeUsed == 60)
     }
 
+    /// Restarting AiTerm preserves both clocks and the last branch head.
     @Test func savedProgressSurvivesRestartWithoutResettingEitherClock() async throws {
         let (world, _, task, _) = try makeWorld()
         await tick(world)

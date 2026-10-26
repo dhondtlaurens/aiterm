@@ -151,6 +151,15 @@ def test_every_tool_has_a_description_and_a_closed_object_schema(tool):
     json.dumps(tool)
 
 
+def test_resume_task_explains_both_runtime_limits_and_the_acceptance_exemption():
+    description = {tool["name"]: tool for tool in TOOLS}["resume_task"]["description"]
+    assert "90 minutes of work without a new task-branch commit" in description
+    assert "4 hours of total work" in description
+    assert "Any worker tab's commit resets only the no-commit clock" in description
+    assert "a task ready for acceptance is never blocked on runtime" in description.lower()
+    assert "resume_task resets both clocks" in description
+
+
 def test_only_the_challenged_tools_take_a_challenge_reply():
     assert set(CHALLENGED_TOOLS) == {"submit_plan", "mark_task", "create_task", "finish_task"}
     for tool in TOOLS:

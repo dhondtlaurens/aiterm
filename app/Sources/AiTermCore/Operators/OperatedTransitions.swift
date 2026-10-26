@@ -10,7 +10,7 @@ public enum OperatedAction: Equatable, Sendable {
     /// AiTerm, on `submit_plan`: `planned` → `queued`, for tasks of `revision` or older.
     case release(revision: Int)
     /// AiTerm, when `RunScheduler` says it may: `queued` → `working`. The attempt is the launch
-    /// intent, saved before the worker's window is asked for (spec §11).
+    /// intent, saved before the worker's window is asked for (spec §11); both runtime clocks start afresh.
     case start(LaunchAttempt)
     /// The operator's `mark_task(accepted)`. `branchHead` is the task branch's head now, read by
     /// the caller: the engine is pure, and the accepted SHA must be that head, unmoved.
@@ -106,6 +106,8 @@ public enum OperatedTransitions {
             guard task.state == .queued else { throw refuse() }
             next.state = .working
             next.launch = attempt
+            next.runtimeUsed = 0
+            next.totalRuntimeUsed = 0
             next.blockedReason = nil
 
         case .accept(let acceptance, let head):
@@ -190,19 +192,20 @@ public enum OperatedTransitions {
     }
 
     /// A task over its limits, and why — what AiTerm blocks it with (spec §8): a failure with no
-    /// retry left, or a working task past its runtime. Nil while it is within both, and never for its
+    /// retry left, or a working task past its runtime. Nil while it is within all three, and never for its
     /// runtime while it is `readyForAcceptance`: its worker finished, and the work waits for review.
+    /// A pending branch read may leave out only the no-commit rule with `checkNoCommit`.
     public static func limitReason(for task: OperatedTask, readyForAcceptance: Bool = false, retries: Int = OperatorTiming.retries,
-                                   runtimeMinutes: Int = OperatorTiming.runtimeMinutes,
+                                   checkNoCommit: Bool = true, runtimeMinutes: Int = OperatorTiming.runtimeMinutes,
                                    totalRuntimeHours: Int = OperatorTiming.totalRuntimeHours) -> String? {
         if task.state == .failed, task.retriesUsed >= retries {
             return "Failed with no retries left (\(retries) allowed)."
         }
         if task.state == .working, !readyForAcceptance {
             if task.totalRuntimeUsed >= TimeInterval(totalRuntimeHours * 60 * 60) {
-                return "Worked \(totalRuntimeHours) hours since it started or was last resumed"
+                return "Worked \(totalRuntimeHours) hours since it started or the Operator last resumed it."
             }
-            if task.runtimeUsed >= TimeInterval(runtimeMinutes * 60) {
+            if checkNoCommit, task.runtimeUsed >= TimeInterval(runtimeMinutes * 60) {
                 return "Worked \(runtimeMinutes) minutes without a new commit."
             }
         }

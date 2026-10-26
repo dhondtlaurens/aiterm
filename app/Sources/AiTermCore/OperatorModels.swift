@@ -366,8 +366,8 @@ public struct OperatedTask: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case runId, key, state, end, brief, dependsOn, stackedOn, revision, firstRevision, acceptance, publication
-        case totalRuntimeUsed, runtimeHead
-        case takenOver, ownership, launch, retriesUsed, runtimeUsed, blockedReason, blockedFrom, flags, lastFailure
+        case takenOver, ownership, launch, retriesUsed, runtimeUsed, totalRuntimeUsed, runtimeHead
+        case blockedReason, blockedFrom, lastFailure, flags
         case modelReason, agentPinned, problem, agentReview, peopleReview, branchDrift, extraTabs, reopenedFrom
     }
 

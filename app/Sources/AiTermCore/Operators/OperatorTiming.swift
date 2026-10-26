@@ -40,7 +40,7 @@ public enum OperatorTiming {
     public static let retries = 2
     /// App only: working minutes without a new commit on the task branch before AiTerm blocks it.
     public static let runtimeMinutes = 90
-    /// App only: total working hours since starting or the Operator last resumed the task.
+    /// App only: total working hours since starting or the Operator last resumed the task before AiTerm blocks it.
     public static let totalRuntimeHours = 4
     /// App only: minutes a worker whose session says working may go with no growth in its transcript before AiTerm reads it
     /// `working?` and lists it as uncertain (spec §H), on a task in any state: the daemon's state may have stuck.

@@ -397,9 +397,8 @@ import Testing
         world.controller.reconcileTick()
         let resumed = try #require(world.task(spent.id)?.operated)
         #expect(resumed.state == .working && resumed.runtimeUsed == 30, "a fresh 90 minutes, counted from its resume")
-        let kept = try #require(world.task(partway.id)?.operated)
-        #expect(resumed.totalRuntimeUsed == 30 && kept.totalRuntimeUsed == 30)
-        #expect(kept.state == .working && kept.runtimeUsed == 30)
+        #expect(resumed.totalRuntimeUsed == 30 && world.task(partway.id)?.operated?.totalRuntimeUsed == 30)
+        #expect(world.task(partway.id)?.operated?.state == .working && world.task(partway.id)?.operated?.runtimeUsed == 30)
     }
 
     /// Only a busy worker's time counts: one idle at its prompt, its turn over, waits for review or acceptance, and
