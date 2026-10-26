@@ -12,6 +12,7 @@
     "projectId": null,
     "reasoning": null,
     "sessionId": "s2",
+    "slashCommands": [],
     "state": "idle",
     "subagentsWrittenAt": null,
     "tabIndex": 0,

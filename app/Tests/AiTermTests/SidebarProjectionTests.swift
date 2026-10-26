@@ -168,6 +168,39 @@ struct SidebarProjectionTests {
         #expect(written == ["1", nil])
     }
 
+    /// What a Claude worker runs now is in no row, but the board's card tooltip says it: while the board shows, a session
+    /// event that moved only its worker's model or effort derives the board again, and while it does not, nothing.
+    @Test func theBoardFollowsWhatItsClaudeWorkerRunsNow() throws {
+        let controller = AppController(preferences: .scratch())
+        try controller.loadWorkspace()
+        let rows = controller.rows, run = OperatorUIFixtures.run()
+        var task = OperatorUIFixtures.task("Pricing page", project: project.id,
+                                           operated: OperatorUIFixtures.operated(run: run.id, key: "PAY-1", state: .working))
+        task.model = "opus"
+        controller.workspace.mutate { [project, task] state in state.append(project: project); state.tasks = [task]; state.runs = [run] }
+        var worker = OperatorUIFixtures.tab("w1", of: task, .working)
+        worker.model = "claude-opus-5-5"
+        worker.reasoning = "high"
+        controller.live.handle(.sessionOpened(worker))
+        func tooltip() -> String? { rows.board?.columns.flatMap(\.cards).first?.modelTooltip }
+
+        let start = rows.derivations
+        worker.model = "claude-sonnet-5-5"
+        controller.live.handle(.sessionChanged(worker))
+        #expect(rows.derivations == start, "no row draws a model, and the board is not showing")
+
+        controller.sheet = .broadcastBoard(run.id)
+        #expect(tooltip() == "Claude · opus\nNow on claude-sonnet-5-5 · high")
+        let shown = rows.derivations
+        worker.model = "claude-opus-5-5"
+        controller.live.handle(.sessionChanged(worker))
+        #expect(tooltip() == "Claude · opus", "back on the model the plan's alias names")
+        #expect(rows.derivations == shown + 1)
+        worker.contextPercent = 40
+        controller.live.handle(.sessionChanged(worker))
+        #expect(rows.derivations == shown + 1, "a fill draws nothing on the board either")
+    }
+
     /// The footer's context row reads the rows' tabs and the fills: a session event that moved a fill
     /// redraws it, one that moved only a model or a title does not, and neither does a sidebar move.
     @Test func theContextRowRedrawsForAFillAlone() throws {

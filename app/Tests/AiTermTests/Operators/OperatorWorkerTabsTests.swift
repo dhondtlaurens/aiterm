@@ -261,6 +261,68 @@ import Testing
         #expect(world.controller.tools.workerTabs(of: current).map { $0.session?.sessionId } == ["s1", "s-review"])
     }
 
+    // -- what each tab runs now ------------------------------------------------------------------------
+
+    /// A Claude worker's line shows the model and effort Claude Code says it runs now, and what became of the slash
+    /// commands sent to it, beside the model it was planned on. A Codex tab's own model is not shown: a Codex hook may
+    /// carry a child thread's.
+    @Test func aClaudeTabSaysWhatItRunsNowAndWhatBecameOfItsSlashCommands() throws {
+        let (world, run, task) = try makeWorld()
+        var first = OperatorServiceFixtures.session("s1", tag: task.id, state: .working)
+        first.model = "claude-opus-5-5"
+        first.reasoning = "high"
+        first.slashCommands = [SlashCommand(text: "/model claude-opus-5-5", state: .ran, deliveredAt: 1_700_000_000, seenAt: 1_700_000_001,
+                                            output: "Set model to Opus 5.5")]
+        var review = Self.extraTab(of: task, state: .idle)
+        review.model = "gpt-6-astra"
+        review.reasoning = "medium"
+        world.show([OperatorServiceFixtures.session("op", window: "wop", tag: run.id), first, review])
+        let line = try #require(try status(world, run).tasks.first)
+        #expect(line.model == task.model && line.liveModel == "claude-opus-5-5" && line.liveReasoning == "high")
+        #expect(line.slashCommands?.map(\.text) == ["/model claude-opus-5-5"] && line.slashCommands?.first?.state == .ran)
+        #expect(line.tabs?.map(\.liveModel) == ["claude-opus-5-5", nil] && line.tabs?.map(\.liveReasoning) == ["high", nil])
+    }
+
+    /// A Claude tab the Operator added says what it runs now and what became of its slash commands, as `liveFacts`
+    /// builds its line, and reads as needing input while a prompt it opened waits on you, though its session says working.
+    @Test func anAddedClaudeTabSaysWhatItRunsNowWhileItsPromptWaitsOnYou() async throws {
+        let daemon = RecordingDaemon()
+        daemon.prompts["s-review"] = .menu
+        let (world, run, task) = try makeWorld(daemon: daemon) { $0.agent = .claude; $0.model = "sonnet" }
+        var review = OperatorServiceFixtures.session("s-review", tag: task.id, agent: .claude, state: .working)
+        review.tabIndex = 1
+        review.tabKey = "review"
+        review.model = "claude-sonnet-5-5"
+        review.reasoning = "medium"
+        let command = SlashCommand(text: "/effort medium", state: .ran, deliveredAt: 1_700_000_000, seenAt: 1_700_000_001,
+                                   output: "Set effort level to medium")
+        review.slashCommands = [command]
+        world.show([OperatorServiceFixtures.session("op", window: "wop", tag: run.id),
+                    OperatorServiceFixtures.session("s1", tag: task.id, state: .working), review])
+        world.controller.probePrompts(.reconcile)
+        await world.controller.lastProbe?.value
+        let status = try status(world, run)
+        #expect(status.obligations.promptsWaitingOnYou == ["PLUTO-1/review"])
+        let tabs = try #require(status.tasks.first?.tabs)
+        try #require(tabs.count == 2)
+        #expect(tabs[1].key == "review" && tabs[1].agent == .claude)
+        #expect(tabs[1].live == .needsInput)
+        #expect(tabs[1].liveModel == "claude-sonnet-5-5" && tabs[1].liveReasoning == "medium")
+        #expect(tabs[1].slashCommands == [RunStatus.SlashCommandLine(command)])
+    }
+
+    /// A /model the Operator delivered changes nothing it shows until Claude Code says the switch happened: the plan's model
+    /// stays, and so does the one Claude Code last reported.
+    @Test func aModelDeliveredButNotConfirmedShowsNothingNew() async throws {
+        let (world, run, task) = try makeWorld()
+        var first = OperatorServiceFixtures.session("s1", tag: task.id, state: .working)
+        first.model = "claude-fable-5-1[1m]"
+        world.show([OperatorServiceFixtures.session("op", window: "wop", tag: run.id), first])
+        #expect(await world.call(run.id, "message_task", message("/model claude-opus-5-5")).value?["result"] == "delivered")
+        let line = try #require(try status(world, run).tasks.first)
+        #expect(line.model == task.model && line.liveModel == "claude-fable-5-1[1m]")
+    }
+
     // -- one tab, by its key ----------------------------------------------------------------------------
 
     /// Without a tab, or with `main`, message_task reaches the first worker as it always did; with a tab's key, that tab.

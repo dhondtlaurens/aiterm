@@ -168,4 +168,18 @@ import Testing
         renamed.conversationId = "019b-thread"
         #expect(renamed.rowRelevant == session.rowRelevant, "no row draws a conversation")
     }
+
+    /// A Claude tab says what became of the slash commands AiTerm typed into it: a state this app doesn't know reads as
+    /// unknown, and an older daemon sends none. No row draws them, so a command that ran redraws nothing.
+    @Test func aSessionCarriesWhatBecameOfItsSlashCommandsAndAnOlderDaemonsNone() throws {
+        let sent = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"claude","model":null,"state":"working","title":"","cwd":"/repo","slashCommands":[{"text":"/effort high","state":"ran","deliveredAt":1000,"seenAt":1001.5,"output":"Set effort level to high"},{"text":"/compact","state":"somethingNew","deliveredAt":1002,"seenAt":null,"output":null}]}"#
+        let session = try JSONDecoder().decode(SessionInfo.self, from: Data(sent.utf8))
+        #expect(session.slashCommands == [SlashCommand(text: "/effort high", state: .ran, deliveredAt: 1000, seenAt: 1001.5, output: "Set effort level to high"),
+                                          SlashCommand(text: "/compact", state: .unknown, deliveredAt: 1002)])
+        let older = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"claude","model":null,"state":"working","title":"","cwd":"/repo"}"#
+        #expect(try JSONDecoder().decode(SessionInfo.self, from: Data(older.utf8)).slashCommands.isEmpty)
+        var settled = session
+        settled.slashCommands[1].state = .ran
+        #expect(settled.rowRelevant == session.rowRelevant, "no row draws a slash command")
+    }
 }

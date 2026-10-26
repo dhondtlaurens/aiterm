@@ -15,10 +15,14 @@ public struct TaskLiveFacts: Equatable, Sendable {
         public var closed: Bool
         /// The prompt it waits on you with, if any.
         public var waitingPrompt: String?
+        /// The model and effort it runs now, and what became of the slash commands sent to it: `TaskLiveFacts`'s, for this tab.
+        public var liveModel: String?, liveReasoning: String?
+        public var slashCommands: [SlashCommand]
         public init(key: String, agent: AgentKind, model: String, status: SessionState? = nil, opening: Bool = false, closed: Bool = false,
-                    waitingPrompt: String? = nil) {
+                    waitingPrompt: String? = nil, liveModel: String? = nil, liveReasoning: String? = nil, slashCommands: [SlashCommand] = []) {
             self.key = key; self.agent = agent; self.model = model; self.status = status; self.opening = opening; self.closed = closed
             self.waitingPrompt = waitingPrompt
+            self.liveModel = liveModel; self.liveReasoning = liveReasoning; self.slashCommands = slashCommands
         }
         /// What it counts as: `WorkerTab.status`.
         public var counted: SessionState? { opening ? .working : status }
@@ -49,16 +53,23 @@ public struct TaskLiveFacts: Equatable, Sendable {
     /// Its first worker's session says working but its transcript has not grown for `OperatorTiming.liveQuietMinutes`
     /// (`StallWatch.isQuietWhileWorking`): the line reads `working?` and the task is uncertain.
     public var quiet: Bool
+    /// The model and effort its first worker runs now, as Claude Code itself reported them (`SessionInfo.model`,
+    /// `.reasoning`): changed once a /model or /effort has run, never by delivering one, and never a subagent's. Nil while
+    /// it hasn't said.
+    public var liveModel: String?, liveReasoning: String?
+    /// What became of the slash commands `message_task` typed into its first worker (`SessionInfo.slashCommands`).
+    public var slashCommands: [SlashCommand]
 
     public init(status: SessionState? = nil, waitingPrompt: String? = nil,
                 tabs: [Tab] = [], background: [String] = [], yourPrompt: String? = nil, lastMessage: String? = nil,
                 commitsAhead: Int? = nil, atReopenedCommit: Bool = false, changedAfterAcceptance: Bool = false, turnUnread: Bool = false,
-                quiet: Bool = false) {
+                quiet: Bool = false, liveModel: String? = nil, liveReasoning: String? = nil, slashCommands: [SlashCommand] = []) {
         self.status = status; self.waitingPrompt = waitingPrompt
         self.tabs = tabs; self.background = background; self.yourPrompt = yourPrompt
         self.lastMessage = lastMessage; self.commitsAhead = commitsAhead; self.atReopenedCommit = atReopenedCommit
         self.changedAfterAcceptance = changedAfterAcceptance
         self.turnUnread = turnUnread; self.quiet = quiet
+        self.liveModel = liveModel; self.liveReasoning = liveReasoning; self.slashCommands = slashCommands
     }
 
     /// Its first worker is idle at its prompt or done: what its turn left is its final word.
@@ -177,16 +188,42 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         }
     }
 
+    /// A slash command `message_task` typed into a worker, and what became of it, with its evidence: `delivered`, typed
+    /// and nothing of it in its transcript yet; `queued`, Claude Code queued it at `seenAt` and has taken nothing from its
+    /// queue since; `ran`, its transcript recorded it run at `seenAt`, with a local command's `output`; `unknown`, nothing of
+    /// it in its transcript within a minute or no transcript to read, something left its queue after it was queued, or an
+    /// hour passed without its run, and within that hour it can still become `ran`, but not once a remove, popAll or popOne
+    /// named it, nor, never queued, once the same text was sent again. A /model or /effort run mid-turn takes effect and
+    /// writes nothing, so it reads unknown: its line's `liveModel` and `liveReasoning` say what it runs.
+    public struct SlashCommandLine: Encodable, Equatable, Sendable {
+        public var text: String, state: SlashCommand.State, deliveredAt: Date, seenAt: Date?, output: String?
+        public init(text: String, state: SlashCommand.State, deliveredAt: Date, seenAt: Date? = nil, output: String? = nil) {
+            self.text = text; self.state = state; self.deliveredAt = deliveredAt; self.seenAt = seenAt; self.output = output
+        }
+        public init(_ command: SlashCommand) {
+            self.init(text: command.text, state: command.state, deliveredAt: Date(timeIntervalSince1970: command.deliveredAt),
+                      seenAt: command.seenAt.map(Date.init(timeIntervalSince1970:)), output: command.output)
+        }
+
+        /// Each of `commands` as a line; nil for none.
+        static func lines(_ commands: [SlashCommand]) -> [SlashCommandLine]? { commands.isEmpty ? nil : commands.map(SlashCommandLine.init) }
+    }
+
     /// One of a task's worker tabs: its key (`main` for the first worker, `WorkerTab.firstKey`), agent, model and live
-    /// status, and whether it is still opening or was closed.
+    /// status, whether it is still opening or was closed, the model and effort it runs now and what became of the slash
+    /// commands sent to it.
     public struct TabLine: Encodable, Equatable, Sendable {
         public var key: String, agent: AgentKind, model: String
         public var live: LiveState?
         public var opening: Bool
         /// An extra tab that opened and is listed no more: AiTerm never opens it again.
         public var closed: Bool
-        public init(key: String, agent: AgentKind, model: String, live: LiveState? = nil, opening: Bool = false, closed: Bool = false) {
+        public var liveModel: String?, liveReasoning: String?
+        public var slashCommands: [SlashCommandLine]?
+        public init(key: String, agent: AgentKind, model: String, live: LiveState? = nil, opening: Bool = false, closed: Bool = false,
+                    liveModel: String? = nil, liveReasoning: String? = nil, slashCommands: [SlashCommandLine]? = nil) {
             self.key = key; self.agent = agent; self.model = model; self.live = live; self.opening = opening; self.closed = closed
+            self.liveModel = liveModel; self.liveReasoning = liveReasoning; self.slashCommands = slashCommands
         }
     }
 
@@ -222,13 +259,20 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         /// The commit a working task was accepted on before it was steered back to work (spec §C, §D). Listed ready with no
         /// commit past it, it is that commit to accept again; nil for a task not reopened.
         public var reopenedFrom: String?
+        /// The model and effort its first worker runs now, as Claude Code reported them: a /model confirmed in its window
+        /// shows here, while `model` stays the one it was planned on. Nil while its worker hasn't said, and for an agent
+        /// other than Claude.
+        public var liveModel: String?, liveReasoning: String?
+        /// What became of the slash commands `message_task` typed into its first worker, oldest first; nil when none was.
+        public var slashCommands: [SlashCommandLine]?
         public init(id: UUID, key: String, title: String, project: String, agent: AgentKind, model: String,
                     state: OperatedState, end: TaskEnd, revision: Int, live: LiveState? = nil, branch: String,
                     dependsOn: [Dependency] = [],
                     acceptedSHA: String? = nil, blockedReason: String? = nil, flags: [OperatedFlag] = [],
                     takenOver: Bool = false, retriesUsed: Int = 0, agentReview: AgentReviewLine? = nil,
                     peopleReview: PeopleReviewLine? = nil, branchDrift: BranchDrift? = nil, tabs: [TabLine]? = nil, background: [String]? = nil,
-                    yourPrompt: String? = nil, mergeRefusal: String? = nil, reopenedFrom: String? = nil) {
+                    yourPrompt: String? = nil, mergeRefusal: String? = nil, reopenedFrom: String? = nil, liveModel: String? = nil,
+                    liveReasoning: String? = nil, slashCommands: [SlashCommandLine]? = nil) {
             self.id = id; self.key = key; self.title = title; self.project = project; self.agent = agent; self.model = model
             self.state = state; self.end = end; self.revision = revision; self.live = live; self.branch = branch
             self.dependsOn = dependsOn
@@ -238,6 +282,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             self.tabs = tabs; self.background = background
             self.youAreDriving = yourPrompt == nil ? nil : true; self.yourPrompt = yourPrompt
             self.mergeRefusal = mergeRefusal; self.reopenedFrom = reopenedFrom
+            self.liveModel = liveModel; self.liveReasoning = liveReasoning; self.slashCommands = slashCommands
         }
     }
 
@@ -333,7 +378,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 yourPrompt: facts.yourPrompt,
                 // As on its card: a task finished or taken over is past the refusal.
                 mergeRefusal: o.takenOver || o.isFinished ? nil : o.publication?.mergeRefusal,
-                reopenedFrom: o.state == .working ? o.reopenedFrom : nil))
+                reopenedFrom: o.state == .working ? o.reopenedFrom : nil, liveModel: facts.liveModel, liveReasoning: facts.liveReasoning,
+                slashCommands: SlashCommandLine.lines(facts.slashCommands)))
             // What the first worker's ended turn left, on a task in any state but yours (spec §J): a new turn is at work.
             let turn = facts.turnEnded && !o.takenOver && o.state != .stopped
             let asking = turn && WorkerTurn.endsWithQuestion(facts.lastMessage)
@@ -399,8 +445,11 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     /// The task's worker tabs as its line lists them, the first worker as `main`; nil when it has no extra tab.
     private static func tabLines(_ item: TaskItem, _ facts: TaskLiveFacts) -> [TabLine]? {
         guard !facts.tabs.isEmpty else { return nil }
-        return [TabLine(key: WorkerTab.firstKey, agent: item.agent, model: item.model, live: facts.status.map { LiveState($0, quiet: facts.quiet) })]
-            + facts.tabs.map { TabLine(key: $0.key, agent: $0.agent, model: $0.model, live: $0.status.map { LiveState($0) }, opening: $0.opening, closed: $0.closed) }
+        return [TabLine(key: WorkerTab.firstKey, agent: item.agent, model: item.model, live: facts.status.map { LiveState($0, quiet: facts.quiet) },
+                        liveModel: facts.liveModel, liveReasoning: facts.liveReasoning, slashCommands: SlashCommandLine.lines(facts.slashCommands))]
+            + facts.tabs.map { TabLine(key: $0.key, agent: $0.agent, model: $0.model, live: $0.status.map { LiveState($0) }, opening: $0.opening,
+                                       closed: $0.closed, liveModel: $0.liveModel, liveReasoning: $0.liveReasoning,
+                                       slashCommands: SlashCommandLine.lines($0.slashCommands)) }
     }
 
     /// The snapshot as the tool returns it: JSON with sorted keys and ISO 8601 dates.

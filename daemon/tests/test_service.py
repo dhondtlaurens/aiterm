@@ -17,7 +17,7 @@ from aitermd.codex_sessions import CodexSessionFiles
 from aitermd.hooks_server import HookServer
 from aitermd.iterm_bridge import ItermUnavailable
 from aitermd.models import BackgroundJob, Frame
-from tests.conftest import FRAME, call, post_hook, task_tab, wait_until
+from tests.conftest import FRAME, call, http, post_hook, task_tab, wait_until
 from tests.fake_iterm import FakeIterm
 
 
@@ -1648,9 +1648,10 @@ async def test_the_first_hooks_of_an_agent_launched_after_the_last_poll_are_not_
     assert svc.registry.get(sid).agent == "shell"
     await it.user_runs(sid, "codex", job_pid=77)
     assert svc.registry.get(sid).agent == "shell", "the registry has not yet seen the agent start"
-    assert await post_hook(svc.hooks.port, "/hook/codex", {"hook_event_name": "UserPromptSubmit", "session_id": "c1",
-                                                           "cwd": "/wt", "model": "gpt-5.6",
-                                                           "_aiterm_iterm_session_id": f"w0t0p0:{sid}"}) == 200
+    # Its tab id in the header, as Codex's hook sends it: what places the post by evidence once the tick sees Codex.
+    assert await http(svc.hooks.port, "POST", "/hook/codex", {"hook_event_name": "UserPromptSubmit", "session_id": "c1",
+                                                              "cwd": "/wt", "model": "gpt-5.6"},
+                      iterm_session_id=f"w0t0p0:{sid}") == 200
     await wait_until(lambda: svc.registry.get(sid).state == "working")
     assert svc.registry.get(sid).agent == "codex" and svc.registry.get(sid).model == "gpt-5.6"
 

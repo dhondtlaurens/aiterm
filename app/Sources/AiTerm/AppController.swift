@@ -238,6 +238,12 @@ final class AppController {
         // The rows are derived again whenever something they are made of may have changed, and the
         // Dock badge recounted when they did or a removal moved.
         live.onRowSessionsChanged { [weak self] in self?.refreshRows() }
+        // What a Claude worker runs now is in no row's tabs, but the board's tooltips say it: while the board shows, any
+        // session event may have moved it.
+        live.onSessionsChanged { [weak self] _ in
+            guard let self, self.rows.boardShown() else { return }
+            self.refreshRows()
+        }
         checkouts.onRowsChanged { [weak self] in self?.refreshRows() }
         remover.onRemovalsChanged { [weak self] in self?.updateDockBadge() }
         // What a change to the workspace sets off, once per change, in this order: whatever named a

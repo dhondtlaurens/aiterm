@@ -185,6 +185,9 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         replies["session.setOwnership"] = await app.call("session.setOwnership", {"sessionId": worker, "ownership": 1})
         replies["session.deliver"] = await app.call("session.deliver", {
             "sessionId": worker, "text": "Run the tests.", "ownership": 1, "wake": False, "worktree": None})
+        # A slash command typed into the Claude worker, whose hooks named its transcript: its session says what became of it.
+        svc.registry.set_transcript(worker, "/repo/claude-profile/projects/-repo/c-wire.jsonl")
+        await app.call("session.deliver", {"sessionId": worker, "text": "/effort high", "ownership": 1, "wake": False, "worktree": None})
         replies["session.prompt"] = await app.call("session.prompt", {"sessionId": worker})
         replies["session.dismissStartup"] = await app.call("session.dismissStartup", {"sessionId": worker})
         replies["delivery.policy"] = await app.call("delivery.policy")

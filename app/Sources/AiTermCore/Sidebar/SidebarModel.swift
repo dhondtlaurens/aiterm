@@ -34,13 +34,13 @@ public enum TaskStatus: Equatable, Hashable, Sendable, CaseIterable {
 
 public extension SessionInfo {
     /// The tab without what no row draws, for telling a change the rows draw from one they don't:
-    /// most session events are a context fill, a conversation id, a model or a Codex spinner title. A field the rows —
-    /// or the footer's `ctx` row — start to read has to stay here.
+    /// most session events are a context fill, a conversation id, a model, a slash command's progress or a Codex
+    /// spinner title. A field the rows — or the footer's `ctx` row — start to read has to stay here.
     var rowRelevant: SessionInfo {
         var row = self
         row.subagentsWrittenAt = nil
         row.model = nil; row.reasoning = nil; row.title = ""; row.contextPercent = nil
-        row.conversationId = nil
+        row.conversationId = nil; row.slashCommands = []
         return row
     }
 }

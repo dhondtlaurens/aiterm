@@ -59,6 +59,31 @@ public struct BroadcastBoard: Equatable, Sendable {
         }
     }
 
+    /// What a task's Claude worker says it runs now (`SessionInfo.liveModel`, `.liveReasoning`), which its card's tooltip
+    /// holds against the plan.
+    public struct LiveModel: Equatable, Sendable {
+        public var model: String
+        public var reasoning: String?
+        public init(model: String, reasoning: String?) { self.model = model; self.reasoning = reasoning }
+
+        /// Whether it is another model or effort than the plan's `model` and `reasoning`. A planned alias (`opus`) is any
+        /// model of its family. With no effort planned the worker runs Claude Code's default, and with none said it has
+        /// not said which: only the model counts then.
+        func differs(fromModel planned: String, reasoning plannedReasoning: String?) -> Bool {
+            guard Self.runs(planned, as: model) else { return true }
+            guard let plannedReasoning, let reasoning else { return false }
+            return reasoning != plannedReasoning
+        }
+
+        /// Whether `live`, a model id as Claude Code reports it, is the model `planned` names: the same id, or for one of
+        /// Claude's aliases (`ModelFiles.claudeAliases`) a model of its family, whatever its version or context window.
+        static func runs(_ planned: String, as live: String) -> Bool {
+            guard planned != live else { return true }
+            let alias = planned.prefix { $0 != "[" }
+            return ModelFiles.claudeAliases.contains(String(alias)) && live.prefix { $0 != "[" }.split(separator: "-").contains(alias)
+        }
+    }
+
     /// One task on the board.
     public struct Card: Equatable, Identifiable, Sendable {
         /// The task's id.
@@ -165,16 +190,30 @@ public struct BroadcastBoard: Equatable, Sendable {
 
     /// The board of `run` as `state` has it. `acting` is what the Operator is doing now, as
     /// `OperatorController.acting` says it; `requests` are the broadcast's open requests (`OperatorRequests`);
-    /// `sessions` the tabs as iTerm2 lists them, which the band reads as its row does.
+    /// `sessions` the tabs as iTerm2 lists them, which the band reads as its row does; `liveModels` what each task's
+    /// Claude worker runs now (`liveModels(of:state:sessions:)`), which the cards' tooltips say.
     public static func make(run: OperatorRun, state: AppState, acting: OperatorActs, requests: [BroadcastRequest],
-                            sessions: [SessionInfo] = []) -> BroadcastBoard {
-        build(run: run, state: state, acting: acting, requests: requests, sessions: sessions, keepsHanded: false)
+                            sessions: [SessionInfo] = [], liveModels: [UUID: LiveModel] = [:]) -> BroadcastBoard {
+        build(run: run, state: state, acting: acting, requests: requests, sessions: sessions, liveModels: liveModels,
+              keepsHanded: false)
+    }
+
+    /// What the first worker of each of `run`'s tasks says it runs now, a Claude's alone (`SessionInfo.liveModel`), by
+    /// task: from `sessions` with their models and efforts, which the tabs as the rows read them leave out
+    /// (`SessionInfo.rowRelevant`).
+    public static func liveModels(of run: OperatorRun, state: AppState, sessions: [SessionInfo]) -> [UUID: LiveModel] {
+        var models: [UUID: LiveModel] = [:]
+        for task in state.tasks(inRun: run.id) {
+            guard let worker = task.firstWorker(in: sessions), let model = worker.liveModel else { continue }
+            models[task.id] = LiveModel(model: model, reasoning: worker.liveReasoning)
+        }
+        return models
     }
 
     /// The board, `keepsHanded` keeping the tasks End handed to you (`handedOnEnd`) In progress and counted, as the
     /// Shelf reads an ended broadcast.
     private static func build(run: OperatorRun, state: AppState, acting: OperatorActs, requests: [BroadcastRequest],
-                              sessions: [SessionInfo], keepsHanded: Bool) -> BroadcastBoard {
+                              sessions: [SessionInfo], liveModels: [UUID: LiveModel], keepsHanded: Bool) -> BroadcastBoard {
         let tasks = state.tasks(inRun: run.id)
         let byId = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let projects = run.projectIds.compactMap(state.project(id:))
@@ -188,7 +227,7 @@ public struct BroadcastBoard: Equatable, Sendable {
             let handed = keepsHanded && Self.handedOnEnd(operated)
             guard operated.state != .stopped || handed else { return nil }
             let card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId, sessions: sessions,
-                                 turn: acting.turns[task.id], project: projects.count > 1 ? names[task.projectId] : nil)
+                                 live: liveModels[task.id], turn: acting.turns[task.id], project: projects.count > 1 ? names[task.projectId] : nil)
             return (handed ? .inProgress : Self.column(of: operated, hasReview: hasReview), card, task.agent)
         }
         let columns = Column.allCases.filter { $0 != .review || hasReview }.map { column in
@@ -216,7 +255,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         var all = state
         let driven = state.tasks(inRun: run.id) + state.archive.map(\.task).filter { $0.operated?.runId == run.id }
         all.tasks = driven.enumerated().sorted { ($0.element.createdAt, $0.offset) < ($1.element.createdAt, $1.offset) }.map(\.element)
-        var board = build(run: run, state: all, acting: .none, requests: [], sessions: [], keepsHanded: true)
+        var board = build(run: run, state: all, acting: .none, requests: [], sessions: [], liveModels: [:], keepsHanded: true)
         board.columns = board.columns.map { lane in
             var lane = lane
             lane.cards = lane.cards.map { card in
@@ -257,8 +296,8 @@ public struct BroadcastBoard: Equatable, Sendable {
     // MARK: - A card
 
     private static func card(_ task: TaskItem, _ operated: OperatedTask, run: OperatorRun, acting: OperatorAct?,
-                             requests: [BroadcastRequest], tasks: [UUID: TaskItem], sessions: [SessionInfo], turn: WorkerTurn.Ending?,
-                             project: String?) -> Card {
+                             requests: [BroadcastRequest], tasks: [UUID: TaskItem], sessions: [SessionInfo], live: LiveModel?,
+                             turn: WorkerTurn.Ending?, project: String?) -> Card {
         let line = OperatorLine.task(task, run: run, acting: acting, requests: requests, tasks: tasks, sessions: sessions, turn: turn)
         let takenOver = operated.takenOver
         let mr: (reference: String, host: CodeHost, title: String?)? = task.mr.map { ($0.reference, $0.host, $0.title) }
@@ -274,7 +313,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                     line: takenOver ? nil : line, takenOver: takenOver,
                     needsYou: !takenOver && line?.look == .needsYou,
                     opens: opens(task, operated, requests: requests),
-                    modelTooltip: modelTooltip(task, operated), result: OperatorLine.ending(of: operated),
+                    modelTooltip: modelTooltip(task, operated, live: live), result: OperatorLine.ending(of: operated),
                     tabs: tabs(of: task, sessions: sessions),
                     mergeRefusal: takenOver || operated.isFinished ? nil : operated.publication?.mergeRefusal)
     }
@@ -330,13 +369,17 @@ public struct BroadcastBoard: Equatable, Sendable {
         }
     }
 
-    /// `Codex · gpt-5.5 · high`, and the Operator's reason on the line under it.
-    private static func modelTooltip(_ task: TaskItem, _ operated: OperatedTask) -> String? {
+    /// `Codex · gpt-5.5 · high`, and the Operator's reason on the line under it. A Claude worker that says it runs another
+    /// model or effort than planned (`live`, `LiveModel.differs`) adds `Now on claude-opus-5-5 · high` under them.
+    private static func modelTooltip(_ task: TaskItem, _ operated: OperatedTask, live: LiveModel?) -> String? {
         guard !task.model.isEmpty else { return nil }
-        let model = ([SidebarModel.agentName(task.agent), task.model] + [task.reasoning].compactMap { $0 }.filter { !$0.isEmpty })
-            .joined(separator: " · ")
-        guard let reason = operated.modelReason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty else { return model }
-        return model + "\n" + reason
+        let effort = task.reasoning.flatMap { $0.isEmpty ? nil : $0 }
+        var lines = [([SidebarModel.agentName(task.agent), task.model] + [effort].compactMap { $0 }).joined(separator: " · ")]
+        if let reason = operated.modelReason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty { lines.append(reason) }
+        if let live, live.differs(fromModel: task.model, reasoning: effort) {
+            lines.append("Now on " + ([live.model] + [live.reasoning].compactMap { $0 }).joined(separator: " · "))
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// The muted line an empty column says.

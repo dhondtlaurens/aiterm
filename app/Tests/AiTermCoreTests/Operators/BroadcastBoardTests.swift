@@ -219,6 +219,41 @@ import Testing
         #expect(plain.modelTooltip == "Codex · gpt-5.5")
     }
 
+    /// Once its Claude worker says it runs another model or effort than planned, the tooltip says so under the Operator's
+    /// choice. The plan's own, a model of the family a planned alias names (`opus`), any effort when none was planned
+    /// (Claude Code's default then), and a Codex worker's own word add nothing. The board is handed the tabs as the rows
+    /// read them, with no model, and what each first worker runs beside them, as the sidebar hands them in.
+    @Test func theCardsTooltipSaysWhatItsClaudeWorkerRunsNow() throws {
+        let run = run()
+        var task = task("Payment provider switch", run: run.id, .working)
+        task.operated?.modelReason = "A wide refactor."
+        func tooltip(planned: String = "claude-fable-5-1[1m]", effort: String? = "max", agent: SessionAgent = .claude,
+                     now model: String?, _ reasoning: String?) throws -> String? {
+            task.model = planned
+            task.reasoning = effort
+            var worker = OperatorUIFixtures.tab("s1", of: task, .working, agent: agent)
+            worker.model = model
+            worker.reasoning = reasoning
+            let state = state(run, [task])
+            let board = BroadcastBoard.make(run: run, state: state, acting: .none, requests: [], sessions: [worker.rowRelevant],
+                                            liveModels: BroadcastBoard.liveModels(of: run, state: state, sessions: [worker]))
+            return try #require(board.columns.flatMap(\.cards).first).modelTooltip
+        }
+        #expect(try tooltip(now: "claude-opus-5-5", "high") == "Claude · claude-fable-5-1[1m] · max\nA wide refactor.\nNow on claude-opus-5-5 · high")
+        #expect(try tooltip(now: "claude-fable-5-1[1m]", "low") == "Claude · claude-fable-5-1[1m] · max\nA wide refactor.\nNow on claude-fable-5-1[1m] · low")
+        #expect(try tooltip(now: "claude-fable-5-1[1m]", "max") == "Claude · claude-fable-5-1[1m] · max\nA wide refactor.")
+        #expect(try tooltip(now: nil, nil) == "Claude · claude-fable-5-1[1m] · max\nA wide refactor.")
+        #expect(try tooltip(agent: .codex, now: "gpt-6-astra", "high") == "Claude · claude-fable-5-1[1m] · max\nA wide refactor.")
+        // A planned alias runs as its family's model, and with no effort planned the one it runs is Claude Code's default.
+        #expect(try tooltip(planned: "opus", effort: nil, now: "claude-opus-5-5", "high") == "Claude · opus\nA wide refactor.")
+        #expect(try tooltip(planned: "opus", effort: "high", now: "claude-opus-5-5[1m]", "high") == "Claude · opus · high\nA wide refactor.")
+        #expect(try tooltip(planned: "opus", effort: "high", now: "claude-opus-5-5", nil) == "Claude · opus · high\nA wide refactor.")
+        #expect(try tooltip(planned: "opus", effort: nil, now: "claude-sonnet-5-5", "high")
+                == "Claude · opus\nA wide refactor.\nNow on claude-sonnet-5-5 · high")
+        #expect(try tooltip(planned: "opus", effort: "high", now: "claude-opus-5-5", "low")
+                == "Claude · opus · high\nA wide refactor.\nNow on claude-opus-5-5 · low")
+    }
+
     @Test func takenOverCardReadsTakenOver() throws {
         let run = run()
         let mine = task("Order summary copy", jira: "PAY-234", run: run.id, .working, takenOver: true)

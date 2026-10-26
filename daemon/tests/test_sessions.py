@@ -1,4 +1,4 @@
-from aitermd.models import RawSession
+from aitermd.models import RawSession, SlashCommand
 from aitermd.sessions import SessionRegistry
 
 
@@ -13,7 +13,7 @@ def test_first_snapshot_opens_sessions_with_agent_and_tag():
         "sessionId": "s1", "windowId": "w1", "tabIndex": 0, "taskId": "t1", "projectId": None,
         "agent": "claude", "model": None, "reasoning": None, "state": "idle", "subagentsWrittenAt": None, "title": "zsh", "cwd": "/home",
         "agentCwd": None, "active": False, "contextPercent": None, "conversationId": None, "terminalId": None,
-        "tabKey": None, "background": [], "yourPrompt": None})
+        "tabKey": None, "background": [], "yourPrompt": None, "slashCommands": []})
 
 
 def test_untagged_session_in_tagged_window_inherits_task():
@@ -165,6 +165,20 @@ def test_reasoning_survives_the_next_iterm_snapshot_and_is_published():
 
     assert reg.get("a").reasoning == "high"
     assert reg.get("a").to_json()["reasoning"] == "high"
+
+
+def test_a_claudes_transcript_and_slash_commands_go_with_its_process():
+    reg = SessionRegistry()
+    reg.apply_snapshot([raw(sid="a", cmd="claude", pid=1, cwd="/x")])
+    reg.set_transcript("a", "/p/c.jsonl")
+    reg.set_slash_commands("a", (SlashCommand("/effort high", 1000.0),))
+    assert not reg.set_transcript("a", None), "no transcript named leaves the last one standing"
+
+    reg.apply_snapshot([raw(sid="a", cmd="claude", pid=1, cwd="/x", title="busy")])
+    assert (reg.get("a").transcript, reg.get("a").slash_commands) == ("/p/c.jsonl", (SlashCommand("/effort high", 1000.0),))
+
+    reg.apply_snapshot([raw(sid="a", cmd="claude", pid=2, cwd="/x")])
+    assert (reg.get("a").transcript, reg.get("a").slash_commands) == (None, ())
 
 
 def test_context_does_not_cross_providers_when_a_tab_starts_another_agent():

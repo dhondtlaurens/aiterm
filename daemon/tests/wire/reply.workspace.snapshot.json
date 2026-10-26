@@ -1,5 +1,5 @@
 {
-  "id": 26,
+  "id": 27,
   "result": {
     "claudeConfigDirectory": "/repo/claude-profile",
     "connected": true,
@@ -20,6 +20,7 @@
         "projectId": null,
         "reasoning": "high",
         "sessionId": "s2",
+        "slashCommands": [],
         "state": "working",
         "subagentsWrittenAt": null,
         "tabIndex": 0,
@@ -51,6 +52,15 @@
         "projectId": null,
         "reasoning": null,
         "sessionId": "s3",
+        "slashCommands": [
+          {
+            "deliveredAt": 1000,
+            "output": null,
+            "seenAt": null,
+            "state": "delivered",
+            "text": "/effort high"
+          }
+        ],
         "state": "working",
         "subagentsWrittenAt": 1790000300.5,
         "tabIndex": 1,
@@ -73,6 +83,7 @@
         "projectId": "7D6E5F4A-3B2C-4D1E-8F9A-0B1C2D3E4F5A",
         "reasoning": null,
         "sessionId": "s5",
+        "slashCommands": [],
         "state": "idle",
         "subagentsWrittenAt": null,
         "tabIndex": 0,

@@ -354,14 +354,17 @@ final class OperatorController {
                     let prompt = open.first { $0.tab == key }?.text
                     return TaskLiveFacts.Tab(key: key, agent: worker.agent, model: worker.model,
                                              status: prompt == nil || worker.session == nil ? worker.session?.state : .needsInput,
-                                             opening: worker.isOpening, closed: worker.isClosed, waitingPrompt: prompt)
+                                             opening: worker.isOpening, closed: worker.isClosed, waitingPrompt: prompt,
+                                             liveModel: worker.session?.liveModel, liveReasoning: worker.session?.liveReasoning,
+                                             slashCommands: worker.session?.slashCommands ?? [])
                 }
             }
             if tab != nil || prompt != nil || !extra.isEmpty {
                 var live = TaskLiveFacts(status: prompt == nil || tab == nil ? tab?.state : .needsInput, waitingPrompt: prompt, tabs: Array(extra),
                                          background: workers.flatMap(\.background),
                                          yourPrompt: workers.lazy.compactMap { $0.session?.yourPrompt }.first,
-                                         quiet: prompt == nil && quiet.contains(task.id))
+                                         quiet: prompt == nil && quiet.contains(task.id), liveModel: tab?.liveModel,
+                                         liveReasoning: tab?.liveReasoning, slashCommands: tab?.slashCommands ?? [])
                 if let tab, live.status?.turnEnded == true {
                     if let turn = turns[task.id], turn.session == tab.sessionId, !turn.messaged {
                         live.lastMessage = turn.lastMessage

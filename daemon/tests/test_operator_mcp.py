@@ -230,6 +230,23 @@ def test_message_task_and_read_task_take_a_tab_key_and_reach_the_first_worker_wi
     assert "lastMessage" in tools["read_task"]["inputSchema"]["properties"]["tab"]["description"]
 
 
+def test_run_status_says_what_a_worker_runs_now_and_what_became_of_a_slash_command():
+    tools = {tool["name"]: tool for tool in TOOLS}
+    status = tools["run_status"]["description"]
+    assert "liveModel" in status and "liveReasoning" in status and "slashCommands" in status
+    for state in ("delivered", "queued", "ran", "unknown"):
+        assert state in status, state
+    # Each way a command comes to read unknown, and that it can still run after.
+    for said in ("within a minute", "no transcript to read", "left the queue after it was queued", "an hour passed",
+                 "can still become ran"):
+        assert said in status, said
+    # But not every unknown command can.
+    assert "a remove, popAll or popOne named" in status and "never queued" in status
+    message = tools["message_task"]["description"]
+    assert "slashCommands" in message and "tabs[].slashCommands" in message
+    assert "/model or /effort" in message and "default for new sessions" in message
+
+
 def test_message_task_says_messaging_an_accepted_task_reopens_it():
     description = {tool["name"]: tool for tool in TOOLS}["message_task"]["description"]
     assert ("Messaging an accepted task that isn't published yet sends it back to working; accept its new commit again."

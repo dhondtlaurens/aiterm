@@ -164,6 +164,9 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
   Either limit blocks with its own reason, but neither blocks a task ready for acceptance.
   `resume_task` and starting a retried worker reset both clocks. Saved runs retain their existing no-commit time; older files
   initialise total work from that time and establish a branch-head baseline without resetting it.
+  `run_status` keeps each task's planned `model` and adds, for a Claude worker, `liveModel` and
+  `liveReasoning`, and what became of each slash command `message_task` typed into a worker
+  (`slashCommands`: delivered, queued, ran or unknown, with the transcript's evidence).
   `message_task` and `read_task` reach one tab by its key (`tab`), the first worker without one; a takeover,
   a hand back and Stop Task reach every tab. An extra tab closed after it opened is marked closed in
   `run_status` and opened again by nothing, the reconciler, a reopen and a restart included: a reopen
@@ -364,6 +367,7 @@ wires the modules below to them, registers every RPC handler and runs the 2 s ti
 | `rpc_params.py` | reading parameters, and the errors every handler answers the same way |
 | `delivery.py` · `Deliverer` | typing into an agent's tab: the prompt markers, the policy the delivery check wrote for each CLI version, paste · re-check · Enter |
 | `keystrokes.py` · `TypingGuard` | when you last typed in each tab and whether its input may hold unsent text, from iTerm2's keystroke monitor: never the key itself |
+| `slash_commands.py` · `SlashCommands` | what became of each slash command delivered to a Claude tab: stamped before it is typed, then settled on every tick from the tab's transcript, read off the loop on from where it was typed (`TranscriptReader`) |
 | `operator_mcp.py` · `OperatorRoute` | the Operator's MCP server on the hook port's `/operator`: a registered run's Bearer token or 401, the tools' schemas, every tool call forwarded to the app as `operator.request`. The tool list is in the Operator section above. |
 | `iterm_bridge.py` | the only module that imports `iterm2` |
 | `__main__.py` · `IdleWatchdog` | quitting once no app has been attached for a minute |
@@ -453,6 +457,8 @@ failure the banner names the log at `~/Library/Application Support/AiTerm/aiterm
 | review threads | GitLab REST (`/merge_requests/:iid/discussions`, a discussion with a resolvable note, resolved when all of them are) on the configured GitLab host and port only, and GitHub GraphQL (`reviewThreads { isResolved }`), with the tokens Settings saved; read-only, 100 a page, at most 10 pages |
 | models | each CLI's own catalogue cache, so the picker follows `/model` |
 | conversation | each agent's own hooks — Claude's and Codex's `session_id`, PI's session id — kept only for a post placed on its tab by pid or by the tab id it carries, never by a pin or the directory; a subagent's start or stop names none, and it goes with the agent's process as the model does |
+| a worker's live model and effort | Claude's own word on its session: `SessionStart`'s model, `PostModelSwitch`'s `to_model`, the status line's `model.id` and `effort.level`; only from a post placed by evidence and not from inside a subagent (`agent_id`), and never a hook's own `effort`, which is its turn's. `run_status` shows them beside the planned model, for Claude workers only, and on the board card's model tooltip; they never wake the Operator |
+| what became of a slash command | the Claude tab's transcript, named by its own hooks and status line (`transcript_path`) and read on every tick, off the loop, from where it ended when `message_task` typed the command: its command record, or a `queue-operation` enqueue holding it (`slash_commands.py`, docs/status-model.md) |
 | skills & commands | discovered on disk per agent and per project, for the prompt step's completions |
 
 ## What AiTerm writes, and where

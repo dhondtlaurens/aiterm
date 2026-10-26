@@ -40,6 +40,9 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// The first line of the prompt you typed into this tab yourself, for the turn it started: not one AiTerm launched
     /// the agent with or delivered. Nil once that turn ends, for any other prompt, and from a daemon too old to send it.
     public var yourPrompt: String? = nil
+    /// The last slash commands AiTerm typed into this Claude tab, oldest first, and what became of each as the tab's
+    /// own transcript shows it. Empty for any other tab, and from a daemon too old to send it.
+    public var slashCommands: [SlashCommand] = []
     public var id: String { sessionId }
     /// The task tag as the id it names. The app writes `uuidString`, but a tag read back from
     /// iTerm2 is a string, so it is compared as a UUID rather than by spelling.
@@ -48,6 +51,12 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     public var terminalUUID: UUID? { terminalId.flatMap(UUID.init(uuidString:)) }
     /// What this tab's branch must be resolved from.
     public var effectiveCwd: String { agentCwd ?? cwd }
+    /// The model and effort this tab runs now, as its own Claude Code says them, never a subagent's: the model from its
+    /// SessionStart as it starts, its PostModelSwitch once a switch has happened and its status line, the effort from its
+    /// status line alone. A /model or /effort moves them once it has run, never when it is typed. Nil for any other agent,
+    /// whose hooks may carry a child thread's model, and while Claude hasn't said.
+    public var liveModel: String? { agent == .claude ? model : nil }
+    public var liveReasoning: String? { agent == .claude ? reasoning : nil }
 }
 
 extension SessionInfo {
@@ -77,6 +86,30 @@ extension SessionInfo {
         background = try c.decodeIfPresent([BackgroundJob].self, forKey: .background) ?? []
         subagentsWrittenAt = try c.decodeIfPresent(Double.self, forKey: .subagentsWrittenAt)
         yourPrompt = try c.decodeIfPresent(String.self, forKey: .yourPrompt)
+        slashCommands = try c.decodeIfPresent([SlashCommand].self, forKey: .slashCommands) ?? []
+    }
+}
+
+/// A slash command AiTerm typed into a Claude tab and pressed Enter on (`message_task`), and what became of it, as the
+/// tab's own transcript shows it (the daemon's `slash_commands.py`).
+public struct SlashCommand: Codable, Equatable, Sendable {
+    /// `delivered`: typed, nothing of it seen yet. `queued`: Claude Code queued it, and nothing has been taken from the
+    /// queue since. `ran`: its own command record is there. `unknown`: nothing of it seen within a minute, or a
+    /// transcript that can't be read; something taken from the queue since it was queued; or an hour passed without its
+    /// run. Within that hour it can still become `ran`, but not once a remove, popAll or popOne named it, nor, never
+    /// queued, once the same text was sent again; a /model or /effort run mid-turn takes effect and writes nothing.
+    /// See `SessionAgent`'s decoding note: a state this app does not know reads as unknown.
+    public enum State: String, Codable, LenientRawDecodable, Sendable {
+        case delivered, queued, ran, unknown
+        static var unrecognized: Self { .unknown }
+    }
+    public var text: String, state: State
+    /// When AiTerm typed it, and when its transcript recorded it queued or run: seconds since 1970.
+    public var deliveredAt: Double, seenAt: Double?
+    /// A local command's output, on one line, once it ran.
+    public var output: String?
+    public init(text: String, state: State, deliveredAt: Double, seenAt: Double? = nil, output: String? = nil) {
+        self.text = text; self.state = state; self.deliveredAt = deliveredAt; self.seenAt = seenAt; self.output = output
     }
 }
 

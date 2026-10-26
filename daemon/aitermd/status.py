@@ -151,12 +151,13 @@ class StatusEngine:
 
     def apply_metadata(self, session_id: str, *, model: str | None = None, reasoning: str | None = None,
                        context: int | None = None, cwd: str | None = None,
-                       conversation: str | None = None) -> list[str]:
+                       conversation: str | None = None, transcript: str | None = None) -> list[str]:
         """What an agent reports beside its state: each value present replaces the session's, and
-        an absent one leaves it be. Returns the sessions that changed."""
+        an absent one leaves it be. Returns the sessions that changed; the transcript is not sent."""
         s = self.reg.get(session_id)
         if s is None:
             return []
+        self.reg.set_transcript(session_id, transcript)
         changed: list[str] = []
         if model and self.reg.set_model(session_id, model):
             changed.append(session_id)
