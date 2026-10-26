@@ -173,6 +173,33 @@ class BackgroundJob:
         return {"kind": self.kind, "text": self.text}
 
 
+# What a slash command AiTerm typed into a Claude session became, as the session's own transcript shows it
+# (slash_commands.settle): typed and nothing seen yet; queued, its enqueue there and nothing taken from the queue
+# since; ran, its own command record there; or unknown, nothing seen within UNSEEN_SECONDS, or a transcript that
+# cannot be read.
+SlashState = Literal["delivered", "queued", "ran", "unknown"]
+
+
+@dataclass(frozen=True, slots=True)
+class SlashCommand:
+    """A slash command AiTerm typed into a Claude session and pressed Enter on (message_task), and what became of it.
+    `delivered_at` is the wall clock just before it was typed, which the transcript's timestamps are compared with."""
+    text: str
+    delivered_at: float
+    state: SlashState = "delivered"
+    # When the transcript recorded it queued or run, by the record's own time.
+    seen_at: float | None = None
+    # A local command's output, on one line, once it ran.
+    output: str | None = None
+    # How long its transcript was when it was typed, in bytes: what Claude Code records of it comes after. Neither
+    # sent nor compared.
+    start: int = field(default=0, compare=False)
+
+    def to_json(self) -> dict[str, Any]:
+        return {"text": self.text, "state": self.state, "deliveredAt": self.delivered_at, "seenAt": self.seen_at,
+                "output": self.output}
+
+
 @dataclass
 class SessionInfo:
     session_id: str
@@ -218,6 +245,12 @@ class SessionInfo:
     # The first line of the prompt you typed into this tab yourself, for the turn it started: AiTerm neither launched
     # the agent with it nor delivered it (HookRouter). None once that turn ends, and for every other prompt.
     your_prompt: str | None = None
+    # Where Claude writes this tab's conversation, as its own hooks name it (`transcript_path`): what shows what became
+    # of a slash command AiTerm typed here. Neither sent nor compared; it goes with the agent's process.
+    transcript: str | None = field(default=None, compare=False)
+    # The last slash commands AiTerm typed into this Claude tab, oldest first, and what became of each
+    # (slash_commands.py). It goes with the agent's process.
+    slash_commands: tuple[SlashCommand, ...] = ()
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -227,6 +260,7 @@ class SessionInfo:
             "active": self.active, "contextPercent": self.context_percent,
             "conversationId": self.conversation_id, "terminalId": self.terminal_id, "tabKey": self.tab_key,
             "background": [job.to_json() for job in self.background], "yourPrompt": self.your_prompt,
+            "slashCommands": [command.to_json() for command in self.slash_commands],
         }
 
 

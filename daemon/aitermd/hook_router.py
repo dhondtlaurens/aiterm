@@ -67,10 +67,11 @@ class HookRouter:
             usage = tick.usage
             if usage and (usage.five_hour or usage.seven_day or usage.spend) and self.usage.set(agent, usage):
                 await self.publisher.usage_changed()
-            if tick.model or tick.context_percent is not None:
+            if tick.model or tick.reasoning or tick.context_percent is not None:
                 async with self._in_order:
                     sid = (await self._resolve_post(agent, tick.session_id, tick.cwd, tick.iterm_session_id))[0]
-                    ticked = self.status.apply_metadata(sid, model=tick.model, context=tick.context_percent) if sid else []
+                    ticked = self.status.apply_metadata(sid, model=tick.model, reasoning=tick.reasoning,
+                                                        context=tick.context_percent) if sid else []
                 if ticked:
                     await self.publisher.session_changed(ticked)
             return None
@@ -100,10 +101,11 @@ class HookRouter:
         # the directory, either of which can name a sibling tab.
         # The post came from the agent itself, so its cwd is the agent's — the only source
         # there is for a Codex or PI session, neither of which has a polled session file. Its
-        # conversation is the tab's only when the post was placed by evidence.
+        # conversation, and where it is written, are the tab's only when the post was placed by evidence.
         changed = self.status.apply_metadata(sid, model=ev.model, reasoning=ev.reasoning,
                                              context=ev.context_percent, cwd=ev.cwd,
-                                             conversation=ev.conversation_id if sid == direct else None)
+                                             conversation=ev.conversation_id if sid == direct else None,
+                                             transcript=ev.transcript if sid == direct else None)
         # A new session forgets the tab's subagents and deferred completion — only for a tab the post
         # provably came from. A stale pin or a shared directory could otherwise wipe another tab's turn.
         starts_elsewhere = ev.kind == "sessionStart" and sid != direct

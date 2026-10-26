@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, NamedTuple
 
 from .text import nonempty_string
@@ -38,6 +38,9 @@ class HookEvent:
     # The harness's own name for the event (`hook_event_name`): a Codex thread's binding to its tab
     # depends on which event bound it (SessionResolver.bind).
     event_name: str | None = None
+    # Where a Claude session writes its conversation (`transcript_path`), from a post of its own: what shows what
+    # became of a slash command AiTerm typed there (slash_commands).
+    transcript: str | None = None
 
     @property
     def conversation_id(self) -> str | None:
@@ -132,17 +135,30 @@ def _submitted(name: str, p: dict[str, Any]) -> str | None:
     return nonempty_string(p.get("prompt")) if name == "UserPromptSubmit" else None
 
 
+def _session_field(p: dict[str, Any], key: str) -> str | None:
+    """What a Claude post says of its session under `key`. Claude Code adds `agent_id` to a hook that fires within a
+    subagent, whose model is the child's: such a post says nothing of the session."""
+    return None if nonempty_string(p.get("agent_id")) else nonempty_string(p.get(key))
+
+
 def parse_claude_hook(p: dict[str, Any]) -> HookEvent | None:
     # Another CLI that runs ~/.claude/settings.json hooks (Grok Build does) sends `hookEventName`,
     # which Claude never does: such a post is not Claude's.
     if not isinstance(p, dict) or "hookEventName" in p:
         return None
+    ev = _claude_event(p)
+    return replace(ev, transcript=_session_field(p, "transcript_path")) if ev is not None else None
+
+
+def _claude_event(p: dict[str, Any]) -> HookEvent | None:
     name = nonempty_string(p.get("hook_event_name"))
     sid, cwd = nonempty_string(p.get("session_id")), nonempty_string(p.get("cwd"))
+    # A hook's `effort` is not the session's: a Stop's is its turn's, which an /effort run mid-turn leaves behind. The
+    # status line says the session's (parse_claude_statusline).
     if name == "SessionStart":
-        return HookEvent("claude", _session_start(p), nonempty_string(p.get("model")), sid, cwd, event_name=name)
+        return HookEvent("claude", _session_start(p), _session_field(p, "model"), sid, cwd, event_name=name)
     if name == "PostModelSwitch":
-        return HookEvent("claude", None, nonempty_string(p.get("to_model")), sid, cwd, event_name=name)
+        return HookEvent("claude", None, _session_field(p, "to_model"), sid, cwd, event_name=name)
     if name in {"SubagentStart", "SubagentStop"}:
         if (child := _subagent(name, p)) is None:
             return None
@@ -246,14 +262,18 @@ def _context_percent(p: dict[str, Any]) -> int | None:
 
 class StatusLine(NamedTuple):
     """What one status-line tick tells the daemon: the session it describes, and facts that land in
-    different places -- account usage in the `UsageStore`, the model and context fill on the resolved
-    session's task. `usage` is None when the payload carries no rate-limit summary."""
+    different places -- account usage in the `UsageStore`, the model, effort and context fill on the
+    resolved session's task. `usage` is None when the payload carries no rate-limit summary. The model
+    and effort are the session's own, as Claude Code holds them now: changed only once an /model or
+    /effort has run, and never a subagent's."""
     usage: Usage | None
     session_id: str | None
     cwd: str | None
     iterm_session_id: str | None
     model: str | None
     context_percent: int | None
+    # `effort.level`, absent for a model that takes no effort.
+    reasoning: str | None = None
 
 
 def _object_field(p: dict[str, Any], key: str, field: str) -> str | None:
@@ -267,7 +287,7 @@ def parse_claude_statusline(p: dict[str, Any], now: int) -> StatusLine:
         parse_claude_rate_limits(p.get("rate_limits"), now),
         nonempty_string(p.get("session_id")), nonempty_string(p.get("cwd")),
         nonempty_string(p.get(ITERM_SESSION_FIELD)),
-        _object_field(p, "model", "id"), _context_percent(p),
+        _object_field(p, "model", "id"), _context_percent(p), _object_field(p, "effort", "level"),
     )
 
 

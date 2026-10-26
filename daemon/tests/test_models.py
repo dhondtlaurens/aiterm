@@ -1,6 +1,6 @@
 import pytest
 from aitermd.models import (
-    AGENT_BINARIES, HARNESS_BY_AGENT, USAGE_VENDORS, Frame, SessionInfo, Usage,
+    AGENT_BINARIES, HARNESS_BY_AGENT, USAGE_VENDORS, Frame, SessionInfo, SlashCommand, Usage,
     UsageWindow, classify_agent,
 )
 
@@ -61,14 +61,18 @@ def test_classify_pi_including_its_node_shebang_process():
 
 
 def test_session_info_json_is_camel_case_and_drops_job_pid():
+    # Neither the pid, the transcript's path nor where a command was typed in it is sent.
     s = SessionInfo("s1", "w1", 0, "t1", None, "claude", "claude-opus-5", "working", "✳ Claude Code", "/repo", 4242,
-                    agent_cwd="/repo/.worktrees/x")
+                    agent_cwd="/repo/.worktrees/x", transcript="/p/c.jsonl",
+                    slash_commands=(SlashCommand("/effort high", 1000.0, "ran", 1001.5, "Set effort level to high", start=4096),))
     assert s.to_json() == {
         "sessionId": "s1", "windowId": "w1", "tabIndex": 0, "taskId": "t1", "projectId": None,
         "agent": "claude", "model": "claude-opus-5", "reasoning": None,
         "state": "working", "title": "✳ Claude Code", "cwd": "/repo",
         "agentCwd": "/repo/.worktrees/x", "active": False, "contextPercent": None,
         "conversationId": None, "terminalId": None, "tabKey": None, "background": [], "yourPrompt": None,
+        "slashCommands": [{"text": "/effort high", "state": "ran", "deliveredAt": 1000.0, "seenAt": 1001.5,
+                           "output": "Set effort level to high"}],
     }
 
 

@@ -35,6 +35,9 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// The first line of the prompt you typed into this tab yourself, for the turn it started: not one AiTerm launched
     /// the agent with or delivered. Nil once that turn ends, for any other prompt, and from a daemon too old to send it.
     public var yourPrompt: String? = nil
+    /// The last slash commands AiTerm typed into this Claude tab, oldest first, and what became of each as the tab's
+    /// own transcript shows it. Empty for any other tab, and from a daemon too old to send it.
+    public var slashCommands: [SlashCommand] = []
     public var id: String { sessionId }
     /// The task tag as the id it names. The app writes `uuidString`, but a tag read back from
     /// iTerm2 is a string, so it is compared as a UUID rather than by spelling.
@@ -71,6 +74,28 @@ extension SessionInfo {
         tabKey = try c.decodeIfPresent(String.self, forKey: .tabKey)
         background = try c.decodeIfPresent([BackgroundJob].self, forKey: .background) ?? []
         yourPrompt = try c.decodeIfPresent(String.self, forKey: .yourPrompt)
+        slashCommands = try c.decodeIfPresent([SlashCommand].self, forKey: .slashCommands) ?? []
+    }
+}
+
+/// A slash command AiTerm typed into a Claude tab and pressed Enter on (`message_task`), and what became of it, as the
+/// tab's own transcript shows it (the daemon's `slash_commands.py`).
+public struct SlashCommand: Codable, Equatable, Sendable {
+    /// `delivered`: typed, nothing of it seen yet. `queued`: Claude Code queued it, and nothing has been taken from the
+    /// queue since. `ran`: its own command record is there. `unknown`: nothing of it seen within a minute, or a
+    /// transcript that can't be read; a /model or /effort run mid-turn takes effect and writes nothing. See
+    /// `SessionAgent`'s decoding note: a state this app does not know reads as unknown.
+    public enum State: String, Codable, LenientRawDecodable, Sendable {
+        case delivered, queued, ran, unknown
+        static var unrecognized: Self { .unknown }
+    }
+    public var text: String, state: State
+    /// When AiTerm typed it, and when its transcript recorded it queued or run: seconds since 1970.
+    public var deliveredAt: Double, seenAt: Double?
+    /// A local command's output, on one line, once it ran.
+    public var output: String?
+    public init(text: String, state: State, deliveredAt: Double, seenAt: Double? = nil, output: String? = nil) {
+        self.text = text; self.state = state; self.deliveredAt = deliveredAt; self.seenAt = seenAt; self.output = output
     }
 }
 

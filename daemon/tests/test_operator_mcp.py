@@ -221,6 +221,15 @@ def test_message_task_and_read_task_take_a_tab_key_and_reach_the_first_worker_wi
     assert "lastMessage" in tools["read_task"]["inputSchema"]["properties"]["tab"]["description"]
 
 
+def test_run_status_says_what_a_worker_runs_now_and_what_became_of_a_slash_command():
+    tools = {tool["name"]: tool for tool in TOOLS}
+    status = tools["run_status"]["description"]
+    assert "liveModel" in status and "liveReasoning" in status and "slashCommands" in status
+    for state in ("delivered", "queued", "ran", "unknown"):
+        assert state in status, state
+    assert "slashCommands" in tools["message_task"]["description"]
+
+
 def test_message_task_says_messaging_an_accepted_task_reopens_it():
     description = {tool["name"]: tool for tool in TOOLS}["message_task"]["description"]
     assert ("Messaging an accepted task that isn't published yet sends it back to working; accept its new commit again."

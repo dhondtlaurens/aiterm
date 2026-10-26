@@ -150,14 +150,16 @@ import Foundation
 
     /// One working task, B, with an extra tab `review` beside its first worker.
     private func twoTabs(first: SessionState?, review: SessionState?, opening: Bool = false, closed: Bool = false,
-                         prompt: String? = nil) throws -> (RunStatus, TaskItem) {
+                         prompt: String? = nil, liveModel: String? = nil, liveReasoning: String? = nil, tabModel: String? = nil,
+                         tabReasoning: String? = nil, slashCommands: [SlashCommand] = [],
+                         tabSlashCommands: [SlashCommand] = []) throws -> (RunStatus, TaskItem) {
         var b = F.task("B", .working)
         b.operated?.extraTabs = [ExtraTab(key: "review", agent: .codex, model: "gpt-6-mini", reasoning: nil, modelReason: "Tests.",
                                           brief: "Write the tests.", launch: LaunchAttempt(number: 1, requestedAt: F.epoch))]
         let tab = TaskLiveFacts.Tab(key: "review", agent: .codex, model: "gpt-6-mini", status: review, opening: opening, closed: closed,
-                                    waitingPrompt: prompt)
-        let status = try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1,
-                                                  live: [b.id: TaskLiveFacts(status: first, tabs: [tab])]))
+                                    waitingPrompt: prompt, liveModel: tabModel, liveReasoning: tabReasoning, slashCommands: tabSlashCommands)
+        let facts = TaskLiveFacts(status: first, tabs: [tab], liveModel: liveModel, liveReasoning: liveReasoning, slashCommands: slashCommands)
+        let status = try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1, live: [b.id: facts]))
         return (status, b)
     }
 
@@ -227,6 +229,46 @@ import Foundation
                                          RunStatus.TabLine(key: "review", agent: .codex, model: "gpt-6-mini", live: nil, closed: true)])
         #expect(String(decoding: try status.json(), as: UTF8.self).contains(#"{"agent":"codex","closed":true,"key":"review","model":"gpt-6-mini","opening":false}"#))
         #expect(status.obligations.readyForAcceptance == ["B"])
+    }
+
+    // -- what a worker runs now ---------------------------------------------------------------------
+
+    /// A task keeps the model it was planned on and adds the one its worker runs now, with its effort, as Claude Code
+    /// reported them: a /model the person confirmed shows there, the plan's stays as it was.
+    @Test func aTaskLineKeepsItsPlannedModelAndAddsTheLiveOne() throws {
+        let (status, b) = try twoTabs(first: .working, review: .idle, liveModel: "claude-opus-5-5", liveReasoning: "high",
+                                      tabModel: "gpt-6-mini", tabReasoning: "medium")
+        let line = status.tasks[0]
+        #expect(line.model == b.model && line.liveModel == "claude-opus-5-5" && line.liveReasoning == "high")
+        #expect(line.tabs?.map(\.liveModel) == ["claude-opus-5-5", "gpt-6-mini"])
+        #expect(line.tabs?.map(\.liveReasoning) == ["high", "medium"])
+        let json = String(decoding: try status.json(), as: UTF8.self)
+        #expect(json.contains(#""liveModel":"claude-opus-5-5","liveReasoning":"high","model":"opus""#))
+    }
+
+    /// A worker that has not said what it runs leaves both out, and one sent no slash command lists none.
+    @Test func aWorkerThatHasNotSaidWhatItRunsLeavesTheLiveModelOut() throws {
+        let (s, live, _) = scene()
+        let status = try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: live))
+        #expect(status.tasks.allSatisfy { $0.liveModel == nil && $0.liveReasoning == nil && $0.slashCommands == nil })
+        let json = String(decoding: try status.json(), as: UTF8.self)
+        #expect(!json.contains("liveModel") && !json.contains("liveReasoning") && !json.contains("slashCommands"))
+    }
+
+    /// What became of each slash command `message_task` typed into a worker, with its evidence: when it was typed, and
+    /// when its transcript recorded it queued or run, with a local command's output.
+    @Test func aTaskLineSaysWhatBecameOfTheSlashCommandsItsWorkersWereSent() throws {
+        let ran = SlashCommand(text: "/effort high", state: .ran, deliveredAt: 1_700_000_000, seenAt: 1_700_000_001,
+                               output: "Set effort level to high")
+        let queued = SlashCommand(text: "/compact", state: .queued, deliveredAt: 1_700_000_010, seenAt: 1_700_000_011)
+        let (status, _) = try twoTabs(first: .working, review: .working, slashCommands: [ran], tabSlashCommands: [queued])
+        let line = status.tasks[0]
+        #expect(line.slashCommands == [RunStatus.SlashCommandLine(text: "/effort high", state: .ran, deliveredAt: F.epoch,
+                                                                  seenAt: F.epoch.addingTimeInterval(1), output: "Set effort level to high")])
+        #expect(line.tabs?.map { $0.slashCommands?.map(\.state) } == [[.ran], [.queued]])
+        let json = String(decoding: try status.json(), as: UTF8.self)
+        #expect(json.contains(#""slashCommands":[{"deliveredAt":"2023-11-14T22:13:20Z","output":"Set effort level to high","#
+                              + #""seenAt":"2023-11-14T22:13:21Z","state":"ran","text":"\/effort high"}]"#))
     }
 
     // -- a worker's turn, seen on every task (spec §E, §J) ------------------------------------------------

@@ -26,6 +26,7 @@ from .rpc_params import frame_param, guard, optional_param, param, require_iterm
 from .rpc_server import RpcError, RpcServer
 from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
 from .sessions import SessionRegistry, SnapshotDiff
+from .slash_commands import SlashCommands
 from .status import StatusEngine, shows_trust_prompt
 from .usage import UsageStore, parse_codex_rate_limits
 from .windows import WindowManager
@@ -90,6 +91,8 @@ class Service:
         self.typing = TypingGuard(self.iterm.keystroke_epoch)
         self.deliverer = Deliverer(iterm, self.registry, delivery_policy or read_policy, self.typing, monotonic=monotonic)
         self.hook_router.typed_by_you = self._typed_by_you
+        # What became of each slash command delivered to a Claude tab, read on every tick from its transcript.
+        self.slash_commands = SlashCommands(self.registry, clock)
         # The operator's MCP server (Operators spec §5), on the hook server's port: its tool calls
         # are forwarded to the attached app, which answers them over this socket.
         # `operator_runs` is where the app keeps each run's token file, which a restarted daemon loads
@@ -221,7 +224,12 @@ class Service:
     async def _h_deliver(self, p: Any) -> dict[str, Any]:
         session_id, text, ownership = param(p, "sessionId", str), param(p, "text", str), param(p, "ownership", int)
         wake, worktree = bool(optional_param(p, "wake", bool)), optional_param(p, "worktree", str)
-        return (await self.deliverer.deliver(session_id, text, ownership, wake=wake, worktree=worktree)).to_json()
+        # A slash command is stamped before it is typed: what Claude Code records of it comes after.
+        command = None if wake else self.slash_commands.stamp(session_id, text)
+        result = await self.deliverer.deliver(session_id, text, ownership, wake=wake, worktree=worktree)
+        if command is not None and result.result == "delivered":
+            await self.publisher.session_changed(self.slash_commands.delivered(session_id, command))
+        return result.to_json()
 
     async def _h_prompt(self, p: Any) -> dict[str, Any]:
         session_id = param(p, "sessionId", str)
@@ -358,6 +366,8 @@ class Service:
             changed += await self._apply_codex_rollouts(threads)
         with _logged("releasing dead subagents"):
             changed += self.status.release_dead_subagents(await self._subagent_tails(self.status.subagent_transcripts()))
+        with _logged("reading what became of the slash commands"):
+            changed += await self._apply_slash_commands()
 
     def _corroborate(self, s: SessionInfo, threads: dict[str, str], screens: list[str], changed: list[str]) -> None:
         """Adds to `changed` what the agent's own files and the tab say of `s` that its hooks have
@@ -445,6 +455,14 @@ class Service:
             return {}
         read = self.subagent_transcripts.read_all
         return await self._off_loop("the subagent transcript read", lambda: read(paths), {})
+
+    async def _apply_slash_commands(self) -> list[str]:
+        """The sessions whose slash commands their transcripts, or the time, moved on. Each transcript a command is
+        looked for in is read on a worker thread, on from where it was typed; a read that cannot answer changes nothing."""
+        now, read = self.clock(), self.slash_commands.reader.read_all
+        starts = self.slash_commands.starts(now)
+        records = await self._off_loop("the slash command read", lambda: read(starts), None) if starts else {}
+        return [] if records is None else self.slash_commands.apply(records, now)
 
     async def _off_loop(self, name: str, work: Callable[[], T], nothing: T) -> T:
         """`work`, run on a worker thread. It answers `nothing` if it has not finished within

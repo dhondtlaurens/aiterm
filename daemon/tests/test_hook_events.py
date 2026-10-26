@@ -29,6 +29,22 @@ def test_claude_hook_mapping(payload, kind, model):
     assert ev.session_id == "abc" and ev.cwd == "/repo/.worktrees/x"
 
 
+@pytest.mark.parametrize("name", ["SessionStart", "PostModelSwitch"])
+def test_a_claude_post_from_inside_a_subagent_names_no_model(name):
+    # Claude Code adds `agent_id` to a hook that fires within a subagent: its model is the child's, not the session's.
+    ev = parse_claude_hook({**BASE, "hook_event_name": name, "agent_id": "child-1", "model": "claude-haiku-5-5",
+                            "to_model": "claude-haiku-5-5"})
+    assert ev is not None and ev.model is None
+
+
+def test_a_claude_hook_names_no_reasoning_whatever_effort_it_carries():
+    # A Stop's `effort` is its turn's, which an /effort run mid-turn leaves behind: only the status line says the session's.
+    for name in ("Stop", "SubagentStop", "UserPromptSubmit"):
+        ev = parse_claude_hook({**BASE, "hook_event_name": name, "agent_id": "child-1" if name == "SubagentStop" else None,
+                                "effort": {"level": "high"}})
+        assert ev is not None and ev.reasoning is None, name
+
+
 def test_claude_idle_prompt_and_unknown_events_are_ignored():
     assert parse_claude_hook({**BASE, "hook_event_name": "Notification", "notification_type": "idle_prompt"}) is None
     assert parse_claude_hook({**BASE, "hook_event_name": "PreToolUse"}) is None
@@ -296,6 +312,17 @@ def test_statusline_context_is_none_when_unusable(cw):
     if cw is not None:
         payload["context_window"] = cw
     assert parse_claude_statusline(payload, now=1).context_percent is None
+
+
+@pytest.mark.parametrize("effort,expected", [
+    ({"level": "high"}, "high"), ({"level": "max"}, "max"),
+    # A model that takes no effort has none; a malformed one is none either.
+    (None, None), ({"level": ""}, None), ({"level": 3}, None), ("high", None),
+])
+def test_a_claude_statusline_names_the_sessions_effort(effort, expected):
+    payload = {"session_id": "abc", "model": {"id": "claude-opus-5-5"}, **({"effort": effort} if effort is not None else {})}
+    tick = parse_claude_statusline(payload, now=1)
+    assert tick.model == "claude-opus-5-5" and tick.reasoning == expected
 
 
 @pytest.mark.parametrize("raw,expected", [(-5, 0), (0, 0), (100, 100), (140, 100)])

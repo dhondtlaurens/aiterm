@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .models import PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, RawSession, SessionInfo, State, classify_agent
+from .models import (PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, RawSession, SessionInfo, SlashCommand,
+                     State, classify_agent)
 
 
 @dataclass(slots=True)
@@ -58,6 +59,7 @@ class SessionRegistry:
                 info.conversation_id = old.conversation_id
                 info.background = old.background
                 info.your_prompt = old.your_prompt
+                info.transcript, info.slash_commands = old.transcript, old.slash_commands
             if info != old:
                 self._sessions[r.session_id] = info
                 diff.changed.append(r.session_id)
@@ -122,6 +124,22 @@ class SessionRegistry:
         if s is None or not conversation or s.conversation_id == conversation:
             return False
         s.conversation_id = conversation
+        return True
+
+    def set_transcript(self, session_id: str, transcript: str | None) -> bool:
+        """Where the tab's Claude writes its conversation (SessionInfo.transcript). None or empty names none, which
+        leaves the last one standing. Not a change to announce: it is not sent."""
+        s = self._sessions.get(session_id)
+        if s is None or not transcript or s.transcript == transcript:
+            return False
+        s.transcript = transcript
+        return True
+
+    def set_slash_commands(self, session_id: str, commands: tuple[SlashCommand, ...]) -> bool:
+        s = self._sessions.get(session_id)
+        if s is None or s.slash_commands == commands:
+            return False
+        s.slash_commands = commands
         return True
 
     def set_background(self, session_id: str, work: tuple[BackgroundJob, ...]) -> bool:

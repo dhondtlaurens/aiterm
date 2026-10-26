@@ -335,14 +335,17 @@ final class OperatorController {
             let extra = workers.dropFirst().compactMap { worker in
                 worker.key.map { key in
                     TaskLiveFacts.Tab(key: key, agent: worker.agent, model: worker.model, status: worker.session?.state,
-                                      opening: worker.isOpening, closed: worker.isClosed, waitingPrompt: open.first { $0.tab == key }?.text)
+                                      opening: worker.isOpening, closed: worker.isClosed, waitingPrompt: open.first { $0.tab == key }?.text,
+                                      liveModel: claude(worker.session)?.model, liveReasoning: claude(worker.session)?.reasoning,
+                                      slashCommands: worker.session?.slashCommands ?? [])
                 }
             }
             if tab != nil || prompt != nil || !extra.isEmpty {
                 var live = TaskLiveFacts(status: tab?.state, waitingPrompt: prompt, tabs: Array(extra),
                                          background: workers.flatMap(\.background),
                                          yourPrompt: workers.lazy.compactMap { $0.session?.yourPrompt }.first,
-                                         quiet: quiet.contains(task.id))
+                                         quiet: quiet.contains(task.id), liveModel: claude(tab)?.model, liveReasoning: claude(tab)?.reasoning,
+                                         slashCommands: tab?.slashCommands ?? [])
                 if let tab, live.status?.turnEnded == true {
                     if let turn = turns[task.id], turn.session == tab.sessionId, !turn.messaged {
                         live.lastMessage = turn.lastMessage
@@ -358,6 +361,11 @@ final class OperatorController {
         }
         return facts
     }
+
+    /// A worker's tab when Claude runs there: only Claude's word on the model and effort it runs is shown, which comes from
+    /// its SessionStart, its PostModelSwitch and its status line, none of them a subagent's. A Codex hook may carry a child
+    /// thread's model.
+    private static func claude(_ session: SessionInfo?) -> SessionInfo? { session?.agent == .claude ? session : nil }
 
     /// The first line of the brief, whole, as the run's row names it until the person renames it: each
     /// place that shows it cuts it at its own width, the board's title wider than the sidebar's row. Nil for a

@@ -31,7 +31,7 @@ order — the chips sit still, so a stable reading order beats ranking.
 | `Notification` | done | Claude only: `agent_completed`. |
 | `SubagentStart` / `Stop` | working | Tracked per child id. A needs-input row is *not* overwritten — an input request must stay visible. A Claude child that died without its `SubagentStop` is found from its transcript (below). |
 | `SessionStart` | model | Not a state: it updates the model, and forgets the previous conversation's subagents and deferred completion — but not after a compaction (`source: "compact"`), and only in the tab the post provably came from. |
-| `PostModelSwitch` | model | Not a state: it updates which model the row reports. |
+| `PostModelSwitch` | model | Not a state: it updates which model the row reports, once Claude Code has switched. Like every Claude post from inside a subagent (`agent_id`), one there says nothing of the session's model. |
 
 PI reports the same state machine through its public extension events:
 
@@ -174,6 +174,27 @@ once (`StatusEngine.agent_exited`), an exited agent's unseen done included. An
 agent that hands the terminal to another program and gets it back under its own pid comes back
 blank too — Claude's Ctrl+G opening `$EDITOR`. Claude's session file restores its directory in the
 tick that sees it back; the model and context return with the next hook or status-line post.
+
+## What a Claude worker runs, and what became of a slash command
+
+The model a Claude session reports is the session's own, as Claude Code holds it: `SessionStart`'s
+`model`, `PostModelSwitch`'s `to_model`, and the status line's `model.id`, each written only once a
+switch has happened. A `/model` that asks the person to confirm ("Switch model?") changes none of them
+until it is answered, and a post from inside a subagent, which carries `agent_id`, sets nothing. Its
+effort comes from the status line's `effort.level` alone, which Claude Code redraws once an `/effort`
+has run. Its hooks carry an `effort` too, but a Stop's is its turn's: an `/effort` typed mid-turn takes
+effect at once, and that turn's Stop can still name the old level. `run_status` shows both beside the
+model a task was planned on, for Claude workers only: a Codex hook may carry a child thread's model.
+
+What became of a slash command `message_task` delivered to a Claude tab is read from that tab's
+transcript (`slash_commands.py`; `transcript_path` from its own hooks), on every tick, from where the
+transcript ended when the command was typed. Its command record (`<command-name>`, a local
+command's `<local-command-stdout>` after it) says it ran; a `queue-operation` `enqueue` holding its text,
+with nothing taken from the queue since, says it is queued. Nothing seen for a minute, or no transcript
+to read, is unknown, never that it did not run: `/model` and `/effort` run at once even mid-turn and
+then write no record at all, and one waiting on a dialog writes its record only once answered. A
+command is looked for for an hour; a tab keeps its last three, and the same text typed again replaces
+the earlier one.
 
 ## A turn that removes its own checkout
 

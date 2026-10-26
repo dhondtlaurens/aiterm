@@ -226,6 +226,40 @@ import Testing
         #expect(world.controller.tools.workerTabs(of: current).map { $0.session?.sessionId } == ["s1", "s-review"])
     }
 
+    // -- what each tab runs now ------------------------------------------------------------------------
+
+    /// A Claude worker's line shows the model and effort Claude Code says it runs now, and what became of the slash
+    /// commands sent to it, beside the model it was planned on. A Codex tab's own model is not shown: a Codex hook may
+    /// carry a child thread's.
+    @Test func aClaudeTabSaysWhatItRunsNowAndWhatBecameOfItsSlashCommands() throws {
+        let (world, run, task) = try makeWorld()
+        var first = OperatorServiceFixtures.session("s1", tag: task.id, state: .working)
+        first.model = "claude-opus-5-5"
+        first.reasoning = "high"
+        first.slashCommands = [SlashCommand(text: "/model claude-opus-5-5", state: .ran, deliveredAt: 1_700_000_000, seenAt: 1_700_000_001,
+                                            output: "Set model to Opus 5.5")]
+        var review = Self.extraTab(of: task, state: .idle)
+        review.model = "gpt-6-astra"
+        review.reasoning = "medium"
+        world.show([OperatorServiceFixtures.session("op", window: "wop", tag: run.id), first, review])
+        let line = try #require(try status(world, run).tasks.first)
+        #expect(line.model == task.model && line.liveModel == "claude-opus-5-5" && line.liveReasoning == "high")
+        #expect(line.slashCommands?.map(\.text) == ["/model claude-opus-5-5"] && line.slashCommands?.first?.state == .ran)
+        #expect(line.tabs?.map(\.liveModel) == ["claude-opus-5-5", nil] && line.tabs?.map(\.liveReasoning) == ["high", nil])
+    }
+
+    /// A /model the Operator delivered changes nothing it shows until Claude Code says the switch happened: the plan's model
+    /// stays, and so does the one Claude Code last reported.
+    @Test func aModelDeliveredButNotConfirmedShowsNothingNew() async throws {
+        let (world, run, task) = try makeWorld()
+        var first = OperatorServiceFixtures.session("s1", tag: task.id, state: .working)
+        first.model = "claude-fable-5-1[1m]"
+        world.show([OperatorServiceFixtures.session("op", window: "wop", tag: run.id), first])
+        #expect(await world.call(run.id, "message_task", message("/model claude-opus-5-5")).value?["result"] == "delivered")
+        let line = try #require(try status(world, run).tasks.first)
+        #expect(line.model == task.model && line.liveModel == "claude-fable-5-1[1m]")
+    }
+
     // -- one tab, by its key ----------------------------------------------------------------------------
 
     /// Without a tab, or with `main`, message_task reaches the first worker as it always did; with a tab's key, that tab.

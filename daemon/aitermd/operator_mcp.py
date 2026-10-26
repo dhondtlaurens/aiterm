@@ -212,6 +212,13 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "it. A task whose worker the person is driving, by a prompt they typed "
           "into its window themselves, says youAreDriving with yourPrompt, its first line, until that turn ends: leave that "
           "worker alone meanwhile, and read its result afterwards as you would one of your own. "
+          "Each task keeps model, the one it was planned on; a Claude worker adds liveModel and liveReasoning, the model "
+          "and effort Claude Code says it runs now, which change once a /model or /effort has run, never on delivery. "
+          "A slash command you sent with message_task is listed under slashCommands with what became of it: delivered "
+          "(typed, nothing in its transcript yet), queued (Claude Code queued it at seenAt and has taken nothing from its "
+          "queue since), ran (its transcript recorded it at seenAt, with a local command's output), or unknown (nothing "
+          "there within a minute, or no transcript to read). A /model or /effort run mid-turn takes effect without a "
+          "record, so it reads unknown: check liveModel and liveReasoning. "
           "A task with tabs added by open_tab lists every worker tab under tabs, "
           "its first worker as main, and is ready to accept only once every tab ended its turn; a prompt in an added tab is "
           "named task/tab, and a tab that was closed is marked closed and never opened again. "
@@ -327,7 +334,9 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "reads, so it needs no slice.",
           {"task": _TASK, "query": _text("A username or a name, or part of one.")}, ("task", "query")),
     _tool("message_task", "Sends a started task's worker a message, typed into its session by AiTerm's rules. Returns "
-          "delivered, partial (pasted, its Enter held back) or refused, with the reason; nothing is retried. A task with tabs "
+          "delivered, partial (pasted, its Enter held back) or refused, with the reason; nothing is retried. Delivered is "
+          "typed and entered, not run: what became of a slash command sent to a Claude worker shows under its task's "
+          "slashCommands in run_status. A task with tabs "
           "added by open_tab: tab names the one to message. A key the task has no tab for is refused with its tabs. "
           "Messaging an accepted task that isn't published yet sends it back to working; accept its new commit again.",
           {"task": _TASK, "text": _text("The message."),

@@ -12,6 +12,7 @@
     "projectId": null,
     "reasoning": "high",
     "sessionId": "s2",
+    "slashCommands": [],
     "state": "working",
     "tabIndex": 0,
     "tabKey": null,
