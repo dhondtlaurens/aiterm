@@ -108,7 +108,8 @@ final class OperatorController {
     /// An attach whose first connected snapshot is still to come: it reconciles and sets ownership again.
     @ObservationIgnored private var reattached = false
     /// The worker tabs, by session, whose open prompt is being read.
-    @ObservationIgnored private var probing: Set<String> = []
+    @ObservationIgnored private var probing: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var promptReadAt: [String: Date] = [:]
     /// When each working task last showed a sign of life (spec §8, *possibly stalled*): any change the
     /// daemon reports for one of its tabs — status, title, context, conversation.
     @ObservationIgnored private var stallWatch = StallWatch()
@@ -242,6 +243,10 @@ final class OperatorController {
         tools.turnReadings = { [weak self] in self?.turns.readings ?? [:] }
         tools.quietTasks = { [weak self] in self?.quiet.quiet ?? [] }
         tools.onMessaged = { [weak self] task in self?.turns.messaged(task) }
+        tools.onMessageResult = { [weak self] task, tab in
+            // Reading a screen must not delay the delivery result or its replay cache.
+            Task { await self?.probeAfterMessage(task, tab: tab) }
+        }
         starter.onUncertain = { [weak self] task in
             guard let operated = task.operated else { return }
             self?.waker.say("one task is uncertain, no worker confirmed in its window", to: operated.runId)
@@ -336,15 +341,15 @@ final class OperatorController {
                 worker.key.map { key in
                     let prompt = open.first { $0.tab == key }?.text
                     return TaskLiveFacts.Tab(key: key, agent: worker.agent, model: worker.model,
-                                             status: prompt == nil ? worker.session?.state : .needsInput,
+                                             status: prompt == nil || worker.session == nil ? worker.session?.state : .needsInput,
                                              opening: worker.isOpening, closed: worker.isClosed, waitingPrompt: prompt)
                 }
             }
             if tab != nil || prompt != nil || !extra.isEmpty {
-                var live = TaskLiveFacts(status: prompt == nil ? tab?.state : .needsInput, waitingPrompt: prompt, tabs: Array(extra),
+                var live = TaskLiveFacts(status: prompt == nil || tab == nil ? tab?.state : .needsInput, waitingPrompt: prompt, tabs: Array(extra),
                                          background: workers.flatMap(\.background),
                                          yourPrompt: workers.lazy.compactMap { $0.session?.yourPrompt }.first,
-                                         quiet: open.isEmpty && quiet.contains(task.id))
+                                         quiet: prompt == nil && quiet.contains(task.id))
                 if let tab, live.status?.turnEnded == true {
                     if let turn = turns[task.id], turn.session == tab.sessionId, !turn.messaged {
                         live.lastMessage = turn.lastMessage
@@ -709,8 +714,8 @@ final class OperatorController {
         applyStallFlags()
         quiet.refresh()
         branchWatch.poll()
-        // A prompt whose tab left it without an event, or one an event raced.
-        probePrompts()
+        // A prompt whose tab left it without an event, or a menu no hook announced.
+        probePrompts(.reconcile)
         startReadyTasks()
     }
 
@@ -793,22 +798,36 @@ final class OperatorController {
         tools.cancelReviews()
     }
 
-    /// Each operated task's tab, in any state (spec §H): menus can open without a hook saying needs input.
-    /// Its screen is read (spec §7.2), and a question whose prompt has closed is resolved.
-    func probePrompts() {
-        for task in workspace.state.tasks where task.operated != nil { probePrompt(task.id) }
+    enum PromptProbe { case event, reconcile, delivery }
+
+    /// Events read only a tab that needs input or already has a question. The reconcile tick also
+    /// checks for menus no hook announced, with a gap between screen reads of the same tab.
+    func probePrompts(_ source: PromptProbe = .event) {
+        let sessions = Set(live.sessions.map(\.sessionId))
+        promptReadAt = promptReadAt.filter { sessions.contains($0.key) }
+        for task in workspace.state.tasks where task.operated != nil { probePrompt(task.id, source: source) }
+    }
+
+    private func probeAfterMessage(_ id: UUID, tab key: String?) async {
+        guard let worker = workspace.state.task(id: id)?.workerTab(key, in: live.sessions), let tab = worker.session else { return }
+        // A read begun before the delivery cannot say what that message opened.
+        await probing[tab.sessionId]?.value
+        guard let current = workspace.state.task(id: id)?.workerTab(key, in: live.sessions),
+              current.session?.sessionId == tab.sessionId else { return }
+        probePrompt(id, current, source: .delivery)
+        await probing[tab.sessionId]?.value
     }
 
     /// A worker that waits on a prompt: recorded as a question waiting on you, on its task, saying what
     /// the prompt is, and you are notified with its window; once the tab leaves the prompt the question
     /// is resolved and the row stops waiting on you. Codex's update offer is declined instead (`dismissStartup`).
     /// Each worker tab of the task (`WorkerTab`) on its own: a prompt in an extra tab is its question, on that tab.
-    func probePrompt(_ id: UUID) {
+    func probePrompt(_ id: UUID, source: PromptProbe = .event) {
         guard let task = workspace.state.task(id: id) else { return }
-        for worker in task.workerTabs(in: live.sessions) { probePrompt(id, worker) }
+        for worker in task.workerTabs(in: live.sessions) { probePrompt(id, worker, source: source) }
     }
 
-    private func probePrompt(_ id: UUID, _ worker: WorkerTab) {
+    private func probePrompt(_ id: UUID, _ worker: WorkerTab, source: PromptProbe) {
         guard let task = workspace.state.task(id: id), let operated = task.operated, let run = run(id: operated.runId) else { return }
         let prefix = "\(OperatorQuestion.promptPrefix)\(id.uuidString)-"
         let open = run.questions.first { $0.id.hasPrefix(prefix) && $0.tab == worker.key && $0.resolution == nil }
@@ -818,13 +837,18 @@ final class OperatorController {
             if let open, tabsKnown { resolvePrompt(open, in: run.id, task: id) }
             return
         }
-        guard !probing.contains(tab.sessionId), let daemon = daemon() else { return }
-        probing.insert(tab.sessionId)
+        guard operated.state == .working, run.state == .active, run.intent == nil else { return }
+        if source == .event, tab.state != .needsInput, open == nil { return }
+        let now = ports.now()
+        if source == .reconcile, let last = promptReadAt[tab.sessionId],
+           now.timeIntervalSince(last) < OperatorTiming.promptProbeInterval { return }
+        guard probing[tab.sessionId] == nil, let daemon = daemon() else { return }
+        promptReadAt[tab.sessionId] = now
         lastProbe = Task { [weak self] in
             // The helper gone is not a prompt AiTerm can't read: nothing is recorded, and the next pass asks again.
             let kind: PromptKind?
             do { kind = try await daemon.prompt(sessionId: tab.sessionId) } catch {
-                self?.probing.remove(tab.sessionId)
+                self?.probing[tab.sessionId] = nil
                 return
             }
             // Codex's update offer is AiTerm's to decline (spec §7.1): the daemon sends Esc only when the
@@ -832,10 +856,13 @@ final class OperatorController {
             // a dismissal that did not happen: only a dismissed offer is never put to you.
             let declined = kind == .startup ? (try? await daemon.dismissStartup(sessionId: tab.sessionId)) == true : false
             guard let self else { return }
-            probing.remove(tab.sessionId)
+            probing[tab.sessionId] = nil
             guard !declined else { return }
             // A changed worker or turn makes the read stale; the next pass asks again.
-            guard workspace.state.task(id: id)?.workerTab(worker.key, in: live.sessions)?.session == tab else { return }
+            guard let task = workspace.state.task(id: id), task.operated?.state == .working,
+                  self.run(id: run.id)?.state == .active, self.run(id: run.id)?.intent == nil,
+                  let current = task.workerTab(worker.key, in: live.sessions)?.session,
+                  current.sessionId == tab.sessionId, current.state == tab.state else { return }
             if kind == nil, tab.state != .needsInput {
                 if let open { resolvePrompt(open, in: run.id, task: id) }
                 return
@@ -854,6 +881,7 @@ final class OperatorController {
                 }
             }
         }
+        probing[tab.sessionId] = lastProbe
     }
 
     private func resolvePrompt(_ question: OperatorQuestion, in run: UUID, task: UUID) {

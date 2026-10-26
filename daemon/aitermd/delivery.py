@@ -38,31 +38,45 @@ GATE_TIMEOUT = 200.0
 OPERATOR_REQUEST_TIMEOUT = 30.0
 
 # What a screen can show that typed text could answer: an approval, a startup dialog (folder trust,
-# an update offer) or any other menu. Checked in that order: an approval and a startup dialog draw
-# a menu's footer too.
+# an update offer) or a menu, by its markers or Claude's consecutive numbered options at the last
+# arrow. Checked in that order: approvals and startup dialogs draw menu options and footers too.
 PromptKind = Literal["permission", "startup", "menu"]
 
 
 
 def open_prompt(agent: AgentKind, screen: str) -> PromptKind | None:
-    """The prompt `screen` shows open in the agent's session, if any. A harness without markers
-    shows none, which proves nothing: delivery to it stays off (`load_policy`) until it has them."""
+    """The prompt open on `screen`, by the harness's markers. Claude also draws menus without a
+    known footer: its last arrow must select a numbered option with the next option directly below.
+    A later input arrow rules that out; sent numbered messages use the same arrow. Codex uses only
+    its markers. An unsupported harness shows none, which proves nothing: delivery stays off."""
     if (harness := HARNESS_BY_AGENT.get(agent)) is None:
         return None
     if shows(screen, harness.permission_prompt):
         return "permission"
     if shows(screen, harness.startup_prompt):
         return "startup"
-    if shows(screen, harness.menu_prompt) or any(
-        (text := line.lstrip())[:1] in harness.input_box and _OPTION.match(text[1:])
-        for line in screen.splitlines() if line.strip()
-    ):
+    if shows(screen, harness.menu_prompt):
         return "menu"
+    if agent == "claude" and (arrows := _arrow_lines(agent, screen)):
+        index, text = arrows[-1]
+        lines = screen.splitlines()
+        if (option := _OPTION.match(text)) and index + 1 < len(lines):
+            following = _OPTION.match(lines[index + 1])
+            if following and int(following[1]) == int(option[1]) + 1:
+                return "menu"
     return None
 
 
 # A menu's numbered option, as it follows the selection arrow: `› 1. Review hooks`.
-_OPTION = re.compile(r"\s*\d+\.\s")
+_OPTION = re.compile(r"\s*(\d+)\.\s")
+
+
+def _arrow_lines(agent: AgentKind, screen: str) -> list[tuple[int, str]]:
+    """The lines starting with the harness's arrow, with their index and the text past it."""
+    if (harness := HARNESS_BY_AGENT.get(agent)) is None or not harness.input_box:
+        return []
+    return [(index, text[1:]) for index, line in enumerate(screen.splitlines())
+            if (text := line.lstrip()) and text[:1] in harness.input_box]
 
 
 def shows_input_box(agent: AgentKind, screen: str) -> bool:
@@ -71,10 +85,7 @@ def shows_input_box(agent: AgentKind, screen: str) -> bool:
     and not a blank, a crashed shell or something unrecognised. A harness without markers shows none.
     A menu marks its selected option with the same arrow: one followed by a numbered option is the
     menu's, so a menu no prompt marker knows yet still reads as no input box."""
-    if (harness := HARNESS_BY_AGENT.get(agent)) is None or not harness.input_box:
-        return False
-    return any((text := line.lstrip())[:1] in harness.input_box and not _OPTION.match(text[1:])
-               for line in screen.splitlines() if line.strip())
+    return any(not _OPTION.match(text) for _, text in _arrow_lines(agent, screen))
 
 
 # How AiTerm may type into one CLI, from the delivery check it last passed (tools/delivery_check.py):
@@ -471,6 +482,8 @@ class Deliverer:
         """The prompt open in the session now (session.prompt). KeyError for a session not open."""
         if (session := self.registry.get(session_id)) is None or (screen := await self.iterm.screen_text(session_id)) is None:
             raise KeyError(session_id)
+        if not screen.strip():
+            raise ItermUnavailable("the screen came back empty, so whether a prompt is open is unknown")
         return open_prompt(session.agent, screen)
 
     async def dismiss_startup(self, session_id: str) -> bool:

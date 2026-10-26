@@ -189,3 +189,11 @@ async def test_a_screen_only_menu_is_read_and_refuses_delivery(claude, screen):
     reply = await call("session.deliver", {"sessionId": sid, "text": "Continue", "ownership": 1})
     assert reply["result"] == {"result": "refused", "code": "prompt", "reason": "a menu prompt is open"}
     assert it.sent == []
+
+
+async def test_a_blank_session_prompt_is_an_error_not_a_closed_prompt(claude):
+    _svc, it, sid, call, _policy = claude
+    it.screens[sid] = "  \n"
+    reply = await call("session.prompt", {"sessionId": sid})
+    assert reply["error"]["code"] == "iterm_unavailable"
+    assert "screen came back empty" in reply["error"]["message"]

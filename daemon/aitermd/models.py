@@ -38,7 +38,8 @@ class Harness:
     trust_prompt: tuple[str, ...] = ()
     # Text that marks a prompt open on the CLI's screen, which delivery must not type into
     # (delivery.open_prompt): an approval, a startup dialog -- folder trust, an update offer -- and
-    # any other menu. Any one enough, compared without whitespace. From the spike against Claude
+    # any other menu. Any one enough, compared without whitespace. Claude also has menus known by
+    # consecutive numbered options at its last arrow (delivery.open_prompt). From the spike against Claude
     # Code 2.1.301 and Codex 0.160.0; a harness without them gets no automated delivery.
     permission_prompt: tuple[str, ...] = ()
     startup_prompt: tuple[str, ...] = ()

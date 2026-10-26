@@ -191,13 +191,26 @@ import Testing
         daemon.prompts["s-review"] = .menu
         let (world, run, task) = try makeWorld(daemon: daemon)
         show(world, run, task, first: .working, review: .working)
+        world.controller.probePrompts(.reconcile)
         await world.controller.lastProbe?.value
         let snapshot = try #require(OperatorController.status(of: run.id, state: world.state,
                                                               sessions: world.live.sessions, revision: 0, turns: [:], quiet: [task.id]))
         #expect(snapshot.obligations.promptsWaitingOnYou == ["PLUTO-1/review"])
         #expect(snapshot.tasks.first?.tabs?.first { $0.key == "review" }?.live == .needsInput)
-        #expect(snapshot.obligations.uncertain.isEmpty)
+        #expect(snapshot.obligations.uncertain == ["PLUTO-1"])
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
+    }
+
+    @Test func aMessageToAnExtraTabProbesOnlyThatTab() async throws {
+        let daemon = RecordingDaemon()
+        let (world, run, task) = try makeWorld(daemon: daemon)
+        show(world, run, task, first: .working, review: .working)
+        daemon.prompts["s-review"] = .menu
+        _ = await world.call(run.id, "message_task", ["task": "PLUTO-1", "tab": "review", "text": "/model"])
+        try await daemon.received("session.prompt")
+        await world.controller.lastProbe?.value
+        #expect(daemon.requests("session.prompt").map { $0.params["sessionId"] as? String } == ["s-review"])
+        #expect(try status(world, run).obligations.promptsWaitingOnYou == ["PLUTO-1/review"])
     }
 
     /// A prompt in each tab is a question each, numbered apart, and each tab's answer resolves its own.

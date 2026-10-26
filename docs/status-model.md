@@ -75,15 +75,24 @@ nothing else: a row a hook has moved is left alone. When it closes, the row goes
 to done, because no turn ran. It is closed by the screen no longer showing it, by the session file
 appearing, by any hook (only a trusted folder loads them), or by Claude exiting. A screen that
 cannot be read changes nothing. A tab past the dialog has its session file, so its screen is not
-read again by that tick.
+read again.
 
-The Operator also probes every open worker tab through `session.prompt`, including idle and working
-workers: model and effort confirmations can open without a Notification or PermissionRequest hook.
-A selection arrow at the start of a line followed by a numbered option reads as a menu, using
-Claude's `❯` or Codex's `›`; permission and startup markers still take precedence. The input-box
-rule is unchanged. The app records the menu as a question waiting on you, reports needs input in
-`run_status` and lists it under `promptsWaitingOnYou`. That question suspends runtime and stall
-accounting until a successful screen read shows it closed. An unreadable screen leaves it open.
+The Operator also reads worker screens through `session.prompt`, for working tasks in active
+broadcasts. Session events probe only tabs that need input or already have an open question.
+The reconcile tick checks the other tabs too, with at least ten seconds between reconcile reads
+of a tab. A delivered `message_task`, or a prompt/unrecognised-screen refusal, triggers a fresh
+read of the addressed tab immediately, even if it was just polled. Accepted and stopped tasks,
+and tasks in ended broadcasts, are not probed.
+
+Claude model and effort confirmations can open without a Notification or PermissionRequest hook.
+Alongside the known markers, Claude's last `❯` line reads as a menu when it selects a numbered
+option and the next numbered option is directly below it, with no later input arrow. This avoids
+mistaking a sent numbered message above the input box for a menu. Codex keeps its marker rules;
+the input-box guard is unchanged. An open prompt is recorded as a question waiting on you and
+listed under `promptsWaitingOnYou`; a present tab with that question reads as needs input in
+`run_status`. The question suspends runtime and stall accounting until a successful read shows
+it closed. A blank or unreadable screen leaves it open. An extra tab's prompt does not hide a
+quiet first worker.
 
 A hook can arrive before the tick has classified its tab: `window.createTask` sends the agent
 command and ticks at once, while the tab still reads as a shell, so the agent's `SessionStart` and

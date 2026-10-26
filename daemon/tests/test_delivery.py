@@ -111,10 +111,16 @@ UNRECOGNISED = "zsh: command not found: claude\nlaurens@mac ~/wt % "
     ("claude", CLAUDE_MENU, "menu"),
     ("claude", CLAUDE_EFFORT, "menu"),
     ("claude", CLAUDE_MODEL, "menu"),
-    ("claude", CLAUDE_WORKING + "\n" + CLAUDE_EFFORT, "menu"),
     ("claude", "Unknown dialog\n  ❯ 12. Choose this\n  13. Cancel", "menu"),
-    ("codex", "Unknown dialog\n  › 2. Choose this\n  3. Cancel", "menu"),
+    ("codex", "Unknown dialog\n  › 2. Choose this\n  3. Cancel", None),
     ("claude", "1. Ordinary numbered output\n❯ hello", None),
+    # Claude Code 2.1.310 draws sent numbered messages with ❯, above its idle input box.
+    ("claude", "❯ 1. Reply with only OK. Do not use tools.\n⏺ OK\n" + IDLE, None),
+    ("claude", "────────────────\n❯ 1. This is an unsent numbered message\n────────────────", None),
+    ("claude", CLAUDE_EFFORT + IDLE, None),
+    ("claude", "❯ 1. First\n\n  2. Second", None),
+    ("claude", "❯ 1. First\n  3. Third", None),
+    ("claude", "❯ 1. First\n  2. Second\n❯ another input", None),
     ("claude", "text then ❯ 1. quoted option", None),
     ("claude", "› 1. Other harness", None),
     # The trust dialog also says "Esc to cancel": a startup dialog wins over a menu.
@@ -886,3 +892,16 @@ def test_policy_retries_a_transient_read_failure(tmp_path, monkeypatch):
         patch.setattr(type(path), "read_text", fail)
         assert delivery.read_policy()["claude"].policy == "off"
     assert delivery.read_policy()["claude"].policy == "pasteOnly"
+
+
+@pytest.mark.parametrize("screen", ["", "  \n \n"])
+async def test_a_blank_prompt_read_is_unknown(rig, screen):
+    rig.iterm.screens[rig.sid] = screen
+    with pytest.raises(ItermUnavailable, match="screen came back empty"):
+        await rig.deliverer.prompt(rig.sid)
+
+
+async def test_a_sent_numbered_message_above_the_input_does_not_block_delivery(rig):
+    rig.iterm.screens[rig.sid] = "❯ 1. Reply with only OK. Do not use tools.\n⏺ OK\n" + IDLE
+    result = await rig.deliverer.deliver(rig.sid, "Continue", 1)
+    assert result.result == "delivered"

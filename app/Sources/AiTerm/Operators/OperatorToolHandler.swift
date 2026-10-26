@@ -153,6 +153,8 @@ final class OperatorToolHandler {
     var quietTasks: @MainActor () -> Set<UUID> = { [] }
     /// Said once `message_task` delivered to a task's first worker: what its last turn left is answered (spec §J).
     var onMessaged: @MainActor (UUID) -> Void = { _ in }
+    /// Reads the addressed worker's screen after delivery or a refusal that suggests a prompt.
+    var onMessageResult: @MainActor (UUID, String?) -> Void = { _, _ in }
     /// Carries out a task's recorded end (G10), past the push hooks when told (`noVerify`): the controller's `TaskFinisher`.
     var finish: @MainActor (UUID, Bool) async -> TaskFinisher.Result = { _, _ in
         TaskFinisher.Result(result: .refused, reason: "AiTerm isn’t ready to publish yet.")
