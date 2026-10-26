@@ -254,7 +254,13 @@ def test_resolve_question_allows_a_command_the_oracle_stopped():
 
 
 def test_resolve_question_accepts_an_optional_withdrawal():
-    schema = next(tool for tool in TOOLS if tool["name"] == "resolve_question")["inputSchema"]
+    tool = next(tool for tool in TOOLS if tool["name"] == "resolve_question")
+    description = tool["description"]
+    assert description.startswith("Closes a question: answered by the person, or withdrawn by you when it became moot.")
+    assert "set withdrawn true with a one-line reason in summary" in description
+    assert "tell the person you withdrew it and why" in description
+    assert "Withdrawal grants nothing" in description
+    schema = tool["inputSchema"]
     assert schema["properties"]["withdrawn"]["type"] == "boolean"
     assert set(schema["required"]) == {"key", "summary"}
 

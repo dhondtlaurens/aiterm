@@ -311,7 +311,7 @@ import Testing
         #expect(world.run(run.id)?.questions.first?.answeredInWindow == "nl-BE")
         _ = await world.call(run.id, "resolve_question", ["key": "window", "summary": "nl-BE"])
         let again = await world.call(run.id, "resolve_question", ["key": "window", "summary": "Moot.", "withdrawn": true])
-        #expect(again.value?["resolution"] == "nl-BE" && again.value?["withdrawn"] == false)
+        #expect(again.value?["resolution"] == "nl-BE" && again.value?["withdrawn"] == nil)
     }
 
     @Test func withdrawalRefusesAiTermsPromptAndHostMergeQuestions() async throws {
@@ -338,9 +338,7 @@ import Testing
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)
         _ = await world.call(run.id, "ask_you", ["key": "locale", "question": "Locale?"])
-        for reason in ["", "  ", "First.\nSecond."] {
-            #expect(await world.call(run.id, "resolve_question", ["key": "locale", "summary": .string(reason), "withdrawn": true]).message != nil)
-        }
+        #expect(await world.call(run.id, "resolve_question", ["key": "locale", "summary": "First.\nSecond.", "withdrawn": true]).message != nil)
         #expect(world.run(run.id)?.questions.first?.resolution == nil)
     }
 

@@ -486,7 +486,10 @@ final class OperatorToolHandler {
         let allowed = !withdrawn && allow == true ? question.gate : nil
         mutate(in: run.id) { state in
             state.updateRun(id: run.id) { run in
-                if let i = run.questions.firstIndex(where: { $0.id == key }) { run.questions[i] = question }
+                if let i = run.questions.firstIndex(where: { $0.id == key }) {
+                    run.questions[i].resolution = summary
+                    run.questions[i].withdrawn = question.withdrawn
+                }
                 if let allowed { run.gateAllowances.append(allowed) }
             }
             // The row stops waiting on you once none of its questions is open.
@@ -576,7 +579,9 @@ final class OperatorToolHandler {
     }
 
     private static func questionAnswer(_ question: OperatorQuestion) -> JSONValue {
-        ["question": .string(question.id), "open": .bool(question.resolution == nil),
-         "resolution": question.resolution.map(JSONValue.string) ?? .null, "withdrawn": .bool(question.withdrawn == true)]
+        var answer: [String: JSONValue] = ["question": .string(question.id), "open": .bool(question.resolution == nil),
+                                           "resolution": question.resolution.map(JSONValue.string) ?? .null]
+        if question.withdrawn == true { answer["withdrawn"] = true }
+        return .object(answer)
     }
 }

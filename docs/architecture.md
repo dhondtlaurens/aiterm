@@ -250,19 +250,12 @@ answers with `operator.reply`. Mutating tools use keys, recorded steps or value-
 `mark_task`, `resume_task`, `retry_task`, `finish_task`; `ask_you`, `resolve_question`; `report_find`,
 `report_snag`, `leave_for_you`, `log_decision` and `write_summary`.
 
-`resolve_question(key, summary, withdrawn: true)` withdraws an `ask_you` question or a `gate-`
-question whose command is no longer needed. The one-line summary is the reason, and the Operator
-must tell the person it withdrew the question and why. The question stays in the run's records with
-`withdrawn: true` beside its resolution; activity says “Withdrew question”, rather than attributing an
-answer to the person. Old records without the marker still decode. Closing the last question about a
-task clears its waiting flag; other open questions keep it waiting.
-
-Withdrawal grants no gate allowance and never runs the stopped command. Combining withdrawal with
-`allow: true` is refused, and a later attempt at the command is judged afresh. Resolving an already
-closed question returns its recorded outcome unchanged, including on retries with different arguments.
-An `answeredInWindow` question must be checked and resolved as an answer, not withdrawn. A worker's
-prompt is AiTerm's to close, and a question about a merge on the host is only the person's to decide;
-neither may be withdrawn by the Operator.
+`resolve_question` records the person's answer, or withdraws the Operator's own moot question or gate
+with `withdrawn: true` and a one-line reason in `summary`, which the Operator also tells the person.
+Withdrawal stops the wait and keeps its reason in the run and activity records, grants no gate allowance,
+and leaves a later command to be judged afresh.
+Retries preserve the recorded outcome; `answeredInWindow` answers, worker prompts and host-merge
+questions cannot be withdrawn.
 
 ### Help with problems
 

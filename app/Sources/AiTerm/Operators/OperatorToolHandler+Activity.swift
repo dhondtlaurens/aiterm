@@ -23,7 +23,7 @@ extension OperatorToolHandler {
             fields["withdrawn"] = value["withdrawn"]
             lineArguments = .object(fields)
         }
-        let reason = ActivityLine.reason(tool: request.tool, arguments: request.arguments, outcome: outcome, result: result)
+        let reason = ActivityLine.reason(tool: request.tool, arguments: lineArguments, outcome: outcome, result: result)
         let entry = ActivityEntry(at: ports.now(), tool: request.tool, task: task?.id, taskLabel: task.flatMap { $0.jira?.key ?? $0.operated?.key },
                                   arguments: request.arguments, outcome: outcome, result: result,
                                   line: ActivityLine.line(tool: request.tool, arguments: lineArguments, task: task, outcome: outcome),

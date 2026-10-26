@@ -442,9 +442,6 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     public var task: UUID?
     public var askedAt: Date
     public var resolution: String?
-    /// True when the Operator withdrew the question; `resolution` is its reason, not the person's answer.
-    /// Nil in older runs and for questions that were not withdrawn.
-    public var withdrawn: Bool?
     /// For a prompt open in one of its task's extra worker tabs (`open_tab`), that tab's key; nil for any other question.
     public var tab: String?
     /// For a command the Oracle stopped and asked the person about (`gate-<n>`, spec §A.3), that command where it ran;
@@ -454,6 +451,9 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// instead of answering in the Operator's chat (spec §I). AiTerm writes it while the question is open and never closes
     /// the question: the Operator checks whether it is answered and calls `resolve_question`. Nil for any other question.
     public var answeredInWindow: String?
+    /// True when the Operator withdrew the question; `resolution` is its reason, not the person's answer.
+    /// Nil in older runs and for questions that were not withdrawn.
+    public var withdrawn: Bool?
     public init(id: String, text: String, task: UUID?, askedAt: Date, resolution: String? = nil, tab: String? = nil,
                 gate: GateRequest? = nil, answeredInWindow: String? = nil, withdrawn: Bool? = nil) {
         self.id = id; self.text = text; self.task = task; self.askedAt = askedAt; self.resolution = resolution; self.tab = tab

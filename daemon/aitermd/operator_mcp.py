@@ -406,13 +406,14 @@ TOOLS: tuple[dict[str, Any], ...] = (
                          "Left out for a question about your own next step, such as a reviewer's username, a scope choice or a "
                          "merge decision.")},
           ("key", "question")),
-    _tool("resolve_question", "Closes a question once the person has answered it, with a one-line summary of the answer: one "
-          "you asked with ask_you, or AiTerm's question about a merge on the host, which only the person decides. Call it at "
+    _tool("resolve_question", "Closes a question: answered by the person, or withdrawn by you when it became moot. "
+          "Record the answer in summary for a question you asked with ask_you, or AiTerm's question about a merge on "
+          "the host, which only the person decides. Call it at "
           "once when they answer in your chat. A worker's prompt is refused: AiTerm closes it itself once the worker leaves "
           "the prompt. A gate- question, opened when your shell's command needs the person's word, is answered with allow "
           "true or false, from what the person said in this chat. If your own question or a gate- command became moot, "
           "set withdrawn true with a one-line reason in summary, and tell the person you withdrew it and why. Withdrawal "
-          "grants nothing; never combine it with allow true. Worker prompts and host-merge questions cannot be withdrawn. "
+          "grants nothing; allow true must be left out. Host-merge questions cannot be withdrawn. "
           "An already resolved question returns its recorded outcome unchanged; answeredInWindow must be checked and "
           "resolved as an answer, not withdrawn.",
           {"key": _text("The question's key."), "summary": _text("The answer or withdrawal reason, in one line."),
