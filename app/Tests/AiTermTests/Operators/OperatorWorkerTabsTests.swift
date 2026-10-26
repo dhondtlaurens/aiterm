@@ -283,6 +283,34 @@ import Testing
         #expect(line.tabs?.map(\.liveModel) == ["claude-opus-5-5", nil] && line.tabs?.map(\.liveReasoning) == ["high", nil])
     }
 
+    /// A Claude tab the Operator added says what it runs now and what became of its slash commands, as `liveFacts`
+    /// builds its line, and reads as needing input while a prompt it opened waits on you, though its session says working.
+    @Test func anAddedClaudeTabSaysWhatItRunsNowWhileItsPromptWaitsOnYou() async throws {
+        let daemon = RecordingDaemon()
+        daemon.prompts["s-review"] = .menu
+        let (world, run, task) = try makeWorld(daemon: daemon) { $0.agent = .claude; $0.model = "sonnet" }
+        var review = OperatorServiceFixtures.session("s-review", tag: task.id, agent: .claude, state: .working)
+        review.tabIndex = 1
+        review.tabKey = "review"
+        review.model = "claude-sonnet-5-5"
+        review.reasoning = "medium"
+        let command = SlashCommand(text: "/effort medium", state: .ran, deliveredAt: 1_700_000_000, seenAt: 1_700_000_001,
+                                   output: "Set effort level to medium")
+        review.slashCommands = [command]
+        world.show([OperatorServiceFixtures.session("op", window: "wop", tag: run.id),
+                    OperatorServiceFixtures.session("s1", tag: task.id, state: .working), review])
+        world.controller.probePrompts(.reconcile)
+        await world.controller.lastProbe?.value
+        let status = try status(world, run)
+        #expect(status.obligations.promptsWaitingOnYou == ["PLUTO-1/review"])
+        let tabs = try #require(status.tasks.first?.tabs)
+        try #require(tabs.count == 2)
+        #expect(tabs[1].key == "review" && tabs[1].agent == .claude)
+        #expect(tabs[1].live == .needsInput)
+        #expect(tabs[1].liveModel == "claude-sonnet-5-5" && tabs[1].liveReasoning == "medium")
+        #expect(tabs[1].slashCommands == [RunStatus.SlashCommandLine(command)])
+    }
+
     /// A /model the Operator delivered changes nothing it shows until Claude Code says the switch happened: the plan's model
     /// stays, and so does the one Claude Code last reported.
     @Test func aModelDeliveredButNotConfirmedShowsNothingNew() async throws {

@@ -239,9 +239,10 @@ def settle(commands: Sequence[SlashCommand], records: Sequence[TranscriptRecord]
     was typed, and before any enqueue of its text, which is then a later command's, such as the person's. One queued
     (its enqueue written before the next of its text was typed) runs in its turn, the same text queued twice first in
     first out, unless a remove, a popAll or popOne named it first. A command ran once its command record is there, its
-    output attached once it follows. It is queued while its enqueue is there and nothing has left the queue since that names it or names
-    nothing, as a dequeue does; it is unknown once something did and it has not run, once UNSEEN_SECONDS pass with
-    nothing of it there at all, and once WATCH_SECONDS pass without its run. One that ran stays as it ran."""
+    output attached once it follows. It is queued while its enqueue is there and nothing has left the queue since that
+    names it or names nothing, as a dequeue does; it is unknown once something did and it has not run, once
+    UNSEEN_SECONDS pass with nothing of it there at all, and once WATCH_SECONDS pass without its run. One that ran
+    stays as it ran."""
     taken: set[int] = set()
     return tuple(_settle(command, _next_typed(commands, index), records, now, taken) for index, command in enumerate(commands))
 
