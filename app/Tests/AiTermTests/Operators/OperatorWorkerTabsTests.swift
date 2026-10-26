@@ -179,6 +179,7 @@ import Testing
         let status = try status(world, run)
         #expect(status.obligations.promptsWaitingOnYou == ["PLUTO-1/review"])
 
+        clock.advance(by: OperatorTiming.promptProbeInterval)
         daemon.prompts["s-review"] = nil
         show(world, run, task, first: .working, review: .working)
         await world.controller.lastProbe?.value
@@ -227,6 +228,7 @@ import Testing
         let status = try status(world, run)
         #expect(status.obligations.promptsWaitingOnYou.sorted() == ["PLUTO-1", "PLUTO-1/review"])
 
+        clock.advance(by: OperatorTiming.promptProbeInterval)
         daemon.prompts["s1"] = nil
         show(world, run, task, first: .working, review: .needsInput)
         #expect(await eventually(describing: "first prompt resolved") {

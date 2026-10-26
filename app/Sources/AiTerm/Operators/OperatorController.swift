@@ -30,6 +30,8 @@ struct OperatorPorts {
     var wakeSleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// The wait for the Operator's summary once a broadcast is complete (`OperatorTiming.summaryWait`).
     var summarySleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    /// The pause before checking again for a dialog drawn after a delivered command.
+    var promptSleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// How often the run reconciler looks at the real tabs.
     var reconcileInterval: Duration = .seconds(OperatorTiming.reconcileInterval)
     /// The code host a project's requests are published on, with the connections Settings saved (G10):
@@ -107,8 +109,9 @@ final class OperatorController {
     @ObservationIgnored private var loop: Task<Void, Never>?
     /// An attach whose first connected snapshot is still to come: it reconciles and sets ownership again.
     @ObservationIgnored private var reattached = false
-    /// The worker tabs, by session, whose open prompt is being read.
+    /// In-flight screen reads by session, shared by event, reconcile and post-delivery probes.
     @ObservationIgnored private var probing: [String: Task<Void, Never>] = [:]
+    /// When each session last began a screen read: bounds reconcile and open-question event polling.
     @ObservationIgnored private var promptReadAt: [String: Date] = [:]
     /// When each working task last showed a sign of life (spec §8, *possibly stalled*): any change the
     /// daemon reports for one of its tabs — status, title, context, conversation.
@@ -733,7 +736,7 @@ final class OperatorController {
         workspace.mutate { StallWatch.apply(changes, to: &$0) }
         var quiet: [UUID: [String]] = [:]
         for id in changes.flag {
-            probePrompt(id)
+            probePrompt(id, source: .reconcile)
             guard let operated = workspace.state.task(id: id)?.operated else { continue }
             quiet[operated.runId, default: []].append(operated.key)
         }
@@ -798,6 +801,7 @@ final class OperatorController {
         tools.cancelReviews()
     }
 
+    /// Why a worker screen is read: events follow input, ticks discover menus, delivery checks bypass the gap.
     enum PromptProbe { case event, reconcile, delivery }
 
     /// Events read only a tab that needs input or already has a question. The reconcile tick also
@@ -810,18 +814,24 @@ final class OperatorController {
 
     private func probeAfterMessage(_ id: UUID, tab key: String?) async {
         guard let worker = workspace.state.task(id: id)?.workerTab(key, in: live.sessions), let tab = worker.session else { return }
-        // A read begun before the delivery cannot say what that message opened.
-        await probing[tab.sessionId]?.value
-        guard let current = workspace.state.task(id: id)?.workerTab(key, in: live.sessions),
-              current.session?.sessionId == tab.sessionId else { return }
-        probePrompt(id, current, source: .delivery)
-        await probing[tab.sessionId]?.value
+        for attempt in 0..<2 {
+            if attempt > 0 {
+                do { try await ports.promptSleep(.seconds(OperatorTiming.promptAfterMessageDelay)) } catch { return }
+            }
+            // A read begun before the delivery cannot say what that message opened.
+            await probing[tab.sessionId]?.value
+            guard let current = workspace.state.task(id: id)?.workerTab(key, in: live.sessions),
+                  current.session?.sessionId == tab.sessionId else { return }
+            probePrompt(id, current, source: .delivery)
+            await probing[tab.sessionId]?.value
+        }
     }
 
-    /// A worker that waits on a prompt: recorded as a question waiting on you, on its task, saying what
-    /// the prompt is, and you are notified with its window; once the tab leaves the prompt the question
-    /// is resolved and the row stops waiting on you. Codex's update offer is declined instead (`dismissStartup`).
-    /// Each worker tab of the task (`WorkerTab`) on its own: a prompt in an extra tab is its question, on that tab.
+    /// Record a new prompt only for working tasks in active broadcasts with no pause or stop intent.
+    /// Existing questions are checked in every state and resolved once their tab leaves the prompt.
+    /// Events follow needs-input tabs and open questions; ticks also discover hook-free menus. Reads
+    /// of open questions and reconcile reads have a gap; post-delivery reads bypass it. Each extra
+    /// tab has its own question. Codex's update offer is declined instead (`dismissStartup`).
     func probePrompt(_ id: UUID, source: PromptProbe = .event) {
         guard let task = workspace.state.task(id: id) else { return }
         for worker in task.workerTabs(in: live.sessions) { probePrompt(id, worker, source: source) }
@@ -837,10 +847,10 @@ final class OperatorController {
             if let open, tabsKnown { resolvePrompt(open, in: run.id, task: id) }
             return
         }
-        guard operated.state == .working, run.state == .active, run.intent == nil else { return }
+        guard open != nil || (operated.state == .working && run.state == .active && run.intent == nil) else { return }
         if source == .event, tab.state != .needsInput, open == nil { return }
         let now = ports.now()
-        if source == .reconcile, let last = promptReadAt[tab.sessionId],
+        if source != .delivery, source == .reconcile || open != nil, let last = promptReadAt[tab.sessionId],
            now.timeIntervalSince(last) < OperatorTiming.promptProbeInterval { return }
         guard probing[tab.sessionId] == nil, let daemon = daemon() else { return }
         promptReadAt[tab.sessionId] = now
@@ -859,15 +869,15 @@ final class OperatorController {
             probing[tab.sessionId] = nil
             guard !declined else { return }
             // A changed worker or turn makes the read stale; the next pass asks again.
-            guard let task = workspace.state.task(id: id), task.operated?.state == .working,
-                  self.run(id: run.id)?.state == .active, self.run(id: run.id)?.intent == nil,
+            guard let task = workspace.state.task(id: id),
                   let current = task.workerTab(worker.key, in: live.sessions)?.session,
                   current.sessionId == tab.sessionId, current.state == tab.state else { return }
             if kind == nil, tab.state != .needsInput {
                 if let open { resolvePrompt(open, in: run.id, task: id) }
                 return
             }
-            guard open == nil else { return }
+            guard open == nil, task.operated?.state == .working,
+                  self.run(id: run.id)?.state == .active, self.run(id: run.id)?.intent == nil else { return }
             let now = ports.now()
             workspace.mutate { state in
                 // Numbered as it is recorded: another tab of the task may have recorded one while this was read.

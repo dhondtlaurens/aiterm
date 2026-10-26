@@ -10,7 +10,7 @@ from aitermd import delivery
 from aitermd.delivery import PASTE_END, PASTE_START
 
 from tests.conftest import FRAME, call as rpc_call
-from tests.test_delivery import CLAUDE_MODEL, CLAUDE_EFFORT
+from tests.test_delivery import CLAUDE_MODEL, CLAUDE_EFFORT, CLAUDE_EFFORT_LAST
 IDLE = "────────────────\n❯\x20\n────────────────\n  ? for shortcuts"
 
 
@@ -180,6 +180,7 @@ async def test_a_closed_session_forgets_its_generation_and_last_key(claude):
 @pytest.mark.parametrize("screen", [
     pytest.param(CLAUDE_MODEL, id="model"),
     pytest.param(CLAUDE_EFFORT, id="effort"),
+    pytest.param(CLAUDE_EFFORT_LAST, id="effort-last"),
 ])
 async def test_a_screen_only_menu_is_read_and_refuses_delivery(claude, screen):
     svc, it, sid, call, _policy = claude

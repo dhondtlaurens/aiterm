@@ -77,22 +77,32 @@ appearing, by any hook (only a trusted folder loads them), or by Claude exiting.
 cannot be read changes nothing. A tab past the dialog has its session file, so its screen is not
 read again.
 
-The Operator also reads worker screens through `session.prompt`, for working tasks in active
-broadcasts. Session events probe only tabs that need input or already have an open question.
-The reconcile tick checks the other tabs too, with at least ten seconds between reconcile reads
-of a tab. A delivered `message_task`, or a prompt/unrecognised-screen refusal, triggers a fresh
-read of the addressed tab immediately, even if it was just polled. Accepted and stopped tasks,
-and tasks in ended broadcasts, are not probed.
+The Operator also reads worker screens through `session.prompt`. It looks for new prompts only
+on working tasks in active broadcasts with no pause or stop intent. Planned, queued, in-review,
+blocked, failed, accepted, no-change, published and stopped tasks are excluded, as are planning,
+paused, operator-offline, complete and stopped broadcasts. Resolution reads for existing prompt
+questions still run in every task and broadcast state, including when an intent is set.
+
+Session events read tabs that need input or have an open question. The 60-second reconcile tick
+also checks other eligible tabs for menus no hook announced. Reconcile reads and event reads for
+open questions have at least ten seconds between reads of the same tab. A delivered `message_task`,
+or a prompt/unrecognised-screen refusal, triggers a fresh read of the addressed tab, then another
+1.5 seconds after that read finishes so Claude has time to draw its dialog. These delivery reads
+bypass the ten-second gap and wait for any earlier read of that tab to finish; they do not delay
+the tool's delivery result or its replay. Newly stalled workers are also probed, with the same gap
+as reconcile reads.
 
 Claude model and effort confirmations can open without a Notification or PermissionRequest hook.
 Alongside the known markers, Claude's last `❯` line reads as a menu when it selects a numbered
-option and the next numbered option is directly below it, with no later input arrow. This avoids
-mistaking a sent numbered message above the input box for a menu. Codex keeps its marker rules;
-the input-box guard is unchanged. An open prompt is recorded as a question waiting on you and
-listed under `promptsWaitingOnYou`; a present tab with that question reads as needs input in
-`run_status`. The question suspends runtime and stall accounting until a successful read shows
-it closed. A blank or unreadable screen leaves it open. An extra tab's prompt does not hide a
-quiet first worker.
+option next to the preceding or following option, outside the ruled input frame. This avoids
+mistaking sent numbered messages above a later input arrow, or multiline drafts inside the frame,
+for menus. In Claude Code 2.1.310, both a short numbered paste and a typed multiline draft stay
+inline between the rules, above the shortcuts or mode footer. Codex keeps its marker rules.
+An open prompt is recorded as a question waiting on you and listed under `promptsWaitingOnYou`;
+a present tab with that question reads as needs input in `run_status`. The question suspends
+runtime and stall accounting until a successful read shows it closed. A blank or unreadable screen
+leaves it open; `read_task` with `what: prompt` returns an error on a blank screen, not a null prompt.
+An extra tab's prompt does not hide a quiet first worker.
 
 A hook can arrive before the tick has classified its tab: `window.createTask` sends the agent
 command and ticks at once, while the tab still reads as a shell, so the agent's `SessionStart` and

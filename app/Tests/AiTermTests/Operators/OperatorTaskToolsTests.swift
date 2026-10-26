@@ -203,6 +203,15 @@ import Testing
                 == "AiTerm’s helper isn’t connected; try again in a moment.")
     }
 
+    @Test func anUnreadablePromptIsAnErrorRatherThanNoPrompt() async throws {
+        let (world, run, task) = try makeWorld()
+        world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .idle)])
+        // session.prompt reports a blank screen as iterm_unavailable.
+        world.daemon.failing["session.prompt"] = .itermUnavailable
+        let answer = await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "prompt"])
+        #expect(answer.value == nil && answer.message != nil)
+    }
+
     @Test func readTaskShowsWhatTheBranchAddsAndTheOpenPrompt() async throws {
         let (world, run, task) = try makeWorld()
         try commit("login.swift", in: task.worktreePath)

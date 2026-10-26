@@ -210,6 +210,7 @@ import Testing
         #expect(world.run(run.id)?.questions.count == 1)
         #expect(world.run(run.id)?.questions.last?.resolution == nil)
         world.daemon.failing["session.prompt"] = .itermUnavailable
+        clock.advance(by: OperatorTiming.promptProbeInterval)
         world.controller.probePrompts()
         await world.controller.lastProbe?.value
         #expect(world.run(run.id)?.questions.last?.resolution == nil)
@@ -220,6 +221,7 @@ import Testing
         #expect(world.task(task.id)?.operated?.runtimeUsed == 0)
         #expect(world.task(task.id)?.operated?.flags.contains(.possiblyStalled) == false)
         await world.controller.lastProbe?.value
+        clock.advance(by: OperatorTiming.promptProbeInterval)
         world.daemon.prompts["w1"] = nil
         world.controller.probePrompts()
         await world.controller.lastProbe?.value
@@ -241,6 +243,7 @@ import Testing
         #expect(world.notifications.posted.last?.target == .task(task.id))
         #expect(world.notifications.posted.last?.body == "Codex asks for permission in Task PLUTO-4.")
         #expect(world.notifications.withdrawn.isEmpty)
+        clock.advance(by: OperatorTiming.promptProbeInterval)
         world.daemon.prompts["w1"] = nil
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .codex, state: .working)])
         await world.controller.lastProbe?.value
@@ -396,7 +399,7 @@ import Testing
     }
 
     /// A prompt question left open on a task that has ended would keep its broadcast from completing:
-    /// its tab closing resolves it, and the run then settles.
+    /// leaving the prompt resolves it even with the tab still open, and the run then settles.
     @Test func closingTheLastPromptOfAnEndedTaskCompletesItsBroadcast() async throws {
         let project = OperatorServiceFixtures.project()
         var run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
@@ -404,7 +407,8 @@ import Testing
         task.operated?.acceptance = TaskAcceptance(resultSHA: "abc", prerequisiteSHAs: [], checkOutput: "ok", note: nil, at: Date())
         run.questions = [OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Codex asks for permission", task: task.id, askedAt: clock.now)]
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
-        world.show([OperatorServiceFixtures.session("op", tag: run.id)])
+        world.show([OperatorServiceFixtures.session("op", tag: run.id),
+                    OperatorServiceFixtures.session("w1", tag: task.id, state: .working)])
         await world.controller.lastProbe?.value
         #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
         #expect(world.run(run.id)?.state == .complete)
@@ -618,22 +622,73 @@ import Testing
         #expect(world.daemon.requests("session.prompt").count == 2)
     }
 
+    @Test(arguments: [OperatedState.blocked, .inReview, .accepted],
+          [OperatorRunState.active, .paused, .stopped, .complete, .planning, .operatorOffline])
+    func openQuestionsAreResolvedRegardlessOfTaskAndBroadcastState(taskState: OperatedState, runState: OperatorRunState) async throws {
+        let project = OperatorServiceFixtures.project()
+        var run = OperatorServiceFixtures.run(projects: [project], state: runState)
+        run.intent = .paused
+        var task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: taskState, worktree: "/tmp/aiterm-wt")
+        task.operated?.flags.insert(.waitingOnYou)
+        run.questions = [OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Claude has a menu open", task: task.id, askedAt: clock.now)]
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .idle)])
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").count == 1)
+        #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+    }
+
+    @Test func anOpenQuestionIsNotReadOnEverySessionEvent() async throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .working, worktree: "/tmp/aiterm-wt")
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        let sessions = [OperatorServiceFixtures.session("w1", tag: task.id, state: .needsInput)]
+        world.daemon.prompts["w1"] = .menu
+        world.show(sessions)
+        await world.controller.lastProbe?.value
+        for _ in 0..<4 {
+            clock.advance(by: 2)
+            world.show(sessions)
+            await world.controller.lastProbe?.value
+        }
+        #expect(world.daemon.requests("session.prompt").count == 1)
+        clock.advance(by: 2)
+        world.show(sessions)
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").count == 2)
+    }
+
     @Test(arguments: ["delivered", "prompt", "unrecognisedScreen", "ownership"])
     func aMessageProbesItsWorkerWhenTheResultCallsForIt(result: String) async throws {
-        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask()
+        let delay = HeldGate()
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask { ports in
+            ports.promptSleep = { duration in
+                #expect(duration == .seconds(1.5))
+                await delay.wait()
+            }
+        }
         world.controller.probePrompts(.reconcile)
         await world.controller.lastProbe?.value
         world.daemon.deliveries = [Delivery(result: result == "delivered" ? .delivered : .refused,
                                            reason: nil, code: DeliveryCode(rawValue: result))]
-        world.daemon.onRequest = { method in
-            if method == "session.deliver" { world.daemon.prompts["worker"] = .menu }
-        }
         _ = await world.call(run.id, "message_task", ["task": "A", "text": "/effort high"])
-        let expected = result == "ownership" ? 1 : 2
-        if expected == 2 { try await world.daemon.received("session.prompt", count: 2) }
+        if result == "ownership" {
+            #expect(world.daemon.requests("session.prompt").count == 1)
+            #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+            return
+        }
+        try await world.daemon.received("session.prompt", count: 2)
         await world.controller.lastProbe?.value
-        #expect(world.daemon.requests("session.prompt").count == expected)
-        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == (result != "ownership"))
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+        await delay.started()
+        // Claude draws the menu after Enter and the first read, without any hook or session event.
+        world.daemon.prompts["worker"] = .menu
+        await delay.release()
+        try await world.daemon.received("session.prompt", count: 3)
+        await world.controller.lastProbe?.value
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
     }
 
     @Test func aSlowPromptReadDoesNotHoldADeliveryResultOrItsReplay() async throws {
@@ -648,12 +703,16 @@ import Testing
             answered = true
         }
         #expect(await eventually(describing: "delivery answered while screen read is held") { answered })
-        if answered {
+        var replayed = false
+        let replay = Task {
             _ = await world.call(run.id, "message_task", ["task": "A", "text": "/effort high"])
-            #expect(daemon.requests("session.deliver").count == 1)
+            replayed = true
         }
+        #expect(await eventually(describing: "delivery replay answered while screen read is held") { replayed })
+        #expect(daemon.requests("session.deliver").count == 1)
         daemon.release()
         await sending.value
+        await replay.value
         try await daemon.received("session.prompt", count: 2)
         await world.controller.lastProbe?.value
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)

@@ -46,6 +46,28 @@ CLAUDE_MODEL = """\
  ❯ 1. Yes, switch to claude-opus-5-5
    2. No, go back
 """
+CLAUDE_EFFORT_LAST = """\
+ Change effort level?
+ Your next response will be slower and use more tokens
+   1. Yes, switch to high
+ ❯ 2. No, go back
+"""
+# Claude Code 2.1.310, in an 80-column terminal: both a short bracketed paste and a draft
+# typed with Option-Enter stay inline, between the input rules, above the mode footer.
+CLAUDE_NUMBERED_PASTE = """\
+────────────────────────────────────────────────────────────────────────────────
+❯ 1. Fix X
+  2. Fix Y
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+"""
+CLAUDE_NUMBERED_DRAFT = """\
+────────────────────────────────────────────────────────────────────────────────
+❯ 1. Fix X
+  2. Fix Y
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+"""
 CLAUDE_TRUST = """\
  Quick safety check: Is this a project you created or one you trust?
  ❯ 1. No, exit
@@ -111,6 +133,9 @@ UNRECOGNISED = "zsh: command not found: claude\nlaurens@mac ~/wt % "
     ("claude", CLAUDE_MENU, "menu"),
     ("claude", CLAUDE_EFFORT, "menu"),
     ("claude", CLAUDE_MODEL, "menu"),
+    ("claude", CLAUDE_EFFORT_LAST, "menu"),
+    ("claude", CLAUDE_NUMBERED_DRAFT, None),
+    ("claude", CLAUDE_NUMBERED_PASTE, None),
     ("claude", "Unknown dialog\n  ❯ 12. Choose this\n  13. Cancel", "menu"),
     ("codex", "Unknown dialog\n  › 2. Choose this\n  3. Cancel", None),
     ("claude", "1. Ordinary numbered output\n❯ hello", None),
@@ -147,6 +172,7 @@ def test_open_prompt_reads_each_harness_markers(agent, screen, expected):
 @pytest.mark.parametrize("agent,screen", [
     ("claude", IDLE), ("claude", CLAUDE_WORKING), ("codex", CODEX_IDLE), ("codex", CODEX_WORKING),
     ("codex", CODEX_IDLE_WITH_UPDATE_BANNER),
+    ("claude", CLAUDE_NUMBERED_DRAFT), ("claude", CLAUDE_NUMBERED_PASTE),
 ])
 def test_an_idle_or_working_cli_screen_shows_its_input_box(agent, screen):
     assert shows_input_box(agent, screen)
@@ -157,7 +183,9 @@ def test_an_idle_or_working_cli_screen_shows_its_input_box(agent, screen):
     ("claude", "text then ❯ mid-line"), ("pi", CODEX_IDLE), ("shell", IDLE),
     # A menu's selected option is drawn with the same arrow: a menu no marker knows yet is no input box.
     ("codex", CODEX_HOOKS_REVIEW), ("claude", CLAUDE_TRUST),
-    ("claude", CLAUDE_MODEL), ("claude", CLAUDE_EFFORT),
+    ("claude", CLAUDE_MODEL), ("claude", CLAUDE_EFFORT), ("claude", CLAUDE_EFFORT_LAST),
+    ("claude", "❯ 1. A draft without its frame"),
+    ("claude", "────────────────\n❯ 1. No footer\n────────────────"),
 ])
 def test_anything_else_shows_no_input_box(agent, screen):
     assert not shows_input_box(agent, screen)
@@ -905,3 +933,10 @@ async def test_a_sent_numbered_message_above_the_input_does_not_block_delivery(r
     rig.iterm.screens[rig.sid] = "❯ 1. Reply with only OK. Do not use tools.\n⏺ OK\n" + IDLE
     result = await rig.deliverer.deliver(rig.sid, "Continue", 1)
     assert result.result == "delivered"
+
+
+async def test_a_numbered_paste_in_the_input_frame_gets_its_enter(rig):
+    rig.pauses.during.append(lambda: rig.iterm.screens.__setitem__(rig.sid, CLAUDE_NUMBERED_PASTE))
+    result = await rig.deliverer.deliver(rig.sid, "1. Fix X\n2. Fix Y", 1)
+    assert result.result == "delivered"
+    assert rig.iterm.sent == [(rig.sid, pasted("1. Fix X\n2. Fix Y")), (rig.sid, "\r")]

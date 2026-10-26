@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from .iterm_bridge import ItermPort, ItermUnavailable
-from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
+from .models import HARNESS_BY_AGENT, AgentKind, Harness, SessionInfo
 from .offload import run_detached
 from .text import shows
 from .sessions import SessionRegistry
@@ -45,10 +45,10 @@ PromptKind = Literal["permission", "startup", "menu"]
 
 
 def open_prompt(agent: AgentKind, screen: str) -> PromptKind | None:
-    """The prompt open on `screen`, by the harness's markers. Claude also draws menus without a
-    known footer: its last arrow must select a numbered option with the next option directly below.
-    A later input arrow rules that out; sent numbered messages use the same arrow. Codex uses only
-    its markers. An unsupported harness shows none, which proves nothing: delivery stays off."""
+    """The prompt open on `screen`, by the harness's markers or numbered menus. The last arrow
+    must select an option next to its neighbour, outside the input frame. A later input arrow
+    rules that out; sent numbered messages use the same arrow. An unsupported harness shows
+    none, which proves nothing: delivery stays off."""
     if (harness := HARNESS_BY_AGENT.get(agent)) is None:
         return None
     if shows(screen, harness.permission_prompt):
@@ -57,13 +57,15 @@ def open_prompt(agent: AgentKind, screen: str) -> PromptKind | None:
         return "startup"
     if shows(screen, harness.menu_prompt):
         return "menu"
-    if agent == "claude" and (arrows := _arrow_lines(agent, screen)):
+    if harness.numbered_menus and (arrows := _arrow_lines(harness, screen)):
         index, text = arrows[-1]
         lines = screen.splitlines()
-        if (option := _OPTION.match(text)) and index + 1 < len(lines):
-            following = _OPTION.match(lines[index + 1])
-            if following and int(following[1]) == int(option[1]) + 1:
-                return "menu"
+        if (option := _OPTION.match(text)) and not _in_input_frame(lines, index):
+            for offset in (-1, 1):
+                neighbour = index + offset
+                if 0 <= neighbour < len(lines) and (other := _OPTION.match(lines[neighbour])):
+                    if int(other[1]) == int(option[1]) + offset:
+                        return "menu"
     return None
 
 
@@ -71,21 +73,31 @@ def open_prompt(agent: AgentKind, screen: str) -> PromptKind | None:
 _OPTION = re.compile(r"\s*(\d+)\.\s")
 
 
-def _arrow_lines(agent: AgentKind, screen: str) -> list[tuple[int, str]]:
+def _arrow_lines(harness: Harness, screen: str) -> list[tuple[int, str]]:
     """The lines starting with the harness's arrow, with their index and the text past it."""
-    if (harness := HARNESS_BY_AGENT.get(agent)) is None or not harness.input_box:
+    if not harness.input_box:
         return []
     return [(index, text[1:]) for index, line in enumerate(screen.splitlines())
             if (text := line.lstrip()) and text[:1] in harness.input_box]
 
 
+def _in_input_frame(lines: list[str], index: int) -> bool:
+    """Claude's inline draft, between rules and above its shortcuts or mode footer (2.1.310)."""
+    if index == 0 or not re.fullmatch(r"─{4,}", lines[index - 1].strip()):
+        return False
+    for end in range(index + 1, len(lines)):
+        if re.fullmatch(r"─{4,}", lines[end].strip()):
+            return shows("\n".join(lines[end + 1:]), ("? for shortcuts", "shift+tab", "accept edits on"))
+    return False
+
+
 def shows_input_box(agent: AgentKind, screen: str) -> bool:
-    """Whether some line of `screen` starts, past its spaces, with the harness's input-box marker
-    (Claude's `❯`, Codex's `›`): the positive sign that this is the CLI's own screen, idle or at work,
-    and not a blank, a crashed shell or something unrecognised. A harness without markers shows none.
-    A menu marks its selected option with the same arrow: one followed by a numbered option is the
-    menu's, so a menu no prompt marker knows yet still reads as no input box."""
-    return any(not _OPTION.match(text) for _, text in _arrow_lines(agent, screen))
+    """The CLI's own input arrow: a numbered option is not enough unless it sits in Claude's
+    ruled input frame above its footer. Unsupported harnesses show no input box."""
+    if (harness := HARNESS_BY_AGENT.get(agent)) is None:
+        return False
+    return any(not _OPTION.match(text) or (harness.numbered_menus and _in_input_frame(screen.splitlines(), index))
+               for index, text in _arrow_lines(harness, screen))
 
 
 # How AiTerm may type into one CLI, from the delivery check it last passed (tools/delivery_check.py):
