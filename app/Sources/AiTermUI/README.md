@@ -336,7 +336,8 @@ already names its agent, so wherever the Operator acts on a task its row names t
 (`Operator answering`, not `answering Codex` on a Codex row, which reads as Codex answering itself). Acting:
 `Operator watching` (the task's agent works; `Operator watching · 2 tabs` with several worker tabs open;
 `Operator watching · in background` once its turn ended with work still running in the background, which wakes it
-again, the commands on the tooltip), `ready for the Operator` (every worker ended its turn with nothing left running:
+again, the commands on the tooltip, and a subagent it still waits on by its description), `ready for the Operator`
+(every worker ended its turn with nothing left running:
 the Operator checks it next), the broadcast's `3 working` (`2
 working · 1 to check` while some wait for the Operator; the words are `OperatorLine.Count`'s, on the header's
 tooltip and VoiceOver value, the folded chips and the board's band), and the acts: `loading the construct`, `consulting the Oracle`,
@@ -607,8 +608,8 @@ A task or terminal row whose every tab ended its turn, one of them with work sti
 `background_tasks`, a shell, a monitor or another task — is `TaskStatus.background` (`SidebarModel.aggregate(tabs:)`,
 proposal Background work on your own tasks B, 22 Oct 2026): working outranks it, it outranks done, and seen or
 not it stays until the agent takes its turn up again. It is not yours to act on — no Focus View, no Dock badge —
-and a collapsed header counts it with working. A driven task's status is held at working instead, its line
-saying `in background`. Its mark is the dashed ring; resting the pointer on the mark's `Size.slot` for 0.3 s
+and a collapsed header counts it with working. A subagent still running holds its tab at working, so its row is
+working. A driven task's status is held at working instead, its line saying `in background`. Its mark is the dashed ring; resting the pointer on the mark's `Size.slot` for 0.3 s
 opens `BackgroundCardView` over the row: `menuChrome`, its top on the pill's, its trailing edge `Space.tight`
 before the slot, no wider than the pill up to there and no taller than the row, hugging what it says and
 scrolling inside past that. It reads `Turn ended · running in the background`, or `Turn ended · 3 running in

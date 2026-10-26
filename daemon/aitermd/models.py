@@ -165,9 +165,11 @@ class RawSession:
 @dataclass(frozen=True, slots=True)
 class BackgroundJob:
     """One piece of work a Claude turn left running when it ended (a Stop's `background_tasks`): a `shell` by its
-    command, a `monitor` or any other `task` by its description. The app marks the two kinds apart."""
-    kind: Literal["shell", "monitor", "task"]
+    command, a `monitor`, a `subagent` or any other `task` by its description. The app marks the kinds apart. A
+    subagent's `agent_id` names the child the status engine counts, and is not sent."""
+    kind: Literal["shell", "monitor", "task", "subagent"]
     text: str
+    agent_id: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {"kind": self.kind, "text": self.text}
@@ -213,8 +215,13 @@ class SessionInfo:
     # The key of the Operator's extra worker tab this is (TAB_TAG), None for any other tab.
     tab_key: str | None = None
     # What its agent left running in the background when its last turn ended, which wakes it again (a Claude Stop's
-    # `background_tasks`): a turn ended with this is paused, not finished. Empty once a new turn starts.
+    # `background_tasks`): a turn ended with this is paused, not finished. Empty once a new turn starts. A subagent
+    # stays on it while the status engine counts it.
     background: tuple[BackgroundJob, ...] = ()
+    # When a transcript of the Claude subagents it counts was last written, the newest, as the tick last read them (the
+    # file's mtime): a child still at work, whose parent's own transcript may say nothing for minutes. None while it
+    # counts none, or has read none. It goes with the agent's process.
+    subagents_written_at: float | None = None
     # The first line of the prompt you typed into this tab yourself, for the turn it started: AiTerm neither launched
     # the agent with it nor delivered it (HookRouter). None once that turn ends, and for every other prompt.
     your_prompt: str | None = None
@@ -223,7 +230,8 @@ class SessionInfo:
         return {
             "sessionId": self.session_id, "windowId": self.window_id, "tabIndex": self.tab_index,
             "taskId": self.task_id, "projectId": self.project_id, "agent": self.agent, "model": self.model,
-            "reasoning": self.reasoning, "state": self.state, "title": self.title, "cwd": self.cwd, "agentCwd": self.agent_cwd,
+            "reasoning": self.reasoning, "state": self.state, "subagentsWrittenAt": self.subagents_written_at,
+            "title": self.title, "cwd": self.cwd, "agentCwd": self.agent_cwd,
             "active": self.active, "contextPercent": self.context_percent,
             "conversationId": self.conversation_id, "terminalId": self.terminal_id, "tabKey": self.tab_key,
             "background": [job.to_json() for job in self.background], "yourPrompt": self.your_prompt,

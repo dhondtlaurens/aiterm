@@ -147,17 +147,19 @@ def test_a_claude_stop_lists_the_subagents_still_running(tasks, expected):
 
 
 def test_a_claude_stop_lists_the_background_work_still_running():
-    """What will wake the session again once it ends, each by its kind: a shell by its command, a monitor and any
-    other task by its description. A subagent is the turn's own (`running_subagents`), and work that has ended wakes
-    nothing."""
+    """What will wake the session again once it ends, each by its kind: a shell by its command, a subagent, a monitor
+    and any other task by its description, a subagent with its agent_id. Work that has ended wakes nothing, and a
+    subagent with no id is no child the daemon could count."""
     tasks = [{"id": "a1", "type": "subagent", "status": "running", "description": "Fix it"},
+             {"type": "subagent", "status": "running", "description": "Nobody's"},
              {"id": "b1", "type": "shell", "status": "running", "description": "the gate", "command": "npm run test:run"},
              {"id": "b2", "type": "shell", "status": "completed", "description": "lint", "command": "npm run lint"},
              {"id": "m1", "type": "monitor", "status": "pending", "description": "CI on !46"},
              {"id": "t1", "type": "MCP task", "status": "running", "description": "Indexing the docs"}]
     event = parse_claude_hook({**BASE, "hook_event_name": "Stop", "background_tasks": tasks})
-    assert event.background_work == (BackgroundJob("shell", "npm run test:run"), BackgroundJob("monitor", "CI on !46"),
-                                     BackgroundJob("task", "Indexing the docs"))
+    assert event.background_work == (BackgroundJob("subagent", "Fix it", agent_id="a1"), BackgroundJob("shell", "npm run test:run"),
+                                     BackgroundJob("monitor", "CI on !46"), BackgroundJob("task", "Indexing the docs"))
+    assert [job.to_json() for job in event.background_work][0] == {"kind": "subagent", "text": "Fix it"}
     assert parse_claude_hook({**BASE, "hook_event_name": "Stop", "background_tasks": []}).background_work == ()
     # An older Claude Code sends no list: nothing is known.
     assert parse_claude_hook({**BASE, "hook_event_name": "Stop"}).background_work is None

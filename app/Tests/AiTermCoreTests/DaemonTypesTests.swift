@@ -17,6 +17,20 @@ import Testing
         #expect(older.terminalId == nil && older.terminalUUID == nil)
     }
 
+    /// A tab whose turn waits on its subagent says so, and when its subagents last wrote; an older daemon says neither.
+    /// That moves as a child writes, and no row draws it.
+    @Test func aSessionCarriesWhenItsSubagentsWroteAndAnOlderDaemonsNothing() throws {
+        let waiting = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"agent":"claude","state":"working","title":"","cwd":"/repo","subagentsWrittenAt":1792701295.5,"background":[{"kind":"subagent","text":"Review the docs"}]}"#
+        let session = try JSONDecoder().decode(SessionInfo.self, from: Data(waiting.utf8))
+        #expect(session.subagentsWrittenAt == 1_792_701_295.5)
+        #expect(session.background == [BackgroundJob(kind: .subagent, text: "Review the docs")])
+        let older = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"agent":"claude","state":"working","title":"","cwd":"/repo"}"#
+        #expect(try JSONDecoder().decode(SessionInfo.self, from: Data(older.utf8)).subagentsWrittenAt == nil)
+        var later = session
+        later.subagentsWrittenAt = 1_792_701_300
+        #expect(later.rowRelevant == session.rowRelevant, "no row draws it")
+    }
+
     @Test func sessionReasoningDecodesWhenPresentAndDefaultsToNilWhenAbsent() throws {
         let withReasoning = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"pi","model":"openai/model-x","reasoning":"high","state":"working","title":"PI","cwd":"/repo"}"#
         let pi = try JSONDecoder().decode(SessionInfo.self, from: Data(withReasoning.utf8))

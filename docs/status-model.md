@@ -25,7 +25,7 @@ order — the chips sit still, so a stable reading order beats ranking.
 | Hook event | Signal | Notes |
 |---|---|---|
 | `UserPromptSubmit` | working | Claude Code and Codex. A new turn: it drops any completion the previous turn deferred. |
-| `Stop` | done | Deferred while a subagent is still alive — the last child finishes the change. A Claude `Stop` also drops each counted child its `background_tasks` no longer lists (below). |
+| `Stop` | done | Deferred while a subagent is still alive — the last child finishes the change. A Claude `Stop` also drops each counted child its `background_tasks` no longer lists (below), and the session's `background` lists what still runs: shells, monitors and other tasks, and the counted children by their description, each taken off as it ends. |
 | `PermissionRequest` | needsInput | Claude Code and Codex. |
 | `Notification` | needsInput | Claude only: `permission_prompt`, `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`. |
 | `Notification` | done | Claude only: `agent_completed`. |
@@ -136,8 +136,8 @@ lands its own. The list proves nothing, and nothing is dropped, when:
   generated separately from its agent id, and a `workflow`'s agents sit behind the workflow's own id.
   Only `subagent`, `shell`, `monitor` and `MCP task` entries are understood.
 
-**The tick.** While a deferred done waits on Claude children, the tick reads the end of each child's
-transcript (`StatusEngine.release_dead_subagents`) and counts the child as gone when:
+**The tick.** The tick reads the end of every counted Claude child's transcript, its parent's turn
+under way or ended (`StatusEngine.release_dead_subagents`), and counts the child as gone when:
 
 - its last record is the interruption the watchdog, or Esc, leaves (`[Request interrupted by
   user]`), or the attachment of a `SubagentStop` hook, written — by the time the record gives —
@@ -166,26 +166,29 @@ ended its turn without handing back its report: it writes a reminder to the chil
 (`[handback-send-enforce] Your report has not been delivered. Call SubagentHandback(…)`), fires
 `SubagentStop`, and the child answers the reminder, hands its report back and fires `SubagentStop`
 again. On 22 Oct 2026 the two were 11 s apart, and the task read done, ready for acceptance, in
-between. So a Claude child with a transcript stays counted through its `SubagentStop`, and the tick
-reads its transcript as it does for a deferred done's children, until the rules above show the run
-over. Claude writes its transcript in batches, a median 70 ms after a record's time and up to 1.6 s,
-so a tick right after the hook may not find the stop's attachment yet and waits for the next; and
-the reminder comes before the attachment, so the tick never finds that attachment without it. A
-child of Codex or PI, which have no transcript to read, ends at its `SubagentStop`; a Claude child
-whose transcript a read looked for and did not find ends with that read. A read that did not answer
-in time, or that began before the stop came, says nothing of the child, which waits for the next.
-The cost: a Claude child's end lands with the first tick that finds its stop's attachment, usually
-the next poll, 2 s after the hook, sometimes the one after, rather than with the hook. It relies on
-Claude Code writing each `SubagentStop` hook's attachment to the child's transcript, as every
-version seen does (2.1.283 to 2.1.308); without it, a stopped child would stay counted until its
-parent's next `Stop` drops it, or the quiet window does.
+between. So a Claude child with a transcript stays counted through its `SubagentStop`, until the
+tick finds its run over by the rules above. Claude writes its transcript in batches, a median 70 ms
+after a record's time and up to 1.6 s, so a tick right after the hook may not find the stop's
+attachment yet and waits for the next; and the reminder comes before the attachment, so the tick
+never finds that attachment without it. A child of Codex or PI, which have no transcript to read,
+ends at its `SubagentStop`; a Claude child whose transcript a read looked for and did not find ends
+with that read. A read that did not answer in time, or that began before the stop came, says nothing
+of the child, which waits for the next. The cost: a Claude child's end lands with the first tick
+that finds its stop's attachment, usually the next poll, 2 s after the hook, sometimes the one
+after, rather than with the hook. It relies on Claude Code writing each `SubagentStop` hook's
+attachment to the child's transcript, as every version seen does (2.1.283 to 2.1.308); without it, a
+stopped child would stay counted until its parent's next `Stop` drops it, or the quiet window does.
 
 `SubagentStart` carries only the session's `transcript_path`, `<dir>/<session>.jsonl`. The child's
 transcript sits beside it at `<dir>/<session>/subagents/agent-<id>.jsonl`, or one directory
 further down, where Claude Code files some agents. Only the last 64 KiB of each transcript is read,
 on a worker thread with the one-second bound of the Codex rollout read above, and again only once its
-mtime or size changes. A turn with nothing deferred reads none but those of the children a
-`SubagentStop` came for.
+mtime or size changes. Each read also notes when the transcript was last written, its mtime, and
+the session carries the newest of its counted children's as `subagentsWrittenAt`. A parent whose
+turn ended on its children writes nothing while they work, so the app's doubt of a worker whose
+transcript has stopped growing (`WorkerQuietWatch`, `working?` in `run_status`) reads this beside
+the worker's own transcript. It moves as a child writes, so no sidebar row redraws for it
+(`SessionInfo.rowRelevant`).
 
 Claude's own session file cannot do this job. It stays `busy` while a background child runs past the
 end of the turn, and it names no child. Only Claude children are checked. PI relays a crashed

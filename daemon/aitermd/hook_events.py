@@ -30,8 +30,8 @@ class HookEvent:
     subagent_transcript: str | None = None
     # The subagents a Claude Stop's `background_tasks` says are still running; None when it cannot say.
     running_subagents: frozenset[str] | None = None
-    # The rest of the work a Claude Stop's `background_tasks` says is still in flight, which wakes the session
-    # again once it ends: a shell by its command, anything else by its description. None when it cannot say.
+    # The work a Claude Stop's `background_tasks` says is still in flight, which wakes the session again once it ends:
+    # a shell by its command, anything else by its description, a subagent with its agent_id. None when it cannot say.
     background_work: tuple[BackgroundJob, ...] | None = None
     # What a UserPromptSubmit submitted, as the agent got it; None for every other event.
     prompt: str | None = None
@@ -77,20 +77,25 @@ CLAUDE_ARTIFACT_WATCH_PREFIX = "live updates for artifact "
 
 
 def _claude_background_work(tasks: Any) -> tuple[BackgroundJob, ...] | None:
-    """What a Stop's `background_tasks` lists as in flight besides subagents: the shells, monitors and other work
-    Claude Code resumes the session for once each ends (a dev server left running among them), each by its kind.
-    None when there is no list to read."""
+    """What a Stop's `background_tasks` lists as in flight: the shells, subagents, monitors and other work Claude Code
+    resumes the session for once each ends (a dev server left running among them), each by its kind, a subagent with
+    its agent_id. None when there is no list to read."""
     if not isinstance(tasks, list):
         return None
     work: list[BackgroundJob] = []
     for task in tasks:
-        if not isinstance(task, dict) or (kind := nonempty_string(task.get("type"))) in (None, "subagent"):
+        if not isinstance(task, dict) or (kind := nonempty_string(task.get("type"))) is None:
             continue
         if nonempty_string(task.get("status")) not in CLAUDE_IN_FLIGHT_TASK_STATUSES or _claude_artifact_watch(task):
             continue
         said = nonempty_string(task.get("command")) if kind == "shell" else None
-        if (said := said or nonempty_string(task.get("description"))) is not None:
+        if (said := said or nonempty_string(task.get("description"))) is None:
+            continue
+        if kind != "subagent":
             work.append(BackgroundJob("shell" if kind == "shell" else "monitor" if kind == "monitor" else "task", said))
+        # Only a subagent named by its agent_id is a child the status engine can count.
+        elif (child := nonempty_string(task.get("id"))) is not None:
+            work.append(BackgroundJob("subagent", said, child))
     return tuple(work)
 
 

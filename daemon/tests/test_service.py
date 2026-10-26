@@ -1168,6 +1168,27 @@ async def test_a_child_that_ends_at_its_subagent_stop_ends_its_task_at_the_next_
     assert svc.registry.get(sid).state == "done"
 
 
+async def test_a_turn_that_ended_on_its_subagent_says_what_it_waits_on(stack, tmp_path):
+    """A worker ended its turn while a background subagent and a shell ran (26 Oct 2026, 08:41): its session lists
+    both, the subagent by its description, and when the child's transcript was last written, for as long as the child
+    runs. Its end takes it off the list and lands the turn's done."""
+    svc, it, files, r, w = stack
+    gate = {"id": "b1", "type": "shell", "status": "running", "description": "the gate", "command": "scripts/test.sh"}
+    sid, base, child = await _claude_child_in_background(svc, r, w, tmp_path, 945, gate)
+    assert svc.registry.get(sid).to_json()["background"] == [{"kind": "subagent", "text": "Review the docs"},
+                                                              {"kind": "shell", "text": "scripts/test.sh"}]
+    _append(child, CHILD_REPORT)
+    os.utime(child, (3000, 3000))
+    await svc.tick()
+    assert svc.registry.get(sid).to_json()["subagentsWrittenAt"] == 3000
+    await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "SubagentStop", "agent_id": "a1"})
+    _append(child, CHILD_HANDS_BACK, CHILD_HANDED_BACK, CHILD_STOPPED)
+    await svc.tick()
+    session = svc.registry.get(sid).to_json()
+    assert (session["state"], session["background"], session["subagentsWrittenAt"]) == (
+        "done", [{"kind": "shell", "text": "scripts/test.sh"}], None)
+
+
 async def test_a_child_whose_transcript_is_nowhere_ends_at_the_tick_after_its_subagent_stop(stack, tmp_path):
     svc, it, files, r, w = stack
     sid, base, child = await _claude_child_in_background(svc, r, w, tmp_path, 943)
@@ -1284,16 +1305,20 @@ async def test_a_prompt_you_type_into_a_worker_is_yours_until_its_turn_ends(make
         w.close()
 
 
-async def test_a_turn_with_nothing_deferred_reads_no_transcript(stack, tmp_path, monkeypatch):
+async def test_a_turn_under_way_reads_its_childrens_transcripts_for_when_they_wrote(stack, tmp_path):
     svc, it, files, r, w = stack
     sid = await _claude_tab_busy(svc, r, w, 932, "c2")
     await svc.tick()
     base = {"session_id": "c2", "cwd": "/wt", "transcript_path": str(tmp_path / "c2.jsonl")}
+    child = tmp_path / "c2" / "subagents" / "agent-a1.jsonl"
+    child.parent.mkdir(parents=True)
+    _append(child, {"type": "user", "message": {"content": "Fix it"}})
+    os.utime(child, (2000, 2000))
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "SubagentStart", "agent_id": "a1"})
-    monkeypatch.setattr(svc.subagent_transcripts, "read_all", lambda paths: pytest.fail("read a transcript mid-turn"))
     await svc.tick()
-    assert svc.registry.get(sid).state == "working"
+    assert svc.registry.get(sid).to_json()["subagentsWrittenAt"] == 2000
+    assert svc.registry.get(sid).state == "working" and svc.status.turn(sid).children
 
 
 async def test_a_transcript_read_that_hangs_releases_nothing(stack, tmp_path, monkeypatch):
@@ -1618,11 +1643,11 @@ async def _claude_tab_busy(svc, r, w, pid, session, user_tab_of=None):
     return sid
 
 
-async def _claude_child_in_background(svc, r, w, tmp_path, pid):
-    """A Claude tab whose turn ended while background child `a1` runs, which the turn's Stop lists: its row works on.
-    Its session file says `busy` from before that Stop, as Claude leaves it while a background child runs past the end of
-    a turn, so the tick finds nothing newer there. Returns the tab, its hook posts' base, and the child's transcript,
-    which holds the child's task."""
+async def _claude_child_in_background(svc, r, w, tmp_path, pid, *work):
+    """A Claude tab whose turn ended while background child `a1` runs, which the turn's Stop lists beside `work`, more
+    of its `background_tasks`: its row works on. Its session file says `busy` from before that Stop, as Claude leaves it
+    while a background child runs past the end of a turn, so the tick finds nothing newer there. Returns the tab, its
+    hook posts' base, and the child's transcript, which holds the child's task."""
     session = f"c{pid}"
     sid = await _claude_tab_busy(svc, r, w, pid, session)
     await svc.tick()
@@ -1635,7 +1660,7 @@ async def _claude_child_in_background(svc, r, w, tmp_path, pid):
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "SubagentStart", "agent_id": "a1"})
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "Stop", "background_tasks": [
-        {"id": "a1", "type": "subagent", "status": "running", "description": "Review the docs"}]})
+        {"id": "a1", "type": "subagent", "status": "running", "description": "Review the docs"}, *work]})
     assert svc.registry.get(sid).state == "working"
     return sid, base, child
 
