@@ -456,10 +456,29 @@ def test_a_quiet_child_of_a_turn_under_way_is_left_to_the_turns_stop(clock):
     clock.now += 10 * status.SUBAGENT_QUIET_SECONDS
     assert eng.release_dead_subagents({TRANSCRIPT: _tail()}) == []
     assert eng.turn("s1").children and reg.get("s1").state == "working"
-    # Stopped, with nothing in its transcript to show the run over: quiet as long, it is taken for dead.
+    # Stopped, with nothing in its transcript to show the run over: quiet as long after its stop, it is taken for dead.
     eng.apply_event("s1", hook("subagentStop", "c1"))
+    assert eng.release_dead_subagents({TRANSCRIPT: _tail()}) == []
+    clock.now += status.SUBAGENT_QUIET_SECONDS
     eng.release_dead_subagents({TRANSCRIPT: _tail()})
     assert not eng.turn("s1").children
+
+
+def test_a_childs_quiet_counts_from_the_stop_that_leaves_the_turn_waiting_on_it(clock):
+    # Quiet while its parent worked is no sign of its death; nor does the session file, saying on every tick that the
+    # turn ended, begin the window again.
+    eng, reg, _ = _claude_engine(clock)
+    eng.apply_event("s1", hook("working"))
+    eng.release_dead_subagents({TRANSCRIPT: _tail()})
+    clock.now += 10 * status.SUBAGENT_QUIET_SECONDS
+    eng.apply_event("s1", hook("done", running_subagents=frozenset({"c1"})))
+    assert eng.release_dead_subagents({TRANSCRIPT: _tail()}) == []
+    clock.now += status.SUBAGENT_QUIET_SECONDS - 1
+    eng.apply_claude_file_status("s1", "idle", FRESH)
+    assert eng.release_dead_subagents({TRANSCRIPT: _tail()}) == []
+    clock.now += 1
+    assert eng.release_dead_subagents({TRANSCRIPT: _tail()}) == ["s1"]
+    assert reg.get("s1").state == "done"
 
 
 def test_the_quiet_window_ignores_the_wall_clock(clock):

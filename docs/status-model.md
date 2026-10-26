@@ -144,13 +144,14 @@ under way or ended (`StatusEngine.release_dead_subagents`), and counts the child
   after the child's latest `SubagentStart`, unless the last message before that attachment is a
   prompt the child has yet to answer (the hand-back reminder below), since Claude then runs the
   child on; or
-- its transcript has not changed for `SUBAGENT_QUIET_SECONDS` (45 minutes), while its parent's
-  ended turn waits on it or after its `SubagentStop`, timed on the monotonic clock from the first
-  tick that saw it unchanged. A child of a turn still under way is left to that turn's `Stop`, which
-  says what still runs. That clock stops while the Mac sleeps. The window is long because live
-  children have gone 28 minutes without writing, during a long generation or a stream retry. It
-  only catches a child that died without writing anything: every watchdog kill observed left the
-  interruption.
+- its transcript has not changed for `SUBAGENT_QUIET_SECONDS` (45 minutes) since its parent's ended
+  turn first waited on it or its `SubagentStop` came, timed on the monotonic clock from the later of
+  that moment and the first tick that saw it unchanged: quiet while its parent still worked does not
+  count, nor does a session file that says on every tick that the turn ended begin the window again.
+  A child of a turn still under way is left to that turn's `Stop`, which says what still runs. That
+  clock stops while the Mac sleeps. The window is long because live children have gone 28 minutes
+  without writing, during a long generation or a stream retry. It only catches a child that died
+  without writing anything: every watchdog kill observed left the interruption.
 
 A transcript that does not exist yet proves nothing, so that child stays counted until its
 `SubagentStop`. A gone child is dropped exactly as its `SubagentStop` would have dropped it, so the

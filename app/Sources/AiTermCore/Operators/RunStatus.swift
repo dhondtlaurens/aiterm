@@ -30,7 +30,8 @@ public struct TaskLiveFacts: Equatable, Sendable {
     public var waitingPrompt: String?
     /// The task's extra worker tabs, in the order asked for.
     public var tabs: [Tab]
-    /// What its workers that ended their turn left running in the background (`WorkerTab.background`).
+    /// What its workers left running in the background (`WorkerTab.background`): what one that ended its turn left, and
+    /// the subagents that hold one at working after its turn ended.
     public var background: [String]
     /// The prompt you typed into one of its workers yourself, for the turn it started (`SessionInfo.yourPrompt`).
     public var yourPrompt: String?
@@ -205,8 +206,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var branchDrift: BranchDrift?
         /// Every worker tab, the first worker first, when the Operator added any (`open_tab`); nil when it has only its first.
         public var tabs: [TabLine]?
-        /// What its workers left running in the background when they ended their turn, which wakes them again; nil when
-        /// nothing does.
+        /// What its workers left running in the background when they ended their turn, which wakes them again: of one its
+        /// subagents hold at working, only those. Nil when nothing does.
         public var background: [String]?
         /// True while a turn you started by typing into one of its workers yourself runs (You in a worker's window A,
         /// 22 Oct 2026): leave the worker alone and read its result once the turn ends. Nil otherwise.

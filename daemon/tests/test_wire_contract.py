@@ -98,6 +98,9 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
     # Only this script ticks: a poll between its steps would make what each event carries depend
     # on timing.
     monkeypatch.setattr(service, "POLL_SECONDS", 3600)
+    # A tick waits up to a minute, not a second, for each read it runs off the event loop: a frame must not depend on
+    # how soon a worker thread answers (the review's transcript, below).
+    monkeypatch.setattr(service, "OFF_LOOP_CHECK_SECONDS", 60)
     monkeypatch.setattr(delivery, "SUBMIT_DELAY", 0)
 
     async def no_pause(_seconds: float) -> None:

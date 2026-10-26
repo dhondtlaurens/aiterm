@@ -52,8 +52,10 @@ class Turn:
     # The subagents running, by id.
     children: dict[str, _Child] = field(default_factory=dict)
     # A hook, title or session file said the foreground turn ended while a child still runs: the
-    # last child to stop finishes the change.
+    # last child to stop finishes the change. `deferred_since` is when one first said so, on the
+    # monotonic clock.
     deferred_done: bool = False
+    deferred_since: float = 0.0
     # The state an open PI prompt interrupted: closing the last prompt puts it back. PI can open a
     # prompt over another, so how many are open is counted.
     before_prompt: State | None = None
@@ -137,7 +139,7 @@ class StatusEngine:
         if kind == "done" and turn.children:
             # Not what the turn is doing now: it works on through its children, so an open prompt
             # keeps the state it will restore, and the last child's stop completes it.
-            turn.deferred_done = True
+            self._defer_done(turn)
             return released
         # A hook that says what the turn is doing now supersedes the state a prompt interrupted.
         turn.before_prompt, turn.prompts_open = None, 0
@@ -260,6 +262,12 @@ class StatusEngine:
             return []
         return self._subagent_ended(session_id, subagent_id)
 
+    def _defer_done(self, turn: Turn) -> None:
+        """The turn ended while its children run: the last to stop lands its done. A session file or a
+        title says so again on every tick, which leaves when it was first said."""
+        if not turn.deferred_done:
+            turn.deferred_done, turn.deferred_since = True, self._monotonic()
+
     def _subagent_ended(self, session_id: str, subagent_id: str | None) -> list[str]:
         s = self.reg.get(session_id)
         if s is None or not subagent_id:
@@ -299,7 +307,7 @@ class StatusEngine:
         """Notes when each counted child's transcript was last written, and drops each child whose
         transcript proves its run over: it ends in an interruption or a SubagentStop that left the
         child nothing to answer, written since its latest SubagentStart, or it has not changed for
-        SUBAGENT_QUIET_SECONDS while its parent's ended turn waits on it or after its SubagentStop.
+        SUBAGENT_QUIET_SECONDS since its parent's ended turn began to wait on it or its SubagentStop came.
         `tails` is what the read asked for last (subagent_transcripts) found of each transcript: None
         for one not there yet, which proves nothing, except that a SubagentStop that came before the
         read began stands. A transcript it holds nothing for -- not asked for, or the read did not
@@ -318,8 +326,11 @@ class StatusEngine:
                 # A verdict from before a resume speaks for the run that ended, not this one. Told by the time the
                 # record gives: Claude can write it to the file after the resume's SubagentStart.
                 ended = tail.ended_at is not None and tail.ended_at > child.started_at
-                waited_on = turn.deferred_done or child.stopped_at is not None
-                if ended or (waited_on and now - child.quiet_since >= SUBAGENT_QUIET_SECONDS):
+                # Quiet counts only since the child was first waited on: its parent's ended turn deferred its done, or
+                # its SubagentStop came.
+                waited = [t for t in (turn.deferred_since if turn.deferred_done else None, child.stopped_at) if t is not None]
+                quiet = bool(waited) and now - max(child.quiet_since, min(waited)) >= SUBAGENT_QUIET_SECONDS
+                if ended or quiet:
                     changed += self._subagent_ended(sid, child_id)
             changed += [sid] if self._show_children(sid) else []
         return list(dict.fromkeys(changed))
@@ -346,7 +357,7 @@ class StatusEngine:
         elif turn is not None and turn.children:
             if s.state == "needsInput":
                 return []
-            turn.deferred_done = True
+            self._defer_done(turn)
             target = "working"
         else:
             target = "done" if s.state in {"working", "needsInput"} else s.state
@@ -365,7 +376,7 @@ class StatusEngine:
         elif s.state != "working" or turn is None or not turn.spun:
             return []
         elif turn.children:
-            turn.deferred_done = True
+            self._defer_done(turn)
             return []
         else:
             target = "done"
