@@ -69,9 +69,17 @@ class HookRouter:
                 await self.publisher.usage_changed()
             if tick.model or tick.reasoning or tick.context_percent is not None:
                 async with self._in_order:
-                    sid = (await self._resolve_post(agent, tick.session_id, tick.cwd, tick.iterm_session_id))[0]
-                    ticked = self.status.apply_metadata(sid, model=tick.model, reasoning=tick.reasoning,
-                                                        context=tick.context_percent) if sid else []
+                    sid, direct = await self._resolve_post(agent, tick.session_id, tick.cwd, tick.iterm_session_id)
+                    # What it says the session runs, and where it is written, only from the session itself: another
+                    # Claude in the same worktree is placed by the directory alone.
+                    own = sid is not None and sid == direct
+                    ticked = self.status.apply_metadata(sid, model=tick.model if own else None, reasoning=tick.reasoning if own else None,
+                                                        context=tick.context_percent,
+                                                        transcript=tick.transcript if own else None) if sid else []
+                    # It names the effort with the model: a model it names with no effort takes none, whatever the
+                    # last one ran at.
+                    if sid is not None and own and tick.model and tick.reasoning is None and self.status.reg.set_reasoning(sid, None):
+                        ticked.append(sid)
                 if ticked:
                     await self.publisher.session_changed(ticked)
             return None
@@ -100,12 +108,15 @@ class HookRouter:
         # Placed by evidence -- the agent's pid, or the tab id its hook carries -- rather than by a pin or
         # the directory, either of which can name a sibling tab.
         # The post came from the agent itself, so its cwd is the agent's — the only source
-        # there is for a Codex or PI session, neither of which has a polled session file. Its
-        # conversation, and where it is written, are the tab's only when the post was placed by evidence.
-        changed = self.status.apply_metadata(sid, model=ev.model, reasoning=ev.reasoning,
+        # there is for a Codex or PI session, neither of which has a polled session file. What it
+        # runs, its conversation and where that is written are the tab's only when the post was placed
+        # by evidence: another agent in the same worktree, a headless review there, is placed by the
+        # directory alone.
+        own = sid == direct
+        changed = self.status.apply_metadata(sid, model=ev.model if own else None, reasoning=ev.reasoning if own else None,
                                              context=ev.context_percent, cwd=ev.cwd,
-                                             conversation=ev.conversation_id if sid == direct else None,
-                                             transcript=ev.transcript if sid == direct else None)
+                                             conversation=ev.conversation_id if own else None,
+                                             transcript=ev.transcript if own else None)
         # A new session forgets the tab's subagents and deferred completion — only for a tab the post
         # provably came from. A stale pin or a shared directory could otherwise wipe another tab's turn.
         starts_elsewhere = ev.kind == "sessionStart" and sid != direct

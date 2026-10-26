@@ -274,7 +274,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                     line: takenOver ? nil : line, takenOver: takenOver,
                     needsYou: !takenOver && line?.look == .needsYou,
                     opens: opens(task, operated, requests: requests),
-                    modelTooltip: modelTooltip(task, operated), result: OperatorLine.ending(of: operated),
+                    modelTooltip: modelTooltip(task, operated, sessions: sessions), result: OperatorLine.ending(of: operated),
                     tabs: tabs(of: task, sessions: sessions),
                     mergeRefusal: takenOver || operated.isFinished ? nil : operated.publication?.mergeRefusal)
     }
@@ -330,13 +330,18 @@ public struct BroadcastBoard: Equatable, Sendable {
         }
     }
 
-    /// `Codex · gpt-5.5 · high`, and the Operator's reason on the line under it.
-    private static func modelTooltip(_ task: TaskItem, _ operated: OperatedTask) -> String? {
+    /// `Codex · gpt-5.5 · high`, and the Operator's reason on the line under it. A Claude worker that says it runs another
+    /// model or effort (`SessionInfo.liveModel`) adds `Now on claude-opus-5-5 · high` under them.
+    private static func modelTooltip(_ task: TaskItem, _ operated: OperatedTask, sessions: [SessionInfo]) -> String? {
         guard !task.model.isEmpty else { return nil }
-        let model = ([SidebarModel.agentName(task.agent), task.model] + [task.reasoning].compactMap { $0 }.filter { !$0.isEmpty })
-            .joined(separator: " · ")
-        guard let reason = operated.modelReason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty else { return model }
-        return model + "\n" + reason
+        let chosen = [task.model] + [task.reasoning].compactMap { $0 }.filter { !$0.isEmpty }
+        var lines = [([SidebarModel.agentName(task.agent)] + chosen).joined(separator: " · ")]
+        if let reason = operated.modelReason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty { lines.append(reason) }
+        if let worker = task.firstWorker(in: sessions), let model = worker.liveModel {
+            let now = [model] + [worker.liveReasoning].compactMap { $0 }
+            if now != chosen { lines.append("Now on " + now.joined(separator: " · ")) }
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// The muted line an empty column says.

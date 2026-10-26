@@ -5,7 +5,8 @@ records it. Checked against Claude Code 2.1.283 to 2.1.310, and driven live on 2
   `<command-args>`; a local command's output follows under the same promptId, as `<local-command-stdout>`. 2.1.306
   wrote both as `system` records of subtype `local_command`.
 - A command typed while the session works, and not run at once, is a `queue-operation` record `enqueue` holding the
-  text as typed. It leaves the queue by a `dequeue`, which names nothing, or a `remove`, which names what it took.
+  text as typed. It leaves the queue by any other operation: a `dequeue`, which names nothing; a `remove`, which names
+  what it took unless a hook dropped it; a `popAll` or `popOne`, which take it back into the input to be edited.
 - /model and /effort run at once even mid-turn, and then write no record at all; one that asks the person to confirm
   first writes its record only once answered. A command with no record has not been seen, which is not that it did
   not run."""
@@ -34,6 +35,8 @@ UNSEEN_SECONDS = 60.0
 WATCH_SECONDS = 60 * 60.0
 # How many of a session's slash commands are kept: the last typed.
 KEPT = 3
+# The most of a transcript one read takes in: one read from its start catches up over a few ticks.
+READ_BYTES = 8 * 1024 * 1024
 # A local command's output is kept as its first line with text, cut to this many characters.
 OUTPUT_CHARS = 200
 
@@ -46,11 +49,13 @@ _MARKERS = (b'"queue-operation"', b"<command-name>", b"<local-command-stdout>")
 
 @dataclass(frozen=True, slots=True)
 class TranscriptRecord:
-    """A transcript record that says something of a typed slash command: the queue's `enqueue`, `dequeue` or `remove`,
-    a `command` Claude Code ran, or a local command's `output`. `at` is its own timestamp, on the wall clock."""
-    kind: Literal["enqueue", "dequeue", "remove", "command", "output"]
+    """A transcript record that says something of a typed slash command: the queue's `enqueue` of one, something that
+    `left` the queue, a `command` Claude Code ran, or a local command's `output`. `at` is its own timestamp, on the wall
+    clock."""
+    kind: Literal["enqueue", "left", "command", "output"]
     at: float
-    # The text it queued or removed, the command it ran as typed (`/effort high`), or the output.
+    # The command it queued, or took from the queue (None when it names nothing); the one it ran as typed
+    # (`/effort high`); or the output.
     text: str | None = None
     # Its promptId: a local command's output carries its command's.
     prompt: str | None = None
@@ -90,12 +95,13 @@ def _record(line: bytes) -> TranscriptRecord | None:
         return None
     prompt = nonempty_string(r.get("promptId"))
     if r.get("type") == "queue-operation":
-        operation, content = r.get("operation"), nonempty_string(r.get("content"))
-        if operation == "dequeue":
-            return TranscriptRecord("dequeue", at)
-        if operation in ("enqueue", "remove") and content is not None and content.lstrip().startswith("/"):
-            return TranscriptRecord(operation, at, _spaced(content))
-        return None
+        content = nonempty_string(r.get("content"))
+        queued = _spaced(content) if content is not None and content.lstrip().startswith("/") else None
+        if r.get("operation") == "enqueue":
+            return TranscriptRecord("enqueue", at, queued) if queued is not None else None
+        # Every other operation takes from the queue, one this daemon doesn't know as well: what it names, or maybe
+        # anything when it names nothing. One that names another message took that.
+        return TranscriptRecord("left", at, queued) if queued is not None or content is None else None
     if (text := _text(r)) is None:
         return None
     if command := _COMMAND.match(text):
@@ -143,7 +149,7 @@ class TranscriptReader:
             begin = 0 if rewritten or start > st.st_size else start
             kept = self._read[path] = _Transcript(JsonlCursor(st.st_ino, begin), begin)
         try:
-            lines = kept.cursor.read_lines(Path(path), st.st_size)
+            lines = kept.cursor.read_lines(Path(path), min(st.st_size, kept.cursor.offset + READ_BYTES))
         except OSError:
             return None
         kept.records += [record for line in lines if (record := _record(line)) is not None]
@@ -167,32 +173,57 @@ def _output(after: Sequence[TranscriptRecord], prompt: str | None) -> str | None
     return None
 
 
-def settle(command: SlashCommand, records: Sequence[TranscriptRecord] | None, now: float) -> SlashCommand:
-    """What `command` became, as `records` show it at `now`: its transcript's, in file order, None when the transcript
-    cannot be read. Only a record written since it was typed is its own. It ran once its command record is there;
-    it is queued while its enqueue is there and nothing has been taken from the queue since, a dequeue naming nothing;
-    it is unknown once taken and not run, and once UNSEEN_SECONDS pass with nothing there at all. One that ran stays as
-    it ran."""
+def _own(records: Sequence[TranscriptRecord], taken: set[int], kind: str, command: SlashCommand, at: float | None = None) -> int | None:
+    """Where in `records` the first record of `kind` for `command` is: its text, written since it was typed (or at `at`),
+    and not an older command's (`taken`)."""
+    text = _spaced(command.text)
+    return next((index for index, record in enumerate(records) if index not in taken and record.kind == kind
+                 and record.text == text and (record.at == at if at is not None else record.at >= command.delivered_at)), None)
+
+
+def _settle(command: SlashCommand, records: Sequence[TranscriptRecord] | None, now: float, taken: set[int]) -> SlashCommand:
+    """What one command became; it takes the records it reads as its own into `taken`. See `settle`."""
     if command.state == "ran":
-        return command
+        # The run it was seen by, if it is still among what was read: no newer command's, and its output may follow it.
+        if records is None or (run := _own(records, taken, "command", command, at=command.seen_at)) is None:
+            return command
+        taken.add(run)
+        return command if command.output is not None else replace(command, output=_output(records[run + 1:], records[run].prompt))
     if records is None:
         return replace(command, state="unknown", seen_at=None)
-    text = _spaced(command.text)
-    since = [record for record in records if record.at >= command.delivered_at]
-    for index, record in enumerate(since):
-        if record.kind == "command" and record.text == text:
-            return replace(command, state="ran", seen_at=record.at, output=_output(since[index + 1:], record.prompt))
-    queued = next((index for index, record in enumerate(since) if record.kind == "enqueue" and record.text == text), None)
-    if queued is not None:
-        taken = any(r.kind == "dequeue" or (r.kind == "remove" and r.text == text) for r in since[queued + 1:])
-        return replace(command, state="unknown", seen_at=None) if taken else replace(command, state="queued", seen_at=since[queued].at)
+    if (run := _own(records, taken, "command", command)) is not None:
+        taken.add(run)
+        return replace(command, state="ran", seen_at=records[run].at, output=_output(records[run + 1:], records[run].prompt))
+    if now - command.delivered_at >= WATCH_SECONDS:
+        # No longer looked for, and not seen to run: what it is now is no longer known.
+        return replace(command, state="unknown", seen_at=None)
+    if (queued := _own(records, taken, "enqueue", command)) is not None:
+        taken.add(queued)
+        text = _spaced(command.text)
+        left = any(record.kind == "left" and record.text in (None, text) for record in records[queued + 1:])
+        return replace(command, state="unknown", seen_at=None) if left else replace(command, state="queued", seen_at=records[queued].at)
     unseen = now - command.delivered_at >= UNSEEN_SECONDS
     return replace(command, state="unknown" if unseen else "delivered", seen_at=None)
 
 
+def settle(commands: Sequence[SlashCommand], records: Sequence[TranscriptRecord] | None, now: float) -> tuple[SlashCommand, ...]:
+    """What each of a session's commands, oldest first, became as `records` show it at `now`: its transcript's, in file
+    order, None when the transcript cannot be read. Only a record written since a command was typed is its own, and
+    each is one command's, the oldest's that can take it: the same text typed twice is two commands, queued and run
+    in turn. A command ran once its command record is there, its output attached once it follows. It is queued while
+    its enqueue is there and nothing has left the queue since that names it or names nothing, as a dequeue does; it is
+    unknown once something did and it has not run, once UNSEEN_SECONDS pass with nothing of it there at all, and once
+    WATCH_SECONDS pass without its run. One that ran stays as it ran."""
+    taken: set[int] = set()
+    return tuple(_settle(command, records, now, taken) for command in commands)
+
+
 def _followed(command: SlashCommand, now: float) -> bool:
-    """Whether `command` is still looked for in its transcript: not seen to run, and typed within WATCH_SECONDS."""
-    return command.state != "ran" and now - command.delivered_at < WATCH_SECONDS
+    """Whether its transcript is still read for `command`: not seen to run, within WATCH_SECONDS of being typed; or seen
+    to run with no output yet, for UNSEEN_SECONDS, in case one follows."""
+    if command.state == "ran":
+        return command.output is None and now - (command.seen_at or command.delivered_at) < UNSEEN_SECONDS
+    return now - command.delivered_at < WATCH_SECONDS
 
 
 def _size(path: str | None) -> int:
@@ -217,28 +248,28 @@ class SlashCommands:
         transcript ends, before anything of it can be written there. None for other text, for one too long to paste,
         which goes through a message file (delivery.MESSAGE_FILE_THRESHOLD), and in any but a Claude tab."""
         s = self.reg.get(session_id)
-        if s is None or s.agent != "claude" or not (typed := text.strip()).startswith("/"):
+        if s is None or s.agent != "claude" or not (typed := pasteable(text).strip()).startswith("/"):
             return None
         if len(pasteable(text)) > MESSAGE_FILE_THRESHOLD:
             return None
-        return SlashCommand(typed, self._clock(), start=_size(s.transcript))
+        return SlashCommand(typed, self._clock(), start=_size(s.transcript), transcript=s.transcript)
 
     def delivered(self, session_id: str, command: SlashCommand) -> list[str]:
-        """Records `command`, typed and entered into the session: the last KEPT are kept, a command typed again in
-        place of its earlier self."""
+        """Records `command`, typed and entered into the session, keeping the last KEPT."""
         s = self.reg.get(session_id)
         if s is None:
             return []
-        kept = tuple(c for c in s.slash_commands if c.text != command.text) + (command,)
-        return [session_id] if self.reg.set_slash_commands(session_id, kept[-KEPT:]) else []
+        return [session_id] if self.reg.set_slash_commands(session_id, (s.slash_commands + (command,))[-KEPT:]) else []
 
     def starts(self, now: float) -> dict[str, int]:
-        """Each transcript a command is looked for in, by where to read it from: where the earliest of them was typed."""
+        """Each transcript its commands are still looked for in, by where to read it from: where the earliest of them
+        was typed, or its start for one typed while the session wrote another."""
         starts: dict[str, int] = {}
         for s in self.reg.all():
             for c in s.slash_commands:
                 if s.transcript and _followed(c, now):
-                    starts[s.transcript] = min(c.start, starts.get(s.transcript, c.start))
+                    start = c.start if c.transcript == s.transcript else 0
+                    starts[s.transcript] = min(start, starts.get(s.transcript, start))
         return starts
 
     def apply(self, records: Mapping[str, tuple[TranscriptRecord, ...] | None], now: float) -> list[str]:
@@ -247,10 +278,10 @@ class SlashCommands:
         read waits for the next tick."""
         changed: list[str] = []
         for s in self.reg.all():
-            if not any(_followed(c, now) for c in s.slash_commands) or (s.transcript and s.transcript not in records):
+            followed = any(_followed(c, now) for c in s.slash_commands)
+            if followed and s.transcript and s.transcript not in records:
                 continue
-            read = records[s.transcript] if s.transcript else None
-            settled = tuple(settle(c, read, now) if _followed(c, now) else c for c in s.slash_commands)
+            settled = settle(s.slash_commands, records[s.transcript] if followed and s.transcript else None, now)
             if self.reg.set_slash_commands(s.session_id, settled):
                 changed.append(s.session_id)
         return changed

@@ -229,7 +229,8 @@ final class OperatorWaker {
     /// A status as the operator reads its news: the revision counts calls, not changes, and the usage
     /// readings drift with every report: the operator reads them when it asks, they wake it never. Nor do
     /// the agents' model lists, or what each host says of a task's request (`TaskLine.mergeRequest`), which only
-    /// `run_status` itself reads.
+    /// `run_status` itself reads; nor what a worker runs now and what became of the slash commands sent to it, the
+    /// operator's own message_task's "delivered" among them, which it reads when it looks at that task.
     private static func content(_ status: RunStatus) -> RunStatus {
         var status = status
         status.revision = 0
@@ -238,6 +239,14 @@ final class OperatorWaker {
         for index in status.tasks.indices {
             status.tasks[index].mergeRequest = nil
             status.tasks[index].mergeRequestNote = nil
+            status.tasks[index].liveModel = nil
+            status.tasks[index].liveReasoning = nil
+            status.tasks[index].slashCommands = nil
+            for tab in status.tasks[index].tabs?.indices ?? 0..<0 {
+                status.tasks[index].tabs?[tab].liveModel = nil
+                status.tasks[index].tabs?[tab].liveReasoning = nil
+                status.tasks[index].tabs?[tab].slashCommands = nil
+            }
         }
         return status
     }

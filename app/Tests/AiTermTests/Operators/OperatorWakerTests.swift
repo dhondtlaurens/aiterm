@@ -75,6 +75,29 @@ import Testing
         #expect(hand.requested == 0 && lines.isEmpty)
     }
 
+    /// What a worker runs now and what became of the slash commands sent to it are read when the Operator asks: the
+    /// "delivered" its own message_task brings back, a switch, a command that ran or went unseen wake nobody.
+    @Test func whatAWorkerRunsAndItsSlashCommandsAreNoNews() async throws {
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
+        var task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .working)
+        task.operated?.extraTabs = [ExtraTab(key: "review", agent: .claude, model: "m", reasoning: nil, modelReason: "Tests.", brief: "Test it.",
+                                             launch: LaunchAttempt(number: 1, requestedAt: Date(timeIntervalSince1970: 0)))]
+        let state = OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])
+        func read(_ command: SlashCommand?, model: String?) -> RunStatus {
+            let commands = command.map { [$0] } ?? []
+            let tab = TaskLiveFacts.Tab(key: "review", agent: .claude, model: "m", status: .working, liveModel: model, liveReasoning: model.map { _ in "high" },
+                                        slashCommands: commands)
+            let facts = TaskLiveFacts(status: .working, tabs: [tab], liveModel: model, liveReasoning: model.map { _ in "high" }, slashCommands: commands)
+            return RunStatus.build(state: state, run: run.id, revision: 1, live: [task.id: facts])!
+        }
+        waker.acknowledged(read(nil, model: nil), of: run.id)
+        waker.observe(read(SlashCommand(text: "/model claude-opus-5-5", state: .delivered, deliveredAt: 0), model: nil), of: run.id)
+        waker.observe(read(SlashCommand(text: "/model claude-opus-5-5", state: .ran, deliveredAt: 0, seenAt: 1, output: "Set model"),
+                           model: "claude-opus-5-5"), of: run.id)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(hand.requested == 0 && lines.isEmpty)
+    }
+
     @Test func aBurstOfChangesIsOneLineSayingHowMany() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
         waker.acknowledged(status(questions: 0), of: run.id)

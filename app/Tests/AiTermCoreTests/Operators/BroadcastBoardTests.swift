@@ -219,6 +219,28 @@ import Testing
         #expect(plain.modelTooltip == "Codex · gpt-5.5")
     }
 
+    /// Once its Claude worker says it runs another model or effort, the tooltip says so under the Operator's choice; the
+    /// same as chosen, or a Codex worker's own word, adds nothing.
+    @Test func theCardsTooltipSaysWhatItsClaudeWorkerRunsNow() throws {
+        let run = run()
+        var task = task("Payment provider switch", run: run.id, .working)
+        task.model = "claude-fable-5-1[1m]"
+        task.reasoning = "max"
+        task.operated?.modelReason = "A wide refactor."
+        func tooltip(_ agent: SessionAgent, model: String?, reasoning: String?) throws -> String? {
+            var worker = OperatorUIFixtures.tab("s1", of: task, .working, agent: agent)
+            worker.model = model
+            worker.reasoning = reasoning
+            return try #require(BroadcastBoard.make(run: run, state: state(run, [task]), acting: .none, requests: [], sessions: [worker])
+                .columns.flatMap(\.cards).first).modelTooltip
+        }
+        #expect(try tooltip(.claude, model: "claude-opus-5-5", reasoning: "high")
+                == "Claude · claude-fable-5-1[1m] · max\nA wide refactor.\nNow on claude-opus-5-5 · high")
+        #expect(try tooltip(.claude, model: "claude-fable-5-1[1m]", reasoning: "max") == "Claude · claude-fable-5-1[1m] · max\nA wide refactor.")
+        #expect(try tooltip(.claude, model: nil, reasoning: nil) == "Claude · claude-fable-5-1[1m] · max\nA wide refactor.")
+        #expect(try tooltip(.codex, model: "gpt-6-astra", reasoning: "high") == "Claude · claude-fable-5-1[1m] · max\nA wide refactor.")
+    }
+
     @Test func takenOverCardReadsTakenOver() throws {
         let run = run()
         let mine = task("Order summary copy", jira: "PAY-234", run: run.id, .working, takenOver: true)

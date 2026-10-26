@@ -192,8 +192,9 @@ class SlashCommand:
     # A local command's output, on one line, once it ran.
     output: str | None = None
     # How long its transcript was when it was typed, in bytes: what Claude Code records of it comes after. Neither
-    # sent nor compared.
+    # sent nor compared, and neither is the transcript that is a place in: the session may write another by now.
     start: int = field(default=0, compare=False)
+    transcript: str | None = field(default=None, compare=False)
 
     def to_json(self) -> dict[str, Any]:
         return {"text": self.text, "state": self.state, "deliveredAt": self.delivered_at, "seenAt": self.seen_at,

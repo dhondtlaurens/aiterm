@@ -46,6 +46,11 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     public var terminalUUID: UUID? { terminalId.flatMap(UUID.init(uuidString:)) }
     /// What this tab's branch must be resolved from.
     public var effectiveCwd: String { agentCwd ?? cwd }
+    /// The model and effort this tab runs now, as its own Claude Code says them: its SessionStart, its PostModelSwitch
+    /// and its status line, none of them a subagent's, and only once a switch has happened. Nil for any other agent,
+    /// whose hooks may carry a child thread's model, and while Claude hasn't said.
+    public var liveModel: String? { agent == .claude ? model : nil }
+    public var liveReasoning: String? { agent == .claude ? reasoning : nil }
 }
 
 extension SessionInfo {

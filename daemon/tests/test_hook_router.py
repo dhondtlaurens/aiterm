@@ -117,6 +117,33 @@ async def test_a_confirmed_model_switch_shows_and_a_subagent_on_another_model_ch
     assert (session.model, session.reasoning) == ("claude-opus-5-5", "max")
 
 
+async def test_a_status_line_naming_a_model_and_no_effort_clears_the_last_ones(hooks, monkeypatch):
+    # Claude Code leaves `effort` out for a model that takes none, as Haiku 4.5 does.
+    [sid] = hooks.tabs(("s1", "claude", 101))
+    monkeypatch.setattr(hooks.resolver.claude_files, "pid_for_session", lambda _: 101)
+    base = {"session_id": "conversation", "cwd": "/wt"}
+    await hooks.post("/statusline", {**base, "model": {"id": "claude-opus-5-5"}, "effort": {"level": "high"}})
+    await hooks.post("/hook/claude", {**base, "hook_event_name": "PostModelSwitch", "to_model": "claude-haiku-4-5"})
+    assert hooks.registry.get(sid).reasoning == "high", "the switch says nothing of effort"
+    await hooks.post("/statusline", {**base, "model": {"id": "claude-haiku-4-5"}})
+    assert (hooks.registry.get(sid).model, hooks.registry.get(sid).reasoning) == ("claude-haiku-4-5", None)
+    assert hooks.events[-1][1]["reasoning"] is None
+
+
+async def test_only_a_post_placed_by_evidence_says_what_a_tab_runs(hooks, monkeypatch):
+    # Another Claude in the same worktree -- an agent review run headless there -- is placed by the directory alone.
+    [sid] = hooks.tabs(("s1", "claude", 101))
+    monkeypatch.setattr(hooks.resolver.claude_files, "pid_for_session", lambda session: 101 if session == "conversation" else None)
+    await hooks.post("/statusline", {"session_id": "conversation", "cwd": "/wt", "model": {"id": "claude-opus-5-5"},
+                                     "effort": {"level": "high"}, "transcript_path": "/p/conversation.jsonl"})
+    assert hooks.registry.get(sid).transcript == "/p/conversation.jsonl", "a status line names the transcript too"
+    review = {"session_id": "review", "cwd": "/wt", "transcript_path": "/p/review.jsonl"}
+    await hooks.post("/hook/claude", {**review, "hook_event_name": "SessionStart", "source": "startup", "model": "claude-haiku-5-5"})
+    await hooks.post("/statusline", {**review, "model": {"id": "claude-haiku-5-5"}, "effort": {"level": "low"}})
+    session = hooks.registry.get(sid)
+    assert (session.model, session.reasoning, session.transcript) == ("claude-opus-5-5", "high", "/p/conversation.jsonl")
+
+
 async def test_codex_subagent_hook_uses_its_iterm_session_when_tabs_share_a_cwd(hooks):
     first, second = hooks.tabs(("s1", "codex", 101), ("s2", "codex", 102))
     await hooks.post("/hook/codex", {"hook_event_name": "SessionStart", "session_id": "thread-1", "cwd": "/wt",

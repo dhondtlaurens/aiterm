@@ -7,7 +7,8 @@ import pytest
 from aitermd import delivery
 from aitermd.models import RawSession, SlashCommand
 from aitermd.sessions import SessionRegistry
-from aitermd.slash_commands import KEPT, UNSEEN_SECONDS, SlashCommands, TranscriptReader, settle
+from aitermd import slash_commands
+from aitermd.slash_commands import KEPT, UNSEEN_SECONDS, WATCH_SECONDS, SlashCommands, TranscriptReader, settle
 from tests.conftest import FRAME, call as rpc_call
 
 # When AiTerm typed the command, on the wall clock the transcript's timestamps share.
@@ -80,92 +81,150 @@ def read(path, *records, start=0):
     return TranscriptReader().read_all({str(path): start})[str(path)]
 
 
-def typed(text: str) -> SlashCommand:
-    return SlashCommand(text, T0)
+def typed(text: str, at: float = T0) -> SlashCommand:
+    return SlashCommand(text, at)
+
+
+def settled(command: SlashCommand, records, now: float) -> SlashCommand:
+    """What `command` became, as its session's only command."""
+    [one] = settle((command,), records, now)
+    return one
 
 
 # -- what the records say ---------------------------------------------------------------------------------------------
 
 def test_a_command_its_transcript_shows_run_reads_ran_with_its_output(tmp_path):
     records = read(tmp_path / "t.jsonl", ASSISTANT, caveat(T0 + 1), ran("effort", "high", T0 + 1), output(EFFORT_OUT, T0 + 1))
-    command = settle(typed("/effort high"), records, T0 + 2)
+    command = settled(typed("/effort high"), records, T0 + 2)
     assert (command.state, command.seen_at, command.output) == ("ran", pytest.approx(T0 + 1), EFFORT_OUT)
 
 
 def test_a_command_queued_while_its_session_works_reads_queued_until_it_runs(tmp_path):
     path = tmp_path / "t.jsonl"
-    queued = settle(typed("/probe"), read(path, ASSISTANT, queue("enqueue", T0 + 1, "/probe")), T0 + 600)
+    queued = settled(typed("/probe"), read(path, ASSISTANT, queue("enqueue", T0 + 1, "/probe")), T0 + 600)
     # Still queued ten minutes on: a queue holds a command until the turn ends, however long that takes.
     assert (queued.state, queued.seen_at) == ("queued", pytest.approx(T0 + 1))
     records = read(path, queue("dequeue", T0 + 700), prompted("probe", T0 + 700.04))
-    assert settle(queued, records, T0 + 701).state == "ran"
+    assert settled(queued, records, T0 + 701).state == "ran"
 
 
 def test_a_command_with_nothing_in_its_transcript_is_delivered_then_unknown(tmp_path):
     # An /effort run mid-turn takes effect and writes nothing, and one waiting on a dialog nothing yet: no record is not
     # a sign it did not run.
     records = read(tmp_path / "t.jsonl", ASSISTANT)
-    assert settle(typed("/effort high"), records, T0 + 5).state == "delivered"
-    assert settle(typed("/effort high"), records, T0 + UNSEEN_SECONDS).state == "unknown"
+    assert settled(typed("/effort high"), records, T0 + 5).state == "delivered"
+    assert settled(typed("/effort high"), records, T0 + UNSEEN_SECONDS).state == "unknown"
 
 
 def test_a_command_whose_transcript_cannot_be_read_is_unknown_at_once():
-    command = settle(typed("/effort high"), None, T0 + 1)
+    command = settled(typed("/effort high"), None, T0 + 1)
     assert (command.state, command.seen_at, command.output) == ("unknown", None, None)
 
 
 def test_a_record_from_before_it_was_typed_is_not_its_own(tmp_path):
     records = read(tmp_path / "t.jsonl", ran("effort", "high", T0 - 30), output(EFFORT_OUT, T0 - 30),
                    queue("enqueue", T0 - 20, "/effort high"))
-    assert settle(typed("/effort high"), records, T0 + 1).state == "delivered"
+    assert settled(typed("/effort high"), records, T0 + 1).state == "delivered"
 
 
-@pytest.mark.parametrize("moved", [queue("dequeue", T0 + 40), queue("remove", T0 + 40, "/compact", reason="absorbed_mid_turn")])
+@pytest.mark.parametrize("moved", [
+    queue("dequeue", T0 + 40),
+    queue("remove", T0 + 40, "/compact", reason="absorbed_mid_turn"),
+    # Taken back into the input, by Esc or the up arrow, to be edited or dropped.
+    queue("popAll", T0 + 40, "/compact"), queue("popOne", T0 + 40, "/compact"),
+    # A hook dropped it: the remove names nothing.
+    queue("remove", T0 + 40, reason="dropped_by_hook"),
+    # An operation this daemon doesn't know yet takes it as well as any.
+    queue("reorder", T0 + 40),
+], ids=["dequeue", "remove", "popAll", "popOne", "dropped", "unknown"])
 def test_a_command_the_queue_moved_past_without_running_it_is_unknown(tmp_path, moved):
-    # A dequeue names nothing, so one after it may have been another's; a remove names it but did not run it.
+    # A dequeue names nothing, so one after it may have been another's; the others name what they took, or nothing.
     records = read(tmp_path / "t.jsonl", queue("enqueue", T0 + 1, "/compact"), moved)
-    assert settle(typed("/compact"), records, T0 + 41).state == "unknown"
+    assert settled(typed("/compact"), records, T0 + 41).state == "unknown"
+
+
+def test_another_message_leaving_the_queue_leaves_it_queued(tmp_path):
+    records = read(tmp_path / "t.jsonl", queue("enqueue", T0 + 1, "Operator: carry on"), queue("enqueue", T0 + 2, "/compact"),
+                   queue("popOne", T0 + 3, "Operator: carry on"), queue("remove", T0 + 4, "/effort high"))
+    assert settled(typed("/compact"), records, T0 + 5).state == "queued"
+
+
+def test_a_command_no_longer_looked_for_is_unknown(tmp_path):
+    # Queued past the hour its transcript is read for: what it is now is no longer known.
+    records = read(tmp_path / "t.jsonl", queue("enqueue", T0 + 1, "/compact"))
+    assert settled(typed("/compact"), records, T0 + WATCH_SECONDS - 1).state == "queued"
+    assert settled(typed("/compact"), records, T0 + WATCH_SECONDS).state == "unknown"
+    assert settled(typed("/compact"), None, T0 + WATCH_SECONDS).state == "unknown"
 
 
 def test_only_its_own_name_and_arguments_count(tmp_path):
     records = read(tmp_path / "t.jsonl", ran("effort", "low", T0 + 1), ran("model", "claude-opus-5-5", T0 + 2),
                    queue("enqueue", T0 + 3, "/effort  max "))
-    assert settle(typed("/effort high"), records, T0 + 4).state == "delivered"
-    assert settle(typed("/model claude-opus-5-5"), records, T0 + 4).state == "ran"
-    assert settle(typed("/effort max"), records, T0 + 4).state == "queued", "spacing aside, the text is the same"
+    assert settled(typed("/effort high"), records, T0 + 4).state == "delivered"
+    assert settled(typed("/model claude-opus-5-5"), records, T0 + 4).state == "ran"
+    assert settled(typed("/effort max"), records, T0 + 4).state == "queued", "spacing aside, the text is the same"
 
 
 def test_its_output_is_the_one_its_own_prompt_carries_on_one_line(tmp_path):
     long = "Invalid argument: turbo.\nValid options are: " + "low, " * 80
     records = read(tmp_path / "t.jsonl", ran("effort", "turbo", T0 + 1, prompt="p1"), output("not mine", T0 + 1, prompt="p0"),
                    output(long, T0 + 1, prompt="p1"))
-    command = settle(typed("/effort turbo"), records, T0 + 2)
+    command = settled(typed("/effort turbo"), records, T0 + 2)
     assert command.output == "Invalid argument: turbo."
-    alone = settle(typed("/effort turbo"), read(tmp_path / "u.jsonl", ran("effort", "turbo", T0 + 1), output("x" * 500, T0 + 1)), T0 + 2)
+    alone = settled(typed("/effort turbo"), read(tmp_path / "u.jsonl", ran("effort", "turbo", T0 + 1), output("x" * 500, T0 + 1)), T0 + 2)
     assert alone.output == "x" * 200
 
 
 def test_a_prompt_command_ran_with_no_output(tmp_path):
-    command = settle(typed("/probe"), read(tmp_path / "t.jsonl", prompted("probe", T0 + 1)), T0 + 2)
+    command = settled(typed("/probe"), read(tmp_path / "t.jsonl", prompted("probe", T0 + 1)), T0 + 2)
     assert (command.state, command.output) == ("ran", None)
 
 
 def test_an_older_claude_codes_system_records_count(tmp_path):
     kept = "Kept model as `Opus 5.5 (default)`"
     records = read(tmp_path / "t.jsonl", system_ran("model", "", T0 + 1), system_output(kept, T0 + 1, "model"))
-    command = settle(typed("/model"), records, T0 + 2)
+    command = settled(typed("/model"), records, T0 + 2)
     assert (command.state, command.output) == ("ran", kept)
 
 
 def test_a_subagents_record_is_not_the_sessions(tmp_path):
     records = read(tmp_path / "t.jsonl", ran("effort", "high", T0 + 1, sidechain=True))
-    assert settle(typed("/effort high"), records, T0 + 2).state == "delivered"
+    assert settled(typed("/effort high"), records, T0 + 2).state == "delivered"
+
+
+def test_an_output_written_after_its_command_is_still_taken(tmp_path):
+    path = tmp_path / "t.jsonl"
+    early = settled(typed("/effort high"), read(path, ran("effort", "high", T0 + 1)), T0 + 2)
+    assert (early.state, early.output) == ("ran", None)
+    assert settled(early, read(path, output(EFFORT_OUT, T0 + 1)), T0 + 4).output == EFFORT_OUT
+    # A run no longer among what was read stays a run.
+    assert settled(early, (), T0 + 4) == early
+
+
+def test_the_same_text_typed_twice_is_two_commands_each_taking_its_own_records(tmp_path):
+    first, second = typed("/compact"), typed("/compact", T0 + 10)
+    path = tmp_path / "t.jsonl"
+    both = settle((first, second), read(path, queue("enqueue", T0 + 1, "/compact"), queue("enqueue", T0 + 11, "/compact")), T0 + 12)
+    assert [(c.state, c.seen_at) for c in both] == [("queued", pytest.approx(T0 + 1)), ("queued", pytest.approx(T0 + 11))]
+    # The first runs: its own run, never the second's. A dequeue names nothing, so the second may have gone with it.
+    both = settle(both, read(path, queue("dequeue", T0 + 50), prompted("compact", T0 + 50.05)), T0 + 51)
+    assert [c.state for c in both] == ["ran", "unknown"]
+    both = settle(both, read(path, queue("dequeue", T0 + 120), prompted("compact", T0 + 120.05)), T0 + 121)
+    assert [(c.state, c.seen_at) for c in both] == [("ran", pytest.approx(T0 + 50.05)), ("ran", pytest.approx(T0 + 120.05))]
+
+
+def test_a_command_that_ran_takes_only_its_own_run(tmp_path):
+    # The first ran long ago, out of what is read now: the run that is there is the second's.
+    first = SlashCommand("/compact", T0, "ran", T0 + 1, "Compacted")
+    second = typed("/compact", T0 + 10)
+    both = settle((first, second), read(tmp_path / "t.jsonl", prompted("compact", T0 + 20)), T0 + 21)
+    assert both[0] == first and (both[1].state, both[1].seen_at) == ("ran", pytest.approx(T0 + 20))
 
 
 def test_a_command_that_ran_stays_as_it_ran(tmp_path):
-    done = settle(typed("/effort high"), read(tmp_path / "t.jsonl", ran("effort", "high", T0 + 1), output(EFFORT_OUT, T0 + 1)), T0 + 2)
-    assert settle(done, (), T0 + 3600) == done
-    assert settle(done, None, T0 + 3600) == done
+    done = settled(typed("/effort high"), read(tmp_path / "t.jsonl", ran("effort", "high", T0 + 1), output(EFFORT_OUT, T0 + 1)), T0 + 2)
+    assert settled(done, (), T0 + 3600) == done
+    assert settled(done, None, T0 + 3600) == done
 
 
 # -- reading the transcript -------------------------------------------------------------------------------------------
@@ -178,7 +237,7 @@ def test_the_reader_keeps_only_what_says_something_of_a_typed_command(tmp_path):
     records = read(tmp_path / "t.jsonl", ASSISTANT, tool_result, said, caveat(T0 + 1), queue("enqueue", T0 + 1, "Operator: carry on"),
                    queue("enqueue", T0 + 1, "/probe"), queue("dequeue", T0 + 2), ran("effort", "high", T0 + 3), output(EFFORT_OUT, T0 + 3))
     assert [(r.kind, r.text) for r in records] == [
-        ("enqueue", "/probe"), ("dequeue", None), ("command", "/effort high"), ("output", EFFORT_OUT)]
+        ("enqueue", "/probe"), ("left", None), ("command", "/effort high"), ("output", EFFORT_OUT)]
 
 
 def test_the_reader_reads_on_from_where_the_command_was_typed(tmp_path):
@@ -190,7 +249,7 @@ def test_the_reader_reads_on_from_where_the_command_was_typed(tmp_path):
     write(path, queue("enqueue", T0 + 1, "/probe"), tail='{"type": "queue-operation", "operation": "deq')
     assert [r.kind for r in reader.read_all({str(path): start})[str(path)]] == ["enqueue"]
     write(path, tail=f'ueue", "timestamp": "{iso(T0 + 2)}"}}\n')
-    assert [r.kind for r in reader.read_all({str(path): start})[str(path)]] == ["enqueue", "dequeue"]
+    assert [r.kind for r in reader.read_all({str(path): start})[str(path)]] == ["enqueue", "left"]
 
 
 def test_a_transcript_not_written_yet_has_no_records_and_an_unreadable_one_none(tmp_path):
@@ -198,6 +257,15 @@ def test_a_transcript_not_written_yet_has_no_records_and_an_unreadable_one_none(
     reader = TranscriptReader()
     assert reader.read_all({str(tmp_path / "new.jsonl"): 0, str(tmp_path / "dir.jsonl"): 0}) == {
         str(tmp_path / "new.jsonl"): (), str(tmp_path / "dir.jsonl"): None}
+
+
+def test_a_long_transcript_is_read_a_piece_at_a_time(tmp_path, monkeypatch):
+    monkeypatch.setattr(slash_commands, "READ_BYTES", 400)
+    path = tmp_path / "t.jsonl"
+    write(path, *[ASSISTANT] * 3, queue("enqueue", T0 + 1, "/probe"), *[ASSISTANT] * 3, prompted("probe", T0 + 2))
+    reader = TranscriptReader()
+    reads = [[r.kind for r in reader.read_all({str(path): 0})[str(path)]] for _ in range(8)]
+    assert reads[0] == [] and reads[-1] == ["enqueue", "command"]
 
 
 def test_a_rewritten_transcript_is_read_again_from_its_start(tmp_path):
@@ -220,6 +288,7 @@ def test_only_a_slash_command_into_a_claude_tab_is_followed(tmp_path):
     assert commands.stamp("s2", "/model gpt-6-astra") is None, "a Codex transcript records commands its own way"
     assert commands.stamp("s3", "/effort high") is None
     assert commands.stamp("s1", "  /effort high") == SlashCommand("/effort high", T0)
+    assert commands.stamp("s1", "/effort\x07 high\r\n").text == "/effort high", "as it is pasted: no control, no CR"
     # Too long to paste, it goes through a message file, and what is typed is the line that names the file.
     assert commands.stamp("s1", "/superpowers:brainstorming " + "x" * delivery.MESSAGE_FILE_THRESHOLD) is None
 
@@ -229,8 +298,14 @@ def test_a_command_is_followed_from_where_its_transcript_ended_when_it_was_typed
     registry.apply_snapshot([RawSession("s1", "w1", 0, "claude", 101, "", "/wt")])
     path = write(tmp_path / "t.jsonl", ASSISTANT)
     registry.set_transcript("s1", path)
-    command = SlashCommands(registry, lambda: T0).stamp("s1", "/effort high")
-    assert command is not None and command.start == (tmp_path / "t.jsonl").stat().st_size
+    commands = SlashCommands(registry, lambda: T0)
+    command = commands.stamp("s1", "/effort high")
+    assert command is not None and (command.start, command.transcript) == ((tmp_path / "t.jsonl").stat().st_size, path)
+    commands.delivered("s1", command)
+    assert commands.starts(T0 + 1) == {path: command.start}
+    # A new conversation is another file: it is read from its start.
+    registry.set_transcript("s1", str(tmp_path / "u.jsonl"))
+    assert commands.starts(T0 + 1) == {str(tmp_path / "u.jsonl"): 0}
 
 
 class Clock:
@@ -346,8 +421,8 @@ async def test_only_what_was_typed_and_entered_is_followed(worker):
     assert followed(svc, sid) == []
 
 
-async def test_a_session_keeps_its_last_commands_and_one_typed_again_replaces_its_earlier_self(worker):
+async def test_a_session_keeps_its_last_commands(worker):
     svc, sid, transcript, call, clock = worker
-    for text in ("/effort high", "/model claude-opus-5-5", "/compact", "/effort low", "/model claude-opus-5-5"):
+    for text in ("/effort high", "/model claude-opus-5-5", "/compact", "/effort low", "/compact"):
         await call("session.deliver", {"sessionId": sid, "text": text, "ownership": 1})
-    assert [text for text, _, _ in followed(svc, sid)] == ["/compact", "/effort low", "/model claude-opus-5-5"][-KEPT:]
+    assert [text for text, _, _ in followed(svc, sid)] == ["/compact", "/effort low", "/compact"][-KEPT:]

@@ -274,6 +274,8 @@ class StatusLine(NamedTuple):
     context_percent: int | None
     # `effort.level`, absent for a model that takes no effort.
     reasoning: str | None = None
+    # Where the session writes its conversation (`transcript_path`), as its hooks name it too.
+    transcript: str | None = None
 
 
 def _object_field(p: dict[str, Any], key: str, field: str) -> str | None:
@@ -288,6 +290,7 @@ def parse_claude_statusline(p: dict[str, Any], now: int) -> StatusLine:
         nonempty_string(p.get("session_id")), nonempty_string(p.get("cwd")),
         nonempty_string(p.get(ITERM_SESSION_FIELD)),
         _object_field(p, "model", "id"), _context_percent(p), _object_field(p, "effort", "level"),
+        nonempty_string(p.get("transcript_path")),
     )
 
 
