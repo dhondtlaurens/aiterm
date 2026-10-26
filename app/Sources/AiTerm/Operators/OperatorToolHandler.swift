@@ -461,6 +461,9 @@ final class OperatorToolHandler {
         guard !question.id.hasPrefix(OperatorQuestion.promptPrefix) else {
             throw ToolRefusal("\(key) is a worker’s prompt: AiTerm closes its question itself once the worker leaves the prompt. If it looks stale, record it with report_snag.")
         }
+        if let value = call.arguments["withdrawn"], value != .null, value.boolValue == nil {
+            throw ToolRefusal("withdrawn must be true or false.")
+        }
         guard question.resolution == nil else { return Self.questionAnswer(question) }
         let withdrawn = call.optionalBool("withdrawn") == true
         if withdrawn {
@@ -468,7 +471,7 @@ final class OperatorToolHandler {
                 throw ToolRefusal("\(key) is a question about a merge on the host: only the person decides it. It cannot be withdrawn.")
             }
             guard question.answeredInWindow == nil else {
-                throw ToolRefusal("\(key) has an answer in its worker's window. Check answeredInWindow, then resolve it as an answer, not a withdrawal.")
+                throw ToolRefusal("\(key) may already be answered in its worker’s window; check it and resolve it as an answer.")
             }
             guard call.optionalBool("allow") != true else {
                 throw ToolRefusal("Withdrawing a question grants nothing. Call resolve_question with withdrawn true and without allow true.")

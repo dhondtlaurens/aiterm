@@ -97,7 +97,7 @@ import Testing
         let answer = await gate(world, run, "npm run migrate", in: worktree + "/packages/api")
         #expect(changed == [run.id], "the run changed, as after ask_you: what the question holds waits")
         #expect(answer["decision"] == "deny")
-        #expect(answer["reason"] == "The Oracle stopped this and asked the person (question gate-1). Wait for their answer, then resolve_question with allow.")
+        #expect(answer["reason"] == "The Oracle stopped this and asked the person (question gate-1). Wait for their answer, then resolve_question with allow, or withdraw the question if the command becomes moot.")
         let question = try #require(world.run(run.id)?.questions.first)
         #expect(question.id == "gate-1" && question.task == task.id && question.resolution == nil)
         #expect(question.text == "The Oracle stopped `npm run migrate` in \(worktree)/packages/api: it reaches the staging database.")

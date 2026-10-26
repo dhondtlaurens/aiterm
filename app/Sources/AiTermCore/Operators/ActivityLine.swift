@@ -74,7 +74,7 @@ public enum ActivityLine {
 
     /// Why the call went the way it did: AiTerm's answer to a refused or failed one, the Oracle's critique of
     /// a challenged one (or that it is still awaited, while the challenge's answer carries none), the note on an
-    /// accepted mark, the why of a decision and the full reason for a withdrawal. Nil for the rest.
+    /// accepted mark, the why of a decision and a withdrawal reason the line had to cut. Nil for the rest.
     public static func reason(tool: String, arguments: JSONValue, outcome: ActivityEntry.Outcome, result: String) -> String? {
         switch outcome {
         case .refused, .failed: return result
@@ -85,7 +85,9 @@ public enum ActivityLine {
             switch tool {
             case "mark_task": return arguments["note"]?.stringValue
             case "log_decision": return arguments["why"]?.stringValue
-            case "resolve_question" where arguments["withdrawn"] == true: return arguments["summary"]?.stringValue
+            case "resolve_question" where arguments["withdrawn"] == true:
+                guard let summary = arguments["summary"]?.stringValue, cut(summary) != summary else { return nil }
+                return summary
             default: return nil
             }
         case .repeated: return nil

@@ -45,6 +45,18 @@ import Testing
         #expect(lines.first?.result.contains("\"withdrawn\":true") == true)
     }
 
+    @Test(arguments: ["Moved to a worker.", String(repeating: "x", count: 80)])
+    func aShortWithdrawalReasonIsShownOnlyInTheLine(reason: String) async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        _ = await world.call(run.id, "ask_you", ["key": "locale", "question": "Locale?"])
+        _ = await world.call(run.id, "resolve_question", ["key": "locale", "summary": .string(reason), "withdrawn": true])
+        _ = await world.call(run.id, "resolve_question", ["key": "locale", "summary": "Yes."])
+        let lines = await entries(world, run.id).filter { $0.tool == "resolve_question" }
+        #expect(lines.count == 2)
+        #expect(lines.allSatisfy { $0.line == "Withdrew question: \(reason)" && $0.reason == nil })
+    }
+
     @Test func aWithdrawalsFullReasonSurvivesTheShortActivityLineAndRetries() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))

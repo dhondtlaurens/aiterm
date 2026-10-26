@@ -306,7 +306,8 @@ import Testing
         var run = OperatorServiceFixtures.run(projects: [project])
         run.questions = [OperatorQuestion(id: "window", text: "Locale?", task: nil, askedAt: Date(), answeredInWindow: "nl-BE")]
         let world = try makeWorld(run)
-        #expect(await world.call(run.id, "resolve_question", ["key": "window", "summary": "Moot.", "withdrawn": true]).message != nil)
+        #expect(await world.call(run.id, "resolve_question", ["key": "window", "summary": "Moot.", "withdrawn": true]).message
+                == "window may already be answered in its worker’s window; check it and resolve it as an answer.")
         #expect(world.run(run.id)?.questions.first?.resolution == nil)
         #expect(world.run(run.id)?.questions.first?.answeredInWindow == "nl-BE")
         _ = await world.call(run.id, "resolve_question", ["key": "window", "summary": "nl-BE"])
@@ -332,6 +333,28 @@ import Testing
         #expect(question.resolution == "nl-BE")
         let encoded = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(question))
         #expect(encoded["withdrawn"] != true)
+    }
+
+    @Test func withdrawalRefusesValuesThatAreNotBooleans() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try makeWorld(run)
+        _ = await world.call(run.id, "ask_you", ["key": "locale", "question": "Locale?"])
+        let invalid: [JSONValue] = ["true", 1, [], [:]]
+        for value in invalid {
+            let answer = await world.call(run.id, "resolve_question", ["key": "locale", "summary": "Moot.", "withdrawn": value])
+            #expect(answer.message == "withdrawn must be true or false.")
+            #expect(world.run(run.id)?.questions.first?.resolution == nil)
+        }
+    }
+
+    @Test func nullAndFalseWithdrawalFlagsStillRecordAnswers() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try makeWorld(run)
+        for (key, value) in [("null", JSONValue.null), ("false", JSONValue.bool(false))] {
+            _ = await world.call(run.id, "ask_you", ["key": .string(key), "question": "Locale?"])
+            let answer = await world.call(run.id, "resolve_question", ["key": .string(key), "summary": "nl-BE", "withdrawn": value])
+            #expect(answer.value?["resolution"] == "nl-BE" && answer.value?["withdrawn"] == nil)
+        }
     }
 
     @Test func withdrawalNeedsAOneLineReason() async throws {

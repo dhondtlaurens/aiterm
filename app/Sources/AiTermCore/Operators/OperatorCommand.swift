@@ -404,7 +404,7 @@ public enum OperatorCommand {
         + "Accept the task once, on the SHA at its branch head, after every tab is done."
 
     /// How the Operator's shell is judged and what each answer asks of it. The key of a question the gate opens
-    /// starts with `gate-`; `resolve_question` records the person's answer on it with `allow`.
+    /// starts with `gate-`; `resolve_question` records the person's answer with `allow`, or withdraws it if the command is moot.
     static let shellRule = "Your shell's commands that only read run at once, and the Oracle judges the rest. "
         + "A refusal that says WORKER means the command is code work: send it to a worker. "
         + "One that says ASK means wait for the person: ask in this chat, and when they answer, call resolve_question on "
