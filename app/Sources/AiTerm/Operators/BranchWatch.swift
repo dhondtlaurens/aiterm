@@ -7,7 +7,8 @@ import AiTermCore
 /// since it was last read (`WorkerTranscript.modified`): an idle tab's is the same 512 KB tail every tick
 /// otherwise. What it finds is kept on the task, shown in `run_status`, and a newly found drift wakes the
 /// Operator once: `[AiTerm] PAY-2 committed off its task branch, call run_status`. A task taken over, not
-/// at work, or in a broadcast paused or ended, is not read.
+/// at work, or in a broadcast paused or ended, is not read. A changed task-branch head resets its
+/// no-commit clock. The checked callback decides limits after each read, including one with no progress.
 @MainActor
 final class BranchWatch {
     private let workspace: WorkspaceStore
@@ -21,6 +22,8 @@ final class BranchWatch {
     private struct Read: Sendable { let modified: Date, message: String? }
     /// The latest pass, for a test to await.
     var lastPoll: Task<Void, Never>? { pass.last }
+    /// A fresh read finished, including one with no progress or an unreadable head.
+    var checked: @MainActor (UUID) -> Void = { _ in }
 
     init(workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts, waker: OperatorWaker, transcripts: TranscriptLocator) {
         self.workspace = workspace
@@ -76,9 +79,17 @@ final class BranchWatch {
         // Read fresh: git was asked meanwhile.
         guard let current = state.task(id: id), isWatched(current), current.worktreePath == worktree, current.branch == branch,
               let fresh = current.operated, fresh.ownership == operated.ownership else { return }
+        defer { checked(id) }
+        let head = reading.head.flatMap { $0.branch == branch ? $0.sha : nil }
         let found = BranchDrift.find(taskBranch: branch, head: reading.head, named: reading.named, previous: fresh.branchDrift)
-        guard found != fresh.branchDrift else { return }
-        workspace.mutate { $0.updateOperated(id) { $0.branchDrift = found } }
+        guard (head != nil && head != fresh.runtimeHead) || found != fresh.branchDrift else { return }
+        workspace.mutate { $0.updateOperated(id) {
+            if let head, head != $0.runtimeHead {
+                if $0.runtimeHead != nil { $0.runtimeUsed = 0 }
+                $0.runtimeHead = head
+            }
+            $0.branchDrift = found
+        } }
         if found != nil, fresh.branchDrift == nil { waker.say("one task committed off its task branch", to: fresh.runId) }
     }
 

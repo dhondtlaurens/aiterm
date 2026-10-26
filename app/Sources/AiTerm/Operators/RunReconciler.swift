@@ -6,7 +6,8 @@ import AiTermCore
 /// whose launch never showed a tab is launched again, but only a minute on, never while one may still
 /// be starting, never while a tab tagged with it is alive, and never once its window showed — one you
 /// closed comes back on your click (`OperatorController.reopenWorker`); a worker's time at work is
-/// counted against its runtime, and one past it is blocked. (A worker that shows no change for twenty
+/// counted against its 90-minute no-commit and four-hour total limits. The no-commit decision waits
+/// for the branch read; either limit blocks a busy task past it. (A worker that shows no change for twenty
 /// minutes is flagged, never replaced, by `OperatorController.applyStallFlags`.) Wake lines and hooks are only hints.
 @MainActor
 final class RunReconciler {
@@ -19,6 +20,8 @@ final class RunReconciler {
     /// Whether a connected snapshot has come since the helper attached (the controller's `tabsKnown`): until then, a
     /// tab not listed is not a tab gone.
     var tabsKnown: @MainActor () -> Bool = { false }
+    /// A watched branch's progress is read before its no-commit limit is decided.
+    var waitsForProgress: @MainActor (TaskItem) -> Bool = { _ in false }
     /// The latest relaunch, for a test to await.
     private(set) var lastLaunch: Task<Void, Never>?
     /// The latest extra tab asked for again, for a test to await.
@@ -134,28 +137,46 @@ final class RunReconciler {
     /// run any of whose worker tabs is busy (`WorkerTab.status`: an extra tab still opening is), once however many
     /// are, and which neither waits on you nor is taken over: at most two intervals' worth, so a Mac asleep is
     /// not work, saved with the task. A worker idle at its prompt is not at work:
-    /// its turn ended, and its result waits for review. A task past its runtime, or failed with no retry left, is
-    /// blocked with the reason, which the notifier then tells you — never for its runtime while it waits for
-    /// acceptance. The runs it blocked a task in.
+    /// its turn ended, and its result waits for review. A task past 90 minutes without a commit or four hours
+    /// total, or failed with no retry left, is blocked with the reason, which the notifier then tells you — never
+    /// for its runtime while it waits for acceptance. The no-commit decision waits for the branch read.
+    /// The runs it blocked a task in.
     private func applyLimits(now: Date, sessions: [SessionInfo]) -> Set<UUID> {
         let interval = ports.reconcileInterval.components
         let step = TimeInterval(interval.seconds) + TimeInterval(interval.attoseconds) / 1e18
         let elapsed = lastCounted.map { min(max(0, now.timeIntervalSince($0)), 2 * step) } ?? 0
         lastCounted = now
+        return applyLimits(elapsed: elapsed, sessions: sessions)
+    }
+
+    /// The branch read finished: decide its limit with fresh progress, without counting time again.
+    func checkLimits(for task: UUID) -> Set<UUID> {
+        guard tabsKnown() else { return [] }
+        return applyLimits(elapsed: 0, sessions: live.sessions, checkedTask: task)
+    }
+
+    /// Count work and apply limits, either on a tick or for the task whose branch read finished.
+    private func applyLimits(elapsed: TimeInterval, sessions: [SessionInfo], checkedTask: UUID? = nil) -> Set<UUID> {
         var blocked: [UUID] = []
         workspace.mutate { state in
-            for task in state.tasks {
+            for task in state.tasks where checkedTask == nil || task.id == checkedTask {
                 guard let operated = task.operated, let run = state.run(id: operated.runId), run.state == .active, run.intent == nil
                 else { continue }
                 let workers = task.workerTabs(in: sessions).map(\.status)
                 if elapsed > 0, workers.contains(.working), operated.state == .working, !operated.takenOver,
                    !operated.flags.contains(.waitingOnYou) {
-                    state.updateOperated(task.id) { $0.runtimeUsed += elapsed }
+                    state.updateOperated(task.id) {
+                        $0.runtimeUsed += elapsed
+                        $0.totalRuntimeUsed += elapsed
+                    }
                 }
-                guard let current = state.task(id: task.id)?.operated,
-                      let reason = OperatedTransitions.limitReason(for: current,
+                guard let current = state.task(id: task.id)?.operated else { continue }
+                // Only the no-commit rule waits for the branch read; retries and total work apply on the tick.
+                let checkNoCommit = checkedTask != nil || !waitsForProgress(task)
+                guard let reason = OperatedTransitions.limitReason(for: current,
                                                                    readyForAcceptance: RunStatus.isReadyForAcceptance(
-                                                                       current, live: workers[0], extraTabs: Array(workers.dropFirst()))),
+                                                                       current, live: workers[0], extraTabs: Array(workers.dropFirst())),
+                                                                   checkNoCommit: checkNoCommit),
                       (try? OperatedTransitions.apply(.block(reason: reason), toTask: task.id, in: &state, by: .aiterm)) != nil
                 else { continue }
                 blocked.append(task.id)

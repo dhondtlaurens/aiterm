@@ -176,10 +176,10 @@ import Foundation
         #expect(try apply(.resume, resumed) == resumed)
     }
 
-    /// A task blocked for its runtime is resumed with a fresh allowance; one blocked for another reason keeps the time it used.
-    @Test func resumingATaskBlockedForItsRuntimeGrantsAFreshAllowance() throws {
+    /// Resuming a blocked task grants a fresh allowance, whatever blocked it.
+    @Test func resumingABlockedTaskGrantsFreshRuntimeAllowances() throws {
         let limit: TimeInterval = 90 * 60
-        let context = OperatedContext(runState: .active, retryLimit: 2, runtimeLimit: limit)
+        let context = OperatedContext(runState: .active, retryLimit: 2)
         var spent = F.operated("A", .working)
         spent.runtimeUsed = limit
         let reason = try #require(OperatedTransitions.limitReason(for: spent))
@@ -192,7 +192,34 @@ import Foundation
         var partway = F.operated("B", .working)
         partway.runtimeUsed = 30 * 60
         let other = try apply(.block(reason: "needs a key"), partway, context)
-        #expect(try apply(.resume, other, context).runtimeUsed == 30 * 60)
+        #expect(try apply(.resume, other, context).runtimeUsed == 0)
+    }
+
+    /// A retry starts a new worker with both allowances afresh; repeating that start changes nothing.
+    @Test func startingARetriedTaskResetsBothRuntimeClocks() throws {
+        var failed = F.operated("A", .failed)
+        failed.runtimeUsed = 90 * 60
+        failed.totalRuntimeUsed = 4 * 60 * 60
+        let queued = try apply(.retry, failed)
+        let attempt = LaunchAttempt(number: 2, requestedAt: Date())
+        var started = try apply(.start(attempt), queued, by: .aiterm)
+        #expect(started.state == .working && started.runtimeUsed == 0 && started.totalRuntimeUsed == 0)
+        started.runtimeUsed = 60
+        started.totalRuntimeUsed = 60
+        #expect(try apply(.start(attempt), started, by: .aiterm) == started)
+    }
+
+    /// Deferring a branch read omits only the no-commit rule, never the total or retry caps.
+    @Test func deferringNoCommitStillChecksTheOtherLimits() {
+        var task = F.operated("A", .working)
+        task.runtimeUsed = 90 * 60
+        #expect(OperatedTransitions.limitReason(for: task, checkNoCommit: false) == nil)
+        task.totalRuntimeUsed = 4 * 60 * 60
+        #expect(OperatedTransitions.limitReason(for: task, checkNoCommit: false) != nil)
+        #expect(OperatedTransitions.limitReason(for: task, readyForAcceptance: true, checkNoCommit: false) == nil)
+        task.state = .failed
+        task.retriesUsed = 2
+        #expect(OperatedTransitions.limitReason(for: task, checkNoCommit: false) == "Failed with no retries left (2 allowed).")
     }
 
     /// A task blocked before it ever ran — upstream failed, then retried — waits its turn again.
