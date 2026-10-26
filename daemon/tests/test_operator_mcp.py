@@ -236,7 +236,13 @@ def test_run_status_says_what_a_worker_runs_now_and_what_became_of_a_slash_comma
     assert "liveModel" in status and "liveReasoning" in status and "slashCommands" in status
     for state in ("delivered", "queued", "ran", "unknown"):
         assert state in status, state
-    assert "slashCommands" in tools["message_task"]["description"]
+    # Each way a command comes to read unknown, and that it can still run after.
+    for said in ("within a minute", "no transcript to read", "left the queue after it was queued", "an hour passed",
+                 "can still become ran"):
+        assert said in status, said
+    message = tools["message_task"]["description"]
+    assert "slashCommands" in message and "tabs[].slashCommands" in message
+    assert "/model or /effort" in message and "default for new sessions" in message
 
 
 def test_message_task_says_messaging_an_accepted_task_reopens_it():

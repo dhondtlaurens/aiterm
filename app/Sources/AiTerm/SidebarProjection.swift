@@ -4,8 +4,8 @@ import AiTermCore
 /// The sidebar's rows, derived once for everyone who reads them: the list draws `entries`, and the
 /// Dock badge, Focus View and List View read `sections`. They are derived again only when what
 /// they are made of changes — the workspace's projects, dividers, tasks and terminals, the tabs as
-/// the rows read them (`LiveSessions.rowSessions`), and the branches and diffs on disk — and each
-/// property is written only when its value differs.
+/// the rows read them (`LiveSessions.rowSessions`), the branches and diffs on disk, and while the board
+/// shows what its tasks' Claude workers run now — and each property is written only when its value differs.
 ///
 /// So what no row draws redraws nothing: a sidebar move or a remembered agent and model is a
 /// change to the workspace, but not to its rows, and a context fill or a spinner title is a session
@@ -63,6 +63,9 @@ final class SidebarProjection {
     private struct Inputs: Equatable {
         var items: [SidebarItem], tasks: [TaskItem], terminals: [TerminalItem]
         var sessions: [SessionInfo]
+        /// What each of the board's tasks' Claude workers runs now, which `sessions` leaves out: read from every tab only
+        /// while the board shows, since nothing else draws it.
+        var liveModels: [UUID: BroadcastBoard.LiveModel]
         var branchByCwd: [String: String], projectBranch: [UUID: String], diffByTask: [UUID: DiffStat]
         var runs: [OperatorRun], acting: OperatorActs, folded: Set<UUID>, boardShown: Bool
     }
@@ -76,16 +79,17 @@ final class SidebarProjection {
     }
 
     /// Derives the rows again if what they are made of changed since they last were. Run by
-    /// whoever changes one of those: the workspace's every change, a change to `rowSessions`, and a
-    /// checkout pass that moved a branch or a diff. Says whether `sections` or the broadcast's group changed:
-    /// what the Dock badge counts.
+    /// whoever changes one of those: the workspace's every change, a change to `rowSessions`, a
+    /// checkout pass that moved a branch or a diff, and while the board shows any session event, which may have
+    /// moved what a worker runs. Says whether `sections` or the broadcast's group changed: what the Dock badge counts.
     @discardableResult
     func refresh() -> Bool {
-        let state = workspace.state
+        let state = workspace.state, shown = boardShown()
+        let liveModels = shown ? state.activeRun.map { BroadcastBoard.liveModels(of: $0, state: state, sessions: live.sessions) } : nil
         let next = Inputs(items: state.items, tasks: state.tasks.map(Self.drawn), terminals: state.terminals, sessions: live.rowSessions,
-                          branchByCwd: checkouts.branchByCwd, projectBranch: checkouts.projectBranch,
+                          liveModels: liveModels ?? [:], branchByCwd: checkouts.branchByCwd, projectBranch: checkouts.projectBranch,
                           diffByTask: checkouts.diffByTask,
-                          runs: state.runs, acting: actingSource(), folded: state.foldedRuns, boardShown: boardShown())
+                          runs: state.runs, acting: actingSource(), folded: state.foldedRuns, boardShown: shown)
         guard next != inputs else { return false }
         let previous = inputs
         inputs = next
@@ -101,7 +105,8 @@ final class SidebarProjection {
         if broadcastChanged { self.broadcast = broadcast }
         let board = !next.boardShown ? nil : state.activeRun.map { run in
             BroadcastBoard.make(run: run, state: state, acting: next.acting,
-                                requests: OperatorRequests.open(run: run, state: state), sessions: next.sessions)
+                                requests: OperatorRequests.open(run: run, state: state), sessions: next.sessions,
+                                liveModels: next.liveModels)
         }
         if board != self.board { self.board = board }
         let entries = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,

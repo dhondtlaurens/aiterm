@@ -178,27 +178,33 @@ tick that sees it back; the model and context return with the next hook or statu
 ## What a Claude worker runs, and what became of a slash command
 
 The model a Claude session reports is the session's own, as Claude Code holds it: `SessionStart`'s
-`model`, `PostModelSwitch`'s `to_model`, and the status line's `model.id`, each written only once a
-switch has happened. A `/model` that asks the person to confirm ("Switch model?") changes none of them
-until it is answered. A post from inside a subagent, which carries `agent_id`, sets nothing, and
-neither does one placed by its directory alone: another agent in the same worktree, a headless review
-there, is not the tab's. Its effort comes from the status line's `effort.level` alone, which Claude
-Code redraws once an `/effort` has run, and leaves out for a model that takes none: a status line that
-names a model and no effort clears the last one's. Its hooks carry an `effort` too, but a Stop's is its
-turn's: an `/effort` typed mid-turn takes effect at once, and that turn's Stop can still name the old
-level. `run_status` shows both beside the model a task was planned on, for Claude workers only: a
-Codex hook may carry a child thread's model.
+`model` as it starts, `PostModelSwitch`'s `to_model` once a switch has happened, and the status line's
+`model.id`, the one it runs now. A `/model` moves them only once it has run, never when it is typed, and
+one that asks the person to confirm ("Switch model?") changes none of them until it is answered. A post
+from inside a subagent, which carries `agent_id`, sets nothing, and neither does one placed by its
+directory alone: another agent in the same worktree, a headless review there, is not the tab's. Its
+effort comes from the status line's `effort.level` alone, which Claude Code redraws once an `/effort`
+has run, and leaves out for a model that takes none: a status line that names a model and no effort
+clears the last one's. Its hooks carry an `effort` too, but a Stop's is its turn's: an `/effort` typed
+mid-turn takes effect at once, and that turn's Stop can still name the old level. `run_status` shows
+both beside the model a task was planned on, for Claude workers only: a Codex hook may carry a child
+thread's model.
 
 What became of a slash command `message_task` delivered to a Claude tab is read from that tab's
 transcript (`slash_commands.py`; `transcript_path` from its own hooks and status line), on every tick,
-from where the transcript ended when the command was typed, a few megabytes a read. Its command record
-(`<command-name>`, a local command's `<local-command-stdout>` after it) says it ran; a `queue-operation`
-`enqueue` holding its text says it is queued, until anything leaves the queue that names it or names
-nothing: a `dequeue`, a `remove`, a `popAll` or `popOne` that takes it back into the input. Nothing seen
-for a minute, or no transcript to read, is unknown, never that it did not run: `/model` and `/effort`
-run at once even mid-turn and then write no record at all, and one waiting on a dialog writes its record
-only once answered. A command is looked for for an hour, then is unknown if it has not run; a tab keeps
-its last three, and the same text typed twice is two commands, each record taken by the older that can.
+from where the transcript ended when the earliest command still looked for was typed, a few megabytes a
+read: a read behind that place skips to it. Its command record (`<command-name>`, a local command's
+`<local-command-stdout>` after it) says it ran; a `queue-operation` `enqueue` holding its text says it
+is queued, until anything leaves the queue that names it or names nothing: a `dequeue`, a `remove`, a
+`popAll` or `popOne` that takes it back into the input. Nothing seen for a minute, or no transcript to
+read, is unknown, never that it did not run: `/model` and `/effort` run at once even mid-turn and then
+write no record at all, and one waiting on a dialog writes its record only once answered. A command is
+looked for for an hour, and only what its transcript records within that hour is its own: past it, one
+that has not run is unknown. A tab keeps its last three, and the same text typed twice is two commands,
+each record taken by the older that can. One queued runs in its turn, the same text queued twice first
+in first out, unless a `remove`, `popAll` or `popOne` named it first: then no run is its own. One never
+seen queued ran at once if at all, so only a run recorded before the next of its text was typed is its
+own.
 
 ## A turn that removes its own checkout
 

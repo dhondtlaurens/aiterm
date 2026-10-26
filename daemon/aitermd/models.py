@@ -175,8 +175,9 @@ class BackgroundJob:
 
 # What a slash command AiTerm typed into a Claude session became, as the session's own transcript shows it
 # (slash_commands.settle): typed and nothing seen yet; queued, its enqueue there and nothing taken from the queue
-# since; ran, its own command record there; or unknown, nothing seen within UNSEEN_SECONDS, or a transcript that
-# cannot be read.
+# since; ran, its own command record there; or unknown: nothing seen within UNSEEN_SECONDS, or a transcript that
+# cannot be read; something taken from the queue since it was queued; or WATCH_SECONDS passed without its run. Until
+# then an unknown command can still become ran.
 SlashState = Literal["delivered", "queued", "ran", "unknown"]
 
 

@@ -148,15 +148,17 @@ import Foundation
 
     // -- a task with extra worker tabs (`open_tab`) ------------------------------------------------
 
-    /// One working task, B, with an extra tab `review` beside its first worker.
+    /// One working task, B, with an extra tab `review` beside its first worker: a Codex on gpt-6-mini, or a Claude on
+    /// sonnet for `tabAgent` `.claude`.
     private func twoTabs(first: SessionState?, review: SessionState?, opening: Bool = false, closed: Bool = false,
-                         prompt: String? = nil, liveModel: String? = nil, liveReasoning: String? = nil, tabModel: String? = nil,
-                         tabReasoning: String? = nil, slashCommands: [SlashCommand] = [],
+                         prompt: String? = nil, tabAgent: AgentKind = .codex, liveModel: String? = nil, liveReasoning: String? = nil,
+                         tabModel: String? = nil, tabReasoning: String? = nil, slashCommands: [SlashCommand] = [],
                          tabSlashCommands: [SlashCommand] = []) throws -> (RunStatus, TaskItem) {
         var b = F.task("B", .working)
-        b.operated?.extraTabs = [ExtraTab(key: "review", agent: .codex, model: "gpt-6-mini", reasoning: nil, modelReason: "Tests.",
+        let planned = tabAgent == .claude ? "sonnet" : "gpt-6-mini"
+        b.operated?.extraTabs = [ExtraTab(key: "review", agent: tabAgent, model: planned, reasoning: nil, modelReason: "Tests.",
                                           brief: "Write the tests.", launch: LaunchAttempt(number: 1, requestedAt: F.epoch))]
-        let tab = TaskLiveFacts.Tab(key: "review", agent: .codex, model: "gpt-6-mini", status: review, opening: opening, closed: closed,
+        let tab = TaskLiveFacts.Tab(key: "review", agent: tabAgent, model: planned, status: review, opening: opening, closed: closed,
                                     waitingPrompt: prompt, liveModel: tabModel, liveReasoning: tabReasoning, slashCommands: tabSlashCommands)
         let facts = TaskLiveFacts(status: first, tabs: [tab], liveModel: liveModel, liveReasoning: liveReasoning, slashCommands: slashCommands)
         let status = try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1, live: [b.id: facts]))
@@ -236,11 +238,12 @@ import Foundation
     /// A task keeps the model it was planned on and adds the one its worker runs now, with its effort, as Claude Code
     /// reported them: a /model the person confirmed shows there, the plan's stays as it was.
     @Test func aTaskLineKeepsItsPlannedModelAndAddsTheLiveOne() throws {
-        let (status, b) = try twoTabs(first: .working, review: .idle, liveModel: "claude-opus-5-5", liveReasoning: "high",
-                                      tabModel: "gpt-6-mini", tabReasoning: "medium")
+        let (status, b) = try twoTabs(first: .working, review: .idle, tabAgent: .claude, liveModel: "claude-opus-5-5",
+                                      liveReasoning: "high", tabModel: "claude-sonnet-5-5", tabReasoning: "medium")
         let line = status.tasks[0]
         #expect(line.model == b.model && line.liveModel == "claude-opus-5-5" && line.liveReasoning == "high")
-        #expect(line.tabs?.map(\.liveModel) == ["claude-opus-5-5", "gpt-6-mini"])
+        #expect(line.tabs?.map(\.model) == [b.model, "sonnet"])
+        #expect(line.tabs?.map(\.liveModel) == ["claude-opus-5-5", "claude-sonnet-5-5"])
         #expect(line.tabs?.map(\.liveReasoning) == ["high", "medium"])
         let json = String(decoding: try status.json(), as: UTF8.self)
         #expect(json.contains(#""liveModel":"claude-opus-5-5","liveReasoning":"high","model":"opus""#))

@@ -190,8 +190,9 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     /// A slash command `message_task` typed into a worker, and what became of it, with its evidence: `delivered`, typed
     /// and nothing of it in its transcript yet; `queued`, Claude Code queued it at `seenAt` and has taken nothing from its
     /// queue since; `ran`, its transcript recorded it run at `seenAt`, with a local command's `output`; `unknown`, nothing of
-    /// it in its transcript within a minute, or no transcript to read. A /model or /effort run mid-turn takes effect and
-    /// writes nothing, so it reads unknown: its line's `liveModel` and `liveReasoning` say what it runs.
+    /// it in its transcript within a minute or no transcript to read, something left its queue after it was queued, or an
+    /// hour passed without its run, and within that hour it can still become `ran`. A /model or /effort run mid-turn
+    /// takes effect and writes nothing, so it reads unknown: its line's `liveModel` and `liveReasoning` say what it runs.
     public struct SlashCommandLine: Encodable, Equatable, Sendable {
         public var text: String, state: SlashCommand.State, deliveredAt: Date, seenAt: Date?, output: String?
         public init(text: String, state: SlashCommand.State, deliveredAt: Date, seenAt: Date? = nil, output: String? = nil) {

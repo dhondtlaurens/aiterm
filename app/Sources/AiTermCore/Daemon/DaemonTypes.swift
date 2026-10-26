@@ -46,8 +46,9 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     public var terminalUUID: UUID? { terminalId.flatMap(UUID.init(uuidString:)) }
     /// What this tab's branch must be resolved from.
     public var effectiveCwd: String { agentCwd ?? cwd }
-    /// The model and effort this tab runs now, as its own Claude Code says them: its SessionStart, its PostModelSwitch
-    /// and its status line, none of them a subagent's, and only once a switch has happened. Nil for any other agent,
+    /// The model and effort this tab runs now, as its own Claude Code says them, never a subagent's: the model from its
+    /// SessionStart as it starts, its PostModelSwitch once a switch has happened and its status line, the effort from its
+    /// status line alone. A /model or /effort moves them once it has run, never when it is typed. Nil for any other agent,
     /// whose hooks may carry a child thread's model, and while Claude hasn't said.
     public var liveModel: String? { agent == .claude ? model : nil }
     public var liveReasoning: String? { agent == .claude ? reasoning : nil }
@@ -88,8 +89,9 @@ extension SessionInfo {
 public struct SlashCommand: Codable, Equatable, Sendable {
     /// `delivered`: typed, nothing of it seen yet. `queued`: Claude Code queued it, and nothing has been taken from the
     /// queue since. `ran`: its own command record is there. `unknown`: nothing of it seen within a minute, or a
-    /// transcript that can't be read; a /model or /effort run mid-turn takes effect and writes nothing. See
-    /// `SessionAgent`'s decoding note: a state this app does not know reads as unknown.
+    /// transcript that can't be read; something taken from the queue since it was queued; or an hour passed without its
+    /// run. Within that hour it can still become `ran`; a /model or /effort run mid-turn takes effect and writes nothing.
+    /// See `SessionAgent`'s decoding note: a state this app does not know reads as unknown.
     public enum State: String, Codable, LenientRawDecodable, Sendable {
         case delivered, queued, ran, unknown
         static var unrecognized: Self { .unknown }

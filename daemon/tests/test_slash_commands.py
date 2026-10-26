@@ -221,6 +221,42 @@ def test_a_command_that_ran_takes_only_its_own_run(tmp_path):
     assert both[0] == first and (both[1].state, both[1].seen_at) == ("ran", pytest.approx(T0 + 20))
 
 
+def test_the_same_text_typed_again_takes_the_run_after_it(tmp_path):
+    # The first /effort high ran mid-turn and wrote nothing; the second, typed five minutes on at the prompt, ran at once:
+    # the run is the second's, on this tick and every one after.
+    first, second = typed("/effort high"), typed("/effort high", T0 + 300)
+    path = tmp_path / "t.jsonl"
+    both = settle((first, second), read(path, ran("effort", "high", T0 + 301), output(EFFORT_OUT, T0 + 301)), T0 + 302)
+    assert [(c.state, c.seen_at, c.output) for c in both] == [("unknown", None, None), ("ran", pytest.approx(T0 + 301), EFFORT_OUT)]
+    assert settle(both, read(path), T0 + 400) == both
+
+
+def test_a_command_that_ran_at_once_leaves_the_queue_to_the_next_of_its_text(tmp_path):
+    first, second = typed("/compact"), typed("/compact", T0 + 10)
+    records = read(tmp_path / "t.jsonl", prompted("compact", T0 + 1), queue("enqueue", T0 + 11, "/compact"),
+                   queue("dequeue", T0 + 50), prompted("compact", T0 + 50.05))
+    assert [(c.state, c.seen_at) for c in settle((first, second), records, T0 + 51)] == [
+        ("ran", pytest.approx(T0 + 1)), ("ran", pytest.approx(T0 + 50.05))]
+
+
+def test_a_command_taken_back_from_the_queue_takes_no_later_run(tmp_path):
+    # Taken back into the input to be edited, it did not run from the queue: a /compact run since is another's, five
+    # minutes on or seventy.
+    path = tmp_path / "t.jsonl"
+    popped = settled(typed("/compact"), read(path, queue("enqueue", T0 + 1, "/compact"), queue("popOne", T0 + 40, "/compact")), T0 + 41)
+    assert popped.state == "unknown"
+    assert settled(popped, read(path, prompted("compact", T0 + 300)), T0 + 301).state == "unknown"
+    assert settled(popped, read(path, prompted("compact", T0 + 70 * 60)), T0 + 70 * 60 + 1).state == "unknown"
+
+
+def test_no_run_an_hour_after_a_command_was_typed_is_its_own(tmp_path):
+    late = read(tmp_path / "t.jsonl", ran("effort", "high", T0 + WATCH_SECONDS + 100))
+    assert settled(typed("/effort high"), late, T0 + WATCH_SECONDS + 101).state == "unknown"
+    queued = read(tmp_path / "u.jsonl", queue("enqueue", T0 + 1, "/compact"), queue("dequeue", T0 + WATCH_SECONDS + 100),
+                  prompted("compact", T0 + WATCH_SECONDS + 100.05))
+    assert settled(typed("/compact"), queued, T0 + WATCH_SECONDS + 101).state == "unknown"
+
+
 def test_a_command_that_ran_stays_as_it_ran(tmp_path):
     done = settled(typed("/effort high"), read(tmp_path / "t.jsonl", ran("effort", "high", T0 + 1), output(EFFORT_OUT, T0 + 1)), T0 + 2)
     assert settled(done, (), T0 + 3600) == done
@@ -266,6 +302,32 @@ def test_a_long_transcript_is_read_a_piece_at_a_time(tmp_path, monkeypatch):
     reader = TranscriptReader()
     reads = [[r.kind for r in reader.read_all({str(path): 0})[str(path)]] for _ in range(8)]
     assert reads[0] == [] and reads[-1] == ["enqueue", "command"]
+
+
+def test_a_reader_behind_where_its_commands_were_typed_reads_on_from_there(tmp_path, monkeypatch):
+    monkeypatch.setattr(slash_commands, "READ_BYTES", 400)
+    path = tmp_path / "t.jsonl"
+    write(path, queue("enqueue", T0 + 1, "/probe"), *[ASSISTANT] * 6)
+    start = path.stat().st_size
+    write(path, prompted("probe", T0 + 2))
+    reader = TranscriptReader()
+    assert [r.kind for r in reader.read_all({str(path): 0})[str(path)]] == ["enqueue"]
+    # The command typed at its start is followed no more, and the one left was typed past what was read: what came
+    # before it is no command's, so it is not read at all.
+    assert [r.kind for r in reader.read_all({str(path): start})[str(path)]] == ["command"]
+
+
+def test_a_transcript_shorter_than_where_its_command_was_typed_is_read_on_from_its_start(tmp_path):
+    # Another file than the one the command was typed into: read from its start, and on from there once it grows past
+    # where the command was typed.
+    path = tmp_path / "t.jsonl"
+    start = 10_000
+    reader = TranscriptReader()
+    write(path, queue("enqueue", T0 + 1, "/probe"))
+    assert [r.kind for r in reader.read_all({str(path): start})[str(path)]] == ["enqueue"]
+    write(path, *[ASSISTANT] * 50, prompted("probe", T0 + 2))
+    assert path.stat().st_size > start
+    assert [r.kind for r in reader.read_all({str(path): start})[str(path)]] == ["enqueue", "command"]
 
 
 def test_a_rewritten_transcript_is_read_again_from_its_start(tmp_path):
