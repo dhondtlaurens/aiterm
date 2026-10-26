@@ -15,7 +15,7 @@ public enum OperatorTiming {
     public static let wakeCoalesce: TimeInterval = 3
     /// Sessions and branches are reconciled this often, and on every reconnect (spec §7.3).
     public static let reconcileInterval: TimeInterval = 60
-    /// App only: minimum gap between reconcile reads and event reads of an open prompt question.
+    /// App only: minimum gap between reconcile and event reads, except when a prompt leaves needs-input.
     public static let promptProbeInterval: TimeInterval = 10
     /// App only: let a delivered command draw its dialog before the second screen read.
     public static let promptAfterMessageDelay: TimeInterval = 1.5

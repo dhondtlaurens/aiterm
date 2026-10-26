@@ -45,6 +45,9 @@ class Harness:
     menu_prompt: tuple[str, ...] = ()
     # Menus without a known footer select consecutive numbered options outside the ruled input frame.
     numbered_menus: bool = False
+    # Footers of the ruled input frame and the transcript-only view, which has no input box.
+    input_footer: tuple[str, ...] = ()
+    transcript_view: tuple[str, ...] = ()
     # Text that marks the CLI's update offer, every one of them needed: the one startup dialog AiTerm
     # answers itself, declining it with Esc (session.dismissStartup, spec §7.1). A folder's trust is
     # yours to give: no harness marks it here.
@@ -65,7 +68,9 @@ HARNESSES: tuple[Harness, ...] = (
             permission_prompt=("Do you want to proceed?",), menu_prompt=("Enter to select", "Esc to cancel"),
             # The trust dialog, by the same words as `trust_prompt`.
             startup_prompt=CLAUDE_TRUST_PROMPT,
-            input_box=("❯",), numbered_menus=True),
+            input_box=("❯",), numbered_menus=True,
+            input_footer=("? for shortcuts", "shift+tab", "accept edits on"),
+            transcript_view=("Showing detailed transcript · ctrl+o to toggle",)),
     # `Stop` over MCP; the other hooks are spawned curl.
     Harness("codex", "/hook/codex", corroboration="codex_title", reports_usage=True,
             permission_prompt=("Would you like to run the following command?",),

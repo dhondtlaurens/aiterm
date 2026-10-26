@@ -370,11 +370,17 @@ wires the modules below to them, registers every RPC handler and runs the 2 s ti
 | `interface.setMatchItermBackground` | paint AiTerm windows #1E1E1E |
 | `iterm.provideCookie` | the answer to `iterm.cookieRequested`: a cookie and key, "not running", or why iTerm2 refused. An answer to a request that has timed out or been answered is not accepted |
 | `session.deliver` | types a message into an agent's tab by the delivery adapter's rules: refused unless the CLI passed the delivery check (`delivery-policy.json`) for the major and minor version the tab runs (`verdict_covers`: a pass for 2.1.301 holds for every 2.1.x; Claude's session file, Codex's rollout), its screen reads and no prompt is open; a bracketed paste, 0.4 s, the same checks again, then Enter — anything changed in between, a takeover among it, holds the Enter back and answers `partial`. Over 2000 characters it is left in `<worktree>/.aiterm/messages/<n>.md`, everything checked again, and one fixed line typed. With `wake`, the Operator's wake line: no pass from the delivery check needed, every other check kept, never a message file, a text with a digit or a one-letter word refused; and refused while you typed in that tab in the last 10 s, or while its input may hold text not yet sent. The reply's `code` names a refusal's reason in one word (`delivery.RefusalCode`) |
-| `session.prompt` | the prompt the tab's screen shows open: `permission`, `startup`, `menu` or none; Claude’s last selection arrow on a numbered option, next to its preceding or following option, outside the ruled input frame and with no later input arrow, is a menu even without a known footer (including model and effort confirmations); Codex uses its markers, and a blank screen is an error |
-| `session.dismissStartup` | declines the CLI's update offer with Esc when the screen shows one — Codex's, by its own options; any other startup dialog, a folder's trust above all, is left for you: `{dismissed: false}` |
+| `session.prompt` | the prompt the tab's screen shows open: `permission`, `startup`, `menu` or none; a blank screen is an error. Recognition rules are below this table |
+| `session.dismissStartup` | declines the CLI's update offer with Esc only while its tab is not working and its update options appear below any input arrow; other startup dialogs remain yours to answer: `{dismissed: false}` |
 | `session.setOwnership` | a task's ownership generation, which a takeover increments: a send begun under an older one is refused, and a generation is never lowered. In memory only; the app sets each again after a daemon restart |
 | `operator.register` / `operator.revoke` | open and close `/operator` to a broadcast's token. The app also writes each run's `operators/runs/<run-id>/token` (0600), which the daemon loads at start and rereads for a token it does not know, so a daemon restart costs the operator nothing; revoke also deletes that file |
 | `operator.reply` | the app's answer to an `operator.request`: its result, or the error the operator is told. One the daemon no longer waits for is dropped |
+
+`session.prompt` recognises Claude's last selection arrow on a numbered option next to its preceding
+or following option, outside the ruled input frame, even without a known footer (including model
+and effort confirmations). Indented wraps, descriptions and blank separators are allowed. A later
+input arrow or the ctrl+o detailed-transcript view rules out a numbered menu. Codex uses its markers.
+For tabs not in needs-input, markers above a later input arrow belong to the transcript.
 
 `iterm.status`, `sessions.list` and `usage.get` are still served, for `python -m aitermd ctl`.
 Malformed parameters are answered with `bad_params`, an iTerm2 call that fails or runs out of

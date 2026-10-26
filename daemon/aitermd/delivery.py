@@ -44,33 +44,49 @@ PromptKind = Literal["permission", "startup", "menu"]
 
 
 
-def open_prompt(agent: AgentKind, screen: str) -> PromptKind | None:
+def open_prompt(agent: AgentKind, screen: str, *, needs_input: bool = True) -> PromptKind | None:
     """The prompt open on `screen`, by the harness's markers or numbered menus. The last arrow
     must select an option next to its neighbour, outside the input frame. A later input arrow
     rules that out; sent numbered messages use the same arrow. An unsupported harness shows
-    none, which proves nothing: delivery stays off."""
+    none, which proves nothing: delivery stays off. Without a needs-input hook, markers above
+    a later input arrow are transcript text."""
     if (harness := HARNESS_BY_AGENT.get(agent)) is None:
         return None
-    if shows(screen, harness.permission_prompt):
+    if _shows_transcript(harness, screen):
+        return None
+    markers = screen if needs_input else _below_input(harness, screen)
+    if shows(markers, harness.permission_prompt):
         return "permission"
-    if shows(screen, harness.startup_prompt):
+    if shows(markers, harness.startup_prompt):
         return "startup"
-    if shows(screen, harness.menu_prompt):
+    if shows(markers, harness.menu_prompt):
         return "menu"
     if harness.numbered_menus and (arrows := _arrow_lines(harness, screen)):
         index, text = arrows[-1]
         lines = screen.splitlines()
-        if (option := _OPTION.match(text)) and not _in_input_frame(lines, index):
-            for offset in (-1, 1):
-                neighbour = index + offset
-                if 0 <= neighbour < len(lines) and (other := _OPTION.match(lines[neighbour])):
-                    if int(other[1]) == int(option[1]) + offset:
-                        return "menu"
+        if (option := _OPTION.match(text)) and not _in_input_frame(harness, lines, index):
+            if any(_neighbour_option(lines, index, offset) == int(option[1]) + offset for offset in (-1, 1)):
+                return "menu"
     return None
 
 
-# A menu's numbered option, as it follows the selection arrow: `› 1. Review hooks`.
+# A numbered option or draft line, with its arrow (if any) already removed.
 _OPTION = re.compile(r"\s*(\d+)\.\s")
+_RULE = re.compile(r"─{4,}")
+
+
+def _neighbour_option(lines: list[str], index: int, direction: int) -> int | None:
+    """The adjacent option, across blank lines or indented wraps and descriptions."""
+    indent = len(lines[index]) - len(lines[index].lstrip())
+    neighbour = index + direction
+    while 0 <= neighbour < len(lines):
+        line = lines[neighbour]
+        if option := _OPTION.match(line):
+            return int(option[1])
+        if line.strip() and len(line) - len(line.lstrip()) <= indent + 2:
+            break
+        neighbour += direction
+    return None
 
 
 def _arrow_lines(harness: Harness, screen: str) -> list[tuple[int, str]]:
@@ -81,23 +97,45 @@ def _arrow_lines(harness: Harness, screen: str) -> list[tuple[int, str]]:
             if (text := line.lstrip()) and text[:1] in harness.input_box]
 
 
-def _in_input_frame(lines: list[str], index: int) -> bool:
+def _shows_transcript(harness: Harness, screen: str) -> bool:
+    """The transcript footer is below every arrow, not quoted above a live input or menu."""
+    arrows = _arrow_lines(harness, screen)
+    lines = screen.splitlines()
+    if any(_in_input_frame(harness, lines, index) for index, _ in arrows):
+        return False
+    start = arrows[-1][0] + 1 if arrows else 0
+    return shows("\n".join(lines[start:]), harness.transcript_view)
+
+
+def _in_input_frame(harness: Harness, lines: list[str], index: int) -> bool:
     """Claude's inline draft, between rules and above its shortcuts or mode footer (2.1.310)."""
-    if index == 0 or not re.fullmatch(r"─{4,}", lines[index - 1].strip()):
+    if index == 0 or not _RULE.fullmatch(lines[index - 1].strip()):
         return False
     for end in range(index + 1, len(lines)):
-        if re.fullmatch(r"─{4,}", lines[end].strip()):
-            return shows("\n".join(lines[end + 1:]), ("? for shortcuts", "shift+tab", "accept edits on"))
+        if _RULE.fullmatch(lines[end].strip()):
+            return shows("\n".join(lines[end + 1:]), harness.input_footer)
     return False
 
 
 def shows_input_box(agent: AgentKind, screen: str) -> bool:
-    """The CLI's own input arrow: a numbered option is not enough unless it sits in Claude's
-    ruled input frame above its footer. Unsupported harnesses show no input box."""
+    """Positive evidence of the CLI's own screen, idle or working, rather than a blank or crashed
+    shell. A menu uses the same arrow, so a numbered line counts only inside the ruled input frame.
+    Transcript views and unsupported harnesses show no input box."""
     if (harness := HARNESS_BY_AGENT.get(agent)) is None:
         return False
-    return any(not _OPTION.match(text) or (harness.numbered_menus and _in_input_frame(screen.splitlines(), index))
+    if _shows_transcript(harness, screen):
+        return False
+    return any(not _OPTION.match(text) or (harness.numbered_menus and _in_input_frame(harness, screen.splitlines(), index))
                for index, text in _arrow_lines(harness, screen))
+
+
+def _below_input(harness: Harness, screen: str) -> str:
+    """Markers above the last input arrow belong to the transcript, not an unannounced dialog."""
+    lines = screen.splitlines()
+    for index, text in reversed(_arrow_lines(harness, screen)):
+        if not _OPTION.match(text) or _in_input_frame(harness, lines, index):
+            return "\n".join(lines[index:])
+    return screen
 
 
 # How AiTerm may type into one CLI, from the delivery check it last passed (tools/delivery_check.py):
@@ -183,9 +221,14 @@ def shows_update_offer(agent: AgentKind, screen: str) -> bool:
     """Whether `screen` shows the CLI's update offer: a startup dialog (open_prompt) that bears every
     one of the harness's update markers. Never a folder's trust dialog, which has other words."""
     harness = HARNESS_BY_AGENT.get(agent)
-    if harness is None or not harness.update_prompt or open_prompt(agent, screen) != "startup":
+    if harness is None or not harness.update_prompt or open_prompt(agent, screen, needs_input=False) != "startup":
         return False
-    return all(shows(screen, (phrase,)) for phrase in harness.update_prompt)
+    # A numbered Codex draft has the same arrow as a menu option. No arrow may sit below all
+    # the update words; selecting the last update option itself still leaves its words on that line.
+    if arrows := _arrow_lines(harness, screen):
+        if not shows("\n".join(screen.splitlines()[arrows[-1][0]:]), harness.update_prompt):
+            return False
+    return all(shows(_below_input(harness, screen), (phrase,)) for phrase in harness.update_prompt)
 
 
 # Bracketed paste: what a terminal wraps pasted text in, so the CLI reads it as text, not keys. A
@@ -496,20 +539,23 @@ class Deliverer:
             raise KeyError(session_id)
         if not screen.strip():
             raise ItermUnavailable("the screen came back empty, so whether a prompt is open is unknown")
-        return open_prompt(session.agent, screen)
+        return open_prompt(session.agent, screen, needs_input=session.state == "needsInput")
 
     async def dismiss_startup(self, session_id: str) -> bool:
         """Declines the CLI's update offer with Esc (session.dismissStartup): AiTerm always declines one
         itself (spec §7.1), so a task's agent is not left waiting on it. Sent only while the screen,
-        read within the session's turn, shows that offer by every one of its markers: any other
+        read within the session's turn, shows that offer below any input arrow and the tab is not
+        working. It must bear every update marker: any other
         startup dialog -- a folder's trust above all -- is yours to answer, and is left open. True
         when Esc was sent. KeyError for a session not open."""
-        if (session := self.registry.get(session_id)) is None:
+        if self.registry.get(session_id) is None:
             raise KeyError(session_id)
         async with self._turn(session_id):
             if (screen := await self.iterm.screen_text(session_id)) is None:
                 raise KeyError(session_id)
-            if not shows_update_offer(session.agent, screen):
+            if (current := self.registry.get(session_id)) is None:
+                raise KeyError(session_id)
+            if current.state == "working" or not shows_update_offer(current.agent, screen):
                 return False
             await self.iterm.send_text(session_id, ESC)
             return True

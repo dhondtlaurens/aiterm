@@ -63,8 +63,8 @@ CLAUDE_NUMBERED_PASTE = """\
 """
 CLAUDE_NUMBERED_DRAFT = """\
 ────────────────────────────────────────────────────────────────────────────────
-❯ 1. Fix X
-  2. Fix Y
+❯ 1. Fix the failing test
+  2. Keep the existing behaviour
 ────────────────────────────────────────────────────────────────────────────────
   ⏵⏵ auto mode on (shift+tab to cycle)
 """
@@ -143,7 +143,9 @@ UNRECOGNISED = "zsh: command not found: claude\nlaurens@mac ~/wt % "
     ("claude", "❯ 1. Reply with only OK. Do not use tools.\n⏺ OK\n" + IDLE, None),
     ("claude", "────────────────\n❯ 1. This is an unsent numbered message\n────────────────", None),
     ("claude", CLAUDE_EFFORT + IDLE, None),
-    ("claude", "❯ 1. First\n\n  2. Second", None),
+    ("claude", "❯ 1. First\n\n  2. Second", "menu"),
+    ("claude", "❯ 1. A long option that wraps\n     onto another line\n  2. Cancel", "menu"),
+    ("claude", "  1. First\n     A description of the first option\n❯ 2. Cancel", "menu"),
     ("claude", "❯ 1. First\n  3. Third", None),
     ("claude", "❯ 1. First\n  2. Second\n❯ another input", None),
     ("claude", "text then ❯ 1. quoted option", None),
@@ -940,3 +942,86 @@ async def test_a_numbered_paste_in_the_input_frame_gets_its_enter(rig):
     result = await rig.deliverer.deliver(rig.sid, "1. Fix X\n2. Fix Y", 1)
     assert result.result == "delivered"
     assert rig.iterm.sent == [(rig.sid, pasted("1. Fix X\n2. Fix Y")), (rig.sid, "\r")]
+
+
+@pytest.mark.parametrize("state", ["idle", "working", "done"])
+async def test_a_quoted_permission_above_the_input_is_not_an_unannounced_prompt(rig, state):
+    rig.registry.set_state(rig.sid, state)
+    rig.iterm.screens[rig.sid] = '⏺ The dialog says "Do you want to proceed?"\n' + IDLE
+    assert await rig.deliverer.prompt(rig.sid) is None
+
+
+@pytest.mark.parametrize("state", ["idle", "working"])
+async def test_update_words_above_codex_input_never_send_escape(rig, state):
+    await _now_codex(rig)
+    rig.registry.set_state(rig.sid, state)
+    rig.iterm.screens[rig.sid] = '• Read models.py\n  update_prompt=("Update now", "Skip until next version"),\n' + CODEX_WORKING
+    assert await rig.deliverer.prompt(rig.sid) is None
+    assert await rig.deliverer.dismiss_startup(rig.sid) is False
+    assert rig.iterm.sent == []
+
+
+async def test_even_an_update_dialog_is_not_declined_while_codex_is_working(rig):
+    await _now_codex(rig)
+    rig.registry.set_state(rig.sid, "working")
+    rig.iterm.screens[rig.sid] = CODEX_UPDATE
+    assert await rig.deliverer.dismiss_startup(rig.sid) is False
+    assert rig.iterm.sent == []
+
+
+def test_sent_numbered_text_in_claudes_transcript_view_is_not_a_menu():
+    screen = "❯ 1. Fix X\n  2. Fix Y\n⏺ OK\nShowing detailed transcript · ctrl+o to toggle · ? for shortcuts"
+    assert open_prompt("claude", screen) is None
+    assert not shows_input_box("claude", screen)
+
+
+async def test_an_announced_prompt_keeps_its_marker_even_with_input_below(rig):
+    rig.registry.set_state(rig.sid, "needsInput")
+    rig.iterm.screens[rig.sid] = CLAUDE_PERMISSION + IDLE
+    assert await rig.deliverer.prompt(rig.sid) == "permission"
+
+
+async def test_update_dismissal_rechecks_working_after_reading_the_screen(rig):
+    await _now_codex(rig)
+    rig.iterm.screens[rig.sid] = CODEX_UPDATE
+    read = rig.iterm.screen_text
+
+    async def starts_working(session_id):
+        screen = await read(session_id)
+        rig.registry.set_state(session_id, "working")
+        return screen
+
+    rig.iterm.screen_text = starts_working
+    assert await rig.deliverer.dismiss_startup(rig.sid) is False
+    assert rig.iterm.sent == []
+
+
+@pytest.mark.parametrize("screen,expected,input_box", [
+    (IDLE, None, True),
+    (CLAUDE_EFFORT, "menu", False),
+])
+def test_a_quoted_transcript_footer_above_live_input_or_a_menu_is_not_transcript_view(screen, expected, input_box):
+    screen = '⏺ transcript_view=("Showing detailed transcript · ctrl+o to toggle",)\n' + screen
+    assert open_prompt("claude", screen, needs_input=False) == expected
+    assert shows_input_box("claude", screen) == input_box
+
+
+async def test_update_words_above_a_numbered_codex_draft_never_send_escape(rig):
+    await _now_codex(rig)
+    rig.iterm.screens[rig.sid] = '• Read models.py\n  update_prompt=("Update now", "Skip until next version"),\n› 1. A numbered draft'
+    assert await rig.deliverer.dismiss_startup(rig.sid) is False
+    assert rig.iterm.sent == []
+
+
+def test_the_update_offer_can_select_its_last_option():
+    screen = CODEX_UPDATE.replace("› 1.", "  1.").replace("  3.", "› 3.")
+    assert delivery.shows_update_offer("codex", screen)
+
+
+async def test_a_transcript_footer_quoted_in_a_multiline_draft_gets_its_enter(rig):
+    screen = CLAUDE_NUMBERED_PASTE.replace("2. Fix Y", "2. Handle Showing detailed transcript · ctrl+o to toggle")
+    assert open_prompt("claude", screen) is None
+    assert shows_input_box("claude", screen)
+    rig.pauses.during.append(lambda: rig.iterm.screens.__setitem__(rig.sid, screen))
+    result = await rig.deliverer.deliver(rig.sid, "1. Fix X\n2. Handle Showing detailed transcript · ctrl+o to toggle", 1)
+    assert result.result == "delivered"

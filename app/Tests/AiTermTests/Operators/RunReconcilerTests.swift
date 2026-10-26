@@ -243,7 +243,6 @@ import Testing
         #expect(world.notifications.posted.last?.target == .task(task.id))
         #expect(world.notifications.posted.last?.body == "Codex asks for permission in Task PLUTO-4.")
         #expect(world.notifications.withdrawn.isEmpty)
-        clock.advance(by: OperatorTiming.promptProbeInterval)
         world.daemon.prompts["w1"] = nil
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .codex, state: .working)])
         await world.controller.lastProbe?.value
@@ -572,7 +571,7 @@ import Testing
         #expect(world.run(run.id)?.state == .operatorOffline)
     }
 
-    @Test(arguments: [OperatedState.accepted, .stopped, .inReview, .published])
+    @Test(arguments: [OperatedState.accepted, .stopped, .published])
     func tasksThatAreNotWorkingAreNotProbed(state: OperatedState) async throws {
         let project = OperatorServiceFixtures.project()
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
@@ -585,7 +584,7 @@ import Testing
         #expect(world.daemon.requests("session.prompt").isEmpty)
     }
 
-    @Test(arguments: [OperatorRunState.complete, .stopped, .paused])
+    @Test(arguments: [OperatorRunState.complete, .stopped])
     func workersInInactiveBroadcastsAreNotProbed(state: OperatorRunState) async throws {
         let project = OperatorServiceFixtures.project()
         let run = OperatorServiceFixtures.run(projects: [project], state: state, planRevision: 1)
@@ -595,6 +594,95 @@ import Testing
         world.controller.reconcileTick()
         await world.controller.lastProbe?.value
         #expect(world.daemon.requests("session.prompt").isEmpty)
+    }
+
+    @Test(arguments: [OperatedState.working, .blocked, .inReview],
+          [OperatorRunState.active, .paused, .operatorOffline])
+    func announcedAndDeliveredPromptsAreProbedOnSteerableTasks(taskState: OperatedState, runState: OperatorRunState) async throws {
+        for source in [OperatorController.PromptProbe.event, .delivery] {
+            let project = OperatorServiceFixtures.project()
+            var run = OperatorServiceFixtures.run(projects: [project], state: runState)
+            if runState == .paused { run.intent = .paused }
+            let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: taskState, worktree: "/tmp/aiterm-wt")
+            let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+            world.daemon.prompts["w1"] = .permission
+            world.live.sessions = [OperatorServiceFixtures.session("w1", tag: task.id, state: source == .event ? .needsInput : .working)]
+            world.controller.probePrompt(task.id, source: source)
+            await world.controller.lastProbe?.value
+            #expect(world.run(run.id)?.questions.count == 1)
+            #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
+            #expect(world.notifications.posted.contains { $0.target == .task(task.id) && $0.body.contains("asks for permission") })
+        }
+    }
+
+    @Test(arguments: [OperatedState.working, .blocked, .inReview],
+          [OperatorRunState.active, .paused, .operatorOffline])
+    func unannouncedMenusAreOnlyDiscoveredOnWorkingTasksInActiveBroadcasts(taskState: OperatedState, runState: OperatorRunState) async throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(projects: [project], state: runState)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: taskState, worktree: "/tmp/aiterm-wt")
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        world.daemon.prompts["w1"] = .menu
+        world.live.sessions = [OperatorServiceFixtures.session("w1", tag: task.id, state: .working)]
+        world.controller.probePrompt(task.id, source: .reconcile)
+        await world.controller.lastProbe?.value
+        let expected = taskState == .working && runState == .active ? 1 : 0
+        #expect(world.daemon.requests("session.prompt").count == expected)
+        #expect(world.run(run.id)?.questions.count == expected)
+    }
+
+    @Test func aNeedsInputTabWithoutAQuestionHasTheSameReadGap() async throws {
+        let (world, _, task) = try OperatorServiceFixtures.oneWorkingTask { [clock] ports in ports.now = { clock.now } }
+        world.live.sessions[0].state = .needsInput
+        world.daemon.failing["session.prompt"] = .itermUnavailable
+        for _ in 0..<5 {
+            world.controller.probePrompt(task.id)
+            await world.controller.lastProbe?.value
+            clock.advance(by: 2)
+        }
+        #expect(world.daemon.requests("session.prompt").count == 1)
+        world.controller.probePrompt(task.id)
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").count == 2)
+    }
+
+    @Test func aPromptThatEntersAndLeavesNeedsInputWithinTheGapResolvesAtOnce() async throws {
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask()
+        world.daemon.prompts["worker"] = .menu
+        world.controller.probePrompt(task.id, source: .reconcile)
+        await world.controller.lastProbe?.value
+        world.live.sessions[0].state = .needsInput
+        world.controller.probePrompt(task.id)
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").count == 1)
+        world.daemon.prompts["worker"] = nil
+        world.live.sessions[0].state = .working
+        world.controller.probePrompt(task.id)
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").count == 2)
+        #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
+    }
+
+    @Test func leavingNeedsInputDuringAReadStillResolvesWithoutAnotherEvent() async throws {
+        let daemon = RecordingDaemon(holding: "session.prompt")
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask(daemon)
+        world.workspace.mutate { state in
+            state.updateRun(id: run.id) {
+                $0.questions = [OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Claude asks for permission", task: task.id, askedAt: clock.now)]
+            }
+            state.updateOperated(task.id) { $0.flags.insert(.waitingOnYou) }
+        }
+        world.live.sessions[0].state = .needsInput
+        world.controller.probePrompt(task.id)
+        try await daemon.received("session.prompt")
+        world.live.sessions[0].state = .working
+        world.controller.probePrompt(task.id)
+        daemon.release()
+        await world.controller.lastProbe?.value
+        #expect(await eventually(describing: "answered prompt resolved after stale read") {
+            world.run(run.id)?.questions.last?.resolution != nil
+        })
+        #expect(daemon.requests("session.prompt").count == 2)
     }
 
     @Test func quietScreensAreProbedOnTicksWithAGapInsteadOfEveryEvent() async throws {
@@ -751,7 +839,7 @@ import Testing
         #expect(snapshot.tasks.first?.live == nil)
     }
 
-    /// A prompt read that fails because the helper is gone records nothing; the next pass asks again.
+    /// A failed read records nothing and can be tried again once its polling gap has elapsed.
     @Test func aPromptReadThatFailsRecordsNoQuestionAndIsAskedAgain() async throws {
         let project = OperatorServiceFixtures.project()
         let run = OperatorServiceFixtures.run(projects: [project], state: .active)
@@ -763,6 +851,7 @@ import Testing
         await world.controller.lastProbe?.value
         #expect(world.run(run.id)?.questions.isEmpty == true && world.notifications.posted.isEmpty)
         world.daemon.failing = [:]
+        clock.advance(by: OperatorTiming.promptProbeInterval)
         world.controller.probePrompts()
         await world.controller.lastProbe?.value
         #expect(world.run(run.id)?.questions.last?.text == "Codex asks for permission")
