@@ -105,6 +105,7 @@ import Testing
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-5", state: .working, worktree: "/tmp/aiterm-wt")
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
         task.operated?.runtimeUsed = 89 * 60
+        task.operated?.totalRuntimeUsed = 120 * 60
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         let tabs = [OperatorServiceFixtures.session("op", tag: run.id),
                     OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .working)]
@@ -125,10 +126,11 @@ import Testing
         restarted.show(tabs)
         restarted.controller.reconcileTick()
         #expect(restarted.task(task.id)?.operated?.runtimeUsed == 89 * 60 + 30.0)
+        #expect(restarted.task(task.id)?.operated?.totalRuntimeUsed == 120 * 60 + 30.0)
         clock.advance(by: 31)
         restarted.controller.reconcileTick()
         let blocked = try #require(restarted.task(task.id)?.operated)
-        #expect(blocked.state == .blocked && blocked.blockedReason == "Worked its 90 minutes without finishing.")
+        #expect(blocked.state == .blocked && blocked.blockedReason == "Worked 90 minutes without a new commit.")
         #expect(restarted.notifications.posted.last?.target == .board(run.id))
     }
 
@@ -416,16 +418,18 @@ import Testing
     // -- fix round 1 --------------------------------------------------------------------------
 
     /// Spec §8: you resolve a runtime block by resuming, and the task gets a fresh allowance — left with the
-    /// time it used, the next pass would block it again. A block for another reason keeps its runtime.
-    @Test func aTaskBlockedForItsRuntimeIsResumedWithAFreshAllowanceAndOneBlockedForAnotherReasonKeepsItsTime() throws {
+    /// time it used, the next pass would block it again. A block for another reason also resets its runtime.
+    @Test func resumingBlockedTasksRestartsTheirRuntime() throws {
         let project = OperatorServiceFixtures.project()
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var spent = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-20", state: .working, worktree: "/tmp/aiterm-wt")
         spent.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
         spent.operated?.runtimeUsed = 90 * 60
+        spent.operated?.totalRuntimeUsed = 180 * 60
         var partway = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-21", state: .working, worktree: "/tmp/aiterm-wt2")
         partway.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
         partway.operated?.runtimeUsed = 30 * 60
+        partway.operated?.totalRuntimeUsed = 120 * 60
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [spent, partway]))
         world.show([OperatorServiceFixtures.session("op", tag: run.id),
                     OperatorServiceFixtures.session("w1", window: "w9", tag: spent.id, state: .working),
@@ -441,8 +445,8 @@ import Testing
         world.controller.reconcileTick()
         let resumed = try #require(world.task(spent.id)?.operated)
         #expect(resumed.state == .working && resumed.runtimeUsed == 30, "a fresh 90 minutes, counted from its resume")
-        let kept = try #require(world.task(partway.id)?.operated)
-        #expect(kept.state == .working && kept.runtimeUsed == 30 * 60 + 30)
+        #expect(resumed.totalRuntimeUsed == 30 && world.task(partway.id)?.operated?.totalRuntimeUsed == 30)
+        #expect(world.task(partway.id)?.operated?.state == .working && world.task(partway.id)?.operated?.runtimeUsed == 30)
     }
 
     /// Only a busy worker's time counts: one idle at its prompt, its turn over, waits for review or acceptance, and
@@ -631,6 +635,62 @@ import Testing
         #expect(world.run(run.id)?.questions.count == expected)
     }
 
+    @Test func enteringNeedsInputAfterADeliveryReadsWithoutATick() async throws {
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask { [clock] ports in ports.now = { clock.now } }
+        _ = await world.call(run.id, "message_task", ["task": "A", "text": "Continue"])
+        try await world.daemon.received("session.prompt")
+        await world.controller.lastProbe?.value
+        #expect(world.run(run.id)?.questions.isEmpty == true)
+        clock.advance(by: 3)
+        world.daemon.prompts["worker"] = .permission
+        world.live.sessions[0].state = .needsInput
+        world.show(world.live.sessions)
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").count == 2)
+        #expect(world.run(run.id)?.questions.count == 1)
+        #expect(world.notifications.posted.contains { $0.target == .task(task.id) && $0.body.contains("asks for permission") })
+    }
+
+    @Test(arguments: [false, true])
+    func enteringNeedsInputDuringAReadReadsAgainWithoutATick(readFails: Bool) async throws {
+        let daemon = RecordingDaemon(holding: "session.prompt")
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask(daemon)
+        if readFails {
+            daemon.failing["session.prompt"] = .itermUnavailable
+            daemon.onRequest = { [weak daemon] method in
+                if method == "session.prompt", daemon?.requests(method).count == 2 { daemon?.failing[method] = nil }
+            }
+        }
+        world.controller.probePrompt(task.id, source: .delivery)
+        try await daemon.received("session.prompt")
+        world.live.sessions[0].state = .needsInput
+        world.show(world.live.sessions)
+        daemon.prompts["worker"] = .permission
+        daemon.release()
+        #expect(await eventually(describing: "new prompt recorded after stale read") {
+            world.run(run.id)?.questions.count == 1
+        })
+        #expect(daemon.requests("session.prompt").count == 2)
+    }
+
+    @Test(arguments: [false, true])
+    func aStopIntentPreventsNewPromptQuestions(duringRead: Bool) async throws {
+        let daemon = RecordingDaemon(holding: "session.prompt")
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask(daemon)
+        daemon.prompts["worker"] = .permission
+        world.live.sessions[0].state = .needsInput
+        if duringRead {
+            world.controller.probePrompt(task.id)
+            try await daemon.received("session.prompt")
+        }
+        world.workspace.mutate { state in state.updateRun(id: run.id) { $0.intent = .stopped } }
+        world.controller.probePrompt(task.id, source: .delivery)
+        daemon.release()
+        await world.controller.lastProbe?.value
+        #expect(world.run(run.id)?.questions.isEmpty == true)
+        #expect(!world.notifications.posted.contains { $0.body.contains("asks for permission") })
+    }
+
     @Test func aNeedsInputTabWithoutAQuestionHasTheSameReadGap() async throws {
         let (world, _, task) = try OperatorServiceFixtures.oneWorkingTask { [clock] ports in ports.now = { clock.now } }
         world.live.sessions[0].state = .needsInput
@@ -654,12 +714,12 @@ import Testing
         world.live.sessions[0].state = .needsInput
         world.controller.probePrompt(task.id)
         await world.controller.lastProbe?.value
-        #expect(world.daemon.requests("session.prompt").count == 1)
+        #expect(world.daemon.requests("session.prompt").count == 2)
         world.daemon.prompts["worker"] = nil
         world.live.sessions[0].state = .working
         world.controller.probePrompt(task.id)
         await world.controller.lastProbe?.value
-        #expect(world.daemon.requests("session.prompt").count == 2)
+        #expect(world.daemon.requests("session.prompt").count == 3)
         #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
     }
 

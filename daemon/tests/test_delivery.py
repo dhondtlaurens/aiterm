@@ -187,7 +187,6 @@ def test_an_idle_or_working_cli_screen_shows_its_input_box(agent, screen):
     ("codex", CODEX_HOOKS_REVIEW), ("claude", CLAUDE_TRUST),
     ("claude", CLAUDE_MODEL), ("claude", CLAUDE_EFFORT), ("claude", CLAUDE_EFFORT_LAST),
     ("claude", "❯ 1. A draft without its frame"),
-    ("claude", "────────────────\n❯ 1. No footer\n────────────────"),
 ])
 def test_anything_else_shows_no_input_box(agent, screen):
     assert not shows_input_box(agent, screen)
@@ -196,6 +195,13 @@ def test_anything_else_shows_no_input_box(agent, screen):
 @pytest.mark.parametrize("agent", ["pi", "shell"])
 def test_a_harness_without_markers_never_shows_a_prompt(agent):
     assert open_prompt(agent, CLAUDE_PERMISSION + CODEX_PERMISSION) is None
+
+
+@pytest.mark.parametrize("footer", ["\n", "\n  Sonnet 5.5 · 42% context", ""])
+def test_a_numbered_draft_needs_no_footer_to_be_an_input_frame(footer):
+    screen = "────────────────\n❯ 1. Fix X\n  2. Fix Y\n────────────────" + footer
+    assert open_prompt("claude", screen) is None
+    assert shows_input_box("claude", screen)
 
 
 def test_the_markers_are_the_spikes():

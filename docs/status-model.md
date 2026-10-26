@@ -84,12 +84,14 @@ tasks, and planning, paused, operator-offline, complete and stopped broadcasts. 
 prompts (`needsInput`, including PermissionRequest) and post-delivery reads instead record questions
 on working, blocked and in-review tasks in any broadcast that has not completed or stopped. This
 includes paused and operator-offline broadcasts: a permission prompt there still notifies you.
+A stop intent prevents new questions and notifications.
 Resolution reads for existing questions run in every task and broadcast state, including with an intent.
 
 Session events read tabs that need input or have an open question. The 60-second reconcile tick
 also checks other eligible tabs for menus no hook announced. Event and reconcile reads have at
 least ten seconds between reads of the same tab, including failed reads that recorded no question.
-When a tab with an open question leaves needs-input, its resolution read bypasses that gap.
+Entering needs-input bypasses that gap, as does leaving needs-input with an open question.
+If either transition happens during a read, its completion starts a fresh read.
 A delivered `message_task`, or a prompt/unrecognised-screen refusal, triggers a fresh read of the
 addressed tab, then another 1.5 seconds after that read finishes so Claude has time to draw its dialog.
 These delivery reads bypass the gap and wait for any earlier read of that tab to finish; they do not
@@ -105,8 +107,9 @@ option next to the preceding or following option, outside the ruled input frame.
 and indented wraps or descriptions between options are allowed. This avoids
 mistaking sent numbered messages above a later input arrow, or multiline drafts inside the frame,
 for menus. In Claude Code 2.1.310, both a short numbered paste and a typed multiline draft stay
-inline between the rules, above the shortcuts or mode footer. Claude's ctrl+o detailed-transcript
-view has no input box and its sent messages do not count as menus. Codex keeps its marker rules.
+inline between the rules. The frame is recognised even when its footer is empty, status-only or
+absent. Claude's ctrl+o detailed-transcript view has no input box and its sent messages do not count
+as menus. Codex keeps its marker rules.
 An open prompt is recorded as a question waiting on you and listed under `promptsWaitingOnYou`;
 a present tab with that question reads as needs input in `run_status`. The question suspends
 runtime and stall accounting until a successful read shows it closed. A blank or unreadable screen

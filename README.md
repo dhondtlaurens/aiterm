@@ -223,7 +223,7 @@ and extra tabs are Claude Code or Codex only, since AiTerm cannot message PI yet
 | | `request_review`, `reply_thread` | Mark the MR ready and ask reviewers; reply in a thread (Review slice). |
 | Finish | `mark_task` | Record a task's outcome: accepted, no change, blocked or failed. |
 | | `finish_task` | Carry out an accepted task's end: a commit, a draft MR, or a merge (Merge slice). |
-| You | `ask_you`, `resolve_question` | List a question under *Waiting on you*; close it once answered. |
+| You | `ask_you`, `resolve_question` | List a question under *Waiting on you*; close it once answered, or withdraw the Operator's moot question or gate with a reason. |
 | Record | `report_find`, `report_snag` | Note an off-brief find (filed in Jira with the slice on); note an AiTerm glitch. |
 | | `leave_for_you`, `log_decision` | Note what a slice kept it from; log a decision it took. |
 | | `write_summary` | Write the broadcast's summary once it is complete. |

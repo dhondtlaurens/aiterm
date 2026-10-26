@@ -30,6 +30,45 @@ import Testing
         #expect(recorded.allSatisfy { abs($0.at.timeIntervalSinceNow) < 60 })
     }
 
+    @Test func questionActivityUsesTheRecordedOutcomeOnRetries() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        _ = await world.call(run.id, "ask_you", ["key": "a", "question": "Locale?"])
+        _ = await world.call(run.id, "resolve_question", ["key": "a", "summary": "Moved to a worker.", "withdrawn": true])
+        _ = await world.call(run.id, "resolve_question", ["key": "a", "summary": "Yes."])
+        _ = await world.call(run.id, "ask_you", ["key": "b", "question": "Locale?"])
+        _ = await world.call(run.id, "resolve_question", ["key": "b", "summary": "nl-BE"])
+        _ = await world.call(run.id, "resolve_question", ["key": "b", "summary": "Moot.", "withdrawn": true])
+        let lines = await entries(world, run.id).filter { $0.tool == "resolve_question" }
+        #expect(lines.map(\.line) == ["Withdrew question: Moved to a worker.", "Withdrew question: Moved to a worker.",
+                                      "Noted your answer: nl-BE", "Noted your answer: nl-BE"])
+        #expect(lines.first?.result.contains("\"withdrawn\":true") == true)
+    }
+
+    @Test(arguments: ["Moved to a worker.", String(repeating: "x", count: 80)])
+    func aShortWithdrawalReasonIsShownOnlyInTheLine(reason: String) async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        _ = await world.call(run.id, "ask_you", ["key": "locale", "question": "Locale?"])
+        _ = await world.call(run.id, "resolve_question", ["key": "locale", "summary": .string(reason), "withdrawn": true])
+        _ = await world.call(run.id, "resolve_question", ["key": "locale", "summary": "Yes."])
+        let lines = await entries(world, run.id).filter { $0.tool == "resolve_question" }
+        #expect(lines.count == 2)
+        #expect(lines.allSatisfy { $0.line == "Withdrew question: \(reason)" && $0.reason == nil })
+    }
+
+    @Test func aWithdrawalsFullReasonSurvivesTheShortActivityLineAndRetries() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        let reason = "The worker now owns this work and will choose the locale from the project settings, so no answer is needed."
+        _ = await world.call(run.id, "ask_you", ["key": "locale", "question": "Locale?"])
+        _ = await world.call(run.id, "resolve_question", ["key": "locale", "summary": .string(reason), "withdrawn": true])
+        _ = await world.call(run.id, "resolve_question", ["key": "locale", "summary": "Yes."])
+        let lines = await entries(world, run.id).filter { $0.tool == "resolve_question" }
+        #expect(lines.count == 2)
+        #expect(lines.allSatisfy { $0.reason == reason && $0.line.hasSuffix("…") && !$0.line.contains(reason) })
+    }
+
     @Test func callsKeepTheOrderTheyEndedInHoweverManyAreRecordedAtOnce() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))

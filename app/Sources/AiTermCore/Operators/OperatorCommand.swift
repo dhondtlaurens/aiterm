@@ -378,6 +378,8 @@ public enum OperatorCommand {
             + "decision, goes on no task.",
         "When the person answers in this chat, call resolve_question at once, so your row stops showing it, AiTerm's "
             + "question about a merge on the host included. AiTerm closes a worker prompt's question itself.",
+        "If your own question or gate becomes moot, call resolve_question with withdrawn true and a one-line reason "
+            + "in summary, and tell the person.",
         "When a worker waits on a permission prompt, tell the person in one line: only the person can grant "
             + "a permission.",
         "Stop and wait only when nothing can move without the person; keep working on whatever doesn't depend on the answer.",
@@ -402,11 +404,12 @@ public enum OperatorCommand {
         + "Accept the task once, on the SHA at its branch head, after every tab is done."
 
     /// How the Operator's shell is judged and what each answer asks of it. The key of a question the gate opens
-    /// starts with `gate-`; `resolve_question` records the person's answer on it with `allow`.
+    /// starts with `gate-`; `resolve_question` records the person's answer with `allow`, or withdraws it if the command is moot.
     static let shellRule = "Your shell's commands that only read run at once, and the Oracle judges the rest. "
         + "A refusal that says WORKER means the command is code work: send it to a worker. "
         + "One that says ASK means wait for the person: ask in this chat, and when they answer, call resolve_question on "
         + "the question's gate- key with allow true or false, then run the command again if they allowed it. "
+        + "If the command becomes moot, withdraw it instead; withdrawal grants nothing. "
         + "Pushes go through finish_task. Use its noVerify only for an environment failure that you could not repair."
 
     static func mechanics(oracleIsOn: Bool) -> [String] {

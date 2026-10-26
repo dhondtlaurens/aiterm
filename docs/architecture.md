@@ -156,6 +156,14 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
   tab it has (`WorkerTab`: its first worker and the Operator's `open_tab` tabs, one still opening at
   work): its runtime runs while any is at work, it waits for acceptance once all ended their turn, each
   tab is on its own stall clock and probed for its own prompt, and `BranchWatch` reads each one's last message.
+  Runtime has two limits (`OperatorTiming`): 90 minutes of work without a new commit on the task's
+  branch, and four hours of total work since starting or the Operator last resumed it. A changed
+  branch head, read by the `BranchWatch` pass, resets only the no-commit clock; every
+  worker tab shares that branch, so every tab's commits count. Both clocks count the same working
+  intervals once per task, excluding idle time, waiting on you, takeovers, pauses and time AiTerm was closed.
+  Either limit blocks with its own reason, but neither blocks a task ready for acceptance.
+  `resume_task` and starting a retried worker reset both clocks. Saved runs retain their existing no-commit time; older files
+  initialise total work from that time and establish a branch-head baseline without resetting it.
   `message_task` and `read_task` reach one tab by its key (`tab`), the first worker without one; a takeover,
   a hand back and Stop Task reach every tab. An extra tab closed after it opened is marked closed in
   `run_status` and opened again by nothing, the reconciler, a reopen and a restart included: a reopen
@@ -249,6 +257,13 @@ answers with `operator.reply`. Mutating tools use keys, recorded steps or value-
 `submit_plan`; `read_task`, `review_task`, `request_review`, `reply_thread`, `find_user`; `message_task`, `open_tab`,
 `mark_task`, `resume_task`, `retry_task`, `finish_task`; `ask_you`, `resolve_question`; `report_find`,
 `report_snag`, `leave_for_you`, `log_decision` and `write_summary`.
+
+`resolve_question` records the person's answer, or withdraws the Operator's own moot question or gate
+with `withdrawn: true` and a one-line reason in `summary`, which the Operator also tells the person.
+Withdrawal stops the wait and keeps its reason in the run and activity records, grants no gate allowance,
+and leaves a later command to be judged afresh.
+Retries preserve the recorded outcome; `answeredInWindow` answers, worker prompts and host-merge
+questions cannot be withdrawn.
 
 ### Help with problems
 

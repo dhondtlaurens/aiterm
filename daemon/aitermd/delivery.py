@@ -108,12 +108,12 @@ def _shows_transcript(harness: Harness, screen: str) -> bool:
 
 
 def _in_input_frame(harness: Harness, lines: list[str], index: int) -> bool:
-    """Claude's inline draft, between rules and above its shortcuts or mode footer (2.1.310)."""
-    if index == 0 or not _RULE.fullmatch(lines[index - 1].strip()):
+    """Claude's inline draft starts directly below a rule and has a closing rule."""
+    if not harness.numbered_menus or index == 0 or not _RULE.fullmatch(lines[index - 1].strip()):
         return False
     for end in range(index + 1, len(lines)):
         if _RULE.fullmatch(lines[end].strip()):
-            return shows("\n".join(lines[end + 1:]), harness.input_footer)
+            return True
     return False
 
 

@@ -233,7 +233,8 @@ import Foundation
         // Raised to 520 for the one rule that a question showing answeredInWindow may already be answered (spec §I).
         // Raised to 525 for the PM lines (spec §L): search before jira_create, and what jira_board, jira_sprint, jira_edit and
         // jira_comment are for. Twelve words were trimmed elsewhere (the role's example, the dash rule's aside) to keep it to five.
-        #expect(words(largest()) <= today + 525, "\(words(largest())) words")
+        // Raised to 559 for the withdrawal rule and the gate reminder that it grants nothing.
+        #expect(words(largest()) <= today + 559, "\(words(largest())) words")
     }
 
     /// reviewQuiet, the list of reviews with nothing waiting, says what to do with it: the Done decides, and finish_task ends it.
@@ -281,6 +282,8 @@ import Foundation
                        "a reviewer's username, a scope choice or a merge decision, goes on no task",
                        "call resolve_question at once", "AiTerm's question about a merge on the host included",
                        "AiTerm closes a worker prompt's question itself", "only the person can grant",
+                       "If your own question or gate becomes moot", "resolve_question with withdrawn true",
+                       "a one-line reason in summary, and tell the person",
                        "Stop and wait only when nothing can move without the person", "leave_for_you(key, text)"] {
             #expect(talk.contains(phrase), "\(phrase)")
         }

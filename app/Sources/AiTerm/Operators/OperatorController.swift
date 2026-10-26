@@ -113,7 +113,7 @@ final class OperatorController {
     @ObservationIgnored private var probing: [String: Task<Void, Never>] = [:]
     /// When each session last began a screen read: bounds reconcile and event polling.
     @ObservationIgnored private var promptReadAt: [String: Date] = [:]
-    /// The last observed state: leaving needs-input clears the gap, even if the prior event was throttled.
+    /// The last observed state: entering or answering needs-input clears the read gap.
     @ObservationIgnored private var promptState: [String: SessionState] = [:]
     /// When each working task last showed a sign of life (spec §8, *possibly stalled*): any change the
     /// daemon reports for one of its tabs — status, title, context, conversation.
@@ -241,6 +241,13 @@ final class OperatorController {
             if self?.wakeNotice?.run == run { self?.wakeNotice = nil }
         }
         reconciler.tabsKnown = { [weak self] in self?.tabsKnown ?? false }
+        reconciler.waitsForProgress = { [weak self] task in
+            task.operated?.runtimeHead != nil && self?.branchWatch.isWatched(task) == true
+        }
+        branchWatch.checked = { [weak self] task in
+            guard let self else { return }
+            for id in reconciler.checkLimits(for: task) { runChanged(id) }
+        }
         tools.onActing = { [weak self] activity, on in self?.setActing(activity, on) }
         starter.onActing = { [weak self] activity, on in self?.setActing(activity, on) }
         tools.onChange = { [weak self] in self?.runChanged($0) }
@@ -806,8 +813,8 @@ final class OperatorController {
     /// Why a worker screen is read: events follow input, ticks discover menus, delivery checks bypass the gap.
     enum PromptProbe { case event, reconcile, delivery }
 
-    /// Events read only a tab that needs input or already has a question. The reconcile tick also
-    /// checks for menus no hook announced, with a gap between screen reads of the same tab.
+    /// Events read tabs needing input or with open questions; ticks also discover unannounced menus.
+    /// Both respect the per-tab read gap, except when entering or answering needs-input.
     func probePrompts(_ source: PromptProbe = .event) {
         let sessions = Set(live.sessions.map(\.sessionId))
         promptReadAt = promptReadAt.filter { sessions.contains($0.key) }
@@ -834,8 +841,9 @@ final class OperatorController {
 
     /// Hook-announced and post-delivery prompts are questions on steerable tasks in unfinished broadcasts.
     /// Discovery on a tick is limited to working tasks in active broadcasts with no pause or stop intent.
-    /// Existing questions resolve in every state. Event and tick reads have a gap, except when an open
-    /// question leaves needs-input; delivery bypasses it too. Each extra tab has its own question.
+    /// Existing questions resolve in every state. Event and tick reads have a gap, except when entering
+    /// needs-input or leaving it with an open question; delivery bypasses it too.
+    /// Each extra tab has its own question.
     func probePrompt(_ id: UUID, source: PromptProbe = .event) {
         guard let task = workspace.state.task(id: id) else { return }
         for worker in task.workerTabs(in: live.sessions) { probePrompt(id, worker, source: source) }
@@ -852,7 +860,9 @@ final class OperatorController {
             return
         }
         let previous = promptState.updateValue(tab.state, forKey: tab.sessionId)
-        if open != nil, previous == .needsInput, tab.state != .needsInput { promptReadAt[tab.sessionId] = nil }
+        if previous != tab.state, tab.state == .needsInput || (open != nil && previous == .needsInput) {
+            promptReadAt[tab.sessionId] = nil
+        }
         guard open != nil || mayRecordPrompt(task, in: run, tab: tab, source: source) else { return }
         if source == .event, tab.state != .needsInput, open == nil { return }
         let now = ports.now()
@@ -863,9 +873,13 @@ final class OperatorController {
         lastProbe = Task { [weak self] in
             // The helper gone is not a prompt AiTerm can't read: nothing is recorded, and the next pass asks again.
             let kind: PromptKind?
-            do { kind = try await daemon.prompt(sessionId: tab.sessionId) } catch {
-                self?.probing[tab.sessionId] = nil
-                return
+            let readSucceeded: Bool
+            do {
+                kind = try await daemon.prompt(sessionId: tab.sessionId)
+                readSucceeded = true
+            } catch {
+                kind = nil
+                readSucceeded = false
             }
             // Codex's update offer is AiTerm's to decline (spec §7.1): the daemon sends Esc only when the
             // screen shows that dialog. Anything else at startup — a trust question — is yours, and so is
@@ -874,18 +888,19 @@ final class OperatorController {
             guard let self else { return }
             probing[tab.sessionId] = nil
             guard !declined else { return }
-            // A changed worker or turn makes the read stale. An answered prompt gets its fresh
-            // resolution read now, even if its state event arrived while this read was in flight.
+            // A changed worker or turn makes the read stale. A new or answered prompt gets a fresh
+            // read now, even if its state event arrived while this read was in flight.
             guard let task = workspace.state.task(id: id),
                   let currentWorker = task.workerTab(worker.key, in: live.sessions), let current = currentWorker.session,
                   current.sessionId == tab.sessionId else { return }
             guard current.state == tab.state else {
-                if open != nil, tab.state == .needsInput, current.state != .needsInput {
+                if current.state == .needsInput || (open != nil && tab.state == .needsInput) {
                     promptReadAt[tab.sessionId] = nil
                     probePrompt(id, currentWorker, source: .event)
                 }
                 return
             }
+            guard readSucceeded else { return }
             if kind == nil, tab.state != .needsInput {
                 if let open { resolvePrompt(open, in: run.id, task: id) }
                 return
@@ -909,7 +924,7 @@ final class OperatorController {
     }
 
     private func mayRecordPrompt(_ task: TaskItem, in run: OperatorRun, tab: SessionInfo, source: PromptProbe) -> Bool {
-        guard let operated = task.operated else { return false }
+        guard let operated = task.operated, run.intent != .stopped else { return false }
         if source == .delivery || tab.state == .needsInput {
             return [.working, .blocked, .inReview].contains(operated.state) && ![.complete, .stopped].contains(run.state)
         }

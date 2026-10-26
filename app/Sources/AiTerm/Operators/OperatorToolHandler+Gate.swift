@@ -96,7 +96,7 @@ extension OperatorToolHandler {
             // As after ask_you: the person is notified of the question, and what it holds waits.
             onChange(run.id)
             return answer("deny", "The Oracle stopped this and asked the person (question \(key)). Wait for their answer, then "
-                          + "resolve_question with allow.", outcome: .challenged,
+                          + "resolve_question with allow, or withdraw the question if the command becomes moot.", outcome: .challenged,
                           logged: .some("The Oracle: \(why.isEmpty ? "the person decides." : Self.asSentence(why)) It asked you (question \(key))."))
         }
     }

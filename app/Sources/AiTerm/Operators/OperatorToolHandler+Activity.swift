@@ -16,10 +16,17 @@ extension OperatorToolHandler {
         case .result(let value): result = Self.json(value)
         case .error(let message): result = message
         }
-        let reason = ActivityLine.reason(tool: request.tool, arguments: request.arguments, outcome: outcome, result: result)
+        // A repeated resolution describes the recorded outcome, even if this call asked for a different one.
+        var lineArguments = request.arguments
+        if request.tool == "resolve_question", case .result(let value) = answer, case .object(var fields) = lineArguments {
+            fields["summary"] = value["resolution"]
+            fields["withdrawn"] = value["withdrawn"]
+            lineArguments = .object(fields)
+        }
+        let reason = ActivityLine.reason(tool: request.tool, arguments: lineArguments, outcome: outcome, result: result)
         let entry = ActivityEntry(at: ports.now(), tool: request.tool, task: task?.id, taskLabel: task.flatMap { $0.jira?.key ?? $0.operated?.key },
                                   arguments: request.arguments, outcome: outcome, result: result,
-                                  line: ActivityLine.line(tool: request.tool, arguments: request.arguments, task: task, outcome: outcome),
+                                  line: ActivityLine.line(tool: request.tool, arguments: lineArguments, task: task, outcome: outcome),
                                   reason: reason.flatMap { $0.isEmpty ? nil : $0 })
         append(entry, to: id)
     }
