@@ -30,6 +30,8 @@ struct OperatorPorts {
     var wakeSleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// The wait for the Operator's summary once a broadcast is complete (`OperatorTiming.summaryWait`).
     var summarySleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    /// The pause before checking again for a dialog drawn after a delivered command.
+    var promptSleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// How often the run reconciler looks at the real tabs.
     var reconcileInterval: Duration = .seconds(OperatorTiming.reconcileInterval)
     /// The code host a project's requests are published on, with the connections Settings saved (G10):
@@ -107,8 +109,12 @@ final class OperatorController {
     @ObservationIgnored private var loop: Task<Void, Never>?
     /// An attach whose first connected snapshot is still to come: it reconciles and sets ownership again.
     @ObservationIgnored private var reattached = false
-    /// The worker tabs, by session, whose open prompt is being read.
-    @ObservationIgnored private var probing: Set<String> = []
+    /// In-flight screen reads by session, shared by event, reconcile and post-delivery probes.
+    @ObservationIgnored private var probing: [String: Task<Void, Never>] = [:]
+    /// When each session last began a screen read: bounds reconcile and event polling.
+    @ObservationIgnored private var promptReadAt: [String: Date] = [:]
+    /// The last observed state: entering or answering needs-input clears the read gap.
+    @ObservationIgnored private var promptState: [String: SessionState] = [:]
     /// When each working task last showed a sign of life (spec §8, *possibly stalled*): any change the
     /// daemon reports for one of its tabs — status, title, context, conversation.
     @ObservationIgnored private var stallWatch = StallWatch()
@@ -249,6 +255,10 @@ final class OperatorController {
         tools.turnReadings = { [weak self] in self?.turns.readings ?? [:] }
         tools.quietTasks = { [weak self] in self?.quiet.quiet ?? [] }
         tools.onMessaged = { [weak self] task in self?.turns.messaged(task) }
+        tools.onMessageResult = { [weak self] task, tab in
+            // Reading a screen must not delay the delivery result or its replay cache.
+            Task { await self?.probeAfterMessage(task, tab: tab) }
+        }
         starter.onUncertain = { [weak self] task in
             guard let operated = task.operated else { return }
             self?.waker.say("one task is uncertain, no worker confirmed in its window", to: operated.runId)
@@ -341,15 +351,17 @@ final class OperatorController {
             let workers = task.workerTabs(in: sessions), tab = workers[0].session, prompt = open.first { $0.tab == nil }?.text
             let extra = workers.dropFirst().compactMap { worker in
                 worker.key.map { key in
-                    TaskLiveFacts.Tab(key: key, agent: worker.agent, model: worker.model, status: worker.session?.state,
-                                      opening: worker.isOpening, closed: worker.isClosed, waitingPrompt: open.first { $0.tab == key }?.text)
+                    let prompt = open.first { $0.tab == key }?.text
+                    return TaskLiveFacts.Tab(key: key, agent: worker.agent, model: worker.model,
+                                             status: prompt == nil || worker.session == nil ? worker.session?.state : .needsInput,
+                                             opening: worker.isOpening, closed: worker.isClosed, waitingPrompt: prompt)
                 }
             }
             if tab != nil || prompt != nil || !extra.isEmpty {
-                var live = TaskLiveFacts(status: tab?.state, waitingPrompt: prompt, tabs: Array(extra),
+                var live = TaskLiveFacts(status: prompt == nil || tab == nil ? tab?.state : .needsInput, waitingPrompt: prompt, tabs: Array(extra),
                                          background: workers.flatMap(\.background),
                                          yourPrompt: workers.lazy.compactMap { $0.session?.yourPrompt }.first,
-                                         quiet: quiet.contains(task.id))
+                                         quiet: prompt == nil && quiet.contains(task.id))
                 if let tab, live.status?.turnEnded == true {
                     if let turn = turns[task.id], turn.session == tab.sessionId, !turn.messaged {
                         live.lastMessage = turn.lastMessage
@@ -714,8 +726,8 @@ final class OperatorController {
         applyStallFlags()
         quiet.refresh()
         branchWatch.poll()
-        // A prompt whose tab left it without an event, or one an event raced.
-        probePrompts()
+        // A prompt whose tab left it without an event, or a menu no hook announced.
+        probePrompts(.reconcile)
         startReadyTasks()
     }
 
@@ -733,7 +745,7 @@ final class OperatorController {
         workspace.mutate { StallWatch.apply(changes, to: &$0) }
         var quiet: [UUID: [String]] = [:]
         for id in changes.flag {
-            probePrompt(id)
+            probePrompt(id, source: .reconcile)
             guard let operated = workspace.state.task(id: id)?.operated else { continue }
             quiet[operated.runId, default: []].append(operated.key)
         }
@@ -798,59 +810,103 @@ final class OperatorController {
         tools.cancelReviews()
     }
 
-    /// Each operated task's tab, in any state (spec §H): one that needs input has its prompt read (spec §7.2), and a
-    /// question left open for one whose tab has left the prompt is resolved. A task with no tab open has nothing to read.
-    func probePrompts() {
-        for task in workspace.state.tasks where task.operated != nil { probePrompt(task.id) }
+    /// Why a worker screen is read: events follow input, ticks discover menus, delivery checks bypass the gap.
+    enum PromptProbe { case event, reconcile, delivery }
+
+    /// Events read tabs needing input or with open questions; ticks also discover unannounced menus.
+    /// Both respect the per-tab read gap, except when entering or answering needs-input.
+    func probePrompts(_ source: PromptProbe = .event) {
+        let sessions = Set(live.sessions.map(\.sessionId))
+        promptReadAt = promptReadAt.filter { sessions.contains($0.key) }
+        promptState = promptState.filter { sessions.contains($0.key) }
+        for task in workspace.state.tasks where task.operated != nil { probePrompt(task.id, source: source) }
     }
 
-    /// A worker that waits on a prompt: recorded as a question waiting on you, on its task, saying what
-    /// the prompt is, and you are notified with its window; once the tab leaves the prompt the question
-    /// is resolved and the row stops waiting on you. Codex's update offer is declined instead (`dismissStartup`).
-    /// Each worker tab of the task (`WorkerTab`) on its own: a prompt in an extra tab is its question, on that tab.
-    func probePrompt(_ id: UUID) {
+    /// Read the addressed worker after delivery and once more after it has had time to draw a dialog.
+    /// Neither read delays the tool result; a replacement session is never probed for the old message.
+    private func probeAfterMessage(_ id: UUID, tab key: String?) async {
+        guard let worker = workspace.state.task(id: id)?.workerTab(key, in: live.sessions), let tab = worker.session else { return }
+        for attempt in 0..<2 {
+            if attempt > 0 {
+                do { try await ports.promptSleep(.seconds(OperatorTiming.promptAfterMessageDelay)) } catch { return }
+            }
+            // A read begun before the delivery cannot say what that message opened.
+            await probing[tab.sessionId]?.value
+            guard let current = workspace.state.task(id: id)?.workerTab(key, in: live.sessions),
+                  current.session?.sessionId == tab.sessionId else { return }
+            probePrompt(id, current, source: .delivery)
+            await probing[tab.sessionId]?.value
+        }
+    }
+
+    /// Hook-announced and post-delivery prompts are questions on steerable tasks in unfinished broadcasts.
+    /// Discovery on a tick is limited to working tasks in active broadcasts with no pause or stop intent.
+    /// Existing questions resolve in every state. Event and tick reads have a gap, except when entering
+    /// needs-input or leaving it with an open question; delivery bypasses it too.
+    /// Each extra tab has its own question.
+    func probePrompt(_ id: UUID, source: PromptProbe = .event) {
         guard let task = workspace.state.task(id: id) else { return }
-        for worker in task.workerTabs(in: live.sessions) { probePrompt(id, worker) }
+        for worker in task.workerTabs(in: live.sessions) { probePrompt(id, worker, source: source) }
     }
 
-    private func probePrompt(_ id: UUID, _ worker: WorkerTab) {
+    private func probePrompt(_ id: UUID, _ worker: WorkerTab, source: PromptProbe) {
         guard let task = workspace.state.task(id: id), let operated = task.operated, let run = run(id: operated.runId) else { return }
         let prefix = "\(OperatorQuestion.promptPrefix)\(id.uuidString)-"
         let open = run.questions.first { $0.id.hasPrefix(prefix) && $0.tab == worker.key && $0.resolution == nil }
         let tab = worker.session
-        if let open, tab?.state != .needsInput {
-            // No tab at all is not an answer: a window that is not listed (yet) leaves the question open.
-            guard tab != nil || tabsKnown else { return }
-            workspace.mutate { state in
-                state.updateRun(id: run.id) { run in
-                    if let i = run.questions.firstIndex(where: { $0.id == open.id }) { run.questions[i].resolution = "Answered in its window." }
-                }
-                if state.run(id: run.id)?.questions.contains(where: { $0.task == id && $0.resolution == nil }) == false {
-                    state.updateOperated(id) { $0.flags.remove(.waitingOnYou) }
-                }
-            }
-            // The last open question may be what kept the broadcast from completing.
-            runChanged(run.id)
+        guard let tab else {
+            // No tab listed yet is not an answer; a known closed tab has no prompt left to answer.
+            if let open, tabsKnown { resolvePrompt(open, in: run.id, task: id) }
             return
         }
-        guard open == nil, let tab, tab.state == .needsInput, !probing.contains(tab.sessionId), let daemon = daemon() else { return }
-        probing.insert(tab.sessionId)
+        let previous = promptState.updateValue(tab.state, forKey: tab.sessionId)
+        if previous != tab.state, tab.state == .needsInput || (open != nil && previous == .needsInput) {
+            promptReadAt[tab.sessionId] = nil
+        }
+        guard open != nil || mayRecordPrompt(task, in: run, tab: tab, source: source) else { return }
+        if source == .event, tab.state != .needsInput, open == nil { return }
+        let now = ports.now()
+        if source != .delivery, let last = promptReadAt[tab.sessionId],
+           now.timeIntervalSince(last) < OperatorTiming.promptProbeInterval { return }
+        guard probing[tab.sessionId] == nil, let daemon = daemon() else { return }
+        promptReadAt[tab.sessionId] = now
         lastProbe = Task { [weak self] in
             // The helper gone is not a prompt AiTerm can't read: nothing is recorded, and the next pass asks again.
             let kind: PromptKind?
-            do { kind = try await daemon.prompt(sessionId: tab.sessionId) } catch {
-                self?.probing.remove(tab.sessionId)
-                return
+            let readSucceeded: Bool
+            do {
+                kind = try await daemon.prompt(sessionId: tab.sessionId)
+                readSucceeded = true
+            } catch {
+                kind = nil
+                readSucceeded = false
             }
             // Codex's update offer is AiTerm's to decline (spec §7.1): the daemon sends Esc only when the
             // screen shows that dialog. Anything else at startup — a trust question — is yours, and so is
             // a dismissal that did not happen: only a dismissed offer is never put to you.
             let declined = kind == .startup ? (try? await daemon.dismissStartup(sessionId: tab.sessionId)) == true : false
             guard let self else { return }
-            probing.remove(tab.sessionId)
+            probing[tab.sessionId] = nil
             guard !declined else { return }
-            // The tab may have left the prompt while it was read: nothing is asked of you then.
-            guard live.sessions.contains(where: { $0.sessionId == tab.sessionId && $0.state == .needsInput }) else { return }
+            // A changed worker or turn makes the read stale. A new or answered prompt gets a fresh
+            // read now, even if its state event arrived while this read was in flight.
+            guard let task = workspace.state.task(id: id),
+                  let currentWorker = task.workerTab(worker.key, in: live.sessions), let current = currentWorker.session,
+                  current.sessionId == tab.sessionId else { return }
+            guard current.state == tab.state else {
+                if current.state == .needsInput || (open != nil && tab.state == .needsInput) {
+                    promptReadAt[tab.sessionId] = nil
+                    probePrompt(id, currentWorker, source: .event)
+                }
+                return
+            }
+            guard readSucceeded else { return }
+            if kind == nil, tab.state != .needsInput {
+                if let open { resolvePrompt(open, in: run.id, task: id) }
+                return
+            }
+            guard open == nil, let run = self.run(id: run.id),
+                  mayRecordPrompt(task, in: run, tab: current, source: source) else { return }
             let now = ports.now()
             workspace.mutate { state in
                 // Numbered as it is recorded: another tab of the task may have recorded one while this was read.
@@ -858,9 +914,36 @@ final class OperatorController {
                 let question = OperatorQuestion(id: prefix + String(number), text: Self.promptText(kind, agent: worker.agent), task: id,
                                                 askedAt: now, resolution: nil, tab: worker.key)
                 state.updateRun(id: run.id) { $0.questions.append(question) }
-                state.updateOperated(id) { $0.flags.insert(.waitingOnYou) }
+                state.updateOperated(id) {
+                    $0.flags.insert(.waitingOnYou)
+                    $0.flags.remove(.possiblyStalled)
+                }
             }
         }
+        probing[tab.sessionId] = lastProbe
+    }
+
+    private func mayRecordPrompt(_ task: TaskItem, in run: OperatorRun, tab: SessionInfo, source: PromptProbe) -> Bool {
+        guard let operated = task.operated, run.intent != .stopped else { return false }
+        if source == .delivery || tab.state == .needsInput {
+            return [.working, .blocked, .inReview].contains(operated.state) && ![.complete, .stopped].contains(run.state)
+        }
+        return operated.state == .working && run.state == .active && run.intent == nil
+    }
+
+    /// Mark the tab's question answered and clear waiting-on-you once no question remains on its task.
+    /// This can also complete a broadcast whose tasks have already ended.
+    private func resolvePrompt(_ question: OperatorQuestion, in run: UUID, task: UUID) {
+        workspace.mutate { state in
+            state.updateRun(id: run) { run in
+                if let i = run.questions.firstIndex(where: { $0.id == question.id }) { run.questions[i].resolution = "Answered in its window." }
+            }
+            if state.run(id: run)?.questions.contains(where: { $0.task == task && $0.resolution == nil }) == false {
+                state.updateOperated(task) { $0.flags.remove(.waitingOnYou) }
+            }
+        }
+        // The last open question may be what kept the broadcast from completing.
+        runChanged(run)
     }
 
     /// What a prompt asks, as the board and the row say it. The daemon names the prompt's kind,

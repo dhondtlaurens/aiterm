@@ -187,6 +187,50 @@ import Testing
         #expect(sent.params["sessionId"] as? String == "w1" && sent.params["ownership"] as? Int == 3)
     }
 
+    @Test(arguments: [SessionState.idle, .working, .done])
+    func aScreenOnlyMenuWaitsOnYouUntilTheScreenClears(status: SessionState) async throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
+        var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-4", state: .working, worktree: "/tmp/aiterm-wt")
+        task.operated?.flags.insert(.possiblyStalled)
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        let sessions = [OperatorServiceFixtures.session("op", tag: run.id),
+                        OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: status)]
+        world.daemon.prompts["w1"] = .menu
+        world.show(sessions)
+        world.controller.probePrompts(.reconcile)
+        await world.controller.lastProbe?.value
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
+        let snapshot = try #require(OperatorController.status(of: run.id, state: world.workspace.state,
+                                                              sessions: sessions, revision: 0, turns: [:], quiet: [task.id]))
+        #expect(snapshot.obligations.promptsWaitingOnYou == ["PLUTO-4"])
+        #expect(snapshot.tasks.first?.live == .needsInput)
+        #expect(snapshot.obligations.possiblyStalled.isEmpty)
+        #expect(snapshot.obligations.uncertain.isEmpty)
+        world.controller.probePrompts()
+        await world.controller.lastProbe?.value
+        #expect(world.run(run.id)?.questions.count == 1)
+        #expect(world.run(run.id)?.questions.last?.resolution == nil)
+        world.daemon.failing["session.prompt"] = .itermUnavailable
+        clock.advance(by: OperatorTiming.promptProbeInterval)
+        world.controller.probePrompts()
+        await world.controller.lastProbe?.value
+        #expect(world.run(run.id)?.questions.last?.resolution == nil)
+        world.daemon.failing["session.prompt"] = nil
+        world.controller.reconcileTick()
+        clock.advance(by: 30 * 60)
+        world.controller.reconcileTick()
+        #expect(world.task(task.id)?.operated?.runtimeUsed == 0)
+        #expect(world.task(task.id)?.operated?.flags.contains(.possiblyStalled) == false)
+        await world.controller.lastProbe?.value
+        clock.advance(by: OperatorTiming.promptProbeInterval)
+        world.daemon.prompts["w1"] = nil
+        world.controller.probePrompts()
+        await world.controller.lastProbe?.value
+        #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+    }
+
     @Test func aWorkersPromptIsAQuestionWaitingOnYouUntilItLeavesThePrompt() async throws {
         let project = OperatorServiceFixtures.project()
         let run = OperatorServiceFixtures.run(projects: [project], state: .active)
@@ -201,7 +245,9 @@ import Testing
         #expect(world.notifications.posted.last?.target == .task(task.id))
         #expect(world.notifications.posted.last?.body == "Codex asks for permission in Task PLUTO-4.")
         #expect(world.notifications.withdrawn.isEmpty)
+        world.daemon.prompts["w1"] = nil
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .codex, state: .working)])
+        await world.controller.lastProbe?.value
         #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
         #expect(world.notifications.withdrawn == ["request-\(run.id.uuidString)-\(task.id.uuidString)-permission"], "answered in its window, it is taken back")
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
@@ -354,15 +400,17 @@ import Testing
     }
 
     /// A prompt question left open on a task that has ended would keep its broadcast from completing:
-    /// its tab leaving the prompt resolves it, and the run then settles.
-    @Test func resolvingTheLastPromptOfAnEndedTaskCompletesItsBroadcast() async throws {
+    /// leaving the prompt resolves it even with the tab still open, and the run then settles.
+    @Test func closingTheLastPromptOfAnEndedTaskCompletesItsBroadcast() async throws {
         let project = OperatorServiceFixtures.project()
         var run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-16", state: .accepted, worktree: "/tmp/aiterm-wt")
         task.operated?.acceptance = TaskAcceptance(resultSHA: "abc", prerequisiteSHAs: [], checkOutput: "ok", note: nil, at: Date())
         run.questions = [OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Codex asks for permission", task: task.id, askedAt: clock.now)]
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
-        world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .working)])
+        world.show([OperatorServiceFixtures.session("op", tag: run.id),
+                    OperatorServiceFixtures.session("w1", tag: task.id, state: .working)])
+        await world.controller.lastProbe?.value
         #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
         #expect(world.run(run.id)?.state == .complete)
     }
@@ -527,24 +575,331 @@ import Testing
         #expect(world.run(run.id)?.state == .operatorOffline)
     }
 
-    /// A worker that sits at a prompt after its task was accepted still has the prompt read, so the question reaches you
-    /// (spec §H): probing covers every task with a worker tab, not only working or blocked ones.
-    @Test func promptsAreProbedOnAcceptedTasksToo() async throws {
-        for state in [OperatedState.accepted, .inReview, .published] {
+    @Test(arguments: [OperatedState.accepted, .stopped, .published])
+    func tasksThatAreNotWorkingAreNotProbed(state: OperatedState) async throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-27", state: state, worktree: "/tmp/aiterm-wt")
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        world.daemon.prompts["w1"] = .permission
+        world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", tag: task.id, state: .needsInput)])
+        world.controller.reconcileTick()
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").isEmpty)
+    }
+
+    @Test(arguments: [OperatorRunState.complete, .stopped])
+    func workersInInactiveBroadcastsAreNotProbed(state: OperatorRunState) async throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(projects: [project], state: state, planRevision: 1)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-27", state: .working, worktree: "/tmp/aiterm-wt")
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", tag: task.id, state: .needsInput)])
+        world.controller.reconcileTick()
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").isEmpty)
+    }
+
+    @Test(arguments: [OperatedState.working, .blocked, .inReview],
+          [OperatorRunState.active, .paused, .operatorOffline])
+    func announcedAndDeliveredPromptsAreProbedOnSteerableTasks(taskState: OperatedState, runState: OperatorRunState) async throws {
+        for source in [OperatorController.PromptProbe.event, .delivery] {
             let project = OperatorServiceFixtures.project()
-            let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
-            let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-27", state: state, worktree: "/tmp/aiterm-wt")
+            var run = OperatorServiceFixtures.run(projects: [project], state: runState)
+            if runState == .paused { run.intent = .paused }
+            let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: taskState, worktree: "/tmp/aiterm-wt")
             let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
             world.daemon.prompts["w1"] = .permission
-            world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .needsInput)])
-            world.controller.probePrompts()
+            world.live.sessions = [OperatorServiceFixtures.session("w1", tag: task.id, state: source == .event ? .needsInput : .working)]
+            world.controller.probePrompt(task.id, source: source)
             await world.controller.lastProbe?.value
-            #expect(world.run(run.id)?.questions.last?.text == "Claude Code asks for permission", "\(state)")
-            #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true, "\(state)")
+            #expect(world.run(run.id)?.questions.count == 1)
+            #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
+            #expect(world.notifications.posted.contains { $0.target == .task(task.id) && $0.body.contains("asks for permission") })
         }
     }
 
-    /// A prompt read that fails because the helper is gone records nothing; the next pass asks again.
+    @Test(arguments: [OperatedState.working, .blocked, .inReview],
+          [OperatorRunState.active, .paused, .operatorOffline])
+    func unannouncedMenusAreOnlyDiscoveredOnWorkingTasksInActiveBroadcasts(taskState: OperatedState, runState: OperatorRunState) async throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(projects: [project], state: runState)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: taskState, worktree: "/tmp/aiterm-wt")
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        world.daemon.prompts["w1"] = .menu
+        world.live.sessions = [OperatorServiceFixtures.session("w1", tag: task.id, state: .working)]
+        world.controller.probePrompt(task.id, source: .reconcile)
+        await world.controller.lastProbe?.value
+        let expected = taskState == .working && runState == .active ? 1 : 0
+        #expect(world.daemon.requests("session.prompt").count == expected)
+        #expect(world.run(run.id)?.questions.count == expected)
+    }
+
+    @Test func enteringNeedsInputAfterADeliveryReadsWithoutATick() async throws {
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask { [clock] ports in ports.now = { clock.now } }
+        _ = await world.call(run.id, "message_task", ["task": "A", "text": "Continue"])
+        try await world.daemon.received("session.prompt")
+        await world.controller.lastProbe?.value
+        #expect(world.run(run.id)?.questions.isEmpty == true)
+        clock.advance(by: 3)
+        world.daemon.prompts["worker"] = .permission
+        world.live.sessions[0].state = .needsInput
+        world.show(world.live.sessions)
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").count == 2)
+        #expect(world.run(run.id)?.questions.count == 1)
+        #expect(world.notifications.posted.contains { $0.target == .task(task.id) && $0.body.contains("asks for permission") })
+    }
+
+    @Test(arguments: [false, true])
+    func enteringNeedsInputDuringAReadReadsAgainWithoutATick(readFails: Bool) async throws {
+        let daemon = RecordingDaemon(holding: "session.prompt")
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask(daemon)
+        if readFails {
+            daemon.failing["session.prompt"] = .itermUnavailable
+            daemon.onRequest = { [weak daemon] method in
+                if method == "session.prompt", daemon?.requests(method).count == 2 { daemon?.failing[method] = nil }
+            }
+        }
+        world.controller.probePrompt(task.id, source: .delivery)
+        try await daemon.received("session.prompt")
+        world.live.sessions[0].state = .needsInput
+        world.show(world.live.sessions)
+        daemon.prompts["worker"] = .permission
+        daemon.release()
+        #expect(await eventually(describing: "new prompt recorded after stale read") {
+            world.run(run.id)?.questions.count == 1
+        })
+        #expect(daemon.requests("session.prompt").count == 2)
+    }
+
+    @Test(arguments: [false, true])
+    func aStopIntentPreventsNewPromptQuestions(duringRead: Bool) async throws {
+        let daemon = RecordingDaemon(holding: "session.prompt")
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask(daemon)
+        daemon.prompts["worker"] = .permission
+        world.live.sessions[0].state = .needsInput
+        if duringRead {
+            world.controller.probePrompt(task.id)
+            try await daemon.received("session.prompt")
+        }
+        world.workspace.mutate { state in state.updateRun(id: run.id) { $0.intent = .stopped } }
+        world.controller.probePrompt(task.id, source: .delivery)
+        daemon.release()
+        await world.controller.lastProbe?.value
+        #expect(world.run(run.id)?.questions.isEmpty == true)
+        #expect(!world.notifications.posted.contains { $0.body.contains("asks for permission") })
+    }
+
+    @Test func aNeedsInputTabWithoutAQuestionHasTheSameReadGap() async throws {
+        let (world, _, task) = try OperatorServiceFixtures.oneWorkingTask { [clock] ports in ports.now = { clock.now } }
+        world.live.sessions[0].state = .needsInput
+        world.daemon.failing["session.prompt"] = .itermUnavailable
+        for _ in 0..<5 {
+            world.controller.probePrompt(task.id)
+            await world.controller.lastProbe?.value
+            clock.advance(by: 2)
+        }
+        #expect(world.daemon.requests("session.prompt").count == 1)
+        world.controller.probePrompt(task.id)
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").count == 2)
+    }
+
+    @Test func aPromptThatEntersAndLeavesNeedsInputWithinTheGapResolvesAtOnce() async throws {
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask()
+        world.daemon.prompts["worker"] = .menu
+        world.controller.probePrompt(task.id, source: .reconcile)
+        await world.controller.lastProbe?.value
+        world.live.sessions[0].state = .needsInput
+        world.controller.probePrompt(task.id)
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").count == 2)
+        world.daemon.prompts["worker"] = nil
+        world.live.sessions[0].state = .working
+        world.controller.probePrompt(task.id)
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").count == 3)
+        #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
+    }
+
+    @Test func leavingNeedsInputDuringAReadStillResolvesWithoutAnotherEvent() async throws {
+        let daemon = RecordingDaemon(holding: "session.prompt")
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask(daemon)
+        world.workspace.mutate { state in
+            state.updateRun(id: run.id) {
+                $0.questions = [OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Claude asks for permission", task: task.id, askedAt: clock.now)]
+            }
+            state.updateOperated(task.id) { $0.flags.insert(.waitingOnYou) }
+        }
+        world.live.sessions[0].state = .needsInput
+        world.controller.probePrompt(task.id)
+        try await daemon.received("session.prompt")
+        world.live.sessions[0].state = .working
+        world.controller.probePrompt(task.id)
+        daemon.release()
+        await world.controller.lastProbe?.value
+        #expect(await eventually(describing: "answered prompt resolved after stale read") {
+            world.run(run.id)?.questions.last?.resolution != nil
+        })
+        #expect(daemon.requests("session.prompt").count == 2)
+    }
+
+    @Test func quietScreensAreProbedOnTicksWithAGapInsteadOfEveryEvent() async throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-27", state: .working, worktree: "/tmp/aiterm-wt")
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        let sessions = [OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", tag: task.id, state: .working)]
+        world.show(sessions)
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").isEmpty)
+        world.controller.reconcileTick()
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").count == 1)
+        for _ in 0..<4 {
+            clock.advance(by: 2)
+            world.show(sessions)
+            world.controller.reconcileTick()
+            await world.controller.lastProbe?.value
+        }
+        #expect(world.daemon.requests("session.prompt").count == 1)
+        clock.advance(by: 2)
+        world.controller.reconcileTick()
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").count == 2)
+    }
+
+    @Test(arguments: [OperatedState.blocked, .inReview, .accepted],
+          [OperatorRunState.active, .paused, .stopped, .complete, .planning, .operatorOffline])
+    func openQuestionsAreResolvedRegardlessOfTaskAndBroadcastState(taskState: OperatedState, runState: OperatorRunState) async throws {
+        let project = OperatorServiceFixtures.project()
+        var run = OperatorServiceFixtures.run(projects: [project], state: runState)
+        run.intent = .paused
+        var task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: taskState, worktree: "/tmp/aiterm-wt")
+        task.operated?.flags.insert(.waitingOnYou)
+        run.questions = [OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Claude has a menu open", task: task.id, askedAt: clock.now)]
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .idle)])
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").count == 1)
+        #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+    }
+
+    @Test func anOpenQuestionIsNotReadOnEverySessionEvent() async throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .working, worktree: "/tmp/aiterm-wt")
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        let sessions = [OperatorServiceFixtures.session("w1", tag: task.id, state: .needsInput)]
+        world.daemon.prompts["w1"] = .menu
+        world.show(sessions)
+        await world.controller.lastProbe?.value
+        for _ in 0..<4 {
+            clock.advance(by: 2)
+            world.show(sessions)
+            await world.controller.lastProbe?.value
+        }
+        #expect(world.daemon.requests("session.prompt").count == 1)
+        clock.advance(by: 2)
+        world.show(sessions)
+        await world.controller.lastProbe?.value
+        #expect(world.daemon.requests("session.prompt").count == 2)
+    }
+
+    @Test(arguments: ["delivered", "prompt", "unrecognisedScreen", "ownership"])
+    func aMessageProbesItsWorkerWhenTheResultCallsForIt(result: String) async throws {
+        let delay = HeldGate()
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask { ports in
+            ports.promptSleep = { duration in
+                #expect(duration == .seconds(1.5))
+                await delay.wait()
+            }
+        }
+        world.controller.probePrompts(.reconcile)
+        await world.controller.lastProbe?.value
+        world.daemon.deliveries = [Delivery(result: result == "delivered" ? .delivered : .refused,
+                                           reason: nil, code: DeliveryCode(rawValue: result))]
+        _ = await world.call(run.id, "message_task", ["task": "A", "text": "/effort high"])
+        if result == "ownership" {
+            #expect(world.daemon.requests("session.prompt").count == 1)
+            #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+            return
+        }
+        try await world.daemon.received("session.prompt", count: 2)
+        await world.controller.lastProbe?.value
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+        await delay.started()
+        // Claude draws the menu after Enter and the first read, without any hook or session event.
+        world.daemon.prompts["worker"] = .menu
+        await delay.release()
+        try await world.daemon.received("session.prompt", count: 3)
+        await world.controller.lastProbe?.value
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
+    }
+
+    @Test func aSlowPromptReadDoesNotHoldADeliveryResultOrItsReplay() async throws {
+        let daemon = RecordingDaemon(holding: "session.prompt")
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask(daemon)
+        world.controller.probePrompts(.reconcile)
+        try await daemon.received("session.prompt")
+        daemon.prompts["worker"] = .menu
+        var answered = false
+        let sending = Task {
+            _ = await world.call(run.id, "message_task", ["task": "A", "text": "/effort high"])
+            answered = true
+        }
+        #expect(await eventually(describing: "delivery answered while screen read is held") { answered })
+        var replayed = false
+        let replay = Task {
+            _ = await world.call(run.id, "message_task", ["task": "A", "text": "/effort high"])
+            replayed = true
+        }
+        #expect(await eventually(describing: "delivery replay answered while screen read is held") { replayed })
+        #expect(daemon.requests("session.deliver").count == 1)
+        daemon.release()
+        await sending.value
+        await replay.value
+        try await daemon.received("session.prompt", count: 2)
+        await world.controller.lastProbe?.value
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
+    }
+
+    @Test(arguments: ["metadata", "state", "session"])
+    func aPromptReadChecksOnlyTheSessionAndItsState(change: String) async throws {
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask()
+        world.daemon.prompts["worker"] = .menu
+        world.daemon.onRequest = { method in
+            guard method == "session.prompt" else { return }
+            switch change {
+            case "state": world.live.sessions[0].state = .working
+            case "session": world.live.sessions[0].sessionId = "replacement"
+            default:
+                world.live.sessions[0].title = "Another title"
+                world.live.sessions[0].active = true
+                world.live.sessions[0].contextPercent = 42
+            }
+        }
+        world.controller.probePrompts(.reconcile)
+        await world.controller.lastProbe?.value
+        #expect(world.run(run.id)?.questions.isEmpty == (change != "metadata"))
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == (change == "metadata"))
+    }
+
+    @Test func anOpenQuestionDoesNotInventALiveTab() throws {
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask()
+        world.workspace.mutate { state in
+            state.updateRun(id: run.id) {
+                $0.questions.append(OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Claude shows a menu",
+                                                    task: task.id, askedAt: clock.now))
+            }
+        }
+        let snapshot = try #require(OperatorController.status(of: run.id, state: world.state, sessions: [], revision: 0, turns: [:]))
+        #expect(snapshot.tasks.first?.live == nil)
+    }
+
+    /// A failed read records nothing and can be tried again once its polling gap has elapsed.
     @Test func aPromptReadThatFailsRecordsNoQuestionAndIsAskedAgain() async throws {
         let project = OperatorServiceFixtures.project()
         let run = OperatorServiceFixtures.run(projects: [project], state: .active)
@@ -556,6 +911,7 @@ import Testing
         await world.controller.lastProbe?.value
         #expect(world.run(run.id)?.questions.isEmpty == true && world.notifications.posted.isEmpty)
         world.daemon.failing = [:]
+        clock.advance(by: OperatorTiming.promptProbeInterval)
         world.controller.probePrompts()
         await world.controller.lastProbe?.value
         #expect(world.run(run.id)?.questions.last?.text == "Codex asks for permission")

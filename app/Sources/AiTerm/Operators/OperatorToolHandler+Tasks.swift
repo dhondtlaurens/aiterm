@@ -170,6 +170,9 @@ extension OperatorToolHandler {
         var fields: [String: JSONValue] = ["result": .string(delivery.result.rawValue), "reason": delivery.reason.map(JSONValue.string) ?? .null]
         // Steered, an accepted task is at work again; accepting it on its commit or another says what came of it.
         if delivery.result == .delivered, operated.state == .accepted, reopen(task) { fields["reopened"] = true }
+        if delivery.result == .delivered || delivery.code == .prompt || delivery.code == .unrecognisedScreen {
+            onMessageResult(task.id, worker.key)
+        }
         let answer = JSONValue.object(fields)
         if delivery.result == .delivered { deliveredMessages[key] = (ports.now(), answer) }
         return answer
