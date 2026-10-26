@@ -156,6 +156,14 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
   tab it has (`WorkerTab`: its first worker and the Operator's `open_tab` tabs, one still opening at
   work): its runtime runs while any is at work, it waits for acceptance once all ended their turn, each
   tab is on its own stall clock and probed for its own prompt, and `BranchWatch` reads each one's last message.
+  Runtime has two limits (`OperatorTiming`): 90 minutes of work without a new commit on the task's
+  branch, and four hours of total work since starting or the Operator last resumed it. A changed
+  branch head, read by the `BranchWatch` pass, resets only the no-commit clock; every
+  worker tab shares that branch, so every tab's commits count. Both clocks count the same working
+  intervals once per task, excluding idle time, waiting on you, takeovers, pauses and time AiTerm was closed.
+  Either limit blocks with its own reason, but neither blocks a task ready for acceptance.
+  `resume_task` and starting a retried worker reset both clocks. Saved runs retain their existing no-commit time; older files
+  initialise total work from that time and establish a branch-head baseline without resetting it.
   `message_task` and `read_task` reach one tab by its key (`tab`), the first worker without one; a takeover,
   a hand back and Stop Task reach every tab. An extra tab closed after it opened is marked closed in
   `run_status` and opened again by nothing, the reconciler, a reopen and a restart included: a reopen
