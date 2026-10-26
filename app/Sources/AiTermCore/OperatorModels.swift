@@ -306,8 +306,12 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     public var ownership: Int
     public var launch: LaunchAttempt?
     public var retriesUsed: Int
-    /// Seconds its worker was busy, not counting time idle at its prompt or waiting on you.
+    /// Working seconds without a new commit on its task branch, excluding idle time and waiting on you.
     public var runtimeUsed: TimeInterval
+    /// Working seconds since starting or the Operator last resumed it; commits do not reset this clock.
+    public var totalRuntimeUsed: TimeInterval
+    /// The task branch's last observed head; a first reading establishes a baseline without resetting runtime.
+    public var runtimeHead: String?
     public var blockedReason: String?
     /// The state it was blocked from (`working` or `queued`), which resume returns it to; nil for a
     /// task not blocked, or blocked by an older build.
@@ -338,6 +342,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
                 dependsOn: [TaskDependency] = [], stackedOn: UUID? = nil, revision: Int, firstRevision: Int? = nil,
                 acceptance: TaskAcceptance? = nil, publication: TaskPublication? = nil, takenOver: Bool = false,
                 ownership: Int = 0, launch: LaunchAttempt? = nil, retriesUsed: Int = 0, runtimeUsed: TimeInterval = 0,
+                totalRuntimeUsed: TimeInterval? = nil, runtimeHead: String? = nil,
                 blockedReason: String? = nil, blockedFrom: OperatedState? = nil, flags: Set<OperatedFlag> = [],
                 lastFailure: String? = nil, modelReason: String? = nil, agentPinned: Bool = false, problem: String? = nil,
                 agentReview: AgentReviewResult? = nil, peopleReview: PeopleReview? = nil, branchDrift: BranchDrift? = nil,
@@ -347,6 +352,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         self.firstRevision = firstRevision ?? revision
         self.acceptance = acceptance; self.publication = publication; self.takenOver = takenOver
         self.ownership = ownership; self.launch = launch; self.retriesUsed = retriesUsed; self.runtimeUsed = runtimeUsed
+        self.totalRuntimeUsed = totalRuntimeUsed ?? runtimeUsed; self.runtimeHead = runtimeHead
         self.blockedReason = blockedReason; self.blockedFrom = blockedFrom; self.flags = flags
         self.lastFailure = lastFailure
         self.modelReason = modelReason; self.agentPinned = agentPinned; self.problem = problem
@@ -360,6 +366,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case runId, key, state, end, brief, dependsOn, stackedOn, revision, firstRevision, acceptance, publication
+        case totalRuntimeUsed, runtimeHead
         case takenOver, ownership, launch, retriesUsed, runtimeUsed, blockedReason, blockedFrom, flags, lastFailure
         case modelReason, agentPinned, problem, agentReview, peopleReview, branchDrift, extraTabs, reopenedFrom
     }
@@ -384,6 +391,8 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         launch = try c.decodeIfPresent(LaunchAttempt.self, forKey: .launch)
         retriesUsed = try c.decodeIfPresent(Int.self, forKey: .retriesUsed) ?? 0
         runtimeUsed = try c.decodeIfPresent(TimeInterval.self, forKey: .runtimeUsed) ?? 0
+        totalRuntimeUsed = try c.decodeIfPresent(TimeInterval.self, forKey: .totalRuntimeUsed) ?? runtimeUsed
+        runtimeHead = try c.decodeIfPresent(String.self, forKey: .runtimeHead)
         blockedReason = try c.decodeIfPresent(String.self, forKey: .blockedReason)
         blockedFrom = try c.decodeIfPresent(OperatedState.self, forKey: .blockedFrom)
         lastFailure = try c.decodeIfPresent(String.self, forKey: .lastFailure)
@@ -418,6 +427,8 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         try c.encodeIfPresent(launch, forKey: .launch)
         try c.encode(retriesUsed, forKey: .retriesUsed)
         try c.encode(runtimeUsed, forKey: .runtimeUsed)
+        try c.encode(totalRuntimeUsed, forKey: .totalRuntimeUsed)
+        try c.encodeIfPresent(runtimeHead, forKey: .runtimeHead)
         try c.encodeIfPresent(blockedReason, forKey: .blockedReason)
         try c.encodeIfPresent(blockedFrom, forKey: .blockedFrom)
         try c.encodeIfPresent(lastFailure, forKey: .lastFailure)

@@ -351,7 +351,10 @@ TOOLS: tuple[dict[str, Any], ...] = (
            "sha": _text("The accepted commit, unmoved on the task's branch."),
            "checkOutput": _text("The worker's check output: tests, lint, build."), "note": _text("Why, for blocked and failed.")},
           ("task", "outcome")),
-    _tool("resume_task", "Puts a blocked task back to work once its reason is resolved; the same worker session continues.",
+    _tool("resume_task", "Puts a blocked task back to work once its reason is resolved; the same worker session continues. "
+          "AiTerm blocks after 90 working minutes without a new task-branch commit or four total working hours since starting "
+          "or the last resume. Any worker tab's commit resets only the no-commit clock. readyForAcceptance is exempt. "
+          "Inspect before resuming; resume_task resets both clocks.",
           {"task": _TASK}, ("task",)),
     _tool("retry_task", "Queues a failed task again, if it has retries left.", {"task": _TASK}, ("task",)),
     _tool("finish_task",

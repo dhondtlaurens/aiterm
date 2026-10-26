@@ -23,6 +23,36 @@ import Foundation
         oracle: OracleSetting(isOn: true, agent: .codex, model: "gpt-6-astra", reasoning: "medium"),
         instructions: "Keep changes small.")
 
+    @Test func oldSavedRuntimeStillCountsTowardTheStuckLimit() throws {
+        let data = Data("""
+        {"runId":"00000000-0000-0000-0000-000000000001","key":"A","state":"working",
+         "end":"commit","brief":"Work","revision":1,"runtimeUsed":5399}
+        """.utf8)
+        var task = try JSONDecoder().decode(OperatedTask.self, from: data)
+        #expect(task.runtimeUsed == 5399)
+        #expect(task.totalRuntimeUsed == 5399 && task.runtimeHead == nil)
+        #expect(OperatedTransitions.limitReason(for: task) == nil)
+        task.runtimeUsed += 1
+        #expect(OperatedTransitions.limitReason(for: task) == "Worked 90 minutes without a new commit.")
+        #expect(try roundTrip(task) == task)
+    }
+
+    @Test func totalRuntimeBlocksEvenWithARecentCommit() throws {
+        let data = Data("""
+        {"runId":"00000000-0000-0000-0000-000000000001","key":"A","state":"working",
+         "end":"commit","brief":"Work","revision":1,"runtimeUsed":60,"totalRuntimeUsed":14400}
+        """.utf8)
+        let task = try JSONDecoder().decode(OperatedTask.self, from: data)
+        #expect(OperatedTransitions.limitReason(for: task) == "Worked 4 hours since it started or was last resumed")
+        #expect(OperatedTransitions.limitReason(for: task, readyForAcceptance: true) == nil)
+        let blocked = try OperatedTransitions.apply(.block(reason: "runtime"), to: task, by: .aiterm,
+                                                    context: OperatedContext(runState: .active, retryLimit: 2))
+        let resumed = try OperatedTransitions.apply(.resume, to: blocked, by: .operatorTool,
+                                                    context: OperatedContext(runState: .active, retryLimit: 2))
+        #expect(resumed.runtimeUsed == 0 && resumed.totalRuntimeUsed == 0)
+        #expect(OperatedTransitions.limitReason(for: resumed) == nil)
+    }
+
     @Test func oldOracleRefusalsBecomeSeparateNotes() throws {
         let reason = "The Oracle judged that the conditions to merge don’t hold yet: review missing."
         let data = try JSONEncoder().encode(["problem": reason])
@@ -51,10 +81,11 @@ import Foundation
         #expect(OperatedState.allCases.filter(\.isOpen) == [.planned, .queued, .working, .inReview, .blocked, .failed])
     }
 
-    /// The round-1 limits, fixed now: two retries and ninety minutes a task.
-    @Test func theLimitsAreTwoRetriesAndNinetyMinutes() {
+    /// The fixed retry and runtime caps.
+    @Test func theRetryAndRuntimeLimitsArePinned() {
         #expect(OperatorTiming.retries == 2)
         #expect(OperatorTiming.runtimeMinutes == 90)
+        #expect(OperatorTiming.totalRuntimeHours == 4)
     }
 
     /// A broadcast keeps the profile it started with: Settings › Operator changed since changes the next one.

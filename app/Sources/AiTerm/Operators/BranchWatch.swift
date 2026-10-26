@@ -21,6 +21,8 @@ final class BranchWatch {
     private struct Read: Sendable { let modified: Date, message: String? }
     /// The latest pass, for a test to await.
     var lastPoll: Task<Void, Never>? { pass.last }
+    /// A fresh read finished, including one with no progress or an unreadable head.
+    var checked: @MainActor (UUID) -> Void = { _ in }
 
     init(workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts, waker: OperatorWaker, transcripts: TranscriptLocator) {
         self.workspace = workspace
@@ -76,6 +78,13 @@ final class BranchWatch {
         // Read fresh: git was asked meanwhile.
         guard let current = state.task(id: id), isWatched(current), current.worktreePath == worktree, current.branch == branch,
               let fresh = current.operated, fresh.ownership == operated.ownership else { return }
+        defer { checked(id) }
+        if let head = reading.head, head.branch == branch, head.sha != fresh.runtimeHead {
+            workspace.mutate { $0.updateOperated(id) {
+                if $0.runtimeHead != nil { $0.runtimeUsed = 0 }
+                $0.runtimeHead = head.sha
+            } }
+        }
         let found = BranchDrift.find(taskBranch: branch, head: reading.head, named: reading.named, previous: fresh.branchDrift)
         guard found != fresh.branchDrift else { return }
         workspace.mutate { $0.updateOperated(id) { $0.branchDrift = found } }

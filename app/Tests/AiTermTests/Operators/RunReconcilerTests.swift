@@ -105,6 +105,7 @@ import Testing
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-5", state: .working, worktree: "/tmp/aiterm-wt")
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
         task.operated?.runtimeUsed = 89 * 60
+        task.operated?.totalRuntimeUsed = 120 * 60
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         let tabs = [OperatorServiceFixtures.session("op", tag: run.id),
                     OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .working)]
@@ -125,10 +126,11 @@ import Testing
         restarted.show(tabs)
         restarted.controller.reconcileTick()
         #expect(restarted.task(task.id)?.operated?.runtimeUsed == 89 * 60 + 30.0)
+        #expect(restarted.task(task.id)?.operated?.totalRuntimeUsed == 120 * 60 + 30.0)
         clock.advance(by: 31)
         restarted.controller.reconcileTick()
         let blocked = try #require(restarted.task(task.id)?.operated)
-        #expect(blocked.state == .blocked && blocked.blockedReason == "Worked its 90 minutes without finishing.")
+        #expect(blocked.state == .blocked && blocked.blockedReason == "Worked 90 minutes without a new commit.")
         #expect(restarted.notifications.posted.last?.target == .board(run.id))
     }
 
@@ -368,16 +370,18 @@ import Testing
     // -- fix round 1 --------------------------------------------------------------------------
 
     /// Spec §8: you resolve a runtime block by resuming, and the task gets a fresh allowance — left with the
-    /// time it used, the next pass would block it again. A block for another reason keeps its runtime.
-    @Test func aTaskBlockedForItsRuntimeIsResumedWithAFreshAllowanceAndOneBlockedForAnotherReasonKeepsItsTime() throws {
+    /// time it used, the next pass would block it again. A block for another reason also resets its runtime.
+    @Test func resumingBlockedTasksRestartsTheirRuntime() throws {
         let project = OperatorServiceFixtures.project()
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var spent = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-20", state: .working, worktree: "/tmp/aiterm-wt")
         spent.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
         spent.operated?.runtimeUsed = 90 * 60
+        spent.operated?.totalRuntimeUsed = 180 * 60
         var partway = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-21", state: .working, worktree: "/tmp/aiterm-wt2")
         partway.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
         partway.operated?.runtimeUsed = 30 * 60
+        partway.operated?.totalRuntimeUsed = 120 * 60
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [spent, partway]))
         world.show([OperatorServiceFixtures.session("op", tag: run.id),
                     OperatorServiceFixtures.session("w1", window: "w9", tag: spent.id, state: .working),
@@ -394,7 +398,8 @@ import Testing
         let resumed = try #require(world.task(spent.id)?.operated)
         #expect(resumed.state == .working && resumed.runtimeUsed == 30, "a fresh 90 minutes, counted from its resume")
         let kept = try #require(world.task(partway.id)?.operated)
-        #expect(kept.state == .working && kept.runtimeUsed == 30 * 60 + 30)
+        #expect(resumed.totalRuntimeUsed == 30 && kept.totalRuntimeUsed == 30)
+        #expect(kept.state == .working && kept.runtimeUsed == 30)
     }
 
     /// Only a busy worker's time counts: one idle at its prompt, its turn over, waits for review or acceptance, and

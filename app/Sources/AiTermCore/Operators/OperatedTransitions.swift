@@ -35,11 +35,9 @@ public struct OperatedContext: Equatable, Sendable {
     public var runState: OperatorRunState
     /// The run's snapshot `limits.retries`.
     public var retryLimit: Int
-    /// The run's snapshot `limits.runtimeMinutes`, in seconds; nil where a caller does not say.
-    public var runtimeLimit: TimeInterval?
 
-    public init(runState: OperatorRunState, retryLimit: Int, runtimeLimit: TimeInterval? = nil) {
-        self.runState = runState; self.retryLimit = retryLimit; self.runtimeLimit = runtimeLimit
+    public init(runState: OperatorRunState, retryLimit: Int) {
+        self.runState = runState; self.retryLimit = retryLimit
     }
 }
 
@@ -160,9 +158,9 @@ public enum OperatedTransitions {
             // Back to where it was blocked from: a queued task waits its turn again, a working one
             // continues in its session. Older files have no record: a task that never ran has no session.
             next.state = task.blockedFrom ?? (task.started ? .working : .queued)
-            // A task blocked for its runtime is resumed with a fresh allowance: with the time it used left
-            // over, the next pass would block it again. A block for any other reason keeps what was used.
-            if next.state == .working, let limit = context.runtimeLimit, task.runtimeUsed >= limit { next.runtimeUsed = 0 }
+            // The Operator has checked the block and put it back to work: both allowances start afresh.
+            next.runtimeUsed = 0
+            next.totalRuntimeUsed = 0
             next.blockedReason = nil
             next.blockedFrom = nil
 
@@ -195,12 +193,18 @@ public enum OperatedTransitions {
     /// retry left, or a working task past its runtime. Nil while it is within both, and never for its
     /// runtime while it is `readyForAcceptance`: its worker finished, and the work waits for review.
     public static func limitReason(for task: OperatedTask, readyForAcceptance: Bool = false, retries: Int = OperatorTiming.retries,
-                                   runtimeMinutes: Int = OperatorTiming.runtimeMinutes) -> String? {
+                                   runtimeMinutes: Int = OperatorTiming.runtimeMinutes,
+                                   totalRuntimeHours: Int = OperatorTiming.totalRuntimeHours) -> String? {
         if task.state == .failed, task.retriesUsed >= retries {
             return "Failed with no retries left (\(retries) allowed)."
         }
-        if task.state == .working, !readyForAcceptance, task.runtimeUsed >= TimeInterval(runtimeMinutes * 60) {
-            return "Worked its \(runtimeMinutes) minutes without finishing."
+        if task.state == .working, !readyForAcceptance {
+            if task.totalRuntimeUsed >= TimeInterval(totalRuntimeHours * 60 * 60) {
+                return "Worked \(totalRuntimeHours) hours since it started or was last resumed"
+            }
+            if task.runtimeUsed >= TimeInterval(runtimeMinutes * 60) {
+                return "Worked \(runtimeMinutes) minutes without a new commit."
+            }
         }
         return nil
     }

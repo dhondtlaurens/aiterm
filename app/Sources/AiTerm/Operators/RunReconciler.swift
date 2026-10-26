@@ -19,6 +19,8 @@ final class RunReconciler {
     /// Whether a connected snapshot has come since the helper attached (the controller's `tabsKnown`): until then, a
     /// tab not listed is not a tab gone.
     var tabsKnown: @MainActor () -> Bool = { false }
+    /// A watched branch's progress is read before its no-commit limit is decided.
+    var waitsForProgress: @MainActor (TaskItem) -> Bool = { _ in false }
     /// The latest relaunch, for a test to await.
     private(set) var lastLaunch: Task<Void, Never>?
     /// The latest extra tab asked for again, for a test to await.
@@ -142,18 +144,33 @@ final class RunReconciler {
         let step = TimeInterval(interval.seconds) + TimeInterval(interval.attoseconds) / 1e18
         let elapsed = lastCounted.map { min(max(0, now.timeIntervalSince($0)), 2 * step) } ?? 0
         lastCounted = now
+        return applyLimits(elapsed: elapsed, sessions: sessions)
+    }
+
+    /// The existing branch read finished: decide its limit with fresh progress, without counting time again.
+    func checkLimits(for task: UUID) -> Set<UUID> {
+        guard tabsKnown() else { return [] }
+        return applyLimits(elapsed: 0, sessions: live.sessions, checkedTask: task)
+    }
+
+    private func applyLimits(elapsed: TimeInterval, sessions: [SessionInfo], checkedTask: UUID? = nil) -> Set<UUID> {
         var blocked: [UUID] = []
         workspace.mutate { state in
-            for task in state.tasks {
+            for task in state.tasks where checkedTask == nil || task.id == checkedTask {
                 guard let operated = task.operated, let run = state.run(id: operated.runId), run.state == .active, run.intent == nil
                 else { continue }
                 let workers = task.workerTabs(in: sessions).map(\.status)
                 if elapsed > 0, workers.contains(.working), operated.state == .working, !operated.takenOver,
                    !operated.flags.contains(.waitingOnYou) {
-                    state.updateOperated(task.id) { $0.runtimeUsed += elapsed }
+                    state.updateOperated(task.id) {
+                        $0.runtimeUsed += elapsed
+                        $0.totalRuntimeUsed += elapsed
+                    }
                 }
-                guard let current = state.task(id: task.id)?.operated,
-                      let reason = OperatedTransitions.limitReason(for: current,
+                guard let current = state.task(id: task.id)?.operated else { continue }
+                if checkedTask == nil, current.state == .working, waitsForProgress(task),
+                   current.totalRuntimeUsed < TimeInterval(OperatorTiming.totalRuntimeHours * 60 * 60) { continue }
+                guard let reason = OperatedTransitions.limitReason(for: current,
                                                                    readyForAcceptance: RunStatus.isReadyForAcceptance(
                                                                        current, live: workers[0], extraTabs: Array(workers.dropFirst()))),
                       (try? OperatedTransitions.apply(.block(reason: reason), toTask: task.id, in: &state, by: .aiterm)) != nil
