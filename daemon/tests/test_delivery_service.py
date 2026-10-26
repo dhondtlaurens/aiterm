@@ -10,6 +10,7 @@ from aitermd import delivery
 from aitermd.delivery import PASTE_END, PASTE_START
 
 from tests.conftest import FRAME, call as rpc_call
+from tests.test_delivery import CLAUDE_MODEL, CLAUDE_EFFORT
 IDLE = "────────────────\n❯\x20\n────────────────\n  ? for shortcuts"
 
 
@@ -174,3 +175,17 @@ async def test_a_closed_session_forgets_its_generation_and_last_key(claude):
     await it.user_closes_session(sid)  # the service ticks on the close, and forgets the session
     assert not svc.typing.is_typing(sid, 500.0) and svc.typing.has_unsent_input(sid)
     assert sid not in svc.deliverer._ownership
+
+
+@pytest.mark.parametrize("screen", [
+    pytest.param(CLAUDE_MODEL, id="model"),
+    pytest.param(CLAUDE_EFFORT, id="effort"),
+])
+async def test_a_screen_only_menu_is_read_and_refuses_delivery(claude, screen):
+    svc, it, sid, call, _policy = claude
+    it.screens[sid] = screen
+    assert svc.registry.get(sid).state == "idle"
+    assert (await call("session.prompt", {"sessionId": sid}))["result"] == {"kind": "menu"}
+    reply = await call("session.deliver", {"sessionId": sid, "text": "Continue", "ownership": 1})
+    assert reply["result"] == {"result": "refused", "code": "prompt", "reason": "a menu prompt is open"}
+    assert it.sent == []

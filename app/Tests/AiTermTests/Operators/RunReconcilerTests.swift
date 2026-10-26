@@ -185,6 +185,47 @@ import Testing
         #expect(sent.params["sessionId"] as? String == "w1" && sent.params["ownership"] as? Int == 3)
     }
 
+    @Test(arguments: [SessionState.idle, .working, .done])
+    func aScreenOnlyMenuWaitsOnYouUntilTheScreenClears(status: SessionState) async throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
+        var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-4", state: .working, worktree: "/tmp/aiterm-wt")
+        task.operated?.flags.insert(.possiblyStalled)
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        let sessions = [OperatorServiceFixtures.session("op", tag: run.id),
+                        OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: status)]
+        world.daemon.prompts["w1"] = .menu
+        world.show(sessions)
+        await world.controller.lastProbe?.value
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
+        let snapshot = try #require(OperatorController.status(of: run.id, state: world.workspace.state,
+                                                              sessions: sessions, revision: 0, turns: [:], quiet: [task.id]))
+        #expect(snapshot.obligations.promptsWaitingOnYou == ["PLUTO-4"])
+        #expect(snapshot.tasks.first?.live == .needsInput)
+        #expect(snapshot.obligations.possiblyStalled.isEmpty)
+        #expect(snapshot.obligations.uncertain.isEmpty)
+        world.controller.probePrompts()
+        await world.controller.lastProbe?.value
+        #expect(world.run(run.id)?.questions.count == 1)
+        #expect(world.run(run.id)?.questions.last?.resolution == nil)
+        world.daemon.failing["session.prompt"] = .disconnected
+        world.controller.probePrompts()
+        await world.controller.lastProbe?.value
+        #expect(world.run(run.id)?.questions.last?.resolution == nil)
+        world.daemon.failing["session.prompt"] = nil
+        world.controller.reconcileTick()
+        clock.advance(by: 30 * 60)
+        world.controller.reconcileTick()
+        #expect(world.task(task.id)?.operated?.runtimeUsed == 0)
+        #expect(world.task(task.id)?.operated?.flags.contains(.possiblyStalled) == false)
+        await world.controller.lastProbe?.value
+        world.daemon.prompts["w1"] = nil
+        world.controller.probePrompts()
+        await world.controller.lastProbe?.value
+        #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+    }
+
     @Test func aWorkersPromptIsAQuestionWaitingOnYouUntilItLeavesThePrompt() async throws {
         let project = OperatorServiceFixtures.project()
         let run = OperatorServiceFixtures.run(projects: [project], state: .active)
@@ -199,7 +240,9 @@ import Testing
         #expect(world.notifications.posted.last?.target == .task(task.id))
         #expect(world.notifications.posted.last?.body == "Codex asks for permission in Task PLUTO-4.")
         #expect(world.notifications.withdrawn.isEmpty)
+        world.daemon.prompts["w1"] = nil
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .codex, state: .working)])
+        await world.controller.lastProbe?.value
         #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
         #expect(world.notifications.withdrawn == ["request-\(run.id.uuidString)-\(task.id.uuidString)-permission"], "answered in its window, it is taken back")
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
@@ -361,6 +404,7 @@ import Testing
         run.questions = [OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Codex asks for permission", task: task.id, askedAt: clock.now)]
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .working)])
+        await world.controller.lastProbe?.value
         #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
         #expect(world.run(run.id)?.state == .complete)
     }

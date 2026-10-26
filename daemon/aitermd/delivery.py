@@ -53,7 +53,10 @@ def open_prompt(agent: AgentKind, screen: str) -> PromptKind | None:
         return "permission"
     if shows(screen, harness.startup_prompt):
         return "startup"
-    if shows(screen, harness.menu_prompt):
+    if shows(screen, harness.menu_prompt) or any(
+        (text := line.lstrip())[:1] in harness.input_box and _OPTION.match(text[1:])
+        for line in screen.splitlines() if line.strip()
+    ):
         return "menu"
     return None
 

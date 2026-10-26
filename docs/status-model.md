@@ -75,7 +75,15 @@ nothing else: a row a hook has moved is left alone. When it closes, the row goes
 to done, because no turn ran. It is closed by the screen no longer showing it, by the session file
 appearing, by any hook (only a trusted folder loads them), or by Claude exiting. A screen that
 cannot be read changes nothing. A tab past the dialog has its session file, so its screen is not
-read again.
+read again by that tick.
+
+The Operator also probes every open worker tab through `session.prompt`, including idle and working
+workers: model and effort confirmations can open without a Notification or PermissionRequest hook.
+A selection arrow at the start of a line followed by a numbered option reads as a menu, using
+Claude's `❯` or Codex's `›`; permission and startup markers still take precedence. The input-box
+rule is unchanged. The app records the menu as a question waiting on you, reports needs input in
+`run_status` and lists it under `promptsWaitingOnYou`. That question suspends runtime and stall
+accounting until a successful screen read shows it closed. An unreadable screen leaves it open.
 
 A hook can arrive before the tick has classified its tab: `window.createTask` sends the agent
 command and ticks at once, while the tab still reads as a shell, so the agent's `SessionStart` and

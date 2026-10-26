@@ -34,6 +34,18 @@ CLAUDE_MENU = """\
    2. Opus
  Enter to select · Esc to cancel
 """
+# Reconstructed from the Operator's report; locally 2.1.310 applied both commands without a dialog, idle and busy.
+CLAUDE_EFFORT = """\
+ Change effort level?
+ Your next response will be slower and use more tokens
+ ❯ 1. Yes, switch to high
+   2. No, go back
+"""
+CLAUDE_MODEL = """\
+ Change model?
+ ❯ 1. Yes, switch to claude-opus-5-5
+   2. No, go back
+"""
 CLAUDE_TRUST = """\
  Quick safety check: Is this a project you created or one you trust?
  ❯ 1. No, exit
@@ -97,6 +109,14 @@ UNRECOGNISED = "zsh: command not found: claude\nlaurens@mac ~/wt % "
 @pytest.mark.parametrize("agent,screen,expected", [
     ("claude", CLAUDE_PERMISSION, "permission"),
     ("claude", CLAUDE_MENU, "menu"),
+    ("claude", CLAUDE_EFFORT, "menu"),
+    ("claude", CLAUDE_MODEL, "menu"),
+    ("claude", CLAUDE_WORKING + "\n" + CLAUDE_EFFORT, "menu"),
+    ("claude", "Unknown dialog\n  ❯ 12. Choose this\n  13. Cancel", "menu"),
+    ("codex", "Unknown dialog\n  › 2. Choose this\n  3. Cancel", "menu"),
+    ("claude", "1. Ordinary numbered output\n❯ hello", None),
+    ("claude", "text then ❯ 1. quoted option", None),
+    ("claude", "› 1. Other harness", None),
     # The trust dialog also says "Esc to cancel": a startup dialog wins over a menu.
     ("claude", CLAUDE_TRUST, "startup"),
     ("claude", IDLE, None),
@@ -131,6 +151,7 @@ def test_an_idle_or_working_cli_screen_shows_its_input_box(agent, screen):
     ("claude", "text then ❯ mid-line"), ("pi", CODEX_IDLE), ("shell", IDLE),
     # A menu's selected option is drawn with the same arrow: a menu no marker knows yet is no input box.
     ("codex", CODEX_HOOKS_REVIEW), ("claude", CLAUDE_TRUST),
+    ("claude", CLAUDE_MODEL), ("claude", CLAUDE_EFFORT),
 ])
 def test_anything_else_shows_no_input_box(agent, screen):
     assert not shows_input_box(agent, screen)

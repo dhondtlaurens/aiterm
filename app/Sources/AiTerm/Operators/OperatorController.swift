@@ -334,15 +334,17 @@ final class OperatorController {
             let workers = task.workerTabs(in: sessions), tab = workers[0].session, prompt = open.first { $0.tab == nil }?.text
             let extra = workers.dropFirst().compactMap { worker in
                 worker.key.map { key in
-                    TaskLiveFacts.Tab(key: key, agent: worker.agent, model: worker.model, status: worker.session?.state,
-                                      opening: worker.isOpening, closed: worker.isClosed, waitingPrompt: open.first { $0.tab == key }?.text)
+                    let prompt = open.first { $0.tab == key }?.text
+                    return TaskLiveFacts.Tab(key: key, agent: worker.agent, model: worker.model,
+                                             status: prompt == nil ? worker.session?.state : .needsInput,
+                                             opening: worker.isOpening, closed: worker.isClosed, waitingPrompt: prompt)
                 }
             }
             if tab != nil || prompt != nil || !extra.isEmpty {
-                var live = TaskLiveFacts(status: tab?.state, waitingPrompt: prompt, tabs: Array(extra),
+                var live = TaskLiveFacts(status: prompt == nil ? tab?.state : .needsInput, waitingPrompt: prompt, tabs: Array(extra),
                                          background: workers.flatMap(\.background),
                                          yourPrompt: workers.lazy.compactMap { $0.session?.yourPrompt }.first,
-                                         quiet: quiet.contains(task.id))
+                                         quiet: open.isEmpty && quiet.contains(task.id))
                 if let tab, live.status?.turnEnded == true {
                     if let turn = turns[task.id], turn.session == tab.sessionId, !turn.messaged {
                         live.lastMessage = turn.lastMessage
@@ -791,8 +793,8 @@ final class OperatorController {
         tools.cancelReviews()
     }
 
-    /// Each operated task's tab, in any state (spec §H): one that needs input has its prompt read (spec §7.2), and a
-    /// question left open for one whose tab has left the prompt is resolved. A task with no tab open has nothing to read.
+    /// Each operated task's tab, in any state (spec §H): menus can open without a hook saying needs input.
+    /// Its screen is read (spec §7.2), and a question whose prompt has closed is resolved.
     func probePrompts() {
         for task in workspace.state.tasks where task.operated != nil { probePrompt(task.id) }
     }
@@ -811,22 +813,12 @@ final class OperatorController {
         let prefix = "\(OperatorQuestion.promptPrefix)\(id.uuidString)-"
         let open = run.questions.first { $0.id.hasPrefix(prefix) && $0.tab == worker.key && $0.resolution == nil }
         let tab = worker.session
-        if let open, tab?.state != .needsInput {
-            // No tab at all is not an answer: a window that is not listed (yet) leaves the question open.
-            guard tab != nil || tabsKnown else { return }
-            workspace.mutate { state in
-                state.updateRun(id: run.id) { run in
-                    if let i = run.questions.firstIndex(where: { $0.id == open.id }) { run.questions[i].resolution = "Answered in its window." }
-                }
-                if state.run(id: run.id)?.questions.contains(where: { $0.task == id && $0.resolution == nil }) == false {
-                    state.updateOperated(id) { $0.flags.remove(.waitingOnYou) }
-                }
-            }
-            // The last open question may be what kept the broadcast from completing.
-            runChanged(run.id)
+        guard let tab else {
+            // No tab listed yet is not an answer; a known closed tab has no prompt left to answer.
+            if let open, tabsKnown { resolvePrompt(open, in: run.id, task: id) }
             return
         }
-        guard open == nil, let tab, tab.state == .needsInput, !probing.contains(tab.sessionId), let daemon = daemon() else { return }
+        guard !probing.contains(tab.sessionId), let daemon = daemon() else { return }
         probing.insert(tab.sessionId)
         lastProbe = Task { [weak self] in
             // The helper gone is not a prompt AiTerm can't read: nothing is recorded, and the next pass asks again.
@@ -842,8 +834,13 @@ final class OperatorController {
             guard let self else { return }
             probing.remove(tab.sessionId)
             guard !declined else { return }
-            // The tab may have left the prompt while it was read: nothing is asked of you then.
-            guard live.sessions.contains(where: { $0.sessionId == tab.sessionId && $0.state == .needsInput }) else { return }
+            // A changed worker or turn makes the read stale; the next pass asks again.
+            guard workspace.state.task(id: id)?.workerTab(worker.key, in: live.sessions)?.session == tab else { return }
+            if kind == nil, tab.state != .needsInput {
+                if let open { resolvePrompt(open, in: run.id, task: id) }
+                return
+            }
+            guard open == nil else { return }
             let now = ports.now()
             workspace.mutate { state in
                 // Numbered as it is recorded: another tab of the task may have recorded one while this was read.
@@ -851,9 +848,25 @@ final class OperatorController {
                 let question = OperatorQuestion(id: prefix + String(number), text: Self.promptText(kind, agent: worker.agent), task: id,
                                                 askedAt: now, resolution: nil, tab: worker.key)
                 state.updateRun(id: run.id) { $0.questions.append(question) }
-                state.updateOperated(id) { $0.flags.insert(.waitingOnYou) }
+                state.updateOperated(id) {
+                    $0.flags.insert(.waitingOnYou)
+                    $0.flags.remove(.possiblyStalled)
+                }
             }
         }
+    }
+
+    private func resolvePrompt(_ question: OperatorQuestion, in run: UUID, task: UUID) {
+        workspace.mutate { state in
+            state.updateRun(id: run) { run in
+                if let i = run.questions.firstIndex(where: { $0.id == question.id }) { run.questions[i].resolution = "Answered in its window." }
+            }
+            if state.run(id: run)?.questions.contains(where: { $0.task == task && $0.resolution == nil }) == false {
+                state.updateOperated(task) { $0.flags.remove(.waitingOnYou) }
+            }
+        }
+        // The last open question may be what kept the broadcast from completing.
+        runChanged(run)
     }
 
     /// What a prompt asks, as the board and the row say it. The daemon names the prompt's kind,
