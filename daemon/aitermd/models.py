@@ -38,11 +38,15 @@ class Harness:
     trust_prompt: tuple[str, ...] = ()
     # Text that marks a prompt open on the CLI's screen, which delivery must not type into
     # (delivery.open_prompt): an approval, a startup dialog -- folder trust, an update offer -- and
-    # any other menu. Any one enough, compared without whitespace. From the spike against Claude
-    # Code 2.1.301 and Codex 0.160.0; a harness without them gets no automated delivery.
+    # any other menu. Any one enough, compared without whitespace. Markers from the spike against
+    # Claude Code 2.1.301 and Codex 0.160.0; a harness without them gets no automated delivery.
     permission_prompt: tuple[str, ...] = ()
     startup_prompt: tuple[str, ...] = ()
     menu_prompt: tuple[str, ...] = ()
+    # Menus without a known footer select consecutive numbered options outside the ruled input frame.
+    numbered_menus: bool = False
+    # Footer of the transcript-only view, which has no input box.
+    transcript_view: tuple[str, ...] = ()
     # Text that marks the CLI's update offer, every one of them needed: the one startup dialog AiTerm
     # answers itself, declining it with Esc (session.dismissStartup, spec §7.1). A folder's trust is
     # yours to give: no harness marks it here.
@@ -63,7 +67,8 @@ HARNESSES: tuple[Harness, ...] = (
             permission_prompt=("Do you want to proceed?",), menu_prompt=("Enter to select", "Esc to cancel"),
             # The trust dialog, by the same words as `trust_prompt`.
             startup_prompt=CLAUDE_TRUST_PROMPT,
-            input_box=("❯",)),
+            input_box=("❯",), numbered_menus=True,
+            transcript_view=("Showing detailed transcript · ctrl+o to toggle",)),
     # `Stop` over MCP; the other hooks are spawned curl.
     Harness("codex", "/hook/codex", corroboration="codex_title", reports_usage=True,
             permission_prompt=("Would you like to run the following command?",),
