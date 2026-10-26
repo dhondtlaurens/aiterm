@@ -160,6 +160,26 @@ import Testing
         #expect(asked.count == 2)
     }
 
+    @Test func aWithdrawnGateGrantsNothingAndALaterCommandIsJudgedAfresh() async throws {
+        let asked = Asked()
+        let (world, run, task) = try makeWorld(runner: answering("ASK: it deploys.", asked))
+        _ = await gate(world, run, "npm run deploy", in: worktree)
+        let conflict = await world.call(run.id, "resolve_question", ["key": "gate-1", "summary": "Moved to a worker.", "withdrawn": true, "allow": true])
+        #expect(conflict.message != nil)
+        #expect(world.run(run.id)?.questions.first?.resolution == nil)
+        #expect(world.run(run.id)?.gateAllowances.isEmpty == true)
+        let answer = await world.call(run.id, "resolve_question", ["key": "gate-1", "summary": "Moved to a worker.", "withdrawn": true])
+        #expect(answer.value?["withdrawn"] == true && answer.value?["open"] == false)
+        #expect(world.run(run.id)?.gateAllowances.isEmpty == true)
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+        #expect(asked.count == 1)
+        let again = await world.call(run.id, "resolve_question", ["key": "gate-1", "summary": "Yes.", "allow": true])
+        #expect(again.value == answer.value && world.run(run.id)?.gateAllowances.isEmpty == true)
+        #expect(await gate(world, run, "npm run deploy", in: worktree)["decision"] == "deny")
+        #expect(asked.count == 2)
+        #expect(world.run(run.id)?.questions.last?.id == "gate-2")
+    }
+
     @Test func noOracleMeansItRuns() async throws {
         let (off, offRun, _) = try makeWorld(oracle: false, runner: .answering("ASK"))
         #expect(await gate(off, offRun, "npm install", in: worktree)["decision"] == "allow")

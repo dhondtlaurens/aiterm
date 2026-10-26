@@ -30,6 +30,21 @@ import Testing
         #expect(recorded.allSatisfy { abs($0.at.timeIntervalSinceNow) < 60 })
     }
 
+    @Test func questionActivityUsesTheRecordedOutcomeOnRetries() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        _ = await world.call(run.id, "ask_you", ["key": "a", "question": "Locale?"])
+        _ = await world.call(run.id, "resolve_question", ["key": "a", "summary": "Moved to a worker.", "withdrawn": true])
+        _ = await world.call(run.id, "resolve_question", ["key": "a", "summary": "Yes."])
+        _ = await world.call(run.id, "ask_you", ["key": "b", "question": "Locale?"])
+        _ = await world.call(run.id, "resolve_question", ["key": "b", "summary": "nl-BE"])
+        _ = await world.call(run.id, "resolve_question", ["key": "b", "summary": "Moot.", "withdrawn": true])
+        let lines = await entries(world, run.id).filter { $0.tool == "resolve_question" }
+        #expect(lines.map(\.line) == ["Withdrew question: Moved to a worker.", "Withdrew question: Moved to a worker.",
+                                      "Noted your answer: nl-BE", "Noted your answer: nl-BE"])
+        #expect(lines.first?.result.contains("\"withdrawn\":true") == true)
+    }
+
     @Test func callsKeepTheOrderTheyEndedInHoweverManyAreRecordedAtOnce() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))

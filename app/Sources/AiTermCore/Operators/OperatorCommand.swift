@@ -378,6 +378,9 @@ public enum OperatorCommand {
             + "decision, goes on no task.",
         "When the person answers in this chat, call resolve_question at once, so your row stops showing it, AiTerm's "
             + "question about a merge on the host included. AiTerm closes a worker prompt's question itself.",
+        "If your own question becomes moot, call resolve_question with withdrawn true and a one-line reason in summary. "
+            + "Tell the person you withdrew it and why. Worker prompts, host-merge questions and questions "
+            + "showing answeredInWindow cannot be withdrawn; check those answers instead.",
         "When a worker waits on a permission prompt, tell the person in one line: only the person can grant "
             + "a permission.",
         "Stop and wait only when nothing can move without the person; keep working on whatever doesn't depend on the answer.",
@@ -407,6 +410,8 @@ public enum OperatorCommand {
         + "A refusal that says WORKER means the command is code work: send it to a worker. "
         + "One that says ASK means wait for the person: ask in this chat, and when they answer, call resolve_question on "
         + "the question's gate- key with allow true or false, then run the command again if they allowed it. "
+        + "If the command becomes moot, withdraw its gate- question with withdrawn true and a reason in summary, and tell "
+        + "the person. Withdrawal grants nothing: omit allow true; a later command is judged afresh. "
         + "Pushes go through finish_task. Use its noVerify only for an environment failure that you could not repair."
 
     static func mechanics(oracleIsOn: Bool) -> [String] {

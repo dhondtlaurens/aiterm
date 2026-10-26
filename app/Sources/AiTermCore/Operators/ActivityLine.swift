@@ -46,7 +46,12 @@ public enum ActivityLine {
         case "retry_task": words = ("Queued \(named) again", "queue \(named) again")
         case "finish_task": words = ("Finished \(named)", "finish \(named)")
         case "ask_you": words = ("Asked you: \(text("question"))", "ask you: \(text("question"))")
-        case "resolve_question": words = ("Noted your answer: \(text("summary"))", "note your answer: \(text("summary"))")
+        case "resolve_question":
+            if arguments["withdrawn"] == true {
+                words = ("Withdrew question: \(text("summary"))", "withdraw question: \(text("summary"))")
+            } else {
+                words = ("Noted your answer: \(text("summary"))", "note your answer: \(text("summary"))")
+            }
         case "report_find": words = ("Noted a find: \(text("title"))", "note a find: \(text("title"))")
         case "report_snag": words = ("Noted a snag in AiTerm: \(text("title"))", "note a snag in AiTerm: \(text("title"))")
         case "leave_for_you": words = ("Left for you: \(text("text"))", "leave for you: \(text("text"))")

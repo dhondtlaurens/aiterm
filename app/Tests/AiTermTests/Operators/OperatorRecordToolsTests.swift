@@ -269,6 +269,81 @@ import Testing
         #expect(world.run(run.id)?.questions.first?.resolution == "nl-BE")
     }
 
+    @Test func withdrawingAnOwnQuestionKeepsItsReasonAndStopsWaiting() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let task = workingTask(in: run)
+        let world = try makeWorld(run, tasks: [task])
+        _ = await world.call(run.id, "ask_you", ["key": "locale", "question": "Which locale?", "task": "T1"])
+        let answer = await world.call(run.id, "resolve_question", ["key": "locale", "summary": "The worker no longer needs this.", "withdrawn": true])
+        #expect(answer.value?["withdrawn"] == true && answer.value?["open"] == false)
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+        #expect(world.notifications.withdrawn == ["request-\(run.id.uuidString)-question-locale"])
+        let status = await world.call(run.id, "run_status")
+        #expect(status.value?["obligations"]?["questionsWaiting"]?.arrayValue?.isEmpty == true)
+        let saved = try JSONEncoder().encode(#require(world.run(run.id)))
+        let restored = try JSONDecoder().decode(OperatorRun.self, from: saved)
+        let json = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(restored))
+        #expect(json["questions"]?.arrayValue?.first?["withdrawn"] == true)
+        #expect(restored.questions.first?.resolution == "The worker no longer needs this.")
+        let again = await world.call(run.id, "resolve_question", ["key": "locale", "summary": "Another reason.", "withdrawn": true])
+        #expect(again.value == answer.value)
+        let answered = await world.call(run.id, "resolve_question", ["key": "locale", "summary": "Yes."])
+        #expect(answered.value == answer.value)
+    }
+
+    @Test func withdrawingOneQuestionKeepsWaitingForTheOther() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let task = workingTask(in: run)
+        let world = try makeWorld(run, tasks: [task])
+        for key in ["a", "b"] {
+            _ = await world.call(run.id, "ask_you", ["key": .string(key), "question": "Which locale?", "task": "T1"])
+        }
+        _ = await world.call(run.id, "resolve_question", ["key": "a", "summary": "Moot.", "withdrawn": true])
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
+    }
+
+    @Test func withdrawalDoesNotReplaceAnAnswer() async throws {
+        var run = OperatorServiceFixtures.run(projects: [project])
+        run.questions = [OperatorQuestion(id: "window", text: "Locale?", task: nil, askedAt: Date(), answeredInWindow: "nl-BE")]
+        let world = try makeWorld(run)
+        #expect(await world.call(run.id, "resolve_question", ["key": "window", "summary": "Moot.", "withdrawn": true]).message != nil)
+        #expect(world.run(run.id)?.questions.first?.resolution == nil)
+        #expect(world.run(run.id)?.questions.first?.answeredInWindow == "nl-BE")
+        _ = await world.call(run.id, "resolve_question", ["key": "window", "summary": "nl-BE"])
+        let again = await world.call(run.id, "resolve_question", ["key": "window", "summary": "Moot.", "withdrawn": true])
+        #expect(again.value?["resolution"] == "nl-BE" && again.value?["withdrawn"] == false)
+    }
+
+    @Test func withdrawalRefusesAiTermsPromptAndHostMergeQuestions() async throws {
+        var run = OperatorServiceFixtures.run(projects: [project])
+        run.questions = ["prompt-worker-1", "merged-on-host-worker"].map {
+            OperatorQuestion(id: $0, text: "Decide?", task: nil, askedAt: Date())
+        }
+        let world = try makeWorld(run)
+        for question in run.questions {
+            #expect(await world.call(run.id, "resolve_question", ["key": .string(question.id), "summary": "Moot.", "withdrawn": true]).message != nil)
+        }
+        #expect(world.run(run.id)?.questions == run.questions)
+    }
+
+    @Test func oldQuestionRecordsStillDecodeWithoutAWithdrawalMarker() throws {
+        let data = Data(#"{"id":"old","text":"Locale?","askedAt":0,"resolution":"nl-BE"}"#.utf8)
+        let question = try JSONDecoder().decode(OperatorQuestion.self, from: data)
+        #expect(question.resolution == "nl-BE")
+        let encoded = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(question))
+        #expect(encoded["withdrawn"] != true)
+    }
+
+    @Test func withdrawalNeedsAOneLineReason() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try makeWorld(run)
+        _ = await world.call(run.id, "ask_you", ["key": "locale", "question": "Locale?"])
+        for reason in ["", "  ", "First.\nSecond."] {
+            #expect(await world.call(run.id, "resolve_question", ["key": "locale", "summary": .string(reason), "withdrawn": true]).message != nil)
+        }
+        #expect(world.run(run.id)?.questions.first?.resolution == nil)
+    }
+
     @Test func anEndedBroadcastsToolsDoNotAct() async throws {
         let stopped = OperatorServiceFixtures.run(projects: [project], state: .stopped)
         let world = try makeWorld(stopped)

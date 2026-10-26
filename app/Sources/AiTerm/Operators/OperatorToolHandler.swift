@@ -453,7 +453,7 @@ final class OperatorToolHandler {
     }
 
     /// `allow` is for a command the Oracle stopped (a `gate-` question) alone: true lets it pass the gate once, and
-    /// left out it stays stopped (spec §A.3).
+    /// left out it stays stopped (spec §A.3). Withdrawing a moot question records its reason and grants nothing.
     private func resolveQuestion(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let key = try call.string("key"), summary = try call.string("summary")
         guard var question = run.questions.first(where: { $0.id == key }) else { throw ToolRefusal("No question \(key) in this broadcast.") }
@@ -461,16 +461,32 @@ final class OperatorToolHandler {
         guard !question.id.hasPrefix(OperatorQuestion.promptPrefix) else {
             throw ToolRefusal("\(key) is a worker’s prompt: AiTerm closes its question itself once the worker leaves the prompt. If it looks stale, record it with report_snag.")
         }
+        guard question.resolution == nil else { return Self.questionAnswer(question) }
+        let withdrawn = call.optionalBool("withdrawn") == true
+        if withdrawn {
+            guard !question.id.hasPrefix(OperatorQuestion.mergedOnHostPrefix) else {
+                throw ToolRefusal("\(key) is a question about a merge on the host: only the person decides it. It cannot be withdrawn.")
+            }
+            guard question.answeredInWindow == nil else {
+                throw ToolRefusal("\(key) has an answer in its worker's window. Check answeredInWindow, then resolve it as an answer, not a withdrawal.")
+            }
+            guard call.optionalBool("allow") != true else {
+                throw ToolRefusal("Withdrawing a question grants nothing. Call resolve_question with withdrawn true and without allow true.")
+            }
+            guard summary.rangeOfCharacter(from: .newlines) == nil else {
+                throw ToolRefusal("A withdrawal needs its reason in one line.")
+            }
+        }
         let allow = call.arguments["allow"].flatMap { $0 == .null ? nil : $0 }
         guard allow == nil || question.gate != nil else {
             throw ToolRefusal("allow is only for a command the Oracle stopped (a gate- question). Call resolve_question for \(key) without it.")
         }
-        guard question.resolution == nil else { return Self.questionAnswer(question) }
         question.resolution = summary
-        let allowed = allow == true ? question.gate : nil
+        question.withdrawn = withdrawn ? true : nil
+        let allowed = !withdrawn && allow == true ? question.gate : nil
         mutate(in: run.id) { state in
             state.updateRun(id: run.id) { run in
-                if let i = run.questions.firstIndex(where: { $0.id == key }) { run.questions[i].resolution = summary }
+                if let i = run.questions.firstIndex(where: { $0.id == key }) { run.questions[i] = question }
                 if let allowed { run.gateAllowances.append(allowed) }
             }
             // The row stops waiting on you once none of its questions is open.
@@ -561,6 +577,6 @@ final class OperatorToolHandler {
 
     private static func questionAnswer(_ question: OperatorQuestion) -> JSONValue {
         ["question": .string(question.id), "open": .bool(question.resolution == nil),
-         "resolution": question.resolution.map(JSONValue.string) ?? .null]
+         "resolution": question.resolution.map(JSONValue.string) ?? .null, "withdrawn": .bool(question.withdrawn == true)]
     }
 }

@@ -253,6 +253,12 @@ def test_resolve_question_allows_a_command_the_oracle_stopped():
     assert "gate- question" in description and "allow true or false" in description and "in this chat" in description
 
 
+def test_resolve_question_accepts_an_optional_withdrawal():
+    schema = next(tool for tool in TOOLS if tool["name"] == "resolve_question")["inputSchema"]
+    assert schema["properties"]["withdrawn"]["type"] == "boolean"
+    assert set(schema["required"]) == {"key", "summary"}
+
+
 def test_run_status_says_what_a_restarted_operator_needs():
     status = {tool["name"]: tool for tool in TOOLS}["run_status"]["description"]
     assert "snags you recorded" in status and "twice" in status
