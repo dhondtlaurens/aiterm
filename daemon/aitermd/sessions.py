@@ -56,7 +56,7 @@ class SessionRegistry:
                 info.context_percent = old.context_percent
                 info.cli_version = old.cli_version
                 info.conversation_id = old.conversation_id
-                info.background = old.background
+                info.background, info.subagents_written_at = old.background, old.subagents_written_at
                 info.your_prompt = old.your_prompt
             if info != old:
                 self._sessions[r.session_id] = info
@@ -129,6 +129,13 @@ class SessionRegistry:
         if s is None or s.background == work:
             return False
         s.background = work
+        return True
+
+    def set_subagents_written_at(self, session_id: str, written_at: float | None) -> bool:
+        s = self._sessions.get(session_id)
+        if s is None or s.subagents_written_at == written_at:
+            return False
+        s.subagents_written_at = written_at
         return True
 
     def set_context(self, session_id: str, percent: int | None) -> bool:

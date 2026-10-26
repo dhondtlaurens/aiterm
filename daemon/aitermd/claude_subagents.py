@@ -1,8 +1,9 @@
 from __future__ import annotations
 import json
 import os
-from collections.abc import Collection
+from collections.abc import Collection, Iterator
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,19 +21,34 @@ class TranscriptTail:
     changes whenever Claude appends; `written_at` is the st_mtime, in the wall clock's seconds."""
     stamp: tuple[int, int]
     written_at: float
-    # The last record ends the child's run: an interruption, or a SubagentStop hook that ran.
-    ended: bool
+    # When the last record ends the child's run -- an interruption, or a SubagentStop hook that ran with no prompt before
+    # it for the child to answer -- the time that record gives, or `written_at` when it gives none. Claude writes in
+    # batches, so a record can reach the file well after its time. None while the last record is no such end.
+    ended_at: float | None
+
+
+def _user_content(record: dict[str, Any]) -> str | list[Any] | None:
+    """A user message's content: its text, or its blocks. None for any other record."""
+    if record.get("type") != "user" or not isinstance(message := record.get("message"), dict):
+        return None
+    content = message.get("content")
+    return content if isinstance(content, (str, list)) else None
 
 
 def _is_interruption(record: dict[str, Any]) -> bool:
-    if record.get("type") != "user" or not isinstance(message := record.get("message"), dict):
-        return False
-    content = message.get("content")
-    if isinstance(content, str):
+    if isinstance(content := _user_content(record), str):
         return content.startswith(INTERRUPTED)
-    return isinstance(content, list) and any(
+    return content is not None and any(
         isinstance(block, dict) and block.get("type") == "text" and isinstance(text := block.get("text"), str)
         and text.startswith(INTERRUPTED) for block in content)
+
+
+def _is_prompt(record: dict[str, Any]) -> bool:
+    """A user message for the child to answer: not a tool's result, nor the interruption that ends it."""
+    if (content := _user_content(record)) is None or _is_interruption(record):
+        return False
+    return isinstance(content, str) or not any(
+        isinstance(block, dict) and block.get("type") == "tool_result" for block in content)
 
 
 def _is_subagent_stop(record: dict[str, Any]) -> bool:
@@ -42,20 +58,45 @@ def _is_subagent_stop(record: dict[str, Any]) -> bool:
         and a.get("hookEvent") == "SubagentStop"
 
 
-def _has_ended(tail: bytes) -> bool:
-    """Whether the last complete record in `tail` ends the child. A record still being written, or
-    one longer than the tail, is neither of the small records that do."""
+def _newest_first(tail: bytes) -> Iterator[Any]:
+    """The complete records `tail` holds, newest first, as parsed; None for one that does not parse. The first line
+    of a full tail can begin before it, so it is none of them."""
+    lines = tail[:-1].split(b"\n")
+    for line in reversed(lines[1:] if len(tail) >= TAIL_BYTES else lines):
+        try:
+            yield json.loads(line)
+        except ValueError:
+            yield None
+
+
+def _ending(tail: bytes) -> dict[str, Any] | None:
+    """The last complete record in `tail` if it ends the child, else None. A record still being
+    written, or one longer than the tail, is neither of the small records that do. A SubagentStop
+    does not when the last message before it is a prompt the child has yet to answer: Claude Code
+    (2.1.283 to 2.1.308 at least) reminds a background child that ends its turn without handing
+    back its report, fires SubagentStop, then runs the child on to answer the reminder."""
     if not tail.endswith(b"\n"):
-        return False
-    body = tail[:-1]
-    start = body.rfind(b"\n")
-    if start < 0 and len(tail) >= TAIL_BYTES:
-        return False
+        return None
+    records = _newest_first(tail)
+    if not isinstance(last := next(records, None), dict):
+        return None
+    if _is_interruption(last):
+        return last
+    if not _is_subagent_stop(last):
+        return None
+    # Past the attachments of the other hooks that ran with it. A record the tail cannot show leaves the stop standing.
+    message = next((r for r in records if not isinstance(r, dict) or r.get("type") in ("user", "assistant")), None)
+    return None if isinstance(message, dict) and _is_prompt(message) else last
+
+
+def _record_time(record: dict[str, Any]) -> float | None:
+    """The time a record gives (its ISO 8601 `timestamp`), in the wall clock's seconds; None when it gives none."""
+    if not isinstance(stamp := record.get("timestamp"), str):
+        return None
     try:
-        record = json.loads(body[start + 1:])
+        return datetime.fromisoformat(stamp).timestamp()
     except ValueError:
-        return False
-    return isinstance(record, dict) and (_is_interruption(record) or _is_subagent_stop(record))
+        return None
 
 
 # A transcript as last read, keyed by its stamp: only a file Claude has appended to since is read again.
@@ -63,21 +104,23 @@ _Entry = tuple[tuple[int, int], TranscriptTail]
 
 
 class SubagentTranscripts:
-    """Reads the end of Claude subagents' transcripts, for the status engine's check on children
-    whose SubagentStop never came. Blocking file I/O: the service runs it on a worker thread."""
+    """Reads the end of Claude subagents' transcripts, for the status engine: whether a child's run
+    is over, at its SubagentStop or without one, and when it last wrote. Blocking file I/O: the
+    service runs it on a worker thread."""
 
     def __init__(self) -> None:
         self._cache: dict[str, _Entry] = {}
 
-    def read_all(self, paths: Collection[str]) -> dict[str, TranscriptTail]:
-        """Each of `paths` that exists, read; the cache keeps only these."""
-        found = {path: tail for path in paths if (tail := self.read(path)) is not None}
-        self._cache = {path: entry for path, entry in self._cache.items() if path in found}
-        return found
+    def read_all(self, paths: Collection[str]) -> dict[str, TranscriptTail | None]:
+        """Each of `paths`, read: None for one that cannot be found or read. The cache keeps only those read."""
+        tails = {path: self.read(path) for path in paths}
+        self._cache = {path: entry for path, entry in self._cache.items() if tails.get(path) is not None}
+        return tails
 
     def read(self, path: str) -> TranscriptTail | None:
-        """The end of the transcript at `path`, or of the same file in a subdirectory beside it --
-        Claude Code files some agents under `subagents/<subdir>/`. None while neither exists."""
+        """The end of the transcript at `path`, or of the same file one or two directories below
+        its own: Claude Code files some agents under `subagents/<subdir>/`, and a workflow's under
+        `subagents/workflows/<run>/`. None while none exists."""
         if (st := self._stat(path)) is None:
             return None
         real, stat = st
@@ -87,10 +130,10 @@ class SubagentTranscripts:
         try:
             with open(real, "rb") as f:
                 f.seek(max(0, stat.st_size - TAIL_BYTES))
-                ended = _has_ended(f.read(TAIL_BYTES))
+                ending = _ending(f.read(TAIL_BYTES))
         except OSError:
             return None
-        tail = TranscriptTail(stamp, stat.st_mtime, ended)
+        tail = TranscriptTail(stamp, stat.st_mtime, None if ending is None else _record_time(ending) or stat.st_mtime)
         self._cache[path] = (stamp, tail)
         return tail
 
@@ -102,8 +145,9 @@ class SubagentTranscripts:
             pass
         try:
             p = Path(path)
-            for candidate in p.parent.glob(f"*/{p.name}"):
-                return str(candidate), candidate.stat()
+            for pattern in (f"*/{p.name}", f"*/*/{p.name}"):
+                for candidate in p.parent.glob(pattern):
+                    return str(candidate), candidate.stat()
         except (OSError, ValueError):
             pass
         return None

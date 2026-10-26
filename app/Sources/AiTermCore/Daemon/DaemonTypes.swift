@@ -30,8 +30,13 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     public var tabKey: String? = nil
     /// What its agent left running in the background when its last turn ended, which wakes it again (Claude's
     /// `background_tasks`): a shell by its command, other work by its description. A turn ended with any is paused,
-    /// not finished. Empty once a new turn starts, and from a daemon too old to send it.
+    /// not finished. Empty once a new turn starts, and from a daemon too old to send it. A subagent the daemon still
+    /// counts stays on it while it holds the tab at working.
     public var background: [BackgroundJob] = []
+    /// When the transcripts of the Claude subagents it counts were last written, the newest, in seconds since 1970: a
+    /// child still at work while its parent's own transcript says nothing (`WorkerQuietWatch`). Nil while it counts
+    /// none, and from a daemon too old to send it.
+    public var subagentsWrittenAt: Double? = nil
     /// The first line of the prompt you typed into this tab yourself, for the turn it started: not one AiTerm launched
     /// the agent with or delivered. Nil once that turn ends, for any other prompt, and from a daemon too old to send it.
     public var yourPrompt: String? = nil
@@ -70,16 +75,17 @@ extension SessionInfo {
         terminalId = try c.decodeIfPresent(String.self, forKey: .terminalId)
         tabKey = try c.decodeIfPresent(String.self, forKey: .tabKey)
         background = try c.decodeIfPresent([BackgroundJob].self, forKey: .background) ?? []
+        subagentsWrittenAt = try c.decodeIfPresent(Double.self, forKey: .subagentsWrittenAt)
         yourPrompt = try c.decodeIfPresent(String.self, forKey: .yourPrompt)
     }
 }
 
 /// One piece of work an agent's turn left running when it ended (a Claude Stop's `background_tasks`): a shell by its
-/// command, a monitor or any other task by its description.
+/// command, a monitor, a subagent or any other task by its description.
 public struct BackgroundJob: Codable, Equatable, Hashable, Sendable {
     /// See `SessionAgent`'s decoding note: a kind this app does not know reads as `.task`.
     public enum Kind: String, Codable, LenientRawDecodable, Sendable {
-        case shell, monitor, task
+        case shell, monitor, task, subagent
         static var unrecognized: Self { .task }
     }
     public var kind: Kind, text: String

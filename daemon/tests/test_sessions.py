@@ -11,7 +11,7 @@ def test_first_snapshot_opens_sessions_with_agent_and_tag():
     assert reg.apply_snapshot([raw(cmd="claude", aiterm_task="t1")]).opened == ["s1"]
     assert reg.get("s1").to_json() == ({
         "sessionId": "s1", "windowId": "w1", "tabIndex": 0, "taskId": "t1", "projectId": None,
-        "agent": "claude", "model": None, "reasoning": None, "state": "idle", "title": "zsh", "cwd": "/home",
+        "agent": "claude", "model": None, "reasoning": None, "state": "idle", "subagentsWrittenAt": None, "title": "zsh", "cwd": "/home",
         "agentCwd": None, "active": False, "contextPercent": None, "conversationId": None, "terminalId": None,
         "tabKey": None, "background": [], "yourPrompt": None})
 
@@ -241,6 +241,17 @@ def test_a_conversation_survives_a_snapshot_and_goes_with_its_process():
     # Another process in the tab is another conversation, as it is another model.
     diff = reg.apply_snapshot([raw(cmd="claude", pid=5151)])
     assert diff.replaced == ["s1"] and reg.get("s1").conversation_id is None
+
+
+def test_when_its_subagents_wrote_survives_a_snapshot_and_goes_with_its_process():
+    reg = SessionRegistry()
+    reg.apply_snapshot([raw(cmd="claude", pid=4242)])
+    assert reg.set_subagents_written_at("s1", 1_900_000_000.5) is True
+    assert reg.set_subagents_written_at("s1", 1_900_000_000.5) is False
+    reg.apply_snapshot([raw(cmd="claude", pid=4242, title="busy")])
+    assert reg.get("s1").to_json()["subagentsWrittenAt"] == 1_900_000_000.5
+    diff = reg.apply_snapshot([raw(cmd="claude", pid=5151)])
+    assert diff.replaced == ["s1"] and reg.get("s1").subagents_written_at is None
 
 
 def test_the_cli_version_goes_with_the_agents_process():

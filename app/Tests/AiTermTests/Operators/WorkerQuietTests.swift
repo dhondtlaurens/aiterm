@@ -103,8 +103,39 @@ import Testing
         #expect(try uncertain(world, run).isEmpty)
     }
 
+    /// A worker whose turn ended while its subagent still runs (26 Oct 2026): the daemon holds it at working, lists what
+    /// runs and says when its subagents last wrote. Not quiet while one writes, its line names the subagent it waits on;
+    /// quiet once they too have said nothing as long.
+    @Test func aWorkerWaitingOnASubagentThatWritesIsNotQuiet() async throws {
+        let (world, run, task) = try makeWorld(.working)
+        try writeTranscript(world, writtenAgo: 0)
+        clock.advance(by: 180)
+        var waiting = sessions(run, task, .working)
+        waiting[1].background = [BackgroundJob(kind: .subagent, text: "Review the fix"), BackgroundJob(kind: .shell, text: "scripts/test.sh")]
+        waiting[1].subagentsWrittenAt = clock.now.addingTimeInterval(-20).timeIntervalSince1970
+        world.show(waiting)
+        await tick(world)
+        #expect(try line(world, run).live == .working)
+        #expect(try uncertain(world, run).isEmpty)
+        #expect(try line(world, run).background == ["Review the fix"])
+        clock.advance(by: 120)
+        await tick(world)
+        #expect(try line(world, run).live == .workingQuiet)
+    }
+
     @Test func aWorkerWithNoTranscriptIsTakenAtTheSessionsWord() async throws {
         let (world, run, _) = try makeWorld(.inReview)
+        clock.advance(by: 600)
+        await tick(world)
+        #expect(try line(world, run).live == .working)
+    }
+
+    /// Its subagents' writes add to its own transcript's, and never stand in for one not found.
+    @Test func aWorkerWithNoTranscriptIsTakenAtTheSessionsWordWhateverItsSubagentsWrote() async throws {
+        let (world, run, task) = try makeWorld(.inReview)
+        var waiting = sessions(run, task, .working)
+        waiting[1].subagentsWrittenAt = clock.now.addingTimeInterval(-600).timeIntervalSince1970
+        world.show(waiting)
         clock.advance(by: 600)
         await tick(world)
         #expect(try line(world, run).live == .working)

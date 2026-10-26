@@ -3,10 +3,11 @@ import AiTermCore
 
 /// Doubts a worker's `working` when nothing shows it (spec §H): the daemon's session state can stick at working long after
 /// its worker did anything, and nothing else looks at a worker once its task leaves `working`. A task whose first worker's
-/// session says working while its transcript (`TranscriptLocator`) has not grown for `OperatorTiming.liveQuietMinutes`
-/// (`StallWatch.isQuietWhileWorking`) is `quiet`: `run_status` reads it `working?` and lists it as uncertain, on a task in
-/// any state but one you took over or not started. The transcripts' dates are read off the main thread on each reconcile
-/// tick (`refresh`), never when a status is built; what the session changes is noted as it happens (`observe`).
+/// session says working while neither its transcript (`TranscriptLocator`) nor its subagents' (as the daemon last read
+/// them, `SessionInfo.subagentsWrittenAt`) has grown for `OperatorTiming.liveQuietMinutes` (`StallWatch.isQuietWhileWorking`)
+/// is `quiet`: `run_status` reads it `working?` and lists it as uncertain, on a task in any state but one you took over or
+/// not started. The transcripts' dates are read off the main thread on each reconcile tick (`refresh`), never when a status
+/// is built; what the session changes is noted as it happens (`observe`).
 @MainActor
 final class WorkerQuietWatch {
     private let workspace: WorkspaceStore
@@ -93,11 +94,16 @@ final class WorkerQuietWatch {
         }
     }
 
-    /// The quiet set from what is known: `working` is each task whose worker's session says working now.
+    /// The quiet set from what is known: `working` is each task whose worker's session says working now. Its subagents'
+    /// transcripts, as the daemon last read them (`SessionInfo.subagentsWrittenAt`), grow with its own: a turn that ended
+    /// on a subagent says nothing while the child works.
     private func evaluate(_ working: [UUID: String]) {
         let now = ports.now()
+        let children = Dictionary(live.sessions.compactMap { s in s.subagentsWrittenAt.map { (s.sessionId, Date(timeIntervalSince1970: $0)) } },
+                                  uniquingKeysWith: { first, _ in first })
         let quiet = Set(working.filter { task, session in
-            StallWatch.isQuietWhileWorking(transcriptGrewAt: grew[task]?.at, sessionWorkingSince: workingSince[session], now: now)
+            let grewAt = (grew[task]?.at).map { at in children[session].map { max(at, $0) } ?? at }
+            return StallWatch.isQuietWhileWorking(transcriptGrewAt: grewAt, sessionWorkingSince: workingSince[session], now: now)
         }.keys)
         guard quiet != self.quiet else { return }
         self.quiet = quiet

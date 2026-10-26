@@ -38,6 +38,7 @@ public extension SessionInfo {
     /// or the footer's `ctx` row — start to read has to stay here.
     var rowRelevant: SessionInfo {
         var row = self
+        row.subagentsWrittenAt = nil
         row.model = nil; row.reasoning = nil; row.title = ""; row.contextPercent = nil
         row.conversationId = nil
         return row

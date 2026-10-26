@@ -15,8 +15,9 @@ CLAUDE_FILE_STATUS: dict[str, State | None] = {
     "waiting": "needsInput", "idle": None, "shell": None,
 }
 
-# How long a Claude subagent's transcript may go unwritten, while its parent's turn waits on it, before
-# the child counts as dead. Claude's stream watchdog kills a child after 600 s without progress, but
+# How long a Claude subagent's transcript may go unwritten, once its parent's ended turn waits on it or its
+# SubagentStop came, before the child counts as dead. A child of a turn still under way is left to the turn's Stop,
+# which says what still runs. Claude's stream watchdog kills a child after 600 s without progress, but
 # that leaves an interruption in the transcript, which ends the child at once. Live children have gone
 # 28 minutes without a write -- a long generation, a stream retry -- so this only catches one that died
 # writing nothing at all.
@@ -27,11 +28,15 @@ SUBAGENT_QUIET_SECONDS = 45 * 60.0
 class _Child:
     """A running subagent. `transcript` is where a Claude child writes (None for the other
     harnesses), `started_at` the wall clock at its latest SubagentStart. `stamp` is its transcript's
-    (mtime, size) as last seen, and `quiet_since` when that stamp was first seen, on the monotonic clock."""
+    (mtime, size) as last seen, and `quiet_since` when that stamp was first seen, on the monotonic clock;
+    `written_at` is that mtime, on the wall clock. `stopped_at` is when the latest SubagentStop since
+    that start came, on the monotonic clock, None while none has: the transcript says whether it ended the run."""
     transcript: str | None
     started_at: float
     stamp: tuple[int, int] | None = None
     quiet_since: float = 0.0
+    stopped_at: float | None = None
+    written_at: float | None = None
 
 
 @dataclass(slots=True)
@@ -47,8 +52,10 @@ class Turn:
     # The subagents running, by id.
     children: dict[str, _Child] = field(default_factory=dict)
     # A hook, title or session file said the foreground turn ended while a child still runs: the
-    # last child to stop finishes the change.
+    # last child to stop finishes the change. `deferred_since` is when one first said so, on the
+    # monotonic clock.
     deferred_done: bool = False
+    deferred_since: float = 0.0
     # The state an open PI prompt interrupted: closing the last prompt puts it back. PI can open a
     # prompt over another, so how many are open is counted.
     before_prompt: State | None = None
@@ -76,6 +83,9 @@ class StatusEngine:
         # not shorten.
         self._clock, self._monotonic = clock, monotonic
         self._turns: dict[str, Turn] = {}
+        # When the subagents' transcripts were last asked for (subagent_transcripts), on the monotonic clock: the read
+        # that answers began then, and cannot say a SubagentStop that came after it stands.
+        self._asked_at = float("-inf")
         # The sessions whose row a folder-trust dialog holds at needs input. Not a turn's: the dialog
         # belongs to the tab until it closes, and comes before any conversation.
         self._trust_prompts: set[str] = set()
@@ -105,7 +115,7 @@ class StatusEngine:
         turn = self._turn(session_id)
         if kind == "sessionStart":
             self.reset_turn(session_id)
-            return []
+            return [session_id] if self._show_children(session_id) else []
         if kind == "subagentStart":
             return self.subagent_started(session_id, ev.subagent_id, ev.subagent_transcript)
         if kind == "subagentStop":
@@ -116,18 +126,20 @@ class StatusEngine:
             return self._prompt_ended(session_id)
         turn.hook_at = self._clock()
         released: list[str] = []
-        # What the session waits on once its turn ends, said by the Stop; a new turn waits on nothing yet.
+        # What the session waits on once its turn ends, said by the Stop; a new turn waits on nothing yet. A subagent
+        # this engine does not count holds nothing up.
         if (work := ev.background_work if kind == "done" else () if kind == "working" else None) is not None:
+            work = tuple(job for job in work if job.agent_id is None or job.agent_id in turn.children)
             released += [session_id] if self.reg.set_background(session_id, work) else []
         if kind == "done" and (running_subagents := ev.running_subagents) is not None:
             # A child the Stop no longer lists is gone, SubagentStop or not; the last one lands a
             # completion an earlier turn deferred, before this one lands its own.
             for child_id in [c for c in turn.children if c not in running_subagents]:
-                released += self.subagent_stopped(session_id, child_id)
+                released += self._subagent_ended(session_id, child_id)
         if kind == "done" and turn.children:
             # Not what the turn is doing now: it works on through its children, so an open prompt
             # keeps the state it will restore, and the last child's stop completes it.
-            turn.deferred_done = True
+            self._defer_done(turn)
             return released
         # A hook that says what the turn is doing now supersedes the state a prompt interrupted.
         turn.before_prompt, turn.prompts_open = None, 0
@@ -241,44 +253,87 @@ class StatusEngine:
         return [session_id] if self.reg.set_state(session_id, "working") else []
 
     def subagent_stopped(self, session_id: str, subagent_id: str | None) -> list[str]:
+        """A child's SubagentStop. A Claude child's need not end its run: Claude Code fires it each time the
+        child's turn ends, then can run the child on -- to hand back a report it has not handed back yet. One
+        with a transcript stays counted until a tick reads there that the run is over (`release_dead_subagents`)."""
+        turn = self._turns.get(session_id)
+        if turn is not None and subagent_id and (child := turn.children.get(subagent_id)) and child.transcript:
+            child.stopped_at = self._monotonic()
+            return []
+        return self._subagent_ended(session_id, subagent_id)
+
+    def _defer_done(self, turn: Turn) -> None:
+        """The turn ended while its children run: the last to stop lands its done. A session file or a
+        title says so again on every tick, which leaves when it was first said."""
+        if not turn.deferred_done:
+            turn.deferred_done, turn.deferred_since = True, self._monotonic()
+
+    def _subagent_ended(self, session_id: str, subagent_id: str | None) -> list[str]:
         s = self.reg.get(session_id)
         if s is None or not subagent_id:
             return []
         turn = self._turns.get(session_id)
         if turn is None or turn.children.pop(subagent_id, None) is None:
             return []
+        shown = self._show_children(session_id)
         if turn.children or not turn.deferred_done:
-            return []
+            return [session_id] if shown else []
         turn.deferred_done = False
         if s.state == "needsInput":
             self._behind_input(turn, "done")
-            return []
-        return [session_id] if self.reg.set_state(session_id, "done") else []
+            return [session_id] if shown else []
+        return [session_id] if self.reg.set_state(session_id, "done") or shown else []
+
+    def _show_children(self, session_id: str) -> bool:
+        """Puts the children counted now on the session, and says whether that changed it: the subagents
+        among its background work, and when the newest of their transcripts was written. A child no
+        longer counted leaves both."""
+        if (s := self.reg.get(session_id)) is None:
+            return False
+        children = turn.children if (turn := self._turns.get(session_id)) is not None else {}
+        work = tuple(job for job in s.background if job.agent_id is None or job.agent_id in children)
+        written_at = max((c.written_at for c in children.values() if c.written_at is not None), default=None)
+        shown = self.reg.set_background(session_id, work)
+        return self.reg.set_subagents_written_at(session_id, written_at) or shown
 
     def subagent_transcripts(self) -> set[str]:
-        """The transcripts release_dead_subagents needs: those of the children a deferred done waits
-        on. Only a Claude child has one. The caller reads them, off the event loop, and passes them in."""
-        return {c.transcript for turn in self._turns.values() if turn.deferred_done
-                for c in turn.children.values() if c.transcript}
+        """The transcripts release_dead_subagents needs: those of every child counted, its turn under
+        way or ended. Only a Claude child has one. The caller reads them, off the event loop, and
+        passes them in; the read begins now."""
+        self._asked_at = self._monotonic()
+        return {c.transcript for turn in self._turns.values() for c in turn.children.values() if c.transcript}
 
-    def release_dead_subagents(self, tails: Mapping[str, TranscriptTail]) -> list[str]:
-        """Drops each child a deferred done waits on whose transcript proves it dead, as its lost
-        SubagentStop would have: the transcript ends in an interruption or a SubagentStop, written
-        since the child's latest SubagentStart, or it has not changed for SUBAGENT_QUIET_SECONDS.
-        A transcript missing from `tails` -- not written yet, or not read -- proves nothing."""
+    def release_dead_subagents(self, tails: Mapping[str, TranscriptTail | None]) -> list[str]:
+        """Notes when each counted child's transcript was last written, and drops each child whose
+        transcript proves its run over: it ends in an interruption or a SubagentStop that left the
+        child nothing to answer, written since its latest SubagentStart, or it has not changed for
+        SUBAGENT_QUIET_SECONDS since its parent's ended turn began to wait on it or its SubagentStop came.
+        `tails` is what the read asked for last (subagent_transcripts) found of each transcript: None
+        for one not there yet, which proves nothing, except that a SubagentStop that came before the
+        read began stands. A transcript it holds nothing for -- not asked for, or the read did not
+        answer -- proves nothing."""
         now, changed = self._monotonic(), []
         for sid, turn in list(self._turns.items()):
-            if not turn.deferred_done:
-                continue
             for child_id, child in list(turn.children.items()):
-                if child.transcript is None or (tail := tails.get(child.transcript)) is None:
+                if child.transcript is None or child.transcript not in tails:
+                    continue
+                if (tail := tails[child.transcript]) is None:
+                    stood = child.stopped_at is not None and child.stopped_at <= self._asked_at
+                    changed += self._subagent_ended(sid, child_id) if stood else []
                     continue
                 if tail.stamp != child.stamp:
-                    child.stamp, child.quiet_since = tail.stamp, now
-                # A verdict written before a resume speaks for the run that ended, not this one.
-                if (tail.ended and tail.written_at > child.started_at) or now - child.quiet_since >= SUBAGENT_QUIET_SECONDS:
-                    changed += self.subagent_stopped(sid, child_id)
-        return changed
+                    child.stamp, child.quiet_since, child.written_at = tail.stamp, now, tail.written_at
+                # A verdict from before a resume speaks for the run that ended, not this one. Told by the time the
+                # record gives: Claude can write it to the file after the resume's SubagentStart.
+                ended = tail.ended_at is not None and tail.ended_at > child.started_at
+                # Quiet counts only since the child was first waited on: its parent's ended turn deferred its done, or
+                # its SubagentStop came.
+                waited = [t for t in (turn.deferred_since if turn.deferred_done else None, child.stopped_at) if t is not None]
+                quiet = bool(waited) and now - max(child.quiet_since, min(waited)) >= SUBAGENT_QUIET_SECONDS
+                if ended or quiet:
+                    changed += self._subagent_ended(sid, child_id)
+            changed += [sid] if self._show_children(sid) else []
+        return list(dict.fromkeys(changed))
 
     def apply_claude_file_status(self, session_id: str, status: str, written_at: float) -> list[str]:
         """Corroborates the hooks with Claude's own session file, written at `written_at`. A file no
@@ -302,7 +357,7 @@ class StatusEngine:
         elif turn is not None and turn.children:
             if s.state == "needsInput":
                 return []
-            turn.deferred_done = True
+            self._defer_done(turn)
             target = "working"
         else:
             target = "done" if s.state in {"working", "needsInput"} else s.state
@@ -321,7 +376,7 @@ class StatusEngine:
         elif s.state != "working" or turn is None or not turn.spun:
             return []
         elif turn.children:
-            turn.deferred_done = True
+            self._defer_done(turn)
             return []
         else:
             target = "done"
@@ -331,6 +386,7 @@ class StatusEngine:
         self.reset_turn(session_id)
         self._trust_prompts.discard(session_id)
         cleared = self.reg.set_background(session_id, ())
+        cleared = self.reg.set_subagents_written_at(session_id, None) or cleared
         return [session_id] if self.reg.set_state(session_id, "idle") or cleared else []
 
     def mark_seen(self, task_id: str) -> list[str]:

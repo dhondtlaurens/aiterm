@@ -28,9 +28,13 @@ public struct WorkerTab: Equatable, Sendable {
     /// window is gone, an extra tab that was closed).
     public var status: SessionState? { isOpening ? .working : session?.state }
 
-    /// What it left running in the background when its turn ended (`SessionInfo.background`), which wakes it again;
-    /// nothing while its turn is under way.
-    public var background: [String] { status?.turnEnded == true ? session?.background.map(\.text) ?? [] : [] }
+    /// What it left running in the background when its turn ended (`SessionInfo.background`), which wakes it again.
+    /// While it works, only the subagents among it: the daemon holds a turn that ended on a subagent at working and
+    /// lists each subagent until it ends, while the rest that Stop listed may have ended since.
+    public var background: [String] {
+        let jobs = session?.background ?? []
+        return (status?.turnEnded == true ? jobs : jobs.filter { $0.kind == .subagent }).map(\.text)
+    }
 
     /// An extra tab that opened and is listed no more: closed, and never opened again. A first worker is never closed
     /// here; its window comes back on your click.
