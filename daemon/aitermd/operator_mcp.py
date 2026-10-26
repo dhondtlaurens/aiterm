@@ -360,7 +360,11 @@ TOOLS: tuple[dict[str, Any], ...] = (
            "sha": _text("The accepted commit, unmoved on the task's branch."),
            "checkOutput": _text("The worker's check output: tests, lint, build."), "note": _text("Why, for blocked and failed.")},
           ("task", "outcome")),
-    _tool("resume_task", "Puts a blocked task back to work once its reason is resolved; the same worker session continues.",
+    _tool("resume_task", "Puts a blocked task back to work once its reason is resolved; the same worker session continues. "
+          "AiTerm blocks after 90 minutes of work without a new task-branch commit or 4 hours of total work since starting "
+          "or the last resume. Any worker tab's commit resets only the no-commit clock. "
+          "A task ready for acceptance is never blocked on runtime. "
+          "Inspect before resuming; resume_task resets both clocks.",
           {"task": _TASK}, ("task",)),
     _tool("retry_task", "Queues a failed task again, if it has retries left.", {"task": _TASK}, ("task",)),
     _tool("finish_task",
@@ -415,12 +419,18 @@ TOOLS: tuple[dict[str, Any], ...] = (
                          "Left out for a question about your own next step, such as a reviewer's username, a scope choice or a "
                          "merge decision.")},
           ("key", "question")),
-    _tool("resolve_question", "Closes a question once the person has answered it, with a one-line summary of the answer: one "
-          "you asked with ask_you, or AiTerm's question about a merge on the host, which only the person decides. Call it at "
+    _tool("resolve_question", "Closes a question: answered by the person, or withdrawn by you when it became moot. "
+          "Record the answer in summary for a question you asked with ask_you, or AiTerm's question about a merge on "
+          "the host, which only the person decides. Call it at "
           "once when they answer in your chat. A worker's prompt is refused: AiTerm closes it itself once the worker leaves "
           "the prompt. A gate- question, opened when your shell's command needs the person's word, is answered with allow "
-          "true or false, from what the person said in this chat.",
-          {"key": _text("The question's key."), "summary": _text("The answer, in one line."),
+          "true or false, from what the person said in this chat. If your own question or a gate- command became moot, "
+          "set withdrawn true with a one-line reason in summary, and tell the person you withdrew it and why. Withdrawal "
+          "grants nothing; allow true must be left out. Host-merge questions cannot be withdrawn. "
+          "An already resolved question returns its recorded outcome unchanged; answeredInWindow must be checked and "
+          "resolved as an answer, not withdrawn.",
+          {"key": _text("The question's key."), "summary": _text("The answer or withdrawal reason, in one line."),
+           "withdrawn": {"type": "boolean", "description": "Withdraw your own moot question or gate command, without granting permission."},
            "allow": {"type": "boolean", "description": "For a gate- question only: whether the person allowed the command."}},
           ("key", "summary")),
     _tool("report_find", "Records something off-brief that you or an agent found, such as a leak in another module: it is not "

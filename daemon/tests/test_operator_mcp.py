@@ -151,6 +151,15 @@ def test_every_tool_has_a_description_and_a_closed_object_schema(tool):
     json.dumps(tool)
 
 
+def test_resume_task_explains_both_runtime_limits_and_the_acceptance_exemption():
+    description = {tool["name"]: tool for tool in TOOLS}["resume_task"]["description"]
+    assert "90 minutes of work without a new task-branch commit" in description
+    assert "4 hours of total work" in description
+    assert "Any worker tab's commit resets only the no-commit clock" in description
+    assert "a task ready for acceptance is never blocked on runtime" in description.lower()
+    assert "resume_task resets both clocks" in description
+
+
 def test_only_the_challenged_tools_take_a_challenge_reply():
     assert set(CHALLENGED_TOOLS) == {"submit_plan", "mark_task", "create_task", "finish_task"}
     for tool in TOOLS:
@@ -260,6 +269,18 @@ def test_resolve_question_allows_a_command_the_oracle_stopped():
     assert "allow" not in schema["required"]
     description = {tool["name"]: tool for tool in TOOLS}["resolve_question"]["description"]
     assert "gate- question" in description and "allow true or false" in description and "in this chat" in description
+
+
+def test_resolve_question_accepts_an_optional_withdrawal():
+    tool = next(tool for tool in TOOLS if tool["name"] == "resolve_question")
+    description = tool["description"]
+    assert description.startswith("Closes a question: answered by the person, or withdrawn by you when it became moot.")
+    assert "set withdrawn true with a one-line reason in summary" in description
+    assert "tell the person you withdrew it and why" in description
+    assert "Withdrawal grants nothing" in description
+    schema = tool["inputSchema"]
+    assert schema["properties"]["withdrawn"]["type"] == "boolean"
+    assert set(schema["required"]) == {"key", "summary"}
 
 
 def test_run_status_says_what_a_restarted_operator_needs():

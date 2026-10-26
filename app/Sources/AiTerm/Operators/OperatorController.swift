@@ -235,6 +235,13 @@ final class OperatorController {
             if self?.wakeNotice?.run == run { self?.wakeNotice = nil }
         }
         reconciler.tabsKnown = { [weak self] in self?.tabsKnown ?? false }
+        reconciler.waitsForProgress = { [weak self] task in
+            task.operated?.runtimeHead != nil && self?.branchWatch.isWatched(task) == true
+        }
+        branchWatch.checked = { [weak self] task in
+            guard let self else { return }
+            for id in reconciler.checkLimits(for: task) { runChanged(id) }
+        }
         tools.onActing = { [weak self] activity, on in self?.setActing(activity, on) }
         starter.onActing = { [weak self] activity, on in self?.setActing(activity, on) }
         tools.onChange = { [weak self] in self?.runChanged($0) }

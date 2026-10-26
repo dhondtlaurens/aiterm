@@ -5,9 +5,10 @@ import Testing
 @testable import AiTermTestSupport
 
 /// A worker that commits off its task branch is flagged in `run_status` on the next reconcile tick, and its
-/// Operator told, instead of the task sitting with an empty branch until its runtime runs out.
+/// Operator told. Task-branch commits reset the no-commit clock; limits use the fresh reading and spare idle workers.
 @MainActor @Suite(.blocking) struct BranchWatchTests {
     let git = GitRunner.hermetic()
+    let clock = TestClock.operators()
 
     /// A project and a task working in its own worktree on `feat/pluto-1`, its worker's tab in `state`.
     func makeWorld(worker state: SessionState = .working, conversation: String? = nil,
@@ -21,7 +22,10 @@ import Testing
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working, worktree: worktree)
         task.baseBranch = "main"
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: Date(timeIntervalSince1970: 0), openedAt: Date(timeIntervalSince1970: 0))
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), adjust: adjust)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])) { ports in
+            ports.now = { [clock] in clock.now }
+            adjust(&ports)
+        }
         world.show([OperatorServiceFixtures.session("op", window: "wo", tag: run.id),
                     OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: state, conversation: conversation)])
         return (world, run, task, worktree)
@@ -34,6 +38,153 @@ import Testing
 
     func driftLines(_ world: OperatorWorld) -> [String] {
         world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }.filter { $0.hasSuffix("call run_status") }
+    }
+
+    /// Each new task-branch head resets the stuck clock; its first reading only sets a baseline.
+    @Test func newCommitsRestartTheStuckClockButAnUnchangedHeadDoesNot() async throws {
+        let (world, _, task, worktree) = try makeWorld()
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.runtimeUsed = 30 * 60 } }
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.runtimeUsed == 1800.0, "the first reading is only a baseline")
+        for number in 1...2 {
+            world.workspace.mutate { $0.updateOperated(task.id) { $0.runtimeUsed = 89 * 60 } }
+            try git.run(["commit", "--allow-empty", "-q", "-m", "work \(number)"], in: worktree)
+            await tick(world)
+            #expect(world.task(task.id)?.operated?.runtimeUsed == 0)
+        }
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.runtimeUsed = 30 * 60 } }
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.runtimeUsed == 1800.0)
+    }
+
+    /// Progress on the tick that reaches the limit is read before that limit is decided.
+    @Test func aCommitOnTheLimitTickIsReadBeforeBlocking() async throws {
+        let (world, _, task, worktree) = try makeWorld()
+        await tick(world)
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.runtimeUsed = 90 * 60 } }
+        try git.run(["commit", "--allow-empty", "-q", "-m", "progress"], in: worktree)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.state == .working)
+        #expect(world.task(task.id)?.operated?.runtimeUsed == 0)
+        #expect(world.notifications.posted.isEmpty)
+    }
+
+    /// Work on another branch does not count as progress on the task.
+    @Test func offBranchCommitsDoNotRestartTheStuckClock() async throws {
+        let (world, _, task, worktree) = try makeWorld()
+        await tick(world)
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.runtimeUsed = 30 * 60 } }
+        try git.run(["checkout", "-q", "-b", "fix/elsewhere"], in: worktree)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "elsewhere"], in: worktree)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.runtimeUsed == 1800.0)
+    }
+
+    /// A branch read without progress still applies the stuck limit and notifies the person.
+    @Test(arguments: ["unchanged", "offBranch", "unreadable"])
+    func aHeadReadingWithoutProgressStillBlocksAtNinetyMinutes(_ reading: String) async throws {
+        let (world, run, task, worktree) = try makeWorld()
+        await tick(world)
+        if reading == "offBranch" {
+            try git.run(["checkout", "-q", "-b", "fix/elsewhere"], in: worktree)
+            try git.run(["commit", "--allow-empty", "-q", "-m", "elsewhere"], in: worktree)
+        } else if reading == "unreadable" {
+            try FileManager.default.removeItem(atPath: worktree + "/.git")
+        }
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.runtimeUsed = 90 * 60 } }
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.state == .blocked)
+        #expect(world.task(task.id)?.operated?.blockedReason == "Worked 90 minutes without a new commit.")
+        #expect(world.notifications.posted.last?.target == .board(run.id))
+    }
+
+    /// Committing grants more no-commit time, but never more unattended time.
+    @Test func commitsDoNotResetTotalWorkAndTheTotalCapStillBlocks() async throws {
+        let (world, run, task, worktree) = try makeWorld()
+        await tick(world)
+        world.workspace.mutate { $0.updateOperated(task.id) {
+            $0.runtimeUsed = 89 * 60
+            $0.totalRuntimeUsed = 4 * 60 * 60 - 60
+        } }
+        try git.run(["commit", "--allow-empty", "-q", "-m", "progress"], in: worktree)
+        clock.advance(by: 30)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.state == .working)
+        #expect(world.task(task.id)?.operated?.runtimeUsed == 0)
+        #expect(world.task(task.id)?.operated?.totalRuntimeUsed == 14370.0)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "more progress"], in: worktree)
+        clock.advance(by: 30)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.totalRuntimeUsed == 14400.0)
+        #expect(world.task(task.id)?.operated?.state == .blocked)
+        #expect(world.task(task.id)?.operated?.blockedReason == "Worked 4 hours since it started or the Operator last resumed it.")
+        #expect(world.notifications.posted.last?.target == .board(run.id))
+    }
+
+    /// The branch-read callback exempts an idle worker even past both limits, until it works again.
+    @Test func aWatchedIdleWorkerPastBothLimitsIsBlockedOnlyOnceItWorksAgain() async throws {
+        let (world, run, task, _) = try makeWorld(worker: .idle)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.runtimeHead != nil)
+        world.workspace.mutate { $0.updateOperated(task.id) {
+            $0.runtimeUsed = 91 * 60
+            $0.totalRuntimeUsed = 241 * 60
+        } }
+        clock.advance(by: 60)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.state == .working)
+        #expect(world.task(task.id)?.operated?.runtimeUsed == 5460.0)
+        #expect(world.task(task.id)?.operated?.totalRuntimeUsed == 14460.0)
+        #expect(world.notifications.posted.isEmpty)
+
+        // Change the live tab without a tick: the branch read's checkLimits must decide and notify.
+        world.live.sessions = [OperatorServiceFixtures.session("op", window: "wo", tag: run.id),
+                               OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .working)]
+        world.controller.branchWatch.poll()
+        await world.controller.branchWatch.lastPoll?.value
+        #expect(world.task(task.id)?.operated?.state == .blocked)
+        #expect(world.notifications.posted.last?.target == .board(run.id))
+    }
+
+    /// Every worker shares the branch, so an extra tab makes progress for the whole task.
+    @Test func anExtraWorkersCommitRestartsTheSharedClock() async throws {
+        let (world, run, task, worktree) = try makeWorld(worker: .idle)
+        await tick(world)
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.extraTabs = [
+            ExtraTab(key: "review", agent: .codex, model: "m", reasoning: nil, modelReason: "Tests.", brief: "Write tests.",
+                     launch: LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now), sessionId: "w2")
+        ] } }
+        var extra = OperatorServiceFixtures.session("w2", window: "w9", tag: task.id, agent: .codex, state: .working)
+        extra.tabIndex = 1
+        extra.tabKey = "review"
+        world.show([OperatorServiceFixtures.session("op", window: "wo", tag: run.id),
+                    OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .idle), extra])
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.runtimeUsed = 89 * 60 } }
+        try git.run(["commit", "--allow-empty", "-q", "-m", "worker tests"], in: worktree)
+        clock.advance(by: 60)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.state == .working)
+        #expect(world.task(task.id)?.operated?.runtimeUsed == 0)
+        #expect(world.task(task.id)?.operated?.totalRuntimeUsed == 60)
+    }
+
+    /// Restarting AiTerm preserves both clocks and the last branch head.
+    @Test func savedProgressSurvivesRestartWithoutResettingEitherClock() async throws {
+        let (world, _, task, _) = try makeWorld()
+        await tick(world)
+        world.workspace.mutate { $0.updateOperated(task.id) {
+            $0.runtimeUsed = 30 * 60
+            $0.totalRuntimeUsed = 120 * 60
+        } }
+        #expect(world.workspace.flush())
+        let restarted = try OperatorWorld(world.workspace.file.load()) { ports in
+            ports.now = { [clock] in clock.now }
+        }
+        restarted.show(world.live.sessions)
+        await tick(restarted)
+        #expect(restarted.task(task.id)?.operated?.runtimeUsed == 1800.0)
+        #expect(restarted.task(task.id)?.operated?.totalRuntimeUsed == 7200.0)
+        #expect(restarted.task(task.id)?.operated?.runtimeHead == world.task(task.id)?.operated?.runtimeHead)
     }
 
     @Test func aWorkerOnItsTaskBranchIsNotFlagged() async throws {
