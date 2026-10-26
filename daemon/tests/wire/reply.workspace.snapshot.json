@@ -33,8 +33,17 @@
       {
         "active": false,
         "agent": "claude",
-        "agentCwd": null,
-        "background": [],
+        "agentCwd": "/repo/.worktrees/feat-wire",
+        "background": [
+          {
+            "kind": "subagent",
+            "text": "Review the fix"
+          },
+          {
+            "kind": "shell",
+            "text": "scripts/test.sh"
+          }
+        ],
         "contextPercent": null,
         "conversationId": null,
         "cwd": "/repo/.worktrees/feat-wire",
@@ -42,8 +51,8 @@
         "projectId": null,
         "reasoning": null,
         "sessionId": "s3",
-        "state": "idle",
-        "subagentsWrittenAt": null,
+        "state": "working",
+        "subagentsWrittenAt": 1790000300.5,
         "tabIndex": 1,
         "tabKey": "review",
         "taskId": "2F9C4B7E-5A1D-4C3B-9E8F-0A1B2C3D4E5F",

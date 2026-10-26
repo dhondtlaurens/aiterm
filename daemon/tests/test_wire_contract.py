@@ -87,12 +87,13 @@ class App:
         await asyncio.gather(self._reading, return_exceptions=True)
 
 
-async def emitted(make_service, monkeypatch) -> dict[str, str]:
+async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
     """Every fixture file's name and content, from one scripted run of a real daemon over a
     FakeIterm: the app attaches while iTerm2 refuses the cookie it was given, connects with the
     next, opens a task window with a PI tab, an extra worker tab and a terminal, closes the terminal, and loses iTerm2.
     Each frame is taken as the app receives it. Ids are FakeIterm's counters and the request ids
-    the script sends; the clock is make_service's, stopped at 1000."""
+    the script sends; the clock is make_service's, stopped at 1000. The Claude worker's transcripts are under
+    `tmp_path`, which no frame names."""
     monkeypatch.setattr("aitermd.operator_mcp.uuid.uuid4", lambda: UUID(int=1))
     # Only this script ticks: a poll between its steps would make what each event carries depend
     # on timing.
@@ -198,6 +199,19 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
         replies["interface.setMatchItermBackground"] = await app.call("interface.setMatchItermBackground", {"matchItermBackground": True})
         replies["sessions.list"] = await app.call("sessions.list")
         replies["usage.get"] = await app.call("usage.get")
+        # The Claude worker, the one Claude in its worktree, ends its turn while a review it started in the background and
+        # the gate run: the snapshot lists both on its session, the review by its description, with when the review's
+        # transcript was last written.
+        review = tmp_path / "claude-wire" / "subagents" / "agent-review-1.jsonl"
+        review.parent.mkdir(parents=True, exist_ok=True)
+        review.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "Review the fix"}}) + "\n")
+        os.utime(review, (1_790_000_300.5, 1_790_000_300.5))
+        claude = {"session_id": "claude-wire", "cwd": WORKTREE, "transcript_path": str(tmp_path / "claude-wire.jsonl")}
+        await svc.hook_router.handle_hook("/hook/claude", {**claude, "hook_event_name": "SubagentStart", "agent_id": "review-1"})
+        await svc.hook_router.handle_hook("/hook/claude", {**claude, "hook_event_name": "Stop", "background_tasks": [
+            {"id": "review-1", "type": "subagent", "status": "running", "description": "Review the fix"},
+            {"id": "b1", "type": "shell", "status": "running", "description": "the gate", "command": "scripts/test.sh"}]})
+        await svc.tick()
         replies["workspace.snapshot"] = await app.call("workspace.snapshot")
 
         mark = app.mark()
@@ -254,8 +268,8 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
     return {name: json.dumps(content, indent=2, sort_keys=True, ensure_ascii=False) + "\n" for name, content in sorted(files.items())}
 
 
-async def test_the_checked_in_wire_fixtures_are_what_the_daemon_sends(make_service, monkeypatch):
-    fixtures = await emitted(make_service, monkeypatch)
+async def test_the_checked_in_wire_fixtures_are_what_the_daemon_sends(make_service, monkeypatch, tmp_path):
+    fixtures = await emitted(make_service, monkeypatch, tmp_path)
     if os.environ.get(UPDATE):
         WIRE.mkdir(exist_ok=True)
         for stale in WIRE.glob("*.json"):
@@ -274,7 +288,7 @@ async def test_the_checked_in_wire_fixtures_are_what_the_daemon_sends(make_servi
         "then the app's WireContractTests, and commit the fixtures with the change.")
 
 
-async def test_the_fixtures_come_out_the_same_on_every_run(make_service, monkeypatch):
+async def test_the_fixtures_come_out_the_same_on_every_run(make_service, monkeypatch, tmp_path):
     """Nothing in them depends on timing or the machine, or the check above would fail at random."""
-    assert await emitted(make_service, monkeypatch) == await emitted(make_service, monkeypatch)
+    assert await emitted(make_service, monkeypatch, tmp_path) == await emitted(make_service, monkeypatch, tmp_path)
 

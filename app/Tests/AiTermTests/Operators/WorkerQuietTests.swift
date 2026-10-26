@@ -104,8 +104,8 @@ import Testing
     }
 
     /// A worker whose turn ended while its subagent still runs (26 Oct 2026): the daemon holds it at working, lists what
-    /// runs and says when its subagents last wrote. Not quiet while one writes, its line says what it waits on; quiet once
-    /// they too have said nothing as long.
+    /// runs and says when its subagents last wrote. Not quiet while one writes, its line names the subagent it waits on;
+    /// quiet once they too have said nothing as long.
     @Test func aWorkerWaitingOnASubagentThatWritesIsNotQuiet() async throws {
         let (world, run, task) = try makeWorld(.working)
         try writeTranscript(world, writtenAgo: 0)
@@ -117,7 +117,7 @@ import Testing
         await tick(world)
         #expect(try line(world, run).live == .working)
         #expect(try uncertain(world, run).isEmpty)
-        #expect(try line(world, run).background == ["Review the fix", "scripts/test.sh"])
+        #expect(try line(world, run).background == ["Review the fix"])
         clock.advance(by: 120)
         await tick(world)
         #expect(try line(world, run).live == .workingQuiet)

@@ -25,8 +25,8 @@ class HookEvent:
     iterm_session_id: str | None = None
     reasoning: str | None = None
     context_percent: int | None = None
-    # Where a Claude SubagentStart's child writes its transcript: what the status engine reads when
-    # the child's SubagentStop never comes.
+    # Where a Claude SubagentStart's child writes its transcript, or a directory or two below (SubagentTranscripts.read):
+    # what the status engine reads on every tick, for whether the child's run is over and when it last wrote.
     subagent_transcript: str | None = None
     # The subagents a Claude Stop's `background_tasks` says are still running; None when it cannot say.
     running_subagents: frozenset[str] | None = None
@@ -54,8 +54,9 @@ def _subagent(name: str, p: dict[str, Any]) -> tuple[Transition, str] | None:
 
 def _claude_subagent_transcript(p: dict[str, Any], child: str) -> str | None:
     """The child's transcript. SubagentStart carries only the session's, `<dir>/<session>.jsonl`;
-    Claude Code writes the child's beside it, at `<dir>/<session>/subagents/agent-<id>.jsonl`. A path
-    the hook gives for the child itself (SubagentStop's `agent_transcript_path`) wins."""
+    Claude Code writes the child's beside it, at `<dir>/<session>/subagents/agent-<id>.jsonl`, or
+    files it a directory or two further down, where the reader looks too. A path the hook gives for
+    the child itself (`agent_transcript_path`, which so far only SubagentStop has carried) wins."""
     if (own := nonempty_string(p.get("agent_transcript_path"))) is not None:
         return own
     session = nonempty_string(p.get("transcript_path"))

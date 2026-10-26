@@ -144,11 +144,13 @@ under way or ended (`StatusEngine.release_dead_subagents`), and counts the child
   after the child's latest `SubagentStart`, unless the last message before that attachment is a
   prompt the child has yet to answer (the hand-back reminder below), since Claude then runs the
   child on; or
-- its transcript has not changed for `SUBAGENT_QUIET_SECONDS` (45 minutes), timed on the monotonic
-  clock from the first tick that saw it unchanged. That clock stops while the Mac sleeps. The
-  window is long because live children have gone 28 minutes without writing, during a long
-  generation or a stream retry. It only catches a child that died without writing anything: every
-  watchdog kill observed left the interruption.
+- its transcript has not changed for `SUBAGENT_QUIET_SECONDS` (45 minutes), while its parent's
+  ended turn waits on it or after its `SubagentStop`, timed on the monotonic clock from the first
+  tick that saw it unchanged. A child of a turn still under way is left to that turn's `Stop`, which
+  says what still runs. That clock stops while the Mac sleeps. The window is long because live
+  children have gone 28 minutes without writing, during a long generation or a stream retry. It
+  only catches a child that died without writing anything: every watchdog kill observed left the
+  interruption.
 
 A transcript that does not exist yet proves nothing, so that child stays counted until its
 `SubagentStop`. A gone child is dropped exactly as its `SubagentStop` would have dropped it, so the
@@ -171,24 +173,26 @@ tick finds its run over by the rules above. Claude writes its transcript in batc
 after a record's time and up to 1.6 s, so a tick right after the hook may not find the stop's
 attachment yet and waits for the next; and the reminder comes before the attachment, so the tick
 never finds that attachment without it. A child of Codex or PI, which have no transcript to read,
-ends at its `SubagentStop`; a Claude child whose transcript a read looked for and did not find ends
-with that read. A read that did not answer in time, or that began before the stop came, says nothing
-of the child, which waits for the next. The cost: a Claude child's end lands with the first tick
-that finds its stop's attachment, usually the next poll, 2 s after the hook, sometimes the one
-after, rather than with the hook. It relies on Claude Code writing each `SubagentStop` hook's
-attachment to the child's transcript, as every version seen does (2.1.283 to 2.1.308); without it, a
-stopped child would stay counted until its parent's next `Stop` drops it, or the quiet window does.
+ends at its `SubagentStop`; a Claude child ends with the first read begun after its stop that looked
+for its transcript and did not find it. A read that did not answer in time says nothing of the
+child, nor does one that began before the stop came and found no transcript: the child waits for the
+next. The cost: a Claude child's end lands with the first tick that finds its stop's attachment,
+usually the next poll, 2 s after the hook, sometimes the one after, rather than with the hook. It
+relies on Claude Code writing each `SubagentStop` hook's attachment to the child's transcript, as
+every version seen does (2.1.283 to 2.1.308); without it, a stopped child would stay counted until
+its parent's next `Stop` drops it, or the quiet window does.
 
 `SubagentStart` carries only the session's `transcript_path`, `<dir>/<session>.jsonl`. The child's
-transcript sits beside it at `<dir>/<session>/subagents/agent-<id>.jsonl`, or one directory
-further down, where Claude Code files some agents. Only the last 64 KiB of each transcript is read,
-on a worker thread with the one-second bound of the Codex rollout read above, and again only once its
-mtime or size changes. Each read also notes when the transcript was last written, its mtime, and
-the session carries the newest of its counted children's as `subagentsWrittenAt`. A parent whose
-turn ended on its children writes nothing while they work, so the app's doubt of a worker whose
-transcript has stopped growing (`WorkerQuietWatch`, `working?` in `run_status`) reads this beside
-the worker's own transcript. It moves as a child writes, so no sidebar row redraws for it
-(`SessionInfo.rowRelevant`).
+transcript sits beside it at `<dir>/<session>/subagents/agent-<id>.jsonl`, or one directory further
+down, where Claude Code files some agents, or two: a workflow's agents write theirs at
+`subagents/workflows/<run>/agent-<id>.jsonl` (Claude Code 2.1.308). Only the last 64 KiB of each
+transcript is read, on a worker thread with the one-second bound of the Codex rollout read above,
+and again only once its mtime or size changes. Each read also notes when the transcript was last
+written, its mtime, and the session carries the newest of its counted children's as
+`subagentsWrittenAt`. A parent whose turn ended on its children writes nothing while they work, so
+the app's doubt of a worker whose transcript has stopped growing (`WorkerQuietWatch`, `working?` in
+`run_status`) reads this beside the worker's own transcript. It moves as a child writes, so no
+sidebar row redraws for it (`SessionInfo.rowRelevant`).
 
 Claude's own session file cannot do this job. It stays `busy` while a background child runs past the
 end of the turn, and it names no child. Only Claude children are checked. PI relays a crashed

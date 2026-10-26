@@ -28,12 +28,12 @@ public struct WorkerTab: Equatable, Sendable {
     /// window is gone, an extra tab that was closed).
     public var status: SessionState? { isOpening ? .working : session?.state }
 
-    /// What it left running in the background when its turn ended (`SessionInfo.background`), which wakes it again;
-    /// nothing while its turn is under way. A turn that ended while a subagent still runs is held at working by the
-    /// daemon, which lists the subagent among the rest.
+    /// What it left running in the background when its turn ended (`SessionInfo.background`), which wakes it again.
+    /// While it works, only the subagents among it: the daemon holds a turn that ended on a subagent at working and
+    /// lists each subagent until it ends, while the rest that Stop listed may have ended since.
     public var background: [String] {
-        guard let jobs = session?.background, status?.turnEnded == true || jobs.contains(where: { $0.kind == .subagent }) else { return [] }
-        return jobs.map(\.text)
+        let jobs = session?.background ?? []
+        return (status?.turnEnded == true ? jobs : jobs.filter { $0.kind == .subagent }).map(\.text)
     }
 
     /// An extra tab that opened and is listed no more: closed, and never opened again. A first worker is never closed

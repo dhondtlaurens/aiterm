@@ -439,9 +439,9 @@ class Service:
         return changed
 
     async def _subagent_tails(self, paths: set[str]) -> dict[str, TranscriptTail | None]:
-        """The end of each of `paths`, the transcripts of the children a deferred done waits on or a
-        SubagentStop came for; None for one not found. A read that cannot answer holds none, which
-        proves no child dead, nor any stop."""
+        """The end of each of `paths`, the transcripts of every child the status engine counts; None
+        for one not found. A read that cannot answer holds none, which proves no child dead, nor any
+        stop."""
         if not paths:
             return {}
         read = self.subagent_transcripts.read_all

@@ -1144,7 +1144,7 @@ async def test_a_child_run_on_after_its_subagent_stop_keeps_its_task_working(sta
     done, ready for acceptance, for the 11 s between the two."""
     svc, it, files, r, w = stack
     sid, base, child = await _claude_child_in_background(svc, r, w, tmp_path, 941)
-    stop = {**base, "hook_event_name": "SubagentStop", "agent_id": "a1", "agent_transcript_path": str(child)}
+    stop = {**base, "hook_event_name": "SubagentStop", "agent_id": "a1"}
     await svc.hook_router.handle_hook("/hook/claude", stop)
     assert svc.registry.get(sid).state == "working"
     _append(child, CHILD_REPORT, CHILD_REMINDED, CHILD_STOPPED)
@@ -1219,6 +1219,32 @@ async def test_a_stopped_child_waits_out_a_transcript_read_that_hangs(stack, tmp
     finally:
         release.set()
     await wait_until(lambda: all(check.done() for check in svc._checks.values()))
+    await svc.tick()
+    assert svc.registry.get(sid).state == "done"
+
+
+async def test_a_transcript_read_begun_before_the_stop_cannot_say_the_stop_stands(stack, tmp_path, monkeypatch):
+    """The stop comes while the tick reads the transcripts: their read cannot say whether the child's transcript was
+    there after it. The next read can."""
+    svc, it, files, r, w = stack
+    sid, base, child = await _claude_child_in_background(svc, r, w, tmp_path, 946)
+    child.unlink()
+    read, reading, release = svc.subagent_transcripts.read_all, threading.Event(), threading.Event()
+
+    def held(paths):
+        reading.set()
+        release.wait(5)
+        return read(paths)
+
+    monkeypatch.setattr(svc.subagent_transcripts, "read_all", held)
+    tick = asyncio.ensure_future(svc.tick())
+    try:
+        await wait_until(reading.is_set)
+        await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "SubagentStop", "agent_id": "a1"})
+    finally:
+        release.set()
+    await tick
+    assert svc.registry.get(sid).state == "working"
     await svc.tick()
     assert svc.registry.get(sid).state == "done"
 

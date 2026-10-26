@@ -39,6 +39,11 @@ def write(path, *records, tail=""):
     return str(path)
 
 
+def has_ended(path):
+    """Whether the transcript at `path` reads as the end of its child's run."""
+    return SubagentTranscripts().read(path).ended_at is not None
+
+
 @pytest.mark.parametrize("last,ended", [
     (INTERRUPTED, True), (INTERRUPTED_IN_TOOL, True), (STOPPED, True), (STOP_FAILED, True),
     (ASSISTANT, False), (PROMPT, False), (STARTED, False),
@@ -47,8 +52,7 @@ def write(path, *records, tail=""):
 ])
 def test_a_transcript_has_ended_only_on_an_interruption_or_a_subagent_stop(tmp_path, last, ended):
     path = write(tmp_path / "agent-c1.jsonl", PROMPT, ASSISTANT, last)
-    tail = SubagentTranscripts().read(path)
-    assert tail is not None and tail.ended is ended
+    assert has_ended(path) is ended
 
 
 @pytest.mark.parametrize("records,ended", [
@@ -60,14 +64,14 @@ def test_a_transcript_has_ended_only_on_an_interruption_or_a_subagent_stop(tmp_p
 ])
 def test_a_subagent_stop_after_a_prompt_the_child_has_yet_to_answer_has_not_ended(tmp_path, records, ended):
     path = write(tmp_path / "agent-c1.jsonl", PROMPT, *records)
-    assert SubagentTranscripts().read(path).ended is ended
+    assert has_ended(path) is ended
 
 
 def test_a_stop_stands_when_the_tail_cannot_show_what_came_before_it(tmp_path, monkeypatch):
     # A final message longer than the tail window: nothing shows a prompt waiting on the child.
     monkeypatch.setattr(claude_subagents, "TAIL_BYTES", 256)
     path = write(tmp_path / "agent-c1.jsonl", PROMPT, {**ASSISTANT, "pad": "x" * 1000}, STOPPED)
-    assert SubagentTranscripts().read(path).ended is True
+    assert has_ended(path)
 
 
 def test_a_missing_transcript_reads_as_none(tmp_path):
@@ -76,7 +80,7 @@ def test_a_missing_transcript_reads_as_none(tmp_path):
 
 def test_a_record_still_being_written_has_not_ended(tmp_path):
     path = write(tmp_path / "agent-c1.jsonl", PROMPT, INTERRUPTED, tail='{"type": "user", "mess')
-    assert SubagentTranscripts().read(path).ended is False
+    assert not has_ended(path)
 
 
 def test_only_the_tail_is_read(tmp_path, monkeypatch):
@@ -84,10 +88,10 @@ def test_only_the_tail_is_read(tmp_path, monkeypatch):
     monkeypatch.setattr(claude_subagents, "TAIL_BYTES", 256)
     big = {"type": "user", "message": {"content": [{"type": "text", "text": "[Request interrupted by user]"}]}, "pad": "x" * 1000}
     path = write(tmp_path / "agent-c1.jsonl", PROMPT, big)
-    assert SubagentTranscripts().read(path).ended is False
+    assert not has_ended(path)
     path = write(tmp_path / "agent-c2.jsonl", *([ASSISTANT] * 50), INTERRUPTED)
     assert os.path.getsize(path) > 256
-    assert SubagentTranscripts().read(path).ended is True
+    assert has_ended(path)
 
 
 def test_the_tail_is_stamped_with_the_files_mtime_and_size(tmp_path):
@@ -110,7 +114,16 @@ def test_a_transcript_in_a_subdirectory_of_subagents_is_found(tmp_path):
     # Claude Code files some agents under subagents/<subdir>/ (its agentTranscriptSubdirs).
     subagents = tmp_path / "sess" / "subagents"
     write(subagents / "wf-1" / "agent-c1.jsonl", PROMPT, INTERRUPTED)
-    assert SubagentTranscripts().read(str(subagents / "agent-c1.jsonl")).ended is True
+    assert has_ended(str(subagents / "agent-c1.jsonl"))
+
+
+def test_a_workflow_agents_transcript_two_directories_down_is_found(tmp_path):
+    # Claude Code files a workflow's agents under subagents/workflows/<run>/ (2.1.308).
+    subagents = tmp_path / "sess" / "subagents"
+    path = write(subagents / "workflows" / "wf_155a408a-eb7" / "agent-c1.jsonl", PROMPT, ASSISTANT)
+    os.utime(path, (1_900_000_000, 1_900_000_000))
+    tail = SubagentTranscripts().read(str(subagents / "agent-c1.jsonl"))
+    assert tail is not None and tail.written_at == 1_900_000_000
 
 
 def test_read_all_answers_every_transcript_asked_for(tmp_path):

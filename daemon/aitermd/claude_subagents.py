@@ -26,10 +26,6 @@ class TranscriptTail:
     # batches, so a record can reach the file well after its time. None while the last record is no such end.
     ended_at: float | None
 
-    @property
-    def ended(self) -> bool:
-        return self.ended_at is not None
-
 
 def _user_content(record: dict[str, Any]) -> str | list[Any] | None:
     """A user message's content: its text, or its blocks. None for any other record."""
@@ -108,8 +104,9 @@ _Entry = tuple[tuple[int, int], TranscriptTail]
 
 
 class SubagentTranscripts:
-    """Reads the end of Claude subagents' transcripts, for the status engine's check on children
-    whose SubagentStop never came. Blocking file I/O: the service runs it on a worker thread."""
+    """Reads the end of Claude subagents' transcripts, for the status engine: whether a child's run
+    is over, at its SubagentStop or without one, and when it last wrote. Blocking file I/O: the
+    service runs it on a worker thread."""
 
     def __init__(self) -> None:
         self._cache: dict[str, _Entry] = {}
@@ -121,8 +118,9 @@ class SubagentTranscripts:
         return tails
 
     def read(self, path: str) -> TranscriptTail | None:
-        """The end of the transcript at `path`, or of the same file in a subdirectory beside it --
-        Claude Code files some agents under `subagents/<subdir>/`. None while neither exists."""
+        """The end of the transcript at `path`, or of the same file one or two directories below
+        its own: Claude Code files some agents under `subagents/<subdir>/`, and a workflow's under
+        `subagents/workflows/<run>/`. None while none exists."""
         if (st := self._stat(path)) is None:
             return None
         real, stat = st
@@ -147,8 +145,9 @@ class SubagentTranscripts:
             pass
         try:
             p = Path(path)
-            for candidate in p.parent.glob(f"*/{p.name}"):
-                return str(candidate), candidate.stat()
+            for pattern in (f"*/{p.name}", f"*/*/{p.name}"):
+                for candidate in p.parent.glob(pattern):
+                    return str(candidate), candidate.stat()
         except (OSError, ValueError):
             pass
         return None

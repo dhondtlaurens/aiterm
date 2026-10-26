@@ -15,8 +15,9 @@ CLAUDE_FILE_STATUS: dict[str, State | None] = {
     "waiting": "needsInput", "idle": None, "shell": None,
 }
 
-# How long a Claude subagent's transcript may go unwritten, while its parent's turn waits on it, before
-# the child counts as dead. Claude's stream watchdog kills a child after 600 s without progress, but
+# How long a Claude subagent's transcript may go unwritten, once its parent's ended turn waits on it or its
+# SubagentStop came, before the child counts as dead. A child of a turn still under way is left to the turn's Stop,
+# which says what still runs. Claude's stream watchdog kills a child after 600 s without progress, but
 # that leaves an interruption in the transcript, which ends the child at once. Live children have gone
 # 28 minutes without a write -- a long generation, a stream retry -- so this only catches one that died
 # writing nothing at all.
@@ -28,13 +29,13 @@ class _Child:
     """A running subagent. `transcript` is where a Claude child writes (None for the other
     harnesses), `started_at` the wall clock at its latest SubagentStart. `stamp` is its transcript's
     (mtime, size) as last seen, and `quiet_since` when that stamp was first seen, on the monotonic clock;
-    `written_at` is that mtime, on the wall clock. `stopped` says a SubagentStop came since that start:
-    the transcript says whether it ended the run."""
+    `written_at` is that mtime, on the wall clock. `stopped_at` is when the latest SubagentStop since
+    that start came, on the monotonic clock, None while none has: the transcript says whether it ended the run."""
     transcript: str | None
     started_at: float
     stamp: tuple[int, int] | None = None
     quiet_since: float = 0.0
-    stopped: bool = False
+    stopped_at: float | None = None
     written_at: float | None = None
 
 
@@ -80,6 +81,9 @@ class StatusEngine:
         # not shorten.
         self._clock, self._monotonic = clock, monotonic
         self._turns: dict[str, Turn] = {}
+        # When the subagents' transcripts were last asked for (subagent_transcripts), on the monotonic clock: the read
+        # that answers began then, and cannot say a SubagentStop that came after it stands.
+        self._asked_at = float("-inf")
         # The sessions whose row a folder-trust dialog holds at needs input. Not a turn's: the dialog
         # belongs to the tab until it closes, and comes before any conversation.
         self._trust_prompts: set[str] = set()
@@ -252,7 +256,7 @@ class StatusEngine:
         with a transcript stays counted until a tick reads there that the run is over (`release_dead_subagents`)."""
         turn = self._turns.get(session_id)
         if turn is not None and subagent_id and (child := turn.children.get(subagent_id)) and child.transcript:
-            child.stopped = True
+            child.stopped_at = self._monotonic()
             return []
         return self._subagent_ended(session_id, subagent_id)
 
@@ -287,30 +291,35 @@ class StatusEngine:
     def subagent_transcripts(self) -> set[str]:
         """The transcripts release_dead_subagents needs: those of every child counted, its turn under
         way or ended. Only a Claude child has one. The caller reads them, off the event loop, and
-        passes them in."""
+        passes them in; the read begins now."""
+        self._asked_at = self._monotonic()
         return {c.transcript for turn in self._turns.values() for c in turn.children.values() if c.transcript}
 
     def release_dead_subagents(self, tails: Mapping[str, TranscriptTail | None]) -> list[str]:
         """Notes when each counted child's transcript was last written, and drops each child whose
         transcript proves its run over: it ends in an interruption or a SubagentStop that left the
         child nothing to answer, written since its latest SubagentStart, or it has not changed for
-        SUBAGENT_QUIET_SECONDS. `tails` is what a read found of each transcript it was asked for:
-        None for one not there yet, which proves nothing, except that a SubagentStop then stands. A
-        transcript it holds nothing for -- not asked for, or the read did not answer -- proves nothing."""
+        SUBAGENT_QUIET_SECONDS while its parent's ended turn waits on it or after its SubagentStop.
+        `tails` is what the read asked for last (subagent_transcripts) found of each transcript: None
+        for one not there yet, which proves nothing, except that a SubagentStop that came before the
+        read began stands. A transcript it holds nothing for -- not asked for, or the read did not
+        answer -- proves nothing."""
         now, changed = self._monotonic(), []
         for sid, turn in list(self._turns.items()):
             for child_id, child in list(turn.children.items()):
                 if child.transcript is None or child.transcript not in tails:
                     continue
                 if (tail := tails[child.transcript]) is None:
-                    changed += self._subagent_ended(sid, child_id) if child.stopped else []
+                    stood = child.stopped_at is not None and child.stopped_at <= self._asked_at
+                    changed += self._subagent_ended(sid, child_id) if stood else []
                     continue
                 if tail.stamp != child.stamp:
                     child.stamp, child.quiet_since, child.written_at = tail.stamp, now, tail.written_at
                 # A verdict from before a resume speaks for the run that ended, not this one. Told by the time the
                 # record gives: Claude can write it to the file after the resume's SubagentStart.
                 ended = tail.ended_at is not None and tail.ended_at > child.started_at
-                if ended or now - child.quiet_since >= SUBAGENT_QUIET_SECONDS:
+                waited_on = turn.deferred_done or child.stopped_at is not None
+                if ended or (waited_on and now - child.quiet_since >= SUBAGENT_QUIET_SECONDS):
                     changed += self._subagent_ended(sid, child_id)
             changed += [sid] if self._show_children(sid) else []
         return list(dict.fromkeys(changed))

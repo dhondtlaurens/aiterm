@@ -51,7 +51,8 @@ import Testing
     }
 
     /// A turn that ended while its subagent still runs: the daemon holds the tab at working and lists the subagent, by its
-    /// description, beside the rest of what runs. Not ready, and its line says what it waits on.
+    /// description, beside the rest that Stop listed. While the tab works only its subagents show, which the daemon
+    /// takes off as they end: a shell may have ended since. Not ready, and its line says what it waits on.
     @Test func aTurnThatEndedOnItsSubagentListsWhatRuns() throws {
         var world = OperatedWorld()
         let id = world.addTask("T-1", run: world.addRun(), state: .working)
@@ -60,11 +61,15 @@ import Testing
         let run = try #require(world.state.run(id: runId))
         var waiting = session("s1", task: task.id, state: .working)
         waiting.background = [BackgroundJob(kind: .subagent, text: "Review the fix"), BackgroundJob(kind: .shell, text: "scripts/test.sh")]
-        #expect(task.workerTabs(in: [waiting]).flatMap(\.background) == ["Review the fix", "scripts/test.sh"])
+        #expect(task.workerTabs(in: [waiting]).flatMap(\.background) == ["Review the fix"])
         #expect(!task.isReadyForAcceptance(in: [waiting]))
         let line = try #require(OperatorLine.task(task, run: run, acting: nil, requests: [], sessions: [waiting]))
         #expect(line.text == "Operator watching · in background")
-        #expect(line.tooltip == "Running in the background: Review the fix, scripts/test.sh")
+        #expect(line.tooltip == "Running in the background: Review the fix")
+        waiting.background.removeFirst()
+        #expect(task.workerTabs(in: [waiting]).flatMap(\.background).isEmpty, "the subagent ended, the shell may have")
+        waiting.state = .done
+        #expect(task.workerTabs(in: [waiting]).flatMap(\.background) == ["scripts/test.sh"], "its turn over: what its Stop listed")
     }
 
     @Test func aTaskWithNoExtraTabHasItsFirstWorkerAlone() {

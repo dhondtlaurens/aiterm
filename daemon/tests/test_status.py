@@ -448,6 +448,20 @@ def test_a_quiet_child_past_the_window_releases_it(clock):
     assert reg.get("s1").state == "done"
 
 
+def test_a_quiet_child_of_a_turn_under_way_is_left_to_the_turns_stop(clock):
+    # Neither deferred nor stopped: the turn's Stop says whether it still runs.
+    eng, reg, _ = _claude_engine(clock)
+    eng.apply_event("s1", hook("working"))
+    eng.release_dead_subagents({TRANSCRIPT: _tail()})
+    clock.now += 10 * status.SUBAGENT_QUIET_SECONDS
+    assert eng.release_dead_subagents({TRANSCRIPT: _tail()}) == []
+    assert eng.turn("s1").children and reg.get("s1").state == "working"
+    # Stopped, with nothing in its transcript to show the run over: quiet as long, it is taken for dead.
+    eng.apply_event("s1", hook("subagentStop", "c1"))
+    eng.release_dead_subagents({TRANSCRIPT: _tail()})
+    assert not eng.turn("s1").children
+
+
 def test_the_quiet_window_ignores_the_wall_clock(clock):
     # A laptop that slept, or an NTP step, must not make a live child look quiet.
     eng, reg, wall = _claude_engine(clock)
@@ -592,16 +606,32 @@ def test_a_claude_child_run_on_after_its_subagent_stop_keeps_the_row_working(clo
 def test_a_subagent_stop_stands_when_the_childs_transcript_cannot_be_found(clock):
     eng, reg, _ = _claude_engine(clock)
     eng.apply_event("s1", hook("subagentStop", "c1"))
+    eng.subagent_transcripts()
     assert eng.release_dead_subagents({TRANSCRIPT: None}) == ["s1"]
     assert reg.get("s1").state == "done"
 
 
 def test_a_stopped_child_waits_while_its_transcript_goes_unread(clock):
-    # A read that did not answer in time, or one that began before the stop came, says nothing of the child.
+    # A read that did not answer in time says nothing of the child.
     eng, reg, _ = _claude_engine(clock)
     eng.apply_event("s1", hook("subagentStop", "c1"))
+    eng.subagent_transcripts()
     assert eng.release_dead_subagents({}) == []
     assert reg.get("s1").state == "working"
+
+
+def test_a_read_begun_before_the_stop_says_nothing_of_a_transcript_it_did_not_find(clock):
+    # The stop came while the transcripts were read: what the child wrote before it may not have been there yet.
+    eng, reg, _ = _claude_engine(clock)
+    assert eng.subagent_transcripts() == {TRANSCRIPT}
+    clock.now += 0.5
+    eng.apply_event("s1", hook("subagentStop", "c1"))
+    assert eng.release_dead_subagents({TRANSCRIPT: None}) == []
+    assert reg.get("s1").state == "working"
+    clock.now += 2
+    eng.subagent_transcripts()
+    assert eng.release_dead_subagents({TRANSCRIPT: None}) == ["s1"]
+    assert reg.get("s1").state == "done"
 
 
 def test_a_resumed_childs_earlier_stop_reaching_the_file_late_does_not_end_it(clock):
