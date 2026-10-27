@@ -276,3 +276,28 @@ extension WorkerStarterTests {
         #expect(world.daemon.requests("session.deliver").isEmpty)
     }
 }
+
+extension WorkerStarterTests {
+    @Test(arguments: [(true, false), (false, false), (true, true)])
+    func weeklySwitchStaysWithinBroadcastRows(otherAllowed: Bool, pinned: Bool) async throws {
+        let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-rows-"))
+        var run = OperatorServiceFixtures.run(projects: [project], state: .active)
+        run.taskSettings = TaskSettings(review: nil, end: .commit)
+        let planned = AgentChoice(agent: .claude, model: "claude-named", reasoning: "high")
+        let other = AgentChoice(agent: .codex, model: "gpt-6-mini", reasoning: "low")
+        run.agents = otherAllowed ? [planned, other, AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "high")] : [planned]
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) {
+            $0.weeklyUsage = { [.claude: 84, .codex: 12] }
+        }
+        var task = OperatorServiceFixtures.task(in: run, project: project, key: "ROW", state: .queued, agent: planned.agent)
+        task.model = planned.model; task.reasoning = planned.reasoning
+        task.operated?.agentPinned = pinned
+        world.workspace.mutate { $0.tasks.append(task) }
+        world.controller.startReadyTasks()
+        await world.controller.lastStart?.value
+        let started = try #require(world.task(task.id))
+        let expected = otherAllowed && !pinned ? other : planned
+        #expect(started.agent == expected.agent && started.model == expected.model && started.reasoning == expected.reasoning)
+        #expect(world.daemon.requests("window.createTask").count == 1)
+    }
+}

@@ -12,26 +12,34 @@ extension OperatorToolHandler {
         guard key != WorkerTab.firstKey else {
             throw ToolRefusal("The key \(key) names \(task.operated?.key ?? task.title)’s first worker in run_status. Call open_tab with another key.")
         }
-        let agent = try self.agent(call), modelReason = try call.string("modelReason"), brief = try call.string("brief")
+        let role: TabRole
+        if run.taskSettings != nil, let raw = call.optionalString("role") {
+            guard let requested = TabRole(rawValue: raw) else { throw ToolRefusal("A tab’s role is work or review.") }
+            role = requested
+        } else {
+            role = .work
+        }
+        let agent = try self.agent(call), modelReason = try call.string("modelReason")
+        let brief = try role == .review ? (call.optionalString("brief") ?? "") : call.string("brief")
         let pinned = call.arguments["agentPinned"]?.boolValue ?? false
-        if let recorded = try recordedTab(key, of: task, call, agent: agent, modelReason: modelReason, brief: brief, pinned: pinned) {
+        if let recorded = try recordedTab(key, of: task, call, agent: agent, modelReason: modelReason, brief: brief, pinned: pinned, role: role, checksReasoning: run.taskSettings != nil) {
             return recorded
         }
         try tabRefusal(task, in: run)
         let models = agentModels
         let catalogue = await BackgroundWork.run { models(agent) }
         let delivery = await deliveryStatus()
-        let model = try self.model(call, for: agent, catalogue: catalogue)
+        let model = try self.model(call, for: agent, catalogue: catalogue, in: run)
         let warning = try deliveryWarning(for: agent, pinned: pinned, delivery: delivery)
         guard let current = state.task(id: task.id), let fresh = state.run(id: run.id) else {
             throw ToolRefusal("This task is no longer in this broadcast.")
         }
-        if let recorded = try recordedTab(key, of: current, call, agent: agent, modelReason: modelReason, brief: brief, pinned: pinned) {
+        if let recorded = try recordedTab(key, of: current, call, agent: agent, modelReason: modelReason, brief: brief, pinned: pinned, role: role, checksReasoning: run.taskSettings != nil) {
             return recorded
         }
         try tabRefusal(current, in: fresh)
         let tab = ExtraTab(key: key, agent: agent, model: model.model, reasoning: model.reasoning, modelReason: modelReason, brief: brief,
-                           agentPinned: pinned, launch: LaunchAttempt(number: 1, requestedAt: ports.now()))
+                           agentPinned: pinned, launch: LaunchAttempt(number: 1, requestedAt: ports.now()), role: role)
         mutate(in: run.id) { $0.updateOperated(task.id) { $0.extraTabs.append(tab) } }
         // On disk before the daemon is asked: a restart then finds the tab it opened, and opens no second one.
         guard workspace.flush() else {
@@ -49,11 +57,12 @@ extension OperatorToolHandler {
 
     /// The tab `key` names on the task already, as the first call left it; refused when this call asks for another.
     private func recordedTab(_ key: String, of task: TaskItem, _ call: ToolCall, agent: AgentKind, modelReason: String, brief: String,
-                             pinned: Bool) throws(ToolRefusal) -> JSONValue? {
+                             pinned: Bool, role: TabRole, checksReasoning: Bool) throws(ToolRefusal) -> JSONValue? {
         guard let tab = task.operated?.extraTabs.first(where: { $0.key == key }) else { return nil }
         let model = call.optionalString("model")
         guard tab.agent == agent, model == nil || model == tab.model, tab.modelReason == modelReason, tab.brief == brief,
-              tab.agentPinned == pinned else {
+              tab.agentPinned == pinned, tab.role == role,
+              !checksReasoning || call.optionalString("reasoning") == nil || tab.reasoning == call.optionalString("reasoning") else {
             throw ToolRefusal("\(task.operated?.key ?? task.title) already has a tab \(key), opened with other arguments. "
                               + "Call open_tab with another key for another tab.")
         }

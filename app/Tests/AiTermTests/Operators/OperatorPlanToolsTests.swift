@@ -501,3 +501,129 @@ extension OperatorPlanToolsTests {
         #expect(world.state.tasks.isEmpty)
     }
 }
+
+extension OperatorPlanToolsTests {
+    func rowsWorld() throws -> (OperatorWorld, OperatorRun) {
+        let (world, run) = try makeWorld()
+        world.workspace.mutate { $0.updateRun(id: run.id) {
+            $0.taskSettings = TaskSettings(review: nil, end: .commit)
+            $0.agents = [
+                AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "high"),
+                AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "low")
+            ]
+        } }
+        return (world, run)
+    }
+
+    func rowArguments() -> JSONValue {
+        ["key": "A", "title": "A", "brief": "Do A.", "project": "Shop",
+         "agent": "codex", "modelReason": "The allowed row."]
+    }
+
+    @Test func newRunUsesFirstRowAndTaskSettingsEnd() async throws {
+        let (world, run) = try rowsWorld()
+        let answer = await world.call(run.id, "create_task", rowArguments())
+        #expect(answer.value?["created"] == true)
+        let task = try #require(world.state.tasks.first)
+        #expect(task.model == "gpt-6-astra" && task.reasoning == "high")
+        #expect(task.operated?.end == .commit)
+        _ = await world.call(run.id, "update_task", ["task": "A", "model": "gpt-6-astra", "reasoning": "low"])
+        #expect(world.state.tasks.first?.reasoning == "low")
+        _ = await world.call(run.id, "update_task", ["task": "A", "agent": "codex"])
+        #expect(world.state.tasks.first?.reasoning == "high")
+    }
+
+    @Test(arguments: [
+        ("agent", "claude"), ("model", "gpt-6-mini"), ("reasoning", "medium")
+    ])
+    func newRunRefusesOffRowEvenWhenPinned(field: String, value: String) async throws {
+        let (world, run) = try rowsWorld()
+        let args = rowArguments().adding(field, .string(value)).adding("agentPinned", true)
+        let refused = await world.call(run.id, "create_task", args)
+        #expect(refused.message?.contains("codex · gpt-6-astra · high") == true)
+        #expect(refused.message?.contains("codex · gpt-6-astra · low") == true)
+        #expect(world.state.tasks.isEmpty)
+        _ = await world.call(run.id, "create_task", rowArguments())
+        let update = await world.call(run.id, "update_task", JSONValue.object(["task": "A", field: .string(value)]))
+        #expect(update.message?.contains("codex · gpt-6-astra · high") == true)
+        #expect(world.state.tasks.first?.agent == .codex && world.state.tasks.first?.reasoning == "high")
+    }
+
+    @Test func namedModelWithoutReasoningTakesFirstMatchingRow() async throws {
+        let (world, run) = try rowsWorld()
+        _ = await world.call(run.id, "create_task", rowArguments().adding("model", "gpt-6-astra"))
+        #expect(world.state.tasks.first?.reasoning == "high")
+    }
+
+    @Test func newRunRefusesOperatorEndChanges() async throws {
+        let (world, run) = try rowsWorld()
+        let refused = await world.call(run.id, "create_task", rowArguments().adding("end", "commit"))
+        #expect(refused.message == "Every task ends at commit, which only the person changes.")
+        #expect(world.state.tasks.isEmpty)
+        _ = await world.call(run.id, "create_task", rowArguments())
+        let update = await world.call(run.id, "update_task", ["task": "A", "end": "merge"])
+        #expect(update.message == "Every task ends at commit, which only the person changes.")
+        #expect(world.state.tasks.first?.operated?.end == .commit)
+    }
+
+    @Test func closedDependenciesAreRefusedByKeyAndID() async throws {
+        let (world, run) = try rowsWorld()
+        let id = UUID()
+        world.workspace.mutate { $0.updateRun(id: run.id) {
+            $0.finished = [FinishedTaskRecord(task: id, key: "CLOSED", title: "Closed", ticket: nil, project: project.id,
+                agent: .codex, model: "gpt-6-astra", reasoning: "high", end: .commit, state: .accepted,
+                acceptedSHA: nil, branch: "closed", mergeRequestURL: nil, mergedSHA: nil, result: "done",
+                branchDeleted: false, at: Date())]
+        } }
+        for ref in ["CLOSED", id.uuidString.lowercased()] {
+            let refused = await world.call(run.id, "create_task", rowArguments().adding("dependsOn", [.string(ref)]))
+            #expect(refused.message == "CLOSED was closed when the broadcast completed.")
+        }
+        _ = await world.call(run.id, "create_task", rowArguments())
+        let update = await world.call(run.id, "update_task", ["task": "A", "dependsOn": ["CLOSED"]])
+        #expect(update.message == "CLOSED was closed when the broadcast completed.")
+    }
+}
+
+extension OperatorPlanToolsTests {
+    @Test func legacyRunStillUsesCatalogueReasoningAndAllowsEnd() async throws {
+        let (world, run) = try makeWorld()
+        world.workspace.mutate { $0.updateRun(id: run.id) {
+            $0.agents = [AgentChoice(agent: .claude, model: "claude-named", reasoning: "high")]
+        } }
+        let answer = await world.call(run.id, "create_task",
+            rowArguments().adding("model", "gpt-6-astra").adding("reasoning", "low").adding("end", "commit"))
+        #expect(answer.value?["created"] == true)
+        #expect(world.state.tasks.first?.reasoning == "medium")
+        #expect(world.state.tasks.first?.operated?.end == .commit)
+        _ = await world.call(run.id, "update_task", ["task": "A", "reasoning": "low"])
+        #expect(world.state.tasks.first?.reasoning == "medium")
+    }
+}
+
+extension OperatorPlanToolsTests {
+    @Test func newRunUsesChosenEndEvenWithoutAConnectedHost() async throws {
+        let (world, run) = try rowsWorld()
+        world.workspace.mutate { $0.updateRun(id: run.id) {
+            $0.taskSettings?.end = .mergeLocal
+            $0.profile.slices.merge = true
+        } }
+        let answer = await world.call(run.id, "create_task", rowArguments())
+        #expect(answer.value?["created"] == true)
+        #expect(world.state.tasks.first?.operated?.end == .mergeLocal)
+    }
+}
+
+extension OperatorPlanToolsTests {
+    @Test func reasoningOnlyUpdateKeepsTheCurrentModel() async throws {
+        let (world, run) = try rowsWorld()
+        world.workspace.mutate { $0.updateRun(id: run.id) {
+            $0.agents.insert(AgentChoice(agent: .codex, model: "gpt-6-mini", reasoning: nil), at: 0)
+        } }
+        _ = await world.call(run.id, "create_task", rowArguments().adding("model", "gpt-6-astra"))
+        let update = await world.call(run.id, "update_task", ["task": "A", "reasoning": "low"])
+        #expect(update.message == nil)
+        #expect(world.state.tasks.first?.model == "gpt-6-astra")
+        #expect(world.state.tasks.first?.reasoning == "low")
+    }
+}

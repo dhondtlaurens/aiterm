@@ -293,3 +293,28 @@ import Testing
         #expect(daemon.requests("tab.create").count == 1)
     }
 }
+
+extension OperatorOpenTabTests {
+    @Test func newTabsCheckRowsAndPassRoleAndReasoning() async throws {
+        let (world, run, task) = try makeWorld()
+        world.workspace.mutate { $0.updateRun(id: run.id) {
+            $0.taskSettings = TaskSettings(review: nil, end: .commit)
+            $0.agents = [AgentChoice(agent: .codex, model: "gpt-6-mini", reasoning: "high")]
+        } }
+        for (field, value) in [("agent", "claude"), ("model", "gpt-6-astra"), ("reasoning", "low")] {
+            let refused = await world.call(run.id, "open_tab",
+                Self.arguments(pinned: true).adding(field, .string(value)))
+            #expect(refused.message?.contains("codex · gpt-6-mini · high") == true)
+            #expect(tabs(of: task, in: world).isEmpty)
+        }
+        let args = Self.arguments(model: nil).adding("role", "review").adding("brief", .null)
+        let opened = await world.call(run.id, "open_tab", args)
+        #expect(opened.value?["state"] == "opened")
+        let tab = try #require(tabs(of: task, in: world).first)
+        #expect(tab.role == .review && tab.reasoning == "high" && tab.model == "gpt-6-mini")
+        let repeatWithDifferentReasoning = await world.call(run.id, "open_tab", args.adding("reasoning", "low"))
+        #expect(repeatWithDifferentReasoning.message != nil)
+        let repeatWithDifferentRole = await world.call(run.id, "open_tab", args.adding("role", "work"))
+        #expect(repeatWithDifferentRole.message != nil)
+    }
+}
