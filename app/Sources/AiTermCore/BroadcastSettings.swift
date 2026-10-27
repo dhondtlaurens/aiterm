@@ -227,6 +227,8 @@ public struct FinishedTaskRecord: Codable, Equatable, Sendable {
     public var agent: AgentKind, model: String, reasoning: String?
     public var end: TaskEnd, state: OperatedState
     public var acceptedSHA: String?
+    /// The live task’s diff base, captured before its row and any stacked parent go.
+    public var diffBaseSHA: String? = nil
     public var branch: String
     public var mergeRequestURL: String?, mergedSHA: String?
     /// The card's line, as it read.
@@ -245,7 +247,7 @@ public struct FinishedTaskRecord: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case task, key, title, ticket, project, agent, model, reasoning, end, state, acceptedSHA, branch, mergeRequestURL, mergedSHA
-        case result, branchDeleted, at
+        case result, branchDeleted, at, diffBaseSHA
     }
 
     /// A record missing its ids reads as no task's and no project's: the nil UUID, which nothing else has.
@@ -264,6 +266,7 @@ public struct FinishedTaskRecord: Codable, Equatable, Sendable {
         end = try c.decodeIfPresent(TaskEnd.self, forKey: .end) ?? .commit
         state = try c.decodeIfPresent(OperatedState.self, forKey: .state) ?? .accepted
         acceptedSHA = try c.decodeIfPresent(String.self, forKey: .acceptedSHA)
+        diffBaseSHA = try c.decodeIfPresent(String.self, forKey: .diffBaseSHA)
         branch = try c.decodeIfPresent(String.self, forKey: .branch) ?? ""
         mergeRequestURL = try c.decodeIfPresent(String.self, forKey: .mergeRequestURL)
         mergedSHA = try c.decodeIfPresent(String.self, forKey: .mergedSHA)
@@ -286,6 +289,7 @@ public struct FinishedTaskRecord: Codable, Equatable, Sendable {
         try c.encode(end, forKey: .end)
         try c.encode(state, forKey: .state)
         try c.encodeIfPresent(acceptedSHA, forKey: .acceptedSHA)
+        try c.encodeIfPresent(diffBaseSHA, forKey: .diffBaseSHA)
         try c.encode(branch, forKey: .branch)
         try c.encodeIfPresent(mergeRequestURL, forKey: .mergeRequestURL)
         try c.encodeIfPresent(mergedSHA, forKey: .mergedSHA)

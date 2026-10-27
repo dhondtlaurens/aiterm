@@ -66,6 +66,11 @@ extension OperatorToolHandler {
     }
 
     func readTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        let ref = try call.string("task")
+        if state.task(inRun: run.id, named: ref) == nil,
+           let record = run.finished.first(where: { $0.key == ref || $0.task.uuidString.caseInsensitiveCompare(ref) == .orderedSame }) {
+            return try await readClosedTask(call, record: record)
+        }
         let task = try self.task(call, in: run), key = task.operated?.key ?? task.title
         switch try call.string("what") {
         case "lastMessage":
@@ -101,25 +106,7 @@ extension OperatorToolHandler {
             } catch {
                 throw ToolRefusal("AiTerm couldn’t read \(key)’s branch against \(task.baseBranch.isEmpty ? "its base" : task.baseBranch).")
             }
-            // The whole answer is small, not only its patches: a wide diff lists some of its files, and the stat, the
-            // commits and the uncommitted edits keep their ends.
-            let stat = DiffDigest.lastLines(read.stat, DiffDigest.statLines), commits = DiffDigest.firstLines(read.commits, DiffDigest.commitLines)
-            let uncommitted = DiffDigest.firstLines(read.uncommitted, DiffDigest.uncommittedLines)
-            // What those leave of the answer's room is the patches': a file a line of stat lists is about a line of its answer.
-            let budget = DiffDigest.patchBudget(others: stat.text.count + commits.text.count + uncommitted.text.count,
-                                                files: read.stat.split(separator: "\n").count)
-            let digest = DiffDigest.build(diff: read.diff, total: budget)
-            var files = digest.files.prefix(DiffDigest.listedFiles).map { file -> JSONValue in
-                var entry: [String: JSONValue] = ["path": .string(file.path), "truncated": .bool(file.truncated)]
-                if let patch = file.patch { entry["patch"] = .string(patch) }
-                if let summary = file.summary { entry["summary"] = .string(summary) }
-                return .object(entry)
-            }
-            let unlisted = digest.files.count - files.count
-            if unlisted > 0 { files.append(["path": .string("and \(unlisted) more files"), "truncated": true]) }
-            return ["base": .string(base), "head": .string(read.head), "stat": .string(stat.text), "commits": .string(commits.text),
-                    "files": .array(files), "truncated": .bool(digest.truncated || unlisted > 0 || stat.cut || commits.cut || uncommitted.cut),
-                    "uncommitted": .string(uncommitted.text)]
+            return Self.diffReading(base: base, read: read)
         case "prompt":
             let worker = try self.worker(call, of: task)
             guard let tab = worker.session, !worker.isOpening else {
@@ -133,6 +120,53 @@ extension OperatorToolHandler {
         case let other:
             throw ToolRefusal("read_task reads lastMessage, diff, prompt or review, not \(other).")
         }
+    }
+
+    /// Removed rows have no live tabs. Their saved endpoints keep the whole task's diff readable
+    /// even after a merge moves the default branch; old records show the accepted commit's patch.
+    private func readClosedTask(_ call: ToolCall, record: FinishedTaskRecord) async throws -> JSONValue {
+        let what = try call.string("what")
+        guard ["diff", "lastMessage", "prompt", "review"].contains(what) else {
+            throw ToolRefusal("read_task reads lastMessage, diff, prompt or review, not \(what).")
+        }
+        guard what == "diff" else { return [what: .null, "note": "Its tabs are closed: the task was removed when the broadcast ended."] }
+        guard let sha = record.acceptedSHA else { return ["diff": .null, "note": "This task ended with no change; its tabs are closed."] }
+        guard let project = state.project(id: record.project) else { throw ToolRefusal("Its project is no longer in AiTerm.") }
+        let git = ports.git, path = project.path, base = record.diffBaseSHA
+        let read = try await BackgroundWork.run {
+            if let base {
+                return (head: sha, commits: try git.run(["log", "--oneline", "\(base)..\(sha)"], in: path),
+                        stat: try git.run(["diff", "--stat", base, sha], in: path),
+                        diff: try git.run(["diff", base, sha], in: path), uncommitted: "")
+            }
+            return (head: sha, commits: try git.run(["show", "-s", "--oneline", sha], in: path),
+                    stat: try git.run(["show", "--format=", "--stat", sha], in: path),
+                    diff: try git.run(["show", "--format=", sha], in: path), uncommitted: "")
+        }
+        return Self.diffReading(base: base ?? "", read: read)
+    }
+
+    private static func diffReading(base: String,
+                                    read: (head: String, commits: String, stat: String, diff: String, uncommitted: String)) -> JSONValue {
+        // The whole answer is small, not only its patches: a wide diff lists some of its files, and the stat, the
+        // commits and the uncommitted edits keep their ends.
+        let stat = DiffDigest.lastLines(read.stat, DiffDigest.statLines), commits = DiffDigest.firstLines(read.commits, DiffDigest.commitLines)
+        let uncommitted = DiffDigest.firstLines(read.uncommitted, DiffDigest.uncommittedLines)
+        // What those leave of the answer's room is the patches': a file a line of stat lists is about a line of its answer.
+        let budget = DiffDigest.patchBudget(others: stat.text.count + commits.text.count + uncommitted.text.count,
+                                            files: read.stat.split(separator: "\n").count)
+        let digest = DiffDigest.build(diff: read.diff, total: budget)
+        var files = digest.files.prefix(DiffDigest.listedFiles).map { file -> JSONValue in
+            var entry: [String: JSONValue] = ["path": .string(file.path), "truncated": .bool(file.truncated)]
+            if let patch = file.patch { entry["patch"] = .string(patch) }
+            if let summary = file.summary { entry["summary"] = .string(summary) }
+            return .object(entry)
+        }
+        let unlisted = digest.files.count - files.count
+        if unlisted > 0 { files.append(["path": .string("and \(unlisted) more files"), "truncated": true]) }
+        return ["base": .string(base), "head": .string(read.head), "stat": .string(stat.text), "commits": .string(commits.text),
+                "files": .array(files), "truncated": .bool(digest.truncated || unlisted > 0 || stat.cut || commits.cut || uncommitted.cut),
+                "uncommitted": .string(uncommitted.text)]
     }
 
     func replayedMessage(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> JSONValue? {

@@ -192,6 +192,67 @@ final class TaskRemover: CheckoutRemovals {
         return remove(current, from: project, deleteBranch: answer.checked, holding: token)
     }
 
+    /// AiTerm's own Remove: no questions and no permission to discard changes. The caller has
+    /// already saved the finished record. Returns whether its accepted, merged local branch went.
+    func removeAutomatically(_ task: TaskItem, deleteMergedBranch: Bool, git: any GitRunning) async throws -> Bool {
+        guard workspace.canChangeWorkspace, let current = workspace.state.task(id: task.id), current == task,
+              let project = workspace.state.project(id: task.projectId),
+              let token = work.begin(.removing(windowLetGo: false), onTask: task.id) else {
+            throw ActionUnavailable("The task changed or is busy. Remove it yourself once it is safe.")
+        }
+        defer { end(token, of: task.id) }
+        outcomes[task.id] = nil
+        do {
+            if try await workflow.hasUnsavedWork(task: task, project: project) {
+                throw ActionUnavailable(TaskAutoCloser.unsavedWork)
+            }
+            if task.hasCheckout, FileManager.default.fileExists(atPath: task.worktreePath) {
+                guard try await workflow.head(of: task, in: project) == .branch(task.branch) else {
+                    throw ActionUnavailable("Its worktree is no longer on its task branch.")
+                }
+            }
+            guard workspace.state.task(id: task.id) == task else {
+                throw ActionUnavailable("The task changed while its worktree was checked.")
+            }
+            guard !task.workerTabs(in: live.sessions).contains(where: { $0.session?.yourPrompt != nil }) else {
+                throw ActionUnavailable(TaskAutoCloser.waitingForTurn)
+            }
+            guard !task.workerTabs(in: live.sessions).contains(where: {
+                $0.session.map { $0.windowId != task.windowId } == true
+            }) else {
+                throw ActionUnavailable("One of its tabs is outside its task window. Close it yourself, then retry Remove.")
+            }
+            do {
+                try await teardown.closeWindow(of: task, holding: token, requiringDaemon: true,
+                                               operation: { .removing(windowLetGo: $0) })
+            } catch TeardownStop.noDaemon {
+                throw ActionUnavailable("Its window cannot be confirmed closed while AiTerm’s helper is disconnected.")
+            }
+            // No forced worktree removal, including changes made while the close was in flight.
+            let removed = try await workflow.remove(task: task, project: project, deleteBranch: false, force: false)
+            var deleted = false
+            if deleteMergedBranch, task.kind != .review, let operated = task.operated {
+                deleted = try await MergedBranchCheck.delete(branch: task.branch, acceptedSHA: operated.acceptance?.resultSHA,
+                                                             end: operated.end, publication: operated.publication,
+                                                             path: project.path, git: git)
+            }
+            let remaining = workspace.state.task(id: task.id) ?? task
+            await finishRemoval(of: task, after: removed)
+            if workspace.persistenceError != nil, workspace.state.task(id: task.id) == nil {
+                workspace.mutate { $0.tasks.append(remaining) }
+            }
+            guard workspace.state.task(id: task.id) == nil, workspace.persistenceError == nil else {
+                throw ActionUnavailable("Its removal could not be completed or saved.")
+            }
+            return deleted
+        } catch {
+            let reason = OperationIssue.reason(of: error)
+            outcomes[task.id] = .stopped(note: reason.hasPrefix("Not closed:") ? reason : "Not closed: " + reason,
+                                       worktreeRemoved: !FileManager.default.fileExists(atPath: task.worktreePath))
+            throw error
+        }
+    }
+
     /// The banner's Keep: the removal that stopped with the branch kept finishes, the branch left.
     /// Nil when the task is gone or busy, or no longer waiting on a retry.
     func keepBranch(of id: UUID) -> Task<Void, Never>? {
