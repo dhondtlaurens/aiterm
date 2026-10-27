@@ -40,8 +40,8 @@ enum BackpackSheetPresentation {
             return [ConnectCheck(text: "Joined \(hotspot)", mark: .done, warns: false),
                     ConnectCheck(text: "Keeping the Mac awake…", mark: .working, warns: false)]
         case .safe?:
-            return [ConnectCheck(text: "Joined \(hotspot)", mark: .done, warns: false),
-                    ConnectCheck(text: "Keeping the Mac awake", mark: .done, warns: false)]
+            // The Mac card's status says it now; the checks have done their job.
+            return []
         case .failed(let refusal)?:
             let text = switch refusal {
             case .notInRange(let network): "\(network) isn’t showing its hotspot yet"
@@ -65,6 +65,12 @@ enum BackpackSheetPresentation {
         return (MacCardPresentation.status(setup).text, (steps + [MacCardPresentation.alsoInSettings]).joined(separator: " "))
     }
 
+    /// Once safe the result is the Mac card's anatomy (proposal 1A · 2A, 27 Oct 2026): this its title, and
+    /// its status the footer's `backpack enabled`, in the same ready tone.
+    static let safeTitle = "Safe to close the lid."
+    static let safeStatus = SettingsStatus(.ready, "Backpack mode enabled")
+
+    /// The card's help, under its rule.
     static func safeHelp(hotspot: String, until: BackpackUntil) -> String {
         let ends = until == .turnedOff ? "stays on until you turn it off" : "ends when your agents stop"
         return "On \(hotspot). Backpack mode \(ends), or at \(BackpackSettings.cutoff) % battery."
@@ -208,10 +214,11 @@ final class BackpackSheetModel: Identifiable {
 /// asking for the Mac's permissions while one is missing, then the Hotspot and Password — the
 /// remembered one filled in — and Turns off, then the iPhone's steps as the hotspot's help,
 /// receding once one is chosen. Connect
-/// (⌘↩) runs in place with its checks under the fields, and ends on "Safe to close the lid." with
-/// Done; a failure leaves the fields live and Connect retries. Closing the lid closes it: with
-/// nothing running that is a cancel; during a connect the attempt under way keeps going, but no
-/// retry follows it, and the footer's backpack line shows how it ends (`BackpackSheetModel.lidClosed()`).
+/// (⌘↩) runs in place with its checks under the fields, and ends on "Safe to close the lid.", the Mac
+/// card's anatomy, with Done; a failure leaves the fields live and Connect retries. Closing the lid
+/// closes it: with nothing running that is a cancel; during a connect the attempt under way keeps
+/// going, but no retry follows it, and the footer's backpack line shows how it ends
+/// (`BackpackSheetModel.lidClosed()`).
 struct BackpackSheet: View {
     let model: BackpackSheetModel
     @Environment(\.dismiss) private var dismiss
@@ -291,20 +298,12 @@ struct BackpackSheet: View {
         }
     }
 
+    /// The Mac card's anatomy, as on Settings › Integrations, with no checks: they have done their job.
     private var safe: some View {
-        VStack(alignment: .leading, spacing: Space.block) {
-            HStack(alignment: .top, spacing: Space.inset) {
-                ZStack {
-                    Circle().fill(Palette.accent)
-                    Icon(.symbol("checkmark"), size: Size.control / 2, tint: Palette.onAccent)
-                }
-                .frame(width: Size.control, height: Size.control)
-                VStack(alignment: .leading, spacing: Space.tight) {
-                    Text("Safe to close the lid.").font(Typography.title).foregroundStyle(Palette.text)
-                    HelpText(BackpackSheetPresentation.safeHelp(hotspot: model.network ?? "", until: model.backpack.state.until))
-                }
-            }
-            checks
+        SettingsCard(title: BackpackSheetPresentation.safeTitle, status: BackpackSheetPresentation.safeStatus) {
+            SymbolMark(symbol: SidebarFooter.macSymbol, size: Size.control)
+        } content: {
+            HelpText(BackpackSheetPresentation.safeHelp(hotspot: model.network ?? "", until: model.backpack.state.until))
         }
     }
 

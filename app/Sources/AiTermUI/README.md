@@ -167,7 +167,7 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 | `Kbd` | keycaps for a shortcut, inked for the surface it sits on: on `.accent` — `SheetPrimaryButton`'s label declares it — white on the keycap washes; anywhere else the surface's ink on its badge wash, edged in the hairline (Settings › Interface's keyboard section). It takes no style: the ground decides |
 | `SearchField` | a single-line field that hands navigation keys to an open popup first |
 | `SidebarHeading` | `PROJECTS` and a divider's name: micro, uppercase, tracked, secondary ink |
-| `SymbolMark` | an SF Symbol at half the disc’s size, in `Palette.markInk` on `Palette.markPaper`. The Mac card passes `Size.control`, the footer’s Mac readings row `scale(Size.vendorMark)` |
+| `SymbolMark` | an SF Symbol at half the disc’s size, in `Palette.markInk` on `Palette.markPaper`. The Mac card and the Backpack sheet's done state pass `Size.control`, the footer’s Mac readings row `scale(Size.vendorMark)` |
 | `Hairline` | every 1 pt rule, in one weight: `border` on a filled rectangle, the same stroke as a control's outline — the sidebar's rules, the step bar, a sheet's header and footer edges, under a card's header, between the Interface tab's rows. Never a bare `Divider()` |
 
 ### App compositions — `app/Sources/AiTerm/Views/`
@@ -252,9 +252,11 @@ Connect (⌘↩) is disabled until both permissions are granted and a hotspot is
 place, the fields disabled, Cancel the only action, and two live checks appear under the steps — a
 `StatusMark` in a `Size.slot` column beside a `Typography.caption` line, amber on the one that
 failed. A failure leaves the fields live and Connect retries; there is no Back. Once the Mac has
-joined and is held awake the body becomes a `Size.control` accent disc with a checkmark, “Safe to
-close the lid.”, a `HelpText` saying what will end it — the work or the person, and the cutoff —
-the checks, and Done on ⌘↩; the mode stays on. Closing the lid dismisses the sheet.
+joined and is held awake the body becomes the Mac card's anatomy (proposal 1A · 2A, 27 Oct 2026): one
+`SettingsCard` with `SymbolMark` and `macbook` at `Size.control`, “Safe to close the lid.” its title, “Backpack
+mode enabled” its ready status — the footer's `backpack enabled`, in its tone — and under its rule a `HelpText`
+saying what will end it, the work or the person, and the cutoff. The checks have done their job and are gone
+(`checks(phase: .safe)` is empty). Done is on ⌘↩; the mode stays on. Closing the lid dismisses the sheet.
 Its words are `BackpackSheetPresentation`'s, its state `BackpackSheetModel`'s. The Backpack toasts
 wear `BackpackController.symbol`, `iphone`.
 
@@ -644,7 +646,8 @@ saved service's last test failed (`ServiceTestRecord`), and on Agents otherwise;
 once, as the sheet opens, and a test answering afterwards never switches the tab.
 
 `SettingsCard` is the one box every Settings entry is drawn in — a harness on Agents; iTerm2
-(`ItermSettingsCard`), the Mac (`MacSettingsCard`), then Jira, GitLab and GitHub (`ServiceCard`) on Integrations: a `Size.control` mark,
+(`ItermSettingsCard`), the Mac (`MacSettingsCard`), then Jira, GitLab and GitHub (`ServiceCard`) on Integrations —
+and the Backpack sheet's result once it is safe: a `Size.control` mark,
 a title with optional check chips, a status line in one of three tones (`SettingsTone`: ready, attention, idle, led by its `ToneRing` — the ring the footer's backpack line draws too)
 and with no full stop (`SettingsStatus` drops the one an error's own sentence ends with),
 trailing actions at `.controlSize(.large)`, fields below a divider. Cards carry no Test button:

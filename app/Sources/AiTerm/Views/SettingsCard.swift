@@ -17,9 +17,9 @@ struct SettingsStatus: Equatable {
 }
 
 /// The one box every Settings entry is drawn in — a coding harness on the Agents tab, Jira or
-/// GitLab on Integrations. Its header is a sidebar row's anatomy: a round mark, a title with
-/// optional chips beside it, a status line under it, and the card's actions trailing. Fields sit
-/// below a divider.
+/// GitLab on Integrations — and the Backpack sheet's result once it is safe. Its header is a
+/// sidebar row's anatomy: a round mark, a title with optional chips beside it, a status line under
+/// it, and the card's actions trailing. Fields sit below a divider.
 struct SettingsCard<Mark: View, Chips: View, Actions: View, Content: View>: View {
     let title: String
     let status: SettingsStatus
