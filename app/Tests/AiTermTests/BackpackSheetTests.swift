@@ -12,8 +12,10 @@ import Testing
                            retryDelays: retryDelays, toast: { _ in })
     }
 
-    /// Spins the main actor until `condition` holds or `timeout` passes; whether it held.
-    private func until(_ timeout: TimeInterval = 2, _ condition: () -> Bool) async -> Bool {
+    /// Spins the main actor until `condition` holds or `timeout` passes; whether it held. Only for a
+    /// fixed window that shows something happens at once: what a test merely expects waits with
+    /// `eventually`, whose budget a loaded machine does not run out.
+    private func until(_ timeout: TimeInterval, _ condition: () -> Bool) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition(), Date() < deadline { await Task.yield() }
         return condition()
@@ -137,7 +139,7 @@ import Testing
         model.connect()
         #expect(model.started && model.isConnecting)
         #expect(!model.canConnect, "the fields hold still while it connects")
-        #expect(await until { model.backpack.phase == .safe })
+        await eventually(describing: "the connect to end safe") { model.backpack.phase == .safe }
         #expect(model.backpack.isOn)
         #expect(model.isSafe && !model.isConnecting)
     }
@@ -156,7 +158,7 @@ import Testing
         await model.load()
         model.until = .turnedOff
         model.connect()
-        #expect(await until { model.backpack.phase == .safe })
+        await eventually(describing: "the connect to end safe") { model.backpack.phase == .safe }
         guard case .on(let status) = backpack.state else { Issue.record("not on"); return }
         #expect(status.until == .turnedOff)
         #expect(BackpackSheetModel(backpack: backpack).until == .agentsStop, "the next sheet starts over")
@@ -169,12 +171,12 @@ import Testing
         let model = BackpackSheetModel(backpack: backpack(fake))
         await model.load()
         model.connect()
-        #expect(await until { model.backpack.phase == .failed(.joinFailed(network: "Phone")) && !model.isConnecting })
+        await eventually(describing: "the join to fail") { model.backpack.phase == .failed(.joinFailed(network: "Phone")) && !model.isConnecting }
         #expect(model.canConnect)
         fake.wifi.joinSucceeds = true
         model.password = "right"
         model.connect()
-        #expect(await until { model.backpack.phase == .safe })
+        await eventually(describing: "the connect to end safe") { model.backpack.phase == .safe }
         #expect(fake.wifi.passwords.last == "right")
     }
 
@@ -311,11 +313,11 @@ import Testing
         let model = BackpackSheetModel(backpack: backpack(fake))
         await model.load()
         model.connect()
-        #expect(await until { model.backpack.phase == .failed(.joinFailed(network: "Phone")) && !model.isConnecting })
+        await eventually(describing: "the join to fail") { model.backpack.phase == .failed(.joinFailed(network: "Phone")) && !model.isConnecting }
         #expect(fake.wifi.current == nil, "the failed associate dropped Home")
         fake.wifi.joinSucceeds = true
         await model.lidClosed()?.value
-        #expect(await until { !model.backpack.busy })
+        await eventually(describing: "the mode to stop") { !model.backpack.busy }
         #expect(fake.wifi.current == "Home")
         #expect(fake.lid.calls.isEmpty)
     }
@@ -331,7 +333,7 @@ import Testing
         // Seen when it was chosen; out of range since.
         model.choose("Phone")
         model.connect()
-        #expect(await until { model.backpack.phase == .notInRange })
+        await eventually(describing: "the hotspot to be missed") { model.backpack.phase == .notInRange }
         model.lidClosed()
         #expect(await until(1) { !model.backpack.busy }, "stopped at once, not after the retry's wait")
         let joins = fake.wifi.joins
@@ -357,10 +359,10 @@ import Testing
         // Seen when it was chosen; out of range since.
         model.choose("Phone")
         model.connect()
-        #expect(await until { entered.withLock { $0 } })
+        await eventually(describing: "the first join to be held") { entered.withLock { $0 } }
         model.lidClosed()
         release.signal()
-        #expect(await until { !model.backpack.busy })
+        await eventually(describing: "the mode to stop") { !model.backpack.busy }
         let joins = fake.wifi.joins
         try? await Task.sleep(for: .milliseconds(50))
         #expect(fake.wifi.joins == joins, "no further joins")
@@ -377,10 +379,10 @@ import Testing
         let model = BackpackSheetModel(backpack: backpack(fake))
         await model.load()
         model.connect()
-        #expect(await until { model.backpack.phase == .keepingAwake })
+        await eventually(describing: "the join to succeed") { model.backpack.phase == .keepingAwake }
         model.lidClosed()
         release.signal()
-        #expect(await until { model.backpack.phase == .safe })
+        await eventually(describing: "the connect to end safe") { model.backpack.phase == .safe }
         #expect(model.backpack.isOn)
         #expect(!model.backpack.busy)
         #expect(fake.lid.calls == [true])

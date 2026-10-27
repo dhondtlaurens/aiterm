@@ -269,6 +269,37 @@ import Testing
         #expect(world.task(task.id)?.operated?.branchDrift == nil)
     }
 
+    /// A review tab's case: its last message says `main has moved on to <main's head>`. A commit its base branch holds is
+    /// no work done off the task branch.
+    @Test func aCommitOnTheBaseBranchTheLastMessageNamesIsNotFlagged() async throws {
+        let (world, _, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-base")
+        let repo = try #require(world.workspace.state.project(id: task.projectId)?.path)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "someone else's fix"], in: repo)
+        let mainHead = try git.run(["rev-parse", "main"], in: worktree)
+        try saveReply("Reviewed. Note main has moved on to \(mainHead); a rebase is due.", conversation: "conv-base", in: world)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift == nil)
+    }
+
+    /// A worker asked to merge its accepted commit names the merge commit: one merged into main, and one made on a
+    /// detached HEAD that no branch holds, each a merge of the task branch's own work, are no drift.
+    @Test func aMergeOfTheTaskTheLastMessageNamesIsNotFlagged() async throws {
+        let (world, _, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-merge")
+        let repo = try #require(world.workspace.state.project(id: task.projectId)?.path)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "the fix"], in: worktree)
+        let loose = try GitFixture.folder("op-drift-tmp-") + "/loose"
+        try git.run(["worktree", "add", "-q", "--detach", loose, "main"], in: repo)
+        try git.run(["merge", "--no-ff", "-q", "-m", "Merge the fix, detached", "feat/pluto-1"], in: loose)
+        let detached = try git.run(["rev-parse", "HEAD"], in: loose)
+        try git.run(["merge", "--no-ff", "-q", "-m", "Merge the fix", "feat/pluto-1"], in: repo)
+        let merged = try git.run(["rev-parse", "main"], in: repo)
+        try saveReply("Merged locally as \(merged) (first try \(detached)).", conversation: "conv-merge", in: world)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift == nil)
+        #expect(BranchWatch.named(in: "\(detached)", branch: "feat/pluto-1", base: "main", worktree: worktree, git: git)
+            .map { [$0.onTaskBranch, $0.onBaseBranch, $0.mergesTaskBranch] } == [[false, false, true]], "a merge no branch holds")
+    }
+
     /// A hex string that is no commit in the repository is no evidence of drift: a session id or a hash the
     /// worker quotes. Only a commit the repository has, off the task branch, is flagged.
     @Test func aHexStringThatIsNoCommitIsIgnored() async throws {

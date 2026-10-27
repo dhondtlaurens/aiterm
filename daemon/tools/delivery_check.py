@@ -15,9 +15,15 @@ From daemon/, with iTerm2 open:
 Never run by the test suite: it opens windows and starts agents that spend tokens. An agent's
 check runs by itself; iTerm2's own two checks, run until they have passed, ask you to type once and
 to click another app. Codex runs with a scratch CODEX_HOME holding copies of its login and
-settings, so an allow rule a failing scenario writes lands there and never in ~/.codex. Nothing is
+settings, so an allow rule a failing scenario writes lands there and never in ~/.codex. Claude runs
+with a scratch CLAUDE_CONFIG_DIR holding its theme and the onboarding it has shown you, so the
+scratch folder's trust, and a model or effort its /model menu saves, land there and never in
+~/.claude.json or ~/.claude/settings.json. Its login is not copied: an empty
+CLAUDE_SECURESTORAGE_CONFIG_DIR keeps it reading the keychain entry and ~/.claude's credential lock
+a plain session uses, which a scratch CLAUDE_CONFIG_DIR alone renames to one that is logged out. That
+login is the one thing shared: a token the run refreshes is saved for every session. Nothing is
 typed into an agent but each scenario's own text, Enter and Esc, and the Down arrow that selects
-the scratch folder's trust. That trust, Claude's in ~/.claude.json, is the one thing left behind."""
+the scratch folder's trust."""
 from __future__ import annotations
 
 import argparse
@@ -163,6 +169,39 @@ def scratch_codex_home(real: Path, into: Path) -> Path:
         (home / "config.toml").write_text(screen_settings((real / "config.toml").read_text(encoding="utf-8")),
                                           encoding="utf-8")
     return home
+
+
+# What a scratch Claude config keeps of the real one's state (~/.claude.json): that onboarding and
+# the release notes have been shown, so it opens on no first-run screen. Not the account, its
+# projects' trust or its servers; it fetches the account itself.
+CLAUDE_STATE_KEPT = ("hasCompletedOnboarding", "lastOnboardingVersion", "lastReleaseNotesSeen")
+# And of its settings.json: the theme its screens are drawn in. Not its model or effort, which the
+# check's flags choose, nor its hooks or status line.
+CLAUDE_SETTINGS_KEPT = ("theme",)
+
+
+def scratch_claude_config(real: Path, state: Path, into: Path) -> Path:
+    """A CLAUDE_CONFIG_DIR holding only what of the real one (`real`, ~/.claude, and `state`,
+    ~/.claude.json) its screens have already shown you, so the folder trust the check answers and a
+    choice its /model menu saves land here and never in the person's defaults."""
+    home = into / "claude-config"
+    home.mkdir(parents=True)
+    for source, kept, name in ((state, CLAUDE_STATE_KEPT, ".claude.json"), (real / "settings.json", CLAUDE_SETTINGS_KEPT, "settings.json")):
+        found = read_json(source)
+        copied = {key: found[key] for key in kept if key in found} if isinstance(found, dict) else {}
+        (home / name).write_text(json.dumps(copied, indent=2) + "\n", encoding="utf-8")
+    return home
+
+
+def agent_command(agent: AgentKind, folder: Path, home: Path | None = None) -> str:
+    """The command line the check types to start `agent`, on a scratch config made under `folder` from
+    the one in `home` (the person's): Codex's CODEX_HOME, Claude's CLAUDE_CONFIG_DIR with its login."""
+    home = home or Path.home()
+    if agent == "codex":
+        codex_home = scratch_codex_home(home / ".codex", folder)
+        return f"env CODEX_HOME={shlex.quote(str(codex_home))} {COMMANDS[agent]}"
+    config = scratch_claude_config(home / ".claude", home / ".claude.json", folder)
+    return f"env CLAUDE_CONFIG_DIR={shlex.quote(str(config))} CLAUDE_SECURESTORAGE_CONFIG_DIR='' {COMMANDS[agent]}"
 
 
 _TABLE = re.compile(r"\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?")
@@ -525,7 +564,8 @@ async def permission_paste(live: Live, agent: AgentKind, sid: str, folder: Path)
 
 async def menu_paste(live: Live, agent: AgentKind, sid: str, folder: Path) -> ScenarioResult:
     # /model opens each CLI's model picker: even an accidental choice only changes a model
-    # preference, never grants command or file access. Esc leaves the current model alone.
+    # preference, never grants command or file access, and lands in the scratch config
+    # (agent_command), never the person's defaults. Esc leaves the current model alone.
     expected = expected_prompt(agent, "menu") + " to stay unchanged, with no allow rules written"
     try:
         await live.paste(sid, "/model")
@@ -633,10 +673,7 @@ async def check_agent(live: Live, agent: AgentKind, folder: Path) -> dict[str, S
     which count as not run: its reason is the whole story, and Settings shows it."""
     work = folder / "work"
     work.mkdir(parents=True)
-    command = COMMANDS[agent]
-    if agent == "codex":
-        home = scratch_codex_home(Path.home() / ".codex", folder)
-        command = f"env CODEX_HOME={shlex.quote(str(home))} {command}"
+    command = agent_command(agent, folder)
     window, sid = await live.bridge.create_window(str(work), f"delivery check · {agent}", {}, Frame(120, 80, 1100, 760))
     results: dict[str, ScenarioResult] = {}
     current = "startupPaste"

@@ -422,7 +422,8 @@ card, `Operator watching · 2 tabs` on its line, and lists each tab under a `Hai
 `Space.base` either side of it, `Space.tight` apart: a `Size.chip` line of the tab's agent's `VendorMark` at
 `Size.inlineMark`, centred under the card's mark; its key (`main`, `e2e-tests`) in `Typography.monoChip` and
 `Palette.text` on the title's leading edge; `Space.base` after it its state, an `OperatorBadge` (`at work`, `turn
-ended`, `opening`, `closed`, or `waiting on you` in the attention chip); and its `StatusMark` at
+ended`, `in background` with the jobs on its tooltip and the background mark, `opening`, `closed`, or `waiting on you`
+in the attention chip); and its `StatusMark` at
 `Size.statusMarkSmall` trailing. Hovered, a tab line takes `Palette.badgeHovered` at `Radius.chip`, `Space.tight`
 beyond it. A tab line's click closes the sheet and brings that tab forward (`session.activate`); a closed tab is
 listed with its key muted and no mark, and is no button, as is one still opening. A card's click closes the sheet
