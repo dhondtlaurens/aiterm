@@ -345,6 +345,22 @@ import Testing
         #expect(try await woken(by: ["PAY-2": asks, "PAY-3": empty]) == ["[AiTerm] updates waiting, call run_status"])
     }
 
+    /// A worker an API error stopped is news, once: a usage limit or a billing failure keeps the task off every list it
+    /// would otherwise be on, so only its line says it.
+    @Test func aWorkerStoppedOnAnAPIErrorWakesTheOperator() async throws {
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
+        let tasks = [OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .working)]
+        waker.acknowledged(status(tasks, turns: ["PAY-2": TaskLiveFacts(status: .working)]), of: run.id)
+        let stopped = TaskLiveFacts(status: .done, lastMessage: "You've hit your org's monthly spend limit", commitsAhead: 1,
+                                    stoppedOn: "stopped on its usage limit, resets 13:20; Claude Code may carry on by itself then")
+        waker.observe(status(tasks, turns: ["PAY-2": stopped]), of: run.id)
+        waker.observe(status(tasks, turns: ["PAY-2": stopped]), of: run.id)
+        await hand.release(1)
+        try await daemon.received("session.deliver")
+        await waker.lastSend?.value
+        #expect(lines == ["[AiTerm] updates waiting, call run_status"])
+    }
+
     /// Work done in an accepted task's worker after its acceptance wakes the Operator with its own line.
     @Test func workAfterAcceptanceWakesTheOperatorSayingSo() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)

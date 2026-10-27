@@ -70,6 +70,13 @@ def open_prompt(agent: AgentKind, screen: str, *, needs_input: bool = True) -> P
     return None
 
 
+def _session_prompt(session: SessionInfo, screen: str) -> PromptKind | None:
+    """The prompt open on `session`'s screen, read as its state stands now: only a needs-input hook
+    makes markers above a later input arrow count. Both what refuses a message and what session.prompt
+    reports, so the two never disagree."""
+    return open_prompt(session.agent, screen, needs_input=session.state == "needsInput")
+
+
 # A numbered option or draft line, with its arrow (if any) already removed.
 _OPTION = re.compile(r"\s*(\d+)\.\s")
 _RULE = re.compile(r"─{4,}")
@@ -453,7 +460,7 @@ class Deliverer:
         if isinstance(ready, Refusal):
             return ready
         session, _policy = ready
-        if (why := await self._ineligible(session_id, session.agent)) is not None:
+        if (why := await self._ineligible(session_id)) is not None:
             return why
         return self._ready(session_id, ownership, wake, process=session)
 
@@ -502,20 +509,21 @@ class Deliverer:
             return Refusal("replaced", "another process now runs in the session")
         return None
 
-    async def _ineligible(self, session_id: str, agent: AgentKind) -> Refusal | None:
-        """Why the session cannot take text now, as its screen shows it; None when it can."""
+    async def _ineligible(self, session_id: str) -> Refusal | None:
+        """Why the session cannot take text now, as its screen shows it; None when it can. The prompt
+        it refuses on is the one `prompt` reads, so a message is never held back by one nobody sees."""
         try:
             screen = await self.iterm.screen_text(session_id)
         except ItermUnavailable as exc:
             return Refusal("screenUnread", f"its screen could not be read: {exc}")
-        if screen is None:
+        if screen is None or (session := self.registry.get(session_id)) is None:
             return Refusal("sessionClosed", "the session has closed")
         if not screen.strip():
             # The spike saw a read come back empty: nothing then shows that no prompt is open.
             return Refusal("screenUnread", "the screen came back empty, so whether a prompt is open is unknown")
-        if (prompt := open_prompt(agent, screen)) is not None:
+        if (prompt := _session_prompt(session, screen)) is not None:
             return Refusal("prompt", f"a {prompt} prompt is open")
-        if not shows_input_box(agent, screen):
+        if not shows_input_box(session.agent, screen):
             # Prompts are checked first: an approval's menu draws `❯` on its selected option too.
             return Refusal("unrecognisedScreen", "unrecognised screen")
         return None
@@ -539,7 +547,7 @@ class Deliverer:
             raise KeyError(session_id)
         if not screen.strip():
             raise ItermUnavailable("the screen came back empty, so whether a prompt is open is unknown")
-        return open_prompt(session.agent, screen, needs_input=session.state == "needsInput")
+        return _session_prompt(session, screen)
 
     async def dismiss_startup(self, session_id: str) -> bool:
         """Declines the CLI's update offer with Esc (session.dismissStartup): AiTerm always declines one

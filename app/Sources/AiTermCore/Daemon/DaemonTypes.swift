@@ -43,6 +43,9 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// The last slash commands AiTerm typed into this Claude tab, oldest first, and what became of each as the tab's
     /// own transcript shows it. Empty for any other tab, and from a daemon too old to send it.
     public var slashCommands: [SlashCommand] = []
+    /// What ended its last turn short, an API error Claude Code reported in place of its Stop, until it works again. Nil
+    /// for any other tab, and from a daemon too old to send it.
+    public var stoppedOn: StoppedOn? = nil
     public var id: String { sessionId }
     /// The task tag as the id it names. The app writes `uuidString`, but a tag read back from
     /// iTerm2 is a string, so it is compared as a UUID rather than by spelling.
@@ -87,7 +90,22 @@ extension SessionInfo {
         subagentsWrittenAt = try c.decodeIfPresent(Double.self, forKey: .subagentsWrittenAt)
         yourPrompt = try c.decodeIfPresent(String.self, forKey: .yourPrompt)
         slashCommands = try c.decodeIfPresent([SlashCommand].self, forKey: .slashCommands) ?? []
+        stoppedOn = try c.decodeIfPresent(StoppedOn.self, forKey: .stoppedOn)
     }
+}
+
+/// What ended a Claude tab's last turn short (the daemon's `StoppedOn`): the API error Claude Code reported in place of
+/// its Stop, by Claude Code's own name for it, and for a usage limit when it resets, as the tab's transcript recorded it.
+public struct StoppedOn: Codable, Equatable, Sendable {
+    /// `rate_limit` for a usage or rate limit; `billing_error`, `authentication_failed` and the like for a failure that
+    /// blocks the tab until someone acts; `unknown` for one Claude Code could not name.
+    public var error: String
+    /// When the limit resets, in seconds since 1970; nil while the transcript has not said, and for any other error.
+    public var resetsAt: Int?
+    public init(error: String, resetsAt: Int? = nil) { self.error = error; self.resetsAt = resetsAt }
+
+    /// A usage or rate limit, which Claude Code may carry on from by itself once it resets.
+    public var isLimit: Bool { error == "rate_limit" }
 }
 
 /// A slash command AiTerm typed into a Claude tab and pressed Enter on (`message_task`), and what became of it, as the

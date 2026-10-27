@@ -342,6 +342,21 @@ import Foundation
         #expect(unread.obligations.readyForAcceptance.isEmpty, "a turn AiTerm is still reading is not ready yet")
     }
 
+    /// A worker whose turn an API error ended did not finish: whatever its turn left, the task is neither ready nor
+    /// finished without a commit, and its line says what stopped it.
+    @Test func aWorkerStoppedOnAnAPIErrorIsNeitherReadyNorFinished() throws {
+        let b = F.task("B", .working)
+        let reason = "stopped on its usage limit, resets 13:20; Claude Code may carry on by itself then"
+        for commits in [0, 1] {
+            let status = try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1, live: [
+                b.id: TaskLiveFacts(status: .done, lastMessage: "You've hit your org's monthly spend limit", commitsAhead: commits,
+                                    stoppedOn: reason)]))
+            #expect(status.obligations.readyForAcceptance.isEmpty && status.obligations.finishedWithoutCommit.isEmpty)
+            #expect(status.tasks.first?.stoppedOn == reason)
+            #expect(String(decoding: try status.json(), as: UTF8.self).contains(#""stoppedOn":"stopped on its usage limit, resets 13:20"#))
+        }
+    }
+
     /// A task in review is not working, yet its worker's question reaches the Operator all the same.
     @Test func anInReviewWorkerThatAsksIsListed() throws {
         let status = try turn(.inReview, lastMessage: "I fixed the lint.\n\nShould I commit it and push again?", accepted: true)

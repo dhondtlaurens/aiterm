@@ -313,6 +313,32 @@ import Testing
         #expect(line(task(run: run, .inReview), .asks) == OperatorLine("in review"))
     }
 
+    /// A working task whose worker an API error stopped is blocked, not ready: a usage limit with when it resets, which
+    /// Claude Code may carry on from, or a failure that waits on someone. Its tooltip says which.
+    @Test func aWorkerStoppedOnAnAPIErrorIsBlocked() throws {
+        let run = OperatorUIFixtures.run(), working = task(run: run, .working)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Europe/Brussels"))
+        let now = Date(timeIntervalSince1970: 1_793_000_000)
+        func tab(_ stopped: StoppedOn?) -> SessionInfo {
+            var tab = OperatorUIFixtures.tab("s1", of: working, .done)
+            tab.stoppedOn = stopped
+            return tab
+        }
+        func line(_ stopped: StoppedOn) -> OperatorLine? {
+            OperatorLine.task(working, run: run, acting: nil, requests: [], sessions: [tab(stopped)], now: now, calendar: calendar)
+        }
+        #expect(line(StoppedOn(error: "rate_limit", resetsAt: 1_793_017_200)) == OperatorLine(
+            "blocked · usage limit, resets 13:20", look: .needsYou,
+            tooltip: "Its worker stopped on its usage limit, resets 13:20; Claude Code may carry on by itself then."))
+        #expect(line(StoppedOn(error: "rate_limit"))?.text == "blocked · usage limit")
+        #expect(line(StoppedOn(error: "billing_error")) == OperatorLine("blocked · billing error", look: .needsYou,
+                                                                         tooltip: "Its worker stopped on a billing error; it won’t carry on by itself."))
+        #expect(line(StoppedOn(error: "authentication_failed"))?.text == "blocked · sign-in failed")
+        #expect(!working.isReadyForAcceptance(in: [tab(StoppedOn(error: "rate_limit"))]))
+        #expect(working.isReadyForAcceptance(in: [tab(nil)]), "once it works again and ends its turn, it is")
+    }
+
     /// A driven task with several worker tabs keeps one row (P5 A): its line counts the tabs still open, and a
     /// request names the tab that asks.
     @Test func severalWorkerTabsAreCountedAndTheAskingOneNamed() throws {

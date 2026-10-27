@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from .claude_subagents import TranscriptTail
 from .hook_events import HookEvent
 from .text import shows
-from .models import HARNESS_BY_AGENT, AgentKind, State
+from .models import HARNESS_BY_AGENT, AgentKind, State, StoppedOn
 from .sessions import SessionRegistry
 
 CLAUDE_FILE_STATUS: dict[str, State | None] = {
@@ -115,7 +115,9 @@ class StatusEngine:
         turn = self._turn(session_id)
         if kind == "sessionStart":
             self.reset_turn(session_id)
-            return [session_id] if self._show_children(session_id) else []
+            # Another conversation: what stopped the last one's turn is not this one's.
+            cleared = self.reg.set_stopped_on(session_id, None)
+            return [session_id] if self._show_children(session_id) or cleared else []
         if kind == "subagentStart":
             return self.subagent_started(session_id, ev.subagent_id, ev.subagent_transcript)
         if kind == "subagentStop":
@@ -126,6 +128,10 @@ class StatusEngine:
             return self._prompt_ended(session_id)
         turn.hook_at = self._clock()
         released: list[str] = []
+        # A new turn, or one its Stop ended cleanly, is past whatever stopped the last; a StopFailure says what stopped this one.
+        if kind == "working" or ev.event_name in ("Stop", "StopFailure"):
+            stopped = StoppedOn(ev.stop_error, at=turn.hook_at) if ev.stop_error else None
+            released += [session_id] if self.reg.set_stopped_on(session_id, stopped) else []
         # What the session waits on once its turn ends, said by the Stop; a new turn waits on nothing yet. A subagent
         # this engine does not count holds nothing up.
         if (work := ev.background_work if kind == "done" else () if kind == "working" else None) is not None:
@@ -387,6 +393,7 @@ class StatusEngine:
         self.reset_turn(session_id)
         self._trust_prompts.discard(session_id)
         cleared = self.reg.set_background(session_id, ())
+        cleared = self.reg.set_stopped_on(session_id, None) or cleared
         cleared = self.reg.set_subagents_written_at(session_id, None) or cleared
         return [session_id] if self.reg.set_state(session_id, "idle") or cleared else []
 

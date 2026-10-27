@@ -14,6 +14,7 @@
     "sessionId": "s2",
     "slashCommands": [],
     "state": "working",
+    "stoppedOn": null,
     "subagentsWrittenAt": null,
     "tabIndex": 0,
     "tabKey": null,

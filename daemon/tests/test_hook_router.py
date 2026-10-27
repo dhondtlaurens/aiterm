@@ -455,3 +455,59 @@ async def test_prompt_typed_after_clear_is_still_yours(hooks, monkeypatch):
     await hooks.post("/hook/claude", {**base, "hook_event_name": "SessionStart", "source": "clear"})
     await hooks.post("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit", "prompt": "my next prompt"})
     assert hooks.registry.get(sid).your_prompt == "my next prompt"
+
+
+async def test_another_conversations_prompt_in_the_worktree_leaves_a_done_tab_done(hooks, monkeypatch):
+    # A review tab whose pid the registry does not know yet, or a headless review, in the same worktree.
+    [sid] = hooks.tabs(("s1", "claude", 101))
+    pids = {"main": 101}
+    monkeypatch.setattr(hooks.resolver.claude_files, "pid_for_session", lambda session: pids.get(session))
+    main = {"session_id": "main", "cwd": "/wt"}
+    await hooks.post("/hook/claude", {**main, "hook_event_name": "UserPromptSubmit", "prompt": "x"})
+    await hooks.post("/hook/claude", {**main, "hook_event_name": "Stop"})
+    hooks.events.clear()
+    review = {"session_id": "review", "cwd": "/wt", "transcript_path": "/p/review.jsonl"}
+    await hooks.post("/hook/claude", {**review, "hook_event_name": "UserPromptSubmit", "prompt": "review"})
+    await hooks.post("/statusline", {**review, "context_window": {"used_percentage": 77}})
+    session = hooks.registry.get(sid)
+    assert (session.state, session.conversation_id, session.your_prompt, session.context_percent) == ("done", "main", None, None)
+    assert hooks.events == [] and hooks.ticks == 1, "left unplaced, it waited for one tick"
+    assert hooks.resolver._pins.get(("claude", "review")) is None, "a placement refused binds nothing"
+    # Its tab appears: the same conversation's next post lands there, and the first tab stays done.
+    pids["review"] = 202
+
+    async def lists_it():
+        hooks.tabs(("s1", "claude", 101), ("s2", "claude", 202))
+
+    hooks.on_tick = lists_it
+    await hooks.post("/hook/claude", {**review, "hook_event_name": "UserPromptSubmit", "prompt": "review"})
+    assert (hooks.state("s1"), hooks.state("s2")) == ("done", "working")
+    assert hooks.registry.get("s2").conversation_id == "review"
+
+
+async def test_a_directory_placement_goes_to_a_tab_that_runs_no_other_conversation(hooks, monkeypatch):
+    [first, second] = hooks.tabs(("s1", "claude", 101), ("s2", "claude", 102))
+    monkeypatch.setattr(hooks.resolver.claude_files, "pid_for_session", lambda session: 102 if session == "two" else None)
+    await hooks.post("/hook/claude", {"session_id": "two", "cwd": "/wt", "hook_event_name": "Stop"})
+    monkeypatch.setattr(hooks.resolver.claude_files, "pid_for_session", lambda _session: None)
+    # s2 is the most recent tab in /wt, but runs conversation `two`; s1 has none yet.
+    await hooks.post("/hook/claude", {"session_id": "one", "cwd": "/wt", "hook_event_name": "UserPromptSubmit", "prompt": "go"})
+    assert (hooks.state(first), hooks.state(second)) == ("working", "done")
+
+
+async def test_a_conversations_own_posts_still_place_by_directory_on_its_tab(hooks, monkeypatch):
+    # Its pid file not found (yet): the tab's own conversation, its subagents and its first startup still land.
+    [sid] = hooks.tabs(("s1", "claude", 101))
+    monkeypatch.setattr(hooks.resolver.claude_files, "pid_for_session", lambda _session: None)
+    base = {"session_id": "main", "cwd": "/wt"}
+    await hooks.post("/hook/claude", {**base, "hook_event_name": "SessionStart", "source": "startup"})
+    monkeypatch.setattr(hooks.resolver.claude_files, "pid_for_session", lambda session: 101 if session == "main" else None)
+    await hooks.post("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit", "prompt": "x"})
+    monkeypatch.setattr(hooks.resolver.claude_files, "pid_for_session", lambda _session: None)
+    hooks.resolver._pins.clear()
+    child = {**base, "agent_id": "child-1", "agent_type": "general-purpose"}
+    await hooks.post("/hook/claude", {**child, "hook_event_name": "SubagentStart"})
+    await hooks.post("/hook/claude", {**base, "hook_event_name": "Stop"})
+    assert hooks.state(sid) == "working", "the subagent placed by directory keeps the turn going"
+    await hooks.post("/hook/claude", {**child, "hook_event_name": "SubagentStop"})
+    assert hooks.state(sid) == "done"

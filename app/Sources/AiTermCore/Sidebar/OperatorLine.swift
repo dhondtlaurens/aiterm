@@ -113,9 +113,11 @@ public struct OperatorLine: Equatable, Sendable {
     /// iTerm2 lists them (any others are passed over): they tell a task whose workers all ended their turn, and how
     /// many worker tabs it has open. Without them it reads as watched. `turn` is how its worker's last turn ended
     /// (`OperatorActs.turns`): a working task whose worker asks is `asking the Operator`, one that committed nothing
-    /// `Operator watching · no commit`; any other state keeps its own line.
+    /// `Operator watching · no commit`; any other state keeps its own line. A working task whose worker's turn an API
+    /// error ended is `blocked · usage limit, resets 13:20` (`StoppedOn`), its reset said as of `now` in `calendar`'s time zone.
     public static func task(_ task: TaskItem, run: OperatorRun, acting: OperatorAct?, requests: [BroadcastRequest],
-                            tasks: [UUID: TaskItem] = [:], sessions: [SessionInfo] = [], turn: WorkerTurn.Ending? = nil) -> OperatorLine? {
+                            tasks: [UUID: TaskItem] = [:], sessions: [SessionInfo] = [], turn: WorkerTurn.Ending? = nil,
+                            now: Date = Date(), calendar: Calendar = .current) -> OperatorLine? {
         guard let operated = task.operated, operated.runId == run.id, !operated.takenOver, operated.state != .stopped,
               !run.hasEnded else { return nil }
         // A finished task's leftover asks nothing, and a question the Operator asks about it is the Operator's row's,
@@ -143,6 +145,11 @@ public struct OperatorLine: Equatable, Sendable {
             // checks it next. The row's icon names the agent, so the line names the Operator.
             // Its worker ended its turn asking the Operator something, or with nothing committed: the Operator's to read.
             let tabs = task.workerTabs(in: sessions)
+            // A worker an API error stopped short of finishing: what stopped it, and for a limit when it resets.
+            if let stopped = tabs.lazy.compactMap({ $0.session?.stoppedOn }).first {
+                return needsYou("blocked", stopped.detail(now: now, calendar: calendar),
+                                tooltip: "Its worker " + stopped.reason(now: now, calendar: calendar) + ".")
+            }
             if turn == .asks, !sessions.isEmpty, tabs[0].status?.turnEnded == true { return OperatorLine("asking the Operator", look: .acting) }
             if !sessions.isEmpty, task.isReadyForAcceptance(tabs: tabs) {
                 return OperatorLine(turn == .noCommit ? Count.working.words + " · no commit" : Count.ready.words, look: .acting)

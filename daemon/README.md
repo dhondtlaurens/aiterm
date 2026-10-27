@@ -34,7 +34,7 @@ extension and the Claude statusline shim:
 
 - `POST /hook/claude` — Claude Code hook events (`SessionStart`,
   `PostModelSwitch`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`,
-  `Stop`, `Notification`, `PermissionRequest`).
+  `Stop`, `StopFailure`, `Notification`, `PermissionRequest`).
 - `POST /hook/codex` — Codex hook events (`SessionStart`, `UserPromptSubmit`,
   `SubagentStart`, `SubagentStop`, `PermissionRequest`).
 - `POST /hook/pi` — PI extension events (`session_start`, `agent_start`,

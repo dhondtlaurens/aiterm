@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from .claude_sessions import ClaudeSessionFiles
 from .offload import run_detached
-from .models import HARNESS_BY_AGENT, AgentKind
+from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
 from .sessions import SessionRegistry
 
 
@@ -30,14 +30,17 @@ class SessionResolver:
     async def resolve_with_evidence(self, agent: AgentKind, session_id: str | None, cwd: str | None,
                               iterm_session_id: str | None = None) -> tuple[str | None, str | None]:
         """The placed tab and the directly evidenced tab, from one lookup. Hooks use the
-        latter to decide whether conversation resets can safely affect the placed tab."""
+        latter to decide whether conversation resets can safely affect the placed tab. A post placed
+        by inference -- a pin, the directory -- goes only to a tab that runs no other conversation: one
+        from another Claude in the worktree (a review tab not listed yet, a headless review) stays
+        unplaced until its own tab is, rather than move a sibling's turn."""
         if (direct := await self.resolve_directly(agent, session_id, iterm_session_id)) is not None:
             return direct, direct
         if session_id and (pinned := self._pins.get((agent, session_id))):
             s = self.registry.get(pinned)
-            if s is not None and s.agent == agent:
+            if s is not None and s.agent == agent and _may_run(s, session_id):
                 return pinned, None
-        return self._by_cwd(cwd, agent), None
+        return self._by_cwd(cwd, agent, session_id), None
 
     async def resolve_directly(self, agent: AgentKind, session_id: str | None,
                          iterm_session_id: str | None = None) -> str | None:
@@ -115,8 +118,14 @@ class SessionResolver:
         for key in [key for key, pinned in self._pins.items() if pinned == iterm_session_id]:
             del self._pins[key]
 
-    def _by_cwd(self, cwd: str | None, agent: AgentKind) -> str | None:
+    def _by_cwd(self, cwd: str | None, agent: AgentKind, session_id: str | None) -> str | None:
         if not cwd:
             return None
-        s = self.registry.most_recent(self.registry.by_cwd_and_agent(cwd, agent))
+        s = self.registry.most_recent([s for s in self.registry.by_cwd_and_agent(cwd, agent) if _may_run(s, session_id)])
         return s.session_id if s else None
+
+
+def _may_run(tab: SessionInfo, session_id: str | None) -> bool:
+    """Whether a post of conversation `session_id`, placed without evidence, can be the tab's: it runs no
+    conversation its own hooks named yet, or this one. A subagent's posts carry its parent's session id."""
+    return session_id is None or tab.conversation_id is None or tab.conversation_id == session_id
