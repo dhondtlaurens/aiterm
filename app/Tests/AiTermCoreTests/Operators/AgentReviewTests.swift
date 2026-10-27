@@ -67,6 +67,16 @@ import Testing
         #expect(!prompt.contains("\u{2014}"), "no em dash in what AiTerm writes")
     }
 
+    /// The reviewer only reads, so a skill that dispatches a subagent or runs git can't be followed as written: it says so on its
+    /// first line, with the steps it skipped. review_task's description says the same limits (`OperatorToolTests`).
+    @Test func theReviewerSaysWhichStepsOfASkillItCouldNotFollow() {
+        let prompt = AgentReview.prompt(title: "Add gift card", brief: "Do A.", base: "main", commits: "4f2a91c Add it", diff: "+x",
+                                        truncated: false, instructions: "Review with /superpowers:requesting-code-review",
+                                        skills: [AgentReview.NamedSkill(name: "superpowers:requesting-code-review", text: "Dispatch the code-reviewer subagent.")])
+        #expect(prompt.contains("You read files only: you run no commands and dispatch no subagents."))
+        #expect(prompt.contains("If you could not follow a skill named here as written, say so on your first line, with the steps you skipped."))
+    }
+
     @Test func theFindingsAreTheAnswer() {
         let json = #"{"result":"  Line 3 leaks the token.  "}"#
         #expect(AgentReview.findings(.claude, output: ProcessOutput(status: 0, stdout: json, stderr: "", timedOut: false), answerFile: nil)

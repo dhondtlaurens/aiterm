@@ -322,6 +322,10 @@ TOOLS: tuple[dict[str, Any], ...] = (
           ("task", "what")),
     _tool("review_task", "Starts an agent review of a working task's branch, or its accepted commit while inReview: another agent "
           "reads its commits, diff and worktree headless and read-only, as instructions asks, a skill they name passed to it as text. "
+          "The reviewer reads files only: it runs no commands and dispatches no subagents, so it can't run git or a skill's "
+          "subagent, and says on its first line which steps of a named skill it skipped. When the person's Review requires a "
+          "skill's exact workflow and that needs commands or subagents, run it in a worker tab instead: open_tab with a "
+          "read-only brief. That tab's review is not recorded as this task's agent review. "
           "Nobody is notified, so it needs no slice. It answers started at once; AiTerm wakes you when the findings are in, "
           "and read_task with what: review reads them. Have the task's agent fix them with message_task. A review running "
           "already, or the same review of the same commit, is not started again.",
