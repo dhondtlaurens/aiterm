@@ -61,7 +61,7 @@ final class TabOpener {
         guard let found = record(id), found.tab.launch == attempt, found.tab.sessionId == nil, Self.holds(found.task, in: state),
               let window = found.task.windowId, let daemon = daemon() else { return Self.outcome(of: record(id)?.tab) }
         let task = found.task, tab = found.tab
-        let prompt = Self.prompt(branch: task.branch, brief: tab.brief), worktree = task.worktreePath, git = ports.git
+        let prompt = Self.prompt(branch: task.branch, brief: tab.brief, role: tab.role), worktree = task.worktreePath, git = ports.git
         let file = Self.promptFile(for: id.key)
         do {
             // The Operator's worker flags, its own prompt file: the task's other workers started in this worktree too.
@@ -138,8 +138,9 @@ final class TabOpener {
     }
 
     /// An extra tab's first prompt: AiTerm's line on where it works (`WorkerStarter.worktreeLine`), its line on the
-    /// worktree it shares, then the Operator's brief.
-    static func prompt(branch: String, brief: String) -> String {
+    /// worktree it shares, then the Operator's brief. `role` is the tab's (`ExtraTab.role`): a work tab's and a review
+    /// tab's read alike so far.
+    static func prompt(branch: String, brief: String, role: TabRole = .work) -> String {
         WorkerStarter.worktreeLine(branch: branch) + "\n\n" + sharedLine + "\n\n" + brief
     }
 

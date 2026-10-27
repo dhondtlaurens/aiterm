@@ -15,12 +15,40 @@ enum OperatorUIFixtures {
                     state: OperatorRunState = .active, planRevision: Int = 1,
                     done: String? = "a commit per item, tests green, I review and push",
                     questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [],
-                    windowId: String? = "operator-window", projectIds: [UUID] = []) -> OperatorRun {
+                    windowId: String? = "operator-window", projectIds: [UUID] = [], agents: [AgentChoice] = [],
+                    taskSettings: TaskSettings? = nil, goal: BroadcastGoal? = nil) -> OperatorRun {
         OperatorRun(id: id, name: name, profile: profile, projectIds: projectIds,
                     prompt: "PLUTO-231 newsletter signup block in Storyblok",
-                    done: done, state: state, intent: nil, planRevision: planRevision,
+                    done: taskSettings == nil ? done : nil, state: state, intent: nil, planRevision: planRevision,
                     questions: questions, decisions: decisions,
-                    operatorConversation: nil, operatorWindowId: windowId, operatorSessionId: nil, createdAt: epoch)
+                    operatorConversation: nil, operatorWindowId: windowId, operatorSessionId: nil, createdAt: epoch,
+                    agents: agents, taskSettings: taskSettings, goal: goal)
+    }
+
+    /// The design's broadcast set up with Agents, Task and Done: Opus 5.5 on High and gpt-6-astra on Medium, each task
+    /// reviewed and ending at a draft MR, closed at the end, and a goal with two extra rounds.
+    static let agents = [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high"),
+                         AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")]
+    static let taskSettings = TaskSettings(review: "An adversarial review with /code-review. It passes with no Critical or "
+                                           + "Important findings. After 3 rounds of fixes, ask me.", end: .draftMR)
+    static let goal = BroadcastGoal(text: "The newsletter signup works end to end on staging.", extraRounds: 2)
+
+    /// A review tab's verdict on `sha`, in `round` of three.
+    static func verdict(_ sha: String = "4f2a91c", tab: String = "review", passed: Bool, round: Int = 1, critical: Int = 0,
+                        important: Int = 0, minor: Int = 0) -> ReviewVerdict {
+        ReviewVerdict(tab: tab, sha: sha, passed: passed, round: round, rounds: 3, critical: critical, important: important,
+                      minor: minor, summary: passed ? "Nothing blocking." : "Findings to fix.", at: epoch)
+    }
+
+    /// The record `task` leaves once closed at the broadcast's end, its card's line as `result`.
+    static func finished(_ task: TaskItem, result: String, branchDeleted: Bool = false) -> FinishedTaskRecord {
+        let operated = task.operated
+        return FinishedTaskRecord(task: task.id, key: operated?.key ?? task.title, title: task.title, ticket: task.jira?.key,
+                                  project: task.projectId, agent: task.agent, model: task.model, reasoning: task.reasoning,
+                                  end: operated?.end ?? .commit, state: operated?.state ?? .accepted,
+                                  acceptedSHA: operated?.acceptance?.resultSHA, branch: task.branch,
+                                  mergeRequestURL: operated?.publication?.mergeRequestURL, mergedSHA: operated?.publication?.mergedSHA,
+                                  result: result, branchDeleted: branchDeleted, at: epoch)
     }
 
     static func operated(run: UUID, key: String, state: OperatedState, end: TaskEnd = .commit,

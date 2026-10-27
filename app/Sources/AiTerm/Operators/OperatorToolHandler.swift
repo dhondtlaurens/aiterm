@@ -204,7 +204,7 @@ final class OperatorToolHandler {
     static let mutating: Set<OperatorTool> = [.createTask, .updateTask, .submitPlan, .messageTask, .openTab, .markTask, .resumeTask,
                                               .retryTask, .finishTask, .askYou, .resolveQuestion, .logDecision, .leaveForYou, .reportFind,
                                               .reportSnag, .writeSummary, .jiraCreate, .jiraMove, .jiraLink, .jiraSprint, .jiraEdit,
-                                              .jiraComment, .reviewTask, .requestReview, .replyThread]
+                                              .jiraComment, .reviewTask, .requestReview, .replyThread, .recordReview, .checkGoal]
 
     /// Whether `call` is one of the tools that change the run (`mutating`).
     static func isMutating(_ call: ToolCall) -> Bool { call.operatorTool.map(mutating.contains) ?? false }
@@ -343,6 +343,8 @@ final class OperatorToolHandler {
         case .markTask: return try await markTask(call, in: run)
         case .resumeTask: return try resumeTask(call, in: run)
         case .retryTask: return try retryTask(call, in: run)
+        case .recordReview: return try recordReview(call, in: run)
+        case .checkGoal: return try checkGoal(call, in: run)
         case .reviewTask: return try await reviewTask(call, in: run)
         case .requestReview: return try await requestReview(call, in: run)
         case .replyThread: return try await replyThread(call, in: run)
@@ -378,7 +380,7 @@ final class OperatorToolHandler {
         guard let current = state.run(id: run.id), var content = currentStatus(of: current) else {
             throw ToolRefusal("This broadcast is no longer in AiTerm.")
         }
-        content.run.agents = Dictionary(agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
+        content.run.agents.installed = Dictionary(agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
         await fillMergeRequests(&content)
         let previous = numbered[run.id]
         let revision = previous?.content == content ? previous?.revision ?? 1 : (previous?.revision ?? 0) + 1
@@ -444,9 +446,11 @@ final class OperatorToolHandler {
         guard !OperatorQuestion.aitermPrefixes.contains(where: key.hasPrefix) else {
             throw ToolRefusal("Keys starting with “prompt-”, “merged-on-host-” or “gate-” are AiTerm’s own questions. Choose another key.")
         }
+        let about = call.optionalString("about")
+        guard about == nil || about == OperatorQuestion.fixRounds else { throw ToolRefusal("about is \(OperatorQuestion.fixRounds), or left out.") }
         let taskId = try call.optionalString("task").map { _ in try task(call, in: run).id }
         if let open = run.questions.first(where: { $0.id == key }) { return Self.askAnswer(open) }
-        let question = OperatorQuestion(id: key, text: text, task: taskId, askedAt: ports.now(), resolution: nil)
+        let question = OperatorQuestion(id: key, text: text, task: taskId, askedAt: ports.now(), resolution: nil, about: about)
         mutate(in: run.id) { state in
             state.updateRun(id: run.id) { $0.questions.append(question) }
             if let taskId { state.updateOperated(taskId) { $0.flags.insert(.waitingOnYou) } }
@@ -531,9 +535,10 @@ final class OperatorToolHandler {
     }
 
     /// The Operator's summary of the broadcast, accepted once the run is complete: its words (trimmed) and the time they came.
-    /// Calling it again replaces them.
+    /// Calling it again replaces them. Refused while the goal is still to check, which the run's completion waits for.
     private func writeSummary(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let text = try call.string("text")
+        guard !run.goalCheckDue else { throw ToolRefusal("Every task is done but the goal is still to check: call check_goal first.") }
         guard run.state == .complete else { throw ToolRefusal("The broadcast isn\u{2019}t complete yet.") }
         let at = ports.now()
         mutate(in: run.id) { $0.updateRun(id: run.id) { $0.summary = text; $0.summaryAt = at } }

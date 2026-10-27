@@ -155,20 +155,20 @@ final class SheetCoordinator {
         }
     }
 
-    /// New Broadcast…, on the sidebar's projects, its Review and Done help following `slices`: Settings ›
-    /// Operator's as the sheet opens, the profile the operator controller freezes as it starts the
-    /// broadcast (`startBroadcast`). `/` lists both agents' skills from the person's home; `@` the files
+    /// New Broadcast…, on the sidebar's projects, with what `context` read as it opened: Settings › Operator's slices
+    /// and Oracle, the profile the operator controller freezes as it starts the broadcast (`startBroadcast`), and what
+    /// its Agents step offers. `/` lists both agents' skills from the person's home; `@` the files
     /// git tracks in the one picked project; the Jira picker the connection's Jira projects, fetched as
     /// the Jira projects sheet fetches them; Start waits for `readiness`, which `checkReadiness` reads
     /// while the sheet is open. Not over another sheet.
-    func presentNewBroadcast(slices: Slices, loadJiraProjects: @escaping @MainActor () async throws -> [JiraProjectRef],
+    func presentNewBroadcast(context: NewBroadcastContext, loadJiraProjects: @escaping @MainActor () async throws -> [JiraProjectRef],
                              readiness: @escaping @MainActor () -> BroadcastReadiness = { .ready },
                              checkReadiness: @escaping @MainActor () async -> Void = {},
                              start: @escaping @MainActor (NewBroadcastModel.Request) async throws -> UUID) {
         guard canChangeWorkspace, sheet == nil else { return }
         preparingSheet?.cancel()
         let home = harnessHome, claudeConfig = agents.claudeConfig, git = self.git, workspace = workspace
-        sheet = .newBroadcast(NewBroadcastModel(projects: state.projects, slices: slices,
+        sheet = .newBroadcast(NewBroadcastModel(projects: state.projects, context: context,
                                                 skills: { SkillCatalog.discover(agent: $0, projectPath: $1, home: home, claudeConfig: claudeConfig) },
                                                 files: { ProjectFiles.list(in: $0, git: git) }, loadJiraProjects: loadJiraProjects,
                                                 canChangeWorkspace: { workspace.canChangeWorkspace },

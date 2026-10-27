@@ -130,7 +130,7 @@ CONTRACT_TOOLS = {"run_status", "jira_search", "jira_board", "jira_create", "jir
                   "jira_edit", "jira_comment", "create_task", "update_task", "submit_plan", "read_task", "message_task",
                   "open_tab", "mark_task", "resume_task", "retry_task", "finish_task", "ask_you", "resolve_question",
                   "report_find", "report_snag", "log_decision", "leave_for_you", "review_task", "request_review",
-                  "reply_thread", "find_user", "write_summary"}
+                  "reply_thread", "find_user", "write_summary", "record_review", "check_goal"}
 
 
 def test_the_tools_are_the_contracts():
@@ -178,7 +178,7 @@ def test_resume_task_explains_both_runtime_limits_and_the_acceptance_exemption()
 
 
 def test_only_the_challenged_tools_take_a_challenge_reply():
-    assert set(CHALLENGED_TOOLS) == {"submit_plan", "mark_task", "create_task", "finish_task"}
+    assert set(CHALLENGED_TOOLS) == {"submit_plan", "mark_task", "create_task", "finish_task", "check_goal"}
     for tool in TOOLS:
         properties = tool["inputSchema"]["properties"]
         assert ("challengeId" in properties and "challengeReply" in properties) == (tool["name"] in CHALLENGED_TOOLS)
@@ -231,10 +231,79 @@ def test_the_values_are_the_apps():
 def test_open_tab_adds_a_worker_tab_to_a_running_task_by_key():
     tool = next(tool for tool in TOOLS if tool["name"] == "open_tab")
     schema = tool["inputSchema"]
-    assert set(schema["properties"]) == {"task", "key", "agent", "model", "modelReason", "agentPinned", "brief"}
-    assert set(schema["required"]) == {"task", "key", "agent", "modelReason", "brief"}
+    assert set(schema["properties"]) == {"task", "key", "agent", "model", "reasoning", "modelReason", "agentPinned", "brief", "role"}
+    assert set(schema["required"]) == {"task", "key", "agent", "modelReason"}
     assert schema["properties"]["agent"]["enum"] == ["claude", "codex"] and schema["properties"]["agentPinned"]["type"] == "boolean"
     assert "same worktree and branch" in tool["description"] and "same key" in tool["description"]
+
+
+def test_the_agents_rows_bound_every_worker_tab_and_reviewer():
+    """Broadcast setup v2: create_task, update_task and open_tab take a reasoning level, and with Agents rows only a row."""
+    tools = {tool["name"]: tool for tool in TOOLS}
+    for name in ("create_task", "update_task", "open_tab"):
+        properties = tools[name]["inputSchema"]["properties"]
+        assert "agents.allowed" in properties["model"]["description"], name
+        assert "first row" in properties["model"]["description"], name
+        assert "agents.allowed" in properties["reasoning"]["description"] and "refused" in properties["reasoning"]["description"], name
+    assert "reasoning" in tools["update_task"]["description"]
+
+
+def test_a_new_broadcasts_tasks_end_where_the_person_chose():
+    tools = {tool["name"]: tool for tool in TOOLS}
+    for name in ("create_task", "update_task"):
+        end = tools[name]["inputSchema"]["properties"]["end"]["description"]
+        assert "Every task ends at <end>, which only the person changes." in end, name
+        assert "taskSettings" in end, name
+
+
+def test_open_tab_opens_a_review_tab_by_role():
+    tool = {tool["name"]: tool for tool in TOOLS}["open_tab"]
+    properties = tool["inputSchema"]["properties"]
+    assert properties["role"]["enum"] == ["work", "review"]
+    assert "record_review" in properties["role"]["description"] and "Left out, work" in properties["role"]["description"]
+    assert "optional" in properties["brief"]["description"] and "review prompt" in properties["brief"]["description"]
+
+
+def test_review_task_runs_in_a_tab_in_a_new_broadcast():
+    description = {tool["name"]: tool for tool in TOOLS}["review_task"]["description"]
+    assert "Run the review in a tab: open_tab with role review, then record_review." in description
+
+
+def test_record_review_keeps_a_review_tabs_verdict():
+    tool = {tool["name"]: tool for tool in TOOLS}["record_review"]
+    schema = tool["inputSchema"]
+    assert set(schema["properties"]) == {"task", "tab", "sha", "passed", "critical", "important", "minor", "summary", "round",
+                                         "rounds", "key"}
+    assert set(schema["required"]) == set(schema["properties"]) - {"rounds"}
+    assert schema["properties"]["passed"]["type"] == "boolean"
+    for name in ("critical", "important", "minor", "round", "rounds"):
+        assert schema["properties"][name]["type"] == "integer", name
+    assert "record_review" not in CHALLENGED_TOOLS
+    for words in ("on the task's branch", "review tabs", "same key returns the first answer", "how many failed",
+                  "AiTerm doesn't refuse an acceptance"):
+        assert words in tool["description"], words
+
+
+def test_check_goal_answers_the_goal_once_every_task_is_done():
+    tool = {tool["name"]: tool for tool in TOOLS}["check_goal"]
+    schema = tool["inputSchema"]
+    assert set(schema["properties"]) == {"met", "evidence", "missing", "challengeId", "challengeReply"}
+    assert set(schema["required"]) == {"met", "evidence"}
+    assert schema["properties"]["met"]["type"] == "boolean" and schema["properties"]["missing"]["items"] == {"type": "string"}
+    for words in ("goalCheckDue", "complete", "planMore", "stopped", "leftForYou", "Oracle"):
+        assert words in tool["description"], words
+    assert "check_goal" in schema["properties"]["challengeId"]["description"]
+
+
+def test_ask_you_says_what_a_question_is_about():
+    about = {tool["name"]: tool for tool in TOOLS}["ask_you"]["inputSchema"]["properties"]["about"]
+    assert about["enum"] == ["fixRounds"] and "fix rounds" in about["description"]
+
+
+def test_run_status_says_the_steps_of_a_new_broadcast():
+    description = {tool["name"]: tool for tool in TOOLS}["run_status"]["description"]
+    for words in ("agents.allowed", "taskSettings", "goal", "goalCheckDue", "roundsUsed", "reviewVerdicts", "finished"):
+        assert words in description, words
 
 
 def test_message_task_and_read_task_take_a_tab_key_and_reach_the_first_worker_without_one():

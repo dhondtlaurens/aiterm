@@ -45,6 +45,12 @@ public enum ActivityLine {
         case "resume_task": words = ("Put \(named) back to work", "put \(named) back to work")
         case "retry_task": words = ("Queued \(named) again", "queue \(named) again")
         case "finish_task": words = ("Finished \(named)", "finish \(named)")
+        case "record_review":
+            let verdict = arguments["passed"] == true ? "passed" : "not passed"
+            words = ("Recorded \(named)’s review: \(verdict)", "record \(named)’s review: \(verdict)")
+        case "check_goal":
+            let verdict = arguments["met"] == true ? "met" : "not met"
+            words = ("Checked the goal: \(verdict)", "check the goal: \(verdict)")
         case "ask_you": words = ("Asked you: \(text("question"))", "ask you: \(text("question"))")
         case "resolve_question":
             if arguments["withdrawn"] == true {

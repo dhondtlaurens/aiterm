@@ -19,6 +19,20 @@ public enum OperatorProfileStore {
         defaults.set(try JSONEncoder().encode(profile), forKey: key)
     }
 
+    static let lastAgentsKey = "operator.lastBroadcastAgents"
+
+    /// The last broadcast's Agents rows, which New Broadcast's Agents step starts from: none before a broadcast saved
+    /// some, or when what is saved cannot be read.
+    public static func lastAgents(_ defaults: UserDefaults = .standard) -> [AgentChoice] {
+        guard let data = defaults.data(forKey: lastAgentsKey) else { return [] }
+        return (try? JSONDecoder().decode([AgentChoice].self, from: data)) ?? []
+    }
+
+    /// Writes `rows` as the last broadcast's; an encoding failure throws and leaves what was saved before.
+    public static func saveLastAgents(_ rows: [AgentChoice], _ defaults: UserDefaults = .standard) throws {
+        defaults.set(try JSONEncoder().encode(rows), forKey: lastAgentsKey)
+    }
+
     /// Claude's default as `load` takes it: the model Settings › Agents makes Claude's default, or
     /// without one the first the catalogue lists, at that model's default reasoning; with no catalogue
     /// at all, Claude's own `opus` alias, which every install answers to.

@@ -203,6 +203,7 @@ final class AppController {
         }
         // A broadcast freezes Settings › Operator's profile as these preferences keep it.
         if operatorPorts.profile == nil { operatorPorts.profile = agents.operatorProfile }
+        if operatorPorts.preferences == nil { operatorPorts.preferences = preferences.defaults }
         // The delivery check's file beside the helper's others, read against the versions the Operator is told of;
         // Run check's window opens through the helper, tiled as a task's, and its closing reads the file again.
         let messaging = MessagingChecks(policyURL: AiTermPaths.deliveryPolicyURL(home: harnessHome),

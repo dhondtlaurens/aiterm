@@ -195,22 +195,24 @@ and is logged.
 
 | For | Tool | What it does |
 |---|---|---|
-| Status | `run_status` | The broadcast now: every task's state, branch, last commit and what is open. |
+| Status | `run_status` | The broadcast now: every task's state, branch, last commit and what is open; with the Agents, Task and Done steps, also its Agents rows, task settings, goal and rounds, each task's review verdicts and the tasks closed at the end. |
 | Jira | `jira_search`, `jira_board` | Read tickets and boards of the broadcast's Jira projects. |
 | | `jira_create`, `jira_edit`, `jira_comment` | Create, edit and comment on tickets (Jira slice). |
 | | `jira_move`, `jira_link`, `jira_sprint` | Move status, link tickets, put them in a sprint (Jira slice). |
-| Plan | `create_task`, `update_task` | Add an unstarted task, or change its brief, agent, model or end. |
+| Plan | `create_task`, `update_task` | Add an unstarted task, or change its brief, agent, model, reasoning or end. With Agents rows, only a row's combination, and the end is refused: every task ends where the person chose. |
 | | `submit_plan` | Close a plan revision; its tasks are queued at once. |
 | Steer | `message_task` | Type a message into a started task's worker. |
-| | `open_tab` | Add another worker tab to a task, on the same worktree. |
+| | `open_tab` | Add another worker tab to a task, on the same worktree: a work tab, or a review tab (`role` review) on a row's combination. |
 | | `read_task` | Read a worker's last message, diff, open prompt or review. |
 | | `resume_task`, `retry_task` | Put a blocked task back to work; queue a failed one again. |
-| Review | `review_task` | Start an agent review of a task's branch. |
+| Review | `review_task` | Start an agent review of a task's branch; with task settings, refused: run the review in a tab. |
+| | `record_review` | Record a review tab's verdict on a commit: passed or not, its findings counted, its fix round. |
 | | `find_user` | Find people on the code host who may review. |
 | | `request_review`, `reply_thread` | Mark the MR ready and ask reviewers; reply in a thread (Review slice). |
 | Finish | `mark_task` | Record a task's outcome: accepted, no change, blocked or failed. |
 | | `finish_task` | Carry out an accepted task's end: a commit, a draft MR, or a merge (Merge slice). |
-| You | `ask_you`, `resolve_question` | List a question under *Waiting on you*; close it once answered, or withdraw the Operator's moot question or gate with a reason. |
+| | `check_goal` | Once every task is done, answer the broadcast's goal: met, or what is missing, planned within its extra rounds (the Oracle's veto). |
+| You | `ask_you`, `resolve_question` | List a question under *Waiting on you* (`about` fixRounds for a task out of fix rounds); close it once answered, or withdraw the Operator's moot question or gate with a reason. |
 | Record | `report_find`, `report_snag` | Note an off-brief find (filed in Jira with the slice on); note an AiTerm glitch. |
 | | `leave_for_you`, `log_decision` | Note what a slice kept it from; log a decision it took. |
 | | `write_summary` | Write the broadcast's summary once it is complete. |

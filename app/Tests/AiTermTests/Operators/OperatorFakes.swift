@@ -20,11 +20,21 @@ enum OperatorServiceFixtures {
                 collapsed: false, jiraProjects: jira)
     }
 
+    /// A legacy run, unless given the Agents rows, task settings or a goal: then a run set up with those steps.
     static func run(_ profile: OperatorProfile = profile(), projects: [Project], state: OperatorRunState = .planning,
-                    planRevision: Int = 0, id: UUID = UUID()) -> OperatorRun {
+                    planRevision: Int = 0, id: UUID = UUID(), agents: [AgentChoice] = [], taskSettings: TaskSettings? = nil,
+                    goal: BroadcastGoal? = nil) -> OperatorRun {
         OperatorRun(id: id, name: "Sprint 42", profile: profile, projectIds: projects.map(\.id), prompt: "Implement the sprint.",
-                    state: state, planRevision: planRevision, createdAt: Date(timeIntervalSince1970: 0))
+                    state: state, planRevision: planRevision, createdAt: Date(timeIntervalSince1970: 0), agents: agents,
+                    taskSettings: taskSettings, goal: goal)
     }
+
+    /// Agents rows on the scratch ports' model lists: Claude's first model, then Codex's.
+    static let agents = [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high"),
+                         AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")]
+    static let taskSettings = TaskSettings(review: "An adversarial review with /code-review. After 3 rounds of fixes, ask me.",
+                                           end: .draftMR)
+    static let goal = BroadcastGoal(text: "Every page of the sprint ships.", extraRounds: 2)
 
     static func task(in run: OperatorRun, project: Project, key: String, state: OperatedState = .planned, agent: AgentKind = .claude,
                      worktree: String = "", branch: String? = nil, revision: Int = 1, dependsOn: [TaskDependency] = [],
@@ -109,8 +119,9 @@ extension OperatorPorts {
         // The versions the recording daemon's delivery check vouches for, never this Mac's `--version`.
         ports.installedVersions = { agents in [AgentKind: String](uniqueKeysWithValues: agents.compactMap { agent in
             ([.claude: "2.1.301", .codex: "0.160.0"] as [AgentKind: String])[agent].map { (agent, $0) } }) }
-        // Settings › Operator's profile, never this Mac's.
+        // Settings › Operator's profile, never this Mac's, and preferences of the test's own.
         ports.profile = { OperatorServiceFixtures.profile() }
+        ports.preferences = ScratchDefaults.make()
         return ports
     }
 }

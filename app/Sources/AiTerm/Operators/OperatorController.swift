@@ -63,6 +63,10 @@ struct OperatorPorts {
     /// through `BackgroundWork`. Nil is `UserDefaults.standard`'s, on Claude's default from `agentModels`, which
     /// `AppController` replaces with the app's own defaults.
     var profile: (@Sendable () -> OperatorProfile)?
+    /// The preferences Settings keeps: where each start saves its Agents rows as the last broadcast's
+    /// (`OperatorProfileStore.lastAgents`), and where New Broadcast reads them and Settings › Agents' defaults. Nil is
+    /// `UserDefaults.standard`, which `AppController` replaces with the app's own preferences.
+    var preferences: UserDefaults?
 
     @MainActor static func live(home: URL, git: any GitRunning, jiraSettings: @escaping @Sendable () -> JiraConfig?,
                                 claudeConfig: ClaudeConfig = ClaudeConfig()) -> OperatorPorts {
@@ -177,6 +181,8 @@ final class OperatorController {
     /// Changes after each line of the run's activity log lands. Observed.
     func activityGeneration(of run: UUID) -> Int { activityWritten[run, default: 0] }
     @ObservationIgnored private var changeHooks: [@MainActor () -> Void] = []
+    /// Told after each change to a run has been settled (`runChanged`), with its id.
+    @ObservationIgnored var onRunChanged: @MainActor (UUID) -> Void = { _ in }
     /// The runs and operated tasks as the hooks last heard of them.
     @ObservationIgnored private var lastHeard: ([OperatorRun], [TaskItem]) = ([], [])
 
@@ -443,6 +449,7 @@ final class OperatorController {
         notifyRequests(of: id)
         finisher.resumeWatching(inRun: id)
         startReadyTasks()
+        onRunChanged(id)
     }
 
     /// A broadcast whose every task has ended and with no question open is complete (spec §9): when is
@@ -503,9 +510,13 @@ final class OperatorController {
     /// before its window opens: a relaunch must know the window is its. Its name is `name`, or with none the
     /// prompt's first line; `jiraProjectKeys` and `projectIds` are New Broadcast's picks. Ended while it
     /// starts, it stays ended: its id is returned with no window of its own and its token revoked again.
+    /// `agents`, `taskSettings` and `goal` are the Agents, Task and Done steps, frozen in the run as the profile is; with
+    /// `taskSettings` the run has no Review or Done text, and with the Oracle off no goal, which needs it. Its rows are
+    /// saved as the last broadcast's. Without `taskSettings` it is started as before those steps.
     @discardableResult
     func startBroadcast(name: String?, jiraProjectKeys: [String], projectIds: [UUID], prompt: String, review: String?,
-                        done: String?) async throws -> UUID {
+                        done: String?, agents: [AgentChoice] = [], taskSettings: TaskSettings? = nil,
+                        goal: BroadcastGoal? = nil) async throws -> UUID {
         guard activeRun == nil else { throw ActionUnavailable(Self.oneBroadcast) }
         guard workspace.canChangeWorkspace else { throw ActionUnavailable("Save or recover the workspace before starting a broadcast.") }
         guard let firstLine = Self.broadcastName(from: prompt) else { throw ActionUnavailable("Tell the Operator what to work on.") }
@@ -518,9 +529,12 @@ final class OperatorController {
         let profile = await BackgroundWork.run {
             readProfile?() ?? OperatorProfileStore.load(claudeDefault: OperatorProfileStore.claudeDefault(models: []))
         }
+        let legacy = taskSettings == nil
         let run = OperatorRun(id: UUID(), name: OperatorCommand.said(name) ?? firstLine, profile: profile,
                               projectIds: projectIds, jiraProjectKeys: jiraProjectKeys, prompt: prompt,
-                              review: OperatorCommand.said(review), done: OperatorCommand.said(done), createdAt: ports.now())
+                              review: legacy ? OperatorCommand.said(review) : nil, done: legacy ? OperatorCommand.said(done) : nil,
+                              createdAt: ports.now(), agents: agents, taskSettings: taskSettings,
+                              goal: profile.oracle.isOn && OperatorCommand.said(goal?.text) != nil ? goal : nil)
         let home = ports.home
         // A fresh start: `prepare` makes the token and writes the first message the command reads.
         let prepared = try await BackgroundWork.run {
@@ -539,6 +553,11 @@ final class OperatorController {
         var registered = false
         do {
             guard workspace.flush() else { throw ActionUnavailable("The broadcast couldn’t be saved, so it didn’t start.") }
+            if !agents.isEmpty {
+                Log.workspace.attempt("Saving the broadcast’s Agents rows as the last broadcast’s") {
+                    try OperatorProfileStore.saveLastAgents(agents, ports.preferences ?? .standard)
+                }
+            }
             ports.notifications.requestAuthorization()
             try await daemon.registerOperator(runId: run.id.uuidString, token: prepared.token)
             registered = true

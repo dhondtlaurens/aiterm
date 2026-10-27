@@ -20,12 +20,22 @@ enum OperatorFixtures {
         Project(id: id, name: "Shop", path: path, provider: .git, remoteUrl: nil, addedAt: epoch, collapsed: false)
     }
 
+    /// A legacy run, with the Done text it was started with, unless given the Agents rows, task settings or a goal: then a
+    /// run set up with those steps, which has no Done text.
     static func run(id: UUID = runId, state: OperatorRunState = .active, oracle: Bool = true, slices: Slices = .none,
-                    planRevision: Int = 1) -> OperatorRun {
+                    planRevision: Int = 1, agents: [AgentChoice] = [], taskSettings: TaskSettings? = nil,
+                    goal: BroadcastGoal? = nil) -> OperatorRun {
         OperatorRun(id: id, name: "Sprint 42", profile: profile(oracle: oracle, slices: slices), projectIds: [projectId],
-                    prompt: "Implement the sprint.", done: "a commit per item, tests green", state: state,
-                    planRevision: planRevision, createdAt: epoch)
+                    prompt: "Implement the sprint.", done: taskSettings == nil ? "a commit per item, tests green" : nil, state: state,
+                    planRevision: planRevision, createdAt: epoch, agents: agents, taskSettings: taskSettings, goal: goal)
     }
+
+    /// The Agents rows of a run set up with them: Claude on Opus, Codex on Astra.
+    static let agents = [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high"),
+                         AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")]
+    static let taskSettings = TaskSettings(review: "An adversarial review with /code-review. After 3 rounds of fixes, ask me.",
+                                           end: .draftMR)
+    static let goal = BroadcastGoal(text: "Every page of the sprint ships.", extraRounds: 2)
 
     static func operated(_ key: String, _ state: OperatedState = .queued, run: UUID = runId, revision: Int = 1,
                          end: TaskEnd = .commit, dependsOn: [TaskDependency] = [], launched: Bool? = nil) -> OperatedTask {

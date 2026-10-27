@@ -343,7 +343,7 @@ final class OperatorWaker {
         var status = status
         status.revision = 0
         status.run.usage = [:]
-        status.run.agents = [:]
+        status.run.agents.installed = [:]
         for index in status.tasks.indices {
             status.tasks[index].mergeRequest = nil
             status.tasks[index].mergeRequestNote = nil

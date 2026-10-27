@@ -67,7 +67,7 @@ import Testing
     private func sheet(_ readiness: @escaping @MainActor () -> BroadcastReadiness) -> NewBroadcastModel {
         let webshop = Project(id: UUID(), name: "webshop", path: "/tmp/webshop", provider: .gitlab, remoteUrl: nil, addedAt: Date(),
                               collapsed: false, jiraProjects: [])
-        let model = NewBroadcastModel(projects: [webshop], slices: .none, readiness: readiness, start: { _ in UUID() })
+        let model = NewBroadcastModel(projects: [webshop], context: NewBroadcastContext(slices: .none), readiness: readiness, start: { _ in UUID() })
         model.add(project: webshop)
         model.prompt = "Implement PAY-230"
         return model
@@ -113,7 +113,7 @@ import Testing
 
     @Test func theSheetChecksAsItOpens() async {
         var checked = 0
-        let model = NewBroadcastModel(projects: [], slices: .none, readiness: { .checking }, checkReadiness: { checked += 1 },
+        let model = NewBroadcastModel(projects: [], context: NewBroadcastContext(slices: .none), readiness: { .checking }, checkReadiness: { checked += 1 },
                                       start: { _ in UUID() })
         await model.checkReadiness()
         #expect(checked == 1)
