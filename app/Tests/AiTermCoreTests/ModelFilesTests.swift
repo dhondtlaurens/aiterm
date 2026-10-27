@@ -169,6 +169,30 @@ import Foundation
         #expect(models[0].defaultEffort == "high", "the level badged Default is the default")
     }
 
+    /// Claude Code 2.1.311 badges its default level "Recommended", and badges Max with a warning:
+    /// the recommended level is the default, never the warned one at the end.
+    @Test func theLevelBadgedRecommendedIsTheDefault() {
+        let models = ModelFiles.claudeModels(catalogJSON: Fixtures.claudeCatalogRecommended, settingsJSON: nil, claudeJSON: nil)
+        #expect(models.map(\.id) == ["claude-opus-5-5", "claude-fable-5-1"])
+        #expect(models[0].defaultEffort == "medium", "Opus 5.5 recommends medium")
+        #expect(models[1].defaultEffort == "high", "Fable 5.1 recommends high")
+    }
+
+    /// A model whose levels carry no default badge falls back to Claude Code's own default, not to
+    /// the costliest level at the end of the list.
+    @Test func withoutADefaultBadgeTheDefaultIsHighNotTheLastLevel() {
+        let catalog = Data(#"""
+        {"version":2,"catalog":{"surface":"cc","config":{"id":"cc","models":[
+          {"id":"claude-opus-5-5","name":"Opus 5.5","thinking":{"type":"effort","effort_options":[
+            {"id":"low","name":"Low"},{"id":"medium","name":"Medium"},{"id":"high","name":"High"},{"id":"max","name":"Max"}]}},
+          {"id":"claude-tiny","name":"Tiny","thinking":{"type":"effort","effort_options":[{"id":"low","name":"Low"},{"id":"medium","name":"Medium"}]}}
+        ]}}}
+        """#.utf8)
+        let models = ModelFiles.claudeModels(catalogJSON: catalog, settingsJSON: nil, claudeJSON: nil)
+        #expect(models[0].defaultEffort == "high")
+        #expect(models[1].defaultEffort == "low", "without high, the least costly level")
+    }
+
     /// `thinking: {"type": "none"}` (Haiku) means the model takes no effort flag at all.
     @Test func testAClaudeModelWithoutThinkingOffersNoEfforts() {
         let haiku = ModelFiles.claudeModels(catalogJSON: Fixtures.claudeCatalog, settingsJSON: nil, claudeJSON: nil).last
@@ -247,6 +271,19 @@ import Foundation
              {"id":"high","name":"High","badge":{"message":"Default","variant":"neutral"}}]}},
           {"id":"claude-haiku-4-5-20251001","name":"Haiku 4.5","short_name":"Haiku","description":"Fastest for quick answers","section":"main",
            "thinking":{"type":"none"}}
+        ]}}}
+        """#.utf8)
+
+        /// Trimmed from a real catalogue (CLI 2.1.311): the default is badged "Recommended", Max warns.
+        static let claudeCatalogRecommended = Data(#"""
+        {"version":2,"catalog":{"surface":"cc","config":{"id":"cc","models":[
+          {"id":"claude-opus-5-5","name":"Opus 5.5","short_name":"Opus","section":"main",
+           "thinking":{"type":"effort","effort_options":[{"id":"low","name":"Low"},
+             {"id":"medium","name":"Medium","badge":{"message":"Recommended","variant":"neutral"}},{"id":"high","name":"High"},
+             {"id":"xhigh","name":"Extra"},{"id":"max","name":"Max","badge":{"message":"3.5× or more usage","variant":"warning"}}]}},
+          {"id":"claude-fable-5-1","name":"Fable 5.1","short_name":"Fable","section":"main",
+           "thinking":{"type":"effort","effort_options":[{"id":"low","name":"Low"},{"id":"medium","name":"Medium"},
+             {"id":"high","name":"High","badge":{"message":"Recommended","variant":"neutral"}},{"id":"xhigh","name":"Extra"},{"id":"max","name":"Max"}]}}
         ]}}}
         """#.utf8)
     }
