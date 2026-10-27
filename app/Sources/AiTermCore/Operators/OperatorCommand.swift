@@ -257,7 +257,7 @@ public enum OperatorCommand {
         let ends = TaskEnd.allCases.map(\.displayName)
         return "A plan you submit starts at once; nothing waits for approval. "
             + "Each task's agent commits on the task's branch and pushes nothing; AiTerm pushes and merges as far as the task's "
-            + "end goes, through finish_task. "
+            + "end goes, through finish_task. Call finish_task on work merged outside it too. "
             + "Each task ends in a commit, a draft MR, a merge or a local merge, as the Done, the prompt or the Instructions ask; "
             + "without one, a draft MR. A draft notifies nobody. This version of AiTerm carries out: \(ends.joined(separator: ", ")). "
             + "A Done of \"a commit\" ends at the accepted commit, with no push, no merge request and no finish_task. "
@@ -344,7 +344,7 @@ public enum OperatorCommand {
         "Read the task with read_task.",
         "Steer it with message_task, rereading each text against the ask-first acts, because a worker treats what you send as "
             + "allowed. When fixes followed the first agent review, run review_task again on the final commit before you accept, "
-            + "and fix what it finds. While inReview, review_task can review the accepted SHA.",
+            + "and fix its findings. While inReview, review_task can review the accepted SHA.",
         "Accept and report only what you saw: the SHA at the branch head and the check output, read with read_task, since the "
             + "task's end carries that commit. Accept with mark_task accepted, giving the check output, also when checkOutput names "
             + "a check the repository doesn't define (\"typecheck: none defined\") rather than inventing a command. "
@@ -356,11 +356,11 @@ public enum OperatorCommand {
     ]
 
     static let selfHealing = "AiTerm's picture can be wrong. When run_status or a tool reply doesn't match what you see, check the "
-        + "real source (read_task, the branch head, run_status), act on what is true, and record it with report_snag so AiTerm "
-        + "can be fixed. For example: a task under promptsWaitingOnYou whose read_task what: prompt is null and whose lastMessage "
+        + "real source (read_task, the branch head, run_status), act on what is true, and record it with report_snag for a fix. "
+        + "For example: a task under promptsWaitingOnYou whose read_task what: prompt is null and whose lastMessage "
         + "shows a finished turn has no prompt to report; when the two don't agree, tell the person of the prompt all the same; "
-        + "a task shown working whose worker ended its turn is read with read_task and steered on; reading it is not "
-        + "accepting it. Heal inside the hard limits, by reading, calling again and correcting your own records; ask the person "
+        + "a task shown working whose worker ended its turn is read and steered on; reading it is not "
+        + "accepting it. Heal inside the hard limits, by reading, calling again and correcting your records; ask the person "
         + "what only they can decide."
 
     static let decisionRule = "Log each choice you take on your own with `log_decision`, and say why in one sentence."
@@ -422,7 +422,7 @@ public enum OperatorCommand {
                 + "it would have given (a username, a ticket's key), and record a snag. When every tool answers that AiTerm isn't "
                 + "open, wait and try again later, doing nothing else: nothing takes effect until it is back.",
             "A task listed under branchDrift in run_status committed off its task branch, the only branch AiTerm reads: have "
-                + "its worker bring the work onto it with message_task before you accept, or block the task.",
+                + "its worker bring the work onto it before you accept, or block the task.",
             "workerAsks and changedAfterAcceptance can appear on tasks in any state: read the question or the change before you act.",
             "A question showing answeredInWindow may already be answered: check, then resolve it.",
             "reviewQuiet: if the broadcast's Done says the MR is the end, call finish_task to end the review and move the ticket.",

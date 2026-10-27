@@ -39,6 +39,13 @@ extension OperatorToolHandler {
         }
     }
 
+    /// Whether `task`'s accepted commit is already in its project's default branch (`TaskFinisher.landing`): its finish_task
+    /// records it as merged and merges nothing.
+    private func landed(_ task: TaskItem) async -> Bool {
+        guard let sha = task.operated?.acceptance?.resultSHA, let project = state.project(id: task.projectId) else { return false }
+        return await TaskFinisher.landing(of: sha, in: project.path, git: ports.git) != nil
+    }
+
     /// The task a `finish_task` with `noVerify` would push past its hook, and what the hook said when it refused the push
     /// of the commit accepted now (`TaskPublication.pushFailure(for:)`). Nil for any other call, for one with that commit
     /// pushed already or its end done, which answers from the record, and for one the finisher refuses before it pushes
@@ -81,7 +88,10 @@ extension OperatorToolHandler {
         let named = call.optionalString("challengeId").flatMap { id in
             state.run(id: run.id)?.challenges.first { $0.id == id && $0.tool == call.tool }
         }
-        let merging = mergeAwaitingOracle(call, in: run), skipping = hookSkipAwaitingOracle(call, in: run)
+        var merging = mergeAwaitingOracle(call, in: run)
+        let skipping = hookSkipAwaitingOracle(call, in: run)
+        // A commit already in its target, merged outside finish_task, merges nothing: the Oracle isn't asked about it.
+        if named == nil, let task = merging, await landed(task) { merging = nil }
         // A noVerify with nothing to judge goes on to the finisher, which refuses it before it acts.
         if named == nil, call.operatorTool == .finishTask, call.optionalBool("noVerify") == true, skipping == nil { return nil }
         if named == nil, !Self.isChallenged(call, oracleIsOn: opinion.isOn, backlog: backlog(of: call, in: run), merges: merging != nil) { return nil }

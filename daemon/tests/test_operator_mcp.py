@@ -159,6 +159,15 @@ def test_review_task_says_what_its_reviewer_cannot_do():
     assert "not recorded as this task's agent review" in description
 
 
+def test_finish_task_records_work_already_merged_outside_it():
+    description = {tool["name"]: tool for tool in TOOLS}["finish_task"]["description"]
+    assert "already in its default branch" in description
+    assert "recorded as merged" in description
+    assert "the Oracle isn't asked" in description
+    assert "AiTerm never writes to the host" in description
+    assert "closing a request still open" in description
+
+
 def test_resume_task_explains_both_runtime_limits_and_the_acceptance_exemption():
     description = {tool["name"]: tool for tool in TOOLS}["resume_task"]["description"]
     assert "90 minutes of work without a new task-branch commit" in description

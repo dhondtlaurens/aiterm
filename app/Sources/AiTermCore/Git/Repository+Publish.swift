@@ -60,6 +60,27 @@ extension Repository {
         return nil
     }
 
+    /// Where a commit already is in a branch's history (`landing(of:in:)`): in the branch here, in `origin/<branch>` as this
+    /// repository last fetched it, or both.
+    public struct Landing: Equatable, Sendable {
+        public var local: Bool
+        /// Read from the remote-tracking ref, never from origin: origin may have it since, but has not lost it.
+        public var origin: Bool
+        public init(local: Bool, origin: Bool) { self.local = local; self.origin = origin }
+    }
+
+    /// Where `sha` already is in `branch` (`Landing`): `finish_task` records a merge end whose accepted commit got there
+    /// outside it as merged. Nil when it is in neither, and for a commit or a ref git does not have. Nothing is fetched.
+    public func landing(of sha: String, in branch: String) throws -> Landing? {
+        guard Self.isCommitId(sha), !branch.isEmpty, !branch.hasPrefix("-") else { return nil }
+        // A ref that does not exist is a `fatal:` (128) from `--is-ancestor`, as `isMerged` reads it: not there.
+        func holds(_ ref: String) throws -> Bool {
+            try git.ask(["merge-base", "--is-ancestor", sha, ref], in: path, none: [1, 128]) != nil
+        }
+        let landing = Landing(local: try holds("refs/heads/" + branch), origin: try holds("refs/remotes/origin/" + branch))
+        return landing.local || landing.origin ? landing : nil
+    }
+
     /// Whether `ancestor` is in `commit`'s history: a stacked task's result must contain its parent's
     /// accepted commit.
     public func contains(_ ancestor: String, in commit: String) throws -> Bool {

@@ -220,6 +220,12 @@ next `finish_task`; an accepted task it holds back reads `waiting to merge · re
 request or local, is refused by `PublicationGuard` with the Merge slice off, checked when `finish_task`
 starts and read again in `TaskPublisher` right before the host merges. Each refusal also appends one
 sentence to the run's `leftForYou` (`Merge feature/search in Search: The Merge slice is off for this broadcast.`), which Summary lists under Left for you.
+A merge end whose accepted commit is already in the project's default branch, locally or in `origin/<branch>` as last
+fetched (`Repository.landing`), was merged outside `finish_task`: `TaskFinisher.finishLanded` records it as merged
+(`TaskPublication.landedSHA`, no `mergedSHA`, since ancestry names no merge commit) on `PublicationGuard.landedRefusal`'s
+checks alone, without the Merge slice, the Oracle's yes or the branch's tip, and the challenge gate asks no Oracle for it.
+It pushes nothing and only reads the host; pushing a default branch that has it only locally, and closing a request still
+open from its branch, go to `leftForYou`. An accepted task with no `finish_task` running reads `accepted · not finished`.
 The base needs no slice: a commit on the task's branch, its push, a draft MR, an agent review. Under
 every slice AiTerm's floor holds: only the commit the Operator accepted, a green pipeline, every
 review thread resolved, never a push to a default or protected branch, and a local merge never pushed.

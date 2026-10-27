@@ -9,7 +9,8 @@ import AiTermCore
 /// a watch's poll — waits for the one in flight and answers what it did. A merge end that must wait
 /// is watched here, polling every `OperatorTiming.mergePoll`, until it merges, the host gives a reason
 /// it will not, or the wait runs out; then the operator is told (`changed`). The tool call itself never
-/// waits for a merge: it answers `waitingToMerge` at once.
+/// waits for a merge: it answers `waitingToMerge` at once. A merge end whose accepted commit is already in its default
+/// branch, merged outside `finish_task`, is recorded as merged with nothing pushed, merged or written (`finishLanded`).
 ///
 /// The host is the one the push goes to: origin's fetch URL, never `Repository.remoteUrl()`, which
 /// prefers the branch's upstream remote — the protection asked about must be the pushed repository's.
@@ -226,6 +227,8 @@ final class TaskFinisher {
             guard let fresh = context(of: id) else { return Result(result: .refused, reason: PublicationGuard.gone) }
             first = fresh
         }
+        // Merged outside finish_task, even after it was left for you: recorded as it is, nothing more done.
+        if let landed = await finishLanded(first) { return landed }
         let task = first.task, operated = first.operated, project = first.project
         // What is done is answered from the record, whatever the host's connection is now.
         if operated.publication?.leftForYou == true { return Result(operated.publication, result: .leftForYou, reason: nil) }
@@ -346,6 +349,89 @@ final class TaskFinisher {
             recordFailure(why, on: id)
             return Result(store.state.task(id: id)?.operated?.publication, result: .failed, reason: why)
         }
+    }
+
+    /// Where `sha` already is in the default branch of the checkout at `path`, the branch a merge end merges into, and which
+    /// branch that is (`Repository.landing`); nil when it is in neither that branch nor origin's as last fetched, or git
+    /// couldn't say. Read off the main actor.
+    nonisolated static func landing(of sha: String, in path: String, git: any GitRunning) async -> (target: String, landing: Repository.Landing)? {
+        let repository = Repository(path, git: git)
+        return await BackgroundWork.run {
+            let target = repository.defaultBranch()
+            guard let landing = try? repository.landing(of: sha, in: target) else { return nil }
+            return (target, landing)
+        }
+    }
+
+    /// A merge end whose accepted commit reached its target outside `finish_task` (a worker's or your merge), recorded as
+    /// merged: nil when it has not, and for anything but an accepted merge end. Nothing is pushed or merged and the host
+    /// is only read, so none of what authorises those is asked for: not the Merge slice, the Oracle's yes, the branch's
+    /// tip nor a stacked parent's end (`PublicationGuard.landedRefusal`). Its problem and the Oracle's refusal go with it.
+    /// Left for you: pushing a target that has it only here, and closing a request still open from its branch.
+    private func finishLanded(_ first: Context) async -> Result? {
+        let id = first.task.id, operated = first.operated
+        guard operated.end.merges, operated.state == .accepted, let sha = operated.acceptance?.resultSHA,
+              operated.publication?.merged != true, operated.publication?.mergedSHA == nil,
+              let (target, landing) = await Self.landing(of: sha, in: first.project.path, git: git) else { return nil }
+        // Read fresh: the look awaited git. It holds only for the commit accepted now, by the owner it was looked at under.
+        guard let current = context(of: id) else { return Result(result: .refused, reason: PublicationGuard.gone) }
+        guard current.operated.acceptance?.resultSHA == sha, current.operated.ownership == operated.ownership else {
+            return Result(current.operated.publication, result: .refused, reason: PublicationGuard.changedMidway)
+        }
+        if let refusal = PublicationGuard.landedRefusal(task: current.task, run: current.run) {
+            return Result(current.operated.publication, result: .refused, reason: refusal)
+        }
+        store.mutate { state in
+            state.updateOperated(id) { task in
+                var publication = task.publication ?? TaskPublication()
+                publication.merged = true
+                publication.landedSHA = sha
+                publication.targetBranch = target
+                publication.problem = nil
+                publication.mergeRefusal = nil
+                publication.waitingSince = nil
+                publication.readySince = nil
+                publication.waitingReason = nil
+                publication.leftForYou = false
+                task.publication = publication
+                task.state = .published
+            }
+        }
+        _ = store.flush()
+        let project = current.project.name, key = current.operated.key
+        var left: [String] = []
+        if !landing.origin { left.append("Push \(target) in \(project): \(key)'s commit is in it locally, not in origin/\(target) as last fetched.") }
+        if let request = await openRequest(of: current) {
+            let unread = request.read ? "" : " if it is still open"
+            left.append("Close \(request.name) in \(project) without merging\(unread): its commit is already in \(target).")
+        }
+        for sentence in left { leaveForYou(sentence, in: current.run.id) }
+        let place = landing.origin ? "already in \(target) on origin" : "already in \(target) locally"
+        let reason = "\(key)'s accepted commit \(sha.prefix(7)) is \(place), so AiTerm recorded it as merged without pushing, merging or "
+            + "writing to the host." + (left.isEmpty ? "" : " Left for you: " + left.joined(separator: " "))
+        return Result(store.state.task(id: id)?.operated?.publication, result: .published, reason: reason)
+    }
+
+    /// The request still open from `current`'s branch, as the host reads it (`read`), named as `requestName` does. When the
+    /// host can't be read, the one recorded, if any, unread; nil when the host has none open.
+    private func openRequest(of current: Context) async -> (name: String, read: Bool)? {
+        let path = current.project.path, git = self.git
+        let recorded = current.operated.publication.flatMap { publication in
+            publication.mergeRequestNumber.map { (name: Self.requestName($0, url: publication.mergeRequestURL ?? ""), read: false) }
+        }
+        guard let origin = (try? await BackgroundWork.run({ try git.ask(["remote", "get-url", "origin"], in: path, none: [2]) })) ?? nil,
+              let host = try? connect(ProviderDetector.detect(remoteUrl: origin, repoPath: path)) else { return recorded }
+        do {
+            return try await host.existingRequest(from: current.task.branch).map { (name: Self.requestName($0.iid, url: $0.url), read: true) }
+        } catch {
+            return recorded
+        }
+    }
+
+    /// A request by its host's own words: `PR #3` on GitHub, `MR !12` on GitLab.
+    static func requestName(_ number: Int, url: String) -> String {
+        let host = CodeHost(webURL: url)
+        return (host == .gitHub ? "PR " : "MR ") + host.reference(number)
     }
 
     /// The task, its record, its broadcast, its project and the parent it is stacked on, as they are now.

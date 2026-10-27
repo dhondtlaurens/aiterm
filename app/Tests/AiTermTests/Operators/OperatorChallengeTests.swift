@@ -428,3 +428,50 @@ extension OperatorChallengeTests {
         #expect(world.state.tasks.first?.operated?.state == .working, "a verdict challenged before the change is not recorded after it")
     }
 }
+
+extension OperatorChallengeTests {
+    /// A merge end whose accepted commit is already in its default branch (merged by hand, or by a worker) merges nothing,
+    /// so finish_task asks the Oracle nothing: the task is recorded as merged, and an earlier refusal goes with it. A commit
+    /// still to merge is asked about as before.
+    @MainActor @Suite(.blocking) struct Landed {
+        @Test func aCommitAlreadyInMainIsFinishedWithNoOracleRun() async throws {
+            let git = GitRunner.hermetic()
+            let fixture = try GitFixture.withOrigin(branch: "feat/a")
+            let project = OperatorServiceFixtures.project(path: fixture.path)
+            var profile = OperatorServiceFixtures.profile(oracle: true, oracleAgent: .claude)
+            profile.slices = Slices(merge: true)
+            var run = OperatorServiceFixtures.run(profile, projects: [project], state: .active, planRevision: 1)
+            run.done = "Merged once the review is done."
+            var task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .accepted, worktree: fixture.path,
+                                                    branch: "feat/a", end: .merge)
+            task.baseBranch = "main"
+            task.operated?.acceptance = TaskAcceptance(resultSHA: fixture.sha, prerequisiteSHAs: [], checkOutput: "12 passed", note: nil,
+                                                       at: Date(timeIntervalSince1970: 0))
+            task.operated?.publication = TaskPublication(mergeRefusal: "The Oracle judged that the conditions to merge don’t hold yet: no review.")
+            let host = FakeMergeHost(), prompts = OperatorMergeTests.Prompts()
+            let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), adjust: { ports in
+                ports.publisher = { _ in host }
+                ports.secondOpinion = .answering("NO\nThe review isn't evidenced.", receivePrompt: { prompts.append($0) })
+                ports.challengeReplyBudget = .seconds(60)
+            })
+            world.live.sessions = [OperatorServiceFixtures.session("operator", tag: run.id), OperatorServiceFixtures.session("worker", tag: task.id)]
+
+            // Not in main yet: the Oracle is asked, and its no refuses the merge.
+            let refused = await world.call(run.id, "finish_task", ["task": "A"])
+            #expect(refused.message?.hasPrefix("The Oracle judged that the conditions to merge A don’t hold yet") == true, "\(refused)")
+            #expect(prompts.list.count == 1)
+
+            // The person merges it into main by hand.
+            try git.run(["switch", "-q", "main"], in: fixture.path)
+            try git.run(["merge", "-q", "--no-ff", "--no-edit", fixture.sha], in: fixture.path)
+            try git.run(["switch", "-q", "feat/a"], in: fixture.path)
+            let finished = await world.call(run.id, "finish_task", ["task": "A"])
+            #expect(finished.value?["result"] == "published" && finished.value?["merged"] == true, "\(finished)")
+            #expect(prompts.list.count == 1, "no Oracle run for a commit already in main")
+            let operated = try #require(world.task(task.id)?.operated)
+            #expect(operated.state == .published && operated.publication?.landedSHA == fixture.sha)
+            #expect(operated.publication?.mergeRefusal == nil && operated.publication?.conditionsHeld == nil)
+            #expect(!host.log.contains { !$0.hasPrefix("existing") }, "\(host.log)")
+        }
+    }
+}
