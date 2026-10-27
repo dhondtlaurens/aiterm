@@ -211,7 +211,7 @@ import Testing
         #expect(checks(.notInRange)[0] == ConnectCheck(text: "Laurens’s iPhone isn’t showing its hotspot yet", mark: .working, warns: true))
         #expect(checks(.keepingAwake) == [ConnectCheck(text: "Joined Laurens’s iPhone", mark: .done, warns: false),
                                           ConnectCheck(text: "Keeping the Mac awake…", mark: .working, warns: false)])
-        #expect(checks(.safe).allSatisfy { $0.mark == .done && !$0.warns })
+        #expect(checks(.safe).isEmpty, "once safe the sheet is the Mac card, and the checks have done their job")
         #expect(checks(.failed(.joinFailed(network: phone)))[0]
                 == ConnectCheck(text: "Couldn’t join Laurens’s iPhone: check its password", mark: .idle, warns: true))
         #expect(checks(.failed(.batteryLow(level: 8)))[0]
@@ -220,7 +220,10 @@ import Testing
                 == ConnectCheck(text: "Couldn’t save the hotspot password in Keychain", mark: .idle, warns: true))
     }
 
+    /// The result is the Mac card's anatomy, in the footer's ready voice (proposal 1A · 2A, 27 Oct 2026).
     @Test func theSafeStateSaysWhatHappensNext() {
+        #expect(BackpackSheetPresentation.safeTitle == "Safe to close the lid.")
+        #expect(BackpackSheetPresentation.safeStatus == SettingsStatus(.ready, "Backpack mode enabled"))
         #expect(BackpackSheetPresentation.safeHelp(hotspot: "Laurens’s iPhone", until: .agentsStop)
                 == "On Laurens’s iPhone. Backpack mode ends when your agents stop, or at 10 % battery.")
         #expect(BackpackSheetPresentation.safeHelp(hotspot: "Laurens’s iPhone", until: .turnedOff)
