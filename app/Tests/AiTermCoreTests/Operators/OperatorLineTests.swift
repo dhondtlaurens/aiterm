@@ -175,11 +175,11 @@ import Testing
                       task(run: run, .published, end: .mergeLocal, sha: "9b3e07d1234"), task(run: run, .published, end: .commit, sha: "9b3e07d1234")] {
             #expect(OperatorLine.task(ended, run: run, acting: nil, requests: [])?.look == .ended, "\(ended.operated?.state.rawValue ?? "")")
         }
-        // An accepted task AiTerm is publishing: something moves, so the line acts, as every act does.
+        // An accepted task with no finish_task running: nothing moves, so the line is quiet until one does.
         #expect(OperatorLine.task(task(run: run, .accepted, end: .draftMR, sha: "4f2a91cdeadbeef"), run: run, acting: nil, requests: [])
-                == OperatorLine("opening the MR", look: .acting))
+                == OperatorLine("accepted · not finished"))
         #expect(OperatorLine.task(task(run: run, .accepted, end: .merge, sha: "4f2a91cdeadbeef"), run: run, acting: nil, requests: [])
-                == OperatorLine("merging", look: .acting))
+                == OperatorLine("accepted · not finished"))
         // A publication handed back is the one finished state that is yours.
         var left = task(run: run, .accepted, sha: "4f2a91cdeadbeef")
         left.operated?.publication = TaskPublication(leftForYou: true)
@@ -443,5 +443,28 @@ import Testing
         let line = OperatorLine.task(task, run: run, acting: nil, requests: [])
         #expect(line?.text == "waiting to merge · CI is running")
         #expect(line?.look == .quiet)
+    }
+
+    /// An accepted task nobody is finishing waits quietly for finish_task: nothing moves until it runs, and while it runs the
+    /// line says its act. A merge end merged outside finish_task, recorded by it, is done: no Oracle's refusal stays on it.
+    @Test func anAcceptedTaskNotBeingFinishedIsQuietAndOneMergedByHandIsDone() {
+        let run = OperatorFixtures.run()
+        for end in [TaskEnd.merge, .draftMR, .mergeLocal] {
+            let accepted = OperatorFixtures.task("PAY-1", .accepted, run: run.id, end: end)
+            #expect(OperatorLine.task(accepted, run: run, acting: nil, requests: []) == OperatorLine("accepted · not finished"), "\(end)")
+        }
+        let accepted = OperatorFixtures.task("PAY-1", .accepted, run: run.id, end: .merge)
+        #expect(OperatorLine.task(accepted, run: run, acting: .merging, requests: []) == OperatorLine("merging", look: .acting),
+                "while finish_task runs")
+
+        var refused = accepted
+        refused.operated?.acceptance = TaskAcceptance(resultSHA: "ca1df2810bf63763dbdb218a1bc83cbe62a72d57", prerequisiteSHAs: [],
+                                                      checkOutput: "", note: nil, at: OperatorFixtures.epoch)
+        refused.operated?.publication = TaskPublication(mergeRefusal: "The Oracle judged that the conditions to merge don’t hold yet: no review.")
+        #expect(OperatorLine.task(refused, run: run, acting: nil, requests: [])?.text == "waiting to merge · refused by the Oracle")
+        var landed = refused
+        landed.operated?.state = .published
+        landed.operated?.publication = TaskPublication(targetBranch: "main", merged: true, landedSHA: "ca1df2810bf63763dbdb218a1bc83cbe62a72d57")
+        #expect(OperatorLine.task(landed, run: run, acting: nil, requests: []) == OperatorLine("merged · ca1df28", look: .ended))
     }
 }

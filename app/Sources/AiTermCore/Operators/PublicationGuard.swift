@@ -12,16 +12,8 @@ public enum PublicationGuard {
 
     public static func refusal(task: TaskItem, run: OperatorRun, parent: TaskItem?, defaultBranch: String,
                                branchTip: String?) -> String? {
-        guard let operated = task.operated else { return notOperated }
-        if let why = runRefusal(run) { return why }
-        if operated.end == .commit {
-            return "\(operated.key) ends in a commit: its plan opens no merge request, so there is nothing to finish."
-        }
-        if operated.takenOver { return "You've taken \(operated.key) over; it is published only once you hand it back." }
-        guard operated.state == .accepted, let acceptance = operated.acceptance else {
-            return "Only an accepted task is finished; \(operated.key) is \(operated.state.rawValue)."
-        }
-        if operated.flags.contains(.upstreamReplaced) { return upstreamReplaced(operated.key) }
+        if let why = landedRefusal(task: task, run: run) { return why }
+        guard let operated = task.operated, let acceptance = operated.acceptance else { return notOperated }
         // The slices froze with the broadcast: the run's, never the profile in Settings.
         if operated.end.merges, !run.profile.slices.merge { return mergeSliceOff }
         // With the Oracle on, a merge goes ahead only on its yes for the commit accepted now (the tool handler asks it).
@@ -46,6 +38,24 @@ public enum PublicationGuard {
         } else if let parent = parent?.operated, parent.publication?.mergeRequestNumber == nil {
             return "\(operated.key) builds on \(parent.key), whose branch its request targets: finish \(parent.key) first."
         }
+        return nil
+    }
+
+    /// Why a task is not finished now, whatever its end has still to write: the broadcast, the task's end, its owner, its
+    /// accepted commit. A merge end whose accepted commit is already in its target branch (`Repository.landing`) is recorded
+    /// as merged on these alone: the checks that only authorise a write that no longer happens (the Merge slice, the
+    /// Oracle's yes, the branch's tip, a stacked parent's end) are `refusal`'s.
+    public static func landedRefusal(task: TaskItem, run: OperatorRun) -> String? {
+        guard let operated = task.operated else { return notOperated }
+        if let why = runRefusal(run) { return why }
+        if operated.end == .commit {
+            return "\(operated.key) ends in a commit: its plan opens no merge request, so there is nothing to finish."
+        }
+        if operated.takenOver { return "You've taken \(operated.key) over; it is published only once you hand it back." }
+        guard operated.state == .accepted, operated.acceptance != nil else {
+            return "Only an accepted task is finished; \(operated.key) is \(operated.state.rawValue)."
+        }
+        if operated.flags.contains(.upstreamReplaced) { return upstreamReplaced(operated.key) }
         return nil
     }
 

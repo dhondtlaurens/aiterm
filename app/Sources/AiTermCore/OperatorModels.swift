@@ -74,6 +74,9 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     /// `mergedHead` say what happened, `merged` stays false and nothing stacked on it merges.
     public var merged: Bool
     public var mergedSHA: String?
+    /// The accepted commit `finish_task` found already in `targetBranch`, merged outside it (by hand, by a worker): the
+    /// task is recorded as `merged` with it, and `mergedSHA` stays nil, since ancestry alone names no merge commit.
+    public var landedSHA: String?
     /// The request's head commit the host merged, as the host reported it.
     public var mergedHead: String?
     /// Why the host will not merge it without someone acting — a failed pipeline, conflicts — or why
@@ -105,18 +108,18 @@ public struct TaskPublication: Codable, Equatable, Sendable {
                 targetBranch: String? = nil, waitingSince: Date? = nil, readySince: Date? = nil, merged: Bool = false,
                 mergedSHA: String? = nil, mergedHead: String? = nil, problem: String? = nil, conditionsHeld: String? = nil,
                 repository: String? = nil, leftForYou: Bool = false, waitingReason: String? = nil, mergeRefusal: String? = nil,
-                lastPushFailure: String? = nil, lastPushFailureSHA: String? = nil) {
+                lastPushFailure: String? = nil, lastPushFailureSHA: String? = nil, landedSHA: String? = nil) {
         self.pushedSHA = pushedSHA; self.mergeRequestURL = mergeRequestURL; self.mergeRequestNumber = mergeRequestNumber
         self.targetBranch = targetBranch; self.waitingSince = waitingSince; self.readySince = readySince; self.merged = merged
         self.mergedSHA = mergedSHA; self.mergedHead = mergedHead; self.problem = problem; self.conditionsHeld = conditionsHeld
         self.mergeRefusal = mergeRefusal
         self.repository = repository; self.leftForYou = leftForYou; self.waitingReason = waitingReason
-        self.lastPushFailure = lastPushFailure; self.lastPushFailureSHA = lastPushFailureSHA
+        self.lastPushFailure = lastPushFailure; self.lastPushFailureSHA = lastPushFailureSHA; self.landedSHA = landedSHA
     }
 
     private enum CodingKeys: String, CodingKey {
         case pushedSHA, mergeRequestURL, mergeRequestNumber, targetBranch, waitingSince, readySince, merged, mergedSHA, mergedHead, problem
-        case conditionsHeld, repository, leftForYou, waitingReason, mergeRefusal, lastPushFailure, lastPushFailureSHA
+        case conditionsHeld, repository, leftForYou, waitingReason, mergeRefusal, lastPushFailure, lastPushFailureSHA, landedSHA
     }
 
     /// Every field may be missing: a publication saved before the merge steps reads as not merged.
@@ -132,6 +135,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         readySince = try c.decodeIfPresent(Date.self, forKey: .readySince)
         merged = try c.decodeIfPresent(Bool.self, forKey: .merged) ?? false
         mergedSHA = try c.decodeIfPresent(String.self, forKey: .mergedSHA)
+        landedSHA = try c.decodeIfPresent(String.self, forKey: .landedSHA)
         mergedHead = try c.decodeIfPresent(String.self, forKey: .mergedHead)
         problem = try c.decodeIfPresent(String.self, forKey: .problem)
         mergeRefusal = try c.decodeIfPresent(String.self, forKey: .mergeRefusal)
@@ -160,6 +164,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         try c.encodeIfPresent(readySince, forKey: .readySince)
         try c.encode(merged, forKey: .merged)
         try c.encodeIfPresent(mergedSHA, forKey: .mergedSHA)
+        try c.encodeIfPresent(landedSHA, forKey: .landedSHA)
         try c.encodeIfPresent(mergedHead, forKey: .mergedHead)
         try c.encodeIfPresent(problem, forKey: .problem)
         try c.encodeIfPresent(mergeRefusal, forKey: .mergeRefusal)

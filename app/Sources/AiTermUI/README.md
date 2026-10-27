@@ -346,8 +346,8 @@ tooltip and VoiceOver value, the folded chips and the board's band), and the act
 a ticket` and `reopening its window`, on the broadcast's line and the Operator's row with the task named
 after them (`answering Claude · PAY-231`), on the task's own row as `OperatorAct.rowWords` says them:
 `Operator starting it`, `Operator answering`, `Operator checking the work`, `Claude reviewing` (its reviewer)
-and `Operator relaying feedback`, the rest as they are; `opening the MR` and `merging` also while AiTerm publishes an accepted
-task with no act in flight. Quiet: `queued`, `queued · after PAY-232`, `added by the Operator`,
+and `Operator relaying feedback`, the rest as they are. Quiet: `queued`, `queued · after PAY-232`, `added by the Operator`,
+`accepted · not finished` (accepted, its end not carried out, no finish_task running),
 `in review`, `in review · waiting on Jan`, `in review · Codex`, `failed`, `failed · <reason>`,
 and on the broadcast's line `2 to check` (every working task's workers done), `paused`, `paused · the Operator’s window is closed`, `done · writing summary`
 (every task done, the summary not written yet), `done · summary ready`, `done` (AiTerm gave up waiting for it) and `ended`. Needs you: `waiting on you` (a prompt or a question, what it asks in the tooltip: the task's

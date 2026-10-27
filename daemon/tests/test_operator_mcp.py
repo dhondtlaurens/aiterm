@@ -151,6 +151,23 @@ def test_every_tool_has_a_description_and_a_closed_object_schema(tool):
     json.dumps(tool)
 
 
+def test_review_task_says_what_its_reviewer_cannot_do():
+    description = {tool["name"]: tool for tool in TOOLS}["review_task"]["description"]
+    assert "reads files only: it runs no commands and dispatches no subagents" in description
+    assert "open_tab with a read-only brief" in description
+    assert "its first line" in description
+    assert "not recorded as this task's agent review" in description
+
+
+def test_finish_task_records_work_already_merged_outside_it():
+    description = {tool["name"]: tool for tool in TOOLS}["finish_task"]["description"]
+    assert "already in its default branch" in description
+    assert "recorded as merged" in description
+    assert "the Oracle isn't asked" in description
+    assert "AiTerm never writes to the host" in description
+    assert "closing a request still open" in description
+
+
 def test_resume_task_explains_both_runtime_limits_and_the_acceptance_exemption():
     description = {tool["name"]: tool for tool in TOOLS}["resume_task"]["description"]
     assert "90 minutes of work without a new task-branch commit" in description

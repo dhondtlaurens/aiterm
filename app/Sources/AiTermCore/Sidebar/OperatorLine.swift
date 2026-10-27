@@ -76,7 +76,7 @@ public struct OperatorActs: Equatable, Sendable {
 /// AiTerm's caption grammar, `state` or `state · detail`, lowercase, no full stop, from a closed list.
 ///
 /// - `quiet`: the Operator watches and nothing moves (`queued · after PAY-232`, `in review · waiting on
-///   Jan`, `paused`).
+///   Jan`, `accepted · not finished`, `paused`).
 /// - `ended`: drawn as quiet, the Operator's work on the task is over (`done · 4f2a91c`, `merged · 9b3e07d`,
 ///   `draft MR · !412`): the row's trailing mark is the check (1A, 21 Oct 2026).
 /// - `acting`: something moves, as the row's `StatusMark` turns: the Operator holds the task, named as who
@@ -184,8 +184,9 @@ public struct OperatorLine: Equatable, Sendable {
             if let publication = operated.publication, publication.waitingSince != nil { return quiet("waiting to merge", publication.waitingReason ?? "the host is not ready") }
             // Nothing merges until the Operator finishes it again; the card's note holds the reason.
             if operated.publication?.mergeRefusal != nil { return quiet("waiting to merge", "refused by the Oracle") }
-            // AiTerm publishes it now: something moves, as with any act.
-            return OperatorLine(operated.end == .draftMR ? "opening the MR" : "merging", look: .acting)
+            // Nothing moves until the Operator calls finish_task, whose act (`opening the MR`, `merging`) the line says
+            // while it runs; a merge waiting on the host says so above.
+            return quiet("accepted", "not finished")
         case .noChange, .published:
             return ending(of: operated).map { OperatorLine($0, look: .ended) }
         }

@@ -542,6 +542,111 @@ final class MergeClock: Sendable {
         #expect(operated(s)?.state == .accepted)
         #expect(s.store.state.run(id: s.run)?.leftForYou.isEmpty == true)
     }
+
+    // MARK: - Work that reached its target outside finish_task
+
+    /// The Oracle on, as when it refused the merge: a commit already in main is recorded without its yes.
+    func oracleOn(_ s: Setup) {
+        s.store.mutate { $0.updateRun(id: s.run) { $0.profile.oracle.isOn = true } }
+    }
+
+    /// The accepted commit merged into the checkout's main by hand, as a worker or the person does, with a merge commit;
+    /// `push` pushes main to origin as well. The checkout is back on the task's branch after.
+    func mergeByHand(_ s: Setup, push: Bool = false) throws {
+        try git.run(["switch", "-q", "main"], in: s.path)
+        try git.run(["merge", "-q", "--no-ff", "--no-edit", s.sha], in: s.path)
+        if push { try git.run(["push", "-q", "origin", "main"], in: s.path) }
+        try git.run(["switch", "-q", "feat/pluto-231"], in: s.path)
+    }
+
+    /// Merged into local main by a worker (t-runtime-progress): recorded as merged at once, with no Oracle asked, nothing
+    /// pushed and nothing written to the host, even with the branch moved on since; pushing main is left for you.
+    @Test func workMergedIntoLocalMainOutsideFinishTaskIsRecordedAsMerged() async throws {
+        let s = try setUp(end: .merge)
+        oracleOn(s)
+        try mergeByHand(s)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "after the merge"], in: s.path)
+        s.store.mutate { $0.updateOperated(s.task) {
+            $0.publication = TaskPublication(problem: "the pipeline failed", mergeRefusal: "The Oracle judged that the conditions to merge don’t hold yet: no review.")
+        } }
+        let result = await s.finisher.finish(s.task)
+        #expect(result.result == .published && result.merged && result.mergedSHA == nil, "no merge commit is made up from ancestry")
+        #expect(result.reason?.contains("already in main") == true, "\(result.reason ?? "")")
+        let publication = try #require(operated(s)?.publication)
+        #expect(operated(s)?.state == .published)
+        #expect(publication.merged && publication.landedSHA == s.sha && publication.targetBranch == "main")
+        #expect(publication.problem == nil && publication.mergeRefusal == nil)
+        #expect(s.host.log == ["existing feat/pluto-231"], "the host is only read")
+        #expect(try git.run(["for-each-ref", "refs/heads/feat/pluto-231"], in: s.origin).isEmpty, "nothing pushed")
+        #expect(s.store.state.run(id: s.run)?.leftForYou == ["Push main in acme-web: PLUTO-231's commit is in it locally, not in origin/main as last fetched."])
+        let saved = try StateStore(url: s.store.file.url).load()
+        #expect(saved.task(id: s.task)?.operated?.publication?.landedSHA == s.sha, "on disk")
+        #expect(await s.finisher.finish(s.task) == TaskFinisher.Result(publication, result: .published, reason: nil), "a repeat is answered from the record")
+        #expect(s.store.state.run(id: s.run)?.leftForYou.count == 1)
+    }
+
+    /// Merged into main on origin as well: nothing is left to push.
+    @Test func workAlreadyOnOriginsMainLeavesNothingToPush() async throws {
+        let s = try setUp(end: .merge)
+        oracleOn(s)
+        try mergeByHand(s, push: true)
+        let result = await s.finisher.finish(s.task)
+        #expect(result.result == .published && result.merged)
+        #expect(operated(s)?.publication?.landedSHA == s.sha)
+        #expect(s.store.state.run(id: s.run)?.leftForYou.isEmpty == true)
+        #expect(!s.host.log.contains { !$0.hasPrefix("existing") }, "\(s.host.log)")
+    }
+
+    /// Its request still open on the host: closing it is left for you, and AiTerm writes nothing to it.
+    @Test func anOpenRequestOfWorkAlreadyMergedIsLeftForYouToClose() async throws {
+        let s = try setUp(end: .merge)
+        oracleOn(s)
+        try mergeByHand(s, push: true)
+        s.host.update {
+            $0.existing = MergeRequest(iid: 12, title: "PLUTO-231", sourceBranch: "feat/pluto-231", targetBranch: "main", author: "aiterm",
+                                       state: "opened", draft: false, url: FakeMergeHost.url)
+        }
+        let result = await s.finisher.finish(s.task)
+        #expect(result.result == .published && result.merged)
+        #expect(s.store.state.run(id: s.run)?.leftForYou == ["Close MR !12 in acme-web without merging: its commit is already in main."])
+        #expect(s.host.log == ["existing feat/pluto-231"])
+    }
+
+    /// Only the commit accepted now counts: another one in main, a task taken over, or nothing merged, and finish_task goes
+    /// on as before, the Oracle's yes needed for its merge.
+    @Test func onlyTheAcceptedCommitInMainIsRecordedAsMerged() async throws {
+        let s = try setUp(end: .merge)
+        oracleOn(s)
+        let oracleReason = "The Oracle hasn’t said that the conditions written in the Review and the Done hold for PLUTO-231, so AiTerm doesn’t merge it: call finish_task again."
+        let unmerged = await s.finisher.finish(s.task)
+        #expect(unmerged.result == .refused && unmerged.reason == oracleReason, "nothing in main: as before")
+
+        try mergeByHand(s, push: true)
+        s.store.mutate { $0.updateOperated(s.task) { $0.takenOver = true } }
+        let taken = await s.finisher.finish(s.task)
+        #expect(taken.result == .refused && taken.reason == "You've taken PLUTO-231 over; it is published only once you hand it back.")
+        s.store.mutate { $0.updateOperated(s.task) { $0.takenOver = false } }
+
+        // Accepted again on a fix that isn't in main.
+        try git.run(["commit", "--allow-empty", "-q", "-m", "the fix"], in: s.path)
+        let fix = try git.run(["rev-parse", "HEAD"], in: s.path)
+        s.store.mutate { $0.updateOperated(s.task) { $0.acceptance?.resultSHA = fix } }
+        let refused = await s.finisher.finish(s.task)
+        #expect(refused.result == .refused && refused.reason == oracleReason)
+        #expect(operated(s)?.state == .accepted && operated(s)?.publication?.merged != true && operated(s)?.publication?.landedSHA == nil)
+        #expect(s.host.log.isEmpty && s.store.state.run(id: s.run)?.leftForYou.isEmpty == true)
+    }
+
+    /// A merge left for you with the Merge slice off, then merged by the person: finish_task records it as merged.
+    @Test func workLeftForYouAndMergedByHandIsRecordedAsMerged() async throws {
+        let s = try setUp(end: .merge, slices: .none)
+        #expect(await s.finisher.finish(s.task).result == .refused)
+        #expect(await s.finisher.finish(s.task).result == .leftForYou)
+        try mergeByHand(s, push: true)
+        let result = await s.finisher.finish(s.task)
+        #expect(result.result == .published && result.merged)
+        #expect(operated(s)?.state == .published && operated(s)?.publication?.leftForYou == false)
+    }
 }
 
 extension TaskFinisher.Result {

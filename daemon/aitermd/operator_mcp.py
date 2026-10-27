@@ -325,6 +325,10 @@ TOOLS: tuple[dict[str, Any], ...] = (
           ("task", "what")),
     _tool("review_task", "Starts an agent review of a working task's branch, or its accepted commit while inReview: another agent "
           "reads its commits, diff and worktree headless and read-only, as instructions asks, a skill they name passed to it as text. "
+          "The reviewer reads files only: it runs no commands and dispatches no subagents, so it can't run git or a skill's "
+          "subagent, and says on its first line which steps of a named skill it skipped. When the person's Review requires a "
+          "skill's exact workflow and that needs commands or subagents, run it in a worker tab instead: open_tab with a "
+          "read-only brief. That tab's review is not recorded as this task's agent review. "
           "Nobody is notified, so it needs no slice. It answers started at once; AiTerm wakes you when the findings are in, "
           "and read_task with what: review reads them. Have the task's agent fix them with message_task. A review running "
           "already, or the same review of the same commit, is not started again.",
@@ -400,6 +404,11 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "mergeLocal: merges the accepted commit into the project's own checkout's default branch and never pushes; "
           "that checkout must be on its default branch with nothing uncommitted. AiTerm leaves the push for the person, "
           "as \"Push main in <project>: merged locally.\" "
+          "A merge or mergeLocal end whose accepted commit is already in its default branch, merged outside finish_task by "
+          "the person or a worker, is recorded as merged: nothing is pushed or merged, AiTerm never writes to the host, and "
+          "the Oracle isn't asked, so call finish_task for such work, even after a refused merge or one left for the person. "
+          "AiTerm leaves pushing a default branch that has it only locally, and closing a request still open from the "
+          "task's branch, for the person. "
           "With the Oracle on, a finish_task that would merge first needs the Oracle's yes that the conditions written "
           "in the Review and the Done hold; a no is recorded on the task and refuses the merge. "
           "A push the repository's pre-push hook refused fails with the hook's output as its reason. noVerify pushes past "
@@ -414,7 +423,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "twice, and on a task that is done it answers what was done. A push that timed out may have landed: call "
           "finish_task again. A takeover stops a merge's waiting: call finish_task again once the task is handed "
           "back. "
-          "Refused if the task ends in a commit, the task was taken over, its branch moved past the accepted commit, "
+          "Refused if the task ends in a commit, the task was taken over, its branch moved past the accepted commit (unless "
+          "that commit is already in the default branch), "
           "its parent was accepted again, the broadcast is paused, stopped or offline, the host protects its branch "
           "or cannot say whether it does, or it is the default branch. "
           "AiTerm never deploys, never force-pushes, and never pushes to a default or protected branch.",
