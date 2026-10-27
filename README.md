@@ -8,30 +8,6 @@ with an Operator that plans the work and steers the agents for you.
 > AiTerm is built for its maintainer's own workflow. Bug reports are welcome; feature requests and
 > pull requests are not taken. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## At a glance
-
-The sidebar sits beside iTerm2 and keeps every task's window tiled next to it. AiTerm drives the
-real iTerm2 through its Python API; it does not embed a terminal.
-
-- **Operator group**: the broadcast at the top, with the Operator's own row and the tasks it drives,
-  each saying what the Operator is doing (`Operator watching`, `waiting on you`).
-- **Projects**: GitLab, GitHub, plain git or a plain folder, grouped under dividers you name.
-- **Task rows**: the agents in the task's tabs, a status mark (working, needs input, done), and
-  badges for the Jira ticket, the merge request and the lines changed.
-- **Reviews**: a merge or pull request checked out in its own worktree, its resolved review
-  threads counted on the row.
-- **Footer**: the selected task's context fill, the Mac's CPU, memory and battery, and each
-  agent's account usage.
-- **The Shelf** (⌘S): tasks put away, ready to restore, and ended broadcasts to read back.
-- **Focus View** (⌘F): opens only the projects with a row waiting on you, which the Dock badge
-  counts. **List View** (⌘L) opens them all again.
-- **Windows that come back**: after a crash, a reboot or iTerm2 quitting, every task's window
-  reopens with its conversations.
-
-**Backpack Mode** (⌘B) keeps the Mac awake with the lid shut while agents work, joined to your
-iPhone's hotspot. It turns itself off two minutes after the last agent stops, or when the battery
-reaches 10 %. The footer's `backpack enabled` line shows it is on.
-
 ## Install
 
 Needs macOS 26 or newer, iTerm2 with its Python API on (*iTerm2 › Settings › General › Magic ›
@@ -45,7 +21,7 @@ Enable Python API*), and `python3` 3.11 or newer (`brew install python`).
    temporary copy and skips the Claude status line.
 3. Allow AiTerm's API connection when iTerm2 asks. The sidebar says "Waiting for iTerm2…" until you
    do; if you declined, turn the Python API on again in iTerm2 and relaunch AiTerm.
-4. In *Settings › Agents*, press **Install** on each agent you use.
+4. In [*Settings › Agents*](#agents), press **Install** on each agent you use.
 
 *AiTerm › Check for Updates…* installs newer versions in place.
 
@@ -66,8 +42,8 @@ missing, and stops for the clicks only you can make. The steps are in
 - **Agent drivers**: only when you press **Install** on an agent's card; a backup is kept next to
   every file it edits.
 - **A local port**: the helper listens on `127.0.0.1:47821` for the agents' hooks.
-- **Backpack Mode**: only after **Allow…** on the Mac card, the sudoers rule `/etc/sudoers.d/aiterm`
-  that lets AiTerm switch lid sleep with `pmset`. **Remove** takes it out.
+- **Backpack Mode**: the sudoers rule `/etc/sudoers.d/aiterm`, which lets AiTerm switch lid sleep
+  with `pmset`, only once you allow it on the [Mac card](#integrations).
 - **Worktrees**: one per task, under `<repo>/.worktrees/`.
 - **Its own state and log**: `~/Library/Application Support/AiTerm/`.
 
@@ -87,20 +63,31 @@ A local build wears a DEV pill on its Dock icon and does not update itself. More
 
 ## Concepts
 
-You add projects, start a task for each piece of work, and the agent works in its own worktree and
-iTerm2 window while the sidebar shows where each one stands. Hand a batch of work to the Operator
-as a broadcast and it starts and steers the tasks for you.
+The sidebar sits beside iTerm2 and keeps every task's window tiled next to it. AiTerm drives the
+real iTerm2 through its Python API; it does not embed a terminal. You add projects, start a task
+for each piece of work, and the agent works in its own worktree and window while the sidebar shows
+where each one stands.
 
-- **Project**: a repository or folder in the sidebar. A Jira project can be linked to it.
+- **Project**: a GitLab, GitHub or plain git repository, or a plain folder, grouped under dividers
+  you name. A Jira project can be linked to it.
 - **Task**: one piece of work: its own git worktree and branch, its own iTerm2 window, started from
-  a Jira ticket or a prompt (⌘N). The gitignored files `.worktreeinclude` names are copied in.
+  a [Jira ticket](#integrations) or a prompt (⌘N). The gitignored files `.worktreeinclude` names
+  are copied in. Its row shows the agents in its tabs, a [status mark](docs/status-model.md)
+  (working, needs input, done) and the [badges](#interface) you keep. After a crash, a reboot or
+  iTerm2 quitting, every task's window reopens with its conversations.
 - **Tab**: an agent in a task's window. A task can hold several, each its own agent.
 - **Terminal**: a plain shell in the project folder, with no worktree (⌘T).
 - **Review**: a merge or pull request checked out in its own worktree, with an agent on it (⌘R).
-- **The Shelf**: puts a task away. Its worktree goes and its branch stays; restoring brings back
-  the worktree and its conversations.
-- **Broadcast**: one prompt to the Operator across one or more projects. It plans the tasks, starts
-  them and steers them to the end you set. One runs at a time.
+  Its row counts the resolved review threads.
+- **Broadcast**: one prompt to the [Operator](#operator) across one or more projects, carried
+  through to the end you set. One runs at a time.
+- **The Shelf** (⌘S): puts a task away. Its worktree goes and its branch stays; restoring brings
+  back the worktree and its conversations. Ended broadcasts are kept here to read back.
+- **Focus View** (⌘F): opens only the projects with a row waiting on you, which the Dock badge
+  counts. **List View** (⌘L) opens them all again.
+- **Footer**: SYSTEM shows the selected task's context fill, the Mac's CPU, memory and battery,
+  and `backpack enabled` while [Backpack Mode](#integrations) is on. USAGE shows each agent's
+  account usage.
 
 ## Settings
 
@@ -123,7 +110,8 @@ Every agent card has the same parts:
 - **CLI**: the agent's command is on your login shell's `PATH`.
 - **Driver**: what reports the agent's status to AiTerm.
 - **Messaging**: whether AiTerm can type into the agent's session safely on the installed version,
-  proven by a delivery check. The Operator steers its workers this way.
+  proven by a delivery check. The Operator steers its workers this way, so only an agent with
+  Messaging can be one.
 - **Install / Repair / Reinstall**: installs a missing CLI with its vendor's installer, then
   AiTerm's driver. **Run check** appears when only Messaging is missing: it opens iTerm2 and runs
   the delivery check, which takes a few minutes.
@@ -132,14 +120,14 @@ Every agent card has the same parts:
 
 #### Claude Code
 
-Anthropic's agent, and the one the Operator itself runs on.
+Anthropic's agent.
 
 - **CLI**: `claude`.
 - **Driver**: HTTP hooks and a status-line bridge for usage, merged into `settings.json` under
   `$CLAUDE_CONFIG_DIR` (default `~/.claude`). The card shows that path.
 - **Messaging**: checked per Claude Code version.
-- **In the app**: task rows and tabs, context and account usage in the footer, the Operator, a
-  worker, the Oracle, an agent reviewer and Find a Fix.
+- **In the app**: task rows and tabs, context and account usage in the footer, the
+  [Operator](#operator), a worker, the Oracle, an agent reviewer and Find a Fix.
 
 #### Codex
 
@@ -148,8 +136,8 @@ OpenAI's agent.
 - **CLI**: `codex`.
 - **Driver**: command hooks and an MCP server for `Stop`, merged into `~/.codex/config.toml`.
 - **Messaging**: checked per Codex version.
-- **In the app**: task rows and tabs, context and account usage in the footer, a worker, the
-  Oracle (its default) and an agent reviewer.
+- **In the app**: task rows and tabs, context and account usage in the footer, and for the
+  [Operator](#operator) a worker, the Oracle and an agent reviewer.
 
 > **Codex runs without approvals.** Codex tasks launch with
 > `--dangerously-bypass-approvals-and-sandbox`, which turns off Codex's approval prompts and
@@ -157,27 +145,30 @@ OpenAI's agent.
 
 #### PI
 
-An open agent harness that reaches many model providers; its models come from the providers you
-signed in to with `/login` in PI.
+An open agent harness; its models come from the providers you signed in to with `/login` in PI.
 
 - **CLI**: `pi`.
 - **Driver**: an extension AiTerm owns in `~/.pi/agent/extensions/`.
-- **Messaging**: not built for PI, so the Operator cannot start or steer a PI task.
-- **In the app**: task rows and tabs you start yourself, with context fill (no account usage), the
-  Oracle, and an agent reviewer.
+- **Messaging**: not built for PI yet, so the Operator cannot start or steer a PI task, or give a
+  task a PI tab.
+- **In the app**: task rows and tabs you start yourself, with context fill (no account usage), and
+  for the [Operator](#operator) the Oracle, which checks with read-only tools rather than a
+  sandbox, and an agent reviewer.
 
 ### Operator
 
-The Operator is Claude Code in its own iTerm2 window, given one broadcast at a time. It plans the
-tasks, starts their agents, answers them from the brief and the code, and accepts or sends back
-their work. It reads code but never writes it; its agents do. Start one with the **+** on the
-OPERATOR heading; a click on the broadcast opens its board (**Board**, **Activity**, **Summary**).
+The Operator works a [broadcast](#concepts) through to its end in its own iTerm2 window. In the
+sidebar, the OPERATOR group holds the broadcast, the Operator's own row and the tasks it drives,
+each saying what the Operator is doing (`Operator watching`, `waiting on you`). The **+** on its
+heading starts a broadcast; a click on the broadcast opens its board (**Board**, **Activity**,
+**Summary**).
 
-- **Agent**: Claude Code, with its **Model** and **Reasoning**. Its workers are Claude Code or
-  Codex, on their default model from Settings › Agents unless it picks another from that list. New
+- **Agent**: Claude Code, with its **Model** and **Reasoning**. Its workers run on an agent with
+  [Messaging](#agents), on that agent's default model unless it picks another from the list. New
   tasks move to the other agent once one's weekly use reaches 80 %.
-- **Base** (always on): plans, starts tasks, steers and answers its agents, adds backlog tasks,
-  commits, pushes the task's branch, opens a draft MR and runs agent reviews.
+- **Base** (always on): plans the tasks, starts their agents, answers them from the brief and the
+  code, accepts or sends back their work, adds backlog tasks, commits, pushes the task's branch,
+  opens a draft MR and runs agent reviews.
 - **Jira** slice: creates and updates tickets in the broadcast's Jira projects.
 - **Review** slice: marks the MR ready, assigns reviewers, has the agent fix their feedback and
   replies in the threads.
@@ -185,10 +176,9 @@ OPERATOR heading; a click on the broadcast opens its board (**Board**, **Activit
   holds. Only a commit it accepted, with the pipeline green and every thread resolved.
 - **Never**: writes code, deploys, force-pushes, pushes to a default or protected branch, or answers
   an agent's permission prompt.
-- **Oracle**: a second agent (Claude Code, Codex or PI, with its model and reasoning). It critiques
-  the plan and the Operator's verdicts, and has the last word on backlog additions past a quarter
-  of the first plan, on merges and on shell commands the gate does not clear. PI checks with
-  read-only tools, not a sandbox. On by default with Codex, when Codex is installed.
+- **Oracle**: a second agent, with its model and reasoning. It critiques the plan and the
+  Operator's verdicts, and has the last word on backlog additions past a quarter of the first plan,
+  on merges and on the shell commands below. On by default with Codex, when Codex is installed.
 - **Instructions**: house rules for every broadcast; `/` lists the agents' skills.
 
 The slices are off by default, and a broadcast keeps the settings it started with. A slice is
@@ -200,9 +190,6 @@ inside the broadcast's checkouts runs at once; push, commit, reset, checkout, cl
 writing `gh`/`glab api` calls are refused outright; everything else goes to the Oracle, which runs
 it, sends the Operator to a worker, or asks you. When the Oracle cannot answer, the command runs
 and is logged.
-
-**PI and the Operator.** PI can be the Oracle, and `review_task` can run a PI agent review. Workers
-and extra tabs are Claude Code or Codex only, since AiTerm cannot message PI yet.
 
 **Its tools.** The Operator acts only through AiTerm's MCP tools:
 
@@ -218,7 +205,7 @@ and extra tabs are Claude Code or Codex only, since AiTerm cannot message PI yet
 | | `open_tab` | Add another worker tab to a task, on the same worktree. |
 | | `read_task` | Read a worker's last message, diff, open prompt or review. |
 | | `resume_task`, `retry_task` | Put a blocked task back to work; queue a failed one again. |
-| Review | `review_task` | Start an agent review of a task's branch (Claude, Codex or PI). |
+| Review | `review_task` | Start an agent review of a task's branch. |
 | | `find_user` | Find people on the code host who may review. |
 | | `request_review`, `reply_thread` | Mark the MR ready and ask reviewers; reply in a thread (Review slice). |
 | Finish | `mark_task` | Record a task's outcome: accepted, no change, blocked or failed. |
@@ -234,15 +221,16 @@ The connections AiTerm needs (Core) and the services it reads and writes (Servic
 tests itself as you type; tokens are kept in the Keychain, and **Disconnect** removes them.
 
 - **iTerm2**: the Python helper's connection, with numbered steps when it is not working.
-- **Mac**: Backpack Mode's two permissions, **Lid sleep** (the sudoers rule, one password prompt)
-  and **Network discovery** (Location access, which macOS needs to show Wi-Fi names; AiTerm never
-  reads where you are). **Allow…** grants them, **Remove** takes the rule out.
+- **Mac**: Backpack Mode (⌘B) keeps the Mac awake with the lid shut while agents work, joined to
+  your iPhone's hotspot. It turns itself off two minutes after the last agent stops, or when the
+  battery reaches 10 %. It needs two permissions: **Lid sleep** (the sudoers rule, one password
+  prompt) and **Network discovery** (Location access, which macOS needs to show Wi-Fi names; AiTerm
+  never reads where you are). **Allow…** grants them, **Remove** takes the rule out.
 - **Jira** (site URL, email, API token): New Task picks a ticket, names the task and branch after
-  it, and with *Include Jira ticket details* puts the ticket in the agent's first prompt. Jira keys
-  show on rows and project headers, a broadcast's prompt brings in the tickets it names, and the
-  Operator reads and, with its slice on, writes Jira.
-- **GitLab** (host URL, access token): reviews of merge requests, their resolved threads on the
-  row, and the Operator's MRs. Reading needs `read_api`; opening or merging needs `api`.
+  it, and with *Include Jira ticket details* puts the ticket in the agent's first prompt. A
+  broadcast's prompt brings in the tickets it names.
+- **GitLab** (host URL, access token): [reviews](#concepts) of merge requests and the
+  [Operator's](#operator) MRs. Reading needs `read_api`; opening or merging needs `api`.
 - **GitHub** (access token, github.com only): the same for pull requests. Reading needs read access
   to pull requests; opening or merging needs write access to pull requests and contents, and read
   access to administration for branch protection.
@@ -254,8 +242,8 @@ How the sidebar and AiTerm's terminal windows look.
 - **Use dark terminal background**: paints AiTerm's terminal windows `#1E1E1E`; your iTerm2
   profiles stay unchanged.
 - **Sidebar size**: Actual Size, Large or Extra Large; also ⌘+, ⌘− and ⌘0.
-- **Sidebar badges**: show or hide the Jira project count, Jira ticket key, merge request number
-  and lines changed. A hidden badge leaves its mark.
+- **Sidebar badges**: show or hide the Jira project count on project headers, and the Jira ticket
+  key, merge request number and lines changed on task rows. A hidden badge leaves its mark.
 - **Keyboard shortcuts**: every shortcut, read-only. The full list is in
   [docs/keyboard.md](docs/keyboard.md).
 
@@ -269,8 +257,7 @@ The README uses `docs/desktop.png` (above). The snapshot suite
 - **A broadcast's Summary** (`board-summary.png`): the Operator's prose summary and what was left
   for you.
 - **New Broadcast** (`new-broadcast-1.png`): name, Jira projects and projects, before the prompt.
-- **Settings › Agents** (`settings-agents.png`): the three cards with their CLI, Driver and
-  Messaging checks.
+- **Settings › Agents** (`settings-agents.png`): the three cards with their checks.
 - **Settings › Operator** (`settings-operator.png`): the slices, the never lines and the Oracle.
 - **Find a Fix** (`banner-find-a-fix-proposal.png`): a proposed fix with Apply.
 - **Backpack Mode** (`backpack-sheet-*.png`): the sheet that joins the hotspot.
