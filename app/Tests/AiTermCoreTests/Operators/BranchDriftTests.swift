@@ -32,8 +32,10 @@ import Foundation
         #expect(loose.found == "Its worktree's HEAD is detached at b0b0b0b, off its task branch feat/pluto-1.")
     }
 
+    /// A commit on another branch, neither the task's nor its base, is work done off the task branch.
     @Test func aCommitTheLastMessageNamesOffTheTaskBranchIsDriftWithTheBranchItIsOn() throws {
-        let off = BranchDrift.Named(text: "c0ffee1", commit: "c0ffee1c0ffee1", onTaskBranch: false, branches: ["feat/elsewhere"])
+        let off = BranchDrift.Named(text: "c0ffee1", commit: "c0ffee1c0ffee1", onTaskBranch: false, branches: ["feat/elsewhere"],
+                                    onBaseBranch: false, mergesTaskBranch: false)
         let found = try #require(BranchDrift.find(taskBranch: "feat/pluto-1", head: head, named: [off], previous: nil))
         #expect(found == BranchDrift(source: .lastMessage, branch: "feat/elsewhere", sha: "c0ffee1",
                                      found: "Its last message names c0ffee1, which isn't on its task branch feat/pluto-1: it is on feat/elsewhere."))
@@ -41,6 +43,17 @@ import Foundation
         let onNoBranch = try #require(BranchDrift.find(taskBranch: "feat/pluto-1", head: head, named: [loose], previous: nil))
         #expect(onNoBranch.branch == nil && onNoBranch.sha == "abc1234")
         #expect(onNoBranch.found == "Its last message names abc1234, which isn't on its task branch feat/pluto-1.")
+    }
+
+    /// A commit the base branch holds (`main has moved on to 47611e3`) and a merge of the task into main are named in
+    /// passing, not work done off the task branch: no drift. One really off it, named beside them, still is.
+    @Test func aBaseBranchCommitOrAMergeOfTheTaskIsNoDrift() throws {
+        let mainHead = BranchDrift.Named(text: "47611e3", commit: "47611e3a0b1c", onTaskBranch: false, branches: ["main"], onBaseBranch: true)
+        let merge = BranchDrift.Named(text: "0cc3b09", commit: "0cc3b09d2e3f", onTaskBranch: false, branches: [], mergesTaskBranch: true)
+        #expect(BranchDrift.find(taskBranch: "feat/pluto-1", head: head, named: [mainHead, merge], previous: nil) == nil)
+        let off = BranchDrift.Named(text: "c0ffee1", commit: "c0ffee1c0ffee1", onTaskBranch: false, branches: ["feat/elsewhere"])
+        let found = try #require(BranchDrift.find(taskBranch: "feat/pluto-1", head: head, named: [mainHead, merge, off], previous: nil))
+        #expect(found.sha == "c0ffee1" && found.branch == "feat/elsewhere")
     }
 
     /// While the worker works its last message isn't read: what an earlier one showed is kept, a HEAD drift

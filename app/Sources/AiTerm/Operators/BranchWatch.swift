@@ -59,7 +59,8 @@ final class BranchWatch {
                   let conversation = tab.conversation else { return nil }
             return (tab.agent, conversation)
         }
-        let git = ports.git, transcripts = self.transcripts, known = lastMessages, worktree = task.worktreePath, branch = task.branch
+        let git = ports.git, transcripts = self.transcripts, known = lastMessages, worktree = task.worktreePath
+        let branch = task.branch, base = task.baseBranch
         let reading = await BackgroundWork.run {
             var read: [String: Read] = [:]
             let named: [BranchDrift.Named]? = conversations.isEmpty ? nil : conversations.flatMap { conversation -> [BranchDrift.Named] in
@@ -71,7 +72,7 @@ final class BranchWatch {
                     message = WorkerTranscript.lastMessage(in: file, agent: conversation.agent)
                     if let modified { read[conversation.id] = Read(modified: modified, message: message) }
                 }
-                return message.map { Self.named(in: $0, branch: branch, worktree: worktree, git: git) } ?? []
+                return message.map { Self.named(in: $0, branch: branch, base: base, worktree: worktree, git: git) } ?? []
             }
             return (head: Self.head(in: worktree, git: git), named: named, read: read)
         }
@@ -112,19 +113,49 @@ final class BranchWatch {
     }
 
     /// The SHAs `message` names that are commits in the repository, each looked up: the commit it is, whether
-    /// `branch` holds it, and which other branches do. A hex string that is no commit here (a session id, a hash
-    /// quoted as evidence) is left out, as is one git couldn't answer for: nothing is said of either.
-    nonisolated static func named(in message: String, branch: String, worktree: String, git: any GitRunning) -> [BranchDrift.Named] {
-        BranchDrift.shaCandidates(in: message).compactMap { text in
+    /// `branch` holds it, which other branches do, and for one it doesn't, whether `base` (none: the default branch) or
+    /// the default branch holds it, here or on origin, and whether it is a merge of `branch` (`merges`). A hex
+    /// string that is no commit here (a session id, a hash quoted as evidence) is left out, as is one git couldn't answer
+    /// for: nothing is said of either.
+    nonisolated static func named(in message: String, branch: String, base: String, worktree: String, git: any GitRunning) -> [BranchDrift.Named] {
+        // The base branch and the default one, each as this clone has it and as origin's: asked once, and only for a
+        // commit off the task branch.
+        var baseRefs: [String]?
+        func bases() -> [String] {
+            if let baseRefs { return baseRefs }
+            let names = [base.isEmpty ? nil : base, Repository(worktree, git: git).defaultBranch()].compactMap { $0 }
+            let refs = Array(Set(names.flatMap { ["refs/heads/" + $0, "refs/remotes/origin/" + $0] })).sorted()
+            baseRefs = refs
+            return refs
+        }
+        return BranchDrift.shaCandidates(in: message).compactMap { text in
             guard case .answered(let found) = ask(["rev-parse", "--verify", "--quiet", text + "^{commit}"], in: worktree, none: [1, 128], git: git),
                   let commit = found
             else { return nil }
             guard case .answered(let held) = ask(["merge-base", "--is-ancestor", commit, "refs/heads/" + branch], in: worktree, none: [1], git: git),
-                  let listed = try? git.run(["for-each-ref", "--contains", commit, "--format=%(refname:short)", "refs/heads"], in: worktree)
+                  let listed = try? git.run(["for-each-ref", "--contains", commit, "--format=%(refname)", "refs/heads", "refs/remotes/origin"],
+                                            in: worktree)
             else { return nil }
-            let branches = listed.split(separator: "\n").map(String.init).filter { $0 != branch }
-            return BranchDrift.Named(text: text, commit: commit, onTaskBranch: held != nil, branches: branches)
+            let refs = listed.split(separator: "\n").map(String.init)
+            let branches = refs.compactMap { $0.hasPrefix("refs/heads/") ? String($0.dropFirst("refs/heads/".count)) : nil }.filter { $0 != branch }
+            guard held == nil else { return BranchDrift.Named(text: text, commit: commit, onTaskBranch: true, branches: branches) }
+            let onBase = !Set(refs).isDisjoint(with: bases())
+            return BranchDrift.Named(text: text, commit: commit, onTaskBranch: false, branches: branches, onBaseBranch: onBase,
+                                     mergesTaskBranch: !onBase && merges(commit, branch: branch, worktree: worktree, git: git))
         }
+    }
+
+    /// Whether `commit` is a merge of `branch`: a merge commit that holds its head while its first parent doesn't, so the
+    /// merge brought the task's work in. One that merged something else into a branch already holding it is not. False
+    /// when git couldn't say.
+    nonisolated private static func merges(_ commit: String, branch: String, worktree: String, git: any GitRunning) -> Bool {
+        let head = "refs/heads/" + branch
+        guard case .answered(let second) = ask(["rev-parse", "--verify", "--quiet", commit + "^2"], in: worktree, none: [1, 128], git: git),
+              second != nil,
+              case .answered(let holds) = ask(["merge-base", "--is-ancestor", head, commit], in: worktree, none: [1], git: git), holds != nil,
+              case .answered(let before) = ask(["merge-base", "--is-ancestor", head, commit + "^1"], in: worktree, none: [1], git: git)
+        else { return false }
+        return before == nil
     }
 
     /// `GitRunning.ask`, with git's "no" (nil) told apart from a failure that says nothing.
