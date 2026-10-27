@@ -440,6 +440,38 @@ import Foundation
         #expect(status.tasks[0].peopleReview?.startedAt == began, "run_status shows when the review began")
     }
 
+    /// A review is not quiet while anything on its task still works or waits: a worker tab at work or opening (a review
+    /// skill's subagent holds it working), work in the background, a turn not read yet, an agent review running, a prompt
+    /// or a question waiting on you.
+    @Test func aReviewWithATabAtWorkIsNotQuiet() throws {
+        let began = F.epoch, late = began.addingTimeInterval(3600)
+        func tab(_ status: SessionState?, opening: Bool = false, prompt: String? = nil) -> TaskLiveFacts.Tab {
+            TaskLiveFacts.Tab(key: "review", agent: .claude, model: "sonnet", status: status, opening: opening, waitingPrompt: prompt)
+        }
+        let quiet = [TaskLiveFacts(status: .idle, tabs: [tab(.idle)]), TaskLiveFacts(status: .done, tabs: [tab(nil)])]
+        for facts in quiet { #expect(try inReview(began: began, now: late, facts: facts).obligations.reviewQuiet == ["B"]) }
+        let busy: [(TaskLiveFacts, String)] = [
+            (TaskLiveFacts(status: .working), "its first worker at work"),
+            (TaskLiveFacts(status: .idle, tabs: [tab(.working)]), "a tab at work"),
+            (TaskLiveFacts(status: .idle, tabs: [tab(nil, opening: true)]), "a tab opening"),
+            (TaskLiveFacts(status: .idle, background: ["npm run test"]), "work in the background"),
+            (TaskLiveFacts(status: .idle, turnUnread: true), "a turn not read yet"),
+            (TaskLiveFacts(status: .needsInput, waitingPrompt: "permission"), "a prompt waiting on you"),
+            (TaskLiveFacts(status: .idle, tabs: [tab(.needsInput, prompt: "permission")]), "a tab's prompt waiting on you"),
+        ]
+        for (facts, why) in busy { #expect(try inReview(began: began, now: late, facts: facts).obligations.reviewQuiet.isEmpty, "\(why)") }
+        var b = F.task("B", .inReview)
+        b.operated?.peopleReview = PeopleReview(startedAt: began)
+        b.operated?.agentReview = AgentReviewResult(agent: .codex, instructions: "Review.", head: "4f2a91c", startedAt: began)
+        let reviewing = [b.id: TaskLiveFacts(status: .idle)]
+        #expect(try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1, live: reviewing, now: late))
+            .obligations.reviewQuiet.isEmpty, "an agent review running")
+        b.operated?.agentReview = nil
+        b.operated?.flags = [.waitingOnYou]
+        #expect(try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1, live: reviewing, now: late))
+            .obligations.reviewQuiet.isEmpty, "a question waiting on you")
+    }
+
     /// Anything waiting on someone keeps it off: an unresolved thread, a worker's question, work after acceptance; so does a
     /// review already ended, a task you took over, or one that is not in review.
     @Test func aThreadKeepsItOffTheList() throws {
