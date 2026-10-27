@@ -31,10 +31,11 @@ import Testing
         return (world, run, task)
     }
 
-    /// The Operator's tab, the first worker in `first`, and the extra tab in `review` unless it is nil.
+    /// The Operator's tab, the first worker in `first`, and the extra tab in `review` unless it is nil. The first worker
+    /// named its conversation as Claude does at once: no longer opening, its idle is an ended turn.
     func show(_ world: OperatorWorld, _ run: OperatorRun, _ task: TaskItem, first: SessionState, review: SessionState?) {
         var tabs = [OperatorServiceFixtures.session("op", window: "wop", tag: run.id),
-                    OperatorServiceFixtures.session("s1", tag: task.id, state: first)]
+                    OperatorServiceFixtures.session("s1", tag: task.id, state: first, conversation: "conv-main")]
         if let review { tabs.append(Self.extraTab(of: task, state: review)) }
         world.show(tabs)
     }

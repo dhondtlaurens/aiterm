@@ -157,7 +157,8 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
   tick: it grew, or a tool call it started has no result yet (for up to `OperatorTiming.openCallMinutes`,
   30 min, from the call's start), which also keeps the worker from reading `working?`. A task counts every
   worker tab it has (`WorkerTab`: its first worker and the Operator's `open_tab` tabs, one still opening at
-  work): its runtime runs while any is at work, it waits for acceptance once all ended their turn, each
+  work, and a first worker launched under `OperatorTiming.firstWorkerOpening` ago that has named no
+  conversation yet, as Codex reads idle until its first hook): its runtime runs while any is at work, it waits for acceptance once all ended their turn, each
   tab is on its own stall clock and probed for its own prompt, and `BranchWatch` reads each one's last message.
   Runtime has two limits (`OperatorTiming`): 90 minutes of work without a new commit on the task's
   branch, and four hours of total work since starting or the Operator last resumed it. A changed

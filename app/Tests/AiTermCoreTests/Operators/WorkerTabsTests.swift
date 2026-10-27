@@ -107,6 +107,32 @@ import Testing
         #expect(!task.workerTabs(in: [])[0].isClosed, "a first worker with no tab listed is never closed")
     }
 
+    /// A first worker launched a moment ago that has named no conversation yet is opening as of a given time: Codex reads
+    /// idle until its first hook. Not once it names one, asks or works, nor once its launch is over, nor read with no time.
+    @Test func aFirstWorkerJustLaunchedIsOpeningUntilItNamesAConversation() {
+        var task = task([])
+        task.agent = .codex
+        task.operated?.launch = LaunchAttempt(number: 1, requestedAt: start, openedAt: start.addingTimeInterval(5))
+        let idle = session("s1", task: task.id, agent: .codex, state: .idle)
+        let now = start.addingTimeInterval(30)
+        #expect(task.workerTabs(in: [idle], now: now)[0].isOpening)
+        #expect(task.workerTabs(in: [idle], now: now)[0].status == .working)
+        #expect(!task.isReadyForAcceptance(tabs: task.workerTabs(in: [idle], now: now)))
+        #expect(task.workerTabs(in: [], now: now)[0].isOpening, "its window not listed yet")
+        #expect(!task.workerTabs(in: [idle])[0].isOpening, "no time given: taken as its tab says")
+        var named = idle
+        named.conversationId = "conv-1"
+        #expect(!task.workerTabs(in: [named], now: now)[0].isOpening)
+        #expect(!task.workerTabs(in: [session("s1", task: task.id, agent: .codex, state: .needsInput)], now: now)[0].isOpening)
+        #expect(!task.workerTabs(in: [idle], now: start.addingTimeInterval(5 + OperatorTiming.firstWorkerOpening))[0].isOpening,
+                "its launch is over")
+        var recorded = task
+        recorded.conversations = [TaskConversation(agent: .codex, id: "conv-0")]
+        #expect(!recorded.workerTabs(in: [idle], now: now)[0].isOpening, "a conversation it named before")
+        task.operated?.state = .blocked
+        #expect(!task.workerTabs(in: [idle], now: now)[0].isOpening)
+    }
+
     /// The first worker's conversation, as its window last showed it: the first of its agent's that no extra tab named,
     /// wherever that tab stood in the window.
     @Test func theFirstWorkersConversationIsNoExtraTabs() {

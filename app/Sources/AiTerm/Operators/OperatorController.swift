@@ -345,14 +345,15 @@ final class OperatorController {
     /// each waits on you with (the open question D14 records for it). While its first worker is idle or done, what that
     /// turn left (`turns`, spec §J): a working task whose turn is not read yet, or answered by `message_task` since, is
     /// `turnUnread`. A first worker at work whose task is in `quiet` has gone quiet (spec §H). A worker an API error stopped
-    /// says why (`StoppedOn.reason`), a limit's reset as of `now`.
+    /// says why (`StoppedOn.reason`), a limit's reset as of `now`. A first worker whose launch is under way as of `now` and
+    /// that has named no conversation yet is opening (`TaskItem.workerTabs(in:now:)`): at work, its turn not ended.
     static func liveFacts(of run: UUID, state: AppState, sessions: [SessionInfo],
                           turns: [UUID: WorkerTurnReader.Reading], quiet: Set<UUID> = [], now: Date = Date()) -> [UUID: TaskLiveFacts] {
         let questions = state.run(id: run)?.questions ?? []
         var facts: [UUID: TaskLiveFacts] = [:]
         for task in state.tasks(inRun: run) {
             let open = questions.filter { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix(OperatorQuestion.promptPrefix) }
-            let workers = task.workerTabs(in: sessions), tab = workers[0].session, prompt = open.first { $0.tab == nil }?.text
+            let workers = task.workerTabs(in: sessions, now: now), tab = workers[0].session, prompt = open.first { $0.tab == nil }?.text
             let extra = workers.dropFirst().compactMap { worker in
                 worker.key.map { key in
                     let prompt = open.first { $0.tab == key }?.text
@@ -363,14 +364,15 @@ final class OperatorController {
                                              slashCommands: worker.session?.slashCommands ?? [])
                 }
             }
-            if tab != nil || prompt != nil || !extra.isEmpty {
+            if tab != nil || prompt != nil || !extra.isEmpty || workers[0].isOpening {
                 var live = TaskLiveFacts(status: prompt == nil || tab == nil ? tab?.state : .needsInput, waitingPrompt: prompt, tabs: Array(extra),
                                          background: workers.flatMap(\.background),
                                          yourPrompt: workers.lazy.compactMap { $0.session?.yourPrompt }.first,
                                          quiet: prompt == nil && quiet.contains(task.id), liveModel: tab?.liveModel,
                                          liveReasoning: tab?.liveReasoning, slashCommands: tab?.slashCommands ?? [],
-                                         stoppedOn: workers.lazy.compactMap { $0.session?.stoppedOn }.first?.reason(now: now))
-                if let tab, live.status?.turnEnded == true {
+                                         stoppedOn: workers.lazy.compactMap { $0.session?.stoppedOn }.first?.reason(now: now),
+                                         opening: workers[0].isOpening)
+                if let tab, !live.opening, live.status?.turnEnded == true {
                     if let turn = turns[task.id], turn.session == tab.sessionId, !turn.messaged {
                         live.lastMessage = turn.lastMessage
                         live.commitsAhead = turn.commitsAhead
@@ -733,6 +735,8 @@ final class OperatorController {
         for id in reconciler.tick() { runChanged(id) }
         applyStallFlags()
         quiet.refresh()
+        // A first worker whose launch is over, still idle, has its turn read now (`TaskItem.workerTabs(in:now:)`).
+        turns.observe()
         branchWatch.poll()
         // A prompt whose tab left it without an event, or a menu no hook announced.
         probePrompts(.reconcile)

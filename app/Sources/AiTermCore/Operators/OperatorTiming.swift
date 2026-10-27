@@ -53,6 +53,9 @@ public enum OperatorTiming {
     /// worker at work, though its transcript says nothing meanwhile: neither quiet (spec §H) nor possibly stalled. Past that,
     /// a tool that hung is caught as any silence is.
     public static let openCallMinutes = 30
+    /// App only: seconds after its window was seen, else asked for, that a first worker which has named no conversation yet
+    /// still counts as opening (`TaskItem.workerTabs(in:now:)`): Codex reads idle until its first hook, half a minute in.
+    public static let firstWorkerOpening: TimeInterval = 180
     /// Minutes a task may sit in review with nothing waiting (no open thread, no worker's question or change) before
     /// `run_status` lists it under `reviewQuiet` and wakes the Operator, who decides against the Done whether it is over (spec §K).
     public static let reviewQuietMinutes = 5

@@ -30,6 +30,9 @@ public struct TaskLiveFacts: Equatable, Sendable {
 
     /// The first worker's live status.
     public var status: SessionState?
+    /// Its first worker's launch is under way and it has named no conversation yet (`WorkerTab.isOpening`): at work,
+    /// whatever its tab says.
+    public var opening: Bool
     /// The classified prompt that waits on you in the first worker, `permission` or `unknown` (spec §7.2), if any.
     public var waitingPrompt: String?
     /// The task's extra worker tabs, in the order asked for.
@@ -67,8 +70,8 @@ public struct TaskLiveFacts: Equatable, Sendable {
                 tabs: [Tab] = [], background: [String] = [], yourPrompt: String? = nil, lastMessage: String? = nil,
                 commitsAhead: Int? = nil, atReopenedCommit: Bool = false, changedAfterAcceptance: Bool = false, turnUnread: Bool = false,
                 quiet: Bool = false, liveModel: String? = nil, liveReasoning: String? = nil, slashCommands: [SlashCommand] = [],
-                stoppedOn: String? = nil) {
-        self.status = status; self.waitingPrompt = waitingPrompt
+                stoppedOn: String? = nil, opening: Bool = false) {
+        self.status = status; self.waitingPrompt = waitingPrompt; self.opening = opening
         self.tabs = tabs; self.background = background; self.yourPrompt = yourPrompt
         self.lastMessage = lastMessage; self.commitsAhead = commitsAhead; self.atReopenedCommit = atReopenedCommit
         self.changedAfterAcceptance = changedAfterAcceptance
@@ -78,7 +81,9 @@ public struct TaskLiveFacts: Equatable, Sendable {
     }
 
     /// Its first worker is idle at its prompt or done: what its turn left is its final word.
-    var turnEnded: Bool { status?.turnEnded == true }
+    var turnEnded: Bool { counted?.turnEnded == true }
+    /// What its first worker counts as: `WorkerTab.status`.
+    var counted: SessionState? { opening ? .working : status }
 }
 
 /// What AiTerm knows beyond `state.json` that belongs to the whole broadcast rather than one task:
@@ -273,6 +278,9 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         /// Why one of its workers stopped short of finishing its turn, an API error Claude Code reported: a usage limit and
         /// when it resets, or a billing or sign-in failure that waits on the person. Not ready while it says so; nil otherwise.
         public var stoppedOn: String?
+        /// True while its first worker is still starting: launched a moment ago, it has named no conversation yet, and counts
+        /// as at work whatever `live` says. Nil otherwise.
+        public var opening: Bool?
         public init(id: UUID, key: String, title: String, project: String, agent: AgentKind, model: String,
                     state: OperatedState, end: TaskEnd, revision: Int, live: LiveState? = nil, branch: String,
                     dependsOn: [Dependency] = [],
@@ -280,7 +288,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                     takenOver: Bool = false, retriesUsed: Int = 0, agentReview: AgentReviewLine? = nil,
                     peopleReview: PeopleReviewLine? = nil, branchDrift: BranchDrift? = nil, tabs: [TabLine]? = nil, background: [String]? = nil,
                     yourPrompt: String? = nil, mergeRefusal: String? = nil, reopenedFrom: String? = nil, liveModel: String? = nil,
-                    liveReasoning: String? = nil, slashCommands: [SlashCommandLine]? = nil, stoppedOn: String? = nil) {
+                    liveReasoning: String? = nil, slashCommands: [SlashCommandLine]? = nil, stoppedOn: String? = nil,
+                    opening: Bool = false) {
             self.id = id; self.key = key; self.title = title; self.project = project; self.agent = agent; self.model = model
             self.state = state; self.end = end; self.revision = revision; self.live = live; self.branch = branch
             self.dependsOn = dependsOn
@@ -292,6 +301,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             self.mergeRefusal = mergeRefusal; self.reopenedFrom = reopenedFrom
             self.liveModel = liveModel; self.liveReasoning = liveReasoning; self.slashCommands = slashCommands
             self.stoppedOn = stoppedOn
+            self.opening = opening ? true : nil
         }
     }
 
@@ -388,7 +398,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 // As on its card: a task finished or taken over is past the refusal.
                 mergeRefusal: o.takenOver || o.isFinished ? nil : o.publication?.mergeRefusal,
                 reopenedFrom: o.state == .working ? o.reopenedFrom : nil, liveModel: facts.liveModel, liveReasoning: facts.liveReasoning,
-                slashCommands: SlashCommandLine.lines(facts.slashCommands), stoppedOn: facts.stoppedOn))
+                slashCommands: SlashCommandLine.lines(facts.slashCommands), stoppedOn: facts.stoppedOn, opening: facts.opening))
             // What the first worker's ended turn left, on a task in any state but yours (spec §J): a new turn is at work.
             let turn = facts.turnEnded && !o.takenOver && o.state != .stopped
             let asking = turn && WorkerTurn.endsWithQuestion(facts.lastMessage)
@@ -401,7 +411,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 // Only a prompt open in a terminal is listed: the task's key stands for its first worker's prompt.
                 prompts += (facts.waitingPrompt != nil ? [o.key] : []) + tabPrompts
             } else if !o.flags.contains(.waitingOnYou), !facts.turnUnread, facts.stoppedOn == nil,
-                      isReadyForAcceptance(o, live: facts.status, extraTabs: facts.tabs.map(\.counted), asks: asking) {
+                      isReadyForAcceptance(o, live: facts.counted, extraTabs: facts.tabs.map(\.counted), asks: asking) {
                 if !facts.background.isEmpty { background.append(o.key) }
                 // A reopened task with no new commit, still on the one it was accepted on, has that commit to accept again.
                 else if facts.commitsAhead == 0, !(o.reopenedFrom != nil && facts.atReopenedCommit) { noCommit.append(o.key) }
@@ -455,7 +465,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     private static func tabLines(_ item: TaskItem, _ facts: TaskLiveFacts) -> [TabLine]? {
         guard !facts.tabs.isEmpty else { return nil }
         return [TabLine(key: WorkerTab.firstKey, agent: item.agent, model: item.model, live: facts.status.map { LiveState($0, quiet: facts.quiet) },
-                        liveModel: facts.liveModel, liveReasoning: facts.liveReasoning, slashCommands: SlashCommandLine.lines(facts.slashCommands))]
+                        opening: facts.opening, liveModel: facts.liveModel, liveReasoning: facts.liveReasoning, slashCommands: SlashCommandLine.lines(facts.slashCommands))]
             + facts.tabs.map { TabLine(key: $0.key, agent: $0.agent, model: $0.model, live: $0.status.map { LiveState($0) }, opening: $0.opening,
                                        closed: $0.closed, liveModel: $0.liveModel, liveReasoning: $0.liveReasoning,
                                        slashCommands: SlashCommandLine.lines($0.slashCommands)) }

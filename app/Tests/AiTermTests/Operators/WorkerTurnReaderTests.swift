@@ -12,29 +12,32 @@ import Testing
 
     /// A project and task PLUTO-1 in `state`, in its own worktree on `feat/pluto-1` off `main`, its worker in conversation
     /// `conv-1` and at work.
-    func makeWorld(_ state: OperatedState = .working, worker: SessionState = .working)
+    func makeWorld(_ state: OperatedState = .working, worker: SessionState = .working, agent: AgentKind = .claude,
+                   launchedAt: Date = Date(timeIntervalSince1970: 0), conversation: String? = "conv-1", clock: TestClock? = nil)
         throws -> (OperatorWorld, OperatorRun, TaskItem, worktree: String) {
         let repo = try GitFixture.makeRepo(prefix: "op-turn-")
         let worktree = try GitFixture.folder("op-turn-wt-") + "/wt"
         try git.run(["worktree", "add", "-q", "-b", "feat/pluto-1", worktree], in: repo)
         let project = OperatorServiceFixtures.project(path: repo)
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
-        var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: state, worktree: worktree)
+        var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: state, agent: agent, worktree: worktree)
         task.baseBranch = "main"
-        task.operated?.launch = LaunchAttempt(number: 1, requestedAt: Date(timeIntervalSince1970: 0), openedAt: Date(timeIntervalSince1970: 0))
+        task.operated?.launch = LaunchAttempt(number: 1, requestedAt: launchedAt, openedAt: launchedAt)
         if state != .working {
             let head = try git.run(["rev-parse", "HEAD"], in: worktree)
             task.operated?.acceptance = TaskAcceptance(resultSHA: head, prerequisiteSHAs: [], checkOutput: "ok", note: nil,
                                                        at: Date(timeIntervalSince1970: 0))
         }
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
-        world.show(sessions(run, task, worker))
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])) { ports in
+            if let clock { ports.now = { clock.now } }
+        }
+        world.show(sessions(run, task, worker, conversation: conversation))
         return (world, run, task, worktree)
     }
 
-    func sessions(_ run: OperatorRun, _ task: TaskItem, _ worker: SessionState) -> [SessionInfo] {
+    func sessions(_ run: OperatorRun, _ task: TaskItem, _ worker: SessionState, conversation: String? = "conv-1") -> [SessionInfo] {
         [OperatorServiceFixtures.session("op", window: "wo", tag: run.id),
-         OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: worker, conversation: "conv-1")]
+         OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: task.agent.session, state: worker, conversation: conversation)]
     }
 
     /// The worker's turn ends having said `reply`: its tab goes idle, and AiTerm reads the turn.
@@ -112,6 +115,33 @@ import Testing
         #expect(await eventually(describing: "the Operator told") {
             wakeLines(world).last == "[AiTerm] one task finished with no commit, call run_status"
         })
+    }
+
+    /// A Codex worker reads idle, with no conversation named, until its first hook half a minute after its launch (26 Oct
+    /// 2026). Meanwhile it is still opening: at work, so neither ready nor finished without a commit, and `read_task` says
+    /// it is still starting. Its launch over with still no conversation named, it opens no longer, and its turn is read.
+    @Test func aCodexWorkerJustLaunchedIsOpeningUntilItsLaunchIsOver() async throws {
+        let clock = TestClock.operators()
+        let (world, run, task, _) = try makeWorld(worker: .idle, agent: .codex, launchedAt: clock.now, conversation: nil, clock: clock)
+        clock.advance(by: 20)
+        world.controller.reconcileTick()
+        await world.controller.turns.lastRead?.value
+        let current = try #require(world.run(run.id))
+        var line = try #require(world.controller.status(of: current)?.tasks.first)
+        #expect(line.opening == true)
+        var obligations = try status(world, run)
+        #expect(obligations.readyForAcceptance.isEmpty && obligations.finishedWithoutCommit.isEmpty)
+        #expect(world.controller.acting.turns[task.id] == nil)
+        #expect(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "lastMessage"]).value?["note"]
+                == "Its worker is still starting: it hasn’t named a conversation yet. Read it again in a minute.")
+
+        clock.advance(by: OperatorTiming.firstWorkerOpening)
+        world.controller.reconcileTick()
+        await world.controller.turns.lastRead?.value
+        line = try #require(world.controller.status(of: current)?.tasks.first)
+        #expect(line.opening == nil)
+        obligations = try status(world, run)
+        #expect(obligations.finishedWithoutCommit == ["PLUTO-1"])
     }
 
     /// Spec §C's own case: an accepted task is messaged to diagnose a failed push, which reopens it, and its worker answers
