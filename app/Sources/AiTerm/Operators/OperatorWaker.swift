@@ -1,13 +1,14 @@
 import Foundation
 import AiTermCore
 
-/// Wakes an idle operator when `run_status` would show it something new (spec §7.3): one short fixed
+/// Wakes an idle operator when `run_status` would show it news it acts on (spec §7.3, `News`): one short fixed
 /// line typed into its own tab — `[AiTerm] updates waiting, call run_status` — through the daemon's
 /// delivery with `wake: true`, which holds it while you type there and needs no pass from the delivery
 /// check. A burst within `coalesce` is one line. A working operator is not typed at: the line waits for
-/// its tab to be idle. Wake lines are hints: the operator's next `run_status` shows everything, whether
-/// or not one landed. A line refused for anything but your typing or a prompt waiting on you is reported
-/// (`refused`) for the sidebar's Notice, which `cleared` takes down.
+/// its tab to be idle, and news undone before its line goes wakes nobody. Wake lines are hints: the
+/// operator's next `run_status` shows everything, whether or not one landed. A line refused for anything
+/// but your typing or a prompt waiting on you is reported (`refused`) for the sidebar's Notice, which
+/// `cleared` takes down.
 @MainActor
 final class OperatorWaker {
     private let daemon: @MainActor () -> (any DaemonCommands)?
@@ -26,11 +27,13 @@ final class OperatorWaker {
         var acknowledgedStatus: RunStatus?, lastSeen: RunStatus?
         var updates = 0
         var reason: Reason?
-        /// What a worker's ended turn brought, when that is all the news since the Operator last looked (`turnReason`).
-        var turn: String?
-        /// The reviews the Operator was told have nothing waiting, or saw so in `run_status`, by task and the start of its review
-        /// (`quietReviews`): each is news once.
-        var quietReviews: Set<String> = []
+        /// The news a delivered line told since the Operator last looked, and what its own calls changed meanwhile
+        /// (`ownChange`): not news again until it looks.
+        var told: Set<News> = []
+        /// The spells (`News.isSpell`) the Operator was told of or saw in `run_status`, kept until each is over: each is news once.
+        var spells: Set<News> = []
+        /// The news unsent at the last look (`unsent`): a look that adds to it is another update.
+        var unsentNews: Set<News> = []
         var generation = UUID()
         var armed: Task<Void, Never>?, retrying: Task<Void, Never>?
         var sending: Snapshot?
@@ -42,12 +45,12 @@ final class OperatorWaker {
             generation = UUID()
             updates = 0
             reason = nil
-            turn = nil
+            unsentNews = []
             armed?.cancel(); armed = nil
             retrying?.cancel(); retrying = nil
         }
     }
-    private struct Snapshot { let generation: UUID, count: Int }
+    private struct Snapshot { let generation: UUID, count: Int, news: Set<News> }
     private var wakes: [UUID: WakeState] = [:]
     /// A fixed reason, and what joins it to "call run_status": a comma, or a colon after news about one task.
     struct Reason: Equatable { var text: String, colon: Bool }
@@ -72,21 +75,20 @@ final class OperatorWaker {
     }
 
     /// What `run_status` would answer now. The first look at a run is taken as seen — after a restart
-    /// the `reconnected` line says the rest — and anything the operator has not seen since arms a wake.
+    /// the `reconnected` line says the rest — and news the operator has not seen or been told since arms a
+    /// wake. News undone before its line goes, so that none is left, drops the wake but for a reason said.
     func observe(_ status: RunStatus, of run: UUID) {
         let status = Self.content(status), wake = state(for: run)
         guard status != wake.lastSeen else { return }
         wake.lastSeen = status
-        guard let seen = wake.acknowledgedStatus else { wake.acknowledgedStatus = status; _ = newQuietReviews(in: status, wake); return }
-        // A worker's ended turn says which kind of news it brought (spec §J), while it is the only news since.
-        wake.turn = Self.turnReason(from: seen, to: status)
-        let quiet = newQuietReviews(in: status, wake)
-        guard status != seen else { return }
+        guard wake.acknowledgedStatus != nil else { wake.acknowledgedStatus = status; seeSpells(in: status, wake); return }
+        // A spell over is forgotten: when it comes again, it is news again.
+        wake.spells.formIntersection(Self.spells(in: status).open)
+        let news = unsent(wake), before = wake.unsentNews
+        wake.unsentNews = news
+        guard !news.isEmpty else { undone(wake); return }
+        guard !news.isSubset(of: before) else { return }
         wake.updates += 1
-        // A review with nothing waiting (spec §K) is its own line while it is the only news since.
-        if quiet, wake.updates == 1, wake.reason == nil, Self.withoutQuietReviews(status) == Self.withoutQuietReviews(seen) {
-            wake.reason = Reason(text: Self.reviewQuietReason, colon: false)
-        }
         arm(run, wake)
     }
 
@@ -96,14 +98,19 @@ final class OperatorWaker {
         wake.clearPending()
         wake.acknowledgedStatus = status
         wake.lastSeen = status
-        _ = newQuietReviews(in: status, wake)
+        wake.told = []
+        seeSpells(in: status, wake)
         cleared?(run)
     }
 
     /// One synchronous change the tool made: callers bracket the write, never an await. News that
-    /// arrived while a tool was suspended is already in `before` and stays unread.
+    /// arrived while a tool was suspended is already in `before` and stays unread; what the call itself
+    /// changed is the operator's own, never news to it.
     func ownChange(from before: RunStatus, to after: RunStatus, of run: UUID) {
-        guard Self.content(before) == wakes[run]?.acknowledgedStatus, wakes[run]?.reason == nil else { return }
+        guard Self.content(before) == wakes[run]?.acknowledgedStatus, wakes[run]?.reason == nil else {
+            wakes[run]?.told.formUnion(Self.news(from: Self.content(before), to: Self.content(after)))
+            return
+        }
         acknowledged(after, of: run)
     }
 
@@ -116,9 +123,22 @@ final class OperatorWaker {
         wake.reason = Reason(text: reason, colon: colon)
         // A reason stands for an update already counted, except news in an outstanding delivery:
         // that snapshot cannot have said this reason, so it must leave at least one update behind.
-        let sent = wake.sending.flatMap { $0.generation == wake.generation ? $0.count : nil } ?? 0
-        wake.updates = max(wake.updates, sent + 1)
+        wake.updates = max(wake.updates, sent(wake) + 1)
         arm(run, wake)
+    }
+
+    /// The updates in an outstanding delivery of the current generation.
+    private func sent(_ wake: WakeState) -> Int {
+        wake.sending.flatMap { $0.generation == wake.generation ? $0.count : nil } ?? 0
+    }
+
+    /// The news counted is undone, and none is left unsent: no line goes for it. A reason said still goes, as the only
+    /// news; a line already out is left to land.
+    private func undone(_ wake: WakeState) {
+        if wake.reason != nil { wake.updates = min(wake.updates, sent(wake) + 1); return }
+        wake.updates = 0
+        wake.armed?.cancel(); wake.armed = nil
+        wake.retrying?.cancel(); wake.retrying = nil
     }
 
     /// The operator's tab changed: a wake held while it worked, or refused, goes now if it is idle.
@@ -134,7 +154,8 @@ final class OperatorWaker {
         wake.clearPending()
         wake.acknowledgedStatus = nil
         wake.lastSeen = nil
-        wake.quietReviews = []
+        wake.told = []
+        wake.spells = []
         wake.isForgotten = true
         if wake.sending == nil { wakes[run] = nil }
         cleared?(run)
@@ -148,8 +169,8 @@ final class OperatorWaker {
     }
 
     /// The line for `count` updates: the reason when it is the only news and plain enough to type (`isPlain`), or with
-    /// no reason a worker's `turn` news (`turnReason`), however many changes brought it; otherwise that updates wait. Never
-    /// a count: no line carries a digit.
+    /// no reason the kind of news it is when it is one piece (`turnReason`), however many changes brought it; otherwise
+    /// that updates wait. Never a count: no line carries a digit.
     static func line(updates count: Int, reason: Reason?, turn: String? = nil) -> String {
         if let reason, count <= 1, isPlain(reason.text) { return "[AiTerm] \(reason.text)\(reason.colon ? ":" : ",") call run_status" }
         if reason == nil, let turn, isPlain(turn) { return "[AiTerm] \(turn), call run_status" }
@@ -164,53 +185,140 @@ final class OperatorWaker {
     static let turnReasons = ["one worker asks something", "one task changed after acceptance", "one task finished with no commit",
                               "you may have answered one question in its worker's window"]
 
-    /// The turn line for the news between `seen`, what the Operator last looked at, and `status`: exactly one new entry in
-    /// the three lists of `turnReasons`, or one question newly showing what you typed in its worker's window, and nothing
-    /// else it acts on changed but that task leaving ready or background. The worker's status moving with its turn's end
-    /// is part of that news. Nil for any other news, which is the generic line, several turns at once among it.
-    static func turnReason(from seen: RunStatus, to status: RunStatus) -> String? {
-        let now = status.obligations, was = seen.obligations
-        let answered = now.questionsWaiting.filter { question in
-            question.answeredInWindow != nil && was.questionsWaiting.first { $0.key == question.key }?.answeredInWindow != question.answeredInWindow
-        }
-        let news = [now.workerAsks.map(\.key).filter { key in !was.workerAsks.contains { $0.key == key } },
-                    now.changedAfterAcceptance.filter { !was.changedAfterAcceptance.contains($0) },
-                    now.finishedWithoutCommit.filter { !was.finishedWithoutCommit.contains($0) },
-                    answered.map(\.key)]
-        guard news.joined().count == 1, let kind = news.firstIndex(where: { !$0.isEmpty }), let key = news[kind].first else { return nil }
-        func rest(_ obligations: RunStatus.Obligations) -> RunStatus.Obligations {
-            var rest = obligations
-            rest.workerAsks = []; rest.changedAfterAcceptance = []; rest.finishedWithoutCommit = []
-            // What you typed on a question is that news and no other change to it.
-            for i in rest.questionsWaiting.indices { rest.questionsWaiting[i].answeredInWindow = nil }
-            if kind < 3 { rest.readyForAcceptance.removeAll { $0 == key }; rest.background.removeAll { $0 == key } }
-            return rest
-        }
-        return rest(now) == rest(was) && seen.run == status.run ? turnReasons[kind] : nil
-    }
-
     /// The line for a review with nothing waiting (spec §K): the kind of news, never the task's key (as `turnReasons`).
     static let reviewQuietReason = "one task is in review with nothing waiting"
 
-    /// Whether `status` lists a review the Operator was not told of, once per task per review (its start): one that went loud
-    /// and quiet again is not new. Remembers what it lists, and forgets a review that is over.
-    private func newQuietReviews(in status: RunStatus, _ wake: WakeState) -> Bool {
-        func token(_ task: RunStatus.TaskLine) -> String? {
-            task.peopleReview?.startedAt.map { "\(task.id.uuidString)|\($0.timeIntervalSince1970)" }
+    /// The kind of news `news` is when it is one piece with a line of its own: a worker's ended turn (`turnReasons`; the
+    /// worker's status moving with it, and its task leaving ready or background, are no news), or a review with nothing
+    /// waiting. Nil for any other news, which is the generic line, several pieces at once among it.
+    static func turnReason(for news: Set<News>) -> String? {
+        guard news.count == 1, let only = news.first else { return nil }
+        switch only {
+        case .asks: return turnReasons[0]
+        case .listed(.changedAfterAcceptance, _): return turnReasons[1]
+        case .listed(.finishedWithoutCommit, _): return turnReasons[2]
+        case .answered: return turnReasons[3]
+        case .quietReview: return reviewQuietReason
+        default: return nil
         }
-        let open = Set(status.tasks.filter { $0.state == .inReview }.compactMap(token))
-        wake.quietReviews.formIntersection(open)
-        let quiet = Set(status.tasks.filter { status.obligations.reviewQuiet.contains($0.key) }.compactMap(token))
-        let fresh = !quiet.isSubset(of: wake.quietReviews)
-        wake.quietReviews.formUnion(quiet)
-        return fresh
     }
 
-    /// `status` with no review listed as quiet: what is left when that is the news.
-    private static func withoutQuietReviews(_ status: RunStatus) -> RunStatus {
-        var status = status
-        status.obligations.reviewQuiet = []
-        return status
+    /// A piece of news the Operator acts on, between what it last looked at and what `run_status` would answer now
+    /// (`news(from:to:)`). Each carries what it says, so that news told is not told again, and a different value is new.
+    /// What runs where (each worker's and tab's live state, the background lists) is never news on its own, nor is a task
+    /// leaving a list: the Operator reads them when it looks, and what follows from them (a task ready, a prompt waiting)
+    /// is news of its own.
+    enum News: Hashable, Sendable {
+        /// The broadcast changed: its state, its plan, its summary falling due. Never its snags and finds, which the
+        /// Operator records itself.
+        case run(RunNews)
+        /// A task's state, why it is blocked or can't merge, whether you hold it, and its agent review, as they are now.
+        case state(UUID, OperatedState), blocked(UUID, String?), mergeRefusal(UUID, String?), takenOver(UUID, Bool)
+        case agentReview(UUID, AgentKind?, String?)
+        /// A flag newly on a task, but `possiblyStalled` and `uncertain`, whose lists say them.
+        case flagged(UUID, OperatedFlag)
+        /// One of its workers stopped short of finishing its turn (`TaskLine.stoppedOn`).
+        case stopped(UUID, String)
+        /// A task newly on one of the obligation lists (`List`), by its key.
+        case listed(List, String)
+        /// A question new or reworded, by its key; what you typed in its worker's window onto it; a worker's question.
+        case question(String, String), answered(String, String), asks(String, String)
+        /// A spell, news once however often it comes and goes while it lasts: a task's review with nothing waiting, by
+        /// the review's start, and a task uncertain while its worker works.
+        case quietReview(UUID, Date), uncertain(UUID)
+
+        var isSpell: Bool {
+            switch self {
+            case .quietReview, .uncertain: true
+            default: false
+            }
+        }
+    }
+
+    /// The obligation lists of task keys whose new entries are news: all but `background`, and `uncertain` and
+    /// `reviewQuiet`, which are spells.
+    enum List: CaseIterable, Sendable {
+        case promptsWaitingOnYou, readyForAcceptance, possiblyStalled, branchDrift, changedAfterAcceptance, finishedWithoutCommit
+
+        func keys(_ obligations: RunStatus.Obligations) -> [String] {
+            switch self {
+            case .promptsWaitingOnYou: obligations.promptsWaitingOnYou
+            case .readyForAcceptance: obligations.readyForAcceptance
+            case .possiblyStalled: obligations.possiblyStalled
+            case .branchDrift: obligations.branchDrift
+            case .changedAfterAcceptance: obligations.changedAfterAcceptance
+            case .finishedWithoutCommit: obligations.finishedWithoutCommit
+            }
+        }
+    }
+
+    /// The broadcast as `News.run` compares it.
+    struct RunNews: Hashable, Sendable {
+        let run: RunStatus.Run
+        static func == (a: Self, b: Self) -> Bool { a.run == b.run }
+        func hash(into hasher: inout Hasher) { hasher.combine(run.state) }
+    }
+
+    /// What `status` brings that `seen` did not, but its spells (`spells(in:)`).
+    static func news(from seen: RunStatus, to status: RunStatus) -> Set<News> {
+        var news = Set<News>()
+        func recorded(_ run: RunStatus.Run) -> RunStatus.Run { var run = run; run.snags = []; run.finds = []; return run }
+        if recorded(status.run) != recorded(seen.run) { news.insert(.run(RunNews(run: recorded(status.run)))) }
+        let before = Dictionary(seen.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for task in status.tasks {
+            let old = before[task.id], id = task.id
+            if old?.state != task.state { news.insert(.state(id, task.state)) }
+            if old?.blockedReason != task.blockedReason { news.insert(.blocked(id, task.blockedReason)) }
+            if old?.mergeRefusal != task.mergeRefusal { news.insert(.mergeRefusal(id, task.mergeRefusal)) }
+            if old?.takenOver ?? false != task.takenOver { news.insert(.takenOver(id, task.takenOver)) }
+            if old?.agentReview != task.agentReview { news.insert(.agentReview(id, task.agentReview?.agent, task.agentReview?.state)) }
+            for flag in Set(task.flags).subtracting(old?.flags ?? []).subtracting([.possiblyStalled, .uncertain]) {
+                news.insert(.flagged(id, flag))
+            }
+            if let stopped = task.stoppedOn, stopped != old?.stoppedOn { news.insert(.stopped(id, stopped)) }
+        }
+        let now = status.obligations, was = seen.obligations
+        for list in List.allCases {
+            for key in list.keys(now) where !list.keys(was).contains(key) { news.insert(.listed(list, key)) }
+        }
+        for question in now.questionsWaiting {
+            let old = was.questionsWaiting.first { $0.key == question.key }
+            if old?.text != question.text { news.insert(.question(question.key, question.text)) }
+            if let typed = question.answeredInWindow, typed != old?.answeredInWindow { news.insert(.answered(question.key, typed)) }
+        }
+        for ask in now.workerAsks where !was.workerAsks.contains(ask) { news.insert(.asks(ask.key, ask.question)) }
+        return news
+    }
+
+    /// The spells `status` lists (`News.isSpell`), and those still going on, listed or not: a review until it is over, a
+    /// task's uncertainty until it is neither uncertain nor its worker at work.
+    static func spells(in status: RunStatus) -> (listed: Set<News>, open: Set<News>) {
+        let quiet = Set(status.obligations.reviewQuiet), uncertain = Set(status.obligations.uncertain)
+        var listed = Set<News>(), open = Set<News>()
+        for task in status.tasks {
+            if task.state == .inReview, let began = task.peopleReview?.startedAt {
+                open.insert(.quietReview(task.id, began))
+                if quiet.contains(task.key) { listed.insert(.quietReview(task.id, began)) }
+            }
+            if uncertain.contains(task.key) || task.live == .working || task.live == .workingQuiet {
+                open.insert(.uncertain(task.id))
+                if uncertain.contains(task.key) { listed.insert(.uncertain(task.id)) }
+            }
+        }
+        return (listed, open)
+    }
+
+    /// The Operator looked at `status`: what spells it lists are seen, and those over are forgotten.
+    private func seeSpells(in status: RunStatus, _ wake: WakeState) {
+        let spells = Self.spells(in: status)
+        wake.spells.formIntersection(spells.open)
+        wake.spells.formUnion(spells.listed)
+    }
+
+    /// The news in what `run_status` would answer now that the Operator has neither seen nor been told.
+    private func unsent(_ wake: WakeState) -> Set<News> {
+        guard let seen = wake.acknowledgedStatus, let status = wake.lastSeen else { return [] }
+        return Self.news(from: seen, to: status).subtracting(wake.told).union(Self.spells(in: status).listed.subtracting(wake.spells))
     }
 
     /// Whether `text` may go into a wake line: no digit and no one-letter word, which a menu opening as the
@@ -267,8 +375,11 @@ final class OperatorWaker {
         let count = wake.updates
         guard count > 0, wake.sending == nil, awake(run), let daemon = daemon(), let tab = session(run), tab.state != .working
         else { return }
-        let snapshot = Snapshot(generation: wake.generation, count: count)
-        let text = Self.line(updates: count, reason: wake.reason, turn: wake.turn)
+        // News counted and since undone wakes nobody: the run reads as the Operator saw it, or was told it.
+        let news = unsent(wake)
+        guard !news.isEmpty || wake.reason != nil else { undone(wake); return }
+        let snapshot = Snapshot(generation: wake.generation, count: count, news: news)
+        let text = Self.line(updates: count, reason: wake.reason, turn: Self.turnReason(for: news))
         wake.sending = snapshot
         lastSend = Task { [weak self] in
             let delivery = try? await daemon.deliver(sessionId: tab.sessionId, text: text, ownership: 0, wake: true, worktree: nil)
@@ -291,8 +402,11 @@ final class OperatorWaker {
             }
             if delivery.result == .delivered { cleared?(run) }
             wake.retrying?.cancel(); wake.retrying = nil
+            let spells = snapshot.news.filter(\.isSpell)
+            wake.told.formUnion(snapshot.news.subtracting(spells))
+            wake.spells.formUnion(spells)
             wake.updates = max(0, wake.updates - snapshot.count)
-            if wake.updates == 0 { wake.reason = nil; wake.turn = nil }
+            if wake.updates == 0 { wake.reason = nil }
             // A timer that fired during delivery could not send then. Already-coalesced news
             // that arrived meanwhile gets its own wake now.
             if wake.updates > 0, wake.armed == nil { send(run, wake) }
