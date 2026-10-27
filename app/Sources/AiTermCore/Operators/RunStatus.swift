@@ -48,7 +48,8 @@ public struct TaskLiveFacts: Equatable, Sendable {
     public var atReopenedCommit: Bool
     /// An accepted, inReview or published task's worktree moved on from its accepted commit (`WorkerTurn.changedAfterAcceptance`).
     public var changedAfterAcceptance: Bool
-    /// Its first worker ended its turn and AiTerm is still reading it: not ready until what the turn left is known.
+    /// Its first worker ended its turn and AiTerm is still reading it: not ready, nor a quiet review, until what the turn
+    /// left is known.
     public var turnUnread: Bool
     /// Its first worker's session says working but its transcript has not grown for `OperatorTiming.liveQuietMinutes`
     /// (`StallWatch.isQuietWhileWorking`): the line reads `working?` and the task is uncertain.
@@ -321,8 +322,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         /// result, then `mark_task`. A reopened one still on the commit it was accepted on (its line's `reopenedFrom`) is
         /// here too: accept that commit again.
         public var readyForAcceptance: [String]
-        /// Working tasks whose worker ended its turn with work still running in the background, which wakes it again
-        /// once it ends: not ready yet. Each task's line says what runs.
+        /// Working tasks one of whose workers ended its turn with work still running in the background, which wakes it
+        /// again once it ends, whether or not its other tabs still work: not ready yet. Each task's line says what runs.
         public var background: [String]
         public var possiblyStalled: [String]
         public var uncertain: [String]
@@ -337,7 +338,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         /// noChange or steer it. Never a reopened one on its accepted commit, which is ready to accept again.
         public var finishedWithoutCommit: [String]
         /// InReview tasks with nothing waiting (spec §K): no unresolved thread, no worker's question and no change after
-        /// acceptance, for `OperatorTiming.reviewQuietMinutes` since the review began. The Operator decides against the Done
+        /// acceptance, for `OperatorTiming.reviewQuietMinutes` since the review began, and nothing of the task still at
+        /// work or waiting on you (`isReviewQuiet`). The Operator decides against the Done
         /// whether the review is over; AiTerm doesn't read the Done.
         public var reviewQuiet: [String]
         public init(questionsWaiting: [Question] = [], promptsWaitingOnYou: [String] = [], readyForAcceptance: [String] = [],
@@ -395,18 +397,20 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             if asking, let message = facts.lastMessage { asks.append(WorkerAsk(key: o.key, question: WorkerTurn.question(message))) }
             let moved = turn && facts.changedAfterAcceptance && [.accepted, .inReview, .published].contains(o.state)
             if moved { changed.append(o.key) }
-            if !asking, !moved, isReviewQuiet(o, now: now) { reviewQuiet.append(o.key) }
+            if !asking, !moved, isReviewQuiet(o, facts, now: now) { reviewQuiet.append(o.key) }
             let tabPrompts = facts.tabs.filter { $0.waitingPrompt != nil }.map { "\(o.key)/\($0.key)" }
             if facts.waitingPrompt != nil || !tabPrompts.isEmpty {
                 // Only a prompt open in a terminal is listed: the task's key stands for its first worker's prompt.
                 prompts += (facts.waitingPrompt != nil ? [o.key] : []) + tabPrompts
             } else if !o.flags.contains(.waitingOnYou), !facts.turnUnread, facts.stoppedOn == nil,
-                      isReadyForAcceptance(o, live: facts.status, extraTabs: facts.tabs.map(\.counted), asks: asking) {
-                if !facts.background.isEmpty { background.append(o.key) }
+                      isReadyForAcceptance(o, live: facts.status, extraTabs: facts.tabs.map(\.counted), background: facts.background,
+                                           asks: asking) {
                 // A reopened task with no new commit, still on the one it was accepted on, has that commit to accept again.
-                else if facts.commitsAhead == 0, !(o.reopenedFrom != nil && facts.atReopenedCommit) { noCommit.append(o.key) }
+                if facts.commitsAhead == 0, !(o.reopenedFrom != nil && facts.atReopenedCommit) { noCommit.append(o.key) }
                 else { ready.append(o.key) }
             }
+            // What one tab left running is listed while another still works: the fixer's tests beside its review tab.
+            if o.state == .working, !o.takenOver, facts.stoppedOn == nil, !facts.background.isEmpty { background.append(o.key) }
             if o.flags.contains(.possiblyStalled) { stalled.append(o.key) }
             if o.flags.contains(.uncertain) || (facts.quiet && facts.status == .working) { uncertain.append(o.key) }
             if o.branchDrift != nil { drift.append(o.key) }
@@ -431,12 +435,18 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     }
 
     /// A review of yours to end, not yours: in review, not ended, not taken over, no unresolved thread, and begun at least
-    /// `OperatorTiming.reviewQuietMinutes` before `now`. What else waits (a worker's question, work after acceptance) the
-    /// caller rules out.
-    private static func isReviewQuiet(_ task: OperatedTask, now: Date) -> Bool {
+    /// `OperatorTiming.reviewQuietMinutes` before `now`, with nothing of the task at work or waiting (`facts`): no worker
+    /// tab working or opening (a review skill's subagent holds its tab working), nothing in the background, no turn still
+    /// being read, no agent review running, no prompt or question waiting on you. What else waits (a worker's question,
+    /// work after acceptance) the caller rules out.
+    private static func isReviewQuiet(_ task: OperatedTask, _ facts: TaskLiveFacts, now: Date) -> Bool {
         guard task.state == .inReview, !task.takenOver, let review = task.peopleReview, !review.ended,
               let began = review.startedAt else { return false }
-        return !review.threads.values.contains(false) && now.timeIntervalSince(began) >= TimeInterval(OperatorTiming.reviewQuietMinutes) * 60
+        let busy: (SessionState?) -> Bool = { $0 == .working || $0 == .needsInput }
+        let waiting = busy(facts.status) || facts.tabs.contains { busy($0.counted) || $0.waitingPrompt != nil } || facts.waitingPrompt != nil
+            || !facts.background.isEmpty || facts.turnUnread || task.agentReview?.isRunning == true || task.flags.contains(.waitingOnYou)
+        return !waiting && !review.threads.values.contains(false)
+            && now.timeIntervalSince(began) >= TimeInterval(OperatorTiming.reviewQuietMinutes) * 60
     }
 
     /// A working task whose every worker ended its turn, idle at its prompt or done, with nothing left running in the

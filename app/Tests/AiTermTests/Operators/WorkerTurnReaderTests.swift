@@ -172,4 +172,60 @@ import Testing
         try await endTurn(saying: "Committed the notes.", world, run, task)
         #expect(try status(world, run).changedAfterAcceptance == ["PLUTO-1"], "HEAD is past the accepted commit")
     }
+
+    /// The broadcast's case: a task listed as changed after acceptance, which the Operator then accepted again on its new
+    /// head while its worker sat idle. No turn ends, but the reading was of the old acceptance: it is dropped at once and
+    /// read again, and the task is listed no more.
+    @Test func acceptingAgainWithTheWorkerIdleClearsChangedAfterAcceptance() async throws {
+        let (world, run, task, worktree) = try makeWorld(.accepted)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "the fix"], in: worktree)
+        try await endTurn(saying: "Committed the fix.", world, run, task)
+        #expect(try status(world, run).changedAfterAcceptance == ["PLUTO-1"])
+
+        let head = try git.run(["rev-parse", "HEAD"], in: worktree)
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.acceptance?.resultSHA = head } }
+        #expect(try status(world, run).changedAfterAcceptance.isEmpty, "not served while it is read again")
+        await world.controller.turns.lastRead?.value
+        #expect(try status(world, run).changedAfterAcceptance.isEmpty)
+        #expect(world.controller.turns.readings[task.id]?.changedAfterAcceptance == false, "read again")
+    }
+
+    /// Reopened with its worker idle, a task's turn is read again as a working one's: its worktree moved back past the
+    /// accepted commit, so it finished with no commit, and no longer counts as changed after an acceptance it has not got.
+    @Test func reopeningWithTheWorkerIdleReadsTheTurnAgain() async throws {
+        let (world, run, task, worktree) = try makeWorld(.accepted)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "work"], in: worktree)
+        let accepted = try git.run(["rev-parse", "HEAD"], in: worktree)
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.acceptance?.resultSHA = accepted } }
+        try git.run(["reset", "-q", "--hard", "HEAD~1"], in: worktree)
+        try await endTurn(saying: "Reverted.", world, run, task)
+        #expect(try status(world, run).changedAfterAcceptance == ["PLUTO-1"])
+
+        world.workspace.mutate { $0.updateOperated(task.id) {
+            $0.state = .working; $0.reopenedFrom = accepted; $0.acceptance = nil
+        } }
+        await world.controller.turns.lastRead?.value
+        let obligations = try status(world, run)
+        #expect(obligations.finishedWithoutCommit == ["PLUTO-1"] && obligations.readyForAcceptance.isEmpty)
+        #expect(obligations.changedAfterAcceptance.isEmpty)
+    }
+
+    /// A read still under way when the task is accepted again lands for the acceptance it was asked for: it is dropped,
+    /// and the read asked for the new one is what counts.
+    @Test func aReadOutdatedWhileUnderWayIsDropped() async throws {
+        let (world, run, task, worktree) = try makeWorld(.accepted)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "the fix"], in: worktree)
+        let head = try git.run(["rev-parse", "HEAD"], in: worktree)
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": "Committed the fix."]]]]
+        try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-1.jsonl"))
+        world.show(sessions(run, task, .idle))
+        let first = world.controller.turns.lastRead
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.acceptance?.resultSHA = head } }
+        await first?.value
+        await world.controller.turns.lastRead?.value
+        #expect(world.controller.turns.readings[task.id]?.changedAfterAcceptance == false)
+        #expect(try status(world, run).changedAfterAcceptance.isEmpty)
+    }
 }

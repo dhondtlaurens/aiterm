@@ -479,6 +479,27 @@ import Testing
         #expect(working.columns.flatMap(\.cards).first?.tabs.first?.line == OperatorLine("at work"))
     }
 
+    /// A tab that ended its turn with work still running reads `in background`, its jobs on the tooltip, with the
+    /// background mark; one at work, its subagents running, still says it is at work.
+    @Test func aTabWithBackgroundWorkSaysSo() throws {
+        let run = run()
+        var price = task("Price formatting", jira: "PAY-236", run: run.id, .working, agent: .codex)
+        price.operated?.extraTabs = [OperatorUIFixtures.extraTab("review", agent: .claude)]
+        var fixer = OperatorUIFixtures.tab("s1", of: price, .idle, agent: .codex)
+        fixer.background = [BackgroundJob(kind: .shell, text: "scripts/test.sh swift --filter RunStatusTests")]
+        var review = OperatorUIFixtures.tab("s2", of: price, .working, index: 1, key: "review")
+        review.background = [BackgroundJob(kind: .subagent, text: "code-reviewer")]
+        let board = BroadcastBoard.make(run: run, state: state(run, [price]), acting: .none, requests: [], sessions: [fixer, review])
+        let tabs = try #require(board.columns.flatMap(\.cards).first?.tabs)
+        typealias Tab = BroadcastBoard.TabLine
+        #expect(tabs == [
+            Tab(key: "main", agent: .codex,
+                line: OperatorLine("in background", tooltip: "Running in the background: scripts/test.sh swift --filter RunStatusTests"),
+                status: .background, opens: .tab(task: price.id, sessionId: "s1")),
+            Tab(key: "review", agent: .claude, line: OperatorLine("at work"), status: .working, opens: .tab(task: price.id, sessionId: "s2")),
+        ])
+    }
+
     /// An accepted task whose end is still ahead is not done: it counts as open and stays In progress.
     @Test func acceptedPublicationStillNeedsItsEnd() {
         var run = OperatorFixtures.run()

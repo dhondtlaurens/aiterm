@@ -4,21 +4,34 @@ import AiTermCore
 /// Reads each worker's turn once it ends (spec §E, §J), on a task in any state with its first worker's tab open: the
 /// worker's last message (`WorkerTranscript.lastMessage`, as `read_task` reads it), and its worktree, how many commits a
 /// working task's branch has past where its work starts and whether an accepted, inReview or published one moved on from
-/// its accepted commit. A turn's end is read once: when its session's state changed since the last read. Git and the
+/// its accepted commit. A turn's end is read once: when its session's state changed since the last read, or the task was
+/// accepted again or reopened since (its `Basis`), when what was read is dropped at once and read again. Git and the
 /// transcript are read off the main thread. What it read is `run_status`'s `TaskLiveFacts` (`OperatorController.liveFacts`)
 /// until the worker's next turn starts, or until `message_task` reaches it. A task you took over, not started yet or
 /// stopped, or in an ended broadcast, is not read.
 @MainActor
 final class WorkerTurnReader {
-    /// What one ended turn left, by the session it was read for and the state it was read at.
+    /// What one ended turn left, by the session it was read for, the state it was read at and the task it was read of.
     struct Reading: Equatable, Sendable {
         var session: String, state: SessionState
+        var basis: Basis
         var lastMessage: String?, commitsAhead: Int?, changedAfterAcceptance: Bool
         /// A reopened working task's HEAD is the commit it was accepted on (`TaskLiveFacts.atReopenedCommit`).
         var atReopenedCommit = false
         /// `message_task` reached the worker after its turn ended: what the turn left is answered, and its next turn's end
         /// is what counts. Nothing of this reading is shown, and a working task is not ready until that turn is read.
         var messaged = false
+    }
+
+    /// What a reading holds for beyond its session: the task's state, and the commit `changedAfterAcceptance` is measured
+    /// against while it is accepted, inReview or published. Accepted again on another commit, or reopened, with no turn
+    /// since, what was read no longer holds.
+    struct Basis: Equatable, Sendable {
+        var state: OperatedState, accepted: String?
+        init(_ task: OperatedTask) {
+            state = task.state
+            accepted = [.accepted, .inReview, .published].contains(task.state) ? task.acceptance?.resultSHA : nil
+        }
     }
 
     private let workspace: WorkspaceStore
@@ -31,6 +44,8 @@ final class WorkerTurnReader {
     private var seen: [String: SessionState] = [:]
     /// The tasks `message_task` reached while their turn was still being read: that reading lands answered.
     private var messagedWhileReading: Set<UUID> = []
+    /// The basis each task's latest read was asked for: a read that lands for another is outdated, and dropped.
+    private var asked: [UUID: Basis] = [:]
     /// What the readings changed: what `run_status` and the rows show.
     var changed: @MainActor () -> Void = {}
     /// The latest read, for a test to await.
@@ -61,7 +76,7 @@ final class WorkerTurnReader {
             // ended meanwhile, or before it was handed back, is new.
             if !watched, let worker { seen[worker.sessionId] = nil }
             let tab = watched ? worker : nil
-            guard let tab, tab.state.turnEnded else {
+            guard let tab, tab.state.turnEnded, let operated = task.operated else {
                 // A turn under way, or no worker: what its last turn left no longer holds, and its end will be new.
                 if let tab { seen[tab.sessionId] = tab.state }
                 messagedWhileReading.remove(task.id)
@@ -72,7 +87,15 @@ final class WorkerTurnReader {
                 readings[task.id] = nil
                 dropped = true
             }
-            guard seen[tab.sessionId] != tab.state else { continue }
+            // Accepted again, or reopened, with no turn since: what was read is not served while it is read again. An
+            // answer `message_task` gave it still stands.
+            let basis = Basis(operated)
+            if let reading = readings[task.id], reading.basis != basis {
+                if reading.messaged { messagedWhileReading.insert(task.id) }
+                readings[task.id] = nil
+                dropped = true
+            }
+            guard seen[tab.sessionId] != tab.state || asked[task.id] != basis else { continue }
             seen[tab.sessionId] = tab.state
             read(task, tab)
         }
@@ -100,7 +123,8 @@ final class WorkerTurnReader {
         let conversation = worker.conversation, worktree = task.hasCheckout ? task.worktreePath : nil, baseBranch = task.baseBranch
         let counts = operated.state == .working, reopenedFrom = operated.reopenedFrom
         let parent = RunScheduler.baseCommit(for: id, in: workspace.state)
-        let accepted = [.accepted, .inReview, .published].contains(operated.state) ? operated.acceptance?.resultSHA : nil
+        let basis = Basis(operated), accepted = basis.accepted
+        asked[id] = basis
         lastRead = Task { [weak self] in
             let read = await BackgroundWork.run {
                 let message = conversation.flatMap { transcripts.lastMessage(agent: agent, conversation: $0) }
@@ -117,11 +141,12 @@ final class WorkerTurnReader {
                 } ?? false
                 return (message: message, ahead: ahead, changed: changed, atReopened: atReopened)
             }
-            // Read fresh: the worker may have started its next turn, or ended it again, while git was asked.
-            guard let self, self.seen[session] == state,
-                  let current = self.workspace.state.task(id: id), self.isRead(current),
+            // Read fresh: the worker may have started its next turn, or ended it again, and the task may have been accepted
+            // again or reopened, while git was asked.
+            guard let self, self.seen[session] == state, self.asked[id] == basis,
+                  let current = self.workspace.state.task(id: id), self.isRead(current), current.operated.map(Basis.init) == basis,
                   current.firstWorker(in: self.live.sessions)?.sessionId == session else { return }
-            let reading = Reading(session: session, state: state, lastMessage: read.message, commitsAhead: read.ahead,
+            let reading = Reading(session: session, state: state, basis: basis, lastMessage: read.message, commitsAhead: read.ahead,
                                   changedAfterAcceptance: read.changed, atReopenedCommit: read.atReopened,
                                   messaged: self.messagedWhileReading.remove(id) != nil)
             guard self.readings[id] != reading else { return }
