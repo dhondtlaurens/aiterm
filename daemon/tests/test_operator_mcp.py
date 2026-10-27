@@ -247,6 +247,11 @@ def test_run_status_says_what_a_worker_runs_now_and_what_became_of_a_slash_comma
     assert "/model or /effort" in message and "default for new sessions" in message
 
 
+def test_run_status_says_a_running_tool_call_counts_as_at_work():
+    status = {tool["name"]: tool for tool in TOOLS}["run_status"]["description"]
+    assert "no tool call it started is still running" in status and "30 minutes" in status
+
+
 def test_message_task_says_messaging_an_accepted_task_reopens_it():
     description = {tool["name"]: tool for tool in TOOLS}["message_task"]["description"]
     assert ("Messaging an accepted task that isn't published yet sends it back to working; accept its new commit again."

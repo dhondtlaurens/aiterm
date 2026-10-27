@@ -50,8 +50,8 @@ public struct TaskLiveFacts: Equatable, Sendable {
     public var changedAfterAcceptance: Bool
     /// Its first worker ended its turn and AiTerm is still reading it: not ready until what the turn left is known.
     public var turnUnread: Bool
-    /// Its first worker's session says working but its transcript has not grown for `OperatorTiming.liveQuietMinutes`
-    /// (`StallWatch.isQuietWhileWorking`): the line reads `working?` and the task is uncertain.
+    /// Its first worker's session says working but its transcript has not grown for `OperatorTiming.liveQuietMinutes`, and
+    /// no tool call it started still runs (`StallWatch.isQuietWhileWorking`): the line reads `working?` and the task is uncertain.
     public var quiet: Bool
     /// The model and effort its first worker runs now, as Claude Code itself reported them (`SessionInfo.model`,
     /// `.reasoning`): changed once a /model or /effort has run, never by delivering one, and never a subagent's. Nil while

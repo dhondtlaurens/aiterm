@@ -116,7 +116,8 @@ final class OperatorController {
     /// The last observed state: entering or answering needs-input clears the read gap.
     @ObservationIgnored private var promptState: [String: SessionState] = [:]
     /// When each working task last showed a sign of life (spec §8, *possibly stalled*): any change the
-    /// daemon reports for one of its tabs — status, title, context, conversation.
+    /// daemon reports for one of its tabs — status, title, context, conversation — and, on each tab's own clock, its
+    /// transcript's growth or a tool call it still runs (`WorkerQuietWatch.sign`).
     @ObservationIgnored private var stallWatch = StallWatch()
     /// The latest prompt probe, for a test to await.
     @ObservationIgnored private(set) var lastProbe: Task<Void, Never>?
@@ -233,6 +234,8 @@ final class OperatorController {
             self?.observeRuns()
             self?.changed()
         }
+        // A transcript that grew, or a call still running, is a sign of life on its own tab's clock (spec §8).
+        quiet.sign = { [weak self] task, tab, at in self?.stallWatch.noteSign(of: task, tab: tab, at: at) }
         waker.refused = { [weak self] run, delivery in
             guard let self else { return }
             wakeNotice = OperatorWakeNotice(run: run, status: self.run(id: run).flatMap(status(of:)), refusal: delivery)

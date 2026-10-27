@@ -234,6 +234,21 @@ import Testing
         #expect(watch.stalled(in: world.state, now: minutes(50)) == [task])
     }
 
+    /// A sign noted for one tab (its transcript grew, or a tool call it started still runs) restarts that tab's clock
+    /// alone: a silent tab beside it is still noticed, and the task clears once each busy tab showed one.
+    @Test func aSignNotedForOneTabRestartsOnlyThatTabsClock() {
+        let (world, task) = twoTabs()
+        var watch = StallWatch()
+        watch.observe([session("a", task: task), extra(task)], at: minutes(0))
+        watch.noteSign(of: task, tab: "review", at: minutes(15))
+        #expect(watch.stalled(in: world.state, now: minutes(21)) == [task], "the first worker said nothing")
+        watch.noteSign(of: task, tab: WorkerTab.firstKey, at: minutes(21))
+        #expect(watch.stalled(in: world.state, now: minutes(22)).isEmpty)
+        #expect(watch.stalled(in: world.state, now: minutes(35)) == [task], "the extra tab's sign is 20 minutes old")
+        watch.noteSign(of: task, tab: "review", at: minutes(35))
+        #expect(watch.stalled(in: world.state, now: minutes(36)).isEmpty)
+    }
+
     // -- a worker that says working but has gone quiet (spec §H) ------------------------------------------
 
     /// A transcript that grew less than `liveQuietMinutes` ago is a worker at work; older, and the session's "working" is
@@ -251,5 +266,21 @@ import Testing
         #expect(quiet(grew: 0, since: nil), "no start is known: the transcript alone says")
         #expect(!quiet(grew: nil, since: 0), "no transcript to read says nothing")
         #expect(!quiet(grew: nil, since: nil))
+    }
+
+    /// A tool call that started and has no result yet writes nothing until it returns: its worker is not quiet, for
+    /// `openCallMinutes` from the call's start. Past that, its transcript's age alone says.
+    @Test func aRunningToolCallIsNotQuietUntilItsCap() {
+        let cap = Double(OperatorTiming.openCallMinutes)
+        func quiet(callSince: Double?, now: Double) -> Bool {
+            StallWatch.isQuietWhileWorking(transcriptGrewAt: minutes(0), sessionWorkingSince: minutes(0),
+                                           callOpenSince: callSince.map(minutes), now: minutes(now))
+        }
+        #expect(quiet(callSince: nil, now: 5))
+        #expect(!quiet(callSince: 0, now: 5), "the call still runs")
+        #expect(!quiet(callSince: 0, now: cap - 0.5))
+        #expect(quiet(callSince: 0, now: cap), "a call that long may have hung")
+        #expect(!StallWatch.isQuietWhileWorking(transcriptGrewAt: nil, sessionWorkingSince: minutes(0), callOpenSince: minutes(0),
+                                                now: minutes(cap + 5)), "no transcript to read still says nothing")
     }
 }
