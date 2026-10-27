@@ -63,7 +63,9 @@ public enum ModelFiles {
     }
 
     /// `catalog.config.models[]` of the cached model catalogue, in the order `/model` shows them.
-    /// `thinking.type == "effort"` publishes the levels; the one badged `Default` is the default.
+    /// `thinking.type == "effort"` publishes the levels; the one badged `Default` (`Recommended`
+    /// since 2.1.31x) is the default. Without either badge it is Claude Code's own `high`, else the
+    /// least costly level: never the last, which is Max, the costliest.
     /// `thinking.type == "none"` (Haiku) means the model takes no `--effort` at all, which is why
     /// an empty `efforts` is a real answer here and not a missing one.
     static func claudeCatalogModels(_ catalogJSON: Data?) -> [AgentModel] {
@@ -75,9 +77,12 @@ public enum ModelFiles {
             let thinking = entry["thinking"] as? [String: Any]
             let options = (thinking?["type"] as? String) == "effort" ? (thinking?["effort_options"] as? [[String: Any]] ?? []) : []
             let efforts = options.compactMap { $0["id"] as? String }
-            let defaultEffort = options.first { ($0["badge"] as? [String: Any])?["message"] as? String == "Default" }?["id"] as? String
+            let badged = options.first { option in
+                ["Default", "Recommended"].contains((option["badge"] as? [String: Any])?["message"] as? String ?? "")
+            }?["id"] as? String
+            let fallback = efforts.contains(Harness.claude.defaultEffort) ? Harness.claude.defaultEffort : efforts.first
             return AgentModel(id: id, label: (entry["name"] as? String) ?? id, detail: entry["description"] as? String,
-                              efforts: efforts, defaultEffort: defaultEffort ?? efforts.last)
+                              efforts: efforts, defaultEffort: badged ?? fallback)
         }
     }
 
