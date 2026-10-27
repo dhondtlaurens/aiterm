@@ -340,8 +340,8 @@ final class OperatorController {
 
     /// What the tabs say of each of the run's tasks: each worker tab's live status (`WorkerTab`), and the prompt
     /// each waits on you with (the open question D14 records for it). While its first worker is idle or done, what that
-    /// turn left (`turns`, spec §J): a working task whose turn is not read yet, or answered by `message_task` since, is
-    /// `turnUnread`. A first worker at work whose task is in `quiet` has gone quiet (spec §H).
+    /// turn left (`turns`, spec §J): a task whose turn is not read yet, read again after it was accepted again or reopened,
+    /// or answered by `message_task` since, is `turnUnread`. A first worker at work whose task is in `quiet` has gone quiet (spec §H).
     static func liveFacts(of run: UUID, state: AppState, sessions: [SessionInfo],
                           turns: [UUID: WorkerTurnReader.Reading], quiet: Set<UUID> = []) -> [UUID: TaskLiveFacts] {
         let questions = state.run(id: run)?.questions ?? []
@@ -372,7 +372,7 @@ final class OperatorController {
                         live.atReopenedCommit = turn.atReopenedCommit
                         live.changedAfterAcceptance = turn.changedAfterAcceptance
                     } else {
-                        live.turnUnread = task.operated?.state == .working
+                        live.turnUnread = true
                     }
                 }
                 facts[task.id] = live
