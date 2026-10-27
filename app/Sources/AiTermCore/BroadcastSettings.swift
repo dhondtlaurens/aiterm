@@ -161,6 +161,8 @@ public enum TabRole: String, Codable, Sendable { case work, review }
 /// the review prompt's own words, its fix round and the rounds the prompt names, and its findings counted.
 public struct ReviewVerdict: Codable, Equatable, Sendable {
     private var preservedFields = PreservedFields()
+    /// The Operator's idempotency key within its task; nil for a verdict saved before keys.
+    public var key: String?
     /// The review tab's key.
     public var tab: String
     /// The commit it reviewed.
@@ -174,16 +176,18 @@ public struct ReviewVerdict: Codable, Equatable, Sendable {
     public var at: Date
 
     public init(tab: String, sha: String, passed: Bool, round: Int, rounds: Int? = nil, critical: Int, important: Int, minor: Int,
-                summary: String, at: Date) {
+                summary: String, at: Date, key: String? = nil) {
+        self.key = key
         self.tab = tab; self.sha = sha; self.passed = passed; self.round = round; self.rounds = rounds
         self.critical = critical; self.important = important; self.minor = minor; self.summary = summary; self.at = at
     }
 
-    private enum CodingKeys: String, CodingKey { case tab, sha, passed, round, rounds, critical, important, minor, summary, at }
+    private enum CodingKeys: String, CodingKey { case key, tab, sha, passed, round, rounds, critical, important, minor, summary, at }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
+        key = try c.decodeIfPresent(String.self, forKey: .key)
         tab = try c.decodeIfPresent(String.self, forKey: .tab) ?? ""
         sha = try c.decodeIfPresent(String.self, forKey: .sha) ?? ""
         passed = try c.decodeIfPresent(Bool.self, forKey: .passed) ?? false
@@ -199,6 +203,7 @@ public struct ReviewVerdict: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
         try preservedFields.encode(to: encoder)
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(key, forKey: .key)
         try c.encode(tab, forKey: .tab)
         try c.encode(sha, forKey: .sha)
         try c.encode(passed, forKey: .passed)

@@ -1,5 +1,18 @@
 import Foundation
 
+extension ReviewVerdict {
+    /// The visible review tab's final lines, copied by the Operator into `record_review`.
+    public static let block = """
+    End with this verdict block, replacing the placeholders. Set passed by the review prompt's criteria. \
+    Counts are non-negative integers; summary is one line the Operator can copy into record_review.
+    passed: <true or false>
+    critical: <count>
+    important: <count>
+    minor: <count>
+    summary: <one-line summary>
+    """
+}
+
 /// An agent review of a task's branch (spec §3.1, §5's base): another agent reads the task's work and
 /// reports what it finds, which the Operator then has the task's agent fix. Nobody is notified, so it needs
 /// no slice. It runs headless and read-only the way the Oracle does (`ChallengeLaunch`): `codex exec` in a

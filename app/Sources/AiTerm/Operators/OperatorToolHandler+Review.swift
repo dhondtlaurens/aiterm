@@ -16,6 +16,9 @@ extension OperatorToolHandler {
     /// findings, which `read_task` with `what: review` reads. A review running already, or one of the same commit
     /// with the same instructions done already, is not started again.
     func reviewTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        guard run.taskSettings == nil else {
+            throw ToolRefusal("Run the review in a tab: open_tab with role review, then record_review.")
+        }
         let task = try self.task(call, in: run), instructions = try call.string("instructions")
         let operated = try self.operated(task, in: run)
         guard [.working, .inReview].contains(operated.state) else {

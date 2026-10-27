@@ -61,13 +61,24 @@ final class TabOpener {
         guard let found = record(id), found.tab.launch == attempt, found.tab.sessionId == nil, Self.holds(found.task, in: state),
               let window = found.task.windowId, let daemon = daemon() else { return Self.outcome(of: record(id)?.tab) }
         let task = found.task, tab = found.tab
-        let prompt = Self.prompt(branch: task.branch, brief: tab.brief, role: tab.role), worktree = task.worktreePath, git = ports.git
+        let worktree = task.worktreePath, git = ports.git
+        let run = task.operated.flatMap { state.run(id: $0.runId) }
+        let review = run?.taskSettings?.review ?? run?.review
+        let workerPrompt = tab.role == .work ? Self.prompt(branch: task.branch, brief: tab.brief) : ""
         let file = Self.promptFile(for: id.key)
         do {
-            // The Operator's worker flags, its own prompt file: the task's other workers started in this worktree too.
+            // Read the named branch when opening the review, not HEAD: the shared worktree may have moved.
             let command = try await BackgroundWork.run {
-                try AgentCommand.build(agent: tab.agent, model: tab.model, reasoning: tab.reasoning, prompt: prompt, worktreePath: worktree,
-                                       git: git, operated: true, promptFile: file)
+                let prompt: String
+                if tab.role == .review {
+                    let sha = try git.run(["rev-parse", "--verify", "refs/heads/" + task.branch + "^{commit}"], in: worktree)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    prompt = Self.reviewPrompt(branch: task.branch, sha: sha, review: review, brief: tab.brief, agent: tab.agent)
+                } else {
+                    prompt = workerPrompt
+                }
+                return try AgentCommand.build(agent: tab.agent, model: tab.model, reasoning: tab.reasoning, prompt: prompt, worktreePath: worktree,
+                                              git: git, operated: true, readOnly: tab.role == .review, promptFile: file)
             }
             // The await has passed: the task may have been taken over or ended, its window closed, or its broadcast paused.
             guard let now = record(id), now.tab.launch == attempt, now.tab.sessionId == nil, Self.holds(now.task, in: state),
@@ -138,10 +149,21 @@ final class TabOpener {
     }
 
     /// An extra tab's first prompt: AiTerm's line on where it works (`WorkerStarter.worktreeLine`), its line on the
-    /// worktree it shares, then the Operator's brief. `role` is the tab's (`ExtraTab.role`): a work tab's and a review
-    /// tab's read alike so far.
-    static func prompt(branch: String, brief: String, role: TabRole = .work) -> String {
+    /// worktree it shares, then the Operator's brief.
+    static func prompt(branch: String, brief: String) -> String {
         WorkerStarter.worktreeLine(branch: branch) + "\n\n" + sharedLine + "\n\n" + brief
+    }
+
+    /// The person's review prompt first, AiTerm's review-only instructions, then the Operator's optional context.
+    nonisolated static func reviewPrompt(branch: String, sha: String, review: String?, brief: String, agent: AgentKind) -> String {
+        var parts = [review ?? "", "[AiTerm] Review commit \(sha), the head of branch \(branch) when this tab opened. You are in this task's shared worktree.",
+                     "[AiTerm] This tab only reviews: it never edits, commits or pushes. You may start subagents and run read-only commands.",
+                     ReviewVerdict.block]
+        if agent == .pi {
+            parts.append("[AiTerm] PI has no read-only mode for interactive sessions. This tab starts with the worker's denials alone; the review-only instructions still apply.")
+        }
+        parts.append(brief)
+        return parts.filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 
     /// The fixed line every extra tab's first prompt carries after `worktreeLine`, from AiTerm and never the Operator.

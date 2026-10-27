@@ -20,8 +20,8 @@ public enum AgentCommand {
     /// The invocation without its prompt argument — shared by `build` and `previewCommand` so the
     /// footer preview can never drift from the command that is actually run. Every word goes
     /// through `shellWord`: the model and reasoning come from catalogues the app does not write.
-    static func invocation(agent: AgentKind, model: String, reasoning: String?, operated: Bool = false) -> [String] {
-        let words = operated ? workerWords(agent: agent, model: model, reasoning: reasoning)
+    static func invocation(agent: AgentKind, model: String, reasoning: String?, operated: Bool = false, readOnly: Bool = false) -> [String] {
+        let words = operated || readOnly ? workerWords(agent: agent, model: model, reasoning: reasoning, readOnly: readOnly)
             : agent.harness.launchWords(model: model, reasoning: reasoning)
         return words.map(shellWord)
     }
@@ -42,12 +42,19 @@ public enum AgentCommand {
     ///   last: the prompt after `--permission-mode auto` would otherwise be read as one more tool.
     /// - Codex: the same `--dangerously-bypass-approvals-and-sandbox` as a task you make.
     /// - PI is not offered to the Operator (`operatedAgents`) and launches as it always does.
-    public static func workerWords(agent: AgentKind, model: String, reasoning: String?) -> [String] {
+    /// Review tabs add Claude's file-edit denials or use Codex's read-only sandbox. Neither removes subagents or
+    /// read-only shell commands. PI has no interactive read-only mode, so it keeps the worker's launch words.
+    public static func workerWords(agent: AgentKind, model: String, reasoning: String?, readOnly: Bool = false) -> [String] {
         let words = agent.harness.launchWords(model: model, reasoning: reasoning)
         switch agent {
         case .claude:
-            return words + ["--disallowedTools"] + operatedClaudeDenials + ["--permission-mode", "auto"]
-        case .codex, .pi:
+            let denials = operatedClaudeDenials + (readOnly ? ["Edit", "Write", "NotebookEdit"] : [])
+            return words + ["--disallowedTools"] + denials + ["--permission-mode", "auto"]
+        case .codex:
+            return readOnly
+                ? words.filter { $0 != "--dangerously-bypass-approvals-and-sandbox" } + ["--sandbox", "read-only", "--ask-for-approval", "never"]
+                : words
+        case .pi:
             return words
         }
     }
@@ -87,8 +94,8 @@ public enum AgentCommand {
     /// written to: an extra worker tab's own (`TabOpener`), so two agents started in one worktree never read
     /// each other's. It is typed into the command as it is, so it is a plain file name.
     public static func build(agent: AgentKind, model: String, reasoning: String?, prompt: String?, worktreePath: String,
-                             git: any GitRunning, operated: Bool = false, promptFile: String = "first-prompt.md") throws -> String {
-        var parts = invocation(agent: agent, model: model, reasoning: reasoning, operated: operated)
+                             git: any GitRunning, operated: Bool = false, readOnly: Bool = false, promptFile: String = "first-prompt.md") throws -> String {
+        var parts = invocation(agent: agent, model: model, reasoning: reasoning, operated: operated, readOnly: readOnly)
         if let prompt = prompt.map(normalized), !prompt.isEmpty {
             if readsFromFile(prompt, after: parts) {
                 let dir = worktreePath + "/.aiterm"

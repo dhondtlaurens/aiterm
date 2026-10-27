@@ -40,6 +40,18 @@ import Foundation
     static let check = GoalCheck(round: 1, met: false, evidence: "Two of three pages ship.", missing: ["The FAQ page"],
                                  oracleAgreed: true, at: at)
 
+    @Test func verdictKeyIsOptionalAndSurvivesRoundTrip() throws {
+        var json = try saved(Self.verdict)
+        json["key"] = "review-attempt-1"
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let verdict = try decoder.decode(ReviewVerdict.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(try roundTrip(verdict).key == "review-attempt-1")
+        #expect(try empty(ReviewVerdict.self).key == nil)
+        #expect(try saved(roundTrip(verdict))["key"] as? String == "review-attempt-1")
+        #expect(try saved(empty(ReviewVerdict.self))["key"] == nil)
+        #expect(try saved(Self.verdict)["key"] == nil)
+    }
+
     @Test func eachNewTypeRoundTripsWithEveryFieldSet() throws {
         let row = AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
         #expect(try roundTrip(row) == row)
