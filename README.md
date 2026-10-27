@@ -199,13 +199,13 @@ and is logged.
 | Jira | `jira_search`, `jira_board` | Read tickets and boards of the broadcast's Jira projects. |
 | | `jira_create`, `jira_edit`, `jira_comment` | Create, edit and comment on tickets (Jira slice). |
 | | `jira_move`, `jira_link`, `jira_sprint` | Move status, link tickets, put them in a sprint (Jira slice). |
-| Plan | `create_task`, `update_task` | Add an unstarted task, or change its brief, agent, model, reasoning or end. With Agents rows, only a row's combination, and the end is refused: every task ends where the person chose. |
+| Plan | `create_task`, `update_task` | Add an unstarted task, or change its brief, agent, model or end. In a broadcast started with the Agents and Task steps, also its reasoning, only a row's combination, and the end is refused: every task ends where the person chose. |
 | | `submit_plan` | Close a plan revision; its tasks are queued at once. |
 | Steer | `message_task` | Type a message into a started task's worker. |
-| | `open_tab` | Add another worker tab to a task, on the same worktree: a work tab, or a review tab (`role` review) on a row's combination. |
+| | `open_tab` | Add another worker tab to a task, on the same worktree. In a broadcast started with the Agents and Task steps, also a review tab (`role` review) on a row's combination. |
 | | `read_task` | Read a worker's last message, diff, open prompt or review. |
 | | `resume_task`, `retry_task` | Put a blocked task back to work; queue a failed one again. |
-| Review | `review_task` | Start an agent review of a task's branch; with task settings, refused: run the review in a tab. |
+| Review | `review_task` | Start an agent review of a task's branch; in a broadcast started with the Agents and Task steps, refused: run the review in a tab. |
 | | `record_review` | Record a review tab's verdict on a commit: passed or not, its findings counted, its fix round. |
 | | `find_user` | Find people on the code host who may review. |
 | | `request_review`, `reply_thread` | Mark the MR ready and ask reviewers; reply in a thread (Review slice). |

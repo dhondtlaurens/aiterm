@@ -20,14 +20,16 @@ import Testing
         return try #require(world.run(id))
     }
 
-    /// Started with the steps, the run freezes them and keeps no Review or Done text; its rows become the last broadcast's.
+    /// Started with the steps, the run freezes them, its goal's words trimmed, and keeps no Review or Done text; its rows
+    /// become the last broadcast's.
     @Test func aStartFreezesTheStepsAndSavesItsRowsAsTheLast() async throws {
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [])) {
             $0.profile = { OperatorServiceFixtures.profile(oracle: true) }
         }
-        let run = try await start(world)
+        let goal = OperatorServiceFixtures.goal
+        let run = try await start(world, goal: BroadcastGoal(text: "\n  \(goal.text)  \n", extraRounds: goal.extraRounds))
         #expect(run.agents == OperatorServiceFixtures.agents && run.taskSettings == OperatorServiceFixtures.taskSettings)
-        #expect(run.goal == OperatorServiceFixtures.goal)
+        #expect(run.goal == goal)
         #expect(run.review == nil && run.done == nil, "a run with task settings leaves the Review and Done text nil")
         #expect(OperatorProfileStore.lastAgents(try #require(world.ports.preferences)) == OperatorServiceFixtures.agents)
         #expect(try world.workspace.file.load().runs.first?.taskSettings == OperatorServiceFixtures.taskSettings, "frozen on disk")
@@ -43,15 +45,19 @@ import Testing
         #expect(try await start(blank, goal: BroadcastGoal(text: "  ")).goal == nil)
     }
 
-    /// Started without the steps, the run is a legacy one, with its Review and Done text, and the last rows stay.
+    /// Started without the Task step, the run is a legacy one, with its Review and Done text and no rows and no goal, even
+    /// when given some; the last rows stay as they were.
     @Test func aStartWithoutTheStepsIsALegacyRunAndKeepsTheLastRows() async throws {
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []))
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [])) {
+            $0.profile = { OperatorServiceFixtures.profile(oracle: true) }
+        }
         let preferences = try #require(world.ports.preferences)
-        try OperatorProfileStore.saveLastAgents(OperatorServiceFixtures.agents, preferences)
-        let run = try await start(world, agents: [], taskSettings: nil, goal: nil)
+        let earlier = [AgentChoice(agent: .codex, model: "gpt-6-mini", reasoning: nil)]
+        try OperatorProfileStore.saveLastAgents(earlier, preferences)
+        let run = try await start(world, taskSettings: nil)
         #expect(run.review == "Jan reviews." && run.done == "A draft MR.")
         #expect(run.taskSettings == nil && run.agents.isEmpty && run.goal == nil)
-        #expect(OperatorProfileStore.lastAgents(preferences) == OperatorServiceFixtures.agents)
+        #expect(OperatorProfileStore.lastAgents(preferences) == earlier)
     }
 
     @Test func theLastRowsAreNoneUntilSaved() throws {

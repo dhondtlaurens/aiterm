@@ -237,15 +237,24 @@ def test_open_tab_adds_a_worker_tab_to_a_running_task_by_key():
     assert "same worktree and branch" in tool["description"] and "same key" in tool["description"]
 
 
+# What a broadcast started before the Agents and Task steps doesn't take, said wherever an argument is theirs alone.
+STEPS_ONLY = "Only in a broadcast started with the Agents and Task steps, whose run_status shows taskSettings"
+NOT_LEGACY = "a broadcast started before them doesn't take it"
+
+
 def test_the_agents_rows_bound_every_worker_tab_and_reviewer():
-    """Broadcast setup v2: create_task, update_task and open_tab take a reasoning level, and with Agents rows only a row."""
+    """Broadcast setup v2: create_task, update_task and open_tab take a reasoning level, and with Agents rows only a row.
+    The reasoning is the steps' alone: a broadcast started before them doesn't take it."""
     tools = {tool["name"]: tool for tool in TOOLS}
     for name in ("create_task", "update_task", "open_tab"):
         properties = tools[name]["inputSchema"]["properties"]
         assert "agents.allowed" in properties["model"]["description"], name
         assert "first row" in properties["model"]["description"], name
-        assert "agents.allowed" in properties["reasoning"]["description"] and "refused" in properties["reasoning"]["description"], name
+        reasoning = properties["reasoning"]["description"]
+        assert "agents.allowed" in reasoning and "refused" in reasoning, name
+        assert reasoning.startswith(STEPS_ONLY) and NOT_LEGACY in reasoning, name
     assert "reasoning" in tools["update_task"]["description"]
+    assert "Agents and Task steps" in tools["update_task"]["description"]
 
 
 def test_a_new_broadcasts_tasks_end_where_the_person_chose():
@@ -261,7 +270,10 @@ def test_open_tab_opens_a_review_tab_by_role():
     properties = tool["inputSchema"]["properties"]
     assert properties["role"]["enum"] == ["work", "review"]
     assert "record_review" in properties["role"]["description"] and "Left out, work" in properties["role"]["description"]
-    assert "optional" in properties["brief"]["description"] and "review prompt" in properties["brief"]["description"]
+    assert properties["role"]["description"].startswith(STEPS_ONLY) and NOT_LEGACY in properties["role"]["description"]
+    brief = properties["brief"]["description"]
+    assert "optional" in brief and "review prompt" in brief
+    assert "Needed for a work tab, and for every tab of a broadcast started before the Agents and Task steps" in brief
 
 
 def test_review_task_runs_in_a_tab_in_a_new_broadcast():
@@ -280,8 +292,9 @@ def test_record_review_keeps_a_review_tabs_verdict():
         assert schema["properties"][name]["type"] == "integer", name
     assert "record_review" not in CHALLENGED_TOOLS
     for words in ("on the task's branch", "review tabs", "same key returns the first answer", "how many failed",
-                  "AiTerm doesn't refuse an acceptance"):
+                  "You decide when to accept: AiTerm doesn't refuse an acceptance"):
         assert words in tool["description"], words
+    assert "The Operator" not in tool["description"]
 
 
 def test_check_goal_answers_the_goal_once_every_task_is_done():

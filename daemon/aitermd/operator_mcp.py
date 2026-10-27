@@ -166,10 +166,12 @@ _END = _choice("Where the task ends, from the broadcast's Done when: commit; dra
 _MODEL = _text("A model id from the agent's own list, as run_status shows it under agents. Left out, the agent's default. "
                "A model not in that list is refused. In a broadcast whose run_status lists rows under agents.allowed, only a "
                "row's model, and left out, the agent's first row.")
-_REASONING = _text("The model's reasoning level, as Settings › Agents lists it. Left out, the model's default. In a broadcast "
-                   "whose run_status lists rows under agents.allowed, the agent, model and reasoning must be one of the rows: "
-                   "anything else is refused, naming the rows. The person's words choose among the rows, never outside them: "
-                   "ask them with ask_you about a combination that isn't one.")
+# Said first by each argument that is the Agents and Task steps' alone.
+_STEPS_ONLY = "Only in a broadcast started with the Agents and Task steps, whose run_status shows taskSettings"
+_REASONING = _text(f"{_STEPS_ONLY}; a broadcast started before them doesn't take it. The model's reasoning level, as Settings › "
+                   "Agents lists it. Left out, the model's default. The agent, model and reasoning must be one of the rows "
+                   "under agents.allowed: anything else is refused, naming the rows. The person's words choose among the rows, "
+                   "never outside them: ask them with ask_you about a combination that isn't one.")
 _DEPENDS_ON: dict[str, Any] = {
     "type": "array",
     "description": "What the task waits for. An order dependency waits until the other task is accepted or needs no change; "
@@ -323,8 +325,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
                                                              "starts on that agent whatever its weekly use."},
            "end": _END, "dependsOn": _DEPENDS_ON},
           ("key", "title", "brief", "project", "agent", "modelReason")),
-    _tool("update_task", "Changes an unstarted task's brief, agent, model, reasoning, end or dependencies. Steer a started "
-          "task with message_task instead.",
+    _tool("update_task", "Changes an unstarted task's brief, agent, model, end or dependencies, and in a broadcast started with "
+          "the Agents and Task steps its reasoning. Steer a started task with message_task instead.",
           {"task": _TASK, "brief": _text("The new brief."), "agent": _AGENT, "model": _MODEL, "reasoning": _REASONING,
            "end": _END, "dependsOn": _DEPENDS_ON}, ("task",)),
     _tool("submit_plan", "Closes a plan revision: its planned tasks are queued at once, with nothing to approve. "
@@ -385,19 +387,20 @@ TOOLS: tuple[dict[str, Any], ...] = (
            "modelReason": _text("Why this agent and model, in one line."),
            "agentPinned": {"type": "boolean", "description": "True when the person's words named this agent: an agent whose "
                                                              "workers can't be messaged is then not refused."},
-           "brief": _text("The tab's first prompt: what this worker does, since it sees nothing else. Needed for a work tab; "
-                          "optional for a review tab, whose first prompt is the broadcast's review prompt with AiTerm's "
-                          "lines, and what you write is added after it."),
-           "role": _choice("work, more work on the task; or review, a reviewer of the task's branch head as the tab opens, "
-                           "which only reviews and ends with a verdict: read it once its turn ends and call record_review. "
-                           "Run each review of a broadcast whose run_status shows taskSettings this way, on a row of "
+           "brief": _text("The tab's first prompt: what this worker does, since it sees nothing else. Needed for a work tab, "
+                          "and for every tab of a broadcast started before the Agents and Task steps; optional for a review "
+                          "tab, whose first prompt is the broadcast's review prompt with AiTerm's lines, and what you write "
+                          "is added after it."),
+           "role": _choice(f"{_STEPS_ONLY}; a broadcast started before them doesn't take it. work, more work on the task; or "
+                           "review, a reviewer of the task's branch head as the tab opens, which only reviews and ends with a "
+                           "verdict: read it once its turn ends and call record_review. Run each review this way, on a row of "
                            "agents.allowed, another agent than the task's worker where the rows have one. Left out, work.",
                            "work", "review")},
           ("task", "key", "agent", "modelReason")),
     _tool("record_review", "Records a review tab's verdict on a task, once its turn ended and you read it: the commit it reviewed, "
           "whether it passed by the review prompt's own words, its findings counted, and its fix round. sha must be on the "
           "task's branch and tab one of its review tabs (open_tab with role review). The same key returns the first answer. "
-          "It answers the task's verdicts and how many failed. The Operator decides when to accept: AiTerm doesn't refuse an "
+          "It answers the task's verdicts and how many failed. You decide when to accept: AiTerm doesn't refuse an "
           "acceptance without a passing verdict. When the rounds the prompt names are used up, ask the person with ask_you "
           "on the task, about fixRounds.",
           {"task": _TASK, "tab": _text("The review tab's key."), "sha": _text("The commit it reviewed, as its first prompt named it."),

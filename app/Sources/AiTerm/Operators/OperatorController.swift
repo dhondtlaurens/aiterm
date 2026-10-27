@@ -443,6 +443,7 @@ final class OperatorController {
 
     /// Something in the run changed: whatever may start now starts, a summary overdue is given up on, and a
     /// merge it was waiting for is watched again once it runs — your Resume, or its operator back from offline.
+    /// Then `onRunChanged` is told.
     func runChanged(_ id: UUID) {
         settle(id)
         giveUpOnSummary(id)
@@ -510,9 +511,10 @@ final class OperatorController {
     /// before its window opens: a relaunch must know the window is its. Its name is `name`, or with none the
     /// prompt's first line; `jiraProjectKeys` and `projectIds` are New Broadcast's picks. Ended while it
     /// starts, it stays ended: its id is returned with no window of its own and its token revoked again.
-    /// `agents`, `taskSettings` and `goal` are the Agents, Task and Done steps, frozen in the run as the profile is; with
-    /// `taskSettings` the run has no Review or Done text, and with the Oracle off no goal, which needs it. Its rows are
-    /// saved as the last broadcast's. Without `taskSettings` it is started as before those steps.
+    /// `agents`, `taskSettings` and `goal` are the Agents, Task and Done steps, frozen in the run as the profile is, the
+    /// goal's words trimmed; with `taskSettings` the run has no Review or Done text, and with the Oracle off no goal, which
+    /// needs it. Its rows are saved as the last broadcast's. Without `taskSettings` it is started as before those steps:
+    /// no rows and no goal, whatever was given.
     @discardableResult
     func startBroadcast(name: String?, jiraProjectKeys: [String], projectIds: [UUID], prompt: String, review: String?,
                         done: String?, agents: [AgentChoice] = [], taskSettings: TaskSettings? = nil,
@@ -530,11 +532,15 @@ final class OperatorController {
             readProfile?() ?? OperatorProfileStore.load(claudeDefault: OperatorProfileStore.claudeDefault(models: []))
         }
         let legacy = taskSettings == nil
+        let agents = legacy ? [] : agents
+        let goal = goal.flatMap { goal in
+            OperatorCommand.said(goal.text).map { BroadcastGoal(text: $0, extraRounds: goal.extraRounds) }
+        }
         let run = OperatorRun(id: UUID(), name: OperatorCommand.said(name) ?? firstLine, profile: profile,
                               projectIds: projectIds, jiraProjectKeys: jiraProjectKeys, prompt: prompt,
                               review: legacy ? OperatorCommand.said(review) : nil, done: legacy ? OperatorCommand.said(done) : nil,
                               createdAt: ports.now(), agents: agents, taskSettings: taskSettings,
-                              goal: profile.oracle.isOn && OperatorCommand.said(goal?.text) != nil ? goal : nil)
+                              goal: legacy || !profile.oracle.isOn ? nil : goal)
         let home = ports.home
         // A fresh start: `prepare` makes the token and writes the first message the command reads.
         let prepared = try await BackgroundWork.run {
