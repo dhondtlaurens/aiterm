@@ -335,11 +335,14 @@ final class WorkerStarter {
 
     /// The fixed line every worker's first prompt starts with, from AiTerm and never the Operator: AiTerm reads
     /// the task branch alone, so work committed anywhere else goes unseen (`BranchWatch` flags it).
-    /// Inventories stay in the conversation: repository files can expose personal paths and addresses.
+    /// Inventories stay in the conversation: repository files can expose personal paths and addresses. And no
+    /// settings command in a live session: Claude Code saves a /model or /effort as the person's default.
     static func worktreeLine(branch: String) -> String {
         "[AiTerm] You are already in this task's worktree, on branch \(branch). Commit only here, on \(branch). "
             + "Do not create another worktree or branch. Inventories, audits and lists go in your final message, "
-            + "never in a new file in the repository."
+            + "never in a new file in the repository. "
+            + "Never type /model, /effort or /config into a live agent session: they save the person's defaults. "
+            + "To try a model or effort, use launch flags or a scratch CLAUDE_CONFIG_DIR."
     }
 
     /// Whether the task has a code parent and no accepted commit of its parent's to start from.

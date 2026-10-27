@@ -31,4 +31,7 @@ Swift is written.
     and says what it picked; a docs-only branch exits at once.
   - Once before merging to `main`: `scripts/test.sh all`, the full suite.
   - Test windows are hidden (transparent, click-through), so a visible one is a bug.
+- Never type `/model`, `/effort` or `/config` into a live Claude Code session: it saves the choice in
+  `~/.claude/settings.json` as the person's default for every new session. Probe with launch flags
+  (`--model`, `--effort`) or a scratch `CLAUDE_CONFIG_DIR`, as `daemon/tools/delivery_check.py` does.
 - The app is dark-only.

@@ -7,11 +7,11 @@ import Testing
 /// The controller's start pass: every ready task, each claimed and on disk before any window is asked
 /// for, none started twice.
 @MainActor @Suite(.blocking) struct WorkerStarterClaimTests {
-    func makeWorld(_ daemon: RecordingDaemon = RecordingDaemon(),
+    func makeWorld(_ daemon: RecordingDaemon = RecordingDaemon(), git: any GitRunning = GitRunner.hermetic(),
                    clock: TestClock? = nil) throws -> (OperatorWorld, OperatorRun, Project) {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-claim-"))
         let run = OperatorServiceFixtures.run(projects: [project], state: .active)
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]), daemon: daemon) { ports in
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]), daemon: daemon, git: git) { ports in
             if let clock { ports.now = { clock.now } }
         }
         return (world, run, project)
@@ -61,17 +61,24 @@ import Testing
     /// Start passes run again and again while launches wait on their windows: the first claims everything
     /// ready, every later one claims nothing, and no task is asked a second window — not even by the
     /// passes each launch runs as it ends.
+    ///
+    /// Each launch runs real git, its worktree and its command, before it asks for its window: on a
+    /// machine running several suites at once that can outlast git's local deadline and the default
+    /// wait, and a launch whose git timed out is blocked, which reads like a missing window. So git
+    /// here has a minute, the waits on the launches as long, and a blocked launch says why.
     @Test func overlappingPassesWhileLaunchesAreHeldNeverClaimATaskTwice() async throws {
         let daemon = RecordingDaemon(holding: "window.createTask")
         let clock = TestClock.operators()
-        let (world, run, project) = try makeWorld(daemon, clock: clock)
+        let (world, run, project) = try makeWorld(daemon, git: PatientGit(), clock: clock)
         let queued = (1...3).map { OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-\($0)", state: .queued) }
         world.workspace.mutate { $0.tasks += queued }
         world.controller.startReadyTasks()
         world.controller.runChanged(run.id)
         world.controller.runChanged(run.id)
         #expect(world.controller.starter.starting == Set(queued.map(\.id)))
-        #expect(await eventually(describing: "every launch to wait on its window") { daemon.requests("window.createTask").count == 3 })
+        #expect(await eventually(describing: "every launch to wait on its window", timeout: PatientGit.timeout) {
+            daemon.requests("window.createTask").count == 3
+        })
 
         // Mid-await: a pass, reconciles over iTerm2's tabs (only the operator's listed) a minute and more apart —
         // when a claimed launch with no tab would be launched again but for `starting` — and a run change start nothing more.
@@ -83,10 +90,11 @@ import Testing
         world.controller.runChanged(run.id)
         #expect(world.run(run.id)?.state == .active, "its operator is there")
         #expect(world.controller.reconciler.lastLaunch == nil, "no relaunch of a claim whose launch is in flight")
-        #expect(world.state.tasks.filter { $0.operated?.state == .working }.count == 3)
+        #expect(world.state.tasks.filter { $0.operated?.state == .working }.count == 3,
+                "a launch that failed is blocked, not claimed twice: \(world.state.tasks.compactMap { $0.operated?.blockedReason })")
 
         daemon.release()
-        #expect(await eventually(describing: "every launch to end") { world.controller.starter.starting.isEmpty })
+        #expect(await eventually(describing: "every launch to end", timeout: PatientGit.timeout) { world.controller.starter.starting.isEmpty })
         await world.controller.lastStart?.value
         #expect(daemon.requests("window.createTask").compactMap { $0.params["taskId"] as? String }.sorted()
                 == queued.map(\.id.uuidString).sorted(), "one window each, never a second")
@@ -135,5 +143,15 @@ import Testing
         #expect(world.task(task.id)?.operated?.launch?.number == 2)
         #expect(daemon.requests("session.deliver").count == 1, "delivered once")
         #expect(daemon.requests("session.deliver").first?.params["sessionId"] as? String == "s7")
+    }
+}
+
+/// The fixtures' git, its every command given at least `timeout`: the local deadline is for a person's
+/// machine, not one a test run shares with several others.
+private struct PatientGit: GitRunning {
+    static let timeout: TimeInterval = 60
+    let inner: any GitRunning = GitRunner.hermetic()
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        try inner.run(args, in: dir, timeout: max(timeout, Self.timeout), environment: environment)
     }
 }
