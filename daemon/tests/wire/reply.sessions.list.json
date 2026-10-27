@@ -15,6 +15,7 @@
       "sessionId": "s2",
       "slashCommands": [],
       "state": "working",
+      "stoppedOn": null,
       "subagentsWrittenAt": null,
       "tabIndex": 0,
       "tabKey": null,
@@ -27,7 +28,7 @@
     {
       "active": false,
       "agent": "claude",
-      "agentCwd": null,
+      "agentCwd": "/repo/.worktrees/feat-wire",
       "background": [],
       "contextPercent": null,
       "conversationId": null,
@@ -45,7 +46,11 @@
           "text": "/effort high"
         }
       ],
-      "state": "idle",
+      "state": "done",
+      "stoppedOn": {
+        "error": "rate_limit",
+        "resetsAt": 1790018000
+      },
       "subagentsWrittenAt": null,
       "tabIndex": 1,
       "tabKey": "review",
@@ -69,6 +74,7 @@
       "sessionId": "s5",
       "slashCommands": [],
       "state": "idle",
+      "stoppedOn": null,
       "subagentsWrittenAt": null,
       "tabIndex": 0,
       "tabKey": null,

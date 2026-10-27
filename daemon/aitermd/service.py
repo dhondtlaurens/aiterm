@@ -5,6 +5,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -28,6 +29,7 @@ from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
 from .sessions import SessionRegistry, SnapshotDiff
 from .slash_commands import SlashCommands
 from .status import StatusEngine, shows_trust_prompt
+from .stop_failures import LIMIT_ERRORS, RESET_READ_SECONDS, limit_resets_at
 from .usage import UsageStore, parse_codex_rate_limits
 from .windows import WindowManager
 
@@ -368,6 +370,8 @@ class Service:
             changed += self.status.release_dead_subagents(await self._subagent_tails(self.status.subagent_transcripts()))
         with _logged("reading what became of the slash commands"):
             changed += await self._apply_slash_commands()
+        with _logged("reading when the limits that stopped sessions reset"):
+            changed += await self._apply_limit_resets()
 
     def _corroborate(self, s: SessionInfo, threads: dict[str, str], screens: list[str], changed: list[str]) -> None:
         """Adds to `changed` what the agent's own files and the tab say of `s` that its hooks have
@@ -464,6 +468,28 @@ class Service:
         starts = self.slash_commands.starts(now)
         records = await self._off_loop("the slash command read", lambda: read(starts), None) if starts else {}
         return [] if records is None else self.slash_commands.apply(records, now)
+
+    async def _apply_limit_resets(self) -> list[str]:
+        """The sessions whose transcripts now say when the usage limit that stopped their turn resets. Each is looked
+        for, on a worker thread, from the StopFailure until RESET_READ_SECONDS after it; a read that cannot answer
+        changes nothing."""
+        now = self.clock()
+        stopped = {s.session_id: (s.stopped_on, s.transcript) for s in self.registry.all()
+                   if s.stopped_on is not None and s.stopped_on.error in LIMIT_ERRORS and s.stopped_on.resets_at is None
+                   and s.transcript and now - s.stopped_on.at <= RESET_READ_SECONDS}
+        if not stopped:
+            return []
+        paths = {transcript for _, transcript in stopped.values() if transcript}
+        none: dict[str, int | None] = {}
+        resets = await self._off_loop("the usage limit read", lambda: {path: limit_resets_at(path) for path in paths}, none)
+        changed: list[str] = []
+        for session_id, (stopped_on, transcript) in stopped.items():
+            # A hook may have moved the session on during the read.
+            if (s := self.registry.get(session_id)) is None or s.stopped_on is not stopped_on or not transcript:
+                continue
+            if (resets_at := resets.get(transcript)) is not None:
+                changed += [session_id] if self.registry.set_stopped_on(session_id, replace(stopped_on, resets_at=resets_at)) else []
+        return changed
 
     async def _off_loop(self, name: str, work: Callable[[], T], nothing: T) -> T:
         """`work`, run on a worker thread. It answers `nothing` if it has not finished within

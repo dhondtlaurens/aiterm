@@ -22,6 +22,7 @@
         "sessionId": "s2",
         "slashCommands": [],
         "state": "working",
+        "stoppedOn": null,
         "subagentsWrittenAt": null,
         "tabIndex": 0,
         "tabKey": null,
@@ -62,6 +63,7 @@
           }
         ],
         "state": "working",
+        "stoppedOn": null,
         "subagentsWrittenAt": 1790000300.5,
         "tabIndex": 1,
         "tabKey": "review",
@@ -85,6 +87,7 @@
         "sessionId": "s5",
         "slashCommands": [],
         "state": "idle",
+        "stoppedOn": null,
         "subagentsWrittenAt": null,
         "tabIndex": 0,
         "tabKey": null,

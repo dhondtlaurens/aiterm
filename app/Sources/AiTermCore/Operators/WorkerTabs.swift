@@ -65,14 +65,15 @@ public extension TaskItem {
 
     /// Whether its result waits for the Operator to accept it, its workers as `sessions` list them: working, and
     /// every worker ended its turn with nothing left running in the background (`RunStatus.isReadyForAcceptance`).
-    /// A question it waits on you for (`waitingOnYou`) holds it too, as `run_status` says.
+    /// A question it waits on you for (`waitingOnYou`) holds it too, as `run_status` says, and so does a worker whose
+    /// turn an API error ended (`SessionInfo.stoppedOn`): it did not finish.
     func isReadyForAcceptance(in sessions: [SessionInfo]) -> Bool {
         return isReadyForAcceptance(tabs: workerTabs(in: sessions))
     }
 
     /// `isReadyForAcceptance(in:)` from its worker tabs (`workerTabs(in:)`), for a caller that has them already.
     internal func isReadyForAcceptance(tabs: [WorkerTab]) -> Bool {
-        guard let operated, !operated.flags.contains(.waitingOnYou) else { return false }
+        guard let operated, !operated.flags.contains(.waitingOnYou), tabs.allSatisfy({ $0.session?.stoppedOn == nil }) else { return false }
         let workers = tabs.map(\.status)
         return RunStatus.isReadyForAcceptance(operated, live: workers[0], extraTabs: Array(workers.dropFirst()),
                                               background: tabs.flatMap(\.background))

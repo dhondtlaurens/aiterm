@@ -4,7 +4,9 @@ import Foundation
 /// the status-line shim — and how it recognises its own entries there. `ClaudeDriver` reads and
 /// writes the file; launch asks only whether Claude Code still runs the usage shim.
 public enum ClaudeSettings {
-    static let events = ["SessionStart", "PostModelSwitch", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "Notification", "PermissionRequest"]
+    /// `StopFailure` fires in place of `Stop` when an API error ended the turn: a usage limit, a billing or sign-in failure.
+    static let events = ["SessionStart", "PostModelSwitch", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "StopFailure",
+                         "Notification", "PermissionRequest"]
     /// Events AiTerm used to install and no longer does. `PreToolUse` was a *synchronous* Bash hook
     /// for a cleanup interception the daemon has since dropped, so every Bash tool call waited on a
     /// round trip that answered nothing. A merge removes AiTerm's own entries from these and leaves

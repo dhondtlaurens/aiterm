@@ -26,6 +26,7 @@ order — the chips sit still, so a stable reading order beats ranking.
 |---|---|---|
 | `UserPromptSubmit` | working | Claude Code and Codex. A new turn: it drops any completion the previous turn deferred. |
 | `Stop` | done | Deferred while a subagent is still alive — the last child finishes the change. A Claude `Stop` also drops each counted child its `background_tasks` no longer lists (below), and the session's `background` lists what still runs: shells, monitors and other tasks, and the counted children by their description, each taken off as it ends. |
+| `StopFailure` | done | Claude only, in place of `Stop` when an API error ended the turn. The session's `stoppedOn` names the error (`rate_limit` for a usage limit, `billing_error`, `authentication_failed`...), and for a limit when it resets, once the tick reads that in the transcript's own record of it within 30 s; it is never guessed. It clears once the session works again: a new prompt, a clean `Stop`, another conversation, its session file saying busy (Claude Code carrying on by itself once the limit reset), another process in the tab. |
 | `PermissionRequest` | needsInput | Claude Code and Codex. |
 | `Notification` | needsInput | Claude only: `permission_prompt`, `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`. |
 | `Notification` | done | Claude only: `agent_completed`. |

@@ -210,6 +210,22 @@ class SlashCommand:
                 "output": self.output}
 
 
+@dataclass(frozen=True, slots=True)
+class StoppedOn:
+    """What ended a Claude session's last turn short: the API error Claude Code reported in place of its Stop (a
+    StopFailure hook). `error` is Claude Code's name for it: `rate_limit` for a usage or rate limit, which Claude Code
+    may carry on from by itself once it resets; `billing_error`, `authentication_failed` and the like for one that
+    blocks the session until someone acts. `resets_at`, a limit's reset in epoch seconds, only as the transcript's own
+    record of the limit gives it (stop_failures.limit_resets_at); None while nothing has. `at`, the wall clock when
+    the hook came, is neither sent nor compared."""
+    error: str
+    resets_at: int | None = None
+    at: float = field(default=0.0, compare=False)
+
+    def to_json(self) -> dict[str, Any]:
+        return {"error": self.error, "resetsAt": self.resets_at}
+
+
 @dataclass
 class SessionInfo:
     session_id: str
@@ -266,6 +282,9 @@ class SessionInfo:
     # The last slash commands AiTerm typed into this Claude tab, oldest first, and what became of each
     # (slash_commands.py). It goes with the agent's process.
     slash_commands: tuple[SlashCommand, ...] = ()
+    # What ended its last turn short (StoppedOn), until it works again: a new turn, a Stop, another conversation. It goes
+    # with the agent's process.
+    stopped_on: StoppedOn | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -277,6 +296,7 @@ class SessionInfo:
             "subagentsWrittenAt": self.subagents_written_at,
             "background": [job.to_json() for job in self.background], "yourPrompt": self.your_prompt,
             "slashCommands": [command.to_json() for command in self.slash_commands],
+            "stoppedOn": self.stopped_on.to_json() if self.stopped_on else None,
         }
 
 

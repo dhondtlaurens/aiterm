@@ -334,16 +334,17 @@ final class OperatorController {
                        usage: [AgentKind: Int] = [:], turns: [UUID: WorkerTurnReader.Reading], quiet: Set<UUID> = [],
                        now: Date = Date()) -> RunStatus? {
         RunStatus.build(state: state, run: run, revision: revision,
-                        live: liveFacts(of: run, state: state, sessions: sessions, turns: turns, quiet: quiet),
+                        live: liveFacts(of: run, state: state, sessions: sessions, turns: turns, quiet: quiet, now: now),
                         runLive: RunLiveFacts(weeklyUsage: usage), now: now)
     }
 
     /// What the tabs say of each of the run's tasks: each worker tab's live status (`WorkerTab`), and the prompt
     /// each waits on you with (the open question D14 records for it). While its first worker is idle or done, what that
     /// turn left (`turns`, spec §J): a working task whose turn is not read yet, or answered by `message_task` since, is
-    /// `turnUnread`. A first worker at work whose task is in `quiet` has gone quiet (spec §H).
+    /// `turnUnread`. A first worker at work whose task is in `quiet` has gone quiet (spec §H). A worker an API error stopped
+    /// says why (`StoppedOn.reason`), a limit's reset as of `now`.
     static func liveFacts(of run: UUID, state: AppState, sessions: [SessionInfo],
-                          turns: [UUID: WorkerTurnReader.Reading], quiet: Set<UUID> = []) -> [UUID: TaskLiveFacts] {
+                          turns: [UUID: WorkerTurnReader.Reading], quiet: Set<UUID> = [], now: Date = Date()) -> [UUID: TaskLiveFacts] {
         let questions = state.run(id: run)?.questions ?? []
         var facts: [UUID: TaskLiveFacts] = [:]
         for task in state.tasks(inRun: run) {
@@ -364,7 +365,8 @@ final class OperatorController {
                                          background: workers.flatMap(\.background),
                                          yourPrompt: workers.lazy.compactMap { $0.session?.yourPrompt }.first,
                                          quiet: prompt == nil && quiet.contains(task.id), liveModel: tab?.liveModel,
-                                         liveReasoning: tab?.liveReasoning, slashCommands: tab?.slashCommands ?? [])
+                                         liveReasoning: tab?.liveReasoning, slashCommands: tab?.slashCommands ?? [],
+                                         stoppedOn: workers.lazy.compactMap { $0.session?.stoppedOn }.first?.reason(now: now))
                 if let tab, live.status?.turnEnded == true {
                     if let turn = turns[task.id], turn.session == tab.sessionId, !turn.messaged {
                         live.lastMessage = turn.lastMessage
