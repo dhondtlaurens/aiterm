@@ -193,6 +193,24 @@ import Foundation
         #expect(!RunStatus.isReadyForAcceptance(F.operated("B", .working), live: .idle, background: ["CI on !46"]))
     }
 
+    /// Background work in one tab is listed while another still works: the fixer ended its turn with its tests running,
+    /// its review tab is at work. Only a working task's, and never one you took over.
+    @Test func backgroundWorkIsListedWhileAnotherTabWorks() throws {
+        func status(_ state: OperatedState = .working, takenOver: Bool = false, review: SessionState = .working) throws -> RunStatus {
+            var b = F.task("B", state)
+            b.operated?.takenOver = takenOver
+            let tab = TaskLiveFacts.Tab(key: "review", agent: .codex, model: "gpt-6-mini", status: review)
+            let facts = TaskLiveFacts(status: .idle, tabs: [tab], background: ["scripts/test.sh swift --filter RunStatusTests"])
+            return try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1, live: [b.id: facts]))
+        }
+        let working = try status()
+        #expect(working.obligations.background == ["B"])
+        #expect(working.obligations.readyForAcceptance.isEmpty && working.obligations.finishedWithoutCommit.isEmpty)
+        #expect(try status(review: .idle).obligations.background == ["B"], "every tab ended, as before")
+        #expect(try status(takenOver: true).obligations.background.isEmpty, "yours")
+        #expect(try status(.inReview).obligations.background.isEmpty, "not a working task")
+    }
+
     @Test func readinessCountsEveryWorkerTab() {
         let working = F.operated("B", .working)
         #expect(RunStatus.isReadyForAcceptance(working, live: .idle))

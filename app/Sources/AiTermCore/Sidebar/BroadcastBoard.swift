@@ -45,7 +45,8 @@ public struct BroadcastBoard: Equatable, Sendable {
         /// `main` for the first worker (`WorkerTab.firstKey`), else the extra tab's key.
         public var key: String
         public var agent: AgentKind
-        /// `at work`, `turn ended`, `waiting on you` (needs you), `opening` or `closed`.
+        /// `at work`, `turn ended`, `in background` (its turn ended with work still running, the jobs on its tooltip),
+        /// `waiting on you` (needs you), `opening` or `closed`.
         public var line: OperatorLine
         /// Its `StatusMark`; nil once closed.
         public var status: TaskStatus?
@@ -331,7 +332,15 @@ public struct BroadcastBoard: Equatable, Sendable {
             case .working?: return TabLine(key: key, agent: worker.agent, line: OperatorLine("at work"), status: .working, opens: opens)
             case .needsInput?:
                 return TabLine(key: key, agent: worker.agent, line: OperatorLine("waiting on you", look: .needsYou), status: .needsInput, opens: opens)
-            case .idle?, .done?: return TabLine(key: key, agent: worker.agent, line: OperatorLine("turn ended"), status: .idle, opens: opens)
+            case .idle?, .done?:
+                // Its turn ended with work running in the background, which wakes it again.
+                let background = worker.background
+                guard background.isEmpty else {
+                    return TabLine(key: key, agent: worker.agent,
+                                   line: OperatorLine("in background", tooltip: "Running in the background: " + background.joined(separator: ", ")),
+                                   status: .background, opens: opens)
+                }
+                return TabLine(key: key, agent: worker.agent, line: OperatorLine("turn ended"), status: .idle, opens: opens)
             }
         }
     }

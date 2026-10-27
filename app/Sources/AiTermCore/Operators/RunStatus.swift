@@ -312,8 +312,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         /// result, then `mark_task`. A reopened one still on the commit it was accepted on (its line's `reopenedFrom`) is
         /// here too: accept that commit again.
         public var readyForAcceptance: [String]
-        /// Working tasks whose worker ended its turn with work still running in the background, which wakes it again
-        /// once it ends: not ready yet. Each task's line says what runs.
+        /// Working tasks one of whose workers ended its turn with work still running in the background, which wakes it
+        /// again once it ends, whether or not its other tabs still work: not ready yet. Each task's line says what runs.
         public var background: [String]
         public var possiblyStalled: [String]
         public var uncertain: [String]
@@ -392,12 +392,14 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 // Only a prompt open in a terminal is listed: the task's key stands for its first worker's prompt.
                 prompts += (facts.waitingPrompt != nil ? [o.key] : []) + tabPrompts
             } else if !o.flags.contains(.waitingOnYou), !facts.turnUnread,
-                      isReadyForAcceptance(o, live: facts.status, extraTabs: facts.tabs.map(\.counted), asks: asking) {
-                if !facts.background.isEmpty { background.append(o.key) }
+                      isReadyForAcceptance(o, live: facts.status, extraTabs: facts.tabs.map(\.counted), background: facts.background,
+                                           asks: asking) {
                 // A reopened task with no new commit, still on the one it was accepted on, has that commit to accept again.
-                else if facts.commitsAhead == 0, !(o.reopenedFrom != nil && facts.atReopenedCommit) { noCommit.append(o.key) }
+                if facts.commitsAhead == 0, !(o.reopenedFrom != nil && facts.atReopenedCommit) { noCommit.append(o.key) }
                 else { ready.append(o.key) }
             }
+            // What one tab left running is listed while another still works: the fixer's tests beside its review tab.
+            if o.state == .working, !o.takenOver, !facts.background.isEmpty { background.append(o.key) }
             if o.flags.contains(.possiblyStalled) { stalled.append(o.key) }
             if o.flags.contains(.uncertain) || (facts.quiet && facts.status == .working) { uncertain.append(o.key) }
             if o.branchDrift != nil { drift.append(o.key) }
