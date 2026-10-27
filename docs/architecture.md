@@ -152,9 +152,13 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
   idle Operator with one short fixed line when `run_status` would show it something new, gathered over
   a burst; `ReviewWatcher` reads the requests people review; `reconcileTick` looks at the real tabs every
   `OperatorTiming.reconcileInterval` (60 s), and `StallWatch` flags a task quiet for
-  `OperatorTiming.stallAfter` (20 min), probing it for an open prompt first. A task counts every worker
-  tab it has (`WorkerTab`: its first worker and the Operator's `open_tab` tabs, one still opening at
-  work): its runtime runs while any is at work, it waits for acceptance once all ended their turn, each
+  `OperatorTiming.stallAfter` (20 min), probing it for an open prompt first. A sign of life is any change
+  the daemon reports for one of its tabs, or what `WorkerQuietWatch` reads of that tab's transcript on each
+  tick: it grew, or a tool call it started has no result yet (for up to `OperatorTiming.openCallMinutes`,
+  30 min, from the call's start), which also keeps the worker from reading `working?`. A task counts every
+  worker tab it has (`WorkerTab`: its first worker and the Operator's `open_tab` tabs, one still opening at
+  work, and a first worker launched under `OperatorTiming.firstWorkerOpening` ago that has named no
+  conversation yet, as Codex reads idle until its first hook): its runtime runs while any is at work, it waits for acceptance once all ended their turn, each
   tab is on its own stall clock and probed for its own prompt, and `BranchWatch` reads each one's last message.
   Runtime has two limits (`OperatorTiming`): 90 minutes of work without a new commit on the task's
   branch, and four hours of total work since starting or the Operator last resumed it. A changed

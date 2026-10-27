@@ -13,7 +13,8 @@ public struct WorkerTab: Equatable, Sendable {
     /// Its tab as iTerm2 lists it; nil while none is.
     public var session: SessionInfo?
     /// An extra tab asked for whose agent has not shown yet: never listed since its request, or listed as the shell its
-    /// command is typed into. It counts as at work.
+    /// command is typed into; or a first worker whose launch is under way and that has named no conversation yet
+    /// (`TaskItem.workerTabs(in:now:)`). It counts as at work.
     public var isOpening: Bool
     /// The conversation its agent named: its tab's now, else the one last recorded for it (the first worker's
     /// `TaskItem.firstWorkerConversation`, an extra tab's `ExtraTab.conversation`).
@@ -99,16 +100,27 @@ public extension TaskItem {
     }
 
     /// Its worker tabs: its first worker, then each extra tab in the order asked for, all but one the daemon refused.
-    /// An extra tab is the tab tagged with the task and its key, whatever runs in it.
-    func workerTabs(in sessions: [SessionInfo]) -> [WorkerTab] {
-        let worker = firstWorker(in: sessions)
+    /// An extra tab is the tab tagged with the task and its key, whatever runs in it. Given `now`, a first worker that has
+    /// named no conversation yet, while its launch is under way (`isLaunching`), is opening: Codex reads idle until its
+    /// first hook, half a minute in, and that is no ended turn. Without `now` it is taken as its tab says.
+    func workerTabs(in sessions: [SessionInfo], now: Date? = nil) -> [WorkerTab] {
+        let worker = firstWorker(in: sessions), conversation = worker?.conversationId ?? firstWorkerConversation?.id
         let first = WorkerTab(key: nil, agent: agent, model: model, session: worker,
-                              conversation: worker?.conversationId ?? firstWorkerConversation?.id)
+                              isOpening: conversation == nil && isLaunching(worker, now: now), conversation: conversation)
         return [first] + (operated?.extraTabs ?? []).filter { $0.failure == nil }.map { tab in
             let session = sessions.first { $0.taskUUID == id && $0.tabKey == tab.key }
             let opening = session.map { $0.agent.agentKind == nil } ?? (tab.sessionId == nil && tab.launch.openedAt == nil)
             return WorkerTab(key: tab.key, agent: tab.agent, model: tab.model, session: session, isOpening: opening,
                              conversation: session?.conversationId ?? tab.conversation)
         }
+    }
+
+    /// Whether its first worker's launch is under way at `now`: a working task whose window was seen, else asked for, less
+    /// than `OperatorTiming.firstWorkerOpening` ago, its worker not listed yet or not at work or asking. Bounded so a launch
+    /// that failed is not starting forever; one that never starts is still caught as possibly stalled.
+    private func isLaunching(_ worker: SessionInfo?, now: Date?) -> Bool {
+        guard let now, let operated, operated.state == .working, let launch = operated.launch,
+              worker.map({ $0.state.turnEnded }) ?? true else { return false }
+        return now.timeIntervalSince(launch.openedAt ?? launch.requestedAt) < OperatorTiming.firstWorkerOpening
     }
 }

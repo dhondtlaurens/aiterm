@@ -71,7 +71,11 @@ extension OperatorToolHandler {
         case "lastMessage":
             let worker = try self.worker(call, of: task)
             guard let conversation = worker.conversation else {
-                return ["lastMessage": .null, "note": "Its worker hasn’t started a conversation yet."]
+                // A first worker just launched names its conversation at its first hook: Codex half a minute in.
+                let starting = worker.key == nil && task.workerTabs(in: live.sessions, now: ports.now())[0].isOpening
+                return ["lastMessage": .null, "note": starting
+                    ? "Its worker is still starting: it hasn’t named a conversation yet. Read it again in a minute."
+                    : "Its worker hasn’t started a conversation yet."]
             }
             let transcripts = self.transcripts, agent = worker.agent
             let text = await BackgroundWork.run { transcripts.lastMessage(agent: agent, conversation: conversation) }

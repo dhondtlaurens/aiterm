@@ -2,8 +2,9 @@ import Foundation
 
 /// When each working task last showed a sign of life, on a clock of its own (spec §8, *possibly
 /// stalled*). A sign of life is any change the daemon reports for one of the task's sessions —
-/// its status, title, context fill or conversation — or one noted from elsewhere (a hook
-/// event, a delivered message). With several tasks at work, one busy worker never keeps a silent
+/// its status, title, context fill or conversation — or one noted from elsewhere for one of its tabs
+/// (`noteSign(of:tab:at:)`): its transcript grew, or a tool call it started is still running
+/// (`WorkerQuietWatch`). With several tasks at work, one busy worker never keeps a silent
 /// one from being noticed, and a silent one never makes a busy one look stalled.
 ///
 /// Not judged: a task waiting on you (that time is yours — and answering it changes the session,
@@ -68,8 +69,11 @@ public struct StallWatch: Equatable, Sendable {
         tabSign = tabSign.filter { operated.contains($0.key.task) }
     }
 
-    public mutating func noteSign(of task: UUID, at now: Date) {
-        lastSign[task] = max(lastSign[task] ?? now, now)
+    /// A sign of life at `now` on one tab's clock: the first worker's for nil or `WorkerTab.firstKey`, else the extra tab's
+    /// of that key. One tab's sign never restarts another's.
+    public mutating func noteSign(of task: UUID, tab key: String? = nil, at now: Date) {
+        if let key, key != WorkerTab.firstKey { noteSign(of: Tab(task: task, key: key), at: now) }
+        else { lastSign[task] = max(lastSign[task] ?? now, now) }
     }
 
     private mutating func noteSign(of tab: Tab, at now: Date) {
@@ -111,13 +115,22 @@ public struct StallWatch: Equatable, Sendable {
 
     /// Whether a worker whose session says working has gone quiet (spec §H): its transcript last grew
     /// `liveQuietMinutes` or more ago, or its session started working that long ago, whichever is later, so a turn just begun
-    /// is not quiet whatever the file's age. A transcript that can't be read says nothing: that is not a quiet worker. Not
+    /// is not quiet whatever the file's age. A transcript that can't be read says nothing: that is not a quiet worker. Nor
+    /// is one running a tool call it started at `callOpenSince` (`isCallRunning`), which writes nothing until it returns. Not
     /// the stall watch's *possibly stalled*, which judges working tasks by the daemon's signs over `stallAfter`; this
     /// doubts the session's own word, on a task in any state.
-    public static func isQuietWhileWorking(transcriptGrewAt: Date?, sessionWorkingSince: Date?, now: Date) -> Bool {
-        guard let grew = transcriptGrewAt else { return false }
+    public static func isQuietWhileWorking(transcriptGrewAt: Date?, sessionWorkingSince: Date?, callOpenSince: Date? = nil,
+                                           now: Date) -> Bool {
+        guard let grew = transcriptGrewAt, !isCallRunning(since: callOpenSince, now: now) else { return false }
         let since = max(grew, sessionWorkingSince ?? grew)
         return now.timeIntervalSince(since) >= TimeInterval(OperatorTiming.liveQuietMinutes) * 60
+    }
+
+    /// Whether a tool call that started at `since` and has no result yet still counts as its worker at work: for
+    /// `openCallMinutes` from its start, so one that hung is caught as any silence is.
+    public static func isCallRunning(since: Date?, now: Date) -> Bool {
+        guard let since else { return false }
+        return now.timeIntervalSince(since) < TimeInterval(OperatorTiming.openCallMinutes) * 60
     }
 
     private static func isJudged(_ task: OperatedTask) -> Bool {

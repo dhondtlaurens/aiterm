@@ -65,10 +65,11 @@ final class WorkerTurnReader {
         return !run.hasEnded
     }
 
-    /// The tabs changed: each first worker whose turn ended since it was last read is read, and what a worker at work
-    /// again, or gone, had left is dropped.
+    /// The tabs changed, or a reconcile tick came: each first worker whose turn ended since it was last read is read, and
+    /// what a worker at work again, or gone, had left is dropped. A first worker still opening (`TaskItem.workerTabs(in:now:)`:
+    /// launched, no conversation named yet) is at work whatever its tab says, so its idle is read once its launch is over.
     func observe() {
-        let sessions = live.sessions
+        let sessions = live.sessions, now = ports.now()
         var dropped = false
         for task in workspace.state.tasks {
             let worker = task.firstWorker(in: sessions), watched = isRead(task)
@@ -76,9 +77,10 @@ final class WorkerTurnReader {
             // ended meanwhile, or before it was handed back, is new.
             if !watched, let worker { seen[worker.sessionId] = nil }
             let tab = watched ? worker : nil
-            guard let tab, tab.state.turnEnded, let operated = task.operated else {
+            guard let tab, tab.state.turnEnded, let operated = task.operated,
+                  !task.workerTabs(in: sessions, now: now)[0].isOpening else {
                 // A turn under way, or no worker: what its last turn left no longer holds, and its end will be new.
-                if let tab { seen[tab.sessionId] = tab.state }
+                if let tab { seen[tab.sessionId] = tab.state.turnEnded ? .working : tab.state }
                 messagedWhileReading.remove(task.id)
                 if readings.removeValue(forKey: task.id) != nil { dropped = true }
                 continue
