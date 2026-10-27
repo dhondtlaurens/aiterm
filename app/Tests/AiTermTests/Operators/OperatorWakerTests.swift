@@ -430,6 +430,132 @@ import Testing
         #expect(lines.filter { $0 == quietLine }.count == 2)
     }
 
+    // -- what is news ------------------------------------------------------------------------------
+
+    /// A worker that ends its turn with work in the background and picks up again is no news while it does: its live
+    /// state and what runs in the background are read on the Operator's next look, and the task is never ready meanwhile.
+    @Test func aWorkerFlappingWithWorkInTheBackgroundWakesNothing() async throws {
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
+        let tasks = [OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .working)]
+        let working = TaskLiveFacts(status: .working)
+        let waiting = TaskLiveFacts(status: .done, background: ["npm test"], lastMessage: "Running the tests.", commitsAhead: 1)
+        waker.acknowledged(status(tasks, turns: ["PAY-2": working]), of: run.id)
+        for facts in [waiting, working, waiting, working, waiting] { waker.observe(status(tasks, turns: ["PAY-2": facts]), of: run.id) }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(hand.requested == 0 && lines.isEmpty)
+    }
+
+    /// News that is undone before its line goes is dropped: the run reads as the Operator last saw it. News after that
+    /// wakes it as ever.
+    @Test func newsUndoneBeforeItsLineGoesWakesNothing() async throws {
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
+        let tasks = [OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .working)]
+        let working = status(tasks, turns: ["PAY-2": TaskLiveFacts(status: .working)])
+        let ready = status(tasks, turns: ["PAY-2": TaskLiveFacts(status: .idle, lastMessage: "Done.", commitsAhead: 1)])
+        waker.acknowledged(working, of: run.id)
+        waker.observe(ready, of: run.id)
+        await hand.started(1)
+        waker.observe(working, of: run.id)
+        hand.releaseAll()
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(lines.isEmpty)
+        // Held while the Operator works, then undone: nothing goes once it is idle either.
+        op.tab?.state = .working
+        waker.observe(ready, of: run.id)
+        await hand.release(2)
+        waker.observe(working, of: run.id)
+        op.tab?.state = .idle
+        waker.operatorSessionChanged(run.id)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(lines.isEmpty)
+        waker.observe(ready, of: run.id)
+        await hand.release(3)
+        try await daemon.received("session.deliver")
+        #expect(lines == ["[AiTerm] updates waiting, call run_status"])
+    }
+
+    /// A task newly ready wakes the Operator once: leaving the list is no news, and coming back to it before the Operator
+    /// looked is what it was told already.
+    @Test func aTaskNewlyReadyWakesOnce() async throws {
+        let waker = makeWaker()
+        let tasks = [OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .working)]
+        let working = status(tasks, turns: ["PAY-2": TaskLiveFacts(status: .working)])
+        let ready = status(tasks, turns: ["PAY-2": TaskLiveFacts(status: .idle, lastMessage: "Done.", commitsAhead: 1)])
+        func settle() async { await waker.lastCoalesce?.value; await waker.lastSend?.value }
+        #expect(ready.obligations.readyForAcceptance == ["PAY-2"])
+        waker.acknowledged(working, of: run.id)
+        waker.observe(ready, of: run.id)
+        try await daemon.received("session.deliver")
+        await settle()
+        #expect(lines == ["[AiTerm] updates waiting, call run_status"])
+        waker.observe(working, of: run.id)
+        waker.observe(ready, of: run.id)
+        await settle()
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(lines.count == 1, "\(lines)")
+    }
+
+    /// A worker whose transcript went quiet while it says working reads `working?` and its task uncertain: news once per
+    /// spell of work, however often it flaps between quiet and not, and whether or not the Operator looked between. A new
+    /// spell, after its turn ended, is news again.
+    @Test func anUncertainWorkerWakesOncePerSpellOfWork() async throws {
+        let waker = makeWaker()
+        let tasks = [OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .inReview)]
+        func read(_ facts: TaskLiveFacts) -> RunStatus { status(tasks, turns: ["PAY-2": facts]) }
+        let working = read(TaskLiveFacts(status: .working)), quiet = read(TaskLiveFacts(status: .working, quiet: true))
+        func settle() async { await waker.lastCoalesce?.value; await waker.lastSend?.value; try? await Task.sleep(for: .milliseconds(30)) }
+        #expect(quiet.obligations.uncertain == ["PAY-2"])
+        waker.acknowledged(working, of: run.id)
+        waker.observe(quiet, of: run.id)
+        try await daemon.received("session.deliver")
+        await settle()
+        for status in [working, quiet, working, quiet] { waker.observe(status, of: run.id); await settle() }
+        waker.acknowledged(working, of: run.id)
+        waker.observe(quiet, of: run.id)
+        await settle()
+        #expect(lines.count == 1, "one line for the spell: \(lines)")
+        // Its turn ends, and the next one goes quiet.
+        waker.observe(read(TaskLiveFacts(status: .idle)), of: run.id)
+        waker.observe(working, of: run.id)
+        await settle()
+        #expect(lines.count == 1)
+        waker.observe(quiet, of: run.id)
+        try await daemon.received("session.deliver", count: 2)
+        #expect(lines == ["[AiTerm] updates waiting, call run_status", "[AiTerm] updates waiting, call run_status"])
+    }
+
+    /// A prompt you typed in the worker's window again, a different one, onto the same open question is news again.
+    @Test func anotherAnswerTypedInTheWindowWakesAgain() async throws {
+        let waker = makeWaker(), line = "[AiTerm] you may have answered one question in its worker's window, call run_status"
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .working)
+        func status(typed: String?) -> RunStatus {
+            var run = self.run
+            run.questions = [OperatorQuestion(id: "locale-2", text: "Which locale?", task: task.id, askedAt: Date(timeIntervalSince1970: 0),
+                                              answeredInWindow: typed)]
+            return RunStatus.build(state: OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), run: run.id,
+                                   revision: 1, live: [task.id: TaskLiveFacts(status: .idle)])!
+        }
+        waker.acknowledged(status(typed: "Use nl-BE"), of: run.id)
+        waker.observe(status(typed: "Use fr-BE"), of: run.id)
+        try await daemon.received("session.deliver")
+        #expect(lines == [line])
+    }
+
+    /// What the Operator records itself, a snag or an off-brief find, is no news to it.
+    @Test func theOperatorsOwnSnagsAndFindsWakeNothing() async throws {
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
+        var run = self.run
+        let plain = RunStatus.build(state: OperatorServiceFixtures.state(projects: [project], runs: [run]), run: run.id, revision: 1, live: [:])!
+        run.snags = [OperatorSnag(key: "snag-1", title: "A prompt that is not there", showed: "a prompt", actual: "none", workaround: "read it",
+                                  appVersion: "1", at: Date(timeIntervalSince1970: 0))]
+        run.finds = [OffBriefFind(key: "find-1", title: "A typo", why: "Seen in passing.")]
+        let recorded = RunStatus.build(state: OperatorServiceFixtures.state(projects: [project], runs: [run]), run: run.id, revision: 1, live: [:])!
+        waker.acknowledged(plain, of: run.id)
+        waker.observe(recorded, of: run.id)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(hand.requested == 0 && lines.isEmpty)
+    }
+
     /// The turn lines are plain: no digit, no one-letter word (`isPlain`, the daemon's `wake_text_problem`).
     @Test func theTurnLinesArePlain() {
         for reason in OperatorWaker.turnReasons {
