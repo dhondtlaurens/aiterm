@@ -413,6 +413,32 @@
   .proposal-flag { color: var(--amber); margin-bottom: var(--space-snug); }
   .no-proposals { margin-top: var(--space-block); color: var(--muted); }
 
+  /* Proposal · Backpack Mode's done state. Today's hand-built disc (Palette.accent at Size.control, its check
+     Size.control / 2), and SymbolMark at Size.control: the macbook mask the footer draws at 8 pt, here at 14 pt,
+     the disc's glyphRatio of 0.5. The check rows are BackpackSheet.checks: a Size.slot column, Space.snug,
+     Typography.caption, Size.menuRow tall. A dashed amber outline marks a part that departs from the system. */
+  .bp-done .disc { width: var(--size-control); height: var(--size-control); border-radius: 50%; flex: none;
+                     display: flex; align-items: center; justify-content: center; }
+  .bp-done .disc.accent { background: var(--accent); color: #FFFFFF; }
+  .bp-done .disc.accent svg { width: 14px; height: 14px; }
+  .bp-done .disc.paper { background: #FFFFFF; }
+  .bp-done .disc.paper .gl.macbook { width: 20.7px; height: 12px; }
+  .bp-done .safe { display: flex; align-items: flex-start; gap: var(--space-inset); }
+  .bp-done .tl { display: flex; flex-direction: column; gap: var(--space-tight); min-width: 0; }
+  .bp-done .tl .t-title { font: 600 15px/1.2 var(--font); color: var(--text); }       /* Typography.title */
+  .bp-done .tl .t-card { font: 600 12px/1.2 var(--font); color: var(--text); }        /* Typography.card */
+  .bp-done .tl .t-emph { font: 500 13px/1.2 var(--font); color: var(--text); }        /* Typography.bodyEmphasis */
+  .bp-done .checks { display: flex; flex-direction: column; }
+  .bp-done .checks.ix { padding-left: calc(var(--size-control) + var(--space-inset)); }
+  .bp-done .ck { display: flex; align-items: center; gap: var(--space-snug); height: var(--size-menu-row);
+                   font: 12px/1 var(--font); color: var(--text); }
+  .bp-done .ck .sl { width: var(--size-slot); flex: none; display: flex; justify-content: center; }
+  .bp-done .ck .ring { width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid var(--accent); }
+  .bp-done .drift { outline: 1px dashed var(--amber); outline-offset: 2px; }
+  .bp-done .mk-card .chip { width: auto; border: 0; font: 500 10px/1 var(--mono); gap: var(--space-tight); }
+  .bp-done .mk-card .chip svg { width: 8px; height: 8px; flex: none; color: var(--green); }
+  .bp-done .fig > .scroll > .mk-card { width: 512px; box-sizing: border-box; }
+
 
 
 
@@ -802,8 +828,8 @@
   .mk-foot .tone.ready { border-color: var(--green); } .mk-foot .tone.attention { border-color: var(--amber); } .mk-foot .tone.idle { border-color: var(--muted); }
   .mk-foot .tn.ready { color: var(--green); } .mk-foot .tn.attention { color: var(--amber); } .mk-foot .tn.idle { color: var(--muted); }
   /* The real SF Symbols, the SymbolMark card's masks, at Size.vendorMark. */
-  .mk-foot .gl { display: block; background: #000000; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
-  .mk-foot .gl.macbook { width: 11.83px; height: 6.86px; -webkit-mask-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGsAAAA+CAYAAAAs/OVIAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAa6ADAAQAAAABAAAAPgAAAAC4UhjEAAACuklEQVR4Ae2cPUseQRSFjYmCGIIflRYpBYvYpPMn2PhRWIpdCOnyA1IEUqUKBNLa2aUNyT9QxEK0MqTRwpAQooFAMB+eCyG8HGZfx91ZOGbPhQPe2d27d84zu27zzsCAww7YATtgB+yAHbADdqC7DtxoaerTqLsGzUNT0Aj0P8cPTO4TtANtQgfQtYjH6DKa/9NhvcLchyDpeITuugypd+4vlUmNo7lTw/q3WH/Bi5mSwAYLFltArTsF6133UuHtSslJ3CpY7H5FrdcYfwvFU1ciRlHkBXS7ZrF4VcXr+kvN6/myWKDxIbXOB5DPJcZqD5WENZnoYgtjG4nxJkPfcfFHqC6sWDTHTRqga6OfWJBj0BIdm6C8UVryNZgCv92ou+qL3+FQPCF1Ip7yNmI3UTTlSeK0vKGixRK3PEuMlRh6gyL70F0od8EF3BPoPdRGfGujaG/NtmH13qv030coGOpM5K7KzhiiPFHDUqZDvRkWGaKcGpYyHerNsMgQ5dSwlOlQb4ZFhiinhqVMh3ozLDJEOTUsZTrUm2GRIcqpYSnTod4MiwxRTg1LmQ71ZlhkiHJqWMp0qDfDIkOUU8NSpkO9GRYZopwaljId6s2wyBDl1LCU6VBvhkWGKKeGpUyHejMsMkQ5NSxlOtSbYZEhyqlhKdOh3gyLDFFODUuZDvVmWGSIcmpYynSoN8MiQ5TT3O2AFjGJJ9AsdLNiQvErSoYfe0GEuhAxd/4lafw09rxi8r8x/gF6Dm1ARWIZVeKmVnsePMwhlfNk7aHQvZxiPqe2A7FVxBQUD0Rl5MCKTbOGKyv4QCkHxlHoa79i/D8mdW5bWxGk7tXVsc+YeGym0jdyYD3tW8EHSzjwDEX6vgKvcpNVnBybhPz8W9QfG80/NuIr+RB6ADnsgB2wA3bADtgBO2AH7MAlDlwAreGnlEvlicUAAAAASUVORK5CYII=); mask-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGsAAAA+CAYAAAAs/OVIAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAa6ADAAQAAAABAAAAPgAAAAC4UhjEAAACuklEQVR4Ae2cPUseQRSFjYmCGIIflRYpBYvYpPMn2PhRWIpdCOnyA1IEUqUKBNLa2aUNyT9QxEK0MqTRwpAQooFAMB+eCyG8HGZfx91ZOGbPhQPe2d27d84zu27zzsCAww7YATtgB+yAHbADdqC7DtxoaerTqLsGzUNT0Aj0P8cPTO4TtANtQgfQtYjH6DKa/9NhvcLchyDpeITuugypd+4vlUmNo7lTw/q3WH/Bi5mSwAYLFltArTsF6133UuHtSslJ3CpY7H5FrdcYfwvFU1ciRlHkBXS7ZrF4VcXr+kvN6/myWKDxIbXOB5DPJcZqD5WENZnoYgtjG4nxJkPfcfFHqC6sWDTHTRqga6OfWJBj0BIdm6C8UVryNZgCv92ou+qL3+FQPCF1Ip7yNmI3UTTlSeK0vKGixRK3PEuMlRh6gyL70F0od8EF3BPoPdRGfGujaG/NtmH13qv030coGOpM5K7KzhiiPFHDUqZDvRkWGaKcGpYyHerNsMgQ5dSwlOlQb4ZFhiinhqVMh3ozLDJEOTUsZTrUm2GRIcqpYSnTod4MiwxRTg1LmQ71ZlhkiHJqWMp0qDfDIkOUU8NSpkO9GRYZopwaljId6s2wyBDl1LCU6VBvhkWGKKeGpUyHejMsMkQ5NSxlOtSbYZEhyqlhKdOh3gyLDFFODUuZDvVmWGSIcmpYynSoN8MiQ5TT3O2AFjGJJ9AsdLNiQvErSoYfe0GEuhAxd/4lafw09rxi8r8x/gF6Dm1ARWIZVeKmVnsePMwhlfNk7aHQvZxiPqe2A7FVxBQUD0Rl5MCKTbOGKyv4QCkHxlHoa79i/D8mdW5bWxGk7tXVsc+YeGym0jdyYD3tW8EHSzjwDEX6vgKvcpNVnBybhPz8W9QfG80/NuIr+RB6ADnsgB2wA3bADtgBO2AH7MAlDlwAreGnlEvlicUAAAAASUVORK5CYII=); }
+  .mk-foot .gl, .bp-done .gl { display: block; background: #000000; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
+  .mk-foot .gl.macbook, .bp-done .gl.macbook { width: 11.83px; height: 6.86px; -webkit-mask-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGsAAAA+CAYAAAAs/OVIAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAa6ADAAQAAAABAAAAPgAAAAC4UhjEAAACuklEQVR4Ae2cPUseQRSFjYmCGIIflRYpBYvYpPMn2PhRWIpdCOnyA1IEUqUKBNLa2aUNyT9QxEK0MqTRwpAQooFAMB+eCyG8HGZfx91ZOGbPhQPe2d27d84zu27zzsCAww7YATtgB+yAHbADdqC7DtxoaerTqLsGzUNT0Aj0P8cPTO4TtANtQgfQtYjH6DKa/9NhvcLchyDpeITuugypd+4vlUmNo7lTw/q3WH/Bi5mSwAYLFltArTsF6133UuHtSslJ3CpY7H5FrdcYfwvFU1ciRlHkBXS7ZrF4VcXr+kvN6/myWKDxIbXOB5DPJcZqD5WENZnoYgtjG4nxJkPfcfFHqC6sWDTHTRqga6OfWJBj0BIdm6C8UVryNZgCv92ou+qL3+FQPCF1Ip7yNmI3UTTlSeK0vKGixRK3PEuMlRh6gyL70F0od8EF3BPoPdRGfGujaG/NtmH13qv030coGOpM5K7KzhiiPFHDUqZDvRkWGaKcGpYyHerNsMgQ5dSwlOlQb4ZFhiinhqVMh3ozLDJEOTUsZTrUm2GRIcqpYSnTod4MiwxRTg1LmQ71ZlhkiHJqWMp0qDfDIkOUU8NSpkO9GRYZopwaljId6s2wyBDl1LCU6VBvhkWGKKeGpUyHejMsMkQ5NSxlOtSbYZEhyqlhKdOh3gyLDFFODUuZDvVmWGSIcmpYynSoN8MiQ5TT3O2AFjGJJ9AsdLNiQvErSoYfe0GEuhAxd/4lafw09rxi8r8x/gF6Dm1ARWIZVeKmVnsePMwhlfNk7aHQvZxiPqe2A7FVxBQUD0Rl5MCKTbOGKyv4QCkHxlHoa79i/D8mdW5bWxGk7tXVsc+YeGym0jdyYD3tW8EHSzjwDEX6vgKvcpNVnBybhPz8W9QfG80/NuIr+RB6ADnsgB2wA3bADtgBO2AH7MAlDlwAreGnlEvlicUAAAAASUVORK5CYII=); mask-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGsAAAA+CAYAAAAs/OVIAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAa6ADAAQAAAABAAAAPgAAAAC4UhjEAAACuklEQVR4Ae2cPUseQRSFjYmCGIIflRYpBYvYpPMn2PhRWIpdCOnyA1IEUqUKBNLa2aUNyT9QxEK0MqTRwpAQooFAMB+eCyG8HGZfx91ZOGbPhQPe2d27d84zu27zzsCAww7YATtgB+yAHbADdqC7DtxoaerTqLsGzUNT0Aj0P8cPTO4TtANtQgfQtYjH6DKa/9NhvcLchyDpeITuugypd+4vlUmNo7lTw/q3WH/Bi5mSwAYLFltArTsF6133UuHtSslJ3CpY7H5FrdcYfwvFU1ciRlHkBXS7ZrF4VcXr+kvN6/myWKDxIbXOB5DPJcZqD5WENZnoYgtjG4nxJkPfcfFHqC6sWDTHTRqga6OfWJBj0BIdm6C8UVryNZgCv92ou+qL3+FQPCF1Ip7yNmI3UTTlSeK0vKGixRK3PEuMlRh6gyL70F0od8EF3BPoPdRGfGujaG/NtmH13qv030coGOpM5K7KzhiiPFHDUqZDvRkWGaKcGpYyHerNsMgQ5dSwlOlQb4ZFhiinhqVMh3ozLDJEOTUsZTrUm2GRIcqpYSnTod4MiwxRTg1LmQ71ZlhkiHJqWMp0qDfDIkOUU8NSpkO9GRYZopwaljId6s2wyBDl1LCU6VBvhkWGKKeGpUyHejMsMkQ5NSxlOtSbYZEhyqlhKdOh3gyLDFFODUuZDvVmWGSIcmpYynSoN8MiQ5TT3O2AFjGJJ9AsdLNiQvErSoYfe0GEuhAxd/4lafw09rxi8r8x/gF6Dm1ARWIZVeKmVnsePMwhlfNk7aHQvZxiPqe2A7FVxBQUD0Rl5MCKTbOGKyv4QCkHxlHoa79i/D8mdW5bWxGk7tXVsc+YeGym0jdyYD3tW8EHSzjwDEX6vgKvcpNVnBybhPz8W9QfG80/NuIr+RB6ADnsgB2wA3bADtgBO2AH7MAlDlwAreGnlEvlicUAAAAASUVORK5CYII=); }
   .mk-foot .gl.iphone { width: 7.5px; height: 9px; -webkit-mask-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEEAAABOCAYAAAB/oXuQAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAQaADAAQAAAABAAAATgAAAABdDxWoAAADQklEQVR4Ae1cTahNURi9/h+iF8KIJzJSLwNJKaFMGDI2kkzkJwPTN38jot5EmRFRlMnzU4Z6IhFJzxAvovzlf63uvfseu7332Wefe849g/XVcs/+vr2/vc963zr7DM7WasnEgBgQA2JADNgMzLIdJdrMNQwsA+aUyBMa+gfBj8AHgNeNsNlYxX7gBvAJ+FsTvmGeSeAQsAAYmK3HzFNAXTfum2caa9g6CBZIwEwDCOgS8x1r2V4nEdT+wwYR0CXiLda0NIWIuQmD+AzY7Bn3C36W5xdPvKx7CAlGAP7athKOY8CYHchrp+wOl5H0gCPxefhuAz8csX66uPNsAU4C9kPxKXybgEKWQsJrzLDWmuUi2lcsn6/JOX3zdkvbNzbr34bG6ayjc70Ev58dfq8rRQ6rHdnuOny2i8SdAEYAHwkItd4BZ4FHbASMOxPlZ9/DKvgKkcB9vqjZJcjxfEfIsyPosA4IEcAc1PZxXuQYZffe0cf1vHB067lSSOiN7l3FvL2xTGNtMTrGrO1nbMJQv5iJQuOLxK6icwxZzHmtQF/2L2W2nkolyxl8B/FnQEgSfDC+AaaB2qxOEnhTvEGiUVanHBp149nFiASwIRJEQlsUqgRVgiqhzYAqQZWgSjAMSA6SgykGvSdIDpKD5GAYkBwkB1MM2h0kB8lBcjAMSA6SgykG7Q6Sg+QgORgGJAfJwRSDdgfJQXKQHAwDkoPkYIpBu4PkIDlIDoYByaFNRV1ftC7EdEXn4nfQVZ2gad9959+iC/tvcGSDn+3vjOxrd3sFxymA5xoqs35tkaHDoDyqk2o8dbc8MNh19iLQ3R1KqQSWKM8jZI0L9X24fQGxPUCIqGyu7jW/eH8M8JSby4bgXOEIFJZQ3ikUxxytl3BusAI30Z6wfFU392KCw9YkJG4RwHOS0ZZSCfeR3SZhX2fG6/jlGaYqbRjJdwEHHZM8gK8QAcyRUgm7MW6Sgz32G/6vnlhZNyUwL5DkKGJnAvG+hm4hG0uvSXiB9czv613mJOOD8DnQFBJmsJaNOWuuJExtXgIGTcQ9rGENMFAbxezjwBTAvwifCVURw7dI/gcST4BzwA5AJgbEgBgQA2KgAgb+AXKsVjfyANzFAAAAAElFTkSuQmCC); mask-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEEAAABOCAYAAAB/oXuQAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAQaADAAQAAAABAAAATgAAAABdDxWoAAADQklEQVR4Ae1cTahNURi9/h+iF8KIJzJSLwNJKaFMGDI2kkzkJwPTN38jot5EmRFRlMnzU4Z6IhFJzxAvovzlf63uvfseu7332Wefe849g/XVcs/+vr2/vc963zr7DM7WasnEgBgQA2JADNgMzLIdJdrMNQwsA+aUyBMa+gfBj8AHgNeNsNlYxX7gBvAJ+FsTvmGeSeAQsAAYmK3HzFNAXTfum2caa9g6CBZIwEwDCOgS8x1r2V4nEdT+wwYR0CXiLda0NIWIuQmD+AzY7Bn3C36W5xdPvKx7CAlGAP7athKOY8CYHchrp+wOl5H0gCPxefhuAz8csX66uPNsAU4C9kPxKXybgEKWQsJrzLDWmuUi2lcsn6/JOX3zdkvbNzbr34bG6ayjc70Ev58dfq8rRQ6rHdnuOny2i8SdAEYAHwkItd4BZ4FHbASMOxPlZ9/DKvgKkcB9vqjZJcjxfEfIsyPosA4IEcAc1PZxXuQYZffe0cf1vHB067lSSOiN7l3FvL2xTGNtMTrGrO1nbMJQv5iJQuOLxK6icwxZzHmtQF/2L2W2nkolyxl8B/FnQEgSfDC+AaaB2qxOEnhTvEGiUVanHBp149nFiASwIRJEQlsUqgRVgiqhzYAqQZWgSjAMSA6SgykGvSdIDpKD5GAYkBwkB1MM2h0kB8lBcjAMSA6SgykG7Q6Sg+QgORgGJAfJwRSDdgfJQXKQHAwDkoPkYIpBu4PkIDlIDoYByaFNRV1ftC7EdEXn4nfQVZ2gad9959+iC/tvcGSDn+3vjOxrd3sFxymA5xoqs35tkaHDoDyqk2o8dbc8MNh19iLQ3R1KqQSWKM8jZI0L9X24fQGxPUCIqGyu7jW/eH8M8JSby4bgXOEIFJZQ3ikUxxytl3BusAI30Z6wfFU392KCw9YkJG4RwHOS0ZZSCfeR3SZhX2fG6/jlGaYqbRjJdwEHHZM8gK8QAcyRUgm7MW6Sgz32G/6vnlhZNyUwL5DkKGJnAvG+hm4hG0uvSXiB9czv613mJOOD8DnQFBJmsJaNOWuuJExtXgIGTcQ9rGENMFAbxezjwBTAvwifCVURw7dI/gcST4BzwA5AJgbEgBgQA2KgAgb+AXKsVjfyANzFAAAAAElFTkSuQmCC); }
 
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
@@ -3033,8 +3059,112 @@
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
     </div>
 
+    <div class="section op bp-done" id="p-bp-done">
+      <p class="eyebrow proposal-flag">Proposal · Backpack Mode’s done state · 27 Oct 2026</p>
+      <h2>“Safe to close the lid.” drawn from the system</h2>
+      <p class="why">Once the Mac has joined the hotspot and is held awake, <code>BackpackSheet</code> swaps its form for
+        <code>safe</code>: a hand-built mark, a headline, a help line and the two connect checks, with Done on ⌘↩.
+        The sheet around it, <code>SheetLayout</code>, <code>SheetSubtitle</code> and <code>SheetFooter</code>, is
+        fine. What sits inside it departs from <code>Palette</code>, <code>Metrics</code> and the README in seven places:</p>
+      <ol class="diagnosis">
+        <li><span><b>A filled disc, where every round mark is a ring.</b> <code>Circle().fill(Palette.accent)</code> at
+          <code>Size.control</code>. The README says a round status mark is a ring, never a disc. The only discs are
+          identity marks: <code>VendorMark</code>, <code>SymbolMark</code>, <code>IntegrationMark</code>. No component
+          draws this one. It is built inline in <code>BackpackSheet.safe</code>.</span></li>
+        <li><span><b>A glyph size that isn't a token.</b> The checkmark is <code>Size.control / 2</code>, 14 pt. That is
+          <code>SymbolMark</code>'s <code>glyphRatio</code>, copied into a second place.</span></li>
+        <li><span><b>The wrong colour for this fact.</b> The accent is <code>Palette.done</code>, which in the sidebar
+          means an agent finished. <code>MacModeRow</code> keeps <code>StatusMark</code> out of the footer for exactly
+          that reason. At the same moment the footer says <code>backpack enabled</code> in
+          <code>SettingsTone.ready</code> (<code>Palette.green</code>), and the Mac card says <code>Ready for backpack
+          mode</code> in green too.</span></li>
+        <li><span><b>The sheet's title style inside its content.</b> The headline is <code>Typography.title</code>,
+          documented as a sheet's own title and otherwise used only by <code>SheetLayout</code>. It reads as a second
+          title under “Backpack mode”, at the same size and weight.</span></li>
+        <li><span><b>A Settings card's header without its card.</b> A <code>Size.control</code> mark,
+          <code>Space.inset</code>, then a title over a line <code>Space.tight</code> apart is <code>SettingsCard</code>'s
+          header, rebuilt by hand. Two things differ: the title style, and a <code>HelpText</code> where the card has
+          its <code>ToneRing</code> status line.</span></li>
+        <li><span><b>Three leading edges in one block.</b> The disc starts at 0. The headline starts at 38 pt
+          (<code>Size.control</code> + <code>Space.inset</code>). The check rings are centred in a
+          <code>Size.slot</code> column, so they don't line up under the disc, and the check text starts at 26 pt
+          (<code>Size.slot</code> + <code>Space.snug</code>).</span></li>
+        <li><span><b>The checks say it twice, as an agent would.</b> Two accent <code>StatusMark(.done)</code> rings say
+          “Joined Laurens’s iPhone” under a help line that begins “On Laurens’s iPhone.” <code>ToneRing</code>'s own rule
+          says the two kinds of ring keep one meaning each, and <code>StatusMark</code>'s meaning is an agent's
+          state.</span></li>
+      </ol>
+      <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sheet"><div class="hd"><span class="ttl">Backpack mode</span><div class="nav">Keeps your agents working with the lid closed, online through your iPhone.</div></div><div class="rule"></div><div class="bd"><div class="safe"><span class="disc accent drift"><svg><use href="#op-check"/></svg></span><div class="tl"><span class="t-title drift">Safe to close the lid.</span><span class="mk-help">On Laurens’s iPhone. Backpack mode ends when your agents stop, or at 10 % battery.</span></div></div><div class="checks drift"><div class="ck"><span class="sl"><span class="ring"></span></span>Joined Laurens’s iPhone</div><div class="ck"><span class="sl"><span class="ring"></span></span>Keeping the Mac awake</div></div></div><div class="ft"><span class="btn2 primary">Done <span class="kc"><span>⌘</span><span>↩</span></span></span></div></div></div><figcaption>Today (backpack-sheet-safe.png). The dashed outlines mark the accent disc, the second title and the checks on their own edge</figcaption></figure></div>
+    </div>
 
-    <p class="no-proposals">No open proposals.</p>
+    <div class="section op bp-done" id="p-bp-done-head">
+      <p class="eyebrow proposal-flag">Proposal · Backpack Mode’s done state · 1 of 2 · what stands for the result</p>
+      <h2>The mark, the headline and its line</h2>
+      <p class="why">Every option uses only components that already exist and adds no <code>Palette</code> or
+        <code>Metrics</code> member. The words stay <code>BackpackSheetPresentation</code>'s. Option A adds one new
+        status line, “Backpack mode enabled”, which echoes the footer's <code>backpack enabled</code>.</p>
+      <div class="options">
+        <article class="option pick"><header><span class="letter">A</span><h3>The Mac card</h3><span class="rec">Recommended</span></header>
+          <p>The result becomes one <code>SettingsCard</code>, using the init without chips or actions that iTerm2's card
+          uses. Its mark is <code>SymbolMark</code> with <code>macbook</code> at <code>Size.control</code>, as on
+          Settings › Integrations › Mac. The title “Safe to close the lid.” is in <code>Typography.card</code>, and the
+          status is <code>SettingsStatus(.ready, "Backpack mode enabled")</code>: a green <code>ToneRing</code>, the same
+          voice as the footer's line. The help line goes under the card's rule. This fixes items 1–6 by deleting
+          code: the inline disc, its glyph size and the hand-built header all go.</p>
+          <p><b>The cost:</b> this is the only boxed group in the sheet. And because the headline is now a card title
+          in <code>Typography.card</code>, it is quieter than today's 15 pt line. The green ring and the box are what
+          make it stand out.</p>
+          <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sheet"><div class="hd"><span class="ttl">Backpack mode</span><div class="nav">Keeps your agents working with the lid closed, online through your iPhone.</div></div><div class="rule"></div><div class="bd"><div class="mk-card"><div class="top"><span class="mark disc paper"><span class="gl macbook"></span></span><div class="tl"><b>Safe to close the lid.</b><span class="st ok"><i></i>Backpack mode enabled</span></div></div><div class="hl"></div><span class="mk-help">On Laurens’s iPhone. Backpack mode ends when your agents stop, or at 10 % battery.</span></div></div><div class="ft"><span class="btn2 primary">Done <span class="kc"><span>⌘</span><span>↩</span></span></span></div></div></div><figcaption>The Mac card's anatomy, shown with the checks dropped (2A)</figcaption></figure></div></article>
+        <article class="option"><header><span class="letter">B</span><h3>Words and the checks, no mark</h3></header>
+          <p>The disc goes and nothing replaces it. The headline is in <code>Typography.bodyEmphasis</code>, the style
+          <code>SettingsSection</code> heads Core and Services in, with the <code>HelpText</code> <code>Space.tight</code>
+          under it. Below that come the checks as they are, their rings hanging in the <code>Size.slot</code> column the
+          way <code>NumberedSteps</code>' numbers hang. Fixes items 1, 2, 4 and 5. Item 6 shrinks to one hanging
+          column.</p>
+          <p><b>The cost:</b> the only marks left are the checks' accent rings, so items 3 and 7 stay. The done state
+          looks like the connecting state with a heading added. All that changes is the spinner stops.</p>
+          <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sheet"><div class="hd"><span class="ttl">Backpack mode</span><div class="nav">Keeps your agents working with the lid closed, online through your iPhone.</div></div><div class="rule"></div><div class="bd"><div class="tl"><span class="t-emph">Safe to close the lid.</span><span class="mk-help">On Laurens’s iPhone. Backpack mode ends when your agents stop, or at 10 % battery.</span></div><div class="checks"><div class="ck"><span class="sl"><span class="ring"></span></span>Joined Laurens’s iPhone</div><div class="ck"><span class="sl"><span class="ring"></span></span>Keeping the Mac awake</div></div></div><div class="ft"><span class="btn2 primary">Done <span class="kc"><span>⌘</span><span>↩</span></span></span></div></div></div><figcaption>A heading over the checks</figcaption></figure></div></article>
+        <article class="option"><header><span class="letter">C</span><h3>Swap the parts, keep the layout</h3></header>
+          <p>The smallest change. <code>SymbolMark</code> with <code>macbook</code> replaces the accent disc, the
+          headline moves to <code>Typography.card</code>, and the checks' column is indented to start on the
+          headline's edge (<code>Size.control</code> + <code>Space.inset</code>). Fixes items 1, 2 and 4. The head no
+          longer uses the accent (item 3), and the block has two edges instead of three (item 6).</p>
+          <p><b>The cost:</b> <code>SettingsCard</code>'s header is still rebuilt by hand, so its layout lives in two
+          places (item 5). The checks keep their accent rings, so item 7 stays. And nothing on the page says the mode
+          is on in its own green.</p>
+          <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sheet"><div class="hd"><span class="ttl">Backpack mode</span><div class="nav">Keeps your agents working with the lid closed, online through your iPhone.</div></div><div class="rule"></div><div class="bd"><div class="safe"><span class="disc paper"><span class="gl macbook"></span></span><div class="tl"><span class="t-card">Safe to close the lid.</span><span class="mk-help">On Laurens’s iPhone. Backpack mode ends when your agents stop, or at 10 % battery.</span></div></div><div class="checks ix"><div class="ck"><span class="sl"><span class="ring"></span></span>Joined Laurens’s iPhone</div><div class="ck"><span class="sl"><span class="ring"></span></span>Keeping the Mac awake</div></div></div><div class="ft"><span class="btn2 primary">Done <span class="kc"><span>⌘</span><span>↩</span></span></span></div></div></div><figcaption>The Mac's mark and a card title, still laid out by hand</figcaption></figure></div></article>
+      </div>
+    </div>
+
+    <div class="section op bp-done" id="p-bp-done-checks">
+      <p class="eyebrow proposal-flag">Proposal · Backpack Mode’s done state · 2 of 2 · the two checks once it is safe</p>
+      <h2>What the connect checks become</h2>
+      <p class="why">This only applies with 1A. Option 1B is built on the checks, and 1C keeps them. While a connect
+        runs, the checks stay exactly as they are today. Each figure shows the card alone, at the sheet's content
+        width (<code>Sheet.width</code> less two <code>Space.margin</code>).</p>
+      <div class="options">
+        <article class="option pick"><header><span class="letter">A</span><h3>Drop them</h3><span class="rec">Recommended</span></header>
+          <p>The ready line already says the mode is on, and the help line says which hotspot and what will end it. The
+          checks did their job while the sheet was connecting. Without them the body is one card with nothing in it
+          twice, and the done state has no <code>StatusMark</code> at all, which fixes item 7.</p>
+          <p><b>The cost:</b> “Joined” and “awake” are no longer two separate lines you can tick off. The words say
+          both, but you have to read them.</p>
+          <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-card"><div class="top"><span class="mark disc paper"><span class="gl macbook"></span></span><div class="tl"><b>Safe to close the lid.</b><span class="st ok"><i></i>Backpack mode enabled</span></div></div><div class="hl"></div><span class="mk-help">On Laurens’s iPhone. Backpack mode ends when your agents stop, or at 10 % battery.</span></div></div><figcaption>The card alone</figcaption></figure></div></article>
+        <article class="option"><header><span class="letter">B</span><h3>As the Mac card's check chips</h3></header>
+          <p>Two <code>CheckChip</code>s beside the title, <code>Hotspot</code> and <code>Awake</code>, each a
+          <code>Badge</code> with a green check. They look like Lid sleep and Network discovery on the same card in
+          Settings. The two facts stay visible at a glance, in a Settings check's voice instead of an agent's.</p>
+          <p><b>The cost:</b> two new chip labels to write, next to a title that is a sentence. Next to the Mac's mark,
+          the chips can also be read as the Mac card's own permission checks.</p>
+          <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-card"><div class="top"><span class="mark disc paper"><span class="gl macbook"></span></span><div class="tl"><div><b>Safe to close the lid.</b><span class="chips"><span class="chip"><svg><use href="#op-check"/></svg>Hotspot</span><span class="chip"><svg><use href="#op-check"/></svg>Awake</span></span></div><span class="st ok"><i></i>Backpack mode enabled</span></div></div><div class="hl"></div><span class="mk-help">On Laurens’s iPhone. Backpack mode ends when your agents stop, or at 10 % battery.</span></div></div><figcaption>The checks as the card's chips</figcaption></figure></div></article>
+        <article class="option"><header><span class="letter">C</span><h3>Keep them under the rule</h3></header>
+          <p>The checks move into the card, under its help line and on its leading edge, where the Mac card puts its
+          <code>NumberedSteps</code>. They are drawn exactly as they are while connecting.</p>
+          <p><b>The cost:</b> accent done rings next to a green ready ring means two colours for one fact, so item 7
+          stays.</p>
+          <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-card"><div class="top"><span class="mark disc paper"><span class="gl macbook"></span></span><div class="tl"><b>Safe to close the lid.</b><span class="st ok"><i></i>Backpack mode enabled</span></div></div><div class="hl"></div><span class="mk-help">On Laurens’s iPhone. Backpack mode ends when your agents stop, or at 10 % battery.</span><div class="checks"><div class="ck"><span class="sl"><span class="ring"></span></span>Joined Laurens’s iPhone</div><div class="ck"><span class="sl"><span class="ring"></span></span>Keeping the Mac awake</div></div></div></div><figcaption>The checks inside the card</figcaption></figure></div></article>
+      </div>
+    </div>
 
 
   </section>
