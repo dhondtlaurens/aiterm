@@ -12,15 +12,6 @@ import Testing
                            retryDelays: retryDelays, toast: { _ in })
     }
 
-    /// Spins the main actor until `condition` holds or `timeout` passes; whether it held. Only for a
-    /// fixed window that shows something happens at once: what a test merely expects waits with
-    /// `eventually`, whose budget a loaded machine does not run out.
-    private func until(_ timeout: TimeInterval, _ condition: () -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition(), Date() < deadline { await Task.yield() }
-        return condition()
-    }
-
     @Test func itOpensOnTheRememberedHotspotWithItsPasswordFilledIn() async {
         let fake = FakeBackpack()
         fake.settings.password = "saved"
@@ -323,19 +314,21 @@ import Testing
     }
 
     /// Connecting, waiting for a hotspot that isn't showing: with the sheet gone nobody is left to
-    /// Cancel, so the wait stops at once — not after its 5 s — and the undo puts the Wi-Fi back.
+    /// Cancel, so the wait stops at once — not after its retry's wait — and the undo puts the Wi-Fi back.
+    /// That wait outlasts `eventually`'s wall clock, so a stop it sees came before the retry, however
+    /// loaded the machine.
     @Test func aLidCloseWhileWaitingForTheHotspotStopsTheRetries() async {
         let fake = FakeBackpack()
         fake.wifi.inRange = ["Home"]
         fake.wifi.failingJoins = ["Phone"]
-        let model = BackpackSheetModel(backpack: backpack(fake, retryDelays: [.seconds(5)]))
+        let model = BackpackSheetModel(backpack: backpack(fake, retryDelays: [.seconds(300)]))
         await model.load()
         // Seen when it was chosen; out of range since.
         model.choose("Phone")
         model.connect()
         await eventually(describing: "the hotspot to be missed") { model.backpack.phase == .notInRange }
         model.lidClosed()
-        #expect(await until(1) { !model.backpack.busy }, "stopped at once, not after the retry's wait")
+        await eventually(describing: "the mode to stop before the retry's wait ends") { !model.backpack.busy }
         let joins = fake.wifi.joins
         try? await Task.sleep(for: .milliseconds(50))
         #expect(fake.wifi.joins == joins, "no further joins")
