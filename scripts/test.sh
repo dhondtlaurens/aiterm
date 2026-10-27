@@ -319,10 +319,35 @@ swift_suite() {
     fi
 }
 
+# The preferences domains naming AiTerm, one file name per line. A test's UserDefaults suite named
+# like an app lands in ~/Library/Preferences and stays there, if only as an empty plist
+# (ScratchDefaults says why), so a domain that appears during the Swift pass fails it. Only those
+# naming AiTerm: other apps make domains of their own during a run that takes minutes.
+# AITERM_TEST_PREFERENCES stands in for the folder.
+PREFERENCES="${AITERM_TEST_PREFERENCES:-$HOME/Library/Preferences}"
+aiterm_domains() {
+    setopt local_options extended_glob
+    print -rl -- $PREFERENCES/(#i)*aiterm*.plist(N:t)
+}
+domains_before=(${(f)"$(aiterm_domains)"})
+domains_left() {
+    local domain left=()
+    for domain in ${(f)"$(aiterm_domains)"}; do
+        (( ${domains_before[(Ie)$domain]} )) || left+=("$domain")
+    done
+    (( ${#left} )) || return 0
+    print -u2 "The tests left preferences domains in $PREFERENCES: ${(j:, :)left}"
+    print -u2 "  A suite named like an app lands there; a test's defaults come from ScratchDefaults.make()."
+    return 1
+}
+
 # A failed run keeps its logs and says where, unless told not to (the toolchain guard's fixture runs
 # fail on purpose). Not in an EXIT trap: zsh runs none when errexit ends the script from inside a
 # function, as a failed pass does.
-if swift_suite; then
+swift_passed=1
+swift_suite || swift_passed=0
+domains_left || swift_passed=0
+if (( swift_passed )); then
     rm -rf "$TEST_LOGS"
 elif [[ "${AITERM_TEST_LOGS_KEEP:-1}" == 0 ]]; then
     rm -rf "$TEST_LOGS"

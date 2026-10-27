@@ -123,15 +123,14 @@ final class AgentIntegrations {
         }
     }
 
-    /// Over a scratch store and no login shell, every agent assumed present: for a Settings sheet or a test that never probes.
-    /// Its defaults are named by a path in the temporary folder, which `UserDefaults` takes as the
-    /// file to keep the domain in, so nothing lands in `~/Library/Preferences`.
+    /// Over a scratch store (``ScratchDefaults``) and no login shell, every agent assumed present: for
+    /// a Settings sheet or a test that never probes.
     static func inert(claudeConfigPath: String? = nil) -> AgentIntegrations {
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("AiTerm.inert-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         let agents = AgentIntegrations(harnessHome: scratch.appendingPathComponent("home"),
                                  bundledResourcesURL: nil, locateAgents: { nil }, rememberedModels: { [:] },
-                                 defaults: UserDefaults(suiteName: scratch.appendingPathComponent("defaults").path)!)
+                                 defaults: ScratchDefaults.make())
         agents.claudeConfigPath = claudeConfigPath
         return agents
     }

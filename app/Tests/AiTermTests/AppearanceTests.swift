@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+import AiTermCore
 @testable import AiTerm
 @testable import AiTermTestSupport
 
