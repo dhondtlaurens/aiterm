@@ -60,17 +60,22 @@ public struct TaskLiveFacts: Equatable, Sendable {
     public var liveModel: String?, liveReasoning: String?
     /// What became of the slash commands `message_task` typed into its first worker (`SessionInfo.slashCommands`).
     public var slashCommands: [SlashCommand]
+    /// What ended one of its workers' turns short, as a sentence (`StoppedOn.reason`): a usage limit and when it resets,
+    /// or a billing or sign-in failure. Nil while none is.
+    public var stoppedOn: String?
 
     public init(status: SessionState? = nil, waitingPrompt: String? = nil,
                 tabs: [Tab] = [], background: [String] = [], yourPrompt: String? = nil, lastMessage: String? = nil,
                 commitsAhead: Int? = nil, atReopenedCommit: Bool = false, changedAfterAcceptance: Bool = false, turnUnread: Bool = false,
-                quiet: Bool = false, liveModel: String? = nil, liveReasoning: String? = nil, slashCommands: [SlashCommand] = []) {
+                quiet: Bool = false, liveModel: String? = nil, liveReasoning: String? = nil, slashCommands: [SlashCommand] = [],
+                stoppedOn: String? = nil) {
         self.status = status; self.waitingPrompt = waitingPrompt
         self.tabs = tabs; self.background = background; self.yourPrompt = yourPrompt
         self.lastMessage = lastMessage; self.commitsAhead = commitsAhead; self.atReopenedCommit = atReopenedCommit
         self.changedAfterAcceptance = changedAfterAcceptance
         self.turnUnread = turnUnread; self.quiet = quiet
         self.liveModel = liveModel; self.liveReasoning = liveReasoning; self.slashCommands = slashCommands
+        self.stoppedOn = stoppedOn
     }
 
     /// Its first worker is idle at its prompt or done: what its turn left is its final word.
@@ -266,6 +271,9 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var liveModel: String?, liveReasoning: String?
         /// What became of the slash commands `message_task` typed into its first worker, oldest first; nil when none was.
         public var slashCommands: [SlashCommandLine]?
+        /// Why one of its workers stopped short of finishing its turn, an API error Claude Code reported: a usage limit and
+        /// when it resets, or a billing or sign-in failure that waits on the person. Not ready while it says so; nil otherwise.
+        public var stoppedOn: String?
         public init(id: UUID, key: String, title: String, project: String, agent: AgentKind, model: String,
                     state: OperatedState, end: TaskEnd, revision: Int, live: LiveState? = nil, branch: String,
                     dependsOn: [Dependency] = [],
@@ -273,7 +281,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                     takenOver: Bool = false, retriesUsed: Int = 0, agentReview: AgentReviewLine? = nil,
                     peopleReview: PeopleReviewLine? = nil, branchDrift: BranchDrift? = nil, tabs: [TabLine]? = nil, background: [String]? = nil,
                     yourPrompt: String? = nil, mergeRefusal: String? = nil, reopenedFrom: String? = nil, liveModel: String? = nil,
-                    liveReasoning: String? = nil, slashCommands: [SlashCommandLine]? = nil) {
+                    liveReasoning: String? = nil, slashCommands: [SlashCommandLine]? = nil, stoppedOn: String? = nil) {
             self.id = id; self.key = key; self.title = title; self.project = project; self.agent = agent; self.model = model
             self.state = state; self.end = end; self.revision = revision; self.live = live; self.branch = branch
             self.dependsOn = dependsOn
@@ -284,6 +292,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             self.youAreDriving = yourPrompt == nil ? nil : true; self.yourPrompt = yourPrompt
             self.mergeRefusal = mergeRefusal; self.reopenedFrom = reopenedFrom
             self.liveModel = liveModel; self.liveReasoning = liveReasoning; self.slashCommands = slashCommands
+            self.stoppedOn = stoppedOn
         }
     }
 
@@ -381,7 +390,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 // As on its card: a task finished or taken over is past the refusal.
                 mergeRefusal: o.takenOver || o.isFinished ? nil : o.publication?.mergeRefusal,
                 reopenedFrom: o.state == .working ? o.reopenedFrom : nil, liveModel: facts.liveModel, liveReasoning: facts.liveReasoning,
-                slashCommands: SlashCommandLine.lines(facts.slashCommands)))
+                slashCommands: SlashCommandLine.lines(facts.slashCommands), stoppedOn: facts.stoppedOn))
             // What the first worker's ended turn left, on a task in any state but yours (spec §J): a new turn is at work.
             let turn = facts.turnEnded && !o.takenOver && o.state != .stopped
             let asking = turn && WorkerTurn.endsWithQuestion(facts.lastMessage)
@@ -393,7 +402,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             if facts.waitingPrompt != nil || !tabPrompts.isEmpty {
                 // Only a prompt open in a terminal is listed: the task's key stands for its first worker's prompt.
                 prompts += (facts.waitingPrompt != nil ? [o.key] : []) + tabPrompts
-            } else if !o.flags.contains(.waitingOnYou), !facts.turnUnread,
+            } else if !o.flags.contains(.waitingOnYou), !facts.turnUnread, facts.stoppedOn == nil,
                       isReadyForAcceptance(o, live: facts.status, extraTabs: facts.tabs.map(\.counted), background: facts.background,
                                            asks: asking) {
                 // A reopened task with no new commit, still on the one it was accepted on, has that commit to accept again.
@@ -401,7 +410,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 else { ready.append(o.key) }
             }
             // What one tab left running is listed while another still works: the fixer's tests beside its review tab.
-            if o.state == .working, !o.takenOver, !facts.background.isEmpty { background.append(o.key) }
+            if o.state == .working, !o.takenOver, facts.stoppedOn == nil, !facts.background.isEmpty { background.append(o.key) }
             if o.flags.contains(.possiblyStalled) { stalled.append(o.key) }
             if o.flags.contains(.uncertain) || (facts.quiet && facts.status == .working) { uncertain.append(o.key) }
             if o.branchDrift != nil { drift.append(o.key) }

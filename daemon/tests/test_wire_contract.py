@@ -24,7 +24,7 @@ from typing import Any, get_args
 
 from aitermd import delivery, protocol, service
 from uuid import UUID
-from aitermd.models import AgentKind, State
+from aitermd.models import AgentKind, State, StoppedOn
 from tests.conftest import FRAME, operator_post
 from tests.fake_iterm import FakeIterm
 
@@ -203,6 +203,11 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         assert (await calling)[1]["result"]["structuredContent"] == {"revision": 3}
         replies["operator.revoke"] = await app.call("operator.revoke", {"runId": RUN_ID})
         replies["interface.setMatchItermBackground"] = await app.call("interface.setMatchItermBackground", {"matchItermBackground": True})
+        # The Claude worker's turn ended on its usage limit, whose reset its transcript gave (the tick reads it there):
+        # its session says so until it works again.
+        await svc.hook_router.handle_hook("/hook/claude", {"session_id": "claude-wire", "cwd": WORKTREE,
+                                                           "hook_event_name": "StopFailure", "error": "rate_limit"})
+        svc.registry.set_stopped_on(worker, StoppedOn("rate_limit", 1_790_018_000))
         replies["sessions.list"] = await app.call("sessions.list")
         replies["usage.get"] = await app.call("usage.get")
         # The Claude worker, the one Claude in its worktree, ends its turn while a review it started in the background and

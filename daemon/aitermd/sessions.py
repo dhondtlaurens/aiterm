@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .models import (PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, RawSession, SessionInfo, SlashCommand,
-                     State, classify_agent)
+                     State, StoppedOn, classify_agent)
 
 
 @dataclass(slots=True)
@@ -60,6 +60,7 @@ class SessionRegistry:
                 info.background, info.subagents_written_at = old.background, old.subagents_written_at
                 info.your_prompt = old.your_prompt
                 info.transcript, info.slash_commands = old.transcript, old.slash_commands
+                info.stopped_on = old.stopped_on
             if info != old:
                 self._sessions[r.session_id] = info
                 diff.changed.append(r.session_id)
@@ -103,6 +104,17 @@ class SessionRegistry:
         # A turn ended: the prompt you typed for it is spent.
         if state in ("done", "idle"):
             s.your_prompt = None
+        # At work again, or asking: whatever stopped its last turn is over.
+        if state in ("working", "needsInput"):
+            s.stopped_on = None
+        return True
+
+    def set_stopped_on(self, session_id: str, stopped: StoppedOn | None) -> bool:
+        """What ended the session's last turn short (SessionInfo.stopped_on); None once it works again."""
+        s = self._sessions.get(session_id)
+        if s is None or s.stopped_on == stopped:
+            return False
+        s.stopped_on = stopped
         return True
 
     def set_your_prompt(self, session_id: str, prompt: str | None) -> bool:

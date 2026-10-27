@@ -1031,3 +1031,40 @@ async def test_a_transcript_footer_quoted_in_a_multiline_draft_gets_its_enter(ri
     rig.pauses.during.append(lambda: rig.iterm.screens.__setitem__(rig.sid, screen))
     result = await rig.deliverer.deliver(rig.sid, "1. Fix X\n2. Handle Showing detailed transcript · ctrl+o to toggle", 1)
     assert result.result == "delivered"
+
+
+# Transcript text above an idle or done tab's empty input box, quoting a prompt's markers: the screen
+# read_task calls promptless.
+QUOTED_MENU = '⏺ That dialog has no "Enter to select" marker, which matters.\n' + IDLE
+QUOTED_PERMISSION = '⏺ Confirmed: "Do you want to proceed?" quoted above reads as `permission`.\n' + IDLE
+
+
+@pytest.mark.parametrize("screen", [QUOTED_MENU, QUOTED_PERMISSION])
+@pytest.mark.parametrize("state", ["idle", "done"])
+async def test_a_quoted_marker_above_the_input_box_takes_a_message(rig, screen, state):
+    rig.registry.set_state(rig.sid, state)
+    rig.iterm.screens[rig.sid] = screen
+    assert await rig.deliverer.prompt(rig.sid) is None
+    assert await rig.deliverer.deliver(rig.sid, "hello", 1) == DeliveryResult("delivered", None)
+
+
+@pytest.mark.parametrize("state", ["idle", "done", "working", "needsInput"])
+async def test_a_real_menu_is_refused_whatever_the_session_says(rig, state):
+    rig.registry.set_state(rig.sid, state)
+    rig.iterm.screens[rig.sid] = CLAUDE_MENU
+    assert await rig.deliverer.prompt(rig.sid) == "menu"
+    assert await rig.deliverer.deliver(rig.sid, "hello", 1) == DeliveryResult("refused", "a menu prompt is open")
+    assert rig.iterm.sent == []
+
+
+async def test_the_check_before_enter_reads_the_state_the_session_has_then(rig):
+    # A needs-input hook that lands while the paste settles makes the markers above the input count.
+    def announced():
+        rig.registry.set_state(rig.sid, "needsInput")
+        rig.iterm.screens[rig.sid] = CLAUDE_PERMISSION + IDLE
+
+    rig.registry.set_state(rig.sid, "done")
+    rig.iterm.screens[rig.sid] = QUOTED_PERMISSION
+    rig.pauses.during.append(announced)
+    result = await rig.deliverer.deliver(rig.sid, "hello", 1)
+    assert result == DeliveryResult("partial", "before Enter, a permission prompt is open; the text waits unsent in the input")

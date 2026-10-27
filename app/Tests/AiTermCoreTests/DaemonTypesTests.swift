@@ -17,6 +17,30 @@ import Testing
         #expect(older.terminalId == nil && older.terminalUUID == nil)
     }
 
+    /// A tab whose turn an API error ended says what stopped it, and for a usage limit when it resets; an older daemon
+    /// says nothing. Each error is worded for what it means: a limit Claude Code may carry on from, a failure it won't.
+    @Test func aSessionSaysWhatStoppedItsTurn() throws {
+        let stopped = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"agent":"claude","state":"done","title":"","cwd":"/repo","stoppedOn":{"error":"rate_limit","resetsAt":1793017200}}"#
+        let session = try JSONDecoder().decode(SessionInfo.self, from: Data(stopped.utf8))
+        #expect(session.stoppedOn == StoppedOn(error: "rate_limit", resetsAt: 1_793_017_200))
+        let older = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"agent":"claude","state":"done","title":"","cwd":"/repo"}"#
+        #expect(try JSONDecoder().decode(SessionInfo.self, from: Data(older.utf8)).stoppedOn == nil)
+
+        var brussels = Calendar(identifier: .gregorian)
+        brussels.timeZone = try #require(TimeZone(identifier: "Europe/Brussels"))
+        let now = Date(timeIntervalSince1970: 1_793_000_000)
+        func reason(_ error: String, _ resetsAt: Int? = nil) -> String {
+            StoppedOn(error: error, resetsAt: resetsAt).reason(now: now, calendar: brussels)
+        }
+        #expect(reason("rate_limit", 1_793_017_200) == "stopped on its usage limit, resets 13:20; Claude Code may carry on by itself then")
+        #expect(reason("rate_limit", 1_793_017_200 + 86_400) == "stopped on its usage limit, resets Tue 13:20; Claude Code may carry on by itself then")
+        #expect(reason("rate_limit") == "stopped on its usage limit; Claude Code may carry on by itself once it resets")
+        #expect(reason("billing_error") == "stopped on a billing error; it won’t carry on by itself")
+        #expect(reason("authentication_failed") == "stopped because its sign-in failed; it won’t carry on by itself")
+        #expect(reason("overloaded") == "stopped on an API error (overloaded); it won’t carry on by itself")
+        #expect(reason("unknown") == "stopped on an API error; it won’t carry on by itself")
+    }
+
     /// A tab whose turn waits on its subagent says so, and when its subagents last wrote; an older daemon says neither.
     /// That moves as a child writes, and no row draws it.
     @Test func aSessionCarriesWhenItsSubagentsWroteAndAnOlderDaemonsNothing() throws {

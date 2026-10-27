@@ -41,6 +41,9 @@ class HookEvent:
     # Where a Claude session writes its conversation (`transcript_path`), from a post of its own: what shows what
     # became of a slash command AiTerm typed there (slash_commands).
     transcript: str | None = None
+    # The API error that ended a Claude turn in place of its Stop (StopFailure's `error`: `rate_limit`, `billing_error`,
+    # `authentication_failed`...); None for every other event.
+    stop_error: str | None = None
 
     @property
     def conversation_id(self) -> str | None:
@@ -174,6 +177,9 @@ def _claude_event(p: dict[str, Any]) -> HookEvent | None:
         tasks = p.get("background_tasks")
         return HookEvent("claude", "done", None, sid, cwd, running_subagents=_claude_running_subagents(tasks),
                          background_work=_claude_background_work(tasks), event_name=name)
+    if name == "StopFailure":
+        # Fired in place of Stop when an API error ended the turn; Claude Code names one it cannot tell `unknown`.
+        return HookEvent("claude", "done", None, sid, cwd, event_name=name, stop_error=nonempty_string(p.get("error")) or "unknown")
     if name in SIMPLE_EVENTS:
         return HookEvent("claude", SIMPLE_EVENTS[name], None, sid, cwd, event_name=name, prompt=_submitted(name, p))
     if name == "Notification":

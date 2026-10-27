@@ -17,7 +17,7 @@ import pytest
 from aitermd.delivery import load_policy
 from tools.delivery_check import (
     ITERM_CHECKS, PASTE_SAFE, SUBMIT_SAFE, ScenarioResult, agent_entry, allow_rules, chosen_agents, iterm_entry, merged_policy,
-    parse_version, scratch_codex_home,
+    parse_version, scratch_claude_config, scratch_codex_home,
 )
 
 NOW = "2026-10-16T07:30:00Z"
@@ -138,6 +138,58 @@ command = "curl"
     home = scratch_codex_home(real, tmp_path / "scratch")
     assert tomllib.loads((home / "config.toml").read_text(encoding="utf-8")) == {
         "tui": {"theme": "dark", "screen_reader_detection_done": True, "model_availability_nux": {"gpt-6.1-sol": 1}}}
+
+
+def test_the_scratch_claude_config_gets_only_what_its_screens_have_shown_you(tmp_path):
+    # Its model, effort, hooks and status line stay out: the check's flags choose the model, and a
+    # /model the menu scenario opens can only save into the copy.
+    real = tmp_path / "real"
+    (real / "projects").mkdir(parents=True)
+    (real / "settings.json").write_text(json.dumps({
+        "theme": "dark-ansi", "model": "sonnet", "modelSettings": {"sonnet": {"effortLevel": "high"}},
+        "hooks": {"Stop": []}, "statusLine": {"command": "x"}}), encoding="utf-8")
+    state = tmp_path / "real.claude.json"
+    state.write_text(json.dumps({
+        "hasCompletedOnboarding": True, "lastOnboardingVersion": "2.1.270", "lastReleaseNotesSeen": "2.1.311",
+        "oauthAccount": {"emailAddress": "me@example.com"}, "projects": {"/Users/me": {}}, "mcpServers": {}}), encoding="utf-8")
+    home = scratch_claude_config(real, state, tmp_path / "scratch")
+    assert home == tmp_path / "scratch" / "claude-config"
+    assert sorted(path.name for path in home.iterdir()) == [".claude.json", "settings.json"]
+    assert json.loads((home / "settings.json").read_text(encoding="utf-8")) == {"theme": "dark-ansi"}
+    assert json.loads((home / ".claude.json").read_text(encoding="utf-8")) == {
+        "hasCompletedOnboarding": True, "lastOnboardingVersion": "2.1.270", "lastReleaseNotesSeen": "2.1.311"}
+
+
+def test_a_scratch_claude_config_with_nothing_to_copy_is_empty_objects(tmp_path):
+    home = scratch_claude_config(tmp_path / "missing", tmp_path / "missing.json", tmp_path / "scratch")
+    assert json.loads((home / ".claude.json").read_text(encoding="utf-8")) == {}
+    assert json.loads((home / "settings.json").read_text(encoding="utf-8")) == {}
+
+
+def test_each_agent_starts_on_its_scratch_config_and_claude_keeps_its_login(tmp_path):
+    # An empty CLAUDE_SECURESTORAGE_CONFIG_DIR keeps the keychain entry a scratch CLAUDE_CONFIG_DIR
+    # would rename, so the scratch config is logged in.
+    real = tmp_path / "home"
+    (real / ".claude").mkdir(parents=True)
+    (real / ".codex").mkdir()
+    folder = tmp_path / "scratch"
+    claude = check.agent_command("claude", folder, real)
+    assert claude == (f"env CLAUDE_CONFIG_DIR={folder / 'claude-config'} CLAUDE_SECURESTORAGE_CONFIG_DIR='' "
+                      f"{COMMANDS['claude']}")
+    assert (folder / "claude-config" / ".claude.json").is_file()
+    assert check.agent_command("codex", folder, real) == f"env CODEX_HOME={folder / 'codex-home'} {COMMANDS['codex']}"
+
+
+async def test_check_agent_types_the_scratch_command(tmp_path, monkeypatch):
+    class Ready(check.Live):
+        async def ready(self, *args, **kwargs):
+            return True
+
+    _scenarios_that(monkeypatch, check, [], lambda name: OK)
+    monkeypatch.setattr(check, "agent_command", lambda agent, folder: f"env SCRATCH=1 {agent}")
+    bridge = FakeIterm()
+    await check.check_agent(Ready(bridge), "claude", tmp_path)
+    assert (" env SCRATCH=1 claude\n" in [text for _, text in bridge.sent])
 
 
 def test_an_allow_rule_a_paste_wrote_is_found(tmp_path):
