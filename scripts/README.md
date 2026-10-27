@@ -163,6 +163,12 @@ hosts that cannot be known beforehand, so it is green when at least one host fin
 one that finished passed; a filter that matches nothing fails. On a failure the logs are kept, and the
 script prints where.
 
+The pass also fails when it leaves a new preferences domain naming AiTerm in `~/Library/Preferences`
+(any case; `AITERM_TEST_PREFERENCES` stands in for the folder), and names it. A `UserDefaults` suite
+named like an app lands there and cfprefsd keeps writing it back, so a test's defaults come from
+`ScratchDefaults.make()`, a domain kept in a temporary folder. Domains that were there before the
+pass, and other apps' domains, are left out: the run takes minutes, and other apps make their own.
+
 Test windows are hidden. The test process loads a hook (`app/Tests/AiTermTestWindowHook`, never
 linked into the app) that makes every window it orders in transparent and click-through, so a run
 neither draws over your apps nor takes your clicks; tests type and read pixels without the window

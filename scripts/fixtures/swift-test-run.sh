@@ -25,13 +25,19 @@ case "$1" in
         done
         (( ${#hosts} )) || hosts=(one)
         hosts=(${(u)hosts})
-        # `nosuite` leaves the suite lines out and `onehost` every host but the first.
+        # `nosuite` leaves the suite lines out and `onehost` every host but the first; `leaks` passes
+        # but leaves a domain naming AiTerm in AITERM_TEST_PREFERENCES, as a suite named like an app
+        # would, and one of another app's.
         run="${AITERM_FIXTURE_TEST_RUN:-passed}"
         case "$run" in
             passed|nosuite|onehost)
                 [[ "$run" != onehost ]] || hosts=("$hosts[1]")
                 [[ "$run" == nosuite ]] || for suite in $suites; do print "✔ Suite $suite passed after 0.001 seconds."; done
                 for host in $hosts; do print '✔ Test run with 1 test passed after 0.001 seconds.'; done ;;
+            leaks)
+                print -n >"$AITERM_TEST_PREFERENCES/aiterm-fixture-tests.plist"
+                print -n >"$AITERM_TEST_PREFERENCES/com.example.other.plist"
+                print '✔ Test run with 1 test passed after 0.001 seconds.' ;;
             zero) print '✔ Test run with 0 tests passed after 0.001 seconds.' ;;
             incomplete) print '◇ Test run started.' ;;
             failed) print '✘ Test run with 1 test failed after 0.001 seconds.' ;;

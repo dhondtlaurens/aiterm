@@ -77,6 +77,25 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
             fi
         done
 
+        # A domain naming AiTerm that a passing run leaves in the preferences fails it; one that was
+        # there before, and one of another app's, do not.
+        preferences="$runner_logs/preferences"
+        mkdir -p "$preferences"
+        print -n >"$preferences/com.laurensdhondt.aiterm.plist"
+        preferences_run() {
+            runner_status=0
+            AITERM_TEST_PREFERENCES="$preferences" TMPDIR="$runner_logs/" TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER=1 \
+                AITERM_FIXTURE_TEST_RUN="$1" SWIFT="$ROOT/scripts/fixtures/swift-test-run.sh" \
+                "$ROOT/scripts/test.sh" swift -- --filter fixture >"$bad_output" 2>&1 || runner_status=$?
+        }
+        preferences_run passed
+        [[ "$runner_status" -eq 0 ]] || fail "expected a domain that was there before the run to pass it"
+        preferences_run leaks
+        if [[ "$runner_status" -eq 0 ]] || \
+           ! grep -Fxq "The tests left preferences domains in $preferences: aiterm-fixture-tests.plist" "$bad_output"; then
+            fail "expected a domain naming AiTerm, and only that one, to fail the run (status $runner_status)"
+        fi
+
         # A run waits while another holds the test lock, and gets it once that one ends; a run
         # started inside one that holds it (as these fixture runs are) does not wait at all.
         zmodload zsh/system

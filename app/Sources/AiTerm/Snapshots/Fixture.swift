@@ -11,8 +11,8 @@ import AiTermCore
 /// `state.json`, and every checkout pass reports the fixture's own checkouts rather than running git.
 @MainActor
 struct Fixture {
-    /// A domain nothing writes: the images show the default preferences, not the developer's.
-    static let defaults = UserDefaults(suiteName: "AiTerm.snapshots")!
+    /// A domain of the images' own: they show the default preferences, not the developer's.
+    static let defaults = ScratchDefaults.make()
     /// A home with no agent configuration in it: the sheets' models and prompt completions are
     /// the images', not whatever the developer's `~/.claude` and `~/.codex` hold.
     nonisolated static let home: URL = {

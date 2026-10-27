@@ -187,7 +187,7 @@ extension HarnessSettingsModel {
     static func preview(snapshots: [AgentKind: HarnessSnapshot]) -> HarnessSettingsModel {
         let service = PreviewHarnessService(snapshots: snapshots)
         let model = HarnessSettingsModel(service: service, rememberedModels: { [:] },
-                                         defaults: UserDefaults(suiteName: "AiTerm.HarnessPreview.\(UUID().uuidString)")!)
+                                         defaults: ScratchDefaults.make())
         for agent in AgentKind.allCases {
             if let snapshot = snapshots[agent] { model.accept(snapshot, resolveStoredPreference: true) }
         }

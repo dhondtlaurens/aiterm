@@ -185,6 +185,18 @@ import AiTermCore
         #expect(ModelSettings.load(for: .pi, defaults: defaults) == nil)
     }
 
+    /// A preview's Save lands in a domain of its own, which no other preview reads, and never in
+    /// `~/Library/Preferences`: `scripts/test.sh` fails a run that leaves a domain there.
+    @Test func aPreviewSavesIntoADomainOfItsOwn() async {
+        let model = HarnessSettingsModel.preview()
+        model.selectReasoning("low", for: .claude)
+        model.save()
+        await model.load([.claude])
+
+        #expect(model.preferences[.claude]?.reasoning == "low")
+        #expect(HarnessSettingsModel.preview().preferences[.claude]?.reasoning == "high")
+    }
+
     /// The model outlives a Settings presentation, and a task created meanwhile changes which model
     /// an agent was last used with; a reopened card resolves from that, not from launch.
     @Test func aReopenedCardResolvesFromTheModelsRememberedNow() async {
