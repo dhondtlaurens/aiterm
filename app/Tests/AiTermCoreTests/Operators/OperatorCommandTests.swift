@@ -457,6 +457,14 @@ import Foundation
         #expect(review.contains("reply in review threads"))
     }
 
+    /// A /model, /effort or /config typed into a Claude session saves the person's defaults for every new
+    /// session, so the Operator asks before it sends one to a worker.
+    @Test func sendingASettingsCommandToAClaudeWorkerIsAskedFirst() {
+        let brief = OperatorCommand.brief(run: F.run(), projects: [])
+        let askFirst = brief.components(separatedBy: "\n").first { $0.contains("Ask the person first") } ?? ""
+        #expect(askFirst.contains("sending a Claude worker /model, /effort or /config (they save the person's defaults)"))
+    }
+
     /// The two ask-first items are asks the spec keeps; the slice boundary covers only what the slices govern.
     @Test func theAskFirstItemsAreNeverDescribedAsNeverAsked() {
         let brief = OperatorCommand.brief(run: F.run(), projects: [])
