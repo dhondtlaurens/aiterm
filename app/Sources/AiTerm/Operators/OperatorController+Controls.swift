@@ -85,23 +85,21 @@ extension OperatorController {
         waker.say(TaskEndChange.wakeReason(key: operated.key, end: end) + (completed ? ", and the broadcast is complete" : ""), to: run.id)
     }
 
-    /// One More Round or Accept As It Is, on the card of a task out of its review's fix rounds: the Operator woken with
-    /// your answer, once per question. The question stays open: the Operator resolves it, as with an answer in its chat.
-    /// Refused for a task you took over or that has finished.
+    /// One More Round or Accept As It Is, on the card of a task out of its review's fix rounds: recorded on its question
+    /// (`answeredOnCard`), which `run_status` and the card say, and the Operator woken with it. Once answered, a second
+    /// click does nothing. The question stays open: the Operator resolves it, as with an answer in its chat. Refused for
+    /// a task you took over or that has finished.
     func answerFixRounds(of id: UUID, _ answer: BroadcastBoard.FixRoundsAnswer) throws {
         guard let operated = workspace.state.task(id: id)?.operated, !operated.takenOver, !operated.isFinished,
               let run = run(id: operated.runId), !run.hasEnded,
               let question = run.fixRoundsQuestion(on: id)
         else { throw ActionUnavailable("Nothing asks about that task’s fix rounds any more.") }
-        // A second click before the Operator resolved it: already said.
-        let asked = "\(run.id.uuidString)/\(question.id)/\(question.askedAt.timeIntervalSince1970)"
-        guard Self.fixRoundsAnswered.insert(asked).inserted else { return }
+        guard question.answeredOnCard == nil else { return }
+        mutateRun(run.id) { run in
+            if let i = run.questions.firstIndex(where: { $0.id == question.id }) { run.questions[i].answeredOnCard = answer.words }
+        }
         waker.say(answer.wakeReason(key: operated.key), to: run.id)
     }
-
-    /// The fix-rounds questions answered from a card, each keyed by its question (its run, its id and when it was asked, as
-    /// the Operator may ask again under the same id), so each wakes the Operator once.
-    private static var fixRoundsAnswered: Set<String> = []
 
     /// A worker window you closed, back on your click or ↩ on its row (integration decision 7): its
     /// conversation resumed in a window behind your work under the broadcast's flags (`WorkerStarter.reopen`),

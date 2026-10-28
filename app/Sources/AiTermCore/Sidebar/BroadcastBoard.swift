@@ -79,6 +79,12 @@ public struct BroadcastBoard: Equatable, Sendable {
     public enum FixRoundsAnswer: CaseIterable, Sendable {
         case oneMoreRound, acceptAsItIs
 
+        /// The answer `words` say, as its question keeps it (`OperatorQuestion.answeredOnCard`).
+        public init?(words: String) {
+            guard let answer = Self.allCases.first(where: { $0.words == words }) else { return nil }
+            self = answer
+        }
+
         /// Its link on the card.
         public var title: String {
             switch self {
@@ -127,10 +133,11 @@ public struct BroadcastBoard: Equatable, Sendable {
     public typealias ModelLabels = [AgentKind: [String: String]]
 
     /// A task out of its review's fix rounds and asked about them (16): the answers' links, under the last verdict's
-    /// counts when one was recorded.
+    /// counts when one was recorded, or what you answered once you did (`OperatorQuestion.answeredOnCard`).
     public struct FixRounds: Equatable, Sendable {
         public var counts: String?
-        public init(counts: String?) { self.counts = counts }
+        public var answered: FixRoundsAnswer?
+        public init(counts: String?, answered: FixRoundsAnswer? = nil) { self.counts = counts; self.answered = answered }
     }
 
     /// One task on the board.
@@ -173,6 +180,8 @@ public struct BroadcastBoard: Equatable, Sendable {
         public var end: EndLine? = nil
         /// Out of its review's fix rounds and asked about them, while it is not yours.
         public var fixRounds: FixRounds? = nil
+        /// Why the closing kept its worktree (`OperatedTask.keptReason`), under its rule; nil while none is recorded.
+        public var notice: String? = nil
     }
 
     /// A column: its head, its cards, and the one muted line it says while it has none.
@@ -358,12 +367,13 @@ public struct BroadcastBoard: Equatable, Sendable {
     }
 
     /// `2 of 8 done`, once the first plan is in Todo: the finished tasks of those not stopped, as the board's
-    /// band says it. While the goal is checked after a round, `· round 1 of 2`; ended with the goal checked, how much
-    /// was left for you, `· 2 left for you`.
+    /// band says it. While the goal is checked, the round it checks and the extra rounds, `· round 1 of 2`; ended with
+    /// the goal checked, how much was left for you, `· 2 left for you`.
     static func progress(of run: OperatorRun, tasks: [TaskItem], keepsHanded: Bool = false) -> String? {
         guard let count = count(of: run, tasks: tasks, keepsHanded: keepsHanded) else { return nil }
         var parts = [count + " done"]
-        if run.goalCheckDue, run.roundsUsed > 0, let goal = run.goal { parts.append("round \(run.roundsUsed) of \(goal.extraRounds)") }
+        // The round being checked: the first check is round 1.
+        if run.goalCheckDue, let goal = run.goal { parts.append("round \(run.roundsUsed + 1) of \(goal.extraRounds)") }
         if run.hasEnded, run.goalOutcome != nil, !run.leftForYou.isEmpty { parts.append("\(run.leftForYou.count) left for you") }
         return parts.joined(separator: " · ")
     }
@@ -402,8 +412,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         let fixRounds = setUp && !operated.isFinished && !takenOver ? run.fixRoundsQuestion(on: task.id) : nil
         let asks = requests.contains { $0.runId == run.id && $0.taskId == task.id && $0.kind != .question }
         let line: OperatorLine? = if kept {
-            // What it ended at without its detail, `draft MR · worktree kept`, so the line fits. Why it was kept is not
-            // recorded, so the card says no more.
+            // What it ended at without its detail, `draft MR · worktree kept`, so the line fits; why, under its rule.
             OperatorLine((OperatorLine.ending(of: operated)?.components(separatedBy: " · ").first ?? "done") + " · worktree kept", look: .ended)
         } else if let fixRounds, !asks {
             OperatorLine("out of fix rounds", look: .needsYou, tooltip: fixRounds.text)
@@ -430,7 +439,11 @@ public struct BroadcastBoard: Equatable, Sendable {
                     combination: setUp && tabs.isEmpty ? combination(task.agent, task.model, task.reasoning, labels: labels) : nil,
                     end: setUp && !operated.isFinished && !takenOver
                         ? EndLine(current: operated.end, selectable: TaskEnd.allCases.filter { TaskEndChange.isSelectable($0, in: run) }) : nil,
-                    fixRounds: fixRounds.map { _ in FixRounds(counts: operated.reviewVerdicts.last.map(counts)) })
+                    fixRounds: fixRounds.map { question in
+                        FixRounds(counts: operated.reviewVerdicts.last.map(counts),
+                                  answered: question.answeredOnCard.flatMap(FixRoundsAnswer.init(words:)))
+                    },
+                    notice: kept ? operated.keptReason : nil)
     }
 
     /// Whether the closing has run since the broadcast last completed or ended (`closedAt`): a task that reached its

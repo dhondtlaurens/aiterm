@@ -384,6 +384,8 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     public var reopenedFrom: String?
     /// What its review tabs found, each against the commit it reviewed (`record_review`), oldest first.
     public var reviewVerdicts: [ReviewVerdict]
+    /// Why the broadcast's closing kept its worktree, row and tabs, in a sentence its card shows; nil while it kept none.
+    public var keptReason: String?
 
     public init(runId: UUID, key: String, state: OperatedState = .planned, end: TaskEnd = .commit, brief: String,
                 dependsOn: [TaskDependency] = [], stackedOn: UUID? = nil, revision: Int, firstRevision: Int? = nil,
@@ -415,7 +417,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         case runId, key, state, end, brief, dependsOn, stackedOn, revision, firstRevision, acceptance, publication
         case takenOver, ownership, launch, retriesUsed, runtimeUsed, totalRuntimeUsed, runtimeHead
         case blockedReason, blockedFrom, lastFailure, flags
-        case modelReason, agentPinned, problem, agentReview, peopleReview, branchDrift, extraTabs, reopenedFrom, reviewVerdicts
+        case modelReason, agentPinned, problem, agentReview, peopleReview, branchDrift, extraTabs, reopenedFrom, reviewVerdicts, keptReason
     }
 
     /// Synthesised but for `flags`: a flag this build does not know is dropped, not a failed load.
@@ -454,6 +456,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         extraTabs = try c.decodeIfPresent([ExtraTab].self, forKey: .extraTabs) ?? []
         reopenedFrom = try c.decodeIfPresent(String.self, forKey: .reopenedFrom)
         reviewVerdicts = try c.decodeIfPresent([ReviewVerdict].self, forKey: .reviewVerdicts) ?? []
+        keptReason = try c.decodeIfPresent(String.self, forKey: .keptReason)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -492,6 +495,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         if !extraTabs.isEmpty { try c.encode(extraTabs, forKey: .extraTabs) }
         try c.encodeIfPresent(reopenedFrom, forKey: .reopenedFrom)
         if !reviewVerdicts.isEmpty { try c.encode(reviewVerdicts, forKey: .reviewVerdicts) }
+        try c.encodeIfPresent(keptReason, forKey: .keptReason)
     }
 }
 
@@ -511,6 +515,10 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// instead of answering in the Operator's chat (spec §I). AiTerm writes it while the question is open and never closes
     /// the question: the Operator checks whether it is answered and calls `resolve_question`. Nil for any other question.
     public var answeredInWindow: String?
+    /// For a `fixRounds` question, your answer from the task's card, as the Operator's wake line words it (`one more
+    /// round`, `accept it as it is`). AiTerm writes it once and never closes the question: the Operator resolves it, as
+    /// with an answer in its chat. Nil until answered there, and for any other question.
+    public var answeredOnCard: String?
     /// True when the Operator withdrew the question; `resolution` is its reason, not the person's answer.
     /// Nil in older runs and for questions that were not withdrawn.
     public var withdrawn: Bool?
@@ -518,9 +526,11 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// whose card offers the answers. Nil for any other question.
     public var about: String?
     public init(id: String, text: String, task: UUID?, askedAt: Date, resolution: String? = nil, tab: String? = nil,
-                gate: GateRequest? = nil, answeredInWindow: String? = nil, withdrawn: Bool? = nil, about: String? = nil) {
+                gate: GateRequest? = nil, answeredInWindow: String? = nil, withdrawn: Bool? = nil, about: String? = nil,
+                answeredOnCard: String? = nil) {
         self.id = id; self.text = text; self.task = task; self.askedAt = askedAt; self.resolution = resolution; self.tab = tab
         self.gate = gate; self.answeredInWindow = answeredInWindow; self.withdrawn = withdrawn; self.about = about
+        self.answeredOnCard = answeredOnCard
     }
 
     /// `about` for a task out of its review's fix rounds.

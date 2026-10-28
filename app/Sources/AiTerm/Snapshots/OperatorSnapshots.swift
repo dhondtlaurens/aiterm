@@ -399,10 +399,12 @@ struct OperatorScene {
             + [kept()].compactMap { $0 }
     }
 
-    /// The shipping step's card once the broadcast completed and its closing ran, its worktree kept.
+    /// The shipping step's card once the broadcast completed and its closing ran, its worktree kept and why.
     private static func kept(_ scene: OperatorScene = OperatorScene()) -> BroadcastBoard.Card? {
         var shipping = scene.setUpCheckout([scene.shipping: .published]).first { $0.id == scene.shipping }!
         shipping.operated?.publication = nil
+        // As the closing records it.
+        shipping.operated?.keptReason = "Not closed: its worktree has uncommitted changes. Remove it yourself once they are safe."
         var run = scene.setUp(.complete)
         run.completedAt = Snapshots.clock.now
         run.closedAt = Snapshots.clock.now

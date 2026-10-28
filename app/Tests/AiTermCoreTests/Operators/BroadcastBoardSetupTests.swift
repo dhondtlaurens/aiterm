@@ -163,14 +163,13 @@ import Testing
     @Test func theBandChecksTheGoalAndSaysHowItEnded() throws {
         var checking = run()
         checking.goalCheckDue = true
-        checking.roundsUsed = 1
         let done = [task("Cart drawer", run: checking, .published), task("Shipping step", run: checking, .published),
                     task("Price formatting", run: checking, .published)]
         let board = board(checking, done)
         #expect(board.band == OperatorLine("checking the goal", look: .acting))
-        #expect(board.progress == "3 of 3 done · round 1 of 2")
-        checking.roundsUsed = 0
-        #expect(self.board(checking, done).progress == "3 of 3 done", "the first check is of the plan, in no round yet")
+        #expect(board.progress == "3 of 3 done · round 1 of 2", "from the first check: the round being checked")
+        checking.roundsUsed = 1
+        #expect(self.board(checking, done).progress == "3 of 3 done · round 2 of 2")
 
         var ended = checking
         ended.goalCheckDue = false

@@ -115,6 +115,7 @@ import Testing
         try world.controller.answerFixRounds(of: task.id, .oneMoreRound)
         #expect(try await wakes(world).contains("[AiTerm] You answered cart-drawer’s fix rounds: one more round, call run_status"))
         #expect(world.run(run.id)?.questions.first?.resolution == nil, "the Operator resolves it, as with an answer in its chat")
+        #expect(world.run(run.id)?.questions.first?.answeredOnCard == "one more round", "kept on the question, for run_status and the card")
 
         // A second click, before the Operator resolved it, says nothing: the first answer stands. (The waker may say the
         // first again until the Operator looks, as it does every reason.)
@@ -123,6 +124,7 @@ import Testing
         await world.controller.waker.lastSend?.value
         let lines = world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
         #expect(!lines.contains { $0.contains(BroadcastBoard.FixRoundsAnswer.acceptAsItIs.words) })
+        #expect(world.run(run.id)?.questions.first?.answeredOnCard == "one more round")
 
         // Taken over, the task is yours: nothing is answered for it.
         world.workspace.mutate { $0.updateOperated(task.id) { $0.takenOver = true } }

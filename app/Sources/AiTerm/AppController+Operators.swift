@@ -221,6 +221,16 @@ extension AppController {
         attempt("Couldn’t pause “\(run.name)”") { try controller.pause(run: run.id) }
     }
 
+    func changeEnd(of task: UUID, to end: TaskEnd) {
+        let controller = operatorController
+        attempt("Couldn’t change the task’s end") { try controller.changeEnd(of: task, to: end) }
+    }
+
+    func answerFixRounds(of task: UUID, _ answer: BroadcastBoard.FixRoundsAnswer) {
+        let controller = operatorController
+        attempt("Couldn’t answer the task’s fix rounds") { try controller.answerFixRounds(of: task, answer) }
+    }
+
     func resume(_ run: OperatorRun) {
         let controller = operatorController
         attempt("Couldn’t resume “\(run.name)”") { try await controller.resume(run: run.id) }
@@ -251,7 +261,8 @@ extension AppController {
 
     /// The board's buttons, each on the broadcast as it is when pressed, and nothing once it is no longer
     /// the active one. End Broadcast… asks first and closes the board once it ended, and only then: a failed end keeps it up. A complete
-    /// broadcast's End Broadcast asks nothing. Start Fresh keeps the board up, its footer back to the moment's.
+    /// broadcast's End Broadcast asks nothing. Start Fresh keeps the board up, its footer back to the moment's. A card's
+    /// end menu and its fix-rounds links act on its task, what is refused said in the banner.
     func boardActions(for id: UUID, dismiss: @escaping @MainActor () -> Void) -> BoardActions {
         BoardActions(
             open: { [weak self] opens in self?.open(opens, run: id) },
@@ -263,7 +274,9 @@ extension AppController {
                     Task { if await (confirming ? self.confirmEnd(run) : self.endNow(run)) { dismiss() } }
                 }
             },
-            startFresh: { [weak self] in self?.onActiveRun(id) { self?.startFresh($0) } })
+            startFresh: { [weak self] in self?.onActiveRun(id) { self?.startFresh($0) } },
+            changeEnd: { [weak self] task, end in self?.onActiveRun(id) { _ in self?.changeEnd(of: task, to: end) } },
+            answerFixRounds: { [weak self] task, answer in self?.onActiveRun(id) { _ in self?.answerFixRounds(of: task, answer) } })
     }
 
     /// `work` on the broadcast with this id, as it is now, while it is the active one.
