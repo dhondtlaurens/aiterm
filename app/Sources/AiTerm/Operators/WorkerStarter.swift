@@ -195,8 +195,8 @@ final class WorkerStarter {
 
     /// What a task launches with. Its planned agent and model, unless this is its first launch, it is not
     /// pinned and its agent's weekly use is near the limit (`ModelChoice.launchAgent`): then the other agent
-    /// and its first allowed row (its default model for legacy runs), and `switchedFrom` names the planned agent. A relaunch or a retry
-    /// keeps the agent it started on.
+    /// and its first allowed row (its default model for legacy runs). `switchedFrom` names the planned agent.
+    /// A relaunch or a retry keeps the agent it started on.
     private func launchChoice(for task: TaskItem, operated: OperatedTask, attempt: LaunchAttempt) -> LaunchChoice {
         let keep = LaunchChoice(agent: task.agent, model: task.model, reasoning: task.reasoning, switchedFrom: nil, percent: 0)
         guard attempt.number == 1, operated.retriesUsed == 0 else { return keep }

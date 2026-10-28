@@ -540,17 +540,20 @@ extension OperatorPlanToolsTests {
         let (world, run) = try rowsWorld()
         let args = rowArguments().adding(field, .string(value)).adding("agentPinned", true)
         let refused = await world.call(run.id, "create_task", args)
-        #expect(refused.message?.contains("codex · gpt-6-astra · high") == true)
-        #expect(refused.message?.contains("codex · gpt-6-astra · low") == true)
+        #expect(refused.message?.contains("Codex · gpt-6-astra · high") == true)
+        #expect(refused.message?.contains("Codex · gpt-6-astra · low") == true)
         #expect(world.state.tasks.isEmpty)
         _ = await world.call(run.id, "create_task", rowArguments())
         let update = await world.call(run.id, "update_task", JSONValue.object(["task": "A", field: .string(value)]))
-        #expect(update.message?.contains("codex · gpt-6-astra · high") == true)
+        #expect(update.message?.contains("Codex · gpt-6-astra · high") == true)
         #expect(world.state.tasks.first?.agent == .codex && world.state.tasks.first?.reasoning == "high")
     }
 
     @Test func namedModelWithoutReasoningTakesFirstMatchingRow() async throws {
         let (world, run) = try rowsWorld()
+        world.workspace.mutate { $0.updateRun(id: run.id) {
+            $0.agents.insert(AgentChoice(agent: .codex, model: "gpt-6-mini", reasoning: nil), at: 0)
+        } }
         _ = await world.call(run.id, "create_task", rowArguments().adding("model", "gpt-6-astra"))
         #expect(world.state.tasks.first?.reasoning == "high")
     }
@@ -569,6 +572,7 @@ extension OperatorPlanToolsTests {
     @Test func closedDependenciesAreRefusedByKeyAndID() async throws {
         let (world, run) = try rowsWorld()
         let id = UUID()
+        let beforeClose = try #require(world.run(run.id))
         world.workspace.mutate { $0.updateRun(id: run.id) {
             $0.finished = [FinishedTaskRecord(task: id, key: "CLOSED", title: "Closed", ticket: nil, project: project.id,
                 agent: .codex, model: "gpt-6-astra", reasoning: "high", end: .commit, state: .accepted,
@@ -580,8 +584,13 @@ extension OperatorPlanToolsTests {
             #expect(refused.message == "CLOSED was closed when the broadcast completed.")
         }
         _ = await world.call(run.id, "create_task", rowArguments())
-        let update = await world.call(run.id, "update_task", ["task": "A", "dependsOn": ["CLOSED"]])
-        #expect(update.message == "CLOSED was closed when the broadcast completed.")
+        do {
+            _ = try await world.controller.tools.updateTask(
+                ToolCall(tool: "update_task", arguments: ["task": "A", "dependsOn": ["CLOSED"]]), in: beforeClose)
+            Issue.record("A dependency on a task closed since the call began must be refused.")
+        } catch let refusal as ToolRefusal {
+            #expect(refusal.message == "CLOSED was closed when the broadcast completed.")
+        }
     }
 }
 
@@ -602,15 +611,21 @@ extension OperatorPlanToolsTests {
 }
 
 extension OperatorPlanToolsTests {
-    @Test func newRunUsesChosenEndEvenWithoutAConnectedHost() async throws {
+    @Test(arguments: [TaskEnd.mergeLocal, .draftMR])
+    func newRunEndWithoutAConnectedHost(end: TaskEnd) async throws {
         let (world, run) = try rowsWorld()
         world.workspace.mutate { $0.updateRun(id: run.id) {
-            $0.taskSettings?.end = .mergeLocal
+            $0.taskSettings?.end = end
             $0.profile.slices.merge = true
         } }
         let answer = await world.call(run.id, "create_task", rowArguments())
-        #expect(answer.value?["created"] == true)
-        #expect(world.state.tasks.first?.operated?.end == .mergeLocal)
+        if end == .mergeLocal {
+            #expect(answer.value?["created"] == true)
+            #expect(world.state.tasks.first?.operated?.end == .mergeLocal)
+        } else {
+            #expect(answer.message == "Shop has no connected code host: end it at a commit.")
+            #expect(world.state.tasks.isEmpty)
+        }
     }
 }
 
@@ -621,9 +636,80 @@ extension OperatorPlanToolsTests {
             $0.agents.insert(AgentChoice(agent: .codex, model: "gpt-6-mini", reasoning: nil), at: 0)
         } }
         _ = await world.call(run.id, "create_task", rowArguments().adding("model", "gpt-6-astra"))
+        #expect(world.state.tasks.first?.model == "gpt-6-astra")
+        #expect(world.state.tasks.first?.reasoning == "high")
         let update = await world.call(run.id, "update_task", ["task": "A", "reasoning": "low"])
         #expect(update.message == nil)
         #expect(world.state.tasks.first?.model == "gpt-6-astra")
         #expect(world.state.tasks.first?.reasoning == "low")
+    }
+}
+
+extension OperatorPlanToolsTests {
+    @Test(arguments: [(false, false), (true, false), (true, true)])
+    func deliveryAdviceNamesOnlyAllowedRows(otherAllowed: Bool, pinned: Bool) async throws {
+        let (world, run) = try rowsWorld()
+        world.link.attached = true
+        world.daemon.deliveryVerdicts[.codex] = DeliveryVerdict(policy: .off, version: nil)
+        if otherAllowed {
+            world.workspace.mutate { $0.updateRun(id: run.id) {
+                $0.agents.append(AgentChoice(agent: .claude, model: "claude-named", reasoning: "high"))
+            } }
+        }
+        let answer = await world.call(run.id, "create_task", rowArguments().adding("agentPinned", .bool(pinned)))
+        if otherAllowed && !pinned {
+            #expect(answer.message?.contains("Plan it on Claude Code · claude-named · high") == true)
+            #expect(world.state.tasks.isEmpty)
+        } else {
+            #expect(answer.value?["created"] == true)
+            #expect(answer.value?["warning"]?.stringValue?.contains("can’t be steered") == true)
+        }
+    }
+
+    @Test func nullEndIsNotAnEndChange() async throws {
+        let (world, run) = try rowsWorld()
+        let created = await world.call(run.id, "create_task", rowArguments().adding("end", .null))
+        #expect(created.value?["created"] == true)
+        let updated = await world.call(run.id, "update_task", ["task": "A", "end": .null])
+        #expect(updated.message == nil)
+        #expect(world.state.tasks.first?.operated?.end == .commit)
+    }
+
+    @Test func nullReasoningDoesNotChooseTheFirstRowAgain() async throws {
+        let (world, run) = try rowsWorld()
+        _ = await world.call(run.id, "create_task", rowArguments().adding("reasoning", "low"))
+        #expect(world.state.tasks.first?.reasoning == "low")
+        let updated = await world.call(run.id, "update_task", ["task": "A", "reasoning": .null])
+        #expect(updated.message == nil)
+        #expect(world.state.tasks.first?.reasoning == "low")
+    }
+
+    @Test func newRunNeverReadsTheCatalogueForPlanCalls() async throws {
+        var run = OperatorServiceFixtures.run(projects: [project])
+        run.taskSettings = TaskSettings(review: nil, end: .commit)
+        run.agents = [AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "high")]
+        let reads = Mutex(0)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) {
+            $0.agentModels = { _ in reads.withLock { $0 += 1 }; return [] }
+        }
+        world.link.attached = false
+        try await world.controller.tools.vetoPrecheck(ToolCall(tool: "create_task", arguments: rowArguments()), in: run)
+        #expect(await world.call(run.id, "create_task", rowArguments()).value?["created"] == true)
+        let updated = await world.call(run.id, "update_task", ["task": "A", "model": "gpt-6-astra"])
+        #expect(updated.message == nil)
+        #expect(reads.withLock { $0 } == 0)
+    }
+
+    @Test func anAllowedButUninstalledAgentIsStillRefused() async throws {
+        var run = OperatorServiceFixtures.run(projects: [project])
+        run.taskSettings = TaskSettings(review: nil, end: .commit)
+        run.agents = [AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "high")]
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) {
+            $0.installedAgents = { [.claude] }
+        }
+        world.link.attached = false
+        let answer = await world.call(run.id, "create_task", rowArguments())
+        #expect(answer.message == "Codex isn’t installed on this Mac. Choose an installed agent from run_status.")
+        #expect(world.state.tasks.isEmpty)
     }
 }

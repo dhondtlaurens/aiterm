@@ -22,19 +22,20 @@ extension OperatorToolHandler {
         let agent = try self.agent(call), modelReason = try call.string("modelReason")
         let brief = try role == .review ? (call.optionalString("brief") ?? "") : call.string("brief")
         let pinned = call.arguments["agentPinned"]?.boolValue ?? false
-        if let recorded = try recordedTab(key, of: task, call, agent: agent, modelReason: modelReason, brief: brief, pinned: pinned, role: role, checksReasoning: run.taskSettings != nil) {
+        if let recorded = try recordedTab(key, of: task, call, agent: agent, modelReason: modelReason,
+                                          brief: brief, pinned: pinned, role: role, checksReasoning: run.taskSettings != nil) {
             return recorded
         }
         try tabRefusal(task, in: run)
-        let models = agentModels
-        let catalogue = await BackgroundWork.run { models(agent) }
+        let catalogue = await modelCatalogue(for: agent, in: run)
         let delivery = await deliveryStatus()
         let model = try self.model(call, for: agent, catalogue: catalogue, in: run)
-        let warning = try deliveryWarning(for: agent, pinned: pinned, delivery: delivery)
+        let warning = try deliveryWarning(for: agent, pinned: pinned, delivery: delivery, in: run)
         guard let current = state.task(id: task.id), let fresh = state.run(id: run.id) else {
             throw ToolRefusal("This task is no longer in this broadcast.")
         }
-        if let recorded = try recordedTab(key, of: current, call, agent: agent, modelReason: modelReason, brief: brief, pinned: pinned, role: role, checksReasoning: run.taskSettings != nil) {
+        if let recorded = try recordedTab(key, of: current, call, agent: agent, modelReason: modelReason,
+                                          brief: brief, pinned: pinned, role: role, checksReasoning: run.taskSettings != nil) {
             return recorded
         }
         try tabRefusal(current, in: fresh)

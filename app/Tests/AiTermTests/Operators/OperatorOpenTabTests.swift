@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
@@ -304,7 +305,7 @@ extension OperatorOpenTabTests {
         for (field, value) in [("agent", "claude"), ("model", "gpt-6-astra"), ("reasoning", "low")] {
             let refused = await world.call(run.id, "open_tab",
                 Self.arguments(pinned: true).adding(field, .string(value)))
-            #expect(refused.message?.contains("codex · gpt-6-mini · high") == true)
+            #expect(refused.message?.contains("Codex · gpt-6-mini · high") == true)
             #expect(tabs(of: task, in: world).isEmpty)
         }
         let args = Self.arguments(model: nil).adding("role", "review").adding("brief", .null)
@@ -316,5 +317,61 @@ extension OperatorOpenTabTests {
         #expect(repeatWithDifferentReasoning.message != nil)
         let repeatWithDifferentRole = await world.call(run.id, "open_tab", args.adding("role", "work"))
         #expect(repeatWithDifferentRole.message != nil)
+    }
+}
+
+extension OperatorOpenTabTests {
+    @Test(arguments: [(false, false), (true, false), (true, true)])
+    func deliveryAdviceForTabsStaysOnAllowedRows(otherAllowed: Bool, pinned: Bool) async throws {
+        let (world, run, task) = try makeWorld()
+        world.workspace.mutate { $0.updateRun(id: run.id) {
+            $0.taskSettings = TaskSettings(review: nil, end: .commit)
+            $0.agents = [AgentChoice(agent: .codex, model: "gpt-6-mini", reasoning: nil)]
+            if otherAllowed {
+                $0.agents.append(AgentChoice(agent: .claude, model: "claude-named", reasoning: "high"))
+            }
+        } }
+        world.daemon.deliveryVerdicts[.codex] = DeliveryVerdict(policy: .off, version: nil)
+        let answer = await world.call(run.id, "open_tab", Self.arguments(pinned: pinned))
+        if otherAllowed && !pinned {
+            #expect(answer.message?.contains("Plan it on Claude Code · claude-named · high") == true)
+            #expect(tabs(of: task, in: world).isEmpty)
+        } else {
+            #expect(answer.value?["state"] == "opened")
+            #expect(answer.value?["warning"]?.stringValue?.contains("can’t be steered") == true)
+        }
+    }
+
+    @Test func unknownRoleIsRefusedForANewRun() async throws {
+        let (world, run, task) = try makeWorld()
+        world.workspace.mutate { $0.updateRun(id: run.id) {
+            $0.taskSettings = TaskSettings(review: nil, end: .commit)
+            $0.agents = [AgentChoice(agent: .codex, model: "gpt-6-mini", reasoning: nil)]
+        } }
+        let answer = await world.call(run.id, "open_tab", Self.arguments().adding("role", "unknown"))
+        #expect(answer.message == "A tab’s role is work or review.")
+        #expect(tabs(of: task, in: world).isEmpty && world.daemon.requests("tab.create").isEmpty)
+    }
+
+    @Test func legacyTabIgnoresRoleAndReasoning() async throws {
+        let (world, run, task) = try makeWorld()
+        let answer = await world.call(run.id, "open_tab",
+            Self.arguments().adding("role", "review").adding("reasoning", "high"))
+        #expect(answer.value?["state"] == "opened")
+        let tab = try #require(tabs(of: task, in: world).first)
+        #expect(tab.role == .work && tab.reasoning == nil)
+    }
+
+    @Test func newTabDoesNotReadTheCatalogue() async throws {
+        let reads = Mutex(0)
+        let (world, run, _) = try makeWorld(adjust: {
+            $0.agentModels = { _ in reads.withLock { $0 += 1 }; return [] }
+        })
+        world.workspace.mutate { $0.updateRun(id: run.id) {
+            $0.taskSettings = TaskSettings(review: nil, end: .commit)
+            $0.agents = [AgentChoice(agent: .codex, model: "gpt-6-mini", reasoning: nil)]
+        } }
+        #expect(await world.call(run.id, "open_tab", Self.arguments()).value?["state"] == "opened")
+        #expect(reads.withLock { $0 } == 0)
     }
 }
