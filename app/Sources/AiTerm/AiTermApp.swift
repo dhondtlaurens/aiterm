@@ -176,8 +176,8 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         // only to show it, and is enabled by the same rule (`validateMenuItem` keys on the action).
         viewMenu.addItem(withTitle: "Show Settings", action: #selector(openSettings), keyEquivalent: ",")
         viewMenu.addItem(.separator())
-        // A mode, not a view: apart from them. ⌘B — the free key with the name's initial.
-        viewMenu.addItem(withTitle: "Backpack Mode", action: #selector(toggleBackpack), keyEquivalent: "b")
+        // A mode, not a view: apart from them. ⌘U — the free key with the name's initial.
+        viewMenu.addItem(withTitle: "Unplugged", action: #selector(toggleBackpack), keyEquivalent: "u")
         // AppKit appends Enter Full Screen to a menu titled View; this keeps it apart from the views.
         viewMenu.addItem(.separator())
         viewItem.submenu = viewMenu

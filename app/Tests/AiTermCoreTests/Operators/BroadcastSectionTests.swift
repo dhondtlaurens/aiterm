@@ -297,7 +297,7 @@ import Testing
         #expect(DockBadge.label(for: projects, broadcast: group) == "2", "a held task's turn ending is not counted")
         #expect(SidebarModel.needingAttention(projects, broadcast: group, skippingTasks: [asking.id]) == [.task(mine.id)])
         #expect(SidebarModel.focusView(projects, broadcast: group)[run.id] == false, "open: something in it needs you")
-        #expect(SidebarModel.listView(projects, broadcast: group)[run.id] == false)
+        #expect(SidebarModel.listView(projects, broadcast: group)[run.id] == true, "the projects open, the Operator folded")
 
         let calm = try section(state, sessions: [tab(asking, .working)])
         #expect(SidebarModel.focusView(projects, broadcast: calm)[run.id] == true, "folded: nothing in it needs you")

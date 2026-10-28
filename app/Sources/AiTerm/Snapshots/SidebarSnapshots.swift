@@ -160,8 +160,7 @@ enum SidebarSnapshots {
     @ViewBuilder private static func listRows(_ controller: AppController) -> some View {
         let rows = controller.rows
         SidebarView.operatorRows(in: rows, controller: controller)
-        SidebarHeader(controller: controller)
-        ForEach(rows.entries) { SidebarView.rows(of: $0, in: rows, controller: controller) }
+        SidebarView.projectRows(in: rows, controller: controller)
     }
 
     /// The sidebar's footer for the selected row, its Mac at the desk.

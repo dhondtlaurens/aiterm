@@ -65,16 +65,27 @@ struct OperatorBadgeTests {
         #expect(fitting(OperatorLine("merging", look: .needsYou)).width == words + 2 * Space.tight)
     }
 
-    /// Each frame of the decode: the words settled from the left up to the frame's share, the rest a glyph each,
-    /// their spaces and separators kept, so the line keeps its length, and in the mono face its width.
+    /// Each frame of the decode: the words settled from the left up to the frame's share, the rest a katakana glyph
+    /// each, their spaces and separators kept, so the line keeps its length; painted, the words layer draws the real
+    /// characters, so it keeps its width too, in the mono face and the heading's tracked micro face alike, and the
+    /// glyphs are a layer of their own.
     @Test func aDecodeFrameSettlesFromTheLeftAndKeepsTheLinesWidth() {
         let text = "answering Claude · PAY-231"
-        let font = Typography.monoChip.nsFont
-        func width(_ string: String) -> CGFloat { NSAttributedString(string: string, attributes: [.font: font]).size().width }
+        func width(_ string: NSAttributedString) -> CGFloat { string.size().width }
+        for (font, kerning) in [(Typography.monoChip.nsFont, CGFloat(0)), (Typography.micro.nsFont, SidebarHeading.tracking)] {
+            let words = NSAttributedString(string: text, attributes: [.font: font, .kern: kerning])
+            for progress in stride(from: 0.0, through: 1.0, by: 0.1) {
+                let frame = DecodeWordsView.frame(of: text, progress: progress, step: Int(progress * 10))
+                let painted = DecodeWordsView.painted(frame, text: text, font: font, kerning: kerning, ink: .white, glowInk: .green)
+                #expect(painted.words.string == text && abs(width(painted.words) - width(words)) < 0.01, "\(frame)")
+                #expect(painted.glow.string == frame)
+            }
+        }
+        let scrambled = DecodeWordsView.frame(of: text, progress: 0, step: 3)
+        #expect(scrambled.contains { DecodeWordsView.glyphs.contains($0) && !$0.isASCII }, "the Matrix's katakana: \(scrambled)")
         for progress in stride(from: 0.0, through: 1.0, by: 0.1) {
             let frame = DecodeWordsView.frame(of: text, progress: progress, step: Int(progress * 10))
             #expect(frame.count == text.count)
-            #expect(abs(width(frame) - width(text)) < 0.01, "\(frame)")
             for (shown, real) in zip(frame, text) where !(real.isLetter || real.isNumber) { #expect(shown == real, "\(frame)") }
             let settled = Int(Double(text.count) * progress)
             #expect(frame.hasPrefix(String(text.prefix(settled))), "\(frame)")
@@ -109,6 +120,23 @@ struct OperatorBadgeTests {
         #expect(!view.isDecoding, "a new ink is no new words")
         view.configure(text: "ready for the Operator", font: font, ink: .black, duration: duration)
         #expect(view.isDecoding && view.shown != "ready for the Operator", "new words decode again")
+    }
+
+    /// The OPERATOR heading's decode: its first words stand as they are, so a heading that appears does not decode
+    /// its own name; the next words decode, the unsettled glyphs green on their own layer, which alone glows.
+    @Test func firstWordsCanStandAndOnlyTheGlyphsGlow() {
+        var now: CFTimeInterval = 100
+        let view = DecodeWordsView()
+        view.now = { now }
+        let font = Typography.micro.nsFont
+        view.configure(text: "OPERATOR", font: font, ink: .white, duration: 0.9, kerning: SidebarHeading.tracking, decodesFirst: false)
+        #expect(!view.isDecoding && view.shown == "OPERATOR")
+        view.configure(text: "JACKING IN", font: font, ink: .white, duration: 0.9, kerning: SidebarHeading.tracking, decodesFirst: false)
+        #expect(view.isDecoding && view.shown != "JACKING IN")
+        #expect(view.glow.shadowOpacity > 0 && view.words.shadowOpacity == 0, "the glow is the glyphs' layer's alone")
+        now += 0.9
+        view.tick()
+        #expect(!view.isDecoding && view.shown == "JACKING IN")
     }
 
     /// Hosted on the wall clock: the decode runs once in its own view, a frame at a time, settles within its

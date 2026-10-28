@@ -5,9 +5,9 @@ import AiTermCore
 /// The sidebar's foot, on the list's grid: SYSTEM, then USAGE, split by a rule. SYSTEM is the
 /// selected task's or terminal's context — its active tab's mark, `ctx`, the ring and the fill — then
 /// the Mac (proposal 1A · 2A · 3A, 6 Oct 2026): its readings, `cpu ◔ 23% · ram ◔ 61%` and `bat` on
-/// battery, under its `macbook` mark, and while Backpack Mode is on or switching, a line in a
-/// `SettingsTone` — `● backpack enabled`. At the desk there is no such line: the readings row is the
-/// Mac's row, and its click is ⌘B. USAGE is one row per vendor with its account windows:
+/// battery, under its `macbook` mark, and while Unplugged is on or switching, a line in a
+/// `SettingsTone` — `● unplugged`. At the desk there is no such line: the readings row is the
+/// Mac's row, and its click is ⌘U. USAGE is one row per vendor with its account windows:
 /// `Ⓒ wk ◔ 84% Mon 21:00 · 5h ◔ 23% 16:40`. With nothing selected SYSTEM holds the Mac alone.
 ///
 /// It sits on the list's grid rather than its own (proposal A, 23 Sep 2026): the headings are the
@@ -25,7 +25,7 @@ import AiTermCore
 /// Every ring and number is drawn in one of two inks, `Palette.text` or `Palette.amber` past the
 /// warning threshold — for the Mac's readings, when macOS itself warns — whatever the agent is
 /// doing: an idle vendor's last reading is still its reading, and a dimmed ring beside a bright one
-/// reads as a different kind of mark. The backpack line is the one other colour.
+/// reads as a different kind of mark. The Unplugged line is the one other colour.
 struct SidebarFooter: View {
     let task: UsageTaskRow?
     let rows: [UsageVendorRow]
@@ -96,7 +96,7 @@ struct SidebarFooter: View {
         machine.isEmpty ? "Mac" : machine.map(\.help).joined(separator: ", ")
     }
 
-    /// While Backpack Mode is on or switching: its `ToneRing` centred in the marks' column, then its
+    /// While Unplugged is on or switching: its `ToneRing` centred in the marks' column, then its
     /// words in the same tone. Nothing at the desk.
     @ViewBuilder private var backpackLine: some View {
         if let tone = mac.mode.tone, let words = mac.mode.words {
@@ -110,7 +110,7 @@ struct SidebarFooter: View {
         }
     }
 
-    /// What makes a row the Mac's: a click is ⌘B, a right-click offers Mac Settings…, and the mode's
+    /// What makes a row the Mac's: a click is ⌘U, a right-click offers Mac Settings…, and the mode's
     /// sentence is its tooltip wherever a reading's own does not cover it.
     private func macControl(_ row: some View) -> some View {
         row

@@ -46,7 +46,7 @@ extension AppController {
     /// The OPERATOR heading's "+": New Broadcast…, its help following Settings › Operator's slices and Oracle as
     /// they are now, the profile the broadcast freezes as it starts, and its Agents step the installed agents' models,
     /// their defaults and the last broadcast's rows (`NewBroadcastContext`), and its Task step each chosen project's code
-    /// host as the Operator's tools check it, an origin git can't read as none. Started, the broadcast's header is
+    /// host as the Operator's tools check it, an origin git can't read as none. Started, the Operator's row is
     /// selected; its window comes forward by the operator controller's own start.
     func presentNewBroadcast() {
         guard canChangeWorkspace else { return }
@@ -70,7 +70,7 @@ extension AppController {
                                                              projectIds: request.projectIds, prompt: request.prompt,
                                                              review: request.review, done: request.done, agents: request.agents,
                                                              taskSettings: request.taskSettings, goal: request.goal)
-                self?.focus.browse(.broadcast(id))
+                self?.focus.browse(.operation(id))
                 return id
             }
         }
@@ -97,7 +97,7 @@ extension AppController {
 }
 
 extension AppController {
-    /// The broadcast header's board button or Open Board (`openBoard`), or a notification's click: its
+    /// OPERATOR's board button or Open Board (`openBoard`), or a notification's click: its
     /// board, over whatever sheet is up.
     func presentBoard(run id: UUID) {
         guard state.activeRun?.id == id else { return }
@@ -162,13 +162,13 @@ extension AppController {
         }
     }
 
-    /// The broadcast header's menu and its VoiceOver actions, on the broadcast as it is now.
+    /// The broadcast's menu (OPERATOR's and its lead row's) and its VoiceOver actions, on the broadcast as it is now.
     func perform(_ item: OperatorMenuItem, onBroadcast id: UUID) {
         guard let run = state.activeRun, run.id == id else { return }
         perform(item, on: run)
     }
 
-    /// The broadcast header's menu.
+    /// The broadcast's menu.
     func perform(_ item: OperatorMenuItem, on run: OperatorRun) {
         switch item {
         case .openBoard: openBoard(run.id)
@@ -180,35 +180,42 @@ extension AppController {
         }
     }
 
-    /// The broadcast header's board button, or Open Board in its menu (decided 21 Oct 2026): its board
+    /// OPERATOR's board button, or Open Board in its menu (decided 21 Oct 2026): its board
     /// opens over the sidebar, and nothing else moves. The header's click and ↩ fold its group; the
     /// Operator's window is its own row's.
     func openBoard(_ id: UUID) {
         presentBoard(run: id)
     }
 
-    /// The folded header's amber chip (or ↩ on it): the group opens and its first row that needs you is
-    /// selected, its window shown as the arrows show one.
+    /// The folded OPERATOR heading's amber chip: the Operator's section opens, folding the projects, and its first
+    /// row that needs you is selected, its window shown as the arrows show one.
     @discardableResult
     func openAttention(of id: UUID) -> Task<Void, Never>? {
         guard let section = rows.broadcast, section.id == id, let first = section.firstNeedingAttention else { return nil }
-        unfold(run: id)
+        reveal(RowSelection(first))
         return focus.peek(RowSelection(first), force: true)
     }
 
-    /// A project header's broadcast badge: the group opens and the first of the project's tasks the
-    /// Operator holds is selected, its window shown as the arrows show one.
+    /// The folded PROJECTS heading's amber chip: the projects open, folding the Operator's section, and their first
+    /// row that needs you is selected, its window shown as the arrows show one.
     @discardableResult
-    func showOperatorTasks(of project: Project) -> Task<Void, Never>? {
-        guard let run = state.activeRun,
-              let first = state.tasks(inRun: run.id).first(where: { $0.projectId == project.id }) else { return nil }
-        unfold(run: run.id)
-        return focus.peek(.task(first.id), force: true)
+    func openProjectsAttention() -> Task<Void, Never>? {
+        guard let first = rows.projectsNeedingAttention.first else { return nil }
+        reveal(RowSelection(first))
+        return focus.peek(RowSelection(first), force: true)
     }
 
-    /// Opens the group, if it is folded.
-    private func unfold(run id: UUID) {
-        if state.foldedRuns.contains(id) { toggleFolded(run: id) }
+    /// While a broadcast runs, the Operator's section and the projects fold into each other: a row selected from away
+    /// from the list — a notification, Focus View, an amber chip — in the folded one opens it, folding the other.
+    func reveal(_ row: RowSelection) {
+        guard let run = state.activeRun else { return }
+        let folded = state.foldedRuns.contains(run.id)
+        let inBroadcast = switch row {
+        case .operation(let id): id == run.id
+        case .task(let id): state.task(id: id)?.operated?.runId == run.id
+        case .project, .terminal: false
+        }
+        if inBroadcast == folded { toggleFolded(run: run.id) }
     }
 
     /// Rename…: the `NameSheet`, on the broadcast's name.

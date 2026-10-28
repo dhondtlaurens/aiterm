@@ -14,11 +14,11 @@ struct MacSettingsCardTests {
     /// A network is the sheet's business now: a card without one is still Ready, as the first case
     /// says (`setup` names none).
     @Test func theStatusSaysWhatIsMissing() {
-        #expect(MacCardPresentation.status(setup(true, true)) == SettingsStatus(.ready, "Ready for backpack mode"))
-        #expect(MacCardPresentation.status(setup(false, true)) == SettingsStatus(.attention, "Backpack mode needs lid sleep"))
-        #expect(MacCardPresentation.status(setup(true, false)) == SettingsStatus(.attention, "Backpack mode needs network discovery"))
+        #expect(MacCardPresentation.status(setup(true, true)) == SettingsStatus(.ready, "Ready for Unplugged"))
+        #expect(MacCardPresentation.status(setup(false, true)) == SettingsStatus(.attention, "Unplugged needs lid sleep"))
+        #expect(MacCardPresentation.status(setup(true, false)) == SettingsStatus(.attention, "Unplugged needs network discovery"))
         #expect(MacCardPresentation.status(setup(false, false))
-                == SettingsStatus(.attention, "Backpack mode needs lid sleep and network discovery"))
+                == SettingsStatus(.attention, "Unplugged needs lid sleep and network discovery"))
     }
 
     @Test func theStepsAreTheMissingOnesInOrder() {
@@ -31,6 +31,6 @@ struct MacSettingsCardTests {
     }
 
     @Test func theReadyCardSaysWhatTheModeDoes() {
-        #expect(MacCardPresentation.summary == "Backpack mode keeps the Mac awake with the lid closed and finds your iPhone’s hotspot. AiTerm never reads where you are. Remove takes the lid-sleep rule out again.")
+        #expect(MacCardPresentation.summary == "Unplugged keeps the Mac awake with the lid closed and finds your iPhone’s hotspot. AiTerm never reads where you are. Remove takes the lid-sleep rule out again.")
     }
 }

@@ -135,7 +135,7 @@ struct ArchiveRow: View {
     }
 }
 
-/// An ended broadcast on the Shelf: the broadcast header's mark, its name, and the day it ended on the
+/// An ended broadcast on the Shelf: the broadcast's glyph, its name, and the day it ended on the
 /// name's line, where a shelved task's date sits. Inked from its `Surface`, which the pill around it declares.
 struct ShelvedBroadcastRow: View {
     let broadcast: ShelvedBroadcast
@@ -144,7 +144,7 @@ struct ShelvedBroadcastRow: View {
 
     var body: some View {
         HStack(spacing: Space.inset) {
-            ProviderIcon(.symbol(BroadcastHeaderRow.glyph))
+            ProviderIcon(.symbol(OperatorHeading.glyph))
             HStack(alignment: .firstTextBaseline, spacing: Space.tight) {
                 RowTitle(broadcast.name)
                 Spacer(minLength: Space.tight)

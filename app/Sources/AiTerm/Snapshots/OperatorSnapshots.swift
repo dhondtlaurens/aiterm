@@ -460,8 +460,8 @@ enum OperatorSnapshots {
         [
             // The sidebar with no broadcast: OPERATOR and its "+", nothing beneath it.
             Snapshot("operator-heading-empty.png") { headingEmpty() },
-            // The broadcast's header over the Operator's row in each state, then the Operator's row selected while
-            // it acts, and the header selected while it is asked.
+            // OPERATOR over the Operator's row in each state, then the Operator's row selected while
+            // it acts, and while it is asked.
             Snapshot("broadcast-row-states.png") { broadcastRowStates() },
             // A broadcast running: the heading without its "+", the group, and a driven task row in every state,
             // the one needing you selected.
@@ -552,8 +552,7 @@ enum OperatorSnapshots {
         let controller = scene.controller, rows = controller.rows
         return VStack(alignment: .leading, spacing: Space.hairline) {
             SidebarView.operatorRows(in: rows, controller: controller)
-            SidebarHeader(controller: controller)
-            ForEach(rows.entries) { SidebarView.rows(of: $0, in: rows, controller: controller) }
+            SidebarView.projectRows(in: rows, controller: controller)
         }
         .padding(.horizontal, Space.inset)
         .frame(width: Size.sidebarWidth + 2 * Space.inset)
@@ -631,7 +630,7 @@ enum OperatorSnapshots {
         let needsYou = OperatorScene()
         needsYou.show(needsYou.run(.active, questions: [needsYou.npmInstall, needsYou.question("which currency format?", on: needsYou.drawer)]),
                       watching(needsYou), operatorTab: "needsInput")
-        needsYou.controller.focus.browse(.broadcast(needsYou.runId))
+        needsYou.controller.focus.browse(.operation(needsYou.runId))
 
         let scenes = [planning, oracle, watched, background(selected: false), asked, several, review, paused, closed,
                       done, selectedDone, acting, background(selected: true), needsYou]
@@ -639,7 +638,7 @@ enum OperatorSnapshots {
             ForEach(scenes.indices, id: \.self) { index in
                 let controller = scenes[index].controller
                 if let section = controller.rows.broadcast {
-                    BroadcastHeaderRow(section: section, controller: controller)
+                    OperatorHeading(controller: controller)
                     OperatorRowView(row: section.operatorRow, controller: controller)
                 }
             }

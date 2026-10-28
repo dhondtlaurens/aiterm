@@ -17,13 +17,16 @@ struct SidebarScrollTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.loadWorkspace()
+        var first: UUID?
         for index in 0..<20 {
             let project = OperatorUIFixtures.project("Repo \(index)")
+            first = first ?? project.id
             controller.workspace.mutate { $0.append(project: project) }
         }
+        // The broadcast folded into OPERATOR, so the projects are open and the list scrolls.
         let run = OperatorUIFixtures.run()
-        controller.workspace.mutate { $0.runs = [run] }
-        controller.focus.browse(.operation(run.id))
+        controller.workspace.mutate { $0.runs = [run]; $0.setFolded(run: run.id, true) }
+        controller.focus.browse(.project(try #require(first)))
         let host = testHost(SidebarView(controller: controller), size: CGSize(width: Size.sidebarMinWidth, height: 400))
         let window = testWindow(contentRect: host.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView])
         window.appearance = NSAppearance(named: .darkAqua)
@@ -32,7 +35,8 @@ struct SidebarScrollTests {
         window.contentView = host
         window.orderFront(nil)
         defer { window.orderOut(nil) }
-        settle(host) { host.firstDescendant(NSTableView.self)?.numberOfRows == 24 }
+        // OPERATOR, PROJECTS and the 20 projects.
+        settle(host) { host.firstDescendant(NSTableView.self)?.numberOfRows == 22 }
         let table = try #require(host.firstDescendant(NSTableView.self))
         let scroll = try #require(table.enclosingScrollView)
         let controls = try #require(window.standardWindowButton(.closeButton)?.superview)
@@ -43,7 +47,7 @@ struct SidebarScrollTests {
         settle(host, for: 0.1)
         #expect(host.convert(scroll.contentView.bounds, from: scroll.contentView).minY >= controlsRect.maxY)
 
-        // Bring the selected Operator right against the viewport's upper edge, then inspect the
+        // Bring the selected first project right against the viewport's upper edge, then inspect the
         // band's pixels as well as its geometry: neither text nor the selection fill may reach it.
         scroll.contentView.scroll(to: CGPoint(x: 0, y: table.rect(ofRow: 2).minY))
         scroll.reflectScrolledClipView(scroll.contentView)

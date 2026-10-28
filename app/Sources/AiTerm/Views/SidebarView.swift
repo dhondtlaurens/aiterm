@@ -61,20 +61,29 @@ struct SidebarView: View {
         }
     }
 
-    /// The OPERATOR heading and, while a broadcast exists, its group, as the list draws them above the
-    /// projects: the broadcast's header and — open — the Operator's row, then the tasks it holds, the queued
-    /// ones last. The heading is off the arrow path, as a divider is; the rest is on it, the header tagged with
-    /// its run, the Operator's row with an id of its own (`OperatorRow.id(of:)`), each task with its own.
+    /// The OPERATOR heading and, while a broadcast exists and its section is open, its group, as the list draws
+    /// them above the projects: the Operator's row, the broadcast's lead, then the tasks it holds, the queued ones
+    /// last. The heading is off the arrow path, as a divider is; the rest is on it, the Operator's row with an id of
+    /// its own (`OperatorRow.id(of:)`), each task with its own.
     @ViewBuilder static func operatorRows(in rows: SidebarProjection, controller: AppController) -> some View {
         OperatorHeading(controller: controller).selectionDisabled()
-        if let broadcast = rows.broadcast {
-            BroadcastHeaderRow(section: broadcast, controller: controller).tag(broadcast.id)
-            if !broadcast.folded {
-                OperatorRowView(row: broadcast.operatorRow, controller: controller).tag(broadcast.operatorRow.id)
-                ForEach(broadcast.tasks) { row in
-                    TaskRowView(row: row, task: rows.tasks[row.id], controller: controller).tag(row.id)
-                }
+        if let broadcast = rows.broadcast, !broadcast.folded {
+            OperatorRowView(row: broadcast.operatorRow, controller: controller).tag(broadcast.operatorRow.id)
+            ForEach(broadcast.tasks) { row in
+                TaskRowView(row: row, task: rows.tasks[row.id], controller: controller).tag(row.id)
             }
+        }
+    }
+
+    /// The PROJECTS heading and, unless they are folded into OPERATOR while the broadcast's section is open, every
+    /// entry's rows: what the list draws under the Operator's, and the snapshots stack.
+    @ViewBuilder static func projectRows(in rows: SidebarProjection, controller: AppController) -> some View {
+        SidebarHeader(controller: controller).selectionDisabled()
+        if !rows.projectsFolded {
+            if !rows.hasProjects {
+                SidebarEmptyState(controller: controller).selectionDisabled()
+            }
+            ForEach(rows.entries) { Self.rows(of: $0, in: rows, controller: controller) }
         }
     }
 
@@ -88,11 +97,7 @@ struct SidebarView: View {
                 List(selection: selection) {
                     Self.operatorRows(in: rows, controller: controller)
                     .listRowSeparator(.hidden)
-                    SidebarHeader(controller: controller).selectionDisabled()
-                    if !rows.hasProjects {
-                        SidebarEmptyState(controller: controller).selectionDisabled().listRowSeparator(.hidden)
-                    }
-                    ForEach(rows.entries) { Self.rows(of: $0, in: rows, controller: controller) }
+                    Self.projectRows(in: rows, controller: controller)
                     .listRowSeparator(.hidden)
                 }
                 .listStyle(.sidebar)
@@ -117,10 +122,12 @@ struct SidebarView: View {
                     Task { await controller.removeSelection() }
                     return .handled
                 }
-                .background(SidebarScrollFollower(focus: controller.focus) { id in
+                .background(SidebarScrollFollower(focus: controller.focus) { selection in
+                    // A row in the folded section opens it first, folding the other.
+                    controller.reveal(selection)
                     // The main run loop runs this block on the main thread, where the proxy lives.
                     nonisolated(unsafe) let proxy = scroller
-                    RunLoop.main.perform { MainActor.assumeIsolated { proxy.scrollTo(id) } }
+                    RunLoop.main.perform { MainActor.assumeIsolated { proxy.scrollTo(selection.id) } }
                 })
             }
             // List's native scroll-edge extension must not paint a row or its selection into the
@@ -150,7 +157,7 @@ struct SidebarView: View {
 /// The sidebar's foot, SYSTEM over USAGE. The vendor rows are worked out here, from the usage,
 /// whether Claude's status line is AiTerm's, and the minute; the selected row's context row and the
 /// Mac's rows in ``SelectedRowSidebarFooter``, which alone reads the tabs, the context fills, the
-/// selection, the Mac's readings and Backpack Mode — so a session event or a 5 s sample redraws the
+/// selection, the Mac's readings and Unplugged (Backpack Mode in the code) — so a session event or a 5 s sample redraws the
 /// footer without working out the vendor rows again.
 struct SidebarFooterHost: View {
     let controller: AppController
@@ -170,7 +177,7 @@ struct SidebarFooterHost: View {
 }
 
 /// ``SidebarFooter`` with the selected row's context row and the Mac's rows over the vendor rows it
-/// is handed. A click on the Mac's rows is ⌘B; a right-click opens Settings › Integrations.
+/// is handed. A click on the Mac's rows is ⌘U; a right-click opens Settings › Integrations.
 struct SelectedRowSidebarFooter: View {
     let controller: AppController
     let vendors: [UsageVendorRow]
@@ -188,17 +195,17 @@ struct SelectedRowSidebarFooter: View {
 }
 
 /// Scrolls the list to a row selected away from it — Focus View, a notification bringing its window
-/// forward — which can sit below the fold. No anchor, so a row already in view does not move and a
-/// click or an arrow key scrolls nothing. Next turn: scrolled in this one, the list stopped a row
-/// short of the last one. Its own view, so the selection moving re-runs this and not the list.
+/// forward — which can sit below the fold, or in the folded section. No anchor, so a row already in view does
+/// not move and a click or an arrow key scrolls nothing. Next turn: scrolled in this one, the list stopped a
+/// row short of the last one. Its own view, so the selection moving re-runs this and not the list.
 struct SidebarScrollFollower: View {
     let focus: RowFocus
-    /// Scrolls to a row, a turn later.
-    let scrollTo: (UUID) -> Void
+    /// Shows a row, a turn later.
+    let scrollTo: (RowSelection) -> Void
 
     var body: some View {
-        Color.clear.onChange(of: focus.selection?.id) { _, id in
-            if let id { scrollTo(id) }
+        Color.clear.onChange(of: focus.selection) { _, selection in
+            if let selection { scrollTo(selection) }
         }
     }
 }

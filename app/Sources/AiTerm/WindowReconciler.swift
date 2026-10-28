@@ -341,7 +341,7 @@ final class WindowReconciler {
             if state.task(id: id)?.operated != nil { return nil }
             row = .task(id)
         case .terminal(let id): row = .terminal(id)
-        case .project, .broadcast, .operation: return nil
+        case .project, .operation: return nil
         }
         if let running = restoring[row.id] { return running }
         if failed.remove(row.id) != nil { failedRows[row.id] = false }

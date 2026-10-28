@@ -104,7 +104,7 @@ public enum Size {
     public static let statusMark = trailingGlyph
     /// The smaller status mark drawn inside a count chip, where ``statusMark``'s usual size would
     /// overflow it; and a tone's ring, leading a Settings card's status line and the footer's
-    /// backpack line.
+    /// Unplugged line.
     public static let statusMarkSmall: CGFloat = 8
     /// The ink in the sidebar's trailing column, centred in a ``slot``.
     public static let trailingGlyph: CGFloat = 10

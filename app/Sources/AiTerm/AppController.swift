@@ -350,7 +350,7 @@ final class AppController {
         helper.shutdown()
     }
 
-    /// The Mac's rows' click and ⌘B. Backpack mode goes off at once; desk mode opens the sheet, unless
+    /// The Mac's rows' click and ⌘U. Unplugged goes off at once; desk mode opens the sheet, unless
     /// another one is up. Ignored while it switches — a connect or turn-off, or the rejoin after the
     /// mode ended itself, which runs without `busy`.
     func toggleBackpack() {
@@ -553,7 +553,7 @@ final class AppController {
         case .project(let id): state.project(id: id)
         case .task(let id): state.task(id: id).flatMap { state.project(id: $0.projectId) }
         case .terminal(let id): state.terminal(id: id).flatMap { state.project(id: $0.projectId) }
-        case .broadcast, .operation, nil: nil
+        case .operation, nil: nil
         }
     }
 
@@ -576,7 +576,7 @@ final class AppController {
         }
     }
 
-    /// ↩ on the list: a header folds or opens its project, a broadcast's header its group; any other row
+    /// ↩ on the list: a header folds or opens its project; any other row
     /// goes to its window, the Operator's row to the Operator's, a driven task's to its tab that asks
     /// (`choose(task:)`), and a queued task's to none. An empty
     /// project has nothing to fold, so its header opens its context menu — its first items are the ones
@@ -591,11 +591,6 @@ final class AppController {
                 // inside SwiftUI's key handler.
                 RunLoop.main.perform { MainActor.assumeIsolated { self.openRowMenu(project.id) } }
             }
-            return nil
-        }
-        // The broadcast's header folds, as its click does; its board is its button's and its menu's.
-        if let id = focus.selectedBroadcastId {
-            toggleFolded(run: id)
             return nil
         }
         // A task's row, as its click chooses it: a driven one brings the tab that asks.

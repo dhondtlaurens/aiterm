@@ -214,7 +214,7 @@ public struct UsageLine: Equatable, Sendable {
         case .cpu: return "\(window.name) \(percent) % busy" + (warning ? ", slowed by heat" : "")
         case .ram: return "\(window.name) \(percent) % used" + (warning ? ", under pressure" : "")
         case .battery:
-            return "\(window.name) \(percent) %" + (warning ? ", backpack mode turns off at \(BackpackSettings.cutoff) %" : "")
+            return "\(window.name) \(percent) %" + (warning ? ", Unplugged turns off at \(BackpackSettings.cutoff) %" : "")
         }
     }
 }
@@ -295,9 +295,10 @@ public enum SidebarModel {
     }
 
     /// Focus View (⌘F): the collapsed state each project with rows should store — open when a row
-    /// needs attention, folded otherwise — and the broadcast's group's, by its id, on the same rule.
-    /// Empty projects are left out: they draw collapsed whatever they stored. With no row needing
-    /// attention, every project and the broadcast fold down to their headers.
+    /// needs attention, folded otherwise — and the broadcast's group's, by its id, on the same rule: open, it
+    /// folds the projects into PROJECTS, folded it opens them. Empty projects are left out: they draw collapsed
+    /// whatever they stored. With no row needing attention, every project folds to its header and the broadcast's
+    /// section into OPERATOR.
     public static func focusView(_ sections: [ProjectSection], broadcast: BroadcastSection? = nil) -> [UUID: Bool] {
         collapsedStates(sections, broadcast: broadcast, broadcastFolded: { !$0.needsAttention }) { !$0.needsAttention }
     }
@@ -322,10 +323,10 @@ public enum SidebarModel {
         needingAttention(sections, broadcast: broadcast, skippingTasks: skippingTasks).first
     }
 
-    /// List View (⌘L): every project with rows open, and the broadcast's group. Empty ones are left
-    /// out, as in `focusView`.
+    /// List View (⌘L): every project with rows open, and so the broadcast's section folded into OPERATOR, since the
+    /// two are open one at a time. Empty ones are left out, as in `focusView`.
     public static func listView(_ sections: [ProjectSection], broadcast: BroadcastSection? = nil) -> [UUID: Bool] {
-        collapsedStates(sections, broadcast: broadcast, broadcastFolded: { _ in false }) { _ in false }
+        collapsedStates(sections, broadcast: broadcast, broadcastFolded: { _ in true }) { _ in false }
     }
 
     private static func collapsedStates(_ sections: [ProjectSection], broadcast: BroadcastSection?,

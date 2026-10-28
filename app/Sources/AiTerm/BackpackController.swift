@@ -31,7 +31,7 @@ final class BackpackController {
     private(set) var setup = BackpackSetup(sleepRule: false, location: false, network: nil)
     /// The battery as last read: with setup, and on every check while on.
     private(set) var power = PowerReading.mains
-    /// A turn-on, turn-off or setup is running. ⌘B is ignored until it ends.
+    /// A turn-on, turn-off or setup is running. ⌘U is ignored until it ends.
     private(set) var busy = false
     /// Set for as long as a turn-on or turn-off runs: joining a hotspot takes seconds.
     private(set) var transition: BackpackTransition?

@@ -30,18 +30,18 @@ struct BroadcastGroupFocusTests {
                     projectId: nil, agent: .claude, model: nil, state: state, title: "", cwd: "/")
     }
 
-    @Test func theHeaderAndTheOperatorsRowAreTwoRows() throws {
+    /// The OPERATOR heading carries the broadcast (28 Oct 2026): the Operator's row, its lead, is its one row, with an
+    /// id of its own, never the run's.
+    @Test func theOperatorsRowIsTheBroadcastsOneRow() throws {
         let run = OperatorUIFixtures.run(windowId: "operator-window")
         let (controller, _) = try controller(run)
         defer { controller.shutdown() }
         let operatorRow = OperatorRow.id(of: run.id)
-        #expect(controller.focus.row(id: run.id) == .broadcast(run.id))
+        #expect(controller.focus.row(id: run.id) == nil, "no header row")
         #expect(controller.focus.row(id: operatorRow) == .operation(run.id))
-        #expect(RowSelection.operation(run.id).id == operatorRow && RowSelection.broadcast(run.id).id == run.id)
+        #expect(RowSelection.operation(run.id).id == operatorRow)
         controller.focus.browse(.operation(run.id))
-        #expect(controller.focus.isSelected(operatorRow) && !controller.focus.isSelected(run.id), "one row selected, not both")
-        controller.focus.browse(.broadcast(run.id))
-        #expect(controller.focus.isSelected(run.id) && !controller.focus.isSelected(operatorRow))
+        #expect(controller.focus.isSelected(operatorRow) && !controller.focus.isSelected(run.id))
     }
 
     /// Part G: one click leaves the Operator's window in front, iTerm2 with it. ↑ ↓ only peek at it.
@@ -102,22 +102,18 @@ struct BroadcastGroupFocusTests {
         #expect(controller.focus.selection == .operation(run.id))
     }
 
-    /// The header folds on a click or ↩, as a project header does, and shows no window; its board button
-    /// and Open Board open the board, and move nothing else.
-    @Test func theHeaderFoldsAndItsButtonOpensTheBoard() async throws {
+    /// A click on either heading switches the open section: OPERATOR folded opens the projects, and back; its board
+    /// button and Open Board open the board, and move nothing else.
+    @Test func theHeadingsFoldIntoEachOtherAndTheBoardButtonOpensTheBoard() async throws {
         let run = OperatorUIFixtures.run(windowId: "operator-window")
         let (controller, daemon) = try controller(run)
         defer { controller.shutdown() }
-        controller.focus.onChoosingOperationWithoutWindow { _ in Issue.record("the header has no window"); return nil }
-        await controller.focus.peek(id: run.id)?.value
-        #expect(controller.focus.selection == .broadcast(run.id))
-        controller.activateSelection()
-        #expect(controller.state.foldedRuns == [run.id])
-        #expect(controller.rows.broadcast?.folded == true)
-        controller.activateSelection()
-        #expect(controller.state.foldedRuns.isEmpty)
+        #expect(controller.rows.broadcast?.folded == false && controller.rows.projectsFolded, "a broadcast opens the Operator")
         controller.toggleFolded(run: run.id)
-        #expect(controller.rows.broadcast?.folded == true, "a click on its label folds it too")
+        #expect(controller.state.foldedRuns == [run.id])
+        #expect(controller.rows.broadcast?.folded == true && !controller.rows.projectsFolded)
+        controller.toggleFolded(run: run.id)
+        #expect(controller.state.foldedRuns.isEmpty && controller.rows.projectsFolded)
         #expect(controller.sheet == nil)
 
         controller.openBoard(run.id)
@@ -126,7 +122,7 @@ struct BroadcastGroupFocusTests {
         controller.sheets.sheet = nil
         controller.perform(.openBoard, onBroadcast: run.id)
         guard case .broadcastBoard? = controller.sheet else { Issue.record("no board from its menu"); return }
-        #expect(controller.focus.selection == .broadcast(run.id))
+        #expect(controller.focus.selection == nil)
         #expect(daemon.requests("window.activate").isEmpty)
     }
 
@@ -138,10 +134,10 @@ struct BroadcastGroupFocusTests {
         controller.toggleFolded(run: run.id)
         #expect(try controller.savedWorkspace().foldedRuns == [run.id])
 
-        // ⌘L opens it; ⌘F keeps it open while the Operator asks, and peeks at the Operator's window.
-        controller.showListView()
-        #expect(controller.state.foldedRuns.isEmpty)
+        // ⌘L opens the projects, folding it; ⌘F opens it while the Operator asks, and peeks at the Operator's window.
         controller.toggleFolded(run: run.id)
+        controller.showListView()
+        #expect(controller.state.foldedRuns == [run.id])
         await controller.showFocusView()?.value
         #expect(controller.state.foldedRuns.isEmpty, "something in it needs you")
         #expect(controller.focus.selection == .operation(run.id))
@@ -153,7 +149,7 @@ struct BroadcastGroupFocusTests {
         #expect(controller.state.foldedRuns == [run.id])
     }
 
-    /// The folded header's amber chip opens the group at its first row that needs you.
+    /// The folded OPERATOR heading's amber chip opens its section at its first row that needs you.
     @Test func theAmberChipOpensTheGroupAtWhatNeedsYou() async throws {
         let run = OperatorUIFixtures.run()
         let project = OperatorUIFixtures.project("pluto-web")
@@ -172,24 +168,31 @@ struct BroadcastGroupFocusTests {
         #expect(activated(daemon) == ["w2"], "its window shown, as the arrows show one")
     }
 
-    /// A project's broadcast badge opens the group at the first of the project's tasks the Operator holds.
-    @Test func aProjectsBadgeOpensTheGroupAtItsFirstTask() async throws {
+    /// A row selected in the folded section from away from the list (a notification, Focus View) opens it, folding
+    /// the other: a project's task folds the Operator's section, the broadcast's opens it again.
+    @Test func aRowSelectedInTheFoldedSectionOpensIt() async throws {
         let run = OperatorUIFixtures.run()
         let web = OperatorUIFixtures.project("pluto-web"), cms = OperatorUIFixtures.project("pluto-cms")
         let elsewhere = OperatorUIFixtures.task("Elsewhere", project: web.id, windowId: "w1",
                                                 operated: OperatorUIFixtures.operated(run: run.id, key: "a", state: .working))
         let here = OperatorUIFixtures.task("Here", project: cms.id, windowId: "w2",
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "b", state: .working))
+        let mine = OperatorUIFixtures.task("Mine", project: cms.id, windowId: "w3", operated: nil)
         let (controller, _) = try controller(run)
         defer { controller.shutdown() }
         controller.workspace.mutate { state in
-            state.append(project: web); state.append(project: cms); state.tasks = [elsewhere, here]; state.setFolded(run: run.id, true)
+            state.append(project: web); state.append(project: cms); state.tasks = [elsewhere, here, mine]
         }
-        let section = try #require(controller.rows.sections.first { $0.id == cms.id })
-        #expect(ProjectOperatorBadge(section: section)?.label == "1")
-        await controller.showOperatorTasks(of: cms)?.value
-        #expect(controller.rows.broadcast?.folded == false)
-        #expect(controller.focus.selection == .task(here.id))
+        #expect(controller.rows.projectsFolded)
+        controller.reveal(.operation(run.id))
+        controller.reveal(.task(here.id))
+        #expect(controller.rows.projectsFolded, "the Operator's own rows are open already")
+        controller.reveal(.task(mine.id))
+        #expect(controller.rows.broadcast?.folded == true && !controller.rows.projectsFolded)
+        controller.reveal(.project(web.id))
+        #expect(controller.rows.broadcast?.folded == true, "the projects are open already")
+        controller.reveal(.task(elsewhere.id))
+        #expect(controller.rows.broadcast?.folded == false && controller.rows.projectsFolded)
     }
 
     /// 2B: a queued task's row is selected by a click, ↩ or the arrows, and nothing opens: no window, no board,
@@ -375,7 +378,7 @@ struct BroadcastGroupFocusTests {
         let run = OperatorUIFixtures.run()
         let (controller, _) = try controller(run)
         defer { controller.shutdown() }
-        controller.focus.browse(.broadcast(run.id))
+        controller.focus.browse(.operation(run.id))
         controller.workspace.mutate { $0.runs[0].state = .stopped }
         #expect(controller.focus.selection == nil, "the selection goes with the row")
         #expect(controller.targetProject == nil)
@@ -398,7 +401,7 @@ struct BroadcastGroupFocusTests {
     }
 
     /// A project left with only the Operator's tasks is empty: no chevron, and ↩ on its header opens its menu,
-    /// not a fold. Its tooltip and Remove Project's question say what the Operator holds there.
+    /// not a fold. Remove Project's question says what the Operator holds there; the header itself says nothing of it.
     @Test func aProjectWithOnlyTheOperatorsTasksIsEmpty() throws {
         let run = OperatorUIFixtures.run()
         let project = OperatorUIFixtures.project("pluto-web")
@@ -411,8 +414,6 @@ struct BroadcastGroupFocusTests {
         #expect(section.isEmpty && section.collapsed)
         #expect(!ProjectHeaderRow.collapses(section, canChangeWorkspace: true))
         #expect(section.operatorHelp == "The Operator holds 1 worktree in this project.")
-        #expect(ProjectOperatorBadge(section: section)?.label == "1")
-        #expect(ProjectOperatorBadge(section: section)?.help == "1 task with the Operator. Click to show it.")
         controller.toggleCollapsed(project)
         #expect(controller.state.project(id: project.id)?.collapsed == false, "nothing to fold")
         #expect(ProjectActions.removalDetail(tasks: 3, archived: [], operatorWorktrees: 2)

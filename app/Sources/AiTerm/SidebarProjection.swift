@@ -21,10 +21,10 @@ final class SidebarProjection {
     /// Each task and terminal by id: the saved item a drawn row also reads, a task without its remembered conversations.
     private(set) var tasks: [UUID: TaskItem] = [:]
     private(set) var terminals: [UUID: TerminalItem] = [:]
-    /// The broadcast's group under the OPERATOR heading, above the projects: its header, the Operator's row
-    /// and the tasks it holds, which `entries` leaves out; nil while no broadcast exists.
+    /// The broadcast's group under the OPERATOR heading, above the projects: the Operator's row and the tasks it
+    /// holds, which `entries` leaves out; nil while no broadcast exists.
     private(set) var broadcast: BroadcastSection?
-    /// Each live or ended run by id: what the broadcast header's menu reads.
+    /// Each live or ended run by id: what the broadcast's menu reads.
     private(set) var runs: [UUID: OperatorRun] = [:]
     /// The broadcast's board, what its sheet draws (`BroadcastBoardHost`); nil while no broadcast exists, and while its
     /// sheet is not showing (`boardShown`), since nothing else reads it. Derived with the rows and written only when it
@@ -55,6 +55,18 @@ final class SidebarProjection {
 
     /// Whether the sidebar has a project, as `AppState.hasProjects` says: every project is a section.
     var hasProjects: Bool { !sections.isEmpty }
+
+    /// The projects' rows that need you, in the order they are drawn: what the folded PROJECTS heading's amber chip
+    /// counts and opens. Only what is amber, as the folded OPERATOR heading's (`BroadcastSection.needingAttention`).
+    var projectsNeedingAttention: [RowID] {
+        sections.flatMap { section in
+            section.terminals.filter { $0.status == .needsInput }.map { RowID.terminal($0.id) }
+                + section.tasks.filter { $0.status == .needsInput }.map { RowID.task($0.id) }
+        }
+    }
+
+    /// Whether the projects are folded to their heading: while a broadcast runs and its section is open.
+    var projectsFolded: Bool { broadcast.map { !$0.folded } ?? false }
 
     /// How many times the rows have been derived; the tests count them.
     @ObservationIgnored private(set) var derivations = 0
@@ -171,7 +183,7 @@ final class SidebarProjection {
         case .terminal(let id):
             guard let terminal = terminals[id] else { return nil }
             return SidebarModel.usageTerminalRow(windowId: terminal.windowId, sessions: live.rowSessions, contexts: contexts)
-        case .project, .broadcast, .operation, nil: return nil
+        case .project, .operation, nil: return nil
         }
     }
 }
