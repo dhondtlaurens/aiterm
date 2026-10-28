@@ -660,12 +660,30 @@ import Foundation
         #expect(!what.contains("the broadcast's Review"))
     }
 
+    /// Every call the tool handler challenges as a veto (`ChallengeKind.veto`): create_task past the backlog limit, any
+    /// challenged finish_task (one that would merge or push with noVerify) and check_goal.
     @Test func newRunsNameAllOracleVetoes() {
         let mechanics = section("## Mechanics", of: OperatorCommand.brief(run: newBroadcast(), projects: []))
-        #expect(mechanics.contains("create_task past the backlog limit"))
-        #expect(mechanics.contains("a merging finish_task"))
-        #expect(mechanics.contains("check_goal act only on the Oracle's yes"))
+        #expect(mechanics.contains("create_task past the backlog limit, a finish_task that would merge or push with noVerify, "
+            + "and check_goal act only on the Oracle's yes."))
         #expect(!mechanics.contains("Except for check_goal, keeping"))
+    }
+
+    /// A new run's reviewQuiet names the end as the board does.
+    @Test func newRunsReviewQuietNamesTheDraftMREnd() {
+        let mechanics = section("## Mechanics", of: OperatorCommand.brief(run: newBroadcast(), projects: []))
+        #expect(mechanics.contains("reviewQuiet: if the task's current end is draft MR, call finish_task to end the review and move the ticket."))
+    }
+
+    /// A new run's largest brief: the Oracle on, every slice, a review prompt, a goal and Instructions.
+    @Test func theNewBroadcastBriefStaysNearItsLength() {
+        var run = newBroadcast()
+        run.taskSettings?.review = "Review every commit."
+        run.goal = BroadcastGoal(text: "The release is ready.")
+        let brief = OperatorCommand.brief(run: run, projects: [F.project()])
+        // 2480 as P1 left it, the Oracle's vetoes named in full: 50 more leaves room for a rule, not a section.
+        let today = 2480
+        #expect(words(brief) <= today + 50, "\(words(brief)) words")
     }
 
     @Test func newRunsReadAllowedRowsInsteadOfTheInstalledModelList() {
@@ -682,7 +700,7 @@ import Foundation
         let headings = OperatorCommand.brief(run: run, projects: []).split(separator: "\n")
             .filter { $0.hasPrefix("## ") }.map(String.init)
         #expect(headings == expected)
-        #expect(OperatorCommand.broadcastBriefHeadings == expected)
+        #expect(OperatorCommand.newBroadcastBriefHeadings == expected)
         run.profile.instructions = " "
         #expect(OperatorCommand.brief(run: run, projects: []).split(separator: "\n")
             .filter { $0.hasPrefix("## ") }.map(String.init) == expected.filter { $0 != "## Instructions" })
@@ -700,15 +718,58 @@ import Foundation
 
     /// Literal output captured by running OperatorCommand from 795d08f, before the new broadcast brief.
     @Test func legacyMessagesStayByteForByte() {
-        var run = F.run(slices: Slices(jira: true, review: true, merge: true))
-        run.review = "  Review every commit. \n"
-        run.done = "  A commit per item. \n"
-        run.profile.instructions = "  Check the repository's tests. \n"
-        run.jiraProjectKeys = ["PAY", "SHOP"]
+        var run = legacyRun()
         run.decisions = [OperatorDecision(key: "d", text: "Kept the endpoint.", task: nil, at: F.epoch, why: "Clients still use it.")]
         #expect(OperatorCommand.brief(run: run, projects: [F.project()]) == legacyBriefGolden)
         #expect(OperatorCommand.firstMessage(for: run) == legacyFirstMessageGolden)
         #expect(OperatorCommand.freshStartMessage(for: run, status: "{\"state\":\"active\"}") == legacyFreshStartGolden)
+    }
+
+    /// The paragraphs that change from `legacyBriefGolden`, as 795d08f wrote them, with the Review and Merge slices off and
+    /// with the Oracle off.
+    @Test func legacyBriefsWithASliceOrTheOracleOffStayByteForByte() {
+        let slicesOff = replacing([
+            ("You may involve people on a merge request: mark it ready, ask reviewers, and reply in review threads. With the "
+                + "broadcast's Review written, finish_task puts the task in review: ask people with request_review, then accept and "
+                + "finish_task each fix of their feedback, and once more when the review is done.",
+             "You may not involve people on a merge request. Reviews are agent reviews only. If the Review names people, plan the "
+                + "work as far as the draft merge request and leave the rest for the person."),
+            ("You may merge when the conditions written in the Review and the Done hold, through the merge request or locally. "
+                + "Whether the conditions hold is your call. With the Oracle on, a finish_task that would merge first needs the "
+                + "Oracle's yes that those conditions hold. Merge doesn't depend on Review: Merge marks the request ready only to "
+                + "merge it. A local merge (mergeLocal) merges the accepted commit into the project's own checkout, which must be "
+                + "on its default branch with nothing uncommitted. It stops at the merge: pushing the default branch stays with the person.",
+             "You may not merge. A task ends at a commit or a draft merge request."),
+        ], in: legacyBriefGolden)
+        let slices = Slices(jira: true, review: false, merge: false)
+        #expect(OperatorCommand.brief(run: legacyRun(slices: slices), projects: [F.project()]) == slicesOff)
+        let oracleOff = replacing([
+            (" With the Oracle on, a finish_task that would merge first needs the Oracle's yes that those conditions hold.", ""),
+            ("Past that, each addition needs the Oracle's yes.", "The Oracle is off, so the backlog cannot grow past that."),
+            ("\n- The Oracle, a second opinion, challenges some calls. A challenged call may first return a critique, or "
+                + "`pending: true` while it is still being written; nothing has happened yet. Read the critique, then call the same "
+                + "tool again with the challengeId and either a challengeReply or revised arguments; only that second call takes "
+                + "effect. Keeping the act is your decision: say so in your summary, with the Oracle's objection.", ""),
+        ], in: legacyBriefGolden)
+        #expect(OperatorCommand.brief(run: legacyRun(oracle: false), projects: [F.project()]) == oracleOff)
+    }
+
+    /// `text` with each pair's first part, found exactly once, replaced by its second.
+    private func replacing(_ pairs: [(String, String)], in text: String) -> String {
+        pairs.reduce(text) { text, pair in
+            #expect(text.ranges(of: pair.0).count == 1, "\(pair.0)")
+            return text.replacing(pair.0, with: pair.1)
+        }
+    }
+
+    /// The legacy run the goldens were taken from.
+    private func legacyRun(oracle: Bool = true, slices: Slices = Slices(jira: true, review: true, merge: true)) -> OperatorRun {
+        var run = F.run(oracle: oracle, slices: slices)
+        run.review = "  Review every commit. \n"
+        run.done = "  A commit per item. \n"
+        run.profile.instructions = "  Check the repository's tests. \n"
+        run.jiraProjectKeys = ["PAY", "SHOP"]
+        return run
     }
 
     private func newBroadcast() -> OperatorRun {
@@ -743,6 +804,7 @@ import Foundation
         #expect(OperatorCommand.brief(run: run, projects: []).contains("Jira projects: PAY, SHOP"))
         #expect(OperatorCommand.freshStartMessage(for: run, status: "{}").contains("Kept the endpoint. Why: Clients still use it."))
     }
+
     // Golden messages from 795d08f; independent of the current builder and its shared wording.
     private let legacyBriefGolden = #"""
     # You are the Operator in AiTerm
@@ -871,6 +933,4 @@ import Foundation
 
     Call run_status, then carry on from there.
     """#
-
-
 }

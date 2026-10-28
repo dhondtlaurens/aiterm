@@ -433,10 +433,13 @@ def test_the_review_tools_say_what_the_slice_governs():
     assert "inReview" in tools["finish_task"]["description"]
 
 
-def test_finish_task_names_what_starts_peoples_review_in_both_kinds_of_broadcast():
+def test_finish_task_names_what_starts_peoples_review_and_the_merge_check_in_both_kinds_of_broadcast():
     description = {tool["name"]: tool for tool in TOOLS}["finish_task"]["description"]
-    assert "With the Review slice on and the broadcast's Review written, or, in a broadcast started with the Agents and Task steps, " \
-        "the task's review prompt written, the request opens as a draft" in description
+    assert "The task goes into review instead when the Review slice is on and its review is written: the broadcast's Review, " \
+        "or, in a broadcast started with the Agents and Task steps, the task's review prompt." in description
+    assert "the Oracle's yes that the merge conditions hold: those written in the broadcast's Review and Done, or, in a " \
+        "broadcast started with the Agents and Task steps, the task's review prompt and its verdicts;" in description
+    assert "conditions written in the Review and the Done hold" not in description
 
 
 def test_schema_has_report_find_and_no_propose_lesson():

@@ -217,29 +217,29 @@ public enum OperatorCommand {
 
     /// A new broadcast's sections, in order: the legacy ones with `## The end`, `## Reviews` and `## The goal` after
     /// `## Agent and model`, and `## Instructions` again only when the broadcast has some.
-    public static let broadcastBriefHeadings = ["## The role", "## This broadcast", "## What you may do", "## The backlog",
+    public static let newBroadcastBriefHeadings = ["## The role", "## This broadcast", "## What you may do", "## The backlog",
                                                 "## Agent and model", "## The end", "## Reviews", "## The goal", "## Hard limits",
                                                 "## How a run goes", "## Talking to the person", "## Mechanics",
                                                 "## Instructions", "## Remember"]
 
     /// The Operator's system prompt (spec §2, §4.1, §5, §15), in the sections of `briefHeadings`, or of
-    /// `broadcastBriefHeadings` for a broadcast started with the Agents and Task steps: its role, the broadcast, what its
+    /// `newBroadcastBriefHeadings` for a broadcast started with the Agents and Task steps: its role, the broadcast, what its
     /// frozen slices let it do, the backlog rule, how to choose each task's agent and model (and, in a new broadcast, the
-    /// task's end, its reviews and the goal), the hard limits, how a run goes (self-healing with it), talking to the person, the mechanics of its tools, the Instructions
-    /// the broadcast froze, and a short reminder of the rules that matter most. Each rule says why where that isn't
-    /// obvious, and "never" and "forbidden" are kept for the hard limits, so they keep their weight. The slices are told in
-    /// words as "you may" or "you may not": the tool handler is what refuses a write, the brief is how the Operator knows
-    /// not to try.
+    /// task's end, its reviews and the goal), the hard limits, how a run goes (self-healing with it), talking to the person,
+    /// the mechanics of its tools, the Instructions the broadcast froze, and a short reminder of the rules that matter most.
+    /// Each rule says why where that isn't obvious, and "never" and "forbidden" are kept for the hard limits, so they keep
+    /// their weight. The slices are told in words as "you may" or "you may not": the tool handler is what refuses a write,
+    /// the brief is how the Operator knows not to try.
     public static func brief(run: OperatorRun, projects: [Project]) -> String {
         let oracleIsOn = run.profile.oracle.isOn
         let newBroadcast = run.taskSettings != nil
         var sections: [(String, [String])] = [
-            ("## The role", [newBroadcast ? broadcastRole : legacyRole]),
+            ("## The role", [newBroadcast ? newBroadcastRole : legacyRole]),
             ("## This broadcast", [broadcastDetails(run: run, projects: projects)]),
-            ("## What you may do", [newBroadcast ? taskPlanRule : legacyPlanRule]
+            ("## What you may do", [newBroadcast ? newBroadcastPlanRule : legacyPlanRule]
                 + slicesRule(run.profile.slices, oracleIsOn: oracleIsOn, newBroadcast: newBroadcast)),
             ("## The backlog", [backlogRule(oracleIsOn: oracleIsOn)]),
-            ("## Agent and model", [newBroadcast ? allowedAgentsRule : agentChoiceRule]),
+            ("## Agent and model", [newBroadcast ? newBroadcastAgentRule : agentChoiceRule]),
         ]
         if let settings = run.taskSettings {
             sections += [
@@ -286,15 +286,18 @@ public enum OperatorCommand {
         return lines.joined(separator: "\n")
     }
 
-    static let allowedAgentsRule = "Choose workers, tabs and reviewers only from the Agents rows above, with the row's agent, "
+    /// A new broadcast's Agent and model: only the Agents rows, whatever the person's words name (spec, Agents).
+    static let newBroadcastAgentRule = "Choose workers, tabs and reviewers only from the Agents rows above, with the row's agent, "
         + "model and reasoning. The person's words in the prompt or the Instructions choose among those rows, not outside them. "
         + "For an off-list ask, call ask_you on no task to ask whether to use a row instead. "
         + "An agent named without a model gets that agent's first row. "
         + "At 80 % weekly use, AiTerm moves a new task at launch to the first row on the other agent, in the list's order; "
         + "with no such row it stays where it is. agentPinned lifts the weekly-use rule and the delivery refusal only within the list. "
         + "The Oracle uses its own setting, outside this list. "
-        + allowedDeliveryRule
+        + newBroadcastDeliveryRule
 
+    /// How each task is reviewed in a new broadcast: in a review tab, its verdict recorded, the rounds counted by the
+    /// review prompt's words and the acceptance the Operator's own call (spec, Task).
     static let taskReviewRule = "With no review prompt, accept a task without a review. Otherwise run each review as an "
         + "open_tab with role: review, using a row the review prompt names, or one you choose. "
         + "Where the list has another agent than the task's worker, prefer that one. "
@@ -305,6 +308,8 @@ public enum OperatorCommand {
         + "When the rounds run out, ask_you on the task with about: fixRounds. "
         + "Accept on your own judgement of the verdicts: a passing verdict is not an acceptance gate."
 
+    /// The broadcast's goal: checked with check_goal when AiTerm wakes the Operator for it, under the Oracle's veto, and
+    /// planned for within its extra rounds (spec, The goal loop).
     static let goalRule = "Without a goal, the broadcast ends when its tasks do. With a goal, when AiTerm wakes you "
         + "with goalCheckDue, call check_goal with met, evidence and, if not met, missing. The Oracle checks your verdict. "
         + "When the Oracle answers, only its yes acts. A no is refused with its reason: read it and call check_goal again. "
@@ -321,13 +326,15 @@ public enum OperatorCommand {
 
     private static func bullets(_ items: [String]) -> String { items.map { "- " + $0 }.joined(separator: "\n") }
 
+    /// The role, ending in what a good run is: where the Done says in a legacy broadcast, each task's chosen end in a new one.
     static let roleLead = "You lead coding agents through AiTerm. You plan the work, start the tasks, steer the agents working in them, "
         + "and answer them from the brief and the code. You come to the person only when something needs their answer. "
         + "Your agents write the code; you write none. "
     static let legacyRole = roleLead + "A good run ends with every task where the Done says, on a commit you checked."
-    static let broadcastRole = roleLead
+    static let newBroadcastRole = roleLead
         + "A good run ends with every task at its chosen end, on a commit you checked, and any broadcast goal checked."
 
+    /// A new broadcast's end: the Task step's, which only the person changes (spec, Task).
     static func endRule(_ end: TaskEnd) -> String {
         "Every task ends at \(end.displayName), which only the person changes. "
             + "Don't plan around it: create_task and update_task take no end for this broadcast. "
@@ -335,13 +342,14 @@ public enum OperatorCommand {
             + "A commit end stops at the accepted commit, with no push, no merge request and no finish_task."
     }
 
-    /// Shared mechanics; the legacy plan also lets the person's prose set a task's end and uses review_task.
+    /// The base every broadcast has: the plan starts at once, workers commit, and AiTerm carries out each task's end. A
+    /// legacy plan also reads each task's end from the Done, the prompt or the Instructions, and reviews with review_task.
     static let planLead = "A plan you submit starts at once; nothing waits for approval. "
         + "Each task's agent commits on the task's branch and pushes nothing; AiTerm pushes and merges as far as the task's "
         + "end goes, through finish_task. Call finish_task on work merged outside it too. "
     static let publicationRule = "For draft MR and merge ends, AiTerm pushes the branch and opens its merge request, "
         + "a draft unless the task ends in a merge. "
-    static let taskPlanRule = planLead + publicationRule
+    static let newBroadcastPlanRule = planLead + publicationRule
     static let legacyPlanRule = planLead
         + "Each task ends in a commit, a draft MR, a merge or a local merge, as the Done, the prompt or the Instructions ask; "
         + "without one, a draft MR. A draft notifies nobody. This version of AiTerm carries out: "
@@ -355,14 +363,18 @@ public enum OperatorCommand {
     static let peopleReviewLead = "You may involve people on a merge request: mark it ready, ask reviewers, and reply in review threads. "
     static let peopleReviewSteps = "finish_task puts the task in review: ask people with request_review, "
         + "then accept and finish_task each fix of their feedback, and once more when the review is done."
-    static let taskPeopleReviewRule = peopleReviewLead + "With the task's review prompt written and the Review slice on, " + peopleReviewSteps
+    static let newBroadcastPeopleReviewRule = peopleReviewLead + "With the task's review prompt written and the Review slice on, " + peopleReviewSteps
     static let legacyPeopleReviewRule = peopleReviewLead + "With the broadcast's Review written, " + peopleReviewSteps
+    /// The Review slice off: agent reviews only, and a review that names people is left for the person.
     static let noPeopleReviewLead = "You may not involve people on a merge request. Reviews are agent reviews only. "
-    static let taskNoPeopleReviewRule = noPeopleReviewLead + "If the task's review prompt names people, leave their review for the person."
+    static let newBroadcastNoPeopleReviewRule = noPeopleReviewLead + "If the task's review prompt names people, leave their review for the person."
     static let legacyNoPeopleReviewRule = noPeopleReviewLead
         + "If the Review names people, plan the work as far as the draft merge request and leave the rest for the person."
-    static let taskMergeConditions = "You may merge when the task's end calls for it and its review conditions hold, through the merge request or locally. "
-    static let legacyMergeConditions = "You may merge when the conditions written in the Review and the Done hold, through the merge request or locally. "
+    /// What a merge waits on: a legacy broadcast's Review and Done, a new one's end and the task's review conditions.
+    static let newBroadcastMergeConditions = "You may merge when the task's end calls for it and its review conditions hold, "
+        + "through the merge request or locally. "
+    static let legacyMergeConditions = "You may merge when the conditions written in the Review and the Done hold, "
+        + "through the merge request or locally. "
 
     /// One paragraph each for Jira, Review and Merge: what this broadcast's frozen slice lets the Operator do.
     static func slicesRule(_ slices: Slices, oracleIsOn: Bool, newBroadcast: Bool) -> [String] {
@@ -372,10 +384,10 @@ public enum OperatorCommand {
               + "jira_board, jira_sprint, jira_edit and jira_comment serve PM work on its tickets."
             : "You may not create or update Jira tickets. Jira is read-only for you. A task without a ticket runs without one.",
          slices.review
-            ? (newBroadcast ? taskPeopleReviewRule : legacyPeopleReviewRule)
-            : (newBroadcast ? taskNoPeopleReviewRule : legacyNoPeopleReviewRule),
+            ? (newBroadcast ? newBroadcastPeopleReviewRule : legacyPeopleReviewRule)
+            : (newBroadcast ? newBroadcastNoPeopleReviewRule : legacyNoPeopleReviewRule),
          slices.merge
-            ? (newBroadcast ? taskMergeConditions : legacyMergeConditions)
+            ? (newBroadcast ? newBroadcastMergeConditions : legacyMergeConditions)
               + "Whether the conditions hold is your call. "
               + (oracleIsOn ? "With the Oracle on, a finish_task that would merge first needs the Oracle's yes that those conditions hold. " : "")
               + "Merge doesn't depend on Review: Merge marks the request ready only to merge it. "
@@ -400,12 +412,15 @@ public enum OperatorCommand {
         + "If the other agent is missing or also at 80 %, the task stays on its agent. "
         + deliveryRule
 
-    static let deliveryRule = "run_status lists each installed agent's models and its default, and under delivery whether its workers can be messaged. "
+    /// Where run_status says whether an agent's workers can be messaged, and why that matters: all installed agents in a
+    /// legacy broadcast, the Agents rows in a new one.
+    static let deliveryRule = "run_status lists each installed agent's models and its default, "
+        + "and under delivery whether its workers can be messaged. "
         + workerDeliveryRule
-    static let allowedDeliveryRule = "run_status lists this broadcast's permitted rows under agents.allowed, "
+    static let newBroadcastDeliveryRule = "run_status lists this broadcast's permitted rows under agents.allowed, "
         + "and under delivery whether its workers can be messaged. " + workerDeliveryRule
-    static let workerDeliveryRule = "A task whose agent can't be messaged can't be steered with message_task and can't get review fixes, so plan on an "
-        + "agent whose delivery isn't off."
+    static let workerDeliveryRule = "A task whose agent can't be messaged can't be steered with message_task and can't get "
+        + "review fixes, so plan on an agent whose delivery isn't off."
 
     /// Why the limits bind what the Operator tells a worker: a worker's shell is not behind AiTerm's tools.
     static let hardLimitsLead = "Of these, AiTerm's tools refuse what a tool could do; a worker's shell doesn't, so they bind what "
@@ -432,7 +447,9 @@ public enum OperatorCommand {
     static let askFirst = ["deleting a branch or worktree", "anything outside this broadcast's projects",
                            "sending a Claude worker /model, /effort or /config (they save the person's defaults)"]
 
-    static let steeringRule = "Steer it with message_task, rereading each text against the ask-first acts, because a worker treats what you send as allowed."
+    /// Step 5 of the loop. A legacy broadcast also reruns review_task after fixes; a new one reviews in a tab (Reviews).
+    static let steeringRule = "Steer it with message_task, rereading each text against the ask-first acts, because a worker "
+        + "treats what you send as allowed."
     static let legacySteeringRule = steeringRule
         + " When fixes followed the first agent review, run review_task again on the final commit before you accept, "
         + "and fix its findings. While inReview, review_task can review the accepted SHA."
@@ -473,12 +490,13 @@ public enum OperatorCommand {
     static let writingRule = "Use a comma, a colon or parentheses where you would use a dash: what "
         + "you write shows in AiTerm, Jira and merge requests."
 
+    /// Rule 2 of talking to the person: which questions go on a task. A new broadcast adds exhausted fix rounds.
     static let questionLead = "Call ask_you with the same text, because the person may not be watching this chat. "
     static let legacyQuestionRule = questionLead
         + "Give it a task only when that task's worker is itself stopped on the answer, because a question on a task holds "
         + "that task until you resolve it. A question about your own next step, such as a reviewer's username, a scope choice "
         + "or a merge decision, goes on no task."
-    static let taskQuestionRule = questionLead
+    static let newBroadcastQuestionRule = questionLead
         + "Give it a task when its worker is itself stopped on the answer or when its fix rounds are used up (about: fixRounds), "
         + "because a question on a task holds that task until you resolve it. Other questions about your own next step, "
         + "such as a reviewer's username, a scope choice or a merge decision, go on no task."
@@ -486,12 +504,12 @@ public enum OperatorCommand {
     /// How the Operator asks the person something. Every question shows on the Operator's own row, a question on a
     /// task naming it, and is answered in the chat (2A, 22 Oct 2026). A question on a task also holds that task: it is
     /// not ready to accept and not watched for stalls. A task question is for a stopped worker, or, in a new broadcast,
-    /// for exhausted fix rounds that need the person's decision.
-    /// Rule 2 says what `ask_you`'s `task` property says: keep the two in step.
+    /// for exhausted fix rounds that need the person's decision. Rule 2 says what `ask_you`'s `task` property says, which
+    /// names fix rounds for both kinds of run because a legacy run has none: keep the two in step.
     static func askRules(newBroadcast: Bool) -> [String] {
         [
             "Ask the person in this chat first: one short question in your reply, on a line starting \"Question:\".",
-            newBroadcast ? taskQuestionRule : legacyQuestionRule,
+            newBroadcast ? newBroadcastQuestionRule : legacyQuestionRule,
             "When the person answers in this chat, call resolve_question at once, so your row stops showing it, AiTerm's "
                 + "question about a merge on the host included. AiTerm closes a worker prompt's question itself.",
             "If your own question or gate becomes moot, call resolve_question with withdrawn true and a one-line reason "
@@ -529,16 +547,22 @@ public enum OperatorCommand {
         + "If the command becomes moot, withdraw it instead; withdrawal grants nothing. "
         + "Pushes go through finish_task. Use its noVerify only for an environment failure that you could not repair."
 
-    static let taskReviewQuietRule = "reviewQuiet: if the task's current end is the MR, call finish_task to end the review and move the ticket."
-    static let legacyReviewQuietRule = "reviewQuiet: if the broadcast's Done says the MR is the end, call finish_task to end the review and move the ticket."
+    /// What reviewQuiet asks for: finish_task, when the task ends at the MR.
+    static let newBroadcastReviewQuietRule = "reviewQuiet: if the task's current end is \(TaskEnd.draftMR.displayName), call finish_task to end "
+        + "the review and move the ticket."
+    static let legacyReviewQuietRule = "reviewQuiet: if the broadcast's Done says the MR is the end, call finish_task to end "
+        + "the review and move the ticket."
+    /// How the Oracle's challenge is met. A new broadcast names the vetoes, the calls the tool handler challenges as
+    /// `ChallengeKind.veto` (`OperatorToolHandler+Challenge.swift`), where only the Oracle's yes acts: keep the two in step.
     static let challengeLead = "The Oracle, a second opinion, challenges some calls. A challenged call may first return a critique, "
         + "or `pending: true` while it is still being written; nothing has happened yet. "
     static let challengeReplyRule = "Read the critique, then call the same tool again with the challengeId and either a challengeReply "
         + "or revised arguments; only that second call takes effect. "
     static let critiqueDecisionRule = "Keeping the act is your decision: say so in your summary, with the Oracle's objection."
     static let legacyChallengeRule = challengeLead + challengeReplyRule + critiqueDecisionRule
-    static let broadcastChallengeRule = challengeLead
-        + "create_task past the backlog limit, a merging finish_task and check_goal act only on the Oracle's yes. "
+    static let newBroadcastChallengeRule = challengeLead
+        + "create_task past the backlog limit, a finish_task that would merge or push with noVerify, and check_goal act only "
+        + "on the Oracle's yes. "
         + "Read its answer and call again with challengeId; a no refuses the act. "
         + "For other challenged calls: " + challengeReplyRule + critiqueDecisionRule
 
@@ -553,12 +577,12 @@ public enum OperatorCommand {
                 + "its worker bring the work onto it before you accept, or block the task.",
             "workerAsks and changedAfterAcceptance can appear on tasks in any state: read the question or the change before you act.",
             "A question showing answeredInWindow may already be answered: check, then resolve it.",
-            newBroadcast ? taskReviewQuietRule : legacyReviewQuietRule,
+            newBroadcast ? newBroadcastReviewQuietRule : legacyReviewQuietRule,
             tabRule,
             shellRule,
         ]
         if oracleIsOn {
-            rules.append(newBroadcast ? broadcastChallengeRule : legacyChallengeRule)
+            rules.append(newBroadcast ? newBroadcastChallengeRule : legacyChallengeRule)
         }
         return rules
     }

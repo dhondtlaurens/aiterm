@@ -35,7 +35,8 @@ import Testing
         #expect(description.contains("open_tab with a read-only brief"), "\(description)")
     }
 
-    /// ask_you and the brief agree on which questions hold a task, including exhausted fix rounds.
+    /// ask_you's task description and rule 2 agree on which questions hold a task: a stopped worker in every run, and in a
+    /// new run exhausted fix rounds too (a legacy run has none). The description says both, as it serves both kinds of run.
     @Test func askYouAndTheBriefAllowTheSameTaskQuestions() throws {
         let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -44,13 +45,12 @@ import Testing
         let start = try #require(python.firstRange(of: #"_tool("ask_you", ""#)?.upperBound)
         let task = try #require(python[start...].firstRange(of: #""task": _text(""#)?.upperBound)
         let description = String(python[task...].prefix { $0 != "\"" })
-        let run = OperatorFixtures.run(taskSettings: OperatorFixtures.taskSettings)
-        let brief = OperatorCommand.brief(run: run, projects: [])
-        for phrase in ["its worker is itself stopped on the answer", "or when its fix rounds are used up (about: fixRounds)"] {
-            #expect(description.contains(phrase))
-            #expect(brief.contains(phrase))
-        }
+        let newRun = OperatorCommand.brief(run: OperatorFixtures.run(taskSettings: OperatorFixtures.taskSettings), projects: [])
+        let legacy = OperatorCommand.brief(run: OperatorFixtures.run(), projects: [])
+        let stopped = "worker is itself stopped on the answer", fixRounds = "or when its fix rounds are used up (about: fixRounds)"
+        #expect(description.contains(stopped) && newRun.contains(stopped) && legacy.contains(stopped))
+        #expect(description.contains(fixRounds) && newRun.contains(fixRounds) && !legacy.contains(fixRounds))
         #expect(description.contains("Other questions about your own next step"))
-        #expect(brief.contains("Other questions about your own next step"))
+        #expect(newRun.contains("Other questions about your own next step"))
     }
 }

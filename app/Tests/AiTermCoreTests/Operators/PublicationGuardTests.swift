@@ -196,6 +196,14 @@ import Testing
         #expect(refusal(d, draft, drun) == nil)
     }
 
+    /// A new run's merge waits on the Oracle's yes that the task's review conditions hold: it has no Review or Done text.
+    @Test func aNewRunsMergeNamesTheTasksReviewConditions() {
+        var (w, task, run) = world(end: .merge)
+        w.state.runs[0].profile.oracle.isOn = true
+        w.state.runs[0].taskSettings = TaskSettings(review: "Review every commit.", end: .merge)
+        #expect(refusal(w, task, run) == "The Oracle hasn’t said that the task’s review conditions hold for PLUTO-231, so AiTerm doesn’t merge it: call finish_task again.")
+    }
+
     /// A local merge builds on a stacked parent only once that parent's own end is done.
     @Test func aStackedLocalMergeWaitsForItsParent() {
         var world = OperatedWorld()

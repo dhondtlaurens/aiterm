@@ -38,7 +38,7 @@ public struct TaskPublisher: Sendable {
         /// broadcast's per-task review prompt, a legacy one's Review), its Review slice lets people be involved, and
         /// this task's review has not ended. A local merge opens no request for people to review.
         public static func entersReview(_ operated: OperatedTask, run: OperatorRun) -> Bool {
-            let review = run.taskSettings.map(\.review) ?? run.review
+            let review = if let settings = run.taskSettings { settings.review } else { run.review }
             return OperatorCommand.said(review) != nil && run.profile.slices.review && operated.peopleReview?.ended != true
                 && operated.end != .mergeLocal
         }
