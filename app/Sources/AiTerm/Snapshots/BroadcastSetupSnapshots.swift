@@ -4,7 +4,8 @@ import AiTermCore
 
 #if DEBUG
 /// New Broadcast's Agents, Task and Done steps (broadcast setup v2), as the design page's 1A, 13A and 10A draw them: the
-/// three steps, the Task step with the Merge slice off and with closing left off, and the Done step with the Oracle off.
+/// three steps, the Task step with the Merge slice off, with closing left off and with payments-api on no connected code
+/// host, and the Done step with the Oracle off.
 /// The Task step runs past `Sheet.height`, where a snapshot's sheet clips rather than scrolls, so its images draw the step
 /// alone, whole, on the sheet's ground and within its margins, as 13A draws it at the height its content needs.
 @MainActor
@@ -17,6 +18,7 @@ enum BroadcastSetupSnapshots {
             Snapshot("broadcast-setup-task-merge-off.png") { taskStep(slices: Slices(jira: true, review: true)) },
             Snapshot("broadcast-setup-done-oracle-off.png") { sheet(step: 5, oracle: false) },
             Snapshot("broadcast-setup-task-closing-off.png") { taskStep(closing: false) },
+            Snapshot("broadcast-setup-task-no-code-host.png") { taskStep(codeHost: false) },
         ]
     }
 
@@ -27,10 +29,13 @@ enum BroadcastSetupSnapshots {
     }
 
     /// The Task step alone and whole, at the sheet's width, inside its margins, on its ground; `closing` false unticks
-    /// “Close finished tasks’ tabs…”, which dims the branch box.
-    private static func taskStep(slices: Slices = Slices(jira: true, review: true, merge: true), closing: Bool = true) -> some View {
+    /// “Close finished tasks’ tabs…”, which dims the branch box; `codeHost` false finds payments-api with no connected code
+    /// host, which dims Draft MR and Merge.
+    private static func taskStep(slices: Slices = Slices(jira: true, review: true, merge: true), closing: Bool = true,
+                                 codeHost: Bool = true) -> some View {
         let filled = model(slices: slices, oracle: true)
         filled.closeWhenDone = closing
+        if !codeHost { filled.received(withoutCodeHost: filled.projects.filter { $0.name == "payments-api" }) }
         return TaskStep(model: filled)
             .padding(Space.margin)
             .frame(width: Sheet.width, alignment: .topLeading)

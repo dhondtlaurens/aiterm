@@ -176,6 +176,44 @@ struct BroadcastSetupStepsTests {
         #expect(on.end == .mergeLocal && off.end == .commit)
     }
 
+    private func project(_ name: String) -> Project {
+        Project(id: UUID(), name: name, path: "/tmp/\(name)", provider: .gitlab, remoteUrl: nil, addedAt: Date(), collapsed: false)
+    }
+
+    /// Draft MR and Merge need a code host: while a chosen project has none connected, both are dimmed, and the help says
+    /// which, as it says the Merge slice is off.
+    @Test func draftMRAndMergeWaitForEveryChosenProjectsCodeHost() async {
+        let blog = project("blog"), docs = project("docs")
+        let model = NewBroadcastModel(projects: [webshop, blog, docs], context: .installed(slices: Slices(merge: true)),
+                                      hasCodeHost: { $0.name == "webshop" }, start: { _ in UUID() })
+        model.add(project: webshop)
+        await model.loadCodeHosts()
+        #expect(TaskEnd.allCases.map(model.canPick) == [true, true, true, true])
+        #expect(model.endHelp == "Where every task’s work ends.")
+        model.add(project: blog)
+        await model.loadCodeHosts()
+        #expect(TaskEnd.allCases.map(model.canPick) == [true, false, false, true], "Commit and Local merge need no host")
+        #expect(model.endHelp == "Where every task’s work ends. blog has no connected code host, so a task ends at a commit or a local merge.")
+        model.pick(end: .merge)
+        #expect(model.end != .merge)
+        model.add(project: docs)
+        await model.loadCodeHosts()
+        #expect(model.endHelp == "Where every task’s work ends. blog and docs have no connected code host, so a task ends at a commit or a local merge.")
+        model.remove(project: blog)
+        model.remove(project: docs)
+        await model.loadCodeHosts()
+        #expect(TaskEnd.allCases.map(model.canPick) == [true, true, true, true])
+    }
+
+    @Test func withMergeOffAndNoCodeHostATaskEndsAtACommit() async {
+        let blog = project("blog")
+        let model = NewBroadcastModel(projects: [blog], context: .installed(slices: .none), hasCodeHost: { _ in false }, start: { _ in UUID() })
+        model.add(project: blog)
+        await model.loadCodeHosts()
+        #expect(TaskEnd.allCases.map(model.canPick) == [true, false, false, false])
+        #expect(model.endHelp == "Where every task’s work ends. Merge is off in Settings › Operator and blog has no connected code host, so a task ends at a commit.")
+    }
+
     @Test func theBranchBoxWaitsForTheCloseBox() {
         let model = sheet()
         #expect(model.closeWhenDone && !model.deleteMergedBranch, "close on, branches kept")
@@ -194,6 +232,7 @@ struct BroadcastSetupStepsTests {
         let on = sheet(.installed(oracle: true)), off = sheet(.installed(oracle: false))
         #expect(on.goalIsAvailable && !off.goalIsAvailable)
         #expect(NewBroadcastModel.goalLabel == "Goal" && NewBroadcastModel.extraRoundsLabel == "Extra rounds")
+        #expect(NewBroadcastModel.goalPlaceholder == "Every ticket is merged and its work is released")
         #expect(on.goalHelp == "What must be true once every task is done. The Operator checks it with the Oracle. Optional: left empty, the broadcast ends when its tasks do.")
         #expect(on.extraRoundsHelp == "How many times the Operator may plan what the goal still misses, once every task is done. When they are used up, it stops and says what is left.")
         #expect(off.goalHelp == "The Oracle is off in Settings › Operator, and a goal needs it: the broadcast ends when its tasks do.")
@@ -209,7 +248,8 @@ struct BroadcastSetupStepsTests {
         model.extraRoundsText = "-3"
         #expect(model.extraRounds == 3, "a minus sign is dropped like any other non-digit")
         model.extraRoundsText = ""
-        #expect(model.extraRounds == 0)
+        #expect(model.extraRounds == 2, "emptied, it goes back to the default")
+        #expect(NewBroadcastModel.extraRoundsPlaceholder == "2", "which the empty field shows")
         model.extraRoundsText = String(Int.max)
         #expect(model.extraRounds == Int.max)
         model.extraRoundsText = String(Int.max) + "9"

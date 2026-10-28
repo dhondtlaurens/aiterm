@@ -19,7 +19,7 @@ struct DoneStep: View {
                        placeholder: NewBroadcastModel.goalPlaceholder, help: model.goalHelp)
                 .disabled(!available)
             FormField(NewBroadcastModel.extraRoundsLabel) {
-                Input(placeholder: "", text: $model.extraRoundsText)
+                Input(placeholder: NewBroadcastModel.extraRoundsPlaceholder, text: $model.extraRoundsText)
                     .frame(width: Self.roundsWidth)
                     .disabled(!available)
                 if let help = model.extraRoundsHelp { HelpText(help) }

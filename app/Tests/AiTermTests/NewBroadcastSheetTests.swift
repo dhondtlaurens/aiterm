@@ -66,6 +66,22 @@ struct NewBroadcastSheetTests {
         #expect(h.model.projects == [webshop], "its linked project comes with it")
     }
 
+    /// While the Oracle is off the Done step's goal and extra rounds take no typing; with it on, both do.
+    @Test(arguments: [false, true]) func theGoalLocksWhileTheOracleIsOff(oracle: Bool) throws {
+        let model = NewBroadcastModel(projects: [webshop], context: .installed(oracle: oracle), skills: { _, _ in [] }) { _ in UUID() }
+        model.add(project: webshop)
+        model.prompt = "Implement PAY-230"
+        let host = testHost(NewBroadcastSheet(model: model).seeded(step: 5), size: CGSize(width: Sheet.width, height: Sheet.height))
+        let window = testWindow(hosting: host, styleMask: [])
+        defer { window.orderOut(nil) }
+        host.layoutSubtreeIfNeeded()
+        settle(host)
+        let goal = try #require(host.descendants(NSTextView.self).first)
+        let rounds = try #require(host.descendants(NSTextField.self).first { $0.isEditable })
+        #expect(goal.isEditable == oracle)
+        #expect(rounds.isEnabled == oracle)
+    }
+
     /// A Jira project name too long for the field truncates inside its chip: the chip stays within the
     /// field's width, so its ✕ is still on the sheet.
     @Test func aVeryLongChipLabelTruncatesAndKeepsItsRemoveButtonInTheField() {

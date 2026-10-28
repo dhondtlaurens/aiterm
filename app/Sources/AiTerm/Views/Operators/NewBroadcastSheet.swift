@@ -43,6 +43,7 @@ struct NewBroadcastSheet: View {
         }
         // Both agents' skills, from the home and the picked projects: read again as the picks change.
         .task(id: model.projects.map(\.id)) { await model.loadCompletions() }
+        .task(id: model.projects.map(\.id)) { await model.loadCodeHosts() }
         .task { await model.loadJiraProjects() }
         // The agents' cards and the delivery check's file, read for as long as the sheet is open.
         .task { await model.checkReadiness() }

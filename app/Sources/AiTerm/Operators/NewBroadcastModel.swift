@@ -68,13 +68,15 @@ final class NewBroadcastModel: Identifiable {
     var review = ""
     /// Every task's end as it starts.
     private(set) var end = TaskEnd.draftMR
+    /// The chosen projects found with no connected code host, as last checked: Draft MR and Merge wait for none.
+    private(set) var projectsWithoutCodeHost: [Project] = []
     /// Unticked, it unticks deleting branches too: a branch is deleted only by closing its task.
     var closeWhenDone = true { didSet { if !closeWhenDone { deleteMergedBranch = false } } }
     var deleteMergedBranch = false
     /// The Done step's goal.
     var done = ""
     /// The Done step's extra rounds as typed: digits only, and no more of them than a count can hold.
-    var extraRoundsText = "2" {
+    var extraRoundsText = String(defaultExtraRounds) {
         didSet {
             let digits = extraRoundsText.filter { $0.isASCII && $0.isNumber }
             let kept = digits.isEmpty || Int(digits) != nil ? digits : oldValue
@@ -110,6 +112,7 @@ final class NewBroadcastModel: Identifiable {
     /// and the delivery check's file, both observed, so the footer follows them while the sheet is up.
     @ObservationIgnored private let readinessSource: @MainActor () -> BroadcastReadiness
     @ObservationIgnored private let prepareReadiness: @MainActor () async -> Void
+    @ObservationIgnored private let hasCodeHost: @Sendable (Project) async -> Bool
 
     static let title = "New broadcast"
     static let stepNames = ["Broadcast", "Prompt", "Agents", "Task", "Done"]
@@ -137,11 +140,16 @@ final class NewBroadcastModel: Identifiable {
     static let closeLabel = "Close finished tasks’ tabs and remove their worktrees"
     static let deleteBranchLabel = "Delete their local branches once merged into the default branch"
     static let goalLabel = "Goal"
-    static let goalPlaceholder = "Every PAY ticket in sprint 12 is merged"
+    static let goalPlaceholder = "Every ticket is merged and its work is released"
     static let extraRoundsLabel = "Extra rounds"
+    /// What an emptied extra-rounds field counts as, and shows.
+    static let extraRoundsPlaceholder = String(defaultExtraRounds)
+    /// A goal's own default (`BroadcastGoal`).
+    private static let defaultExtraRounds = BroadcastGoal(text: "").extraRounds
 
     /// `readiness` is what Start waits for as it stands; `checkReadiness` reads it, for as long as the
-    /// sheet is open. A test or a snapshot that leaves them out is ready at once.
+    /// sheet is open. A test or a snapshot that leaves them out is ready at once. `hasCodeHost` says whether a project's
+    /// origin is on a code host AiTerm is connected to; left out, every project's is.
     init(projects: [Project], context: NewBroadcastContext,
          skills: @escaping @Sendable (AgentKind, String?) -> [AgentCompletion] = { SkillCatalog.discover(agent: $0, projectPath: $1) },
          files: @escaping @Sendable (String) -> FileIndex = { _ in .empty },
@@ -149,6 +157,7 @@ final class NewBroadcastModel: Identifiable {
          canChangeWorkspace: @escaping @MainActor () -> Bool = { true },
          readiness: @escaping @MainActor () -> BroadcastReadiness = { .ready },
          checkReadiness: @escaping @MainActor () async -> Void = {},
+         hasCodeHost: @escaping @Sendable (Project) async -> Bool = { _ in true },
          start: @escaping @MainActor (Request) async throws -> UUID) {
         offeredProjects = projects
         linkedJiraProjects = projects.flatMap(\.jiraProjects).linkedOnce
@@ -156,6 +165,7 @@ final class NewBroadcastModel: Identifiable {
         self.canChangeWorkspace = canChangeWorkspace
         readinessSource = readiness
         prepareReadiness = checkReadiness
+        self.hasCodeHost = hasCodeHost
         self.context = context
         agentRows = Self.seededRows(context).map { AgentRow(choice: $0) }
         self.skills = skills
@@ -320,17 +330,42 @@ final class NewBroadcastModel: Identifiable {
     /// An end as its segment reads: its name, capitalised.
     static func title(of end: TaskEnd) -> String { end.displayName.prefix(1).uppercased() + end.displayName.dropFirst() }
 
-    /// Merge and Local merge only with the Merge slice on.
-    func canPick(_ end: TaskEnd) -> Bool { !end.merges || slices.merge }
+    /// Merge and Local merge only with the Merge slice on; Draft MR and Merge only while every chosen project has a
+    /// connected code host.
+    func canPick(_ end: TaskEnd) -> Bool {
+        (!end.merges || slices.merge) && (projectsWithoutCodeHost.isEmpty || ![.draftMR, .merge].contains(end))
+    }
 
     func pick(end: TaskEnd) { if canPick(end) { self.end = end } }
 
-    /// Plain text naming Settings › Operator: with Merge off a task ends at a commit or a draft MR.
+    /// Plain text saying why an end is dimmed, Settings › Operator's Merge slice or the projects with no connected code
+    /// host, and the ends left: “… Merge is off in Settings › Operator, so a task ends at a commit or a draft MR.”
     var endHelp: String {
-        slices.merge
-            ? "Where every task’s work ends."
-            : "Where every task’s work ends. Merge is off in Settings › Operator, so a task ends at a commit or a draft MR."
+        let lead = "Where every task’s work ends."
+        var reasons: [String] = []
+        if !slices.merge { reasons.append("Merge is off in Settings › Operator") }
+        if let last = projectsWithoutCodeHost.last {
+            let names = projectsWithoutCodeHost.dropLast().map(\.name)
+            let listed = names.isEmpty ? last.name : names.joined(separator: ", ") + " and " + last.name
+            reasons.append(listed + (names.isEmpty ? " has" : " have") + " no connected code host")
+        }
+        guard !reasons.isEmpty else { return lead }
+        let ends = TaskEnd.allCases.filter(canPick).map { "a " + $0.displayName }
+        return "\(lead) \(reasons.joined(separator: " and ")), so a task ends at \(ends.joined(separator: " or "))."
     }
+
+    /// Checks each chosen project for a connected code host, as the chosen ones change.
+    func loadCodeHosts() async {
+        var without: [Project] = []
+        for project in projects {
+            if await !hasCodeHost(project) { without.append(project) }
+        }
+        guard !Task.isCancelled else { return }
+        received(withoutCodeHost: without)
+    }
+
+    /// The projects a check found with no connected code host; the snapshots hand them in directly.
+    func received(withoutCodeHost projects: [Project]) { projectsWithoutCodeHost = projects }
 
     /// A branch is deleted only by closing its task.
     var canDeleteMergedBranch: Bool { closeWhenDone }
@@ -353,8 +388,8 @@ final class NewBroadcastModel: Identifiable {
             : nil
     }
 
-    /// The extra rounds typed, 0 when none are.
-    var extraRounds: Int { Int(extraRoundsText) ?? 0 }
+    /// The extra rounds typed, the default when none are.
+    var extraRounds: Int { Int(extraRoundsText) ?? Self.defaultExtraRounds }
 
     // -- moving on and starting -----------------------------------------------------
 
