@@ -66,8 +66,8 @@ final class NewBroadcastModel: Identifiable {
     private(set) var agentRows: [AgentRow]
     /// The Task step's review prompt.
     var review = ""
-    /// Every task's end as it starts.
-    private(set) var end = TaskEnd.draftMR
+    /// The end last picked on the Task step.
+    private var pickedEnd = TaskEnd.draftMR
     /// The chosen projects found with no connected code host, as last checked: Draft MR and Merge wait for none.
     private(set) var projectsWithoutCodeHost: [Project] = []
     /// Unticked, it unticks deleting branches too: a branch is deleted only by closing its task.
@@ -336,10 +336,14 @@ final class NewBroadcastModel: Identifiable {
         (!end.merges || slices.merge) && (projectsWithoutCodeHost.isEmpty || ![.draftMR, .merge].contains(end))
     }
 
-    func pick(end: TaskEnd) { if canPick(end) { self.end = end } }
+    func pick(end: TaskEnd) { if canPick(end) { pickedEnd = end } }
+
+    /// Every task's end as it starts, the one Start hands over: the end picked while it can be picked, else Commit.
+    var end: TaskEnd { canPick(pickedEnd) ? pickedEnd : .commit }
 
     /// Plain text saying why an end is dimmed, Settings › Operator's Merge slice or the projects with no connected code
-    /// host, and the ends left: “… Merge is off in Settings › Operator, so a task ends at a commit or a draft MR.”
+    /// host, and the ends left: “… Merge is off in Settings › Operator, so a task ends at a commit or a draft MR.” An end
+    /// picked that is dimmed since is said to have moved to Commit.
     var endHelp: String {
         let lead = "Where every task’s work ends."
         var reasons: [String] = []
@@ -351,7 +355,8 @@ final class NewBroadcastModel: Identifiable {
         }
         guard !reasons.isEmpty else { return lead }
         let ends = TaskEnd.allCases.filter(canPick).map { "a " + $0.displayName }
-        return "\(lead) \(reasons.joined(separator: " and ")), so a task ends at \(ends.joined(separator: " or "))."
+        let help = "\(lead) \(reasons.joined(separator: " and ")), so a task ends at \(ends.joined(separator: " or "))."
+        return end == pickedEnd ? help : "\(help) \(Self.title(of: pickedEnd)) moved to \(Self.title(of: end))."
     }
 
     /// Checks each chosen project for a connected code host, as the chosen ones change.

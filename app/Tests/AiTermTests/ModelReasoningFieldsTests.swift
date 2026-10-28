@@ -20,4 +20,21 @@ struct ModelReasoningFieldsTests {
         #expect(host.descendants(NSPopUpButton.self).count == 2)
         #expect((host.fittingSize.height == Size.control) == !labelled)
     }
+
+    /// Unlabelled, a model with no reasoning levels keeps the Model column's width beside an empty Reasoning cell, so rows
+    /// under one row of column labels stay aligned.
+    @Test func unlabelledAModelWithoutReasoningKeepsItsColumn() throws {
+        let plain = AgentModel(id: "plain", label: "Plain", detail: nil, efforts: [], defaultEffort: nil)
+        let alone = popups(models: [plain]), beside = popups(models: [Self.opus])
+        #expect(alone.count == 1 && beside.count == 2)
+        #expect(alone.first?.frame == beside.first?.frame, "the Model popup where a model with reasoning has it")
+    }
+
+    private func popups(models: [AgentModel]) -> [NSPopUpButton] {
+        let fields = ModelReasoningFields(models: models, model: models[0].id, reasoning: .constant(nil), labelled: false,
+                                          selectModel: { _ in })
+        let host = testHost(fields.frame(width: 360), size: CGSize(width: 360, height: 80))
+        settle(host)
+        return host.descendants(NSPopUpButton.self)
+    }
 }

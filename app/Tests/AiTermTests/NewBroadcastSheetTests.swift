@@ -38,7 +38,7 @@ struct NewBroadcastSheetTests {
         settle(h.host)
     }
 
-    /// Prompt, Review and Done are prompt editors; step 1 has none.
+    /// Prompt, the Task step's review and the Done step's goal are prompt editors; steps 1 and 3 have none.
     private func onAPromptStep(_ h: Harness) -> Bool { !h.host.descendants(NSTextView.self).isEmpty }
 
     @Test func commandReturnMovesOnOnlyWithAProject() {

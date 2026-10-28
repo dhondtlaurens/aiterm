@@ -39,6 +39,9 @@ struct ModelReasoningFields: View {
                         set: { reasoning = $0 }), label: { $0.capitalized })
                         .disabled(disabled)
                 }
+            } else if !labelled {
+                // The Reasoning column's cell, empty, so the Model column keeps its width under its label.
+                Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
             }
         }
     }

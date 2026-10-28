@@ -5,8 +5,9 @@ import AiTermCore
 /// New Broadcast's Task step (broadcast setup v2, design 13A): what every task follows, under a lead line saying so. The
 /// review is a `PromptStep` whose `/` lists both agents' skills; the end a neutral `SegmentedControl` of the four ends,
 /// Merge and Local merge dimmed and unpickable while the Merge slice is off, Draft MR and Merge while a chosen project
-/// has no connected code host (`NewBroadcastModel.canPick`); then the two closing checkboxes on one
-/// edge, the second disabled while the first is off. Taller than `Sheet.height` allows, so its content scrolls a little.
+/// has no connected code host (`NewBroadcastModel.canPick`), an end picked that is dimmed since moving to Commit; then
+/// the two closing checkboxes on one edge, the second disabled while the first is off. Taller than `Sheet.height`
+/// allows, so its content scrolls a little.
 struct TaskStep: View {
     @Bindable var model: NewBroadcastModel
 

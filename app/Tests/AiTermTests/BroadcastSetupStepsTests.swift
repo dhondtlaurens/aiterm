@@ -77,6 +77,29 @@ struct BroadcastSetupStepsTests {
         #expect(model.offeredAgents.contains(.codex), "the kept row's agent is one its Agent menu lists")
     }
 
+    /// Every last row gone (a model no longer listed, an agent no longer offered): each installed agent at its default.
+    @Test func withEveryLastRowDroppedItStartsWithEachInstalledAgentAtItsDefault() {
+        let last = [AgentChoice(agent: .claude, model: "claude-opus-4-1", reasoning: "high"), AgentChoice(agent: .pi, model: "pi-model", reasoning: nil)]
+        #expect(rows(sheet(.installed(last: last))) == [Self.opusHigh, Self.astraMedium])
+    }
+
+    /// An agent's default is the one its Settings › Agents card shows (`ModelSettings.resolve`): the saved default, else
+    /// the model last picked for it, else its first.
+    @Test func anAgentsDefaultIsTheOneItsSettingsCardShows() {
+        let preferences = ScratchDefaults.make()
+        ModelSettings.save(ModelPreference(model: Self.astra.id, reasoning: "low"), for: .codex, defaults: preferences)
+        let lists: [AgentKind: [AgentModel]] = [.claude: [Self.opus, Self.sonnet], .codex: [Self.astra]]
+        let remembered: [AgentKind: String] = [.claude: Self.sonnet.id, .codex: Self.opus.id]
+        let context = NewBroadcastContext.read(profile: nil, installed: [.claude, .codex], models: { lists[$0] ?? [] },
+                                               remembered: remembered, preferences: preferences)
+        #expect(context.defaults[.claude] == Self.sonnetMedium, "no saved default: the model last picked, at its reasoning")
+        #expect(context.defaults[.codex] == AgentChoice(agent: .codex, model: Self.astra.id, reasoning: "low"), "the saved default first")
+        for agent in [AgentKind.claude, .codex] {
+            let card = ModelSettings.resolve(for: agent, catalog: lists[agent] ?? [], remembered: remembered[agent], defaults: preferences)
+            #expect(context.defaults[agent].map { ModelPreference(model: $0.model, reasoning: $0.reasoning) } == card)
+        }
+    }
+
     // -- Agents: the rows ---------------------------------------------------------------
 
     @Test func itOffersTheInstalledAgentsWithTheirOwnModels() {
@@ -193,9 +216,10 @@ struct BroadcastSetupStepsTests {
         model.add(project: blog)
         await model.loadCodeHosts()
         #expect(TaskEnd.allCases.map(model.canPick) == [true, false, false, true], "Commit and Local merge need no host")
+        model.pick(end: .mergeLocal)
         #expect(model.endHelp == "Where every task’s work ends. blog has no connected code host, so a task ends at a commit or a local merge.")
         model.pick(end: .merge)
-        #expect(model.end != .merge)
+        #expect(model.end == .mergeLocal, "Merge is refused")
         model.add(project: docs)
         await model.loadCodeHosts()
         #expect(model.endHelp == "Where every task’s work ends. blog and docs have no connected code host, so a task ends at a commit or a local merge.")
@@ -205,13 +229,58 @@ struct BroadcastSetupStepsTests {
         #expect(TaskEnd.allCases.map(model.canPick) == [true, true, true, true])
     }
 
+    /// An end picked that becomes dimmed moves to Commit, and the help says so.
+    @Test func theDefaultDraftMRWithAHostlessProjectMovesToCommit() async {
+        let blog = project("blog")
+        let model = NewBroadcastModel(projects: [blog], context: .installed(slices: Slices(merge: true)), hasCodeHost: { _ in false },
+                                      start: { _ in UUID() })
+        #expect(model.end == .draftMR)
+        model.add(project: blog)
+        await model.loadCodeHosts()
+        #expect(model.end == .commit)
+        #expect(model.endHelp == "Where every task’s work ends. blog has no connected code host, so a task ends at a commit or a local merge. Draft MR moved to Commit.")
+    }
+
+    @Test func aMergePickedBeforeAHostlessProjectIsAddedMovesToCommit() async {
+        let blog = project("blog")
+        let model = NewBroadcastModel(projects: [webshop, blog], context: .installed(slices: Slices(merge: true)),
+                                      hasCodeHost: { $0.name == "webshop" }, start: { _ in UUID() })
+        model.add(project: webshop)
+        await model.loadCodeHosts()
+        model.pick(end: .merge)
+        #expect(model.end == .merge)
+        model.add(project: blog)
+        await model.loadCodeHosts()
+        #expect(model.end == .commit)
+        #expect(model.endHelp.hasSuffix(" Merge moved to Commit."))
+    }
+
+    /// Whatever was picked, Start hands over an end the step lets be picked.
+    @Test(arguments: [TaskEnd.draftMR, .merge]) func startNeverSendsADimmedEnd(picked: TaskEnd) async {
+        let blog = project("blog")
+        var requests: [NewBroadcastModel.Request] = []
+        let model = NewBroadcastModel(projects: [webshop, blog], context: .installed(slices: Slices(merge: true)),
+                                      hasCodeHost: { $0.name == "webshop" }) { requests.append($0); return UUID() }
+        model.add(project: webshop)
+        model.prompt = "Implement PAY-230"
+        await model.loadCodeHosts()
+        model.pick(end: picked)
+        model.add(project: blog)
+        await model.loadCodeHosts()
+        #expect(model.canAdvance(step: CreationSteps.broadcast.count))
+        #expect(await model.start() != nil)
+        let sent = requests.compactMap(\.taskSettings?.end)
+        #expect(sent == [.commit])
+        #expect(sent.allSatisfy(model.canPick))
+    }
+
     @Test func withMergeOffAndNoCodeHostATaskEndsAtACommit() async {
         let blog = project("blog")
         let model = NewBroadcastModel(projects: [blog], context: .installed(slices: .none), hasCodeHost: { _ in false }, start: { _ in UUID() })
         model.add(project: blog)
         await model.loadCodeHosts()
         #expect(TaskEnd.allCases.map(model.canPick) == [true, false, false, false])
-        #expect(model.endHelp == "Where every task’s work ends. Merge is off in Settings › Operator and blog has no connected code host, so a task ends at a commit.")
+        #expect(model.endHelp == "Where every task’s work ends. Merge is off in Settings › Operator and blog has no connected code host, so a task ends at a commit. Draft MR moved to Commit.")
     }
 
     @Test func theBranchBoxWaitsForTheCloseBox() {
