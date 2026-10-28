@@ -469,13 +469,10 @@ extension OperatorToolHandler {
     /// `ref` as the full commit it names in the task's repository.
     private func commit(_ ref: String, in task: TaskItem) async throws -> String {
         guard let project = state.project(id: task.projectId) else { throw ToolRefusal("Its project is no longer in AiTerm.") }
-        let git = ports.git, path = project.path
-        do {
-            return try await BackgroundWork.run {
-                try git.run(["rev-parse", "--verify", "--quiet", ref + "^{commit}"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        } catch {
+        let repository = Repository(project.path, git: ports.git)
+        guard let sha = (try? await BackgroundWork.run { try repository.commit(ref) }) ?? nil else {
             throw ToolRefusal("\(ref) isn’t a commit in \(project.name).")
         }
+        return sha
     }
 }

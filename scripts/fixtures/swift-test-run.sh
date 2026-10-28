@@ -15,9 +15,12 @@ case "$1" in
         [[ -z "${AITERM_FIXTURE_CALLS:-}" ]] || print -r -- "swift $*" >>"$AITERM_FIXTURE_CALLS"
         # A real filtered run prints one `Test run` line per test host its filters reach, and a
         # `Suite` line per suite: a filter like ^Target\. reaches that target's host, and one like
-        # ^Target\.Suite/ that suite too. Any other filter stands for a single host.
-        hosts=() suites=()
+        # ^Target\.Suite/ that suite too. Any other filter stands for a single host, and what a
+        # --skip names reaches nothing.
+        hosts=() suites=() previous=
         for arg in "$@"; do
+            [[ "$previous" != --skip ]] || { previous="$arg"; continue; }
+            previous="$arg"
             if [[ "$arg" =~ '^\^([A-Za-z0-9_]+)\\\.(([A-Za-z0-9_]+)/)?$' ]]; then
                 hosts+=("$match[1]")
                 [[ -z "$match[3]" ]] || suites+=("$match[3]")

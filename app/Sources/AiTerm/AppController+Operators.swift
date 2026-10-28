@@ -137,8 +137,8 @@ extension AppController {
     /// connected snapshot sweeps it, the first one telling it who is driving, which a restart has to wait for.
     func installTaskAutoCloser() {
         let controller = operatorController
-        let closer = TaskAutoCloser(workspace: workspace, live: live, git: controller.ports.git, now: controller.ports.now,
-                                    sessionsKnown: false) { [remover] in try await remover.removeAutomatically($0, starting: $1) }
+        let closer = TaskAutoCloser(workspace: workspace, live: live, git: controller.ports.git,
+                                    now: controller.ports.now) { [remover] in try await remover.removeAutomatically($0, starting: $1) }
         controller.onRunChanged = { [closer] in closer.changed($0) }
         // After `live`'s own hook, so the sweep reads the snapshot's sessions. Weak, as the
         // helper's other hooks are, so the closer goes with the controller that holds it.

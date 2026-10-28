@@ -418,11 +418,13 @@ the second disabled while the first is off. Its content runs past `Sheet.height`
 both are disabled and the editor and the field fade to `Opacity.disabled`, their labels and the goal's help not;
 the goal's help says why for both, and the rounds' help is left out. No new `Palette` member; one `Metrics`
 member, `Opacity.disabled`.
-Start Broadcast waits for what the broadcast needs (`BroadcastReadiness`): every agent the Operator may plan on,
-Claude Code and Codex where installed, Ready on its Settings card, Messaging included, iTerm2's own delivery
-checks passed, and the chosen projects' code hosts checked (`NewBroadcastModel.loadCodeHosts`), which the Task
-step's ends depend on; Continue waits for none of it. Until then the footer, on every step, carries a `Notice` with no actions, “Not ready to start”,
-its description one line per piece in its card's words (`Codex: Messaging not checked for 0.161`, `iTerm2 checks not run`).
+
+Start Broadcast waits for what the broadcast needs (`BroadcastReadiness`): every agent the Operator may plan on, Claude
+Code and Codex where installed, Ready on its Settings card, Messaging included, iTerm2's own delivery checks passed, and
+the chosen projects' code hosts checked (`NewBroadcastModel.loadCodeHosts`), which the Task step's ends depend on;
+Continue waits for none of it. Until then the footer, on every step, carries a `Notice` with no actions, “Not ready to
+start”, its description one line per piece in its card's words (`Codex: Messaging not checked for 0.161`,
+`iTerm2 checks not run`).
 
 The header's board button and Open Board open the broadcast's sheet (`BroadcastBoardSheet`, presented by `BroadcastBoardHost`,
 decided by `BroadcastBoard` in `AiTermCore/Sidebar/`): `SheetLayout` at `Sheet.width` by `Sheet.height`, Settings'
@@ -488,8 +490,9 @@ rounds` in the needs-you badge, and under a `Hairline`, as over the tabs, has th
 Accept As It Is as links in `Typography.help`, `Space.gap` apart and `Space.tight` under it
 (`BroadcastBoard.FixRoundsAnswer`); once you answered, “You answered: one more round.” in their place. A task the
 closing kept reads its end and `worktree kept` (`draft MR · worktree kept`) and says why under the same rule
-(`OperatedTask.keptReason`). A task the closing removed keeps its card in Done, drawn from its
-`FinishedTaskRecord`: its line as it ended with `· removed` after it, nothing to open; those come first in Done and
+(`OperatedTask.keptReason`); while the closing waits on it, its line as it was, the same rule says what for
+(`OperatedTask.closingWait`: `Waiting for its turn to end`). A task the closing removed keeps its card in Done, drawn
+from its `FinishedTaskRecord`: its line as it ended with `· removed` after it, nothing to open; those come first in Done and
 count towards the progress. Once every task is done the band reads `checking the goal` until `check_goal`
 answers, and after an extra round its tail counts the rounds used, `· round 1 of 2`; ended, it says how the goal
 went (`ended · goal not met`) and, with the goal checked, `· 2 left for you`.

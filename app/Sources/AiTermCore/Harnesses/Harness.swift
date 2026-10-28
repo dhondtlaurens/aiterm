@@ -27,9 +27,6 @@ public struct Harness: Sendable {
     let bundledResource: BundledResource?
     /// The launch command's arguments after the CLI and before the prompt, unquoted.
     let launchArguments: @Sendable (_ model: String, _ reasoning: String?) -> [String]
-    /// Those of a launch that may only read, where the CLI has a mode for it: none for Claude, which reads only through
-    /// `AgentCommand`'s denials, nor for PI.
-    let readOnlyArguments: (@Sendable (_ model: String, _ reasoning: String?) -> [String])?
     /// The arguments after the CLI that resume conversation `id` — the one the agent's own hooks name
     /// (`SessionInfo.conversationId`) — as the CLI's `--help` spells them, unquoted.
     let resumeArguments: @Sendable (_ conversation: String) -> [String]
@@ -57,9 +54,11 @@ public struct Harness: Sendable {
         [executable] + launchArguments(model, reasoning)
     }
 
-    /// The read-only launch's words before its prompt, unquoted; `nil` without a read-only mode.
-    func readOnlyLaunchWords(model: String, reasoning: String?) -> [String]? {
-        readOnlyArguments.map { [executable] + $0(model, reasoning) }
+    /// Codex's launch that may only read, before its prompt, unquoted, asked of Codex's harness: its read-only sandbox,
+    /// never asking, as there is no one at a review tab to approve. Claude reads only through `AgentCommand`'s denials,
+    /// and PI has no such mode.
+    func codexReadOnlyLaunchWords(model: String, reasoning: String?) -> [String] {
+        [executable, "--sandbox", "read-only", "--ask-for-approval", "never"] + modelArguments(model: model, reasoning: reasoning)
     }
 
     /// The resume command's words, unquoted (`AgentCommand` quotes them): the CLI, the conversation,

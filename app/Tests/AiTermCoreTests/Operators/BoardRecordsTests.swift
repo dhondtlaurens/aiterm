@@ -54,6 +54,20 @@ import Testing
         #expect(try JSONDecoder().decode(OperatedTask.self, from: JSONEncoder().encode(operated)) == operated)
     }
 
+    /// What the closing waits for is saved as its case, so its words can change, and a case this build doesn't know is
+    /// no wait rather than a failed load.
+    @Test func whatTheClosingWaitsForIsKeptOnTheTaskByItsCase() throws {
+        var operated = OperatorUIFixtures.operated(run: UUID(), key: "PAY-235", state: .published, end: .draftMR)
+        #expect(try json(operated)["closingWait"] == nil, "a task the closing never waited on saves as before")
+        operated.closingWait = .helper
+        #expect(try json(operated)["closingWait"] as? String == "helper")
+        #expect(try JSONDecoder().decode(OperatedTask.self, from: JSONEncoder().encode(operated)) == operated)
+        var unknown = try json(operated)
+        unknown["closingWait"] = "somethingNew"
+        let data = try JSONSerialization.data(withJSONObject: unknown)
+        #expect(try JSONDecoder().decode(OperatedTask.self, from: data).closingWait == nil)
+    }
+
     @Test func theBoardReadsBoth() throws {
         var run = OperatorUIFixtures.run(state: .complete, projectIds: [web.id], agents: OperatorUIFixtures.agents,
                                          taskSettings: OperatorUIFixtures.taskSettings)
@@ -73,6 +87,23 @@ import Testing
         kept.operated?.keptReason = "Not closed: its worktree has uncommitted changes. Remove it yourself once they are safe."
         let keptCard = try card(run, [kept])
         #expect(keptCard.line?.text == "draft MR · worktree kept" && keptCard.notice == kept.operated?.keptReason)
+
+        // While the closing's pass is open (`closedAt` nil, the summary in), a task it waits for says what for under its rule,
+        // its line as it was; a sibling the pass already kept says nothing until the pass ends, nor does a reason left from
+        // an earlier closing.
+        var open = run
+        open.closedAt = nil
+        open.summary = "Shipped."
+        var waiting = kept
+        waiting.operated?.keptReason = nil
+        waiting.operated?.closingWait = .agentTurn
+        let waitingCard = try card(open, [waiting])
+        #expect(waitingCard.notice == "Waiting for its turn to end" && waitingCard.line?.text.hasSuffix("worktree kept") == false)
+        let sibling = try card(open, [kept])
+        #expect(sibling.notice == nil && sibling.line?.text.hasSuffix("worktree kept") == false)
+        open.summary = nil
+        #expect(try card(open, [waiting]).notice == nil, "a wait left from an earlier closing waits for this one to be due")
+        #expect(try card(run, [waiting]).notice == nil, "once the closing ran, only a kept reason is said")
 
         var active = run
         active.state = .active

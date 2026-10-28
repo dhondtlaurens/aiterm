@@ -201,7 +201,7 @@ extension OperatorToolHandler {
             .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
         guard !reviewers.isEmpty else { throw ToolRefusal("request_review needs `reviewers`: the usernames to ask, from find_user.") }
         let original = try notTakenOver(task)
-        try requireSlice(.review, in: run, otherwise: "Assign \(Self.names(reviewers)) to \(Self.request(of: original))")
+        try requireSlice(.review, in: run, otherwise: "Assign \(reviewers.sentenceList) to \(Self.request(of: original))")
         try acceptsWork(run)
         guard let number = original.publication?.mergeRequestNumber else {
             throw ToolRefusal("\(original.key) has no merge request yet: finish_task opens it.")
@@ -389,7 +389,7 @@ extension OperatorToolHandler {
 
     private func reviewHost(of task: TaskItem) async throws -> any MergeRequestPublishing {
         guard let project = state.project(id: task.projectId) else { throw ToolRefusal("Its project is no longer in AiTerm.") }
-        return try await ReviewHosts.host(of: project, git: ports.git, connect: ports.publisher)
+        do { return try await ports.codeHost.host(of: project) } catch { throw ToolRefusal(error) }
     }
 
     /// The host of the task's request, refused unless the project's origin still resolves to the repository it was
@@ -404,10 +404,6 @@ extension OperatorToolHandler {
     private static func request(of operated: OperatedTask) -> String {
         guard let number = operated.publication?.mergeRequestNumber else { return "\(operated.key)’s merge request" }
         return operated.publication?.mergeRequestURL.map { CodeHost(webURL: $0).reference(number) } ?? "\(operated.key)’s merge request"
-    }
-
-    private static func names(_ names: [String]) -> String {
-        names.count < 2 ? names.joined() : names.dropLast().joined(separator: ", ") + " and " + names.last!
     }
 
     private static func requestAnswer(_ operated: OperatedTask, reviewers: [String], requested: Bool) -> JSONValue {

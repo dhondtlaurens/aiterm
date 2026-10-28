@@ -85,6 +85,13 @@ import Testing
         #expect(try card(board, "Cart drawer").combination == "Opus 5.5 · High")
         #expect(try card(board, "Payment provider switch").combination == "gpt-9-unlisted · Medium", "no label known: the id")
         #expect(try card(board, "Checkout layout").combination == "Opus 5.5 · High", "a record's too")
+        // The Shelf's board, of the broadcast ended, names them as the live one does.
+        var ended = run
+        ended.state = .stopped
+        ended.endedAt = OperatorUIFixtures.epoch
+        let shelved = BroadcastBoard.shelved(run: ended, state: state(ended, [drawer]), modelLabels: labels)
+        #expect(try card(shelved, "Cart drawer").combination == "Opus 5.5 · High")
+        #expect(try card(shelved, "Checkout layout").combination == "Opus 5.5 · High")
         // A tab's under its key, by its own agent's labels.
         var tests = OperatorUIFixtures.extraTab("e2e-tests")
         tests.model = "claude-opus-5-5"; tests.reasoning = "low"

@@ -114,14 +114,14 @@ public struct Repository: Sendable {
     }
 
     /// The commit `ref` names, `nil` when git says there is none (exit 1 under `--quiet`); thrown
-    /// when git could not be asked.
-    func commit(_ ref: String) throws -> String? {
-        try git.ask(["rev-parse", "--verify", "--quiet", ref + "^{commit}"], in: path, none: [1])
+    /// when git could not be asked. A ref that starts with `-` is a ref, never an option.
+    public func commit(_ ref: String) throws -> String? {
+        try git.ask(["rev-parse", "--verify", "--quiet", "--end-of-options", ref + "^{commit}"], in: path, none: [1])
     }
 
     /// Whether `ancestor` is in `commit`'s history. git's "no" is exit 1; anything else — a
     /// timeout, a commit it cannot find — is thrown, so it is never taken for a no.
-    func isAncestor(_ ancestor: String, of commit: String) throws -> Bool {
+    public func isAncestor(_ ancestor: String, of commit: String) throws -> Bool {
         try git.ask(["merge-base", "--is-ancestor", ancestor, commit], in: path, none: [1]) != nil
     }
 

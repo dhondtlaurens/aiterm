@@ -17,7 +17,7 @@ extension OperatorToolHandler {
         let agent = try self.agent(call), project = try self.project(call, in: run)
         // Every branch name the repository has, local and on origin (F7), and a legacy run's model catalogue.
         let git = ports.git, path = project.path
-        let connected = try await hasCodeHost(project)
+        let connected = try await hasCodeHost(project, for: call, in: run)
         let repositoryBranches = await BackgroundWork.run { Repository(path, git: git).branches() }
         let catalogue = await modelCatalogue(for: agent, in: run)
         let delivery = await deliveryStatus()
@@ -82,7 +82,7 @@ extension OperatorToolHandler {
         let agent = try self.agent(call)
         let catalogue = await modelCatalogue(for: agent, in: run)
         let project = try self.project(call, in: run)
-        let connected = try await hasCodeHost(project)
+        let connected = try await hasCodeHost(project, for: call, in: run)
         let delivery = await deliveryStatus()
         _ = try draft(call, in: state.run(id: run.id) ?? run, catalogue: catalogue, connected: connected, delivery: delivery)
     }
@@ -153,8 +153,12 @@ extension OperatorToolHandler {
         return done.contains(/\bcommits?\b/) && !saysRequest ? .commit : .draftMR
     }
 
-    /// `CodeHostCheck`'s answer; an origin git can't read is refused with git's own words, not read as no origin.
-    private func hasCodeHost(_ project: Project) async throws(ToolRefusal) -> Bool {
+    /// `CodeHostCheck`'s answer, read only for an end that needs a code host (`TaskEnd.needsCodeHost`), or a legacy
+    /// default that hangs on the answer (`knownEnd`); any other end is false without a read. An end `call` names that is
+    /// none is refused first, with its own sentence. An origin git can't read is refused with git's own words, not read as
+    /// no origin.
+    private func hasCodeHost(_ project: Project, for call: ToolCall, in run: OperatorRun) async throws(ToolRefusal) -> Bool {
+        if let end = try knownEnd(call, in: run), !end.needsCodeHost { return false }
         do { return try await ports.codeHost.connects(project) }
         catch { throw ToolRefusal("AiTerm couldn’t read \(project.name)’s origin: \(error.reason)") }
     }
@@ -168,11 +172,11 @@ extension OperatorToolHandler {
         }
         if end.merges, !run.profile.slices.merge {
             throw refusal("Merge is off for this broadcast", legacyAdvice: "end it at a commit or a draft MR.",
-                          ask: "how to go on, since a running broadcast’s slices and end can’t change.")
+                          ask: "how to go on, since a running broadcast’s slices and the Task step’s end can’t change.")
         }
         if end.needsCodeHost, !connected {
             throw refusal("\(project.name) has no connected code host", legacyAdvice: "end it at a commit.",
-                          ask: "to connect \(project.name)’s code host (Settings), then call it again.")
+                          ask: "to connect \(project.name)’s code host in Settings › Integrations, then call it again.")
         }
     }
 
@@ -200,7 +204,11 @@ extension OperatorToolHandler {
         try acceptsPlanChanges(run)
         let project = state.project(id: task.projectId)
         // The origin is read only for an end it checks: a git that can't read it holds up no other change.
-        let connected = if let project, call.optionalString("end") != nil { try await hasCodeHost(project) } else { false }
+        let connected = if let project, call.optionalString("end") != nil {
+            try await hasCodeHost(project, for: call, in: run)
+        } else {
+            false
+        }
         let brief = call.optionalString("brief")
         let agent = try call.optionalString("agent").map { _ in try self.agent(call) }
         // Naming an agent without a model takes its first Agents row (its default for legacy runs).
@@ -352,6 +360,17 @@ extension OperatorToolHandler {
         AgentIntegrations.taskModels(remembered: remembered)(agent)
     }
 
+    /// The task's end as far as it is known before its code host is: the broadcast's, the one `call` names, or a legacy
+    /// broadcast's default from its Done; nil for a legacy broadcast with no Done, whose default is a draft MR only with a
+    /// code host.
+    private func knownEnd(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> TaskEnd? {
+        if let settings = run.taskSettings { return settings.end }
+        if let end = try end(call) { return end }
+        return OperatorCommand.said(run.done) == nil ? nil : Self.defaultEnd(for: run)
+    }
+
+    /// A broadcast with the Task step ends every task where its step says, so a call that names an end is refused there;
+    /// a legacy broadcast's calls may name one.
     private func refuseEndChange(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) {
         if let settings = run.taskSettings, call.optionalString("end") != nil {
             throw ToolRefusal("Every task ends at \(settings.end.displayName), which only the person changes.")

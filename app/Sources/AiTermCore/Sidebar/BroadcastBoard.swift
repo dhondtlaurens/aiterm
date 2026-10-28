@@ -176,7 +176,8 @@ public struct BroadcastBoard: Equatable, Sendable {
         public var end: EndLine? = nil
         /// Out of its review's fix rounds and asked about them, while it is not yours.
         public var fixRounds: FixRounds? = nil
-        /// Why the closing kept its worktree (`OperatedTask.keptReason`), under its rule; nil while none is recorded.
+        /// Under its rule: why the closing kept its worktree once it ran (`OperatedTask.keptReason`), or while it is due what
+        /// it waits for (`closingWait`); nil while neither is recorded.
         public var notice: String? = nil
     }
 
@@ -344,11 +345,12 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// order they were created (the state's order where that ties), and no card a button, no worker tab listed, no end to
     /// change, nothing paused. Nothing is live: no acts, no requests, no sessions. What End handed you, mid-flight, stays
     /// In progress reading `taken over` and counts towards the total, not as done: a broadcast ended at 2 of 8 says so.
-    public static func shelved(run: OperatorRun, state: AppState) -> BroadcastBoard {
+    /// Its cards name each model by `modelLabels`, as the live board's do.
+    public static func shelved(run: OperatorRun, state: AppState, modelLabels: ModelLabels = [:]) -> BroadcastBoard {
         var all = state
         let driven = state.tasks(inRun: run.id) + state.archive.map(\.task).filter { $0.operated?.runId == run.id }
         all.tasks = driven.enumerated().sorted { ($0.element.createdAt, $0.offset) < ($1.element.createdAt, $1.offset) }.map(\.element)
-        var board = build(run: run, state: all, acting: .none, requests: [], sessions: [], liveModels: [:], modelLabels: [:], keepsHanded: true)
+        var board = build(run: run, state: all, acting: .none, requests: [], sessions: [], liveModels: [:], modelLabels: modelLabels, keepsHanded: true)
         board.columns = board.columns.map { lane in
             var lane = lane
             lane.cards = lane.cards.map { card in
@@ -407,7 +409,8 @@ public struct BroadcastBoard: Equatable, Sendable {
                              requests: [BroadcastRequest], tasks: [UUID: TaskItem], sessions: [SessionInfo], live: LiveModel?,
                              turn: WorkerTurn.Ending?, labels: ModelLabels, project: String?) -> Card {
         let setUp = run.taskSettings != nil, takenOver = operated.takenOver
-        let kept = setUp && run.taskSettings?.closeWhenDone == true && operated.reachedItsEnd && closingRan(run)
+        let closes = setUp && run.taskSettings?.closeWhenDone == true && operated.reachedItsEnd
+        let kept = closes && closingRan(run)
         // Asked about its fix rounds; a request of its own (a prompt, a block) is said first, as every request is.
         let fixRounds = setUp && !operated.isFinished && !takenOver ? run.fixRoundsQuestion(on: task.id) : nil
         let asks = requests.contains { $0.runId == run.id && $0.taskId == task.id && $0.kind != .question }
@@ -443,7 +446,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                         FixRounds(counts: operated.reviewVerdicts.last.map(counts),
                                   answered: question.answeredOnCard.flatMap(FixRoundsAnswer.init(rawValue:)))
                     },
-                    notice: kept ? operated.keptReason : nil)
+                    notice: kept ? operated.keptReason : closes && run.closingIsDue ? operated.closingWait?.text : nil)
     }
 
     /// Whether the closing has run since the broadcast last completed or ended (`closedAt`): a task that reached its
@@ -480,7 +483,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         let found = [("Critical", verdict.critical), ("Important", verdict.important), ("Minor", verdict.minor)]
             .filter { $0.1 > 0 }.map { "\($0.1) \($0.0)" }
         let lead = "\(rounds) \(rounds == 1 ? "round" : "rounds") of fixes, and the last review, of \(verdict.sha.prefix(7)), "
-        return lead + (found.isEmpty ? "didn’t pass." : "still found " + OperatorLine.list(found) + ".")
+        return lead + (found.isEmpty ? "didn’t pass." : "still found " + found.sentenceList + ".")
     }
 
     /// A card's tab lines, as `sessions` list its worker tabs; none for a task with one. With `labels`, each tab's model

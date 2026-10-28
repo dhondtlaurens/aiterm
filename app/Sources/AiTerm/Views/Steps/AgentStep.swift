@@ -44,9 +44,8 @@ struct AgentStep: View {
     /// Names the missing CLIs and where Settings installs them.
     static func missingAgentNote(available: Set<AgentKind>) -> String? {
         let missing = AgentKind.allCases.filter { !available.contains($0) }.map(\.displayName)
-        guard let last = missing.last else { return nil }
-        let names = missing.count == 1 ? last : missing.dropLast().joined(separator: ", ") + " and " + last
-        return names + (missing.count == 1 ? " isn’t installed. Install it" : " aren’t installed. Install them")
+        guard !missing.isEmpty else { return nil }
+        return missing.sentenceList + (missing.count == 1 ? " isn’t installed. Install it" : " aren’t installed. Install them")
             + " in Settings › Agents."
     }
 

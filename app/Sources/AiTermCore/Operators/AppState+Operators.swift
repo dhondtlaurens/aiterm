@@ -6,6 +6,12 @@ public extension OperatorRun {
 
     /// Paused by you, its window closed, or being paused: what its header and board say as paused.
     var isPaused: Bool { state == .paused || state == .operatorOffline || intent == .paused }
+
+    /// Auto-close is due: closing is on, and the broadcast ended, or completed with its summary in or given up. A legacy
+    /// run, with no task settings, never closes; End needs no summary.
+    var closingIsDue: Bool {
+        taskSettings?.closeWhenDone == true && (hasEnded || (state == .complete && (summary != nil || summaryGivenUp)))
+    }
 }
 
 /// Finding a broadcast and its tasks in the workspace, for the engines and the app alike.

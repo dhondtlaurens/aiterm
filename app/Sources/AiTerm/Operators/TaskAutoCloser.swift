@@ -4,26 +4,11 @@ import AiTermCore
 /// End-of-broadcast cleanup (spec, Auto-close). A task's `FinishedTaskRecord` is written just before its
 /// removal starts and taken back when the removal fails or waits, so `finished` holds only tasks whose row
 /// is gone; why a task stays is on the task, for its card (`OperatedTask.keptReason`). A person's turn, an
-/// agent's, or the helper being away defers only that task: a turn until its end, the helper until it is back
-/// (`sweep`).
+/// agent's, or the helper being away defers only that task (`ClosingWait`, on the task as `closingWait` for its card): a
+/// turn until its end, the helper until it is back (`sweep`).
 @MainActor
 final class TaskAutoCloser {
     nonisolated static let unsavedWork = "Not closed: its worktree has uncommitted changes. Remove it yourself once they are safe."
-    nonisolated static let waitingForTurn = "Not closed: waiting for your turn to end."
-    nonisolated static let waitingForAgent = "Not closed: waiting for its agent’s turn to end."
-    nonisolated static let waitingForHelper = "Not closed: waiting for AiTerm’s helper to reconnect."
-
-    /// A removal that did not start and is tried again: for the person's turn, an agent's, or the helper.
-    enum Deferred: LocalizedError {
-        case turn, agentTurn, helper
-        var errorDescription: String? {
-            switch self {
-            case .turn: TaskAutoCloser.waitingForTurn
-            case .agentTurn: TaskAutoCloser.waitingForAgent
-            case .helper: TaskAutoCloser.waitingForHelper
-            }
-        }
-    }
 
     private struct Phase: Equatable {
         let completed: Date?, ended: Date?
@@ -32,27 +17,28 @@ final class TaskAutoCloser {
     private struct Pass {
         let phase: Phase
         var attempted: Set<UUID> = []
-        var deferred: [UUID: Deferred] = [:]
+        var deferred: [UUID: ClosingWait] = [:]
     }
     private let workspace: WorkspaceStore
     private let live: LiveSessions
     private let git: any GitRunning
     private let now: @MainActor () -> Date
     private let remove: @MainActor (TaskItem, _ starting: @MainActor () -> Bool) async throws -> Void
-    /// Until the helper's first connected snapshot an empty session list is unknown, not "nobody is driving".
-    private var sessionsKnown: Bool
+    /// Until the helper's first connected snapshot (`sweep`) an empty session list is unknown, not "nobody is driving".
+    private var sessionsKnown = false
     private var running: Set<UUID> = []
     private var passes: [UUID: Pass] = [:]
     /// The tasks whose branch is being deleted now, which `checkBranchRecords` leaves alone.
     private var deleting: Set<UUID> = []
     private var branchRecordsChecked = false
+    /// The latest closing `changed` started, for a test to await.
+    private(set) var lastClose: Task<Void, Never>?
 
     /// `remove` is the person's Remove without its questions (`TaskRemover.removeAutomatically`): it calls
     /// `starting` once nothing is left to keep the task, and stops when that returns false.
     init(workspace: WorkspaceStore, live: LiveSessions, git: any GitRunning, now: @escaping @MainActor () -> Date,
-         sessionsKnown: Bool, remove: @escaping @MainActor (TaskItem, _ starting: @MainActor () -> Bool) async throws -> Void) {
-        self.workspace = workspace; self.live = live; self.git = git; self.now = now
-        self.sessionsKnown = sessionsKnown; self.remove = remove
+         remove: @escaping @MainActor (TaskItem, _ starting: @MainActor () -> Bool) async throws -> Void) {
+        self.workspace = workspace; self.live = live; self.git = git; self.now = now; self.remove = remove
         // LiveSessions lives as long as the workspace. Its listener holds no owner alive.
         live.onSessionsChanged { [weak self] _ in
             guard let self else { return }
@@ -96,7 +82,7 @@ final class TaskAutoCloser {
 
     func changed(_ id: UUID) {
         guard sessionsKnown, !running.contains(id), let run = workspace.state.run(id: id), shouldClose(run) else { return }
-        Task { [weak self] in await self?.close(id) }
+        lastClose = Task { [weak self] in await self?.close(id) }
     }
 
     static func isDriving(_ task: TaskItem, in live: LiveSessions) -> Bool {
@@ -114,15 +100,9 @@ final class TaskAutoCloser {
         return operated.isFinished && operated.state != .stopped && operated.publication?.leftForYou != true
     }
 
-    /// Legacy runs and unfinished summaries never initiate cleanup; End needs no summary.
-    private func ready(_ run: OperatorRun) -> Bool {
-        run.taskSettings?.closeWhenDone == true
-            && (run.hasEnded || (run.state == .complete && (run.summary != nil || run.summaryGivenUp)))
-    }
-
     /// A pass runs once per completion or End, then resumes only what it deferred, once that may go on.
     private func shouldClose(_ run: OperatorRun) -> Bool {
-        guard ready(run) else { return false }
+        guard run.closingIsDue else { return false }
         if let pass = passes[run.id], pass.phase == Phase(run) {
             return workspace.state.tasks(inRun: run.id).contains { task in
                 guard Self.eligible(task), waits(task.id, in: pass) else { return false }
@@ -142,7 +122,7 @@ final class TaskAutoCloser {
     private func waits(_ task: UUID, in pass: Pass) -> Bool { !pass.attempted.contains(task) }
 
     private func samePhase(_ run: OperatorRun) -> OperatorRun? {
-        guard let current = workspace.state.run(id: run.id), ready(current), Phase(current) == Phase(run) else { return nil }
+        guard let current = workspace.state.run(id: run.id), current.closingIsDue, Phase(current) == Phase(run) else { return nil }
         return current
     }
 
@@ -214,7 +194,7 @@ final class TaskAutoCloser {
         guard let record = Self.record(task, in: run, at: now()) else { return workspace.persistenceError == nil }
         do {
             try await remove(task) { [self] in save(record, in: run.id) }
-        } catch let deferred as Deferred {
+        } catch let deferred as ClosingWait {
             passes[run.id]?.attempted.remove(task.id)
             passes[run.id]?.deferred[task.id] = deferred
             return takeBack(task.id, in: run.id)

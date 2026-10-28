@@ -49,8 +49,8 @@ struct BroadcastBoardHost: View {
                                        actions: controller.boardActions(for: runId, dismiss: { dismiss.afterThisEvent() }), activity: feed)
         case .shelved:
             guard let run = controller.state.run(id: runId), run.hasEnded else { return nil }
-            return BroadcastBoardSheet(board: .shelved(run: run, state: controller.state), reopenFailed: false, actions: BoardActions(),
-                                       activity: feed)
+            return BroadcastBoardSheet(board: .shelved(run: run, state: controller.state, modelLabels: controller.rows.modelLabels),
+                                       reopenFailed: false, actions: BoardActions(), activity: feed)
         }
     }
 

@@ -68,6 +68,5 @@ extension WorktreeInclude.Outcome {
 private func named(_ files: [String]) -> String {
     let shown = Array(files.prefix(3)), more = files.count - shown.count
     if more > 0 { return shown.joined(separator: ", ") + " and \(more) more \(more == 1 ? "file" : "files")" }
-    guard let last = shown.last, shown.count > 1 else { return shown.first ?? "" }
-    return shown.dropLast().joined(separator: ", ") + " and " + last
+    return shown.sentenceList
 }

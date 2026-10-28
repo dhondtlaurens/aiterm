@@ -500,6 +500,43 @@ extension OperatorPlanToolsTests {
         #expect(refused.message?.contains(OriginUnreadableGit.sentence) == true, "\(String(describing: refused.message))")
         #expect(world.state.tasks.isEmpty)
     }
+
+    /// The origin is read only for an end that needs a code host: one git can't read holds up no task that ends at a
+    /// commit, the broadcast's end or the one a legacy call names, nor a legacy update to one.
+    @Test(arguments: [false, true]) func anEndThatNeedsNoCodeHostReadsNoOrigin(legacy: Bool) async throws {
+        let fixture = try GitFixture.withOrigin(branch: "feat/source")
+        let project = OperatorServiceFixtures.project(path: fixture.path)
+        var run = OperatorServiceFixtures.run(projects: [project])
+        if !legacy {
+            run.taskSettings = TaskSettings(review: nil, end: .commit)
+            run.agents = [AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "high")]
+        }
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]), git: OriginUnreadableGit())
+        let created = if legacy { await create(world, run, "A") } else { await world.call(run.id, "create_task", rowArguments()) }
+        #expect(created.value?["created"] == true, "\(String(describing: created.message))")
+        #expect(world.state.tasks.first?.operated?.end == .commit)
+        if legacy {
+            let updated = await world.call(run.id, "update_task", ["task": "A", "end": "commit"])
+            #expect(updated.message == nil, "\(String(describing: updated.message))")
+        }
+    }
+
+    /// A legacy call that names no end reads no origin when the broadcast's Done makes the default a commit, and an end
+    /// that is none is refused with its own sentence, not with git's.
+    @Test func aLegacyDefaultOfACommitAndAnEndThatIsNoneReadNoOrigin() async throws {
+        let fixture = try GitFixture.withOrigin(branch: "feat/source")
+        let project = OperatorServiceFixtures.project(path: fixture.path)
+        var run = OperatorServiceFixtures.run(projects: [project])
+        run.done = "a commit per item, tests green"
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]), git: OriginUnreadableGit())
+        let created = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "Do A.", "project": "Shop",
+                                                               "agent": "codex", "modelReason": "The default."])
+        #expect(created.value?["created"] == true, "\(String(describing: created.message))")
+        #expect(world.state.tasks.first?.operated?.end == .commit)
+        let endless = "A task’s end is commit, draftMR, merge or mergeLocal."
+        #expect(await create(world, run, "B", end: "shipped").message == endless)
+        #expect(await world.call(run.id, "update_task", ["task": "A", "end": "shipped"]).message == endless)
+    }
 }
 
 extension OperatorPlanToolsTests {
@@ -628,7 +665,7 @@ extension OperatorPlanToolsTests {
             #expect(world.state.tasks.first?.operated?.end == .mergeLocal)
         } else {
             #expect(answer.message == "Shop has no connected code host, so no task can end at \(end.displayName): ask the person "
-                    + "with ask_you, on no task, to connect Shop’s code host (Settings), then call it again.")
+                    + "with ask_you, on no task, to connect Shop’s code host in Settings › Integrations, then call it again.")
             #expect(world.state.tasks.isEmpty)
         }
     }
@@ -641,7 +678,8 @@ extension OperatorPlanToolsTests {
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.taskSettings?.end = end } }
         let answer = await world.call(run.id, "create_task", rowArguments())
         #expect(answer.message == "Merge is off for this broadcast, so no task can end at \(end.displayName): ask the person "
-                + "with ask_you, on no task, how to go on, since a running broadcast’s slices and end can’t change.")
+                + "with ask_you, on no task, how to go on, since a running broadcast’s slices and the Task step’s end "
+                + "can’t change.")
         #expect(world.state.tasks.isEmpty)
     }
 }

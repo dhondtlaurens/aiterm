@@ -18,7 +18,7 @@ public enum OperatorAct: String, CaseIterable, Sendable {
         case .checkingTheWork: return "checking the work"
         case .reviewingWith: return "reviewing with \(agent)"
         case .openingTheMR: return "opening the MR"
-        case .assigning: return "assigning " + (names.isEmpty ? "reviewers" : OperatorLine.list(names))
+        case .assigning: return "assigning " + (names.isEmpty ? "reviewers" : names.sentenceList)
         case .relayingFeedback: return "relaying feedback"
         case .merging: return "merging"
         case .filingATicket: return "filing a ticket"
@@ -170,7 +170,7 @@ public struct OperatorLine: Equatable, Sendable {
             return OperatorLine(Count.working.words, look: .acting)
         case .inReview:
             if let people = operated.peopleReview, !people.reviewers.isEmpty, !people.ended {
-                return quiet("in review", "waiting on " + list(people.reviewers))
+                return quiet("in review", "waiting on " + people.reviewers.sentenceList)
             }
             if let review = operated.agentReview { return quiet("in review · " + SidebarModel.agentName(review.agent)) }
             return quiet("in review")
@@ -293,7 +293,7 @@ public struct OperatorLine: Equatable, Sendable {
             guard let operated = task.operated, operated.state == .inReview, let people = operated.peopleReview, !people.ended else { continue }
             for name in people.reviewers where !names.contains(name) { names.append(name) }
         }
-        if !names.isEmpty { return OperatorLine.quiet("in review", "waiting on " + list(names)) }
+        if !names.isEmpty { return OperatorLine.quiet("in review", "waiting on " + names.sentenceList) }
         return quiet("working")
     }
 
@@ -433,12 +433,6 @@ public struct OperatorLine: Equatable, Sendable {
 
     /// How a line names a task: its ticket's key, or its title.
     private static func label(of task: TaskItem?) -> String? { task.map { $0.jira?.key ?? $0.title } }
-
-    /// Names as a sentence lists them: `Jan`, `Jan and Piet`, `Jan, Piet and An`.
-    static func list(_ names: [String]) -> String {
-        guard names.count > 1 else { return names.first ?? "" }
-        return names.dropLast().joined(separator: ", ") + " and " + names.last!
-    }
 
     /// `state · detail`, the detail cut at a word, with an ellipsis, so the whole is at most `maxLength`.
     static func fit(_ state: String, _ detail: String) -> String {
