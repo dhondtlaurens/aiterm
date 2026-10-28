@@ -630,6 +630,17 @@ extension OperatorPlanToolsTests {
 }
 
 extension OperatorPlanToolsTests {
+    @Test(arguments: [TaskEnd.merge, .mergeLocal])
+    func newRunMergeEndWithMergeOff(end: TaskEnd) async throws {
+        let (world, run) = try rowsWorld()
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.taskSettings?.end = end } }
+        let answer = await world.call(run.id, "create_task", rowArguments())
+        #expect(answer.message == "Merge is off for this broadcast, so the person must change this task’s end from its card.")
+        #expect(world.state.tasks.isEmpty)
+    }
+}
+
+extension OperatorPlanToolsTests {
     @Test func reasoningOnlyUpdateKeepsTheCurrentModel() async throws {
         let (world, run) = try rowsWorld()
         world.workspace.mutate { $0.updateRun(id: run.id) {

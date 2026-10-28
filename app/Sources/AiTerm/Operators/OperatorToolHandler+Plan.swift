@@ -176,14 +176,15 @@ extension OperatorToolHandler {
     }
 
     private func validateEnd(_ end: TaskEnd, in run: OperatorRun, project: Project, connected: Bool) throws(ToolRefusal) {
+        // A new run's end is the person's alone, so the Operator can't be told to pick another.
+        func refusal(_ why: String, legacyAdvice: String) -> ToolRefusal {
+            ToolRefusal(run.taskSettings == nil ? "\(why): \(legacyAdvice)" : "\(why), so the person must change this task’s end from its card.")
+        }
         if end.merges, !run.profile.slices.merge {
-            throw ToolRefusal("Merge is off for this broadcast: end it at a commit or a draft MR.")
+            throw refusal("Merge is off for this broadcast", legacyAdvice: "end it at a commit or a draft MR.")
         }
         if (end == .draftMR || end == .merge), !connected {
-            // A new run's end is the person's alone, so the Operator can't be told to end it at a commit.
-            throw ToolRefusal(run.taskSettings == nil
-                ? "\(project.name) has no connected code host: end it at a commit."
-                : "\(project.name) has no connected code host, so the person must change this task’s end from its card.")
+            throw refusal("\(project.name) has no connected code host", legacyAdvice: "end it at a commit.")
         }
     }
 
