@@ -24,7 +24,7 @@ import Testing
                         remove: (@MainActor (TaskItem, @MainActor () -> Bool) async throws -> Void)? = nil) -> TaskAutoCloser {
         let app = fixture.controller
         return TaskAutoCloser(workspace: app.workspace, live: app.live, git: git ?? fixture.git, now: { Date() },
-                              remove: remove ?? { try await app.remover.removeAutomatically($0, starting: $1) })
+                              sessionsKnown: true, remove: remove ?? { try await app.remover.removeAutomatically($0, starting: $1) })
     }
 
     private func note(_ task: TaskItem, in fixture: RaceFixture) -> String? {
@@ -445,6 +445,95 @@ import Testing
         #expect(fixture.controller.state.tasks.isEmpty)
     }
 
+    @Test func anAcceptanceWhoseBaseCannotBeReadStillSucceedsWithoutOne() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let (run, task) = try prepare(fixture)
+        let app = fixture.controller
+        try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "work"], in: task.worktreePath)
+        let sha = try fixture.git.run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
+        app.workspace.mutate { state in
+            state.updateRun(id: run.id) { $0.state = .active; $0.summaryGivenUp = false }
+            if let index = state.tasks.firstIndex(where: { $0.id == task.id }) { state.tasks[index].baseBranch = "no-such-branch" }
+            state.updateOperated(task.id) { $0.state = .working; $0.acceptance = nil }
+        }
+        _ = try await app.operatorController.tools.markTask(
+            ToolCall(tool: "mark_task", arguments: ["task": "A", "outcome": "accepted", "sha": .string(sha), "checkOutput": "passed"]),
+            in: try #require(app.state.run(id: run.id)))
+        #expect(app.state.task(id: task.id)?.operated?.state == .accepted)
+        #expect(app.state.task(id: task.id)?.operated?.acceptance?.resultSHA == sha)
+        #expect(app.state.task(id: task.id)?.operated?.diffBaseSHA == nil)
+    }
+
+    @Test func aBranchDeletionThatCannotBeSavedNeverReadsAsDeleted() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let (run, task) = try prepare(fixture)
+        let app = fixture.controller
+        app.helper.setDaemonClient(RecordingDaemon())
+        app.workspace.mutate { state in
+            state.updateRun(id: run.id) { $0.taskSettings?.deleteMergedBranch = true }
+            state.updateOperated(task.id) { $0.end = .mergeLocal; $0.state = .published }
+        }
+        // Saving breaks once the row is gone, while the branch is checked: a directory stands where the backup goes.
+        let backup = app.workspace.file.backupURL
+        defer { try? FileManager.default.removeItem(at: backup) }
+        await closer(fixture, git: SaveBreakingGit(on: "merge-base", backup: backup)).close(run.id)
+        #expect(app.state.task(id: task.id) == nil)
+        #expect(app.state.run(id: run.id)?.finished.first?.branchDeleted == false)
+        #expect(try !fixture.git.run(["branch", "--list", task.branch], in: fixture.repo.path).isEmpty)
+    }
+
+    @Test func aRemovalThatStopsAfterItsWorktreeKeepsItsOwnNote() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let (run, task) = try prepare(fixture)
+        let app = fixture.controller
+        app.helper.setDaemonClient(RecordingDaemon())
+        // Hold the worktree's removal so its window can come back, with the helper gone, before the row goes.
+        let gate = DispatchSemaphore(value: 0)
+        defer { gate.signal() }
+        let closer = closer(fixture) { task, starting in
+            try await app.remover.removeAutomatically(task) {
+                TaskWorkflow.queue.async { gate.wait() }
+                return starting()
+            }
+        }
+        let closing = Task { await closer.close(run.id) }
+        await eventually { app.state.task(id: task.id)?.windowId == nil }
+        app.workspace.mutate { state in
+            if let index = state.tasks.firstIndex(where: { $0.id == task.id }) { state.tasks[index].windowId = "again" }
+        }
+        app.helper.setDaemonClient(nil)
+        gate.signal()
+        await closing.value
+        #expect(app.state.task(id: task.id) != nil)
+        #expect(app.remover.removals[task.id] == .stopped(note: "Worktree removed; close its window, then retry", worktreeRemoved: true))
+        #expect(app.state.run(id: run.id)?.finished.isEmpty == true)
+    }
+
+    @Test func aRowWhoseGoingCannotBeSavedIsNotMovedBack() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let (run, task) = try prepare(fixture)
+        let app = fixture.controller
+        app.helper.setDaemonClient(RecordingDaemon())
+        let other = OperatorServiceFixtures.task(in: run, project: fixture.project, key: "B", state: .working, end: .commit)
+        app.workspace.mutate { $0.tasks.append(other) }
+        let backup = app.workspace.file.backupURL
+        defer { try? FileManager.default.removeItem(at: backup) }
+        await closer(fixture) { task, starting in
+            try await app.remover.removeAutomatically(task) {
+                let saved = starting()
+                try? FileManager.default.removeItem(at: backup)
+                try? FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
+                return saved
+            }
+        }.close(run.id)
+        #expect(app.workspace.persistenceError != nil)
+        #expect(app.state.tasks.map(\.id) == [other.id])
+    }
+
     @Test(arguments: ["legacy", "disabled", "summary", "active"])
     func runsThatMustNotCloseAreUnchanged(_ mode: String) async throws {
         let fixture = try RaceFixture()
@@ -477,6 +566,19 @@ private struct RemovalSavedGit: GitRunning {
             #expect(state.task(id: task) == nil)
             #expect(state.run(id: run)?.finished.first?.task == task)
             #expect(state.run(id: run)?.finished.first?.branchDeleted == true)
+        }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
+    }
+}
+
+/// Breaks saving when `command` runs: a directory stands where the backup goes.
+private struct SaveBreakingGit: GitRunning {
+    let on: String, backup: URL
+    let inner = GitRunner.hermetic()
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        if args.first == on {
+            try? FileManager.default.removeItem(at: backup)
+            try? FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
         }
         return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }

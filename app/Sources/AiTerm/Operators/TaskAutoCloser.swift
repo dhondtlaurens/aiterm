@@ -39,7 +39,7 @@ final class TaskAutoCloser {
     /// `remove` is the person's Remove without its questions (`TaskRemover.removeAutomatically`): it calls
     /// `starting` once nothing is left to keep the task, and stops when that returns false.
     init(workspace: WorkspaceStore, live: LiveSessions, git: any GitRunning, now: @escaping @MainActor () -> Date,
-         sessionsKnown: Bool = true, remove: @escaping @MainActor (TaskItem, _ starting: @MainActor () -> Bool) async throws -> Void) {
+         sessionsKnown: Bool, remove: @escaping @MainActor (TaskItem, _ starting: @MainActor () -> Bool) async throws -> Void) {
         self.workspace = workspace; self.live = live; self.git = git; self.now = now
         self.sessionsKnown = sessionsKnown; self.remove = remove
         // LiveSessions lives as long as the workspace. Its listener holds no owner alive.
@@ -76,11 +76,10 @@ final class TaskAutoCloser {
         return reason.hasPrefix("Not closed:") ? reason : "Not closed: " + reason
     }
 
-    /// Only tasks that reached their chosen end, with nothing left for the person, may close.
+    /// Only tasks finished by reaching their end, with nothing left for the person, may close.
     static func eligible(_ task: TaskItem) -> Bool {
-        guard let operated = task.operated, operated.publication?.leftForYou != true else { return false }
-        return operated.state == .published || operated.state == .noChange
-            || (operated.state == .accepted && operated.end == .commit)
+        guard let operated = task.operated else { return false }
+        return operated.isFinished && operated.state != .stopped && operated.publication?.leftForYou != true
     }
 
     /// Legacy runs and unfinished summaries never initiate cleanup; End needs no summary.
@@ -191,12 +190,12 @@ final class TaskAutoCloser {
         }
         guard run.taskSettings?.deleteMergedBranch == true, let operated = task.operated,
               let project = workspace.state.project(id: task.projectId) else { return true }
-        var deleted = record, saved = false
+        var deleted = record
         deleted.branchDeleted = true
         let gone = await MergedBranchCheck.delete(branch: task.branch, acceptedSHA: operated.acceptance?.resultSHA, end: operated.end,
                                                   publication: operated.publication, kind: task.kind, path: project.path, git: git,
-                                                  saveDeletion: { [self] in saved = save(deleted, in: run.id); return saved })
-        // A deletion saved and then refused by git is taken back.
-        return gone || !saved || save(record, in: run.id)
+                                                  saveDeletion: { [self] in save(deleted, in: run.id) })
+        // A kept branch reads as kept, including one whose deletion was saved, or failed to save, before git refused it.
+        return gone || save(record, in: run.id)
     }
 }

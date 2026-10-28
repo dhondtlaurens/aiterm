@@ -273,22 +273,19 @@ extension OperatorToolHandler {
                                             note: call.optionalString("note"), at: ports.now())
             if run.taskSettings != nil {
                 // Read now, while the task is live: once its work is merged, its base would be the accepted commit.
-                acceptedBase = try await commit(diffBase(of: task, in: run), in: task)
+                // Best effort: without one, a closed task's diff is its accepted commit's own patch.
+                acceptedBase = try? await commit(diffBase(of: task, in: run), in: task)
                 try recheck(task)
             }
             // Accepted again on another commit: its dependents are revoked and flagged.
             if [.accepted, .published, .inReview].contains(operated.state) {
-                let answer = try reaccept(task, as: acceptance)
-                keepDiffBase(acceptedBase, of: task, in: run)
-                return answer
+                return try reaccept(task, as: acceptance, diffBase: acceptedBase)
             }
             // Steered back to work after it was accepted (spec §D), and now on another commit: what its children were
             // built on is replaced, as for any task accepted again.
             if operated.state == .working, let earlier = operated.reopenedFrom,
                !OperatedTransitions.sameCommit(earlier, sha) {
-                let answer = try reacceptReopened(task, as: acceptance, branchHead: tip)
-                keepDiffBase(acceptedBase, of: task, in: run)
-                return answer
+                return try reacceptReopened(task, as: acceptance, branchHead: tip, diffBase: acceptedBase)
             }
             action = .accept(acceptance, branchHead: tip)
         case "noChange":
@@ -299,21 +296,20 @@ extension OperatorToolHandler {
         default:
             throw ToolRefusal("mark_task’s outcome is accepted, noChange, blocked or failed.")
         }
-        try apply(action, to: task)
-        // Its result holds each code parent's accepted commit (`upstreamRefusal` said so): the flag is done with.
-        if outcome == "accepted" {
-            mutate(in: run.id) { $0.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) } }
-            keepDiffBase(acceptedBase, of: task, in: run)
+        try apply(action, to: task) { state in
+            guard outcome == "accepted" else { return }
+            Self.keepDiffBase(acceptedBase, of: task.id, in: &state)
         }
+        // Its result holds each code parent's accepted commit (`upstreamRefusal` said so): the flag is done with.
+        if outcome == "accepted" { mutate(in: run.id) { $0.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) } } }
         let marked = state.task(id: task.id) ?? task
         return Self.taskAnswer(marked, created: false)
     }
 
-    /// The accepted task's live diff base (`OperatedTask.diffBaseSHA`), set right after its acceptance with nothing
-    /// awaited between, so the two are saved together and nothing can publish the task before it.
-    private func keepDiffBase(_ base: String?, of task: TaskItem, in run: OperatorRun) {
-        guard let base else { return }
-        mutate(in: run.id) { $0.updateOperated(task.id) { $0.diffBaseSHA = base } }
+    /// The accepted task's live diff base (`OperatedTask.diffBaseSHA`), set in its acceptance's own mutation so the
+    /// two are saved together. A broadcast without the Task step keeps none.
+    private static func keepDiffBase(_ base: String?, of id: UUID, in state: inout AppState) {
+        state.updateOperated(id) { $0.diffBaseSHA = base }
     }
 
     /// Whether `outcome` is what the task already records: the same commit accepted, no change, or the same reason.
@@ -344,12 +340,13 @@ extension OperatorToolHandler {
     /// replaced (a published draft keeps its request, which `finish_task` pushes the new commit to), its
     /// accepted code dependents back to working and every started one flagged. The answer names them, and
     /// each broadcast holding one is woken once (`finish_task` of one of them refuses meanwhile).
-    private func reaccept(_ task: TaskItem, as acceptance: TaskAcceptance) throws -> JSONValue {
+    private func reaccept(_ task: TaskItem, as acceptance: TaskAcceptance, diffBase: String?) throws -> JSONValue {
         try recheck(task)
         return try answerRevoking(task) { state in
             do {
                 let revoked = try UpstreamReplacement.reaccept(task.id, as: acceptance, in: &state)
                 state.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) }
+                Self.keepDiffBase(diffBase, of: task.id, in: &state)
                 return revoked
             } catch let refusal as UpstreamReplacement.Refusal {
                 switch refusal {
@@ -361,7 +358,7 @@ extension OperatorToolHandler {
 
     /// A task steered back to work after it was accepted (`reopenedFrom`), accepted now on another commit: the accept and
     /// the replacement of its children in one change, answered as `reaccept` does.
-    private func reacceptReopened(_ task: TaskItem, as acceptance: TaskAcceptance, branchHead: String) throws -> JSONValue {
+    private func reacceptReopened(_ task: TaskItem, as acceptance: TaskAcceptance, branchHead: String, diffBase: String?) throws -> JSONValue {
         try recheck(task)
         return try answerRevoking(task) { state in
             do {
@@ -370,6 +367,7 @@ extension OperatorToolHandler {
                 throw ToolRefusal(refused.description)
             }
             state.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) }
+            Self.keepDiffBase(diffBase, of: task.id, in: &state)
             return UpstreamReplacement.revokeDependents(of: task.id, newSHA: acceptance.resultSHA, in: &state)
         }
     }
@@ -456,11 +454,12 @@ extension OperatorToolHandler {
     }
 
     /// A transition of the task by the operator, through part C's table: a failed task's dependents are blocked
-    /// with it; a refusal is the tool's error, in C's words.
-    func apply(_ action: OperatedAction, to task: TaskItem) throws {
+    /// with it; a refusal is the tool's error, in C's words. `also` is changed in the same mutation.
+    func apply(_ action: OperatedAction, to task: TaskItem, also: (inout AppState) -> Void = { _ in }) throws {
         do {
             try mutate(in: task.operated?.runId) { state in
                 _ = try OperatedTransitions.apply(action, toTask: task.id, in: &state, by: .operatorTool)
+                also(&state)
             }
         } catch let refused as OperatedTransitionError {
             throw ToolRefusal(refused.description)

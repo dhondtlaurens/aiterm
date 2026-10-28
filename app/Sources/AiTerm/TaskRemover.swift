@@ -234,17 +234,16 @@ final class TaskRemover: CheckoutRemovals {
             let removed: TaskWorkflow.Removed
             do { removed = try await workflow.remove(task: task, project: project, deleteBranch: false, force: false) }
             catch let error as GitError where error.refusedForUnsavedWork { throw ActionUnavailable(TaskAutoCloser.unsavedWork) }
-            let remaining = workspace.state.task(id: task.id) ?? task
             await finishRemoval(of: task, after: removed)
-            if workspace.persistenceError != nil, workspace.state.task(id: task.id) == nil {
-                workspace.mutate { $0.tasks.append(remaining) }
-            }
             guard workspace.state.task(id: task.id) == nil, workspace.persistenceError == nil else {
                 throw ActionUnavailable("Its removal could not be completed or saved.")
             }
         } catch {
-            outcomes[task.id] = .stopped(note: TaskAutoCloser.failureReason(error),
-                                       worktreeRemoved: !FileManager.default.fileExists(atPath: task.worktreePath))
+            // A removal that stopped after its worktree went has left its row its own note.
+            if outcomes[task.id] == nil {
+                outcomes[task.id] = .stopped(note: TaskAutoCloser.failureReason(error),
+                                           worktreeRemoved: task.hasCheckout && !FileManager.default.fileExists(atPath: task.worktreePath))
+            }
             throw error
         }
     }

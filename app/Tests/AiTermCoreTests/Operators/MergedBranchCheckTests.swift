@@ -75,6 +75,21 @@ import Testing
         #expect((try git.ask(["config", "--get", "branch.task.remote"], in: path, none: [1]) == nil) == saved)
     }
 
+    @Test func aWorktreeThatTakesTheBranchAsItIsDeletedGetsItBack() async throws {
+        let git = GitRunner.hermetic()
+        let path = try GitFixture.makeRepo(prefix: "close-worktree-race", git: git)
+        let checkout = try GitFixture.folder("close-worktree-race-checkout")
+        defer { try? FileManager.default.removeItem(atPath: path); try? FileManager.default.removeItem(atPath: checkout) }
+        let sha = try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
+        try git.run(["branch", "task", sha], in: path)
+        try git.run(["config", "branch.task.remote", "origin"], in: path)
+        let racing = WorktreeRacingGit(branch: "task", checkout: checkout + "/task")
+        #expect(await !MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .mergeLocal, publication: nil,
+                                                 path: path, git: racing, saveDeletion: { true }))
+        #expect(try git.run(["rev-parse", "refs/heads/task"], in: path).trimmingCharacters(in: .whitespacesAndNewlines) == sha)
+        #expect(try git.run(["config", "--get", "branch.task.remote"], in: path).trimmingCharacters(in: .whitespacesAndNewlines) == "origin")
+    }
+
     @Test func deletesOnlyTheAcceptedMergedHeadIncludingSquashMerges() async throws {
         let git = GitRunner.hermetic()
         let path = try GitFixture.makeRepo(prefix: "auto-close-branch", git: git)
@@ -111,6 +126,18 @@ private struct BranchFailureGit: GitRunning {
     let inner = GitRunner.hermetic()
     func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
         if args.starts(with: command) { throw GitError(args: args, code: 128, stderr: "Cannot read or lock ref") }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
+    }
+}
+
+/// Checks `branch` out in a new worktree just before the deletion's update-ref, as a racing `git worktree add` would.
+private struct WorktreeRacingGit: GitRunning {
+    let branch: String, checkout: String
+    let inner = GitRunner.hermetic()
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        if args.starts(with: ["update-ref", "--no-deref", "-d"]) {
+            _ = try inner.run(["worktree", "add", checkout, branch], in: dir, timeout: timeout, environment: environment)
+        }
         return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }
 }
