@@ -5,7 +5,8 @@ import AiTermCore
 
 /// The Operator sheet's Summary (option 3A, 21 Oct 2026): the summary the Operator wrote, its paragraphs in
 /// `Typography.body` and `Palette.text`, `Space.gap` apart and selectable, with `Written by the Operator at 16:05`
-/// under it in muted `Typography.help`; while there is none, why, in the same muted line. Then, only when
+/// under it in muted `Typography.help`; while there is none, why, in the same muted line. Once a broadcast's goal was
+/// checked, how it went, `Goal not met`, in `Typography.caption` and `Palette.text`. Then, only when
 /// something is, Left for you: a `BoardHeading` with its count over each item in `Typography.caption`, one line
 /// as `leave_for_you` wrote it. Last, only when the Operator reported a snag, Worked around in AiTerm (option 2B,
 /// 21 Oct 2026): each item its title in `Typography.caption` and `Palette.text`, what was true under it in muted
@@ -30,6 +31,7 @@ struct BroadcastSummaryView: View {
     enum CopyTarget: Equatable { case all, snag(String) }
 
     let summary: RunSummary
+    let goalOutcome: GoalOutcome?
     let leftForYou: [String]
     let snags: [OperatorSnag]
     /// A snag's Copy text: the board's `fixTask`.
@@ -42,9 +44,10 @@ struct BroadcastSummaryView: View {
         get { _justCopied.wrappedValue } nonmutating set { _justCopied.wrappedValue = newValue }
     }
 
-    /// The Summary of `board`: its summary, what is left for you and what the Operator worked around.
+    /// The Summary of `board`: its summary, how its goal went, what is left for you and what the Operator worked around.
     init(board: BroadcastBoard) {
-        summary = board.summary; leftForYou = board.leftForYou; snags = board.snags; fixTask = board.fixTask; copyAll = board.copyAll
+        summary = board.summary; goalOutcome = board.goalOutcome; leftForYou = board.leftForYou; snags = board.snags
+        fixTask = board.fixTask; copyAll = board.copyAll
     }
 
     var body: some View {
@@ -63,6 +66,7 @@ struct BroadcastSummaryView: View {
             } else if let placeholder = Self.placeholder(for: summary) {
                 Text(placeholder).font(Typography.help).foregroundStyle(Palette.muted)
             }
+            if let goalOutcome { Text(Self.goal(goalOutcome)).font(Typography.caption).foregroundStyle(Palette.text) }
             ForEach(Self.lists(leftForYou: leftForYou, snags: snags), id: \.title) { list in
                 switch list {
                 case .leftForYou: leftForYouList
@@ -163,6 +167,9 @@ struct BroadcastSummaryView: View {
         close()
         return paragraphs
     }
+
+    /// How the goal went, as a line of its own: `Goal not met`.
+    static func goal(_ outcome: GoalOutcome) -> String { outcome.words.prefix(1).uppercased() + outcome.words.dropFirst() }
 
     /// `Written by the Operator at 16:05`.
     static func byline(at date: Date, calendar: Calendar) -> String {

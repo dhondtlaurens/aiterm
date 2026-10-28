@@ -319,6 +319,119 @@ struct OperatorScene {
         ]
     }
 
+    // -- set up with the Agents, Task and Done steps (broadcast setup v2) ----------------------
+
+    /// The drawing's Agents rows, Task step and goal (15A).
+    static let agents = [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high"),
+                         AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")]
+    static let taskSettings = TaskSettings(review: "An adversarial review with /code-review. It passes with no Critical or Important "
+                                           + "findings. After 3 rounds of fixes, ask me.", end: .draftMR)
+    static let goal = BroadcastGoal(text: "every PAY ticket in sprint 12 merged and in Review", extraRounds: 2)
+
+    /// `run(state)` set up with those steps: no Review and Done text, every task ending at a draft MR.
+    func setUp(_ state: OperatorRunState, questions: [OperatorQuestion] = [], leftForYou: [String] = []) -> OperatorRun {
+        var run = run(state, review: nil, done: nil, questions: questions, leftForYou: leftForYou)
+        run.agents = Self.agents
+        run.taskSettings = Self.taskSettings
+        run.goal = Self.goal
+        return run
+    }
+
+    /// The board's eight on a set-up broadcast: each ending at a draft MR, Codex's on gpt-6-astra at Medium.
+    func setUpCheckout(_ states: [UUID: OperatedState] = [:]) -> [TaskItem] {
+        checkout(states).map { task in
+            var task = task
+            task.operated?.end = .draftMR
+            task.operated?.peopleReview = nil
+            if task.agent == .codex { task.reasoning = "medium" }
+            return task
+        }
+    }
+
+    /// The cards at the new stops (16), on one running broadcast whose closing has run once: the cart drawer at work,
+    /// the provider switch on the long model, the order summary's two tabs, the address autocomplete in its second
+    /// round of review and the same task out of its fix rounds, the shipping step's kept worktree, and the checkout
+    /// layout's card from its record. Returns the cards in that order.
+    static func stops(_ scene: OperatorScene = OperatorScene()) -> [BroadcastBoard.Card] {
+        let opened = LaunchAttempt(number: 1, requestedAt: Snapshots.clock.now, openedAt: Snapshots.clock.now)
+        let outOfRounds = UUID()
+        let verdicts = [1, 2].map { round in
+            ReviewVerdict(tab: "review", sha: "4f2a91c", passed: false, round: round, rounds: 3, critical: 0, important: 1, minor: 0,
+                          summary: "One Important finding.", at: Snapshots.clock.now)
+        }
+        var tasks = scene.setUpCheckout([scene.summary: .working, scene.autocomplete: .working, scene.shipping: .published])
+        tasks = tasks.map { task in
+            var task = task
+            if task.id == scene.summary {
+                task.operated?.extraTabs = [ExtraTab(key: "e2e-tests", agent: .codex, model: "gpt-6-astra", reasoning: "medium",
+                                                     modelReason: "Codex writes the tests.", brief: "Write the end-to-end tests.",
+                                                     launch: opened, sessionId: "s-e2e")]
+            }
+            if task.id == scene.autocomplete {
+                task.operated?.extraTabs = [ExtraTab(key: "review", agent: .codex, model: "gpt-6-astra", reasoning: "medium",
+                                                     modelReason: "The other agent reviews.", brief: "", launch: opened,
+                                                     sessionId: "s-review", role: .review)]
+                task.operated?.reviewVerdicts = verdicts
+            }
+            if task.id == scene.shipping { task.operated?.publication = nil }
+            return task
+        }
+        var stuck = scene.task(outOfRounds, "Address autocomplete", jira: "PAY-233", .working, end: .draftMR)
+        stuck.operated?.reviewVerdicts = verdicts + [ReviewVerdict(tab: "review", sha: "4f2a91c", passed: false, round: 3, rounds: 3,
+                                                                   critical: 0, important: 1, minor: 0, summary: "One Important finding.",
+                                                                   at: Snapshots.clock.now)]
+        let layout = tasks.first { $0.id == scene.layout }!
+        let question = OperatorQuestion(id: "fix-rounds-pay-233", text: "Address autocomplete is out of fix rounds: one more, or accept it?",
+                                        task: outOfRounds, askedAt: Snapshots.clock.now, about: OperatorQuestion.fixRounds)
+        var run = scene.setUp(.active, questions: [question])
+        run.closedAt = Snapshots.clock.now
+        run.finished = [FinishedTaskRecord(task: layout.id, key: "PAY-230", title: layout.title, ticket: "PAY-230", project: layout.projectId,
+                                           agent: .claude, model: layout.model, reasoning: layout.reasoning, end: .merge, state: .published,
+                                           acceptedSHA: "9b3e07d", branch: layout.branch, mergeRequestURL: nil, mergedSHA: "9b3e07d",
+                                           result: "merged · 9b3e07d", branchDeleted: true, at: Snapshots.clock.now)]
+        scene.show(run, tasks.filter { $0.id != scene.layout } + [stuck], turnEnded: [scene.autocomplete])
+        let cards = Dictionary((scene.board?.columns.flatMap(\.cards) ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return [scene.drawer, scene.provider, scene.summary, scene.autocomplete, outOfRounds, scene.shipping, scene.layout].compactMap { cards[$0] }
+    }
+
+    /// A set-up broadcast while it runs (15A): the Asked line with its goal, the Each task line under it.
+    static func setUpRunning(_ scene: OperatorScene = OperatorScene()) -> OperatorScene {
+        scene.show(scene.setUp(.active), scene.setUpCheckout(), acting: scene.answeringTheDrawer)
+        return scene
+    }
+
+    /// Every task done and the goal being checked after its first round.
+    static func checkingTheGoal(_ scene: OperatorScene = OperatorScene()) -> OperatorScene {
+        let all = [scene.layout, scene.provider, scene.drawer, scene.autocomplete, scene.summary, scene.shipping, scene.price, scene.retry]
+        let tasks = scene.setUpCheckout(Dictionary(uniqueKeysWithValues: all.map { ($0, OperatedState.published) })).map { task in
+            var task = task
+            if task.operated?.acceptance == nil {
+                task.operated?.acceptance = TaskAcceptance(resultSHA: "c4a8d21", prerequisiteSHAs: [], checkOutput: "tests green", note: nil,
+                                                           at: Snapshots.clock.now)
+            }
+            return task
+        }
+        var run = scene.setUp(.active)
+        run.goalCheckDue = true
+        run.roundsUsed = 1
+        scene.show(run, tasks)
+        return scene
+    }
+
+    /// Ended with the goal not met and two lines of it left for you, read from the Shelf on Summary.
+    static func goalNotMet(_ scene: OperatorScene = OperatorScene()) -> BroadcastBoard {
+        let checking = checkingTheGoal(scene)
+        var run = checking.controller.state.run(id: scene.runId)!
+        run.goalCheckDue = false
+        run.goalOutcome = .notMet
+        run.completedAt = Snapshots.clock.now
+        run.leftForYou = ["PAY-237 is still in To Do: plan it in sprint 13.", "PAY-238’s MR has no reviewer: assign one."]
+        run.state = .stopped
+        run.endedAt = Snapshots.clock.now
+        scene.controller.workspace.mutate { $0.updateRun(id: scene.runId) { $0 = run } }
+        return BroadcastBoard.shelved(run: run, state: scene.controller.state)
+    }
+
     var board: BroadcastBoard? { controller.rows.board }
 }
 
@@ -353,12 +466,9 @@ enum OperatorSnapshots {
             Snapshot("board-shelved.png") {
                 BroadcastBoardSheet(board: OperatorScene.shelved(), reopenFailed: false, actions: BoardActions(), activity: nil)
             },
+            // New Broadcast's first two steps; its Agents, Task and Done steps are `BroadcastSetupSnapshots`'.
             Snapshot("new-broadcast-1.png") { newBroadcast(step: 1) },
             Snapshot("new-broadcast-2.png") { newBroadcast(step: 2) },
-            Snapshot("new-broadcast-3.png") { newBroadcast(step: 3) },
-            Snapshot("new-broadcast-4.png") { newBroadcast(step: 4) },
-            Snapshot("new-broadcast-3-review-off.png") { newBroadcast(step: 3, slices: Slices(jira: true, merge: true)) },
-            Snapshot("new-broadcast-4-merge-off.png") { newBroadcast(step: 4, slices: Slices(jira: true, review: true)) },
             Snapshot("settings-operator.png") {
                 OperatorSettingsPane(model: operatorSettings(oracle: true))
                     .padding(Space.margin).frame(width: Sheet.width).background(Palette.surface)
@@ -384,9 +494,11 @@ enum OperatorSnapshots {
             },
             // A failed create in a sheet's footer: one sentence, so the title alone, the actions footer buttons.
             Snapshot("notice-footer.png") { noticeFooter() },
-            // Start waits: Codex updated past the version the delivery check passed, and iTerm2's own checks never ran.
-            Snapshot("new-broadcast-4-not-ready.png") {
-                newBroadcast(step: 4, readiness: .notReady(["Codex: Messaging not checked for 0.161", "iTerm2 checks not run"]))
+            // Start waits on the last step: Codex updated past the version the delivery check passed, and iTerm2's own
+            // checks never ran.
+            Snapshot("new-broadcast-not-ready.png") {
+                newBroadcast(step: CreationSteps.broadcast.count,
+                             readiness: .notReady(["Codex: Messaging not checked for 0.161", "iTerm2 checks not run"]))
             },
             // The group folded while something in it needs you: its name, progress and one amber count, and the
             // project's badge counting the tasks it holds over your own.
@@ -403,6 +515,14 @@ enum OperatorSnapshots {
                 let scene = OperatorScene()
                 return BroadcastBoardSheet(board: OperatorScene.shelved(scene, snags: Array(scene.snags().prefix(1))), reopenFailed: false,
                                            actions: BoardActions(), activity: nil)
+            },
+            // A broadcast set up with the Agents, Task and Done steps (broadcast setup v2): its cards at the new stops, then
+            // its header while it runs, while the goal is checked, and ended with the goal not met, on Summary.
+            Snapshot("board-setup-cards.png") { setUpCards() },
+            Snapshot("board-setup-running.png") { board(OperatorScene.setUpRunning()) },
+            Snapshot("board-setup-checking-goal.png") { board(OperatorScene.checkingTheGoal()) },
+            Snapshot("board-setup-goal-not-met.png") {
+                BroadcastBoardSheet(board: OperatorScene.goalNotMet(), reopenFailed: false, actions: BoardActions(), activity: nil)
             },
         ]
     }
@@ -559,6 +679,17 @@ enum OperatorSnapshots {
 
     // -- the board --------------------------------------------------------------------
 
+    /// The cards at the new stops, one under another at a column's width, on the sheet's ground.
+    private static func setUpCards() -> some View {
+        let cards = OperatorScene.stops()
+        return VStack(alignment: .leading, spacing: Space.base) {
+            ForEach(cards) { card in BoardCardView(card: card, choose: { _ in }, actions: BoardActions()).frame(width: Sheet.boardColumn) }
+        }
+        .padding(Space.margin)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(Palette.surface)
+    }
+
     private static func board(_ scene: OperatorScene, reopenFailed: Bool = false) -> BroadcastBoardSheet {
         let board = scene.board ?? BroadcastBoard.make(run: scene.run(.active), state: scene.controller.state, acting: .none, requests: [])
         return BroadcastBoardSheet(board: board, reopenFailed: reopenFailed, actions: BoardActions(), activity: nil)
@@ -583,30 +714,30 @@ enum OperatorSnapshots {
     // -- New Broadcast ----------------------------------------------------------------
 
     /// New Broadcast on `step`, as the drawing fills it: PAY · Payments picked, which picked webshop and
-    /// payments-api, then the prompt, Jan's review and the merge, or with Review or Merge off the steps left empty.
-    private static func newBroadcast(step: Int, slices: Slices = Slices(jira: true, review: true, merge: true),
-                                     readiness: BroadcastReadiness = .ready) -> some View {
+    /// payments-api, then the prompt, each task's review prompt and the broadcast's goal.
+    private static func newBroadcast(step: Int, readiness: BroadcastReadiness = .ready) -> some View {
         let projects = [OperatorScene.project("webshop"), OperatorScene.project("payments-api")]
         // What `/` lists: seeded, and found again by the load the sheet starts when hosted.
         let skills = [brainstorming]
-        let model = NewBroadcastModel(projects: projects, context: broadcastContext(slices: slices), skills: { _, _ in skills },
+        let model = NewBroadcastModel(projects: projects, context: broadcastContext, skills: { _, _ in skills },
                                       readiness: { readiness }) { _ in UUID() }
         model.received([OperatorScene.payments])
         model.add(jiraProject: OperatorScene.payments)
         model.completions.all = skills
         model.prompt = "Implement PAY-230 to PAY-236, the new checkout. PAY-232 needs the Adyen SDK; keep the old provider "
             + "behind a flag until it ships. Start each task with /superpowers:brainstorming."
-        if slices.review { model.review = "Assign Jan. Have the agent fix his feedback and reply in the threads." }
-        if slices.merge { model.done = "Merged after Jan’s approval, pipeline green." }
+        model.review = "An adversarial review with /code-review. It passes with no Critical or Important findings. After 3 rounds "
+            + "of fixes, ask me."
+        model.done = "Every PAY ticket in sprint 12 is merged, and its Jira ticket is in Review."
         return NewBroadcastSheet(model: model).seeded(step: step)
     }
 
-    /// What New Broadcast opens with in the drawings: `slices` with the Oracle on, Claude and Codex installed with their
-    /// models and Settings › Agents' defaults, and the last broadcast's rows, one on each.
-    private static func broadcastContext(slices: Slices) -> NewBroadcastContext {
+    /// What New Broadcast opens with in the drawings: Jira, Review and Merge on with the Oracle, Claude and Codex installed
+    /// with their models and Settings › Agents' defaults, and the last broadcast's rows, one on each.
+    private static var broadcastContext: NewBroadcastContext {
         let opus = AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high")
         let astra = AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
-        return NewBroadcastContext(slices: slices, oracleIsOn: true, models: agentModels, defaults: [.claude: opus, .codex: astra],
+        return NewBroadcastContext(slices: Slices(jira: true, review: true, merge: true), oracleIsOn: true, models: agentModels, defaults: [.claude: opus, .codex: astra],
                                    lastAgents: [opus, astra])
     }
 

@@ -14,16 +14,16 @@ struct OperatorSnapshotTests {
         "board-running.png", "board-planning.png", "board-paused.png", "board-reopen-failed.png",
         "board-summary.png", "board-summary-writing.png", "board-summary-left-for-you.png", "board-activity.png",
         "board-shelved.png",
-        "new-broadcast-1.png", "new-broadcast-2.png", "new-broadcast-3.png", "new-broadcast-4.png",
-        "new-broadcast-3-review-off.png", "new-broadcast-4-merge-off.png",
+        "new-broadcast-1.png", "new-broadcast-2.png",
         "settings-operator.png", "settings-operator-oracle-off.png",
         "settings-help-with-problems.png",
         "banner-find-a-fix-offered.png", "banner-find-a-fix-looking.png", "banner-find-a-fix-proposal.png",
         "banner-find-a-fix-failed.png",
         "notice-footer.png",
-        "new-broadcast-4-not-ready.png",
+        "new-broadcast-not-ready.png",
         "broadcast-folded.png", "broadcast-queued.png",
         "board-summary-worked-around.png", "board-shelved-worked-around.png",
+        "board-setup-cards.png", "board-setup-running.png", "board-setup-checking-goal.png", "board-setup-goal-not-met.png",
     ]
 
     @Test func everyOperatorStateHasItsImage() {

@@ -63,6 +63,32 @@ extension OperatorController {
         runChanged(runId)
     }
 
+    /// An end picked on a task's card (broadcast setup v2, Board): set as `TaskEndChange` decides, saved, and the
+    /// Operator woken with it, whose next `finish_task` follows it. A merge's watch stops with the wait it cleared. A
+    /// switch below what is done finishes the task, so the broadcast is settled as every other end settles it. Refused
+    /// as `TaskEndChange.refusal` says, and while AiTerm is carrying out the task's end.
+    func changeEnd(of id: UUID, to end: TaskEnd) throws {
+        guard let task = workspace.state.task(id: id), let operated = task.operated, let run = run(id: operated.runId) else {
+            throw ActionUnavailable("That task isn’t the Operator’s.")
+        }
+        if let refusal = TaskEndChange.refusal(end, for: task, in: run) { throw ActionUnavailable(refusal) }
+        guard !finisher.running.contains(id) else { throw ActionUnavailable("AiTerm is finishing \(task.title). Change its end once it’s done.") }
+        workspace.mutate { TaskEndChange.apply(end, toTask: id, in: &$0) }
+        finisher.stopWatching(id)
+        waker.say(TaskEndChange.wakeReason(key: operated.key, end: end), to: run.id)
+        runChanged(run.id)
+    }
+
+    /// One More Round or Accept As It Is, on the card of a task out of its review's fix rounds: the Operator woken with
+    /// your answer. The question stays open: the Operator resolves it, as with an answer in its chat.
+    func answerFixRounds(of id: UUID, _ answer: BroadcastBoard.FixRoundsAnswer) throws {
+        guard let operated = workspace.state.task(id: id)?.operated, let run = run(id: operated.runId), !run.hasEnded,
+              run.questions.contains(where: { $0.task == id && $0.about == OperatorQuestion.fixRounds && $0.resolution == nil }) else {
+            throw ActionUnavailable("Nothing asks about that task’s fix rounds any more.")
+        }
+        waker.say(answer.wakeReason(key: operated.key), to: run.id)
+    }
+
     /// A worker window you closed, back on your click or ↩ on its row (integration decision 7): its
     /// conversation resumed in a window behind your work under the broadcast's flags (`WorkerStarter.reopen`),
     /// the row's `windowId` left on that window so the click can raise it — whether it still names the closed

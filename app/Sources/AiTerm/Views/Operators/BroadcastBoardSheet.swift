@@ -12,6 +12,10 @@ struct BoardActions {
     /// `confirming`: End Broadcast… asks first; End Broadcast from a complete broadcast does not.
     var end: @MainActor (_ confirming: Bool) -> Void = { _ in }
     var startFresh: @MainActor () -> Void = {}
+    /// An end picked from a running card's end line (`OperatorController.changeEnd`).
+    var changeEnd: @MainActor (_ task: UUID, _ end: TaskEnd) -> Void = { _, _ in }
+    /// One More Round or Accept As It Is, on a card out of fix rounds (`OperatorController.answerFixRounds`).
+    var answerFixRounds: @MainActor (_ task: UUID, _ answer: BroadcastBoard.FixRoundsAnswer) -> Void = { _, _ in }
 }
 
 /// The board's footer at each moment (spec §9, §13): Pause Broadcast or Resume Broadcast and End
@@ -72,7 +76,8 @@ struct BoardFooter: Equatable {
 
 /// The broadcast's sheet (spec §4, §13; the Operator sheet, 21 Oct 2026), `Sheet.width` by `Sheet.height` in
 /// `SheetLayout`'s anatomy: the title; a band line, the broadcast's `BroadcastStatusLine` as its row says it; the
-/// Asked line, two lines at most, the whole of it in its tooltip; then the tab bar, Settings' `SegmentedControl` in
+/// Asked line and, for a broadcast set up with the Task step, the Each task line under it (15A), each two lines at
+/// most, the whole of it in its tooltip; then the tab bar, Settings' `SegmentedControl` in
 /// its accent style, Board · Activity · Summary, picked by click or ⌘1–⌘3. It opens on `BroadcastBoard.firstTab`
 /// and stays where you put it; Summary is dimmed until the broadcast reached it. Board is the columns, each
 /// `Sheet.boardColumn` wide and scrolling on its own, the row of them scrolling sideways; once every task is done
@@ -139,9 +144,8 @@ struct BroadcastBoardSheet: View, Equatable {
                     contentVerticalPadding: Space.block) {
             VStack(alignment: .leading, spacing: Space.base) {
                 BroadcastStatusLine(line: board.band, progress: board.progress)
-                Self.asked(board.clauses).font(Typography.help).foregroundStyle(Palette.muted)
-                    .lineLimit(2).truncationMode(.tail).fixedSize(horizontal: false, vertical: true).help(board.asked)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Self.clauseLine(board.clauses, whole: board.asked)
+                if let eachTask = board.eachTask { Self.clauseLine([eachTask], whole: board.eachTaskWhole) }
                 tabBar
             }
         } content: {
@@ -218,11 +222,18 @@ struct BroadcastBoardSheet: View, Equatable {
                         // At the card's own inset, so it reads on the line of the cards' titles beside it.
                         Text(lane.empty).font(Typography.help).foregroundStyle(Palette.muted).padding(.vertical, Space.inset)
                     }
-                    ForEach(lane.cards) { card in BoardCardView(card: card, choose: choose).equatable() }
+                    ForEach(lane.cards) { card in BoardCardView(card: card, choose: choose, actions: actions).equatable() }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// A header line in the Asked style, two lines at most, the whole of it, `whole`, in its tooltip.
+    private static func clauseLine(_ clauses: [BroadcastBoard.Clause], whole: String) -> some View {
+        asked(clauses).font(Typography.help).foregroundStyle(Palette.muted)
+            .lineLimit(2).truncationMode(.tail).fixedSize(horizontal: false, vertical: true).help(whole)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// `Asked …  · Review …  · Done …`, each label in `Palette.text` at medium weight, the rest muted.
@@ -315,17 +326,30 @@ struct BoardScroll<Content: View>: View {
 /// that needs you has its edge in `Palette.statusChipAttentionStroke` and the needs-you badge, nothing more:
 /// the card is the action. Its tooltip is the model the Operator chose and why. A task with several worker
 /// tabs lists them under a `Hairline` (`BoardTabLine`), each its own button, the card's click above them.
-/// Equatable by its card alone, so a change to another card redraws this one not at all.
+///
+/// On a broadcast set up with the Task step (14A, 17A), the first worker's model and reasoning sit on a line of their
+/// own under the badges, in `Typography.monoCode` and `Palette.muted`, never cut short (a card with several tabs puts
+/// each under its tab's key instead); and while the task runs, `ends at` and its end as a `Badge` on the line under
+/// that, whose menu picks another, Merge and Local merge disabled while the Merge slice is off. The badge takes its own
+/// click. What a stop says under the card's rule (16), a `Hairline` as over the tabs: a kept worktree's `HelpText`, or
+/// the last verdict's counts with One More Round and Accept As It Is as links, `Space.gap` apart and `Space.tight`
+/// under it. Equatable by its card alone, so a change to another card redraws this one not at all.
 struct BoardCardView: View, Equatable {
     let card: BroadcastBoard.Card
     /// What the card's click, or a tab line's, opens: the sheet closes first (`BroadcastBoardSheet.choose`).
     let choose: (BroadcastBoard.Opens) -> Void
+    /// What its end line and its fix rounds' links do.
+    let actions: BoardActions
     @State private var hovered = false
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
     #endif
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.card == rhs.card }
+
+    init(card: BroadcastBoard.Card, choose: @escaping (BroadcastBoard.Opens) -> Void, actions: BoardActions) {
+        self.card = card; self.choose = choose; self.actions = actions
+    }
 
     var body: some View {
         #if DEBUG
@@ -341,6 +365,7 @@ struct BoardCardView: View, Equatable {
                 head
             }
             if !card.tabs.isEmpty { tabs }
+            if hasFoot { foot }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .groupChrome(fill: hovered ? Palette.rowHoverSolid : Palette.surface,
@@ -356,7 +381,7 @@ struct BoardCardView: View, Equatable {
             lines
         }
         .padding([.horizontal, .top], Space.inset)
-        .padding(.bottom, card.tabs.isEmpty ? Space.inset : Space.base)
+        .padding(.bottom, card.tabs.isEmpty && !hasFoot ? Space.inset : Space.base)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
     }
@@ -366,10 +391,25 @@ struct BoardCardView: View, Equatable {
         VStack(alignment: .leading, spacing: Space.tight) {
             ForEach(card.tabs) { tab in BoardTabLine(tab: tab, choose: { choose(tab.opens) }) }
         }
-        .padding(.top, Space.base)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .top) { Hairline() }
-        .padding([.horizontal, .bottom], Space.inset)
+        .ruled()
+    }
+
+    private var hasFoot: Bool { card.notice != nil || card.fixRounds != nil }
+
+    /// What a stop says under the card's rule: why its worktree was kept, or the fix rounds' counts and their answers.
+    private var foot: some View {
+        VStack(alignment: .leading, spacing: Space.tight) {
+            if let notice = card.notice { HelpText(notice) }
+            if let counts = card.fixRounds {
+                HelpText(counts)
+                HStack(spacing: Space.gap) {
+                    ForEach(BroadcastBoard.FixRoundsAnswer.allCases, id: \.self) { answer in
+                        Button(answer.title) { actions.answerFixRounds(card.id, answer) }.buttonStyle(.link).font(Typography.help)
+                    }
+                }
+            }
+        }
+        .ruled()
     }
 
     private var lines: some View {
@@ -385,6 +425,11 @@ struct BoardCardView: View, Equatable {
                 }
                 .frame(height: Size.chip)
             }
+            if let combination = card.combination {
+                Text(verbatim: combination).font(Typography.monoCode).foregroundStyle(Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let end = card.end { BoardEndLine(title: card.title, end: end) { actions.changeEnd(card.id, $0) } }
             if card.takenOver {
                 Text("taken over").font(Typography.mono).foregroundStyle(Palette.muted).frame(height: Size.chip)
             } else if let line = card.line {
@@ -408,10 +453,47 @@ struct BoardCardView: View, Equatable {
     }
 }
 
+private extension View {
+    /// A card's part under its rule: a `Hairline`, `Space.base` below it, `Space.inset` either side and under it.
+    func ruled() -> some View {
+        padding(.top, Space.base)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .top) { Hairline() }
+            .padding([.horizontal, .bottom], Space.inset)
+    }
+}
+
+/// A running card's end line (17A), a `Size.chip` line: `ends at` in `Typography.monoCode` and `Palette.muted`, then
+/// `Space.base` on its end as a `Badge` whose menu, headed `Cart drawer ends at`, lists the four ends, the current one
+/// ticked and those the Merge slice keeps out disabled.
+struct BoardEndLine: View {
+    let title: String
+    let end: BroadcastBoard.EndLine
+    let pick: (TaskEnd) -> Void
+
+    var body: some View {
+        HStack(spacing: Space.base) {
+            Text("ends at").font(Typography.monoCode).foregroundStyle(Palette.muted)
+            Badge(end.current.displayName, accessibilityLabel: "Ends at \(end.current.displayName)") {
+                Section("\(title) ends at") {
+                    ForEach(TaskEnd.allCases, id: \.self) { item in
+                        Toggle(item.title, isOn: Binding(get: { item == end.current }, set: { if $0 { pick(item) } }))
+                            .disabled(!end.selectable.contains(item))
+                    }
+                }
+            }
+            .fixedSize()
+        }
+        .frame(height: Size.chip)
+    }
+}
+
 /// One worker tab on a card (P5 A), a `Size.chip` line: the tab's agent's `VendorMark` at `Size.inlineMark`,
 /// centred under the card's `Size.avatar` mark; its key in `Typography.monoChip` and `Palette.text` on the
 /// title's leading edge; its state `Space.base` after it, an `OperatorBadge` (needs you in the attention chip);
-/// its `StatusMark` at `Size.statusMarkSmall` trailing. Hovered, `Palette.badgeHovered` at `Radius.chip`,
+/// its `StatusMark` at `Size.statusMarkSmall` trailing; under it, on a broadcast set up with the Agents step, the tab's
+/// model and reasoning on a `Size.chip` line of their own on the key's edge, in `Typography.monoChip` at regular weight and
+/// `Palette.muted`. Hovered, `Palette.badgeHovered` at `Radius.chip`,
 /// `Space.tight` beyond the line. Its click closes the board and brings the tab forward; a closed tab is muted,
 /// with no mark, and is no button.
 struct BoardTabLine: View {
@@ -428,13 +510,20 @@ struct BoardTabLine: View {
     }
 
     var body: some View {
-        if BroadcastBoardSheet.isButton(tab.opens) {
-            Button(action: choose) { line }
-                .buttonStyle(.plain)
-                .onHover { hovered = $0 }
-                .accessibilityHint(Text(BoardCardView.hint(tab.opens)))
-        } else {
-            line
+        VStack(alignment: .leading, spacing: 0) {
+            if BroadcastBoardSheet.isButton(tab.opens) {
+                Button(action: choose) { line }
+                    .buttonStyle(.plain)
+                    .onHover { hovered = $0 }
+                    .accessibilityHint(Text(BoardCardView.hint(tab.opens)))
+            } else {
+                line
+            }
+            if let combination = tab.combination {
+                Text(verbatim: combination).font(Typography.monoChip).fontWeight(.regular).foregroundStyle(Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, Size.avatar + Space.base).frame(minHeight: Size.chip)
+            }
         }
     }
 

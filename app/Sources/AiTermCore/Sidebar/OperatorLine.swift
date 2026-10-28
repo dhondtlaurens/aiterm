@@ -150,6 +150,7 @@ public struct OperatorLine: Equatable, Sendable {
                 return needsYou("blocked", stopped.detail(now: now, calendar: calendar),
                                 tooltip: "Its worker " + stopped.reason(now: now, calendar: calendar) + ".")
             }
+            if let round = reviewRound(of: operated, tabs: tabs) { return OperatorLine("in review · " + round, look: .acting) }
             if turn == .asks, !sessions.isEmpty, tabs[0].status?.turnEnded == true { return OperatorLine("asking the Operator", look: .acting) }
             if !sessions.isEmpty, task.isReadyForAcceptance(tabs: tabs) {
                 return OperatorLine(turn == .noCommit ? Count.working.words + " · no commit" : Count.ready.words, look: .acting)
@@ -181,15 +182,27 @@ public struct OperatorLine: Equatable, Sendable {
                 return OperatorLine(ending, look: operated.publication?.leftForYou == true ? .needsYou : .ended)
             }
             if let problem = reason(operated.publication?.problem) { return needsYou("blocked", problem, tooltip: nil) }
-            if let publication = operated.publication, publication.waitingSince != nil { return quiet("waiting to merge", publication.waitingReason ?? "the host is not ready") }
+            // Worked out from the end it has now: what a merge left behind says nothing once you changed it.
+            if operated.end == .merge, let publication = operated.publication, publication.waitingSince != nil {
+                return quiet("waiting to merge", publication.waitingReason ?? "the host is not ready")
+            }
             // Nothing merges until the Operator finishes it again; the card's note holds the reason.
-            if operated.publication?.mergeRefusal != nil { return quiet("waiting to merge", "refused by the Oracle") }
+            if operated.end.merges, operated.publication?.mergeRefusal != nil { return quiet("waiting to merge", "refused by the Oracle") }
             // Nothing moves until the Operator calls finish_task, whose act (`opening the MR`, `merging`) the line says
             // while it runs; a merge waiting on the host says so above.
             return quiet("accepted", "not finished")
         case .noChange, .published:
             return ending(of: operated).map { OperatorLine($0, look: .ended) }
         }
+    }
+
+    /// `round 2 of 3` while one of a working task's review tabs is open, the review prompt names its rounds and the
+    /// Operator has recorded a verdict (`record_review`): the last verdict's round. Nil otherwise, for today's words.
+    private static func reviewRound(of operated: OperatedTask, tabs: [WorkerTab]) -> String? {
+        let reviewing = Set(operated.extraTabs.filter { $0.role == .review }.map(\.key))
+        guard tabs.contains(where: { $0.key.map(reviewing.contains) == true && !$0.isClosed }),
+              let last = operated.reviewVerdicts.last, let rounds = last.rounds else { return nil }
+        return "round \(last.round) of \(rounds)"
     }
 
     /// What a finished task ended at, as its line and its card say it: `done · 4f2a91c`,
@@ -224,7 +237,8 @@ public struct OperatorLine: Equatable, Sendable {
     /// The broadcast's whole status line, on its header's tooltip and VoiceOver value and as the board's band
     /// (the Operator's row says its own session's, `session`): the one thing that needs you, else the run's own
     /// state — every task done, `done · writing summary` until the summary is written (`done · summary ready`) or
-    /// AiTerm gave up on it (`done`) — else what the Operator is doing, else what its tasks are doing. `acting`'s
+    /// AiTerm gave up on it (`done`) — or the goal still to check, `checking the goal`; ended, `ended`, with how the
+    /// goal went after it (`ended · goal met`); else what the Operator is doing, else what its tasks are doing. `acting`'s
     /// task is the task's `key` (or its id); `tasks` are the broadcast's; `ready` the working ones whose workers all
     /// ended their turn, waiting for the Operator to accept them (`TaskItem.isReadyForAcceptance(in:)`).
     public static func broadcast(_ run: OperatorRun, tasks: [TaskItem], acting: (OperatorAct, task: String?)?,
@@ -250,7 +264,10 @@ public struct OperatorLine: Equatable, Sendable {
             case .notYet, .writing, .endedEarly: return quiet("done · writing summary")
             }
         }
-        if run.hasEnded { return quiet("ended") }
+        // An ended broadcast with a goal says how it went: `ended · goal not met`.
+        if run.hasEnded { return quiet(run.goalOutcome.map { "ended · " + $0.words } ?? "ended") }
+        // Every task is done and the goal is still to check (`check_goal`).
+        if run.goalCheckDue { return OperatorLine("checking the goal", look: .acting) }
         if let (act, ref) = acting {
             let task = ref.flatMap { ref in driven.first { $0.operated?.key == ref || $0.id.uuidString == ref } }
             return self.act(act, task: task, named: act.namesItsTask ? (label(of: task) ?? ref) : nil)
