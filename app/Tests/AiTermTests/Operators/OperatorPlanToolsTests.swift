@@ -623,7 +623,7 @@ extension OperatorPlanToolsTests {
             #expect(answer.value?["created"] == true)
             #expect(world.state.tasks.first?.operated?.end == .mergeLocal)
         } else {
-            #expect(answer.message == "Shop has no connected code host: end it at a commit.")
+            #expect(answer.message == "Shop has no connected code host, so the person must change this task’s end from its card.")
             #expect(world.state.tasks.isEmpty)
         }
     }

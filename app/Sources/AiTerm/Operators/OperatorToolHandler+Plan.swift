@@ -180,7 +180,10 @@ extension OperatorToolHandler {
             throw ToolRefusal("Merge is off for this broadcast: end it at a commit or a draft MR.")
         }
         if (end == .draftMR || end == .merge), !connected {
-            throw ToolRefusal("\(project.name) has no connected code host: end it at a commit.")
+            // A new run's end is the person's alone, so the Operator can't be told to end it at a commit.
+            throw ToolRefusal(run.taskSettings == nil
+                ? "\(project.name) has no connected code host: end it at a commit."
+                : "\(project.name) has no connected code host, so the person must change this task’s end from its card.")
         }
     }
 
