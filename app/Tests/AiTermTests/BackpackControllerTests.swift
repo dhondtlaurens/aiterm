@@ -393,7 +393,7 @@ import Testing
         #expect(toasts.lines.isEmpty, "no toast for a mode the quit already turned off")
     }
 
-    /// The gap the test above cannot hold open: quit lands after ⌘B set `busy` but before its work
+    /// The gap the test above cannot hold open: quit lands after ⌘U set `busy` but before its work
     /// reached the queue. That turn-on must find the mode closed.
     @Test func aTurnOnThatReachesTheQueueAfterShutdownDoesNothing() async {
         let fake = FakeBackpack()
@@ -545,7 +545,7 @@ import Testing
 }
 
 extension AppControllerTests {
-    /// The desk click opens the sheet once; ⌘B while it connects neither replaces the sheet, nor
+    /// The desk click opens the sheet once; ⌘U while it connects neither replaces the sheet, nor
     /// opens another once it is gone, nor turns anything off. The hotspot is out
     /// of range, so the connect keeps retrying and `busy` holds until the Cancel.
     @Test func toggleWhileConnectingDoesNothing() async {

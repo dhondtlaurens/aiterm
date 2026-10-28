@@ -2,13 +2,13 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// What Backpack Mode needs from you while it is on. The cutoff wins over a lost hotspot: it is the
+/// What Unplugged needs from you while it is on. The cutoff wins over a lost hotspot: it is the
 /// one that will turn the mode off.
 enum BackpackNeed: Equatable { case lostHotspot, lowBattery(level: Int) }
 
 /// The Mac's mode in SYSTEM, decided apart from the view so a test reads it (spec 2026-10-05;
 /// proposal 2A and 3A, 6 Oct 2026). At the desk it draws no line of its own — the Mac's readings
-/// row is its row — and in the backpack a `ToneRing` and its words.
+/// row is its row — and unplugged a `ToneRing` and its words.
 enum MacMode: Equatable {
     case desk
     case turningOn, on, needsYou(BackpackNeed), turningOff
@@ -25,14 +25,14 @@ enum MacMode: Equatable {
         }
     }
 
-    /// The backpack line's words; nil at the desk, which draws no line.
+    /// The Unplugged line's words; nil at the desk, which draws no line.
     var words: String? {
         switch self {
         case .desk: nil
-        case .turningOn: "backpack turning on…"
-        case .on: "backpack enabled"
-        case .needsYou: "backpack needs you"
-        case .turningOff: "backpack turning off…"
+        case .turningOn: "unplugging…"
+        case .on: "unplugged"
+        case .needsYou: "unplugged · needs you"
+        case .turningOff: "plugging back in…"
         }
     }
 
@@ -61,18 +61,18 @@ enum MacModePresentation {
         switch mode {
         case .desk:
             let on = wifi.map { $0 == hotspot ? " · still on \($0)" : " · \($0)" } ?? ""
-            return MacModeLine(mode: mode, help: "desk mode\(on) · ⌘B turns on backpack mode")
+            return MacModeLine(mode: mode, help: "desk mode\(on) · ⌘U turns on Unplugged")
         case .turningOn:
-            return MacModeLine(mode: mode, help: "Turning on backpack mode · joining \(phone)")
+            return MacModeLine(mode: mode, help: "Unplugging · joining \(phone)")
         case .on:
             let ends = until == .turnedOff ? "stays on until you turn it off" : "ends when your agents stop"
-            return MacModeLine(mode: mode, help: "Backpack mode on · \(phone) · \(ends), or at \(cutoff) %")
+            return MacModeLine(mode: mode, help: "Unplugged · \(phone) · \(ends), or at \(cutoff) %")
         case .needsYou(.lostHotspot):
-            return MacModeLine(mode: mode, help: "Backpack mode needs you · lost \(phone), open Personal Hotspot on the iPhone")
+            return MacModeLine(mode: mode, help: "Unplugged needs you · lost \(phone), open Personal Hotspot on the iPhone")
         case .needsYou(.lowBattery(let level)):
-            return MacModeLine(mode: mode, help: "Backpack mode needs you · battery at \(level) %, turns off at \(cutoff) %")
+            return MacModeLine(mode: mode, help: "Unplugged needs you · battery at \(level) %, turns off at \(cutoff) %")
         case .turningOff:
-            return MacModeLine(mode: mode, help: "Turning off backpack mode · rejoining Wi-Fi")
+            return MacModeLine(mode: mode, help: "Plugging back in · rejoining Wi-Fi")
         }
     }
 }

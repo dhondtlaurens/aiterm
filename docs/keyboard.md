@@ -22,7 +22,7 @@ carries one keyboard shortcut, so a second one hangs on a hidden button in an ov
 | ⌘F | Focus View | View menu; off while a sheet is up. Opens the projects with a row that needs attention, folds the rest, and peeks at the first row waiting on you, showing its window even when it was already selected and leaving the keyboard in the sidebar. The rows waiting on you are those needing input or done and unseen, terminals included, and in the broadcast's group only what is amber, the Operator's row first; the group is opened while one of those is in it and folded otherwise. The Dock badge counts the same rows (`SidebarModel.needingAttention`). |
 | ⌘L | List View | View menu; off while a sheet is up. Opens every project that has rows, and the broadcast's group. |
 | ⌘S | Show Shelf | View menu, after the views, in a group of its own with Show Settings. Off while a sheet is up and while the workspace can't change. |
-| ⌘B | Backpack Mode | View menu, after the views. Backpack Mode: opens its sheet at the desk, turns it off in the backpack. Checked while on. |
+| ⌘U | Unplugged | View menu, after the views. Unplugged: opens its sheet at the desk, plugs back in when unplugged. Checked while on. ⌘U, not ⌘B: the name's initial, and free in every menu. |
 | ⌘Q | Quit | Flushes a sidebar move made in the last 150 ms, then takes the daemon down — an orphan would block the next launch's socket. |
 | ⌘Z | The standard Edit menu | Undo, Redo, Cut, Copy, Paste, Delete, Select All. Built by hand: without it no text field in any sheet could be edited normally. |
 

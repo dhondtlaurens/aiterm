@@ -214,7 +214,7 @@ public struct UsageLine: Equatable, Sendable {
         case .cpu: return "\(window.name) \(percent) % busy" + (warning ? ", slowed by heat" : "")
         case .ram: return "\(window.name) \(percent) % used" + (warning ? ", under pressure" : "")
         case .battery:
-            return "\(window.name) \(percent) %" + (warning ? ", backpack mode turns off at \(BackpackSettings.cutoff) %" : "")
+            return "\(window.name) \(percent) %" + (warning ? ", Unplugged turns off at \(BackpackSettings.cutoff) %" : "")
         }
     }
 }

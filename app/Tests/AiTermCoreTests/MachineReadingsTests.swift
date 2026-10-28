@@ -78,7 +78,7 @@ import Testing
         #expect(UsageLine(window: .ram, percent: 61, warning: false).help == "Memory 61 % used")
         #expect(UsageLine(window: .ram, percent: 78, warning: true).help == "Memory 78 % used, under pressure")
         #expect(UsageLine(window: .battery, percent: 64, warning: false).help == "Battery 64 %")
-        #expect(UsageLine(window: .battery, percent: 14, warning: true).help == "Battery 14 %, backpack mode turns off at 10 %")
+        #expect(UsageLine(window: .battery, percent: 14, warning: true).help == "Battery 14 %, Unplugged turns off at 10 %")
         #expect([UsageLine.Window.cpu, .ram, .battery].map(\.shortLabel) == ["cpu", "ram", "bat"])
     }
 

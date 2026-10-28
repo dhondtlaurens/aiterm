@@ -62,8 +62,8 @@ Claude Code, Codex & PI  ──HTTP POST 127.0.0.1:47821──>  HookServer → 
 `AppController` is the composition root that builds the owners and forwards to them. Each owner
 is built after the owners it calls, which it is handed in its initializer, and is reached as a
 property of the controller; views read the owners directly. The controller keeps only the Dock
-badge, the order the workspace's change hooks run in, and ⌘B's choice — the Mac row's click — between
-turning Backpack Mode off and asking `sheets` for its sheet.
+badge, the order the workspace's change hooks run in, and ⌘U's choice — the Mac row's click — between
+turning Unplugged off and asking `sheets` for its sheet.
 
 | Owner | On the controller | What it holds |
 |---|---|---|
@@ -87,7 +87,7 @@ turning Backpack Mode off and asking `sheets` for its sheet.
 | `ReviewThreadsWatcher` | `reviewThreads` | how many of each merge request's review threads are resolved — GitLab's resolvable discussions, GitHub's review threads — read every 60 s and when its row is selected, while started; each row's count in a `PerRow` cell, kept as last read when a read fails or the host is not connected (none before the first good one), and cleared only when its row goes or its task carries another merge request |
 | `SidebarProjection` | `rows` | the sidebar's rows, derived from the workspace, `live.rowSessions` and the checkouts only when one of them changes what a row draws; the list, the Dock badge, Focus View and List View all read them |
 | `HelperLink` | `helper` | the daemon process, the socket to it, how far the chain to iTerm2 reaches, and the tab titles it sends after each checkout pass |
-| `BackpackController` | `backpack` | Backpack Mode: its state, setup and battery reading, its blocking work run on a thread of its own (`SerialThread`) |
+| `BackpackController` | `backpack` | Unplugged (the code's Backpack Mode): its state, setup and battery reading, its blocking work run on a thread of its own (`SerialThread`) |
 | `OperatorController` | `operatorController` | the one broadcast and the tasks it drives: its start, pause, end and Start Fresh, the Operator's window and token, the tool handler that answers the Operator, the workers it starts, the acts it is carrying out (`acting`), and the notifications it posts |
 
 A change to the workspace runs its hooks once, in this order: the owners' own, added as each was
@@ -336,7 +336,7 @@ bisect, or a fix that would overwrite an ignored file, is refused; a refusal lea
 was. When a fix landed and its retry (the create, the pull) did not succeed, the person is told:
 “The fix is in; your branch as it was is kept as aiterm/backup/<branch>.”
 
-### Backpack Mode
+### Unplugged (Backpack Mode in the code)
 
 `AiTermCore/Backpack/` decides; `BackpackController` drives it. Six ports, each faked in the
 tests: lid sleep (`sudo -n /usr/bin/pmset -a disablesleep 0|1`, allowed by `/etc/sudoers.d/aiterm`,
@@ -480,7 +480,7 @@ launch (`Keychain.shared`), so macOS asks for access once. Tokens an earlier ver
 each move into it the first time it is missing. Settings' Save still checks every card before it
 writes and puts back what it wrote when the Keychain refuses one.
 
-**Backpack Mode** — `/etc/sudoers.d/aiterm`, only once the Mac card's Allow… is pressed, and
+**Unplugged** — `/etc/sudoers.d/aiterm`, only once the Mac card's Allow… is pressed, and
 removed by its Remove; the hotspot's name and the crash marker in UserDefaults
 (`backpack.network`, `backpack.engaged`).
 

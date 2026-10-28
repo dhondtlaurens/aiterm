@@ -11,8 +11,8 @@ struct ConnectCheck: Equatable {
 
 /// The sheet's words, decided apart from the view so a test reads them.
 enum BackpackSheetPresentation {
-    static let title = "Backpack mode"
-    static let subtitle = "Keeps your agents working with the lid closed, online through your iPhone."
+    static let title = "Unplugged"
+    static let subtitle = "Frees your agents from the desk: they keep working with the lid closed, online through your iPhone."
     /// The iPhone steps' heading: help for the Hotspot menu, under it.
     static let onTheIPhone = "On the iPhone"
     static let remembered = "The hotspot you used last, and its password from Keychain."
@@ -46,9 +46,9 @@ enum BackpackSheetPresentation {
             let text = switch refusal {
             case .notInRange(let network): "\(network) isn’t showing its hotspot yet"
             case .joinFailed(let network): "Couldn’t join \(network): check its password"
-            case .batteryLow(let level): "Battery at \(level) %: backpack mode stays off"
-            case .needsSetup: "Backpack mode needs lid sleep and network discovery"
-            case .quitting: "AiTerm is quitting: backpack mode stays off"
+            case .batteryLow(let level): "Battery at \(level) %: Unplugged stays off"
+            case .needsSetup: "Unplugged needs lid sleep and network discovery"
+            case .quitting: "AiTerm is quitting: Unplugged stays off"
             }
             return [ConnectCheck(text: text, mark: .idle, warns: true), awake]
         case .keychainRefused?:
@@ -66,14 +66,14 @@ enum BackpackSheetPresentation {
     }
 
     /// Once safe the result is the Mac card's anatomy (proposal 1A · 2A, 27 Oct 2026): this its title, and
-    /// its status the footer's `backpack enabled`, in the same ready tone.
-    static let safeTitle = "Safe to close the lid."
-    static let safeStatus = SettingsStatus(.ready, "Backpack mode enabled")
+    /// its status the footer's `unplugged`, in the same ready tone.
+    static let safeTitle = "Unplugged. Safe to close the lid."
+    static let safeStatus = SettingsStatus(.ready, "Unplugged enabled")
 
     /// The card's help, under its rule.
     static func safeHelp(hotspot: String, until: BackpackUntil) -> String {
         let ends = until == .turnedOff ? "stays on until you turn it off" : "ends when your agents stop"
-        return "On \(hotspot). Backpack mode \(ends), or at \(BackpackSettings.cutoff) % battery."
+        return "On \(hotspot). Unplugged \(ends), or at \(BackpackSettings.cutoff) % battery."
     }
 
     /// Turns off's choices, ending with the work first: every sheet opens on it.
@@ -210,14 +210,14 @@ final class BackpackSheetModel: Identifiable {
     }
 }
 
-/// Backpack Mode's sheet, opened by every turn-on: one sheet, in the order it is used. A `Notice`
+/// Unplugged's sheet, opened by every turn-on: one sheet, in the order it is used. A `Notice`
 /// asking for the Mac's permissions while one is missing, then the Hotspot and Password — the
 /// remembered one filled in — and Turns off, then the iPhone's steps as the hotspot's help,
 /// receding once one is chosen. Connect
-/// (⌘↩) runs in place with its checks under the fields, and ends on "Safe to close the lid.", the Mac
+/// (⌘↩) runs in place with its checks under the fields, and ends on "Unplugged. Safe to close the lid.", the Mac
 /// card's anatomy, with Done; a failure leaves the fields live and Connect retries. Closing the lid
 /// closes it: with nothing running that is a cancel; during a connect the attempt under way keeps
-/// going, but no retry follows it, and the footer's backpack line shows how it ends
+/// going, but no retry follows it, and the footer's Unplugged line shows how it ends
 /// (`BackpackSheetModel.lidClosed()`).
 struct BackpackSheet: View {
     let model: BackpackSheetModel
