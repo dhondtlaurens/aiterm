@@ -552,8 +552,8 @@ public enum OperatorCommand {
         + "the review and move the ticket."
     static let legacyReviewQuietRule = "reviewQuiet: if the broadcast's Done says the MR is the end, call finish_task to end "
         + "the review and move the ticket."
-    /// How the Oracle's challenge is met. A new broadcast names the vetoes, the calls the tool handler challenges as
-    /// `ChallengeKind.veto` (`OperatorToolHandler+Challenge.swift`), where only the Oracle's yes acts: keep the two in step.
+    /// How the Oracle's challenge is met. A new broadcast names the vetoes, where only the Oracle's yes acts, from
+    /// `OperatorTool.vetoes`, which the tool handler challenges as `ChallengeKind.veto` too.
     static let challengeLead = "The Oracle, a second opinion, challenges some calls. A challenged call may first return a critique, "
         + "or `pending: true` while it is still being written; nothing has happened yet. "
     static let challengeReplyRule = "Read the critique, then call the same tool again with the challengeId and either a challengeReply "
@@ -561,8 +561,8 @@ public enum OperatorCommand {
     static let critiqueDecisionRule = "Keeping the act is your decision: say so in your summary, with the Oracle's objection."
     static let legacyChallengeRule = challengeLead + challengeReplyRule + critiqueDecisionRule
     static let newBroadcastChallengeRule = challengeLead
-        + "create_task past the backlog limit, a finish_task that would merge or push with noVerify, and check_goal act only "
-        + "on the Oracle's yes. "
+        + OperatorTool.vetoes.dropLast().map(\.call).joined(separator: ", ") + ", and " + OperatorTool.vetoes.last!.call
+        + " act only on the Oracle's yes. "
         + "Read its answer and call again with challengeId; a no refuses the act. "
         + "For other challenged calls: " + challengeReplyRule + critiqueDecisionRule
 

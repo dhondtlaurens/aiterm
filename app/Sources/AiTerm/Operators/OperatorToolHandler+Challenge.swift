@@ -140,7 +140,7 @@ extension OperatorToolHandler {
                 return nil
             }
         }
-        let kind: ChallengeKind = [.createTask, .finishTask, .checkGoal].contains(call.operatorTool) ? .veto : .critique
+        let kind: ChallengeKind = call.operatorTool?.isVeto == true ? .veto : .critique
         // Built only for a prompt that carries it: a push past the hook alone doesn't.
         let status = { Self.json(self.currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null) }
         let prompt: String

@@ -13,4 +13,14 @@ public enum OperatorTool: String, CaseIterable, Sendable {
     case retryTask = "retry_task", finishTask = "finish_task", recordReview = "record_review", checkGoal = "check_goal"
     case askYou = "ask_you", resolveQuestion = "resolve_question", reportFind = "report_find", reportSnag = "report_snag"
     case leaveForYou = "leave_for_you", logDecision = "log_decision", writeSummary = "write_summary"
+
+    /// The tools whose challenged calls act only on the Oracle's yes (`ChallengeKind.veto`), each with the calls the
+    /// Oracle challenges as a new run's brief names them.
+    public static let vetoes: [(tool: OperatorTool, call: String)] = [
+        (.createTask, "create_task past the backlog limit"),
+        (.finishTask, "a finish_task that would merge or push with noVerify"),
+        (.checkGoal, "check_goal"),
+    ]
+
+    public var isVeto: Bool { Self.vetoes.contains { $0.tool == self } }
 }

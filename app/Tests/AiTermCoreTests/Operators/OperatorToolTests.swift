@@ -53,4 +53,13 @@ import Testing
         #expect(description.contains("Other questions about your own next step"))
         #expect(newRun.contains("Other questions about your own next step"))
     }
+
+    /// The calls that act only on the Oracle's yes have one home: the handler challenges them as a veto, and a new run's
+    /// brief names each, so the two can't drift.
+    @Test func theVetoesHaveOneHomeThatTheBriefNames() {
+        #expect(OperatorTool.vetoes.map(\.tool) == [.createTask, .finishTask, .checkGoal])
+        #expect(OperatorTool.allCases.filter(\.isVeto) == [.createTask, .finishTask, .checkGoal])
+        let brief = OperatorCommand.brief(run: OperatorFixtures.run(taskSettings: OperatorFixtures.taskSettings), projects: [])
+        for veto in OperatorTool.vetoes { #expect(brief.contains(veto.call), "\(veto.call)") }
+    }
 }
