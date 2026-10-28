@@ -567,6 +567,10 @@ extension OperatorPlanToolsTests {
         let update = await world.call(run.id, "update_task", ["task": "A", "end": "merge"])
         #expect(update.message == "Every task ends at commit, which only the person changes.")
         #expect(world.state.tasks.first?.operated?.end == .commit)
+        // The end is named as the brief and the board name it.
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.taskSettings?.end = .draftMR } }
+        let draft = await world.call(run.id, "update_task", ["task": "A", "end": "merge"])
+        #expect(draft.message == "Every task ends at draft MR, which only the person changes.")
     }
 
     @Test func closedDependenciesAreRefusedByKeyAndID() async throws {
@@ -623,7 +627,8 @@ extension OperatorPlanToolsTests {
             #expect(answer.value?["created"] == true)
             #expect(world.state.tasks.first?.operated?.end == .mergeLocal)
         } else {
-            #expect(answer.message == "Shop has no connected code host, so the person must change this task’s end from its card.")
+            #expect(answer.message == "Shop has no connected code host, so no task can end at \(end.displayName): ask the person "
+                    + "with ask_you, on no task, to connect Shop’s code host (Settings), then call it again.")
             #expect(world.state.tasks.isEmpty)
         }
     }
@@ -635,7 +640,8 @@ extension OperatorPlanToolsTests {
         let (world, run) = try rowsWorld()
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.taskSettings?.end = end } }
         let answer = await world.call(run.id, "create_task", rowArguments())
-        #expect(answer.message == "Merge is off for this broadcast, so the person must change this task’s end from its card.")
+        #expect(answer.message == "Merge is off for this broadcast, so no task can end at \(end.displayName): ask the person "
+                + "with ask_you, on no task, how to go on, since a running broadcast’s slices and end can’t change.")
         #expect(world.state.tasks.isEmpty)
     }
 }
@@ -675,6 +681,20 @@ extension OperatorPlanToolsTests {
             #expect(answer.value?["created"] == true)
             #expect(answer.value?["warning"]?.stringValue?.contains("can’t be steered") == true)
         }
+    }
+
+    /// A new run names a refused agent as its Agents rows do.
+    @Test func newRunDeliveryRefusalNamesTheAgentAsItsRows() async throws {
+        let (world, run) = try rowsWorld()
+        world.link.attached = true
+        world.daemon.deliveryVerdicts = [.claude: DeliveryVerdict(policy: .off, version: nil), .codex: DeliveryVerdict(policy: .auto, version: "0.160.0")]
+        world.workspace.mutate { $0.updateRun(id: run.id) {
+            $0.agents.append(AgentChoice(agent: .claude, model: "claude-named", reasoning: "high"))
+        } }
+        let answer = await world.call(run.id, "create_task", rowArguments().adding("agent", "claude"))
+        #expect(answer.message?.hasPrefix("Claude Code’s workers can’t be messaged: ") == true, "\(answer.message ?? "")")
+        #expect(answer.message?.hasSuffix("Plan it on Codex · gpt-6-astra · high, which can be messaged, "
+                                          + "or set agentPinned if the person’s words name Claude Code.") == true)
     }
 
     @Test func nullEndIsNotAnEndChange() async throws {

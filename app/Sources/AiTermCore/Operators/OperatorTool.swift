@@ -13,4 +13,30 @@ public enum OperatorTool: String, CaseIterable, Sendable {
     case retryTask = "retry_task", finishTask = "finish_task", recordReview = "record_review", checkGoal = "check_goal"
     case askYou = "ask_you", resolveQuestion = "resolve_question", reportFind = "report_find", reportSnag = "report_snag"
     case leaveForYou = "leave_for_you", logDecision = "log_decision", writeSummary = "write_summary"
+
+    /// What a veto's call does when the Oracle gives no answer: missing, failed, too slow, or lost with AiTerm's restart.
+    public enum Unanswered: Sendable {
+        case goesAhead, actsUnchecked, refused
+
+        public var words: String {
+            switch self {
+            case .goesAhead: "goes ahead"
+            case .actsUnchecked: "acts as not checked by the Oracle"
+            case .refused: "is refused"
+            }
+        }
+    }
+
+    /// The tools whose challenged calls act only on the Oracle's yes (`ChallengeKind.veto`), each with the calls the
+    /// Oracle challenges as a new run's brief names them, and what the call does with no answer.
+    public static let vetoes: [(tool: OperatorTool, call: String, unanswered: Unanswered)] = [
+        (.createTask, "create_task past the backlog limit", .refused),
+        (.finishTask, "a finish_task that would merge or push with noVerify", .goesAhead),
+        (.checkGoal, "check_goal", .actsUnchecked),
+    ]
+
+    public var isVeto: Bool { Self.vetoes.contains { $0.tool == self } }
+
+    /// What this tool's vetoed call does with no answer from the Oracle; nil for a tool that is no veto.
+    public var unanswered: Unanswered? { Self.vetoes.first { $0.tool == self }?.unanswered }
 }

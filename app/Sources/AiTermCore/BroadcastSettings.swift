@@ -17,6 +17,9 @@ public struct AgentChoice: Codable, Equatable, Hashable, Sendable {
         self.agent = agent; self.model = model; self.reasoning = reasoning
     }
 
+    /// The row as the brief and the tool refusals name it: "Agent · model · reasoning".
+    public var label: String { [agent.displayName, model, reasoning].compactMap { $0 }.joined(separator: " · ") }
+
     public static func == (a: Self, b: Self) -> Bool { a.agent == b.agent && a.model == b.model && a.reasoning == b.reasoning }
 
     public func hash(into hasher: inout Hasher) {

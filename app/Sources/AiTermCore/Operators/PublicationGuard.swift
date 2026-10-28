@@ -19,7 +19,8 @@ public enum PublicationGuard {
         // With the Oracle on, a merge goes ahead only on its yes for the commit accepted now (the tool handler asks it).
         if operated.end.merges, run.profile.oracle.isOn, !TaskPublisher.Context.entersReview(operated, run: run),
            operated.publication?.conditionsHeld != acceptance.resultSHA {
-            return "The Oracle hasn’t said that the conditions written in the Review and the Done hold for \(operated.key), so AiTerm doesn’t merge it: call finish_task again."
+            let conditions = run.taskSettings == nil ? "the conditions written in the Review and the Done" : "the task’s review conditions"
+            return "The Oracle hasn’t said that \(conditions) hold for \(operated.key), so AiTerm doesn’t merge it: call finish_task again."
         }
         // The way `Repository.push` compares: case-folded and without a leading refs/heads/.
         let branch = Repository.folded(Repository.shortBranch(task.branch))
