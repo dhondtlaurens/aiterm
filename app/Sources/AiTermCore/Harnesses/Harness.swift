@@ -54,10 +54,11 @@ public struct Harness: Sendable {
         [executable] + launchArguments(model, reasoning)
     }
 
-    /// Codex's launch that may only read, before its prompt, unquoted: its read-only sandbox, never asking, as there is no
-    /// one at a review tab to approve. Claude reads only through `AgentCommand`'s denials, and PI has no such mode.
-    static func codexReadOnlyLaunchWords(model: String, reasoning: String?) -> [String] {
-        [codex.executable, "--sandbox", "read-only", "--ask-for-approval", "never"] + codex.modelArguments(model: model, reasoning: reasoning)
+    /// Codex's launch that may only read, before its prompt, unquoted, asked of Codex's harness: its read-only sandbox,
+    /// never asking, as there is no one at a review tab to approve. Claude reads only through `AgentCommand`'s denials,
+    /// and PI has no such mode.
+    func codexReadOnlyLaunchWords(model: String, reasoning: String?) -> [String] {
+        [executable, "--sandbox", "read-only", "--ask-for-approval", "never"] + modelArguments(model: model, reasoning: reasoning)
     }
 
     /// The resume command's words, unquoted (`AgentCommand` quotes them): the CLI, the conversation,

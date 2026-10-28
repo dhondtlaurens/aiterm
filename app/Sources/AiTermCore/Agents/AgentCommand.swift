@@ -50,7 +50,7 @@ public enum AgentCommand {
     ///   last: the prompt after `--permission-mode auto` would otherwise be read as one more tool. A review tab
     ///   (`readOnly`) adds `reviewClaudeDenials`.
     /// - Codex: the same `--dangerously-bypass-approvals-and-sandbox` as a task you make. A review tab launches
-    ///   read-only instead (`Harness.codexReadOnlyLaunchWords`).
+    ///   read-only instead (`codexReadOnlyLaunchWords`).
     /// - PI is not offered to the Operator (`operatedAgents`) and launches as it always does.
     /// Neither review launch removes subagents or read-only shell commands.
     public static func workerWords(agent: AgentKind, model: String, reasoning: String?, readOnly: Bool = false) -> [String] {
@@ -60,7 +60,7 @@ public enum AgentCommand {
             let denials = operatedClaudeDenials + (readOnly ? reviewClaudeDenials : [])
             return harness.launchWords(model: model, reasoning: reasoning) + ["--disallowedTools"] + denials + ["--permission-mode", "auto"]
         case .codex where readOnly:
-            return Harness.codexReadOnlyLaunchWords(model: model, reasoning: reasoning)
+            return harness.codexReadOnlyLaunchWords(model: model, reasoning: reasoning)
         case .codex, .pi:
             return harness.launchWords(model: model, reasoning: reasoning)
         }
