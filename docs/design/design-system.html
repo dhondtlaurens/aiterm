@@ -3456,7 +3456,7 @@
           <div class="x-pair"><div class="x-mount" data-m="lead-a"></div></div>
         </div>
         <div class="option pick">
-          <header><span class="letter">B</span><h3>Keep the wash</h3><span class="rec">Recommended</span></header>
+          <header><span class="letter">B</span><h3>Keep the wash</h3><span class="rec">Picked</span></header>
           <p>The lead row keeps <code>Palette.operatorRow</code>’s wash and Claude’s mark; that is enough to
             tell it from its tasks, and nothing new is drawn. <b>No new token.</b> One row shorter
             (<code>Size.projectRow</code>), and the name sits where you read first.</p>
@@ -3505,7 +3505,7 @@
           <div class="x-pair"><div class="x-mount" data-m="acc-b-op"></div><div class="x-mount" data-m="acc-b-pr"></div></div>
         </div>
         <div class="option pick">
-          <header><span class="letter">C</span><h3>The macOS source-list chevron</h3><span class="rec">Recommended</span></header>
+          <header><span class="letter">C</span><h3>The macOS source-list chevron</h3><span class="rec">Picked</span></header>
           <p>Each heading gets the disclosure chevron macOS gives a sidebar section: always shown when folded,
             on hover when open, in the trailing column before the “+” or board button
             (<code>HeaderChevron</code>, <code>Size.chevron</code>). That is what Finder and Mail do, so it needs
@@ -3538,7 +3538,7 @@
           <div class="x-pair"><div class="x-mount" data-m="badge-a"></div></div>
         </div>
         <div class="option pick">
-          <header><span class="letter">B</span><h3>Drop it</h3><span class="rec">Recommended</span></header>
+          <header><span class="letter">B</span><h3>Drop it</h3><span class="rec">Picked</span></header>
           <p>Jira’s count only. A project left with nothing but the Operator’s tasks reads as empty, as it already
             does when you open it.</p>
           <div class="x-pair"><div class="x-mount" data-m="badge-b"></div></div>
@@ -3567,14 +3567,13 @@
           <div class="x-pair"><div class="x-mount" data-m="dec-a"></div></div>
         </div>
         <div class="option pick">
-          <header><span class="letter">B</span><h3>Matrix gerunds, Claude-style</h3><span class="rec">Recommended</span></header>
+          <header><span class="letter">B</span><h3>Matrix gerunds, Claude-style</h3><span class="rec">Picked</span></header>
           <p>Short “-ing” phrases, like Claude’s own spinner words, all from the Operator’s side of the films: the one
             at the console who patches people in and out. They sound like work, so they suit a heading that sits
             over working agents.</p>
           <div class="x-pair"><div class="x-mount" data-m="dec-b"></div></div>
-          <p class="x-words"><b>Jacking in</b> · Tracing the call · Rerouting · Decrypting · Bending spoons · Dodging
-            bullets · Following the rabbit · Loading the construct · Patching through · Downloading kung fu ·
-            Watching for agents · Reading the code</p>
+          <p class="x-words"><b>Jacking in</b> · Tracing the call · Rerouting · Decrypting · Loading the construct ·
+            Patching through · Watching for agents · Reading the code</p>
         </div>
         <div class="option">
           <header><span class="letter">C</span><h3>Lines from the films</h3></header>
@@ -3602,7 +3601,7 @@
           <div class="x-pair"><div class="x-mount" data-m="glyph-a"></div></div>
         </div>
         <div class="option pick">
-          <header><span class="letter">B</span><h3>Matrix code rain</h3><span class="rec">Recommended</span></header>
+          <header><span class="letter">B</span><h3>Matrix code rain</h3><span class="rec">Picked</span></header>
           <p>Half-width katakana, digits and the films’ symbols, unsettled glyphs in <code>Palette.green</code>
             with a soft glow, settling into the heading’s muted ink. It reads as the Matrix at a glance and
             uses <b>no new colour</b>, only a shadow (untokenised, as every shadow is). Each glyph is drawn in a
@@ -3614,6 +3613,28 @@
           <p>Only 0 and 1, in <code>Palette.green</code>. Tidier than B, but it reads as “computer” in general
             rather than the Matrix in particular.</p>
           <div class="x-pair"><div class="x-mount" data-m="glyph-c"></div></div>
+        </div>
+      </div>
+
+      <h3 class="x-dec">Decision 3 · The heading in green, or in its own ink</h3>
+      <p class="why">One decode everywhere: the heading, the lead row’s line and every task’s Operator line
+        (<code>OperatorBadge</code>) all scramble through the same katakana set, settling left to right. The
+        Operator lines keep their ink and no glow, as you asked; they decode once over
+        <code>OperatorBadge.decodeDuration</code> (0.5 s) whenever their words change, replayed here every 6 s. The only
+        open question is the heading: green with a glow (B above), or katakana in its own muted ink like the lines under it.
+        Both run on the same timing; hover either heading to hold it.</p>
+      <div class="options">
+        <div class="option">
+          <header><span class="letter">A</span><h3>Green and a glow on the heading</h3></header>
+          <p>The heading’s unsettled glyphs are <code>Palette.green</code> with a soft glow, and the lines under it stay in their ink.
+            The heading stands out as the one Matrix moment in the sidebar.</p>
+          <div class="x-pair"><div class="x-mount" data-m="ink-green"></div></div>
+        </div>
+        <div class="option">
+          <header><span class="letter">B</span><h3>Its own ink, like everything else</h3></header>
+          <p>The heading scrambles in its muted ink with no glow, exactly like the lines under it. It is quieter
+            and fully consistent: the motion and the glyphs carry the Matrix, not the colour.</p>
+          <div class="x-pair"><div class="x-mount" data-m="ink-plain"></div></div>
         </div>
       </div>
     </div>
@@ -3628,14 +3649,14 @@
         makes the leading column one quiet kind of glyph, and puts the host next to the project’s other links
         (Jira), where a mark you can click belongs.</p>
       <div class="options">
-        <div class="option">
-          <header><span class="letter">A</span><h3>As it is</h3></header>
+        <div class="option pick">
+          <header><span class="letter">A</span><h3>As it is</h3><span class="rec">Picked</span></header>
           <p><code>folder.fill</code> with no repository, <code>arrow.triangle.branch</code> with no known host,
             otherwise GitLab’s tanuki or GitHub’s mark (<code>ProviderIcon.source(of:)</code>).</p>
           <div class="x-pair"><div class="x-mount" data-m="icon-a"></div></div>
         </div>
-        <div class="option pick">
-          <header><span class="letter">B</span><h3>Folder or branch, host after the name</h3><span class="rec">Recommended</span></header>
+        <div class="option">
+          <header><span class="letter">B</span><h3>Folder or branch, host after the name</h3></header>
           <p>Leading: <code>folder.fill</code> or <code>arrow.triangle.branch</code> in the surface’s secondary ink.
             After the name, before Jira’s badge: the host’s mark at <code>Size.inlineMark</code>, as a quiet
             icon-only <code>Badge</code>. Its tooltip names the remote (“dhondtlaurens/aiterm on GitHub”), and a
@@ -3658,7 +3679,7 @@
       <p class="why">Backpack Mode keeps the agents working with the lid closed, online through the iPhone’s hotspot.
         Next to an Operator that broadcasts and decodes, it can take a name from the same films. Only the words
         you see change: the View menu item, the sheet’s title and subtitle, the footer’s line and the
-        Settings card. ⌘B stays. <code>backpack.*</code> defaults keys, the Keychain account
+        Settings card. Picked: Unplugged, on ⌘U (free in every menu; ⌘B goes with the old name). <code>backpack.*</code> defaults keys, the Keychain account
         (<code>backpack.password</code>) and the log category keep their names, so nobody loses a saved hotspot
         password.</p>
       <div class="options">
@@ -3667,8 +3688,8 @@
           <p>As it is.</p>
           <div class="x-mount" data-m="name-a"></div>
         </div>
-        <div class="option pick">
-          <header><span class="letter">B</span><h3>Hardline</h3><span class="rec">Recommended</span></header>
+        <div class="option">
+          <header><span class="letter">B</span><h3>Hardline</h3></header>
           <p>In the films, a hardline is the phone line the crew uses to get out. Here it is the phone line (the
             iPhone hotspot) that keeps your agents connected once you leave the desk. It fits the feature,
             it’s one word, and it reads well as a status: “hardline open”.</p>
@@ -3680,10 +3701,10 @@
             but less literal: nothing about it says “phone” or “lid”.</p>
           <div class="x-mount" data-m="name-c"></div>
         </div>
-        <div class="option">
-          <header><span class="letter">D</span><h3>Unplugged</h3></header>
+        <div class="option pick">
+          <header><span class="letter">D</span><h3>Unplugged</h3><span class="rec">Picked</span></header>
           <p>Freed from the desk and the charger. It is the clearest to someone who hasn’t seen the films, and the
-            least Matrix-sounding of the three.</p>
+            least Matrix-sounding of the three. <b>On ⌘U</b>, for Unplugged.</p>
           <div class="x-mount" data-m="name-d"></div>
         </div>
       </div>
@@ -3703,8 +3724,8 @@
         windows and capsules. These mocks only approximate the material in CSS, so the real glass will refract
         and adapt more than they show.</p>
       <div class="options">
-        <div class="option">
-          <header><span class="letter">A</span><h3>As it is: opaque</h3></header>
+        <div class="option pick">
+          <header><span class="letter">A</span><h3>As it is: opaque</h3><span class="rec">Picked</span></header>
           <p><code>Palette.surface</code> everywhere, <code>Radius.panel</code> windows, the sheet’s footer on
             <code>surfaceRaised</code>, AppKit’s own bezels.</p>
           <div class="fig x-bleed"><div class="scroll"><div class="x-mount lg-a" data-m="scene"></div></div></div>
@@ -3716,8 +3737,8 @@
             controls and radii stay as they are. It is the smallest step, and it looks like a Ventura-era Mac app.</p>
           <div class="fig x-bleed"><div class="scroll"><div class="x-mount lg-b" data-m="scene"></div></div></div>
         </div>
-        <div class="option pick">
-          <header><span class="letter">C</span><h3>Glass panels</h3><span class="rec">Recommended</span></header>
+        <div class="option">
+          <header><span class="letter">C</span><h3>Glass panels</h3></header>
           <p>Glass windows and sheets at a 16 pt radius. The Operator’s group, each project and the footer sit on
             their own glass card. The selection and the Operator’s wash are lit from above, controls are rounder,
             and buttons are capsules (<code>.buttonStyle(.glass)</code>, <code>.glassProminent</code> for the
@@ -3930,7 +3951,7 @@
     });
 
     /* The decode. */
-    var W_B = 'Jacking in|Tracing the call|Rerouting|Decrypting|Bending spoons|Dodging bullets|Following the rabbit|Loading the construct|Patching through|Downloading kung fu|Watching for agents|Reading the code';
+    var W_B = 'Jacking in|Tracing the call|Rerouting|Decrypting|Loading the construct|Patching through|Watching for agents|Reading the code';
     var W_C = 'Wake up|Knock, knock|Follow the white rabbit|There is no spoon|Free your mind|Red pill|Déjà vu|I know kung fu';
     var W_D = 'Planning|Dispatching|Watching|Reviewing|Merging';
     function decodeMock(words, glyphs, cap) { return function () { return fig(side(opNew({ words: words, glyphs: glyphs }).replace(TUNE + FLAG, TUNE)), cap); }; }
@@ -3941,6 +3962,17 @@
     mocks['glyph-a'] = decodeMock(W_B, 'alnum', 'letters and digits, in the heading’s ink');
     mocks['glyph-b'] = decodeMock(W_B, 'kana', 'katakana rain in Palette.green, settling to muted');
     mocks['glyph-c'] = decodeMock(W_B, 'bin', '0 and 1 in Palette.green');
+    /* Decision 3: the heading green or plain; the lead row's and a task's Operator lines decode in their own ink. */
+    function inkMock(glyphs, cap) {
+      return function () {
+        var g = opNew({ words: W_B, glyphs: glyphs }).replace(TUNE + FLAG, TUNE + FLAG);
+        g = g.split('<span class="tx">working</span>').join('<span class="tx x-linedecode">working</span>')
+             .split('<span class="tx">Operator watching</span>').join('<span class="tx x-linedecode">Operator watching</span>');
+        return fig(side(g), cap);
+      };
+    }
+    mocks['ink-green'] = inkMock('kana', 'heading green with a glow · the lines in their ink');
+    mocks['ink-plain'] = inkMock('kanaplain', 'heading and lines alike, in their own ink');
 
     /* Backpack's names. */
     var NAMES = {
@@ -3950,7 +3982,7 @@
            st: ['hardline connecting…', 'hardline open', 'hardline needs you', 'hardline closing…'] },
       c: { menu: 'Hovercraft', title: 'Hovercraft', sub: 'Takes your agents off the grid: they keep working with the lid closed, online through your iPhone.', safe: 'Underway. Safe to close the lid.',
            st: ['hovercraft powering up…', 'hovercraft underway', 'hovercraft needs you', 'hovercraft docking…'] },
-      d: { menu: 'Unplugged', title: 'Unplugged', sub: 'Frees your agents from the desk: they keep working with the lid closed, online through your iPhone.', safe: 'Unplugged. Safe to close the lid.',
+      d: { key: '⌘U', menu: 'Unplugged', title: 'Unplugged', sub: 'Frees your agents from the desk: they keep working with the lid closed, online through your iPhone.', safe: 'Unplugged. Safe to close the lid.',
            st: ['unplugging…', 'unplugged', 'unplugged · needs you', 'plugging back in…'] }
     };
     Object.keys(NAMES).forEach(function (k) {
@@ -3959,7 +3991,7 @@
         var tones = [['idle', 'idle'], ['', ''], ['amber', 'amber'], ['idle', 'idle']];
         var states = n.st.map(function (s, i) { return '<div class="x-fl"><span class="tone ' + tones[i][0] + '"></span><span class="ok ' + tones[i][1] + '">' + s + '</span></div>'; }).join('');
         return '<div class="x-name"><div><div class="mk-menu"><div class="it">Show Shelf<span class="sc">⌘S</span></div><div class="sep"></div><div class="it on">' + n.menu +
-          '<span class="sc">⌘B</span></div><div class="sep"></div><div class="it">Zoom In</div></div><p class="x-cap">the View menu</p></div>' +
+          '<span class="sc">' + (n.key || '⌘B') + '</span></div><div class="sep"></div><div class="it">Zoom In</div></div><p class="x-cap">the View menu</p></div>' +
           '<div><div class="x-sheethead"><div class="ttl">' + n.title + '</div><div class="sub">' + n.sub + '</div><div class="safe">' + n.safe + '</div></div><p class="x-cap">the sheet’s head and its last check</p>' +
           '<div class="x-states">' + states + '</div><p class="x-cap">the footer’s line: turning on, on, needs you, turning off</p></div></div>';
       };
@@ -4045,7 +4077,7 @@
     };
     function esc(c) { return c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '&' ? '&amp;' : c === '"' ? '&quot;' : c; }
     document.querySelectorAll('#proposals .x-decode').forEach(function (el) {
-      var words = el.dataset.words.split('|'), set = SETS[el.dataset.glyphs] || SETS.kana, green = el.dataset.glyphs !== 'alnum';
+      var words = el.dataset.words.split('|'), set = SETS[el.dataset.glyphs] || SETS.kana, green = el.dataset.glyphs === 'kana' || el.dataset.glyphs === 'bin';
       var hdgEl = el.closest('.hdg'), current = 'Operator', timer = null, anim = null, busy = false, hovering = false, i = Math.floor(Math.random() * words.length);
       function go(to, ms, done) {
         clearInterval(anim); busy = true;
@@ -4081,6 +4113,22 @@
       hdgEl.addEventListener('mouseleave', function () { hovering = false; schedule(); });
       schedule();
     });
+    /* OperatorBadge's lines: the same katakana, in the line's own ink, once over 0.5 s; replayed every 6 s here. */
+    var lines = document.querySelectorAll('#proposals .x-linedecode');
+    function playLines() {
+      lines.forEach(function (el) {
+        var text = el.dataset.text || (el.dataset.text = el.textContent), f = 0, frames = 10;
+        var t = setInterval(function () {
+          f += 1;
+          var settled = Math.floor(text.length * f / frames);
+          el.textContent = text.split('').map(function (c, k) {
+            return (k < settled || c === ' ') ? c : SETS.kana[Math.floor(Math.random() * SETS.kana.length)];
+          }).join('');
+          if (f >= frames) { el.textContent = text; clearInterval(t); }
+        }, 50);
+      });
+    }
+    if (lines.length) { playLines(); setInterval(playLines, 6000); }
   })();
 </script>
 </body>
