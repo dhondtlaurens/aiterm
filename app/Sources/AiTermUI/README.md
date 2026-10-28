@@ -29,7 +29,11 @@ list of exceptions each carries its reason.
    painted on fails the build instead of drawing a halo. `Brand.wash` is the one derivation off a
    token, because it is one rule for every vendor.
 2. **Every height, radius, spacing and text size comes from `Metrics.swift`** — `Space`, `Radius`,
-   `Size`, `Typography`, `Sheet`.
+   `Size`, `Typography`, `Sheet`, `Opacity`. `Opacity.disabled` (0.4) is the one fade for a control that
+   can't be used now. What it fades is the view's to say: `SegmentedControl` fades the segment its
+   `isSelectable` rejects; `PromptStep` and `DoneStep` fade the editor and the field alone, under their
+   label and help, while New Broadcast's Oracle is off; `OracleGroup` fades its whole group of fields,
+   labels included, under the switch that turned them off.
 
 Where macOS publishes a scale, `Metrics` uses that number: the system text styles for `Typography`,
 AppKit's control sizes for `Size`, AppKit's corner radii for `Radius` (4 small, 6 regular, 8 large,
@@ -183,11 +187,11 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 | `SidebarFooterHost`, `SelectedRowSidebarFooter` | footer observation scoped to the selected row |
 | `DecodeWordsView` | the Operator’s animated words |
 | `OracleGroup` | Settings › Operator’s Oracle controls |
-| `ModelReasoningFields` | shared model and reasoning controls; callers keep their missing-model policy |
+| `ModelReasoningFields` | shared model and reasoning controls; callers keep their missing-model policy; `labelled: false` drops the labels for rows whose columns are labelled once (New Broadcast's Agents step) |
 
 ### Foundations — not components, no card
 
-`Palette`, `Metrics` (`Space`/`Radius`/`Size`/`Typography`/`Sheet`/`TypeStyle`), `Brand`, `Surface`,
+`Palette`, `Metrics` (`Space`/`Radius`/`Size`/`Typography`/`Sheet`/`Opacity`/`TypeStyle`), `Brand`, `Surface`,
 `InterfaceScale`, `IconSource`, and the view modifiers in `ControlChrome.swift`: `focusRing`,
 `fieldChrome` (a single-line field: padding, height and `fieldBox`), `fieldBox` (the field's fill,
 hairline and focus ring alone, for the prompt editor), `menuChrome` (the panel a dropdown hangs in), `menuRowHighlight` (a dropdown row on
@@ -215,7 +219,7 @@ vendor needs both.
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
 `HelpWithProblemsGroup`, `OperatorSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
-`NewBroadcastSheet` (with `ChipsPicker`, `PickChip`, `ChipFlow` and `ProjectResultRow`), `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardTabLine`, `BoardHeading`, `BoardScroll`,
+`NewBroadcastSheet` (with `ChipsPicker`, `PickChip`, `ChipFlow` and `ProjectResultRow`), `AgentsStep`, `TaskStep`, `DoneStep`, `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardEndLine`, `BoardTabLine`, `BoardHeading`, `BoardScroll`,
 `TaskBadges`, `BroadcastActivityView`, `BroadcastSummaryView`, `ArchiveSheet`, `ArchiveRow`, `ShelvedBroadcastRow`.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
@@ -368,9 +372,10 @@ the Operator's row are values, `BroadcastSection`, `BroadcastRow` and `OperatorR
 (`AiTermCore/Sidebar/BroadcastRow.swift`).
 
 The heading's "+" opens **New Broadcast** (`NewBroadcastSheet`, its state `NewBroadcastModel`), the creation
-frame's parts on four steps, Broadcast · Prompt · Review · Done, and no agent step (`CreationSteps.broadcast`):
-the shipped `StepBar`, its names not buttons; Continue on ⌘↩ through step 3, Back from step 2, Cancel on step 1,
-Start Broadcast on step 4, and a failed start the footer's `Notice` (`CreationFooter`). Step 1 is Name (an
+frame's parts on five steps, Broadcast · Prompt · Agents · Task · Done, and no agent step of its own
+(`CreationSteps.broadcast`, its Agents list the third, `agentsListStep`): the shipped `StepBar`, its names not
+buttons; Continue on ⌘↩ through step 4, Back from step 2, Cancel on step 1, Start Broadcast on step 5, and a
+failed start the footer's `Notice` (`CreationFooter`). Step 1 is Name (an
 `Input`, optional), Jira projects and Projects, each a `ChipsPicker`: the picks as `PickChip`s (the service's
 mark at `Size.pickerRowLogo`, the name in `Typography.caption`, the ✕ in `Typography.micro` and
 `Palette.muted`, on `Palette.badge` at `Radius.chip`, `Size.chip` plus `Space.tight` tall), wrapping by
@@ -379,15 +384,44 @@ mark at `Size.pickerRowLogo`, the name in `Typography.caption`, the ✕ in `Typo
 picking a Jira project picks the projects linked to it. The Jira field offers the connection's Jira projects,
 fetched as the Jira projects sheet fetches them, the linked ones first; under its help a plain line says while
 they load ("Loading Jira projects…", with a small `ProgressView`), when there are none ("No Jira projects
-found.") and when the fetch failed, which says why as the Jira projects sheet does ("Connect Jira in Settings › Integrations to choose a Jira project.") and, while any are linked, that only the Jira projects the projects link are offered; it holds nothing up. Prompt, Review and Done are one `PromptStep` each, the
+found.") and when the fetch failed, which says why as the Jira projects sheet does ("Connect Jira in Settings › Integrations to choose a Jira project.") and, while any are linked, that only the Jira projects the projects link are offered; it holds nothing up. Prompt, the Task step's review and the Done step's goal are one `PromptStep` each, the
 same editor at `PromptStep.editorHeight`, whose `/` lists Claude's and Codex's skills and `@` the files of the
-one picked project; under each its help in place of `CompletionHint`. Review's and Done's help say what the
-slices allow, from Settings › Operator's profile as the sheet opens, in plain text: Settings is named, not
-linked, and nothing is amber. No command preview: the Operator chooses each task's agent. The
-`DestinationLine`, `Opens in iTerm2 · the Operator’s window`, ends steps 1 and 4. No new `Palette` or `Metrics` member.
+one picked project; under each its help in place of `CompletionHint`. What the help says the slices and the
+Oracle allow comes from Settings › Operator's profile as the sheet opens, in plain text: Settings is named, not
+linked, and nothing is amber. No command preview: the Operator chooses each task's agent from the Agents rows.
+The `DestinationLine`, `Opens in iTerm2 · the Operator’s window`, ends steps 1 and 5. A broadcast needs a
+project, from step 2 a prompt and from step 3 an Agents row; the review and the goal may be left empty.
+
+**Agents** (`AgentsStep`) is the combinations the Operator may start workers, tabs and reviewers on, and nothing
+else: the column labels once, Agent · Model · Reasoning, in `Typography.label` and `Palette.muted`, then a row each,
+`Space.base` apart, of an Agent `Select` (`agentWidth`, 136, fitted to “Claude Code” beside its arrows), an
+unlabelled `ModelReasoningFields` splitting what is left, and a ✕ in `Typography.micro` and `Palette.muted` on a
+`Size.slot` by `Size.control` button, `Space.gap` apart; then “Add an agent”, the `plus` glyph in
+`Typography.micro` and the words in `Typography.body`, in `Palette.link`, `Size.control` tall; then its help,
+`Space.snug` apart. A row's models and reasoning levels are its agent's own, as Settings › Agents lists them;
+picking an agent takes its default there, and a model keeps the reasoning while it offers it. It opens on the last
+broadcast's rows less any whose agent or model is gone, else each installed agent's default; “Add an agent” adds
+the first installed agent with no row yet, or the first again once every agent has one, and is left out with
+none installed.
+
+**Task** (`TaskStep`) is what every task follows, under a lead line in `Typography.help`, “Every task follows
+these.” in `Palette.text` semibold and the rest muted, its fields `Space.block` apart: “Each task is reviewed
+with”, a `PromptStep` whose prompt also says what passes and how many fix rounds a task gets; “Each task ends at”,
+a neutral `SegmentedControl` of Commit · Draft MR · Merge · Local merge (`TaskEnd.title`), where Merge and Local
+merge can't be picked while the Merge slice is off, nor Draft MR and Merge while a picked project has no connected
+code host (`NewBroadcastModel.canPick`), its help saying why and which ends are left, and an end picked that is
+dimmed since moving to Commit and saying so; then “When the broadcast ends”, two `.checkbox` toggles on one edge,
+the second disabled while the first is off. Its content runs past `Sheet.height`, so the step scrolls a little.
+
+**Done** (`DoneStep`) is the broadcast's goal, a `PromptStep`, and its “Extra rounds”, an `Input` 112 wide
+(`roundsWidth`) taking digits only, 2 when left empty. A goal is checked with the Oracle, so while the Oracle is off
+both are disabled and the editor and the field fade to `Opacity.disabled`, their labels and the goal's help not;
+the goal's help says why for both, and the rounds' help is left out. No new `Palette` member; one `Metrics`
+member, `Opacity.disabled`.
 Start Broadcast waits for what the broadcast needs (`BroadcastReadiness`): every agent the Operator may plan on,
-Claude Code and Codex where installed, Ready on its Settings card, Messaging included, and iTerm2's own delivery
-checks passed. Until then the footer, on every step, carries a `Notice` with no actions, “Not ready to start”,
+Claude Code and Codex where installed, Ready on its Settings card, Messaging included, iTerm2's own delivery
+checks passed, and the chosen projects' code hosts checked (`NewBroadcastModel.loadCodeHosts`), which the Task
+step's ends depend on; Continue waits for none of it. Until then the footer, on every step, carries a `Notice` with no actions, “Not ready to start”,
 its description one line per piece in its card's words (`Codex: Messaging not checked for 0.161`, `iTerm2 checks not run`).
 
 The header's board button and Open Board open the broadcast's sheet (`BroadcastBoardSheet`, presented by `BroadcastBoardHost`,
@@ -397,14 +431,17 @@ on Activity and Summary but not on Board (`scrolls: tab != .board`), `Space.bloc
 broadcast's name, whole until the sheet's width cuts it (a name made from the brief is its first line, uncut). The
 band, `Space.base` apart, is the broadcast's `BroadcastStatusLine`, as its row says it, no projects; the Asked line in
 `Typography.help`, `Asked …  · Review …  · Done …` with each label in `Palette.text` at medium weight, cut at two
-lines, the whole in its tooltip; and the tab bar, Settings' `SegmentedControl` in its accent style, Board · Activity ·
+lines, the whole in its tooltip — set up with the Agents, Task and Done steps, `Asked …  · Goal …`, with an Each task
+line under it in the same style and limit: the review prompt quoted, `ends at draft MR` (the end it started with)
+and `closed at the end` while finished tasks are closed; and the tab bar, Settings' `SegmentedControl` in its accent style, Board · Activity ·
 Summary (`BroadcastBoard.Tab`), its segments sharing the width and its labels in `Typography.body`, picked by click or
 ⌘1–⌘3 (hidden buttons, as Settings' ⌘1–⌘4). It opens on `BroadcastBoard.firstTab` — Board until the broadcast reaches
 its summary, Summary from then on — and stays where you put it; Summary is dimmed and disabled until then. The footer
 is the same on every tab.
 
 Board is the columns, Todo · In progress · Review · Done, each `Sheet.boardColumn` (236) wide and `Space.gap`
-apart, Review only when the broadcast has a review: two and a bit show at once, the first on the content's leading
+apart, Review only while its tasks go into people's review (`TaskPublisher.Context.reviews`: a review written and
+the Review slice on) or, set up with the Task step, its review prompt is written: two and a bit show at once, the first on the content's leading
 margin, the row of them running past the trailing margin to the sheet's edge and scrolling sideways
 (`BoardScroll(.horizontal)`). Each is a `BoardHeading` (a `SidebarHeading` and its count in `Typography.monoChip`,
 `Size.menuRow` tall) over its cards, `Space.base` apart, scrolling on its own (`BoardScroll`), an empty one saying so
@@ -436,6 +473,27 @@ Resume Broadcast, End Broadcast… (the blue alert), and Close (⎋). When the O
 be resumed as its window reopens, the board's footer carries a `Notice` ("Couldn’t reopen the
 Operator’s window") with Close and Start Fresh on ⌘↩ (`OperatorController.reopenFailed`).
 
+On a broadcast set up with the Agents, Task and Done steps a card says more. Under its badges, the first worker's
+model and reasoning on a line of their own (`Card.combination`, `Opus 5.5 · High`, by the model's label in
+Settings › Agents), in `Typography.monoCode` and `Palette.muted`, never cut short; a card with several tabs puts
+each tab's under its key instead (`TabLine.combination`), a `Size.chip` line on the key's edge. While the task runs
+and is not yours, the line under that is `BoardEndLine`: `ends at` in the same type, then `Space.base` on the end as
+a `Badge` whose menu, headed `Cart drawer ends at`, lists the four ends, the current one ticked and those the Merge
+slice keeps out disabled. A pick changes that task alone (`OperatorController.changeEnd`, decided by
+`TaskEndChange`): it clears what was under way for the old end and keeps what already happened, and wakes the
+Operator. A task with a review tab open is in Review, its line `in review · round 2 of 3` once a verdict is
+recorded and the prompt names its rounds. A task out of its fix rounds and asked about them reads `out of fix
+rounds` in the needs-you badge, and under a `Hairline`, as over the tabs, has the last verdict's counts in a
+`HelpText` (“3 rounds of fixes, and the last review, of 4f2a91c, still found 1 Important.”), then One More Round and
+Accept As It Is as links in `Typography.help`, `Space.gap` apart and `Space.tight` under it
+(`BroadcastBoard.FixRoundsAnswer`); once you answered, “You answered: one more round.” in their place. A task the
+closing kept reads its end and `worktree kept` (`draft MR · worktree kept`) and says why under the same rule
+(`OperatedTask.keptReason`). A task the closing removed keeps its card in Done, drawn from its
+`FinishedTaskRecord`: its line as it ended with `· removed` after it, nothing to open; those come first in Done and
+count towards the progress. Once every task is done the band reads `checking the goal` until `check_goal`
+answers, and after an extra round its tail counts the rounds used, `· round 1 of 2`; ended, it says how the goal
+went (`ended · goal not met`) and, with the goal checked, `· 2 left for you`.
+
 Activity (`BroadcastActivityView`) is the run's log, `activity.jsonl` in its run folder, which the host follows while
 the sheet is open (`ActivityFeed`): every call the Operator made, newest first, what it only read included, under a
 `SidebarHeading` for each day, `Size.menuRow` tall (`Today`, then the day, `10 Mar`, with the year once it is another
@@ -454,7 +512,9 @@ Summary (`BroadcastSummaryView`) is what the Operator wrote once every task was 
 in `Typography.body` and `Palette.text`, `Space.gap` apart and selectable, and `Space.base` under them "Written by the
 Operator at 16:05" in muted `Typography.help`. Until it has one the same muted line says why: "The Operator is writing
 its summary.", "The Operator didn’t write a summary." or "Ended before it finished. The Operator didn’t write a
-summary." `Space.section` on, and only when something is, Left for you: a `BoardHeading` with its count over each item
+summary." Once a goal was checked, `Space.section` on, how it went on a line of its own (`GoalOutcome.words`:
+`Goal met`, `Goal not met`, `Goal not checked by the Oracle`) in `Typography.caption` and `Palette.text`.
+`Space.section` on, and only when something is, Left for you: a `BoardHeading` with its count over each item
 in `Typography.caption`, `Space.base` apart, one line as `leave_for_you` wrote it. Last, `Space.section` on and only
 when the Operator reported a snag (`report_snag`), Worked around in AiTerm: its `BoardHeading` and count, with Copy All
 a link at its trailing edge while there are two or more; then each snag, `Space.base` apart, its title in
@@ -478,7 +538,7 @@ sheet does, never a path. Every sheet that opens a window ends its content with 
 `DestinationLine`, in one format: `Opens in iTerm2 · <project>/<worktree path in it> · <branch>` —
 the project alone for New terminal, `task “<title>”` in place of the path for a review that opens in
 the task that has its branch, `the Operator’s window` alone for New Broadcast. New Task and New Review draw it
-on steps 1 and 3, New Broadcast on steps 1 and 4 (`CreationSteps.showsDestination`), New terminal under its
+on steps 1 and 3, New Broadcast on steps 1 and 5 (`CreationSteps.showsDestination`), New terminal under its
 field; nothing else writes where a window opens.
 Above it, on step 1 of New Task and New Review, the step's last field is `WorktreeIncludeToggle`
 when the project's `.worktreeinclude` selects files and a worktree will be made: “Copy files
@@ -719,7 +779,7 @@ then the Jira, Review and Merge slices, each its name in `Typography.bodyEmphasi
 with a `SettingsSwitch` trailing, rows split by a `Hairline`; under them the fixed Never lines, each
 led by `nosign`, all in `Palette.muted`: facts, not failures. **Oracle** carries its switch as the
 group's accessory over Agent (Claude Code, Codex or PI, whichever is installed, and the saved one
-shown as it is though it is not), Model and Reasoning; off, they are dimmed and disabled and keep
+shown as it is though it is not), Model and Reasoning; off, they are disabled, fade to `Opacity.disabled` and keep
 their values. Its help says PI's checks are read-only by their tool list, not a sandbox. **Instructions** is a `PromptEditor` whose `/` lists both agents'
 skills. Autonomy's and the Oracle's help end “Changes apply to the next broadcast.”: a broadcast
 freezes the profile as it starts.
