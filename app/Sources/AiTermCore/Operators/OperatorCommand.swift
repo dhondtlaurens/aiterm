@@ -344,8 +344,9 @@ public enum OperatorCommand {
             + "Read each task's current end in run_status after the person changes it. "
             + "A commit end stops at the accepted commit, with no push, no merge request and no finish_task. "
             + "If create_task is refused because a project has no connected code host, ask the person with ask_you, on no "
-            + "task, to connect its code host (Settings), then call it again. If it is refused because Merge is off, ask the "
-            + "person with ask_you, on no task, how to go on: a running broadcast's slices and end can't change."
+            + "task, to connect its code host in Settings › Integrations, then call it again. If it is refused because Merge "
+            + "is off, ask the person with ask_you, on no task, how to go on: a running broadcast's slices and the Task step's "
+            + "end can't change."
     }
 
     /// The base every broadcast has: the plan starts at once, workers commit, and AiTerm carries out each task's end. A
