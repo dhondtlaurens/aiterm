@@ -225,38 +225,42 @@ iTerm2's checks have passed, and the chosen projects' code hosts have been check
 
 #### Review tabs
 
-In a broadcast set up with these steps, a task is reviewed in a tab of its own in the task's window, on an Agents row, so you can watch it:
-the Operator opens it with `open_tab`, role `review`, and the tab is told to end with a verdict. It
-starts read-only. Codex runs with `--sandbox read-only`. Claude Code is denied Edit, Write and
-NotebookEdit and git's writing commands (`commit`, `checkout`, `switch`, `reset`, `rebase`, `merge`,
-`stash`, `add`), on top of every worker's push, merge and MR denials. When its turn ends, the Operator
-reads it and records the verdict with `record_review`, against the commit it reviewed. The Operator
-decides when to accept. Once the fix rounds the prompt names are used up, it asks you on the task's
-card: **One More Round** or **Accept As It Is**. With the Oracle on, a merge also needs the Oracle's
-yes that the review prompt, the task's verdicts and your answers allow it.
+In a broadcast set up with these steps, a task is reviewed in a tab of its own in the task's window,
+on an Agents row, so you can watch it: the Operator opens it with `open_tab`, role `review`, and the
+tab is told to end with a verdict. It starts read-only. Codex runs with `--sandbox read-only`.
+Claude Code is denied Edit, Write and NotebookEdit and git's writing commands (`commit`, `checkout`,
+`switch`, `reset`, `rebase`, `merge`, `stash`, `add`), on top of every worker's push, merge and MR
+denials. When its turn ends, the Operator reads it and records the verdict with `record_review`,
+against the commit it reviewed. The Operator decides when to accept. Once the fix rounds the prompt
+names are used up, it asks you on the task's card: **One More Round** or **Accept As It Is**. With
+the Oracle on, a merge also needs the Oracle's yes that the review prompt, the task's verdicts and
+your answers allow it.
 
 #### The end is yours
 
 In a broadcast set up with these steps, every task ends where the Task step says, and only you
 change it: `create_task` and `update_task` take no end there (a broadcast started before still lets
-the Operator set one). When an end can't be reached, because Merge is off or a project has no connected code
-host, `create_task` is refused and tells the Operator to ask you with `ask_you`. While a task runs,
-its card on the board shows `ends at` and its end as a menu. A pick changes that task alone. It
-clears what was under way for the old end (a merge's wait, the Oracle's refusal), keeps what already
-happened (the push, the MR), and wakes the Operator. With nothing else pending, that is `[AiTerm] You changed <key>’s end to
-<end>, call run_status`, with `, and the broadcast is complete` before `, call run_status` when the change
-completed the broadcast. Switching to Commit after an MR opened leaves that MR for you.
+the Operator set one). When an end can't be reached, because Merge is off or a project has no
+connected code host, `create_task` is refused and tells the Operator to ask you with `ask_you`.
+While a task runs, its card on the board shows `ends at` and its end as a menu. A pick changes that
+task alone. It clears what was under way for the old end (a merge's wait, the Oracle's refusal),
+keeps what already happened (the push, the MR), and wakes the Operator. Only when that is the one
+reason to wake it, and a plain one (no digit or one-letter word, which a key such as `PAY-2` has),
+does the line read `[AiTerm] You changed <key>’s end to <end>, call run_status`, with
+`, and the broadcast is complete` before `, call run_status` when the change completed the
+broadcast; otherwise it reads `[AiTerm] updates waiting, call run_status`. Switching to Commit after
+an MR opened leaves that MR for you.
 
 #### Closing at the end
 
-With closing ticked on the Task step, AiTerm closes every task that reached its end when the broadcast ends, once
-its summary is written (or AiTerm stopped waiting for it) or when you End it. Reached its end means
-published, ended with no change, or accepted on a commit end. It records the task, closes its window
-and removes its worktree and row. The card stays on the board, and `read_task` still reads its diff.
-Stopped tasks and MRs left for you are never closed.
+With closing ticked on the Task step, AiTerm closes every task that reached its end when the
+broadcast ends, once its summary is written (or AiTerm stopped waiting for it) or when you End it.
+Reached its end means published, ended with no change, or accepted on a commit end. It records the
+task, closes its window and removes its worktree and row. The card stays on the board, and
+`read_task` still reads its diff. Stopped tasks and MRs left for you are never closed.
 
 - **Waits** while a turn you prompted in one of its tabs is running, while any of its tabs' agents
-  is mid-turn, and while AiTerm's helper is away.
+  is mid-turn, and while AiTerm's helper is away, saying what for on its card.
 - **Keeps the task**, saying why on its card, when its worktree has uncommitted or untracked changes,
   is off its branch, has a tab outside its window, or the removal fails.
 - **Git-ignored files** such as `.env` are not kept: they go with the worktree, as plain
@@ -267,13 +271,15 @@ Stopped tasks and MRs left for you are never closed.
 
 #### The goal loop
 
-Once every task of a broadcast with a goal is done, AiTerm wakes the Operator with `[AiTerm] every task is done: check the goal
-with check_goal, call run_status`, and the band reads `checking the goal`. The Operator answers with
-`check_goal`: met, with evidence from each task, or not met, with what is missing. A not-met answer
-with rounds left plans only what is missing; once that is done, the goal is checked again, and the
-band counts the extra rounds used, `round 1 of 2`. With no round left, or 0 extra rounds, it stops,
-and what is missing goes to *Left for you*. The summary waits for the check, and the band and the
-Summary say how the goal went: met, not met, or not checked by the Oracle.
+Once every task of a broadcast with a goal is done, AiTerm wakes the Operator with
+`[AiTerm] every task is done: check the goal with check_goal, call run_status`, and the band reads
+`checking the goal`. The Operator answers with `check_goal`: met, with evidence from each task, or
+not met, with what is missing. A not-met answer with rounds left plans only what is missing; once
+that is done, the goal is checked again, and the band counts the extra rounds used, `round 1 of 2`.
+It stops, and what is missing goes to *Left for you*, with no round left or 0 extra rounds, and also
+with rounds left when the Operator, sent to plan more, finds nothing it can plan and checks the goal
+again, still not met. The summary waits for the check, and the band and the Summary say how the goal
+went: met, not met, or not checked by the Oracle.
 
 #### The gated shell
 
@@ -304,7 +310,7 @@ The Operator acts only through AiTerm's MCP tools:
 | | `request_review`, `reply_thread` | Mark the MR ready and ask reviewers; reply in a thread (Review slice). |
 | Finish | `mark_task` | Record a task's outcome: accepted, no change, blocked or failed. |
 | | `finish_task` | Carry out an accepted task's end: a commit, a draft MR, or a merge (Merge slice); into people's review first when the Review slice is on and the review (the Task step's prompt, or before those steps the broadcast's Review) is written. |
-| | `check_goal` | Answer the broadcast's goal once AiTerm wakes it for it: met, with evidence, or not met, with what is missing. It answers complete; planMore, with the rounds left, to plan only what is missing; or stopped, not met with no rounds left, what is missing going to *Left for you*. The Oracle's no refuses it: check the goal again. |
+| | `check_goal` | Answer the broadcast's goal once AiTerm wakes it for it: met, with evidence, or not met, with what is missing. It answers complete; planMore, with the rounds left, to plan only what is missing; or stopped, not met with no rounds left, or not met again when nothing could be planned after planMore, rounds left or not, what is missing going to *Left for you*. The Oracle's no refuses it: check the goal again. |
 | You | `ask_you`, `resolve_question` | List a question under *Waiting on you* (`about` fixRounds for a task out of fix rounds, answered on its card); close it once answered, or withdraw the Operator's moot question or gate with a reason. |
 | Record | `report_find`, `report_snag` | Note an off-brief find (filed in Jira with the slice on); note an AiTerm glitch. |
 | | `leave_for_you`, `log_decision` | Note what a slice kept it from; log a decision it took. |

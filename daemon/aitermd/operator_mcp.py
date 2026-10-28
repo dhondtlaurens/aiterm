@@ -418,8 +418,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "what is still missing, one line each. With the Oracle on it needs the Oracle's yes that your verdict is right; "
           "without its answer it acts unchallenged. It answers complete, the broadcast done and its summary asked for; "
           "planMore, with the rounds left: plan only what missing names (create_task, then submit_plan), and if nothing can "
-          "be planned call check_goal again before submitting anything; or stopped, no rounds left, with what went to "
-          "leftForYou.",
+          "be planned call check_goal again before submitting anything; or stopped, with what went to leftForYou: not met "
+          "with no rounds left, or not met again when nothing could be planned after planMore, rounds left or not.",
           {"met": {"type": "boolean", "description": "Whether the goal is met."},
            "evidence": _text("Why, from each task's result: its accepted commit, its merge and its verdicts."),
            "missing": {"type": "array", "items": {"type": "string"},
