@@ -2,13 +2,13 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// New Broadcast… (spec §3.1, the design page's `p-op-new`): Broadcast · Prompt · Review · Done on the
-/// shipped `StepBar`, drawn from the creation frame's parts as New Task is (`CreationSteps.broadcast`):
-/// Continue on ⌘↩ through step 3, Back from step 2, Cancel on step 1, and Start Broadcast on step 4,
-/// whose failure is the footer's `Notice` (`CreationFooter`). Step 1 is an optional name, the Jira
-/// projects and the projects, which it needs one of; Prompt, Review and Done are the same
-/// `PromptStep` editor, whose `/` lists both agents' skills. The `DestinationLine` ends steps 1 and 4.
-/// There is no command preview: the Operator chooses each task's agent.
+/// New Broadcast… (spec §3.1, the design page's `p-op-new` and `p-bs2-*`): Broadcast · Prompt · Agents · Task · Done on
+/// the shipped `StepBar`, drawn from the creation frame's parts as New Task is (`CreationSteps.broadcast`): Continue on
+/// ⌘↩ through step 4, Back from step 2, Cancel on step 1, and Start Broadcast on step 5, whose failure is the footer's
+/// `Notice` (`CreationFooter`). Step 1 is an optional name, the Jira projects and the projects, which it needs one of;
+/// Prompt is a `PromptStep` editor, whose `/` lists both agents' skills; then `AgentsStep`, `TaskStep` and `DoneStep`.
+/// The `DestinationLine` ends steps 1 and 5. There is no command preview: the Operator chooses each task's agent from
+/// the Agents rows.
 struct NewBroadcastSheet: View {
     @Bindable var model: NewBroadcastModel
     @Environment(\.dismiss) private var dismiss
@@ -51,16 +51,14 @@ struct NewBroadcastSheet: View {
     @ViewBuilder private var content: some View {
         switch step {
         case 1: broadcastStep
-        case 2: editor(text: $model.prompt, label: "Prompt", placeholder: nil, help: NewBroadcastModel.promptHelp).id(2)
-        case 3: editor(text: $model.review, label: "Review", placeholder: NewBroadcastModel.reviewPlaceholder, help: model.reviewHelp).id(3)
-        default: editor(text: $model.done, label: "Done", placeholder: NewBroadcastModel.donePlaceholder, help: model.doneHelp).id(4)
+        // Claude's form for what `/` writes: the Operator reads every field, and a Codex task is told
+        // of its skill in the brief the Operator writes for it.
+        case 2: PromptStep(text: $model.prompt, agent: .claude, completions: model.completions, label: "Prompt", placeholder: nil,
+                           help: NewBroadcastModel.promptHelp).id(2)
+        case 3: AgentsStep(model: model)
+        case 4: TaskStep(model: model).id(4)
+        default: DoneStep(model: model).id(5)
         }
-    }
-
-    /// Claude's form for what `/` writes: the Operator reads every field, and a Codex task is told
-    /// of its skill in the brief the Operator writes for it.
-    private func editor(text: Binding<String>, label: String, placeholder: String?, help: String) -> some View {
-        PromptStep(text: text, agent: .claude, completions: model.completions, label: label, placeholder: placeholder, help: help)
     }
 
     // -- step 1: broadcast ----------------------------------------------------------
@@ -110,7 +108,7 @@ struct NewBroadcastSheet: View {
     private func closeLists() { for picker in pickers { picker.wrappedValue = false } }
 
     /// The list ⎋ closes, if one is open where it can be seen: step 1's pickers, or the completion
-    /// popup on Prompt, Review and Done. The footer's hidden ⎋ button hears the key first.
+    /// popup on Prompt, Task and Done. The footer's hidden ⎋ button hears the key first.
     private func closeOpenList() -> Bool {
         if Self.steps.hasPrompt(onStep: step), model.completions.isOpen {
             model.completions.close()
