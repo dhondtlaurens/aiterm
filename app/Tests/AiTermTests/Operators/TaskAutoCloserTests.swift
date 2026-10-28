@@ -18,10 +18,18 @@ import Testing
         return (run, task)
     }
 
-    private func closer(_ fixture: RaceFixture) -> TaskAutoCloser {
+    // The app's own closer does nothing until the helper's first connected snapshot, which only the wiring
+    // tests deliver: every other test drives a closer of its own, alone.
+    private func closer(_ fixture: RaceFixture, git: (any GitRunning)? = nil,
+                        remove: (@MainActor (TaskItem, @MainActor () -> Bool) async throws -> Void)? = nil) -> TaskAutoCloser {
         let app = fixture.controller
-        return TaskAutoCloser(workspace: app.workspace, live: app.live, tools: app.operatorController.tools,
-                              remove: { try await app.remover.removeAutomatically($0, deleteMergedBranch: $1, git: fixture.git) })
+        return TaskAutoCloser(workspace: app.workspace, live: app.live, git: git ?? fixture.git, now: { Date() },
+                              remove: remove ?? { try await app.remover.removeAutomatically($0, starting: $1) })
+    }
+
+    private func note(_ task: TaskItem, in fixture: RaceFixture) -> String? {
+        guard case .stopped(let note, _)? = fixture.controller.remover.removals[task.id] else { return nil }
+        return note
     }
 
     @Test(arguments: [false, true]) func appWiringClosesOnCompletionAndEnd(ending: Bool) async throws {
@@ -37,8 +45,52 @@ import Testing
             app.workspace.mutate { $0.updateRun(id: run.id) { $0.summaryGivenUp = false; $0.summary = "Done." } }
             app.operatorController.runChanged(run.id)
         }
+        app.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [], usage: .empty)))
         await eventually { app.state.task(id: task.id) == nil && app.state.run(id: run.id)?.closedAt != nil }
         #expect(app.state.run(id: run.id)?.finished.first?.task == task.id)
+    }
+
+    @Test(arguments: [false, true]) func startupWaitsForSessionsThenResumesInterruptedClosing(ended: Bool) async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let (run, task) = try prepare(fixture)
+        let app = fixture.controller
+        // What a quit mid-removal leaves: the record written, the row still there, the pass not closed.
+        let interrupted = try #require(TaskAutoCloser.record(task, in: run, at: Date()))
+        app.workspace.mutate { $0.updateRun(id: run.id) { $0.finished = [interrupted] } }
+        if ended { app.workspace.mutate { $0.updateRun(id: run.id) { $0.state = .stopped; $0.endedAt = Date() } } }
+        app.helper.setDaemonClient(RecordingDaemon())
+        app.operatorController.onRunChanged(run.id)
+        for _ in 0..<10 { await Task.yield() }
+        #expect(app.state.task(id: task.id) != nil)
+        #expect(app.state.run(id: run.id)?.finished.map(\.task) == [task.id])
+        var session = OperatorServiceFixtures.session("s", window: "alive", tag: task.id, agent: .codex)
+        session.yourPrompt = "My turn"
+        app.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [session], usage: .empty)))
+        await eventually { note(task, in: fixture) == TaskAutoCloser.waitingForTurn }
+        await eventually { (try? app.savedWorkspace().run(id: run.id)?.finished.isEmpty) == true }
+        #expect(app.state.task(id: task.id) != nil)
+        session.yourPrompt = nil
+        app.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [session], usage: .empty)))
+        await eventually { app.state.task(id: task.id) == nil }
+        #expect(app.state.run(id: run.id)?.finished.map(\.task) == [task.id])
+    }
+
+    @Test func reconnectResumesAHelperDeferredRemoval() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let (run, task) = try prepare(fixture)
+        let app = fixture.controller, closer = closer(fixture)
+        await closer.close(run.id)
+        #expect(app.state.task(id: task.id) != nil)
+        #expect(FileManager.default.fileExists(atPath: task.worktreePath))
+        #expect(note(task, in: fixture) == TaskAutoCloser.waitingForHelper)
+        #expect(try app.savedWorkspace().run(id: run.id)?.finished.isEmpty == true)
+        #expect(app.state.run(id: run.id)?.closedAt == nil)
+        app.helper.setDaemonClient(RecordingDaemon())
+        closer.sweep()
+        await eventually { app.state.task(id: task.id) == nil }
+        #expect(app.state.run(id: run.id)?.finished.map(\.task) == [task.id])
     }
 
     @Test func recordsBeforeRemovalAndRemovesWithoutShelvingOrQuestions() async throws {
@@ -48,11 +100,16 @@ import Testing
         fixture.controller.helper.setDaemonClient(server)
         let (run, task) = try prepare(fixture)
         let app = fixture.controller
-        let closer = TaskAutoCloser(workspace: app.workspace, live: app.live, tools: app.operatorController.tools) { task, delete in
-            let record = try #require(try app.savedWorkspace().run(id: run.id)?.finished.first)
-            #expect(record.task == task.id)
-            #expect(record.acceptedSHA == task.operated?.acceptance?.resultSHA)
-            return try await app.remover.removeAutomatically(task, deleteMergedBranch: delete, git: fixture.git)
+        let closer = closer(fixture) { task, starting in
+            try await app.remover.removeAutomatically(task) {
+                #expect(try! app.savedWorkspace().run(id: run.id)?.finished.isEmpty == true)
+                #expect(server.requests("window.close").isEmpty)
+                let saved = starting()
+                let record = try! app.savedWorkspace().run(id: run.id)?.finished.first
+                #expect(record?.task == task.id)
+                #expect(record?.acceptedSHA == task.operated?.acceptance?.resultSHA)
+                return saved
+            }
         }
         await closer.close(run.id)
         #expect(app.state.task(id: task.id) == nil)
@@ -76,8 +133,29 @@ import Testing
         #expect(fixture.controller.state.task(id: task.id)?.windowId == "alive")
         #expect(server.requests("window.close").isEmpty)
         #expect(fixture.prompter.asked.isEmpty)
-        #expect(fixture.controller.state.run(id: run.id)?.finished.first?.result == TaskAutoCloser.unsavedWork)
+        #expect(fixture.controller.state.run(id: run.id)?.finished.isEmpty == true)
+        #expect(note(task, in: fixture) == TaskAutoCloser.unsavedWork)
         #expect(FileManager.default.fileExists(atPath: task.worktreePath + "/file"))
+    }
+
+    @Test func changesMadeWhileClosingAreRefusedByGitAndKeptAsUnsavedWork() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let server = RecordingDaemon()
+        fixture.controller.helper.setDaemonClient(server)
+        let (run, task) = try prepare(fixture)
+        let app = fixture.controller
+        // The file lands after the unsaved-work check, so only git's own refusal can keep it.
+        await closer(fixture) { task, starting in
+            try await app.remover.removeAutomatically(task) {
+                try! "late".write(toFile: task.worktreePath + "/late", atomically: true, encoding: .utf8)
+                return starting()
+            }
+        }.close(run.id)
+        #expect(app.state.task(id: task.id) != nil)
+        #expect(FileManager.default.fileExists(atPath: task.worktreePath + "/late"))
+        #expect(note(task, in: fixture) == TaskAutoCloser.unsavedWork)
+        #expect(try app.savedWorkspace().run(id: run.id)?.finished.isEmpty == true)
     }
 
     @Test func workspaceEditsAloneDoNotStartClosing() async throws {
@@ -86,7 +164,7 @@ import Testing
         let (run, _) = try prepare(fixture)
         let app = fixture.controller
         var attempts = 0
-        let closer = TaskAutoCloser(workspace: app.workspace, live: app.live, tools: app.operatorController.tools) { _, _ in
+        let closer = closer(fixture) { _, _ in
             attempts += 1
             throw ActionUnavailable("Kept for this test")
         }
@@ -97,39 +175,47 @@ import Testing
         await eventually { attempts == 1 }
     }
 
-    @Test func aWindowThatCannotBeClosedLeavesTheWorktreeAndRecord() async throws {
-        let fixture = try RaceFixture()
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
-        // No daemon: there is no confirmation that its window closed.
-        await closer(fixture).close(run.id)
-        #expect(fixture.controller.state.task(id: task.id)?.windowId == "alive")
-        #expect(FileManager.default.fileExists(atPath: task.worktreePath))
-        #expect(fixture.controller.state.run(id: run.id)?.finished.first?.result.hasPrefix("Not closed:") == true)
-        #expect(fixture.prompter.asked.isEmpty)
-    }
-
-    @Test func aDrivingTabWaitsAndAFailedRemovalKeepsItsReason() async throws {
+    @Test func aDrivingTabWaitsWithItsReasonOnTheRowAndNoRecord() async throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let (run, task) = try prepare(fixture)
         let app = fixture.controller
+        let server = RecordingDaemon()
+        app.helper.setDaemonClient(server)
         var session = OperatorServiceFixtures.session("s", window: "alive", tag: task.id, agent: .codex)
         session.yourPrompt = "My turn"
         app.live.sessions = [session]
+        let closer = closer(fixture)
+        await closer.close(run.id)
+        #expect(app.state.task(id: task.id) != nil)
+        #expect(server.requests("window.close").isEmpty)
+        #expect(note(task, in: fixture) == TaskAutoCloser.waitingForTurn)
+        #expect(app.state.run(id: run.id)?.finished.isEmpty == true)
+        #expect(app.state.run(id: run.id)?.closedAt == nil)
+        session.yourPrompt = nil
+        app.live.sessions = [session]
+        await eventually { app.state.task(id: task.id) == nil }
+        #expect(app.state.run(id: run.id)?.finished.map(\.task) == [task.id])
+    }
+
+    @Test func aFailedRemovalTakesBackItsRecordAndLeavesTheRow() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let (run, task) = try prepare(fixture)
+        let app = fixture.controller
         var attempts = 0
-        let closer = TaskAutoCloser(workspace: app.workspace, live: app.live, tools: app.operatorController.tools) { _, _ in
+        let closer = closer(fixture) { _, starting in
             attempts += 1
+            #expect(starting())
             throw ActionUnavailable("The window stayed open.")
         }
         await closer.close(run.id)
-        #expect(attempts == 0)
-        session.yourPrompt = nil
-        app.live.sessions = [session]
         await closer.close(run.id)
         #expect(attempts == 1)
         #expect(app.state.task(id: task.id) != nil)
-        #expect(app.state.run(id: run.id)?.finished.first?.result.contains("window stayed open") == true)
+        #expect(app.state.run(id: run.id)?.finished.isEmpty == true)
+        #expect(try app.savedWorkspace().run(id: run.id)?.finished.isEmpty == true)
+        #expect(app.state.run(id: run.id)?.closedAt != nil)
     }
 
     @Test func aTurnStartedDuringTheWorktreeCheckDefersUntilItEnds() async throws {
@@ -209,7 +295,7 @@ import Testing
         #expect(try fixture.git.run(["branch", "--list", task.branch], in: fixture.repo.path).isEmpty == enabled)
     }
 
-    @Test func aMergedTaskKeepsItsLiveDiffAcrossACloserRestart() async throws {
+    @Test(arguments: [false, true]) func aMergedTaskKeepsItsLiveDiffAcrossACloserRestart(closeWhenDone: Bool) async throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let (run, original) = try prepare(fixture)
@@ -222,12 +308,14 @@ import Testing
         }
         let sha = try fixture.git.run(["rev-parse", "HEAD"], in: original.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
         app.workspace.mutate { state in
-            state.updateRun(id: run.id) { $0.state = .active; $0.summaryGivenUp = false }
+            state.updateRun(id: run.id) { $0.state = .active; $0.summaryGivenUp = false; $0.taskSettings?.closeWhenDone = closeWhenDone }
             state.updateOperated(original.id) { $0.state = .working; $0.end = .mergeLocal; $0.acceptance = nil }
         }
         let tools = app.operatorController.tools
         _ = try await tools.markTask(ToolCall(tool: "mark_task", arguments: ["task": "A", "outcome": "accepted", "sha": .string(sha), "checkOutput": "passed"]), in: try #require(app.state.run(id: run.id)))
-        #expect(try app.savedWorkspace().run(id: run.id)?.finished.first?.diffBaseSHA == base)
+        #expect(app.state.run(id: run.id)?.finished.isEmpty == true)
+        #expect(try app.savedWorkspace().task(id: original.id)?.operated?.diffBaseSHA == base)
+        app.workspace.mutate { $0.updateRun(id: run.id) { $0.taskSettings?.closeWhenDone = true } }
         try fixture.git.run(["merge", "--ff-only", original.branch], in: fixture.repo.path)
         app.workspace.mutate { state in
             state.updateOperated(original.id) { $0.state = .published }
@@ -256,14 +344,12 @@ import Testing
         // A locked local ref prevents update-ref after the merge checks succeed.
         try "held".write(toFile: fixture.repo.path + "/.git/refs/heads/" + task.branch + ".lock", atomically: true, encoding: .utf8)
         let git = RemovalSavedGit(store: StateStore(url: fixture.root.appendingPathComponent("state.json")), task: task.id, run: run.id)
-        let closer = TaskAutoCloser(workspace: app.workspace, live: app.live, tools: app.operatorController.tools) {
-            try await app.remover.removeAutomatically($0, deleteMergedBranch: $1, git: git)
-        }
-        await closer.close(run.id)
+        await closer(fixture, git: git).close(run.id)
         #expect(app.state.task(id: task.id) == nil)
         #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
         let record = try #require(app.state.run(id: run.id)?.finished.first)
         #expect(!record.branchDeleted)
+        #expect(try app.savedWorkspace().run(id: run.id)?.finished.first?.branchDeleted == false)
         #expect(!record.result.hasPrefix("Not closed:"))
         #expect(try !fixture.git.run(["branch", "--list", task.branch], in: fixture.repo.path).isEmpty)
     }
@@ -298,17 +384,43 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let (run, task) = try prepare(fixture)
         let app = fixture.controller
+        app.helper.setDaemonClient(RecordingDaemon())
         let closer = closer(fixture)
-        // A known window without the helper cannot be confirmed closed.
+        try "work".write(toFile: task.worktreePath + "/file", atomically: true, encoding: .utf8)
         await closer.close(run.id)
         #expect(app.state.task(id: task.id) != nil)
-        app.helper.setDaemonClient(RecordingDaemon())
+        try FileManager.default.removeItem(atPath: task.worktreePath + "/file")
         app.workspace.mutate { state in
             state.updateRun(id: run.id) { $0.state = .stopped; $0.endedAt = Date() }
         }
         await closer.close(run.id)
         #expect(app.state.task(id: task.id) == nil)
         #expect(app.state.run(id: run.id)?.finished.count == 1)
+    }
+
+    @Test func aStackedTasksDiffBaseIsItsParentsAcceptedCommit() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let (run, parent) = try prepare(fixture)
+        let app = fixture.controller, parentSHA = try #require(parent.operated?.acceptance?.resultSHA)
+        let path = fixture.repo.path + "/.worktrees/child"
+        try fixture.git.run(["worktree", "add", "-b", "child", path, parent.branch], in: fixture.repo.path)
+        try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "child"], in: path)
+        let sha = try fixture.git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
+        var child = OperatorServiceFixtures.task(in: run, project: fixture.project, key: "child", state: .working,
+                                                 worktree: path, branch: "child", end: .commit)
+        child.baseBranch = "main"
+        child.operated?.dependsOn = [TaskDependency(task: parent.id, kind: .code)]
+        child.operated?.stackedOn = parent.id
+        app.workspace.mutate { state in
+            state.tasks.append(child)
+            state.updateRun(id: run.id) { $0.state = .active; $0.summaryGivenUp = false }
+        }
+        _ = try await app.operatorController.tools.markTask(
+            ToolCall(tool: "mark_task", arguments: ["task": "child", "outcome": "accepted", "sha": .string(sha), "checkOutput": "passed"]),
+            in: try #require(app.state.run(id: run.id)))
+        #expect(app.state.task(id: child.id)?.operated?.diffBaseSHA == parentSHA)
+        #expect(app.state.run(id: run.id)?.finished.isEmpty == true)
     }
 
     @Test func stackedChildKeepsItsParentsAcceptedCommitBeforeEitherRowGoes() async throws {
@@ -323,6 +435,7 @@ import Testing
         child.operated?.dependsOn = [TaskDependency(task: parent.id, kind: .code)]
         child.operated?.stackedOn = parent.id
         child.operated?.acceptance = parent.operated?.acceptance
+        child.operated?.diffBaseSHA = parent.operated?.acceptance?.resultSHA
         fixture.controller.workspace.mutate { $0.tasks.append(child) }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         await closer(fixture).close(run.id)
@@ -353,7 +466,7 @@ import Testing
     }
 }
 
-/// The final branch operation must see both the record and the row's removal already on disk.
+/// The final branch operation must see the row's removal, and the record already saying the branch went, on disk.
 private struct RemovalSavedGit: GitRunning {
     let store: StateStore
     let task: UUID, run: UUID
@@ -363,7 +476,7 @@ private struct RemovalSavedGit: GitRunning {
             let state = try store.load()
             #expect(state.task(id: task) == nil)
             #expect(state.run(id: run)?.finished.first?.task == task)
-            #expect(state.run(id: run)?.finished.first?.branchDeleted == false)
+            #expect(state.run(id: run)?.finished.first?.branchDeleted == true)
         }
         return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }

@@ -227,7 +227,8 @@ public struct FinishedTaskRecord: Codable, Equatable, Sendable {
     public var agent: AgentKind, model: String, reasoning: String?
     public var end: TaskEnd, state: OperatedState
     public var acceptedSHA: String?
-    /// The live task’s diff base, captured before its row and any stacked parent go.
+    /// The task's `OperatedTask.diffBaseSHA`, as it was when it closed: what `read_task` diffs the accepted commit
+    /// against once its row is gone. Nil in a record without one, which reads the accepted commit's own patch.
     public var diffBaseSHA: String? = nil
     public var branch: String
     public var mergeRequestURL: String?, mergedSHA: String?

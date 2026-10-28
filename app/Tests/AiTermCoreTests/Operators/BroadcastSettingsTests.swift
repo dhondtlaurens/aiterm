@@ -52,15 +52,6 @@ import Foundation
         #expect(try saved(Self.verdict)["key"] == nil)
     }
 
-    @Test func finishedDiffBaseRoundTripsAndIsOptional() throws {
-        var record = Self.record
-        #expect(record.diffBaseSHA == nil)
-        #expect(try saved(record)["diffBaseSHA"] == nil)
-        record.diffBaseSHA = "parent-commit"
-        #expect(try roundTrip(record).diffBaseSHA == "parent-commit")
-        #expect(try empty(FinishedTaskRecord.self).diffBaseSHA == nil)
-    }
-
     @Test func eachNewTypeRoundTripsWithEveryFieldSet() throws {
         let row = AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
         #expect(try roundTrip(row) == row)

@@ -65,14 +65,15 @@ extension OperatorToolHandler {
                              : "\(key)’s tab \(name) was closed. AiTerm doesn’t open it again."
     }
 
-    private enum TaskReading: String {
+    private enum TaskReading: String, CaseIterable {
         case lastMessage, diff, prompt, review
     }
 
     func readTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let ref = try call.string("task"), what = try call.string("what")
         guard let reading = TaskReading(rawValue: what) else {
-            throw ToolRefusal("read_task reads lastMessage, diff, prompt or review, not \(what).")
+            let choices = TaskReading.allCases.map(\.rawValue)
+            throw ToolRefusal("read_task reads \(choices.dropLast().joined(separator: ", ")) or \(choices.last ?? ""), not \(what).")
         }
         if state.task(inRun: run.id, named: ref) == nil,
            let record = run.finished.first(where: { $0.key == ref || $0.task.uuidString.caseInsensitiveCompare(ref) == .orderedSame }) {
@@ -127,8 +128,8 @@ extension OperatorToolHandler {
         }
     }
 
-    /// Removed rows have no live tabs. The base saved at acceptance, before publication, keeps the
-    /// whole task's diff readable after a merge; old records show the accepted commit's own patch.
+    /// Removed rows have no live tabs. The base kept at acceptance, before publication, keeps the
+    /// whole task's diff readable after a merge; a record without one shows the accepted commit's own patch.
     private func readClosedTask(_ what: TaskReading, record: FinishedTaskRecord) async throws -> JSONValue {
         guard what == .diff else { return [what.rawValue: .null, "note": "Its tabs are closed: the task was removed after the broadcast completed or ended."] }
         guard let sha = record.acceptedSHA else { return ["diff": .null, "note": "This task ended with no change; its tabs are closed."] }
@@ -271,16 +272,14 @@ extension OperatorToolHandler {
             let acceptance = TaskAcceptance(resultSHA: sha, prerequisiteSHAs: prerequisites, checkOutput: check,
                                             note: call.optionalString("note"), at: ports.now())
             if run.taskSettings != nil {
-                // Capture before publication can move the default branch onto this accepted head.
-                let base = try await diffBase(of: task, in: run)
-                if let parent = RunScheduler.baseCommit(for: task.id, in: state) { acceptedBase = parent }
-                else { acceptedBase = try await commit(base, in: task) }
+                // Read now, while the task is live: once its work is merged, its base would be the accepted commit.
+                acceptedBase = try await commit(diffBase(of: task, in: run), in: task)
                 try recheck(task)
             }
             // Accepted again on another commit: its dependents are revoked and flagged.
             if [.accepted, .published, .inReview].contains(operated.state) {
                 let answer = try reaccept(task, as: acceptance)
-                try saveAcceptedDiff(task.id, in: run, base: acceptedBase)
+                keepDiffBase(acceptedBase, of: task, in: run)
                 return answer
             }
             // Steered back to work after it was accepted (spec §D), and now on another commit: what its children were
@@ -288,7 +287,7 @@ extension OperatorToolHandler {
             if operated.state == .working, let earlier = operated.reopenedFrom,
                !OperatedTransitions.sameCommit(earlier, sha) {
                 let answer = try reacceptReopened(task, as: acceptance, branchHead: tip)
-                try saveAcceptedDiff(task.id, in: run, base: acceptedBase)
+                keepDiffBase(acceptedBase, of: task, in: run)
                 return answer
             }
             action = .accept(acceptance, branchHead: tip)
@@ -302,19 +301,19 @@ extension OperatorToolHandler {
         }
         try apply(action, to: task)
         // Its result holds each code parent's accepted commit (`upstreamRefusal` said so): the flag is done with.
-        if outcome == "accepted" { mutate(in: run.id) { $0.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) } } }
-        if outcome == "accepted" { try saveAcceptedDiff(task.id, in: run, base: acceptedBase) }
+        if outcome == "accepted" {
+            mutate(in: run.id) { $0.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) } }
+            keepDiffBase(acceptedBase, of: task, in: run)
+        }
         let marked = state.task(id: task.id) ?? task
         return Self.taskAnswer(marked, created: false)
     }
 
-    /// Persist the accepted task's live base before finish_task can publish it. The row still supplies
-    /// its card until cleanup; the snapshot supplies the historical base even after an app restart.
-    private func saveAcceptedDiff(_ id: UUID, in run: OperatorRun, base: String?) throws {
-        guard run.taskSettings != nil, let task = state.task(id: id),
-              let record = TaskAutoCloser.record(task, in: run, base: base, at: ports.now()) else { return }
-        TaskAutoCloser.save(record, in: run.id, workspace: workspace)
-        guard workspace.flush() else { throw ToolRefusal("AiTerm couldn’t save the accepted task’s diff base. Try again before publishing it.") }
+    /// The accepted task's live diff base (`OperatedTask.diffBaseSHA`), set right after its acceptance with nothing
+    /// awaited between, so the two are saved together and nothing can publish the task before it.
+    private func keepDiffBase(_ base: String?, of task: TaskItem, in run: OperatorRun) {
+        guard let base else { return }
+        mutate(in: run.id) { $0.updateOperated(task.id) { $0.diffBaseSHA = base } }
     }
 
     /// Whether `outcome` is what the task already records: the same commit accepted, no change, or the same reason.

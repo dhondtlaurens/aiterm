@@ -192,9 +192,10 @@ final class TaskRemover: CheckoutRemovals {
         return remove(current, from: project, deleteBranch: answer.checked, holding: token)
     }
 
-    /// AiTerm's own Remove: no questions and no permission to discard changes. The caller has
-    /// already saved the finished record. Returns whether its accepted, merged local branch went.
-    func removeAutomatically(_ task: TaskItem, deleteMergedBranch: Bool, git: any GitRunning) async throws -> Bool {
+    /// AiTerm's own Remove (Auto-close): no questions and no permission to discard changes. `starting` writes the
+    /// task's finished record once nothing is left to keep the task, just before its window closes; false stops it.
+    /// Why it stopped is left on the row. The caller deletes a merged branch once the row is gone.
+    func removeAutomatically(_ task: TaskItem, starting: @MainActor () -> Bool) async throws {
         guard workspace.canChangeWorkspace, let current = workspace.state.task(id: task.id), current == task,
               let project = workspace.state.project(id: task.projectId),
               let token = work.begin(.removing(windowLetGo: false), onTask: task.id) else {
@@ -203,6 +204,8 @@ final class TaskRemover: CheckoutRemovals {
         defer { end(token, of: task.id) }
         outcomes[task.id] = nil
         do {
+            // Unsaved work is what git status lists, uncommitted or untracked changes. Git-ignored files such as .env
+            // are not: they go with the worktree, as with the person's Remove (plain git worktree remove, never forced).
             if try await workflow.hasUnsavedWork(task: task, project: project) {
                 throw ActionUnavailable(TaskAutoCloser.unsavedWork)
             }
@@ -214,22 +217,23 @@ final class TaskRemover: CheckoutRemovals {
             guard workspace.state.task(id: task.id) == task else {
                 throw ActionUnavailable("The task changed while its worktree was checked.")
             }
-            guard !TaskAutoCloser.isDriving(task, in: live) else {
-                throw TaskAutoCloser.WaitingForTurn()
-            }
+            guard !TaskAutoCloser.isDriving(task, in: live) else { throw TaskAutoCloser.Deferred.turn }
             guard !task.workerTabs(in: live.sessions).contains(where: {
                 $0.session.map { $0.windowId != task.windowId } == true
             }) else {
                 throw ActionUnavailable("One of its tabs is outside its task window. Close it yourself, then retry Remove.")
             }
+            guard starting() else { throw ActionUnavailable("Its finished record couldn’t be saved, so nothing was removed.") }
             do {
                 try await teardown.closeWindow(of: task, holding: token, requiringDaemon: true,
                                                operation: { .removing(windowLetGo: $0) })
             } catch TeardownStop.noDaemon {
-                throw ActionUnavailable("Its window cannot be confirmed closed while AiTerm’s helper is disconnected.")
+                throw TaskAutoCloser.Deferred.helper
             }
-            // No forced worktree removal, including changes made while the close was in flight.
-            let removed = try await workflow.remove(task: task, project: project, deleteBranch: false, force: false)
+            // Never forced, so changes made while the window closed are git's to refuse.
+            let removed: TaskWorkflow.Removed
+            do { removed = try await workflow.remove(task: task, project: project, deleteBranch: false, force: false) }
+            catch let error as GitError where error.refusedForUnsavedWork { throw ActionUnavailable(TaskAutoCloser.unsavedWork) }
             let remaining = workspace.state.task(id: task.id) ?? task
             await finishRemoval(of: task, after: removed)
             if workspace.persistenceError != nil, workspace.state.task(id: task.id) == nil {
@@ -238,10 +242,6 @@ final class TaskRemover: CheckoutRemovals {
             guard workspace.state.task(id: task.id) == nil, workspace.persistenceError == nil else {
                 throw ActionUnavailable("Its removal could not be completed or saved.")
             }
-            guard deleteMergedBranch, let operated = task.operated else { return false }
-            return await MergedBranchCheck.delete(branch: task.branch, acceptedSHA: operated.acceptance?.resultSHA,
-                                                   end: operated.end, publication: operated.publication, kind: task.kind,
-                                                   path: project.path, git: git)
         } catch {
             outcomes[task.id] = .stopped(note: TaskAutoCloser.failureReason(error),
                                        worktreeRemoved: !FileManager.default.fileExists(atPath: task.worktreePath))

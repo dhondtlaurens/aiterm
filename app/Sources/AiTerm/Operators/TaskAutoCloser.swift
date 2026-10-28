@@ -1,15 +1,20 @@
 import Foundation
 import AiTermCore
 
-/// End-of-broadcast cleanup. Records are saved before any removal; rows still present distinguish
-/// a kept worktree from a removed task. A person's turn defers only that task until its next event.
+/// End-of-broadcast cleanup (spec, Auto-close). A task's `FinishedTaskRecord` is written just before its
+/// removal starts and taken back when the removal fails or waits, so `finished` holds only tasks whose row
+/// is gone; why a task stays is on its row (`TaskRemover`). A person's turn, or the helper being away,
+/// defers only that task: the turn until its end, the helper until it is back (`sweep`).
 @MainActor
 final class TaskAutoCloser {
     nonisolated static let unsavedWork = "Not closed: its worktree has uncommitted changes. Remove it yourself once they are safe."
     nonisolated static let waitingForTurn = "Not closed: waiting for your turn to end."
+    nonisolated static let waitingForHelper = "Not closed: waiting for AiTerm’s helper to reconnect."
 
-    struct WaitingForTurn: LocalizedError {
-        var errorDescription: String? { TaskAutoCloser.waitingForTurn }
+    /// A removal that did not start and is tried again: for the person's turn, or for the helper.
+    enum Deferred: LocalizedError {
+        case turn, helper
+        var errorDescription: String? { self == .turn ? TaskAutoCloser.waitingForTurn : TaskAutoCloser.waitingForHelper }
     }
 
     private struct Phase: Equatable {
@@ -19,27 +24,46 @@ final class TaskAutoCloser {
     private struct Pass {
         let phase: Phase
         var attempted: Set<UUID> = []
-        var waiting: Set<UUID> = []
+        var deferred: [UUID: Deferred] = [:]
     }
     private let workspace: WorkspaceStore
     private let live: LiveSessions
-    private let tools: OperatorToolHandler
-    private let remove: @MainActor (TaskItem, Bool) async throws -> Bool
+    private let git: any GitRunning
+    private let now: @MainActor () -> Date
+    private let remove: @MainActor (TaskItem, _ starting: @MainActor () -> Bool) async throws -> Void
+    /// Until the helper's first connected snapshot an empty session list is unknown, not "nobody is driving".
+    private var sessionsKnown: Bool
     private var running: Set<UUID> = []
     private var passes: [UUID: Pass] = [:]
 
-    init(workspace: WorkspaceStore, live: LiveSessions, tools: OperatorToolHandler,
-         remove: @escaping @MainActor (TaskItem, Bool) async throws -> Bool) {
-        self.workspace = workspace; self.live = live; self.tools = tools; self.remove = remove
+    /// `remove` is the person's Remove without its questions (`TaskRemover.removeAutomatically`): it calls
+    /// `starting` once nothing is left to keep the task, and stops when that returns false.
+    init(workspace: WorkspaceStore, live: LiveSessions, git: any GitRunning, now: @escaping @MainActor () -> Date,
+         sessionsKnown: Bool = true, remove: @escaping @MainActor (TaskItem, _ starting: @MainActor () -> Bool) async throws -> Void) {
+        self.workspace = workspace; self.live = live; self.git = git; self.now = now
+        self.sessionsKnown = sessionsKnown; self.remove = remove
         // LiveSessions lives as long as the workspace. Its listener holds no owner alive.
         live.onSessionsChanged { [weak self] _ in
             guard let self else { return }
-            for (id, pass) in passes where !pass.waiting.isEmpty { changed(id) }
+            for (id, pass) in passes where !pass.deferred.isEmpty { changed(id) }
         }
     }
 
+    /// The live sessions are known, and the helper is there: whatever is due in any run, ended ones included,
+    /// is closed, and a task that waited for the helper is tried again. At launch this finishes a closing the
+    /// app quit or crashed in.
+    func sweep() {
+        sessionsKnown = true
+        passes = passes.mapValues { pass in
+            var pass = pass
+            pass.deferred = pass.deferred.filter { $0.value != .helper }
+            return pass
+        }
+        for run in workspace.state.runs { changed(run.id) }
+    }
+
     func changed(_ id: UUID) {
-        guard !running.contains(id), let run = workspace.state.run(id: id), shouldClose(run) else { return }
+        guard sessionsKnown, !running.contains(id), let run = workspace.state.run(id: id), shouldClose(run) else { return }
         Task { [weak self] in await self?.close(id) }
     }
 
@@ -65,19 +89,24 @@ final class TaskAutoCloser {
             && (run.hasEnded || (run.state == .complete && (run.summary != nil || run.summaryGivenUp)))
     }
 
-    /// A pass runs once per completion or End, then resumes only work deferred for a person's turn.
+    /// A pass runs once per completion or End, then resumes only what it deferred, once that may go on.
     private func shouldClose(_ run: OperatorRun) -> Bool {
         guard ready(run) else { return false }
         if let pass = passes[run.id], pass.phase == Phase(run) {
-            return workspace.state.tasks(inRun: run.id).contains {
-                Self.eligible($0) && waits($0.id, in: pass) && !Self.isDriving($0, in: live)
+            return workspace.state.tasks(inRun: run.id).contains { task in
+                guard Self.eligible(task), waits(task.id, in: pass) else { return false }
+                switch pass.deferred[task.id] {
+                case .turn?: return !Self.isDriving(task, in: live)
+                case .helper?: return false
+                case nil: return true
+                }
             }
         }
         guard let closed = run.closedAt else { return true }
         return (run.hasEnded ? run.endedAt : run.completedAt).map { $0 > closed } ?? false
     }
 
-    /// Attempted failures stay for the person; deferred turns have not had their removal attempted.
+    /// A failed removal stays for the person; a deferred one has not been attempted.
     private func waits(_ task: UUID, in pass: Pass) -> Bool { !pass.attempted.contains(task) }
 
     private func samePhase(_ run: OperatorRun) -> OperatorRun? {
@@ -85,9 +114,8 @@ final class TaskAutoCloser {
         return current
     }
 
-    /// A snapshot usable before publication as well as before removal. The live row remains authoritative
-    /// until removed; keeping the base here at acceptance survives publication and an app restart.
-    static func record(_ task: TaskItem, in run: OperatorRun, base: String?, at: Date) -> FinishedTaskRecord? {
+    /// The task's card as it read when it closed, with the diff base it kept from its acceptance.
+    static func record(_ task: TaskItem, in run: OperatorRun, at: Date) -> FinishedTaskRecord? {
         guard let operated = task.operated else { return nil }
         // End hides live task lines. Read the completed presentation to retain the task's outcome.
         var displayRun = run
@@ -99,23 +127,33 @@ final class TaskAutoCloser {
                                         mergedSHA: operated.publication?.mergedSHA,
                                         result: OperatorLine.task(task, run: displayRun, acting: nil, requests: [])?.text ?? operated.state.rawValue,
                                         branchDeleted: false, at: at)
-        record.diffBaseSHA = base
+        record.diffBaseSHA = operated.diffBaseSHA
         return record
     }
 
-    static func save(_ record: FinishedTaskRecord, in id: UUID, workspace: WorkspaceStore) {
+    private func save(_ record: FinishedTaskRecord, in id: UUID) -> Bool {
         workspace.mutate { state in
             state.updateRun(id: id) { run in
                 if let index = run.finished.firstIndex(where: { $0.task == record.task }) { run.finished[index] = record }
                 else { run.finished.append(record) }
             }
         }
+        return workspace.flush()
     }
 
-    /// Saves every candidate before removing any parent, then removes each once. A pass with a person's
-    /// turn still pending stays open (`closedAt` nil), so a fresh closer can finish it after restart.
+    /// `finished` holds only tasks whose row is gone: a record whose row is still here, written just before a
+    /// removal that then failed or waited, or before the app quit mid-removal, is taken back.
+    private func takeBack(_ task: UUID, in id: UUID) -> Bool {
+        guard workspace.state.task(id: task) != nil,
+              workspace.state.run(id: id)?.finished.contains(where: { $0.task == task }) == true else { return true }
+        workspace.mutate { $0.updateRun(id: id) { $0.finished.removeAll { $0.task == task } } }
+        return workspace.flush()
+    }
+
+    /// Closes each eligible task of the run not yet tried in this completion or End, one at a time. A pass
+    /// with a task deferred stays open (`closedAt` nil), so a sweep after a restart finishes it.
     func close(_ id: UUID) async {
-        guard !running.contains(id), let run = workspace.state.run(id: id), shouldClose(run) else { return }
+        guard sessionsKnown, !running.contains(id), let run = workspace.state.run(id: id), shouldClose(run) else { return }
         running.insert(id)
         if passes[id]?.phase != Phase(run) { passes[id] = Pass(phase: Phase(run)) }
         defer {
@@ -124,51 +162,41 @@ final class TaskAutoCloser {
             if workspace.persistenceError == nil { changed(id) }
         }
         guard let pass = passes[id] else { return }
-        let candidates = workspace.state.tasks(inRun: id).filter {
-            Self.eligible($0) && waits($0.id, in: pass)
-        }
-        for task in candidates {
-            let prior = run.finished.first { $0.task == task.id && $0.acceptedSHA == task.operated?.acceptance?.resultSHA }
-            let base = prior?.diffBaseSHA ?? RunScheduler.baseCommit(for: task.id, in: workspace.state)
-            guard var record = Self.record(task, in: run, base: base, at: tools.ports.now()) else { continue }
-            if Self.isDriving(task, in: live) {
-                passes[id]?.waiting.insert(task.id)
-                record.result = Self.waitingForTurn
-            }
-            Self.save(record, in: id, workspace: workspace)
-        }
-        guard workspace.flush() else { return }
-        for original in candidates {
+        let candidates = workspace.state.tasks(inRun: id).filter { Self.eligible($0) && waits($0.id, in: pass) }.map(\.id)
+        for candidate in candidates {
             guard let current = samePhase(run) else { return }
-            guard let task = workspace.state.task(id: original.id), Self.eligible(task),
-                  var record = current.finished.first(where: { $0.task == task.id }) else { continue }
-            if Self.isDriving(task, in: live) {
-                passes[id]?.waiting.insert(task.id)
-                record.result = Self.waitingForTurn
-                Self.save(record, in: id, workspace: workspace)
-                guard workspace.flush() else { return }
-                continue
-            }
-            passes[id]?.waiting.remove(task.id)
+            guard let task = workspace.state.task(id: candidate), Self.eligible(task) else { continue }
+            passes[id]?.deferred[task.id] = nil
             passes[id]?.attempted.insert(task.id)
-            do {
-                guard task.operated?.acceptance?.resultSHA == record.acceptedSHA, task.operated?.end == record.end,
-                      task.branch == record.branch, task.projectId == record.project else {
-                    throw ActionUnavailable("The task changed while its finished record was being prepared.")
-                }
-                record.branchDeleted = try await remove(task, run.taskSettings?.deleteMergedBranch == true)
-            } catch is WaitingForTurn {
-                passes[id]?.attempted.remove(task.id)
-                passes[id]?.waiting.insert(task.id)
-                record.result = Self.waitingForTurn
-            } catch { record.result = Self.failureReason(error) }
-            Self.save(record, in: id, workspace: workspace)
-            guard workspace.flush() else { return }
+            guard await close(task, in: current) else { return }
         }
-        guard samePhase(run) != nil else { return }
-        guard let pass = passes[id] else { return }
+        guard samePhase(run) != nil, let pass = passes[id] else { return }
         let pending = workspace.state.tasks(inRun: id).contains { Self.eligible($0) && waits($0.id, in: pass) }
-        workspace.mutate { $0.updateRun(id: id) { $0.closedAt = pending ? nil : tools.ports.now() } }
+        workspace.mutate { $0.updateRun(id: id) { $0.closedAt = pending ? nil : now() } }
         workspace.flush()
+    }
+
+    /// One task removed, its record written as the removal starts, then its merged branch deleted once its
+    /// row is gone, so a failed branch check only keeps the branch. False when something could not be saved.
+    private func close(_ task: TaskItem, in run: OperatorRun) async -> Bool {
+        guard let record = Self.record(task, in: run, at: now()) else { return true }
+        do {
+            try await remove(task) { [self] in save(record, in: run.id) }
+        } catch let deferred as Deferred {
+            passes[run.id]?.attempted.remove(task.id)
+            passes[run.id]?.deferred[task.id] = deferred
+            return takeBack(task.id, in: run.id)
+        } catch {
+            return takeBack(task.id, in: run.id)
+        }
+        guard run.taskSettings?.deleteMergedBranch == true, let operated = task.operated,
+              let project = workspace.state.project(id: task.projectId) else { return true }
+        var deleted = record, saved = false
+        deleted.branchDeleted = true
+        let gone = await MergedBranchCheck.delete(branch: task.branch, acceptedSHA: operated.acceptance?.resultSHA, end: operated.end,
+                                                  publication: operated.publication, kind: task.kind, path: project.path, git: git,
+                                                  saveDeletion: { [self] in saved = save(deleted, in: run.id); return saved })
+        // A deletion saved and then refused by git is taken back.
+        return gone || !saved || save(record, in: run.id)
     }
 }
