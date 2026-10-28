@@ -433,6 +433,12 @@ def test_the_review_tools_say_what_the_slice_governs():
     assert "inReview" in tools["finish_task"]["description"]
 
 
+def test_finish_task_names_what_starts_peoples_review_in_both_kinds_of_broadcast():
+    description = {tool["name"]: tool for tool in TOOLS}["finish_task"]["description"]
+    assert "With the Review slice on and the broadcast's Review written, or, in a broadcast started with the Agents and Task steps, " \
+        "the task's review prompt written, the request opens as a draft" in description
+
+
 def test_schema_has_report_find_and_no_propose_lesson():
     tools = {tool["name"]: tool for tool in TOOLS}
     assert "propose_lesson" not in tools

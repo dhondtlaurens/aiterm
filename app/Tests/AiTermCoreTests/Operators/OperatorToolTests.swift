@@ -34,4 +34,23 @@ import Testing
         #expect(AgentReview.instructions.contains("say so on your first line, with the steps you skipped"))
         #expect(description.contains("open_tab with a read-only brief"), "\(description)")
     }
+
+    /// ask_you and the brief agree on which questions hold a task, including exhausted fix rounds.
+    @Test func askYouAndTheBriefAllowTheSameTaskQuestions() throws {
+        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("daemon/aitermd/operator_mcp.py")
+        let python = try String(contentsOf: file, encoding: .utf8).replacing(try Regex(#""\s*\n\s*""#), with: "")
+        let start = try #require(python.firstRange(of: #"_tool("ask_you", ""#)?.upperBound)
+        let task = try #require(python[start...].firstRange(of: #""task": _text(""#)?.upperBound)
+        let description = String(python[task...].prefix { $0 != "\"" })
+        let run = OperatorFixtures.run(taskSettings: OperatorFixtures.taskSettings)
+        let brief = OperatorCommand.brief(run: run, projects: [])
+        for phrase in ["its worker is itself stopped on the answer", "or when its fix rounds are used up (about: fixRounds)"] {
+            #expect(description.contains(phrase))
+            #expect(brief.contains(phrase))
+        }
+        #expect(description.contains("Other questions about your own next step"))
+        #expect(brief.contains("Other questions about your own next step"))
+    }
 }

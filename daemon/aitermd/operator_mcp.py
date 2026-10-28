@@ -449,7 +449,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "AiTerm wakes you when it merged or is blocked; after about an hour of waiting it answers blocked. A failed "
           "pipeline or a conflict blocks it: have the worker fix it, accept the new commit, and call finish_task "
           "again. A task that ends in a commit has nothing to finish. "
-          "With the broadcast's Review written and its Review slice on, the request opens as a draft and the task "
+          "With the Review slice on and the broadcast's Review written, or, in a broadcast started with the Agents and Task steps, "
+          "the task's review prompt written, the request opens as a draft and the task "
           "goes into review instead, answering inReview: AiTerm wakes you on people's feedback, and the next "
           "finish_task after the last fix ends the review, a draft end published, a merge end going on to merge. "
           "A merge, through the request or local, is refused unless the broadcast's Merge slice is on; AiTerm then "
@@ -491,11 +492,12 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool("ask_you", "Lists a question you asked in your chat under Waiting on you, with the same text, and notifies the person. "
           "They answer in this window; close it with resolve_question. The same key returns the open question.",
           {"key": _KEY, "question": _text("The question, complete on its own."),
-           "task": _text("Only when that task's worker is itself stopped on the answer: the task, by its key or its id from "
+           "task": _text("When its worker is itself stopped on the answer or when its fix rounds are used up (about: fixRounds): "
+                         "the task, by its key or its id from "
                          "run_status. Your row then shows waiting on the person, naming the task, and the task waits for the answer: it "
                          "isn't ready to accept and isn't watched for stalls until you resolve the question. "
-                         "Left out for a question about your own next step, such as a reviewer's username, a scope choice or a "
-                         "merge decision."),
+                         "Other questions about your own next step, such as a reviewer's username, a scope choice or a "
+                         "merge decision, go on no task."),
            "about": _choice("What the question is about, when its task's card answers it: fixRounds, a task whose review "
                             "used up its fix rounds, asked on that task. Its card then offers One More Round and Accept As "
                             "It Is. Left out for any other question.", "fixRounds")},

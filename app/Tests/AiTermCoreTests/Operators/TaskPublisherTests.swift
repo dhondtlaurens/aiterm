@@ -896,4 +896,25 @@ import Synchronization
         let old = try await advance(&s, host: host, restart: false, now: { clock.now })
         #expect(old == .refused("AiTerm didn’t keep which repository !12 was opened in, so it won’t act on it."))
     }
+
+    /// People's review starts from the Review slice and the review text the broadcast was set up with: a legacy run's
+    /// Review, a new run's per-task review prompt (the legacy Review is not read there).
+    @Test(arguments: [(review: true, slice: true, enters: true), (review: true, slice: false, enters: false),
+                      (review: false, slice: true, enters: false)])
+    func aNewRunEntersReviewWithItsReviewPromptAndTheSlice(review: Bool, slice: Bool, enters: Bool) {
+        typealias F = OperatorFixtures
+        var run = F.run(slices: Slices(jira: false, review: slice, merge: false),
+                        taskSettings: TaskSettings(review: review ? "Review every commit." : " \n ", end: .draftMR))
+        run.review = "legacy review"
+        #expect(TaskPublisher.Context.entersReview(F.operated("T", .accepted, end: .draftMR), run: run) == enters)
+    }
+
+    @Test(arguments: [(review: true, slice: true, enters: true), (review: true, slice: false, enters: false),
+                      (review: false, slice: true, enters: false)])
+    func aLegacyRunEntersReviewWithItsReviewAndTheSlice(review: Bool, slice: Bool, enters: Bool) {
+        typealias F = OperatorFixtures
+        var run = F.run(slices: Slices(jira: false, review: slice, merge: false))
+        run.review = review ? "Review every commit." : nil
+        #expect(TaskPublisher.Context.entersReview(F.operated("T", .accepted, end: .draftMR), run: run) == enters)
+    }
 }
