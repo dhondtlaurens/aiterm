@@ -14,10 +14,15 @@ extension OperatorToolHandler {
         guard let passed = call.optionalBool("passed") else { throw ToolRefusal("passed must be true or false.") }
         let critical = try reviewCount("critical", in: call), important = try reviewCount("important", in: call)
         let minor = try reviewCount("minor", in: call), round = try reviewCount("round", in: call, minimum: 1)
-        let rounds = try call.arguments["rounds"].flatMap { $0 == .null ? nil : try reviewCount("rounds", in: call) }
+        let rounds = try call.arguments["rounds"].flatMap { $0 == .null ? nil : try reviewCount("rounds", in: call, minimum: 1) }
+        if let rounds, round > rounds { throw ToolRefusal("round must not exceed rounds.") }
         let summary = try call.string("summary")
         guard summary.rangeOfCharacter(from: .newlines) == nil else { throw ToolRefusal("summary must be one line.") }
         let ref = try call.string("sha")
+        // A ref such as HEAD or main would record whatever it names now, not the commit the tab reviewed.
+        guard (4...64).contains(ref.count), ref.allSatisfy(\.isHexDigit) else {
+            throw ToolRefusal("sha must be a commit SHA, not a branch name or revision expression.")
+        }
         guard task.hasCheckout else { throw ToolRefusal("\(operated.key) has no worktree in which to check its branch.") }
         let git = ports.git, path = task.worktreePath, branch = task.branch
         let read = await BackgroundWork.run {
@@ -35,7 +40,8 @@ extension OperatorToolHandler {
         guard !fresh.hasEnded else { throw ToolRefusal("This broadcast has ended; its tools no longer act.") }
         try recheck(task)
         guard current.branch == branch, current.worktreePath == path, current.projectId == task.projectId,
-              current.operated?.extraTabs.first(where: { $0.key == tab }) == reviewTab else {
+              let now = current.operated?.extraTabs.first(where: { $0.key == tab }),
+              now.role == reviewTab.role, now.agent == reviewTab.agent else {
             throw ToolRefusal("This task or review tab changed while AiTerm was checking it; read run_status and try again.")
         }
         let sha: String

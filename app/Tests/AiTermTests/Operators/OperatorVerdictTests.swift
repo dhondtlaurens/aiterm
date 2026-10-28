@@ -10,6 +10,97 @@ import Testing
          "critical": 1, "important": 2, "minor": 3, "summary": "A race needs fixing.", "round": 1, "rounds": 2]
     }
 
+    @Test func reviewPromptPinsInstructionsBriefAndVerdictInOrder() {
+        let expected = """
+        Check correctness with /review.
+
+        [AiTerm] Review commit abc123, the head of branch task-branch when this tab opened. You are in this task's shared worktree.
+
+        [AiTerm] This tab only reviews: it never edits, commits or pushes. You may start subagents and run read-only commands.
+
+        Operator context.
+
+        End with this verdict block, replacing the placeholders. Set passed by the review prompt's criteria. \
+        Counts are non-negative integers; summary is one line the Operator can copy into record_review.
+        passed: <true or false>
+        critical: <count>
+        important: <count>
+        minor: <count>
+        summary: <one-line summary>
+        """
+        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: "Check correctness with /review.", brief: "Operator context.") == expected)
+    }
+
+    @Test func reviewPromptWithoutBriefPinsInstructionsAndVerdictInOrder() {
+        let expected = """
+        Check correctness with /review.
+
+        [AiTerm] Review commit abc123, the head of branch task-branch when this tab opened. You are in this task's shared worktree.
+
+        [AiTerm] This tab only reviews: it never edits, commits or pushes. You may start subagents and run read-only commands.
+
+        End with this verdict block, replacing the placeholders. Set passed by the review prompt's criteria. \
+        Counts are non-negative integers; summary is one line the Operator can copy into record_review.
+        passed: <true or false>
+        critical: <count>
+        important: <count>
+        minor: <count>
+        summary: <one-line summary>
+        """
+        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: "Check correctness with /review.", brief: "") == expected)
+    }
+
+    @Test(arguments: ["HEAD", "main", "HEAD~0"])
+    func refusesARefInsteadOfACommitSHA(ref: String) async throws {
+        let (world, run, task) = try OperatorVerdictFixtures.make()
+        #expect(await world.call(run.id, "record_review", arguments(sha: ref)).message
+            == "sha must be a commit SHA, not a branch name or revision expression.")
+        #expect(world.task(task.id)?.operated?.reviewVerdicts.isEmpty == true)
+    }
+
+    @Test func anAbbreviatedCommitSHARecordsTheFullSHA() async throws {
+        let (world, run, task) = try OperatorVerdictFixtures.make()
+        let sha = try GitRunner.hermetic().run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(await world.call(run.id, "record_review", arguments(sha: String(sha.prefix(12)))).message == nil)
+        #expect(world.task(task.id)?.operated?.reviewVerdicts.first?.sha == sha)
+    }
+
+    @Test func savingTheReviewConversationDuringTheCommitReadStillRecords() async throws {
+        let git = HeldVerdictGit()
+        let (world, run, task) = try OperatorVerdictFixtures.make(git: git)
+        let sha = try GitRunner.hermetic().run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
+        let pending = Task { await world.call(run.id, "record_review", arguments(sha: sha)) }
+        #expect(await eventually(describing: "verdict reading git") { git.waiting == 1 })
+        let conversation = UUID().uuidString
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.extraTabs[0].conversation = conversation } }
+        git.open()
+        #expect(await pending.value.value?["verdicts"]?.arrayValue?.count == 1)
+        #expect(world.task(task.id)?.operated?.extraTabs[0].conversation == conversation)
+        #expect(world.task(task.id)?.operated?.reviewVerdicts.first?.sha == sha)
+    }
+
+    @Test(arguments: [0, -1, 1])
+    func refusesInvalidRoundTotals(rounds: Int) async throws {
+        let (world, run, task) = try OperatorVerdictFixtures.make()
+        let sha = try GitRunner.hermetic().run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
+        var args = try #require(arguments(sha: sha).objectValue)
+        args["round"] = 2
+        args["rounds"] = .int(rounds)
+        #expect(await world.call(run.id, "record_review", .object(args)).message
+            == (rounds < 1 ? "rounds must be an integer of at least 1." : "round must not exceed rounds."))
+        #expect(world.task(task.id)?.operated?.reviewVerdicts.isEmpty == true)
+    }
+
+    @Test(arguments: [JSONValue.int(1), .null])
+    func acceptsTheLastRoundOrAnUnspecifiedTotal(rounds: JSONValue) async throws {
+        let (world, run, task) = try OperatorVerdictFixtures.make()
+        let sha = try GitRunner.hermetic().run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
+        var args = try #require(arguments(sha: sha).objectValue)
+        args["rounds"] = rounds
+        #expect(await world.call(run.id, "record_review", .object(args)).message == nil)
+        #expect(world.task(task.id)?.operated?.reviewVerdicts.count == 1)
+    }
+
     @Test(arguments: [AgentKind.claude, .codex]) func reviewLaunchNamesBranchHeadAndKeepsReviewCapabilities(agent: AgentKind) async throws {
         let (world, _, task) = try OperatorVerdictFixtures.make(agent: agent, brief: String(repeating: "Operator context. ", count: 80))
         let git = GitRunner.hermetic()

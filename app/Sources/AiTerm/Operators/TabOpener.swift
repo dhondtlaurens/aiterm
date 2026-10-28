@@ -64,14 +64,15 @@ final class TabOpener {
         let worktree = task.worktreePath, git = ports.git
         let run = task.operated.flatMap { state.run(id: $0.runId) }
         let review = run?.taskSettings?.review
-        let workerPrompt = tab.role == .work ? Self.prompt(branch: task.branch, brief: tab.brief) : ""
+        // Built here, unused by a review tab: `prompt(branch:brief:)` needs the main actor, the review's SHA the background.
+        let reviewing = tab.role == .review, workerPrompt = Self.prompt(branch: task.branch, brief: tab.brief)
         let file = Self.promptFile(for: id.key)
         do {
             // The Operator's worker flags, its own prompt file: the task's other workers started in this worktree too.
             // Read the named branch when opening the review, not HEAD: the shared worktree may have moved.
             let command = try await BackgroundWork.run {
                 let prompt: String
-                if tab.role == .review {
+                if reviewing {
                     let sha = try git.run(["rev-parse", "--verify", "refs/heads/" + task.branch + "^{commit}"], in: worktree)
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     prompt = Self.reviewPrompt(branch: task.branch, sha: sha, review: review, brief: tab.brief)
@@ -79,7 +80,7 @@ final class TabOpener {
                     prompt = workerPrompt
                 }
                 return try AgentCommand.build(agent: tab.agent, model: tab.model, reasoning: tab.reasoning, prompt: prompt, worktreePath: worktree,
-                                              git: git, operated: true, readOnly: tab.role == .review, promptFile: file)
+                                              git: git, operated: true, readOnly: reviewing, promptFile: file)
             }
             // The await has passed: the task may have been taken over or ended, its window closed, or its broadcast paused.
             guard let now = record(id), now.tab.launch == attempt, now.tab.sessionId == nil, Self.holds(now.task, in: state),
