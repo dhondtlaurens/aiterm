@@ -345,11 +345,12 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// order they were created (the state's order where that ties), and no card a button, no worker tab listed, no end to
     /// change, nothing paused. Nothing is live: no acts, no requests, no sessions. What End handed you, mid-flight, stays
     /// In progress reading `taken over` and counts towards the total, not as done: a broadcast ended at 2 of 8 says so.
-    public static func shelved(run: OperatorRun, state: AppState) -> BroadcastBoard {
+    /// Its cards name each model by `modelLabels`, as the live board's do.
+    public static func shelved(run: OperatorRun, state: AppState, modelLabels: ModelLabels = [:]) -> BroadcastBoard {
         var all = state
         let driven = state.tasks(inRun: run.id) + state.archive.map(\.task).filter { $0.operated?.runId == run.id }
         all.tasks = driven.enumerated().sorted { ($0.element.createdAt, $0.offset) < ($1.element.createdAt, $1.offset) }.map(\.element)
-        var board = build(run: run, state: all, acting: .none, requests: [], sessions: [], liveModels: [:], modelLabels: [:], keepsHanded: true)
+        var board = build(run: run, state: all, acting: .none, requests: [], sessions: [], liveModels: [:], modelLabels: modelLabels, keepsHanded: true)
         board.columns = board.columns.map { lane in
             var lane = lane
             lane.cards = lane.cards.map { card in

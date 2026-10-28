@@ -35,15 +35,16 @@ final class SidebarProjection {
     /// What the Operator is doing, read on every derivation. The app points it at its
     /// `OperatorController`; a test or a snapshot at values of its own.
     @ObservationIgnored var actingSource: @MainActor () -> OperatorActs = { .none }
-    /// Whether the board's sheet is showing, read on every derivation: the app points it at its sheet slot; a test or
-    /// a snapshot that reads `board` alone leaves it true.
+    /// Whether a broadcast's sheet is showing, the live board's or the Shelf's, read on every derivation: the app points it
+    /// at its sheet slot; a test or a snapshot that reads `board` alone leaves it true.
     @ObservationIgnored var boardShown: @MainActor () -> Bool = { true }
-    /// Reads the agents' model labels, as Settings › Agents lists them, which the board's cards name a model by: blocking,
-    /// so run off the main actor each time the board's sheet opens. The app points it at its model catalogue; nil reads
+    /// Reads the agents' model labels, as Settings › Agents lists them, which the board's cards name a model by, live or
+    /// shelved: blocking, so run off the main actor each time a broadcast's sheet opens. The app points it at its model catalogue; nil reads
     /// nothing, and a card names a model by its id.
     @ObservationIgnored var modelLabelSource: (@Sendable () -> BroadcastBoard.ModelLabels)?
-    /// The labels last read, or set by a snapshot; a change derives the board again.
-    @ObservationIgnored var modelLabels: BroadcastBoard.ModelLabels = [:] {
+    /// The labels last read, or set by a snapshot; a change derives the board again, and redraws the Shelf's, which
+    /// reads them.
+    var modelLabels: BroadcastBoard.ModelLabels = [:] {
         didSet { if modelLabels != oldValue { refresh() } }
     }
     /// The latest read of the labels, for a test to await.
@@ -82,13 +83,14 @@ final class SidebarProjection {
         var runs: [OperatorRun], acting: OperatorActs, folded: Set<UUID>, boardShown: Bool
     }
 
-    /// The labels read again, off the main actor, as the board's sheet opens: a model added in Settings › Agents since
+    /// The labels read again, off the main actor, as a broadcast's sheet opens: a model added in Settings › Agents since
     /// is named the next time it opens.
     private func readModelLabels() {
         guard let source = modelLabelSource else { return }
         labelLoad = Task { [weak self] in
             let labels = await BackgroundWork.run(source)
-            self?.modelLabels = labels
+            // Written only when they differ: an equal write would still redraw what reads them.
+            if let self, labels != modelLabels { modelLabels = labels }
         }
     }
 

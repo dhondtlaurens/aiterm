@@ -5,7 +5,7 @@ import Testing
 @testable import AiTermTestSupport
 
 /// The board's cards name a model as Settings › Agents lists it (broadcast setup v2, 14A): the rows read the agents' labels
-/// off the main actor each time the board's sheet opens, and the board is derived again with them.
+/// off the main actor each time a broadcast's sheet opens, live or the Shelf's, and the board is derived again with them.
 @MainActor
 struct BoardModelLabelsTests {
     /// Whether the board's sheet shows, as a test flips it.
@@ -27,5 +27,18 @@ struct BoardModelLabelsTests {
         #expect(drawer.combination == "Opus 5.5 · High")
         let provider = try #require(rows.board?.columns.flatMap(\.cards).first { $0.id == scene.provider })
         #expect(provider.combination == "gpt-6-astra · Medium", "no Codex label read: its id")
+    }
+
+    /// The Shelf's sheet reads them as it opens too: its cards name the models as the live board's do.
+    @Test func theLabelsAreReadAsTheShelfsSheetOpens() async throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        try controller.loadWorkspace()
+        let ended = OperatorUIFixtures.run(name: "Sprint 41", state: .stopped)
+        controller.workspace.mutate { $0.runs = [ended] }
+        controller.rows.modelLabelSource = { [.claude: ["claude-opus-5-5": "Opus 5.5"]] }
+        controller.presentShelved(run: ended.id)
+        await controller.rows.labelLoad?.value
+        #expect(controller.rows.modelLabels == [.claude: ["claude-opus-5-5": "Opus 5.5"]])
     }
 }
