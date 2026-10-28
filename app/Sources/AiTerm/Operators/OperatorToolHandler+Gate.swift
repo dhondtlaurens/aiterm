@@ -63,7 +63,9 @@ extension OperatorToolHandler {
             mutate(in: run.id) { $0.updateRun(id: run.id) { $0.gateAllowances.remove(at: allowed) } }
             return answer("allow", "allowed by you")
         }
-        let opinion = run.profile.oracle
+        refreshOracleSettings()
+        let generation = oracleGeneration(run.id)
+        let opinion = state.run(id: run.id)?.profile.oracle ?? run.profile.oracle
         guard opinion.isOn else {
             return answer("allow", "unchallenged: the Oracle is off")
         }
@@ -78,6 +80,12 @@ extension OperatorToolHandler {
         onActing(consulting, false)
         // The Oracle may take minutes: a broadcast that ended meanwhile runs nothing and asks nothing.
         if let ended = ended(run.id) { return answer("deny", ended, outcome: .refused) }
+        refreshOracleSettings()
+        if oracleGeneration(run.id) != generation {
+            return state.run(id: run.id)?.profile.oracle.isOn == false
+                ? answer("allow", "unchallenged: the Oracle is off")
+                : answer("deny", "The Oracle settings changed while this check ran. Try the command again for a fresh check.", outcome: .refused)
+        }
         let critique: String
         switch verdict {
         case .unchallenged(let why): return answer("allow", "unchallenged: \(why)")

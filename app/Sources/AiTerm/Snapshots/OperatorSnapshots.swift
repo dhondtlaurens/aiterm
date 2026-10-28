@@ -573,8 +573,8 @@ enum OperatorSnapshots {
         return sidebar(scene)
     }
 
-    /// The header over the Operator's row in the drawing's nine states, then the Operator's row selected while it
-    /// acts and the header selected while it is asked. Each scene draws those two rows alone, not its tasks.
+    /// The header over the Operator's row in every activity state, including background and completed
+    /// rows selected. Each scene draws those two rows alone, not its tasks.
     private static func broadcastRowStates() -> some View {
         func watching(_ scene: OperatorScene) -> [TaskItem] { scene.checkout([scene.shipping: .working]) }
         let planning = OperatorScene()
@@ -609,6 +609,21 @@ enum OperatorSnapshots {
 
         let done = OperatorScene.complete()
 
+        func background(selected: Bool) -> OperatorScene {
+            let scene = OperatorScene()
+            scene.show(scene.run(.active), watching(scene), operatorTab: "done")
+            scene.controller.live.sessions = scene.controller.live.sessions.map { tab in
+                var tab = tab
+                if tab.taskUUID == scene.runId { tab.background = [BackgroundJob(kind: .shell, text: "scripts/test.sh")] }
+                return tab
+            }
+            if selected { scene.controller.focus.browse(.operation(scene.runId)) }
+            scene.controller.rows.refresh()
+            return scene
+        }
+        let selectedDone = OperatorScene.complete()
+        selectedDone.controller.focus.browse(.operation(selectedDone.runId))
+
         let acting = OperatorScene()
         acting.show(acting.run(.active), watching(acting), acting: acting.answeringTheDrawer)
         acting.controller.focus.browse(.operation(acting.runId))
@@ -618,7 +633,8 @@ enum OperatorSnapshots {
                       watching(needsYou), operatorTab: "needsInput")
         needsYou.controller.focus.browse(.broadcast(needsYou.runId))
 
-        let scenes = [planning, oracle, watched, asked, several, review, paused, closed, done, acting, needsYou]
+        let scenes = [planning, oracle, watched, background(selected: false), asked, several, review, paused, closed,
+                      done, selectedDone, acting, background(selected: true), needsYou]
         return VStack(alignment: .leading, spacing: Space.hairline) {
             ForEach(scenes.indices, id: \.self) { index in
                 let controller = scenes[index].controller

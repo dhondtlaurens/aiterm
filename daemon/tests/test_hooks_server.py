@@ -403,9 +403,13 @@ async def test_an_operator_route_that_fails_is_a_500_not_a_dropped_connection(se
 async def test_stop_closes_an_incomplete_request(server):
     srv, _ = server
     reader, writer = await asyncio.open_connection("127.0.0.1", srv.port)
-    writer.write(b"POST /hook/claude HTTP/1.1\r\n")
+    # Wait for the server to own this connection before stopping it. A completed TCP
+    # connect alone can precede the server's accept callback on a busy event loop.
+    writer.write(b"POST /hook/claude HTTP/1.1\r\nContent-Length: 10\r\nExpect: 100-continue\r\n\r\n")
     await writer.drain()
     try:
+        assert await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), 1) == b"HTTP/1.1 100 Continue\r\n\r\n"
+        # The request remains incomplete: none of its promised body has arrived.
         await asyncio.wait_for(srv.stop(), 0.2)
         with contextlib.suppress(ConnectionResetError):
             assert await asyncio.wait_for(reader.read(), 0.2) == b""

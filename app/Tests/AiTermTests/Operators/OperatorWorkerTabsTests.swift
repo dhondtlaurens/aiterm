@@ -243,8 +243,8 @@ import Testing
 
     // -- the first worker -----------------------------------------------------------------------------
 
-    /// An extra tab running its agent is not the first worker: a first worker's window holding only a shell stays
-    /// uncertain, and the tool handler's worker tab is the first worker even when the extra tab comes first.
+    /// An active extra tab confirms the task has a worker, while the main worker remains absent
+    /// until its own agent appears. Tab order never promotes an extra to the main worker.
     @Test func anExtraTabIsNeverTakenForTheFirstWorker() throws {
         let (world, run, task) = try makeWorld()
         world.workspace.mutate { $0.updateOperated(task.id) { $0.flags.insert(.uncertain) } }
@@ -254,7 +254,7 @@ import Testing
         extra.tabIndex = 0
         world.live.sessions = [OperatorServiceFixtures.session("op", window: "wop", tag: run.id), shell, extra]
         world.controller.starter.tabsListed(world.live.sessions)
-        #expect(world.task(task.id)?.operated?.flags.contains(.uncertain) == true)
+        #expect(world.task(task.id)?.operated?.flags.contains(.uncertain) == false)
         let current = try #require(world.task(task.id))
         #expect(world.controller.tools.workerTab(of: current) == nil)
         world.live.sessions[1].agent = .claude

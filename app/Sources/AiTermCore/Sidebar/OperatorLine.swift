@@ -124,12 +124,13 @@ public struct OperatorLine: Equatable, Sendable {
                             now: Date = Date(), calendar: Calendar = .current) -> OperatorLine? {
         guard let operated = task.operated, operated.runId == run.id, !operated.takenOver, operated.state != .stopped,
               !run.hasEnded else { return nil }
-        // A finished task's leftover asks nothing, and a question the Operator asks about it is the Operator's row's,
-        // answered in its window (2A, 22 Oct 2026).
+        // A finished task's leftover asks nothing. An open question also marks the task whose work
+        // its answer holds; choosing that row opens the Operator's window, where it is answered.
         if !operated.isFinished {
-            if let request = first(requests.filter { $0.runId == run.id && $0.taskId == task.id && $0.kind != .question }) {
+            if let request = first(requests.filter { $0.runId == run.id && $0.taskId == task.id }) {
                 return line(for: request, task: task)
             }
+            if operated.flags.contains(.waitingOnYou) { return OperatorLine("waiting on you", look: .needsYou) }
         }
         if let acting, operated.state != .blocked { return act(acting, task: task, onItsRow: true) }
         if [.working, .inReview].contains(operated.state), let review = operated.agentReview, review.isRunning {
@@ -154,10 +155,18 @@ public struct OperatorLine: Equatable, Sendable {
                 return needsYou("blocked", stopped.detail(now: now, calendar: calendar),
                                 tooltip: "Its worker " + stopped.reason(now: now, calendar: calendar) + ".")
             }
+            if !tabs.contains(where: { $0.status == .needsInput }),
+               let tests = tabs.lazy.compactMap({ $0.session?.testActivity }).first(where: \.isActive) {
+                return tests.statusLine
+            }
             if let round = reviewRound(of: operated, tabs: tabs) { return OperatorLine("in review · " + round, look: .acting) }
             if turn == .asks, !sessions.isEmpty, tabs[0].status?.turnEnded == true { return OperatorLine("asking the Operator", look: .acting) }
             if !sessions.isEmpty, task.isReadyForAcceptance(tabs: tabs) {
-                return OperatorLine(turn == .noCommit ? Count.working.words + " · no commit" : Count.ready.words, look: .acting)
+                let text = turn == .noCommit ? Count.working.words + " · no commit" : Count.ready.words
+                if let tests = tabs.lazy.compactMap({ $0.session?.testActivity }).first {
+                    return OperatorLine(text + " · " + tests.line, look: .acting, tooltip: text + "; " + tests.detail)
+                }
+                return OperatorLine(text, look: .acting)
             }
             // Its turn ended with work running in the background, which wakes it again: still at work.
             let background = tabs.flatMap(\.background)
@@ -347,15 +356,17 @@ public struct OperatorLine: Equatable, Sendable {
     /// those). Its window closed, `window closed`; a prompt open in its tab or a question of its own, `waiting on
     /// you`, with `about` after it, the task one question is about, or how many it asks (`waiting on you · PAY-232`,
     /// 1A and 2A, 22 Oct 2026), and what it `asks` as the tooltip; paused,
-    /// `paused`; every task done, `writing the summary` until it is written, then `done · summary ready`, as the
+    /// `paused`; every task done, `done · writing summary` until it is written, then `done · summary ready`, as the
     /// header says it, or `done` once AiTerm gave up on it; else its act, the task it is about named (`answering
     /// Claude · PAY-231`); else `working` while its session works, and between turns `watching 3 tasks`, its
-    /// working ones counted (`waiting for its tasks` with none). `summary` is `summary(of:)`'s, `.notYet` while
+    /// working ones counted (`waiting for its tasks` with none), or `in background` with its jobs on the tooltip
+    /// while its ended turn left work running. `summary` is `summary(of:)`'s, `.notYet` while
     /// the broadcast is under way. `acting` is the broadcast's act as
     /// `OperatorActs.broadcast` gives it, its task a `key` (or an id) among `tasks`, the broadcast's.
     public static func session(acting: (OperatorAct, task: String?)?, working: Bool, asking: Bool, about: String? = nil,
                                asks: String? = nil, windowClosed: Bool,
-                               paused: Bool = false, summary: RunSummary = .notYet, tasks: [TaskItem] = []) -> OperatorLine {
+                               paused: Bool = false, summary: RunSummary = .notYet, tasks: [TaskItem] = [],
+                               background: [String] = []) -> OperatorLine {
         if windowClosed { return OperatorLine("window closed") }
         if asking {
             guard let about else { return OperatorLine("waiting on you", look: .needsYou, tooltip: asks) }
@@ -363,9 +374,9 @@ public struct OperatorLine: Equatable, Sendable {
         }
         if paused { return OperatorLine("paused") }
         switch summary {
-        case .writing: return OperatorLine("writing the summary", look: .acting)
-        case .written: return OperatorLine("done · summary ready")
-        case .notComing: return OperatorLine("done")
+        case .writing: return OperatorLine("done · writing summary", look: .ended)
+        case .written: return OperatorLine("done · summary ready", look: .ended)
+        case .notComing: return OperatorLine("done", look: .ended)
         case .notYet, .endedEarly: break
         }
         if let (act, ref) = acting {
@@ -373,6 +384,9 @@ public struct OperatorLine: Equatable, Sendable {
             return self.act(act, task: task, named: act.namesItsTask ? (label(of: task) ?? ref) : nil)
         }
         if working { return OperatorLine("working", look: .acting) }
+        if !background.isEmpty {
+            return OperatorLine("in background", tooltip: "Running in the background: " + background.joined(separator: ", "))
+        }
         let watched = tasks.filter { task in task.operated.map { !$0.takenOver && $0.state == .working } ?? false }.count
         return OperatorLine(watched > 0 ? "watching \(watched) \(watched == 1 ? "task" : "tasks")" : "waiting for its tasks")
     }
@@ -455,5 +469,11 @@ public struct OperatorLine: Equatable, Sendable {
             kept = String(kept[..<space])
         }
         return kept.trimmingCharacters(in: CharacterSet(charactersIn: " ,;:·")) + "…"
+    }
+}
+
+public extension TestActivity {
+    var statusLine: OperatorLine {
+        OperatorLine(line, look: isActive ? .acting : .ended, tooltip: detail)
     }
 }

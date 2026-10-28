@@ -45,6 +45,13 @@ final class DaemonOperatorWireTests {
         #expect(params()["worktree"] as? String == "/wt")
     }
 
+    @Test func blockingPromptIncludesReadableTextAndOptions() async throws {
+        try connect { _ in ["kind": "menu", "text": "Select reasoning\n1. Medium\n2. High"] }
+        let details = try await client.promptDetails(sessionId: "s1")
+        #expect(details.kind == .menu)
+        #expect(details.text == "Select reasoning\n1. Medium\n2. High")
+    }
+
     @Test func anOpenPromptReadsAsItsKindAndNoneAsNil() async throws {
         try connect { req in
             ["kind": (req["params"] as? [String: Any])?["sessionId"] as? String == "s1" ? "permission" as Any : NSNull()]

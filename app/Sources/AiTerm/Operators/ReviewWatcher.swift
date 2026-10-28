@@ -79,7 +79,7 @@ final class ReviewWatcher {
         guard next != seen else { return }
         let news = Self.isNews(threads: threads, approvals: approvals ?? seen.approvals, seen: seen, me: own)
         workspace.mutate { $0.updateOperated(id) { $0.peopleReview = next } }
-        if news { waker.say("review feedback on one task", to: operated.runId, colon: true) }
+        if news { waker.say("\(OperatorWaker.taskReference(operated.key)) has review feedback", to: operated.runId, colon: true) }
     }
 
     /// A thread that is new and unresolved, one whose resolution changed, a new last note on an unresolved thread

@@ -146,11 +146,11 @@ public extension SidebarModel {
     /// header's tooltip, the board's band and the tasks' own rows say. It waits on you while its tab waits on input
     /// or one of its questions is open, the broadcast's or one about a task, which it names (2A, 22 Oct 2026): you
     /// answer those in its window; its window is closed while the run
-    /// is `operatorOffline`; else paused, `writing the summary` once every task is done and `done · summary ready`
+    /// is `operatorOffline`; else paused, `done · writing summary` once every task is done and `done · summary ready`
     /// once it is written (`done` if AiTerm gave up on it), its act, `working` while its session works, and between
-    /// turns `watching 3 tasks`, its working ones counted. Its mark follows the line: amber when it asks, spinning
-    /// while it acts, works or writes the summary, the accent ring once the summary is settled, else the idle ring:
-    /// a turn ended is routine.
+    /// turns `watching 3 tasks`, its working ones counted, or `in background` while its ended turn left work running.
+    /// Its mark follows the line: amber when it asks, spinning while it acts or works, dashed while background
+    /// work runs, the completed check as soon as the broadcast is complete, else the idle ring.
     static func operatorRow(_ run: OperatorRun, tasks: [TaskItem], acting: OperatorActs, requests: [BroadcastRequest],
                             sessions: [SessionInfo]) -> OperatorRow {
         let tab = run.operatorSessionId.flatMap { id in sessions.first { $0.sessionId == id } } ?? operatorTab(of: run.id, in: sessions)
@@ -161,16 +161,18 @@ public extension SidebarModel {
         default: "\(questions.count) questions"
         }
         let summary = OperatorLine.summary(of: run)
+        let background = tab.map { backgroundJobs(of: [$0]).map(\.text) } ?? []
         let line = OperatorLine.session(acting: acting.broadcast(run.id), working: tab?.state == .working,
                                         asking: !questions.isEmpty || tab?.state == .needsInput, about: about,
                                         asks: questions.isEmpty ? nil : questions.map(\.text).joined(separator: "\n"),
                                         windowClosed: run.state == .operatorOffline,
                                         paused: run.isPaused,
-                                        summary: summary ?? .notYet, tasks: tasks)
+                                        summary: summary ?? .notYet, tasks: tasks, background: background)
         let status: TaskStatus = switch line.look {
         case .needsYou: .needsInput
         case .acting: .working
-        case .quiet, .ended: summary?.isSettled == true ? .done : .idle
+        case .ended: .done
+        case .quiet: !background.isEmpty && !run.isPaused && run.state != .operatorOffline ? .background : .idle
         }
         return OperatorRow(id: OperatorRow.id(of: run.id), runId: run.id, agent: AgentKind.claude.session, line: line, status: status)
     }

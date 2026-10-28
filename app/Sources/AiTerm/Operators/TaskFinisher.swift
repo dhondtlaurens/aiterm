@@ -446,9 +446,10 @@ final class TaskFinisher {
     /// and accepted commit it started with.
     private func steps(of id: UUID, ownership: Int, sha: String)
         -> (recheck: @Sendable () async -> String?, record: @Sendable (TaskPublication) async throws -> Void) {
-        ({ @MainActor [weak self] in
+        let evidence = context(of: id).map { PublicationGuard.evidence(task: $0.task, run: $0.run) }
+        return ({ @MainActor [weak self] in
             guard let self else { return PublicationGuard.gone }
-            return self.recheck(id, ownership: ownership, sha: sha)
+            return self.recheck(id, ownership: ownership, sha: sha, evidence: evidence)
         }, { @MainActor [weak self] publication in
             guard let self else { throw NotSaved() }
             try self.record(publication, for: id, ownership: ownership)
@@ -456,10 +457,10 @@ final class TaskFinisher {
     }
 
     /// Read fresh before every step that changes something outside this machine.
-    private func recheck(_ id: UUID, ownership: Int, sha: String) -> String? {
+    private func recheck(_ id: UUID, ownership: Int, sha: String, evidence: String?) -> String? {
         let state = store.state, task = state.task(id: id)
         return PublicationGuard.recheck(task: task, run: task?.operated.flatMap { state.run(id: $0.runId) },
-                                        ownership: ownership, acceptedSHA: sha)
+                                        ownership: ownership, acceptedSHA: sha, expectedEvidence: evidence)
     }
 
     /// A completed step: on the task, and on disk before the next step starts. A task gone from the
@@ -470,6 +471,10 @@ final class TaskFinisher {
         store.mutate { state in
             guard let index = state.tasks.firstIndex(where: { $0.id == id }), let operated = state.tasks[index].operated else { return }
             var publication = publication
+            // Progress from an awaited step must not restore authority invalidated by newer settings/evidence.
+            publication.conditionsHeld = operated.publication?.conditionsHeld
+            publication.conditionsEvidence = operated.publication?.conditionsEvidence
+            publication.mergeRefusal = operated.publication?.mergeRefusal
             if operated.ownership != ownership, let problem = operated.publication?.problem { publication.problem = problem }
             state.tasks[index].operated?.publication = publication
             if let number = publication.mergeRequestNumber, let url = publication.mergeRequestURL {

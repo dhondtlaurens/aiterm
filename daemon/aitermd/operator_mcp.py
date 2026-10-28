@@ -168,10 +168,11 @@ _MODEL = _text("A model id from the agent's own list, as run_status shows it und
                "row's model, and left out, the agent's first row.")
 # Said first by each argument that is the Agents and Task steps' alone.
 _STEPS_ONLY = "Only in a broadcast started with the Agents and Task steps, whose run_status shows taskSettings"
-_REASONING = _text(f"{_STEPS_ONLY}; a broadcast started before them doesn't take it. The model's reasoning level, as Settings › "
-                   "Agents lists it. Left out, the model's default. The agent, model and reasoning must be one of the rows "
-                   "under agents.allowed: anything else is refused, naming the rows. The person's words choose among the rows, "
-                   "never outside them: ask them with ask_you about a combination that isn't one.")
+_REASONING = _text("The model's reasoning level, as Settings › Agents lists it. Explicit reasoning wins. Left out, the "
+                   "configured default model keeps its configured reasoning, even when named explicitly; another model "
+                   "takes its catalogue fallback. In a broadcast with taskSettings, the agent, model and reasoning must "
+                   "be a row under agents.allowed: anything else is refused, naming the rows. Ask the person with ask_you "
+                   "about a combination outside those rows.")
 _DEPENDS_ON: dict[str, Any] = {
     "type": "array",
     "description": "What the task waits for. An order dependency waits until the other task is accepted or needs no change; "
@@ -325,8 +326,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
                                                              "starts on that agent whatever its weekly use."},
            "end": _END, "dependsOn": _DEPENDS_ON},
           ("key", "title", "brief", "project", "agent", "modelReason")),
-    _tool("update_task", "Changes an unstarted task's brief, agent, model, end or dependencies, and in a broadcast started with "
-          "the Agents and Task steps its reasoning. Steer a started task with message_task instead.",
+    _tool("update_task", "Changes an unstarted task's brief, agent, model, reasoning, end or dependencies. In a broadcast started "
+          "with the Agents and Task steps, combinations stay within its Agents rows. Steer a started task with message_task instead.",
           {"task": _TASK, "brief": _text("The new brief."), "agent": _AGENT, "model": _MODEL, "reasoning": _REASONING,
            "end": _END, "dependsOn": _DEPENDS_ON}, ("task",)),
     _tool("submit_plan", "Closes a plan revision: its planned tasks are queued at once, with nothing to approve. "
@@ -426,8 +427,10 @@ TOOLS: tuple[dict[str, Any], ...] = (
                        "description": "When not met: what is still to do, one line each."}},
           ("met", "evidence")),
     _tool("mark_task", "Records a working task's outcome: accepted, with the result commit on its branch and the worker's check "
-          "output; noChange; blocked or failed, with the reason in note. The same outcome for the same commit returns the earlier "
-          "result.",
+          "output; noChange; blocked or failed, with the reason in note. Identical evidence for the same commit returns the earlier "
+          "result. Fresh checkOutput or note refreshes evidence only after verifying the same current branch head, and invalidates "
+          "the previous merge verdict. After an obsolete merge refusal, refresh with mark_task then start a fresh finish_task call. "
+          "run_status exposes acceptanceEvidence with commit, output and time.",
           {"task": _TASK, "outcome": _choice("accepted, noChange, blocked or failed.", "accepted", "noChange", "blocked", "failed"),
            "sha": _text("The accepted commit, unmoved on the task's branch."),
            "checkOutput": _text("The worker's check output: tests, lint, build."), "note": _text("Why, for blocked and failed.")},

@@ -52,6 +52,9 @@ scripts/swift.sh	toolchain everything
 scripts/test-swift-toolchain.sh	toolchain everything
 scripts/fixtures/*	toolchain everything
 scripts/test.sh	toolchain everything
+scripts/test-queue.sh	toolchain everything
+scripts/test-queue.py	toolchain everything
+scripts/test-test-queue.sh	toolchain everything
 scripts/test-select.sh	toolchain everything
 scripts/test-routes.tsv	toolchain everything
 scripts/test-test-select.sh	toolchain everything

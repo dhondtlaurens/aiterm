@@ -31,6 +31,10 @@ struct SidebarInteractionTests {
         let list = try #require(host.firstDescendant(NSTableView.self))
         #expect(list.numberOfRows == 6)
         func click(row: Int, eventNumber: Int) throws {
+            // The fixed chrome/footer reduce the viewport. Click a visible row, as a person does.
+            list.scrollRowToVisible(row)
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
             let point = list.convert(NSPoint(x: list.bounds.midX, y: list.rect(ofRow: row).midY), to: nil)
             let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
                                                       timestamp: 0, windowNumber: sidebar.windowNumber,

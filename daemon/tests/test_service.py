@@ -880,7 +880,7 @@ async def test_codex_usage_is_read_from_the_rollout_file_on_tick(tmp_path, make_
     await svc.tick()
     assert (await call(r, w, "usage.get"))["result"]["codex"] == {
         "fiveHour": None, "sevenDay": {"usedPercent": 52, "resetsAt": 1790582049},
-        "spend": None, "updatedAt": 1790087469}
+        "spend": None, "updatedAt": 1790087469, "retrievalFailure": None}
     # Codex's next turn appends a record; the next tick announces it.
     with path.open("a") as stream:
         stream.write(json.dumps(rate_limited({"used_percent": 53.0, "window_minutes": 10080, "resets_at": 1790582049},
@@ -979,6 +979,7 @@ async def test_a_failing_codex_usage_read_does_not_stop_session_polling(stack):
     await it.close_window(wid)
     await svc.tick()
     assert svc.registry.all() == []
+    assert "infinity" in svc.usage.snapshot()["codex"]["retrievalFailure"]["message"]
 
 
 async def test_snapshot_survives_a_failing_tick(stack, caplog):
@@ -2200,3 +2201,26 @@ async def test_closed_session_forgets_prompt_attribution(stack):
     svc.hook_router._note_prompt("reused", "first")
     svc._forget_session("reused")
     assert "reused" not in svc.hook_router._prompted
+
+
+async def test_tick_recovers_codex_completion_without_stop_or_seen_spinner(stack):
+    from datetime import UTC, datetime
+    svc, it, files, r, w = stack
+    wid, sid = await task_tab(svc, r, w)
+    await it.user_runs(sid, "codex", job_pid=104, title="Codex")
+    await svc.tick()
+    base = {"session_id": "thread-turn", "cwd": "/wt", "_aiterm_iterm_session_id": sid}
+    await svc.hook_router.handle_hook("/hook/codex", {**base, "hook_event_name": "SessionStart"})
+    await svc.hook_router.handle_hook("/hook/codex", {**base, "hook_event_name": "UserPromptSubmit"})
+    path = svc.codex_files.root / "rollout-2026-10-28-thread-turn.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    def event(kind, delay):
+        return json.dumps({"type": "event_msg", "timestamp": datetime.fromtimestamp(svc.clock() + delay, UTC).isoformat(),
+                           "payload": {"type": kind}}) + "\n"
+    path.write_text(event("task_complete", 1))
+    await svc.tick()
+    assert svc.registry.get(sid).state == "done"
+    with path.open("a") as stream:
+        stream.write(event("task_started", 2))
+    await svc.tick()
+    assert svc.registry.get(sid).state == "working"

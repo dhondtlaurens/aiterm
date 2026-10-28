@@ -262,7 +262,7 @@ import Testing
         #expect(accepted.value?["state"] == "accepted")
         let acceptance = try #require(world.task(task.id)?.operated?.acceptance)
         #expect(acceptance.resultSHA == tip && acceptance.checkOutput == "12 tests passed")
-        let again = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "again"])
+        let again = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "12 tests passed"])
         #expect(again == accepted)
         #expect(world.task(task.id)?.operated?.acceptance == acceptance)
     }
@@ -272,7 +272,7 @@ import Testing
         let tip = try commit("a.swift", in: task.worktreePath)
         let accepted = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "ok"])
         try commit("b.swift", in: task.worktreePath)
-        let again = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "later"])
+        let again = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "ok"])
         #expect(again == accepted)
         #expect(world.task(task.id)?.operated?.acceptance?.resultSHA == tip)
     }
@@ -442,5 +442,66 @@ extension OperatorTaskToolsTests {
         clock.advance(by: 2)
         _ = await world.call(run.id, "message_task", args)
         #expect(world.daemon.requests("session.deliver").count == 3, "typed again past the window")
+    }
+}
+
+extension OperatorTaskToolsTests {
+    @Test func aLocalBaseAheadOfOriginDoesNotLeakEarlierTasksIntoTheDiff() async throws {
+        let (world, run, task) = try makeWorld()
+        let project = try #require(world.state.project(id: task.projectId))
+        let origin = try GitFixture.folder("op-base-origin-")
+        try git.run(["init", "--bare", "-q", "--initial-branch=main", origin], in: "/")
+        try git.run(["remote", "add", "origin", origin], in: project.path)
+        try git.run(["push", "-q", "origin", "main"], in: project.path)
+        let baseline = try commit("previous-task.swift", in: project.path)
+        try git.run(["rebase", "main"], in: task.worktreePath)
+        try commit("own-task.swift", in: task.worktreePath)
+        let diff = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value)
+        #expect(diff["base"] == .string(baseline))
+        #expect(paths(diff) == ["own-task.swift"])
+    }
+
+    @Test func uncommittedPatchContentsAreSeparateFromCommittedFiles() async throws {
+        let (world, run, task) = try makeWorld()
+        try commit("tracked.swift", in: task.worktreePath)
+        try "draft-change\n".write(toFile: task.worktreePath + "/tracked.swift", atomically: true, encoding: .utf8)
+        try "new-content\n".write(toFile: task.worktreePath + "/new.swift", atomically: true, encoding: .utf8)
+        let diff = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value)
+        #expect(paths(diff) == ["tracked.swift"])
+        let working = try #require(diff["uncommittedFiles"]?.arrayValue)
+        #expect(Set(working.compactMap { $0["path"]?.stringValue }) == ["tracked.swift", "new.swift"])
+        let patches = working.compactMap { $0["patch"]?.stringValue }.joined(separator: "\n")
+        #expect(patches.contains("+draft-change") && patches.contains("+new-content"))
+    }
+}
+
+extension OperatorTaskToolsTests {
+    @Test func aSavedLaunchBaselineSurvivesAResetBaseReference() async throws {
+        let (world, run, task) = try makeWorld()
+        let baseline = try commit("earlier-task.swift", in: task.worktreePath)
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.diffBaseSHA = baseline } }
+        try commit("own.swift", in: task.worktreePath)
+        let diff = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value)
+        #expect(diff["base"] == .string(baseline))
+        #expect(paths(diff) == ["own.swift"])
+    }
+}
+
+extension OperatorTaskToolsTests {
+    @Test func legacyAcceptanceKeepsItsLaunchBaselineAndItsDiffAfterMainContainsTheTask() async throws {
+        let (world, run, task) = try makeWorld()
+        #expect(run.taskSettings == nil)
+        let baseline = try git.run(["rev-parse", "HEAD"], in: task.worktreePath)
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.diffBaseSHA = baseline } }
+        let tip = try commit("own.swift", in: task.worktreePath)
+        let result = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "ok"])
+        #expect(result.value?["state"] == "accepted")
+        #expect(world.task(task.id)?.operated?.diffBaseSHA == baseline)
+        let project = try #require(world.state.project(id: task.projectId))
+        try git.run(["merge", "--ff-only", task.branch], in: project.path)
+        let diff = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value)
+        #expect(diff["base"] == .string(baseline))
+        #expect(paths(diff) == ["own.swift"])
+        #expect(diff["commits"]?.stringValue?.contains("Add own.swift") == true)
     }
 }

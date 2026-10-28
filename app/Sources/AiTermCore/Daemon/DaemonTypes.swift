@@ -46,6 +46,8 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// What ended its last turn short, an API error Claude Code reported in place of its Stop, until it works again. Nil
     /// for any other tab, and from a daemon too old to send it.
     public var stoppedOn: StoppedOn? = nil
+    /// The test runner's own exact-worktree lifecycle; only queued/running states are live work.
+    public var testActivity: TestActivity? = nil
     public var id: String { sessionId }
     /// The task tag as the id it names. The app writes `uuidString`, but a tag read back from
     /// iTerm2 is a string, so it is compared as a UUID rather than by spelling.
@@ -91,6 +93,39 @@ extension SessionInfo {
         yourPrompt = try c.decodeIfPresent(String.self, forKey: .yourPrompt)
         slashCommands = try c.decodeIfPresent([SlashCommand].self, forKey: .slashCommands) ?? []
         stoppedOn = try c.decodeIfPresent(StoppedOn.self, forKey: .stoppedOn)
+        testActivity = try c.decodeIfPresent(TestActivity.self, forKey: .testActivity)
+    }
+}
+
+/// `scripts/test.sh` reports this command's lifecycle through an inherited kernel lock and exit record.
+public struct TestActivity: Codable, Equatable, Sendable {
+    public enum State: String, Codable, LenientRawDecodable, Sendable {
+        case queued, running, completed, interrupted
+        static var unrecognized: Self { .interrupted }
+    }
+    public var runId: String, suite: String, state: State
+    public var queuePosition: Int?, holder: String?, exitCode: Int?
+    public var finishedAt: Double?
+    public init(runId: String, suite: String, state: State, queuePosition: Int? = nil,
+                holder: String? = nil, exitCode: Int? = nil, finishedAt: Double? = nil) {
+        self.runId = runId; self.suite = suite; self.state = state
+        self.queuePosition = queuePosition; self.holder = holder; self.exitCode = exitCode
+        self.finishedAt = finishedAt
+    }
+    public var isActive: Bool { state == .queued || state == .running }
+    public var line: String {
+        switch state {
+        case .queued: return "tests queued" + (queuePosition.map { " · #\($0)" } ?? "")
+        case .running: return "running tests · " + suite
+        case .completed:
+            return exitCode.map { $0 == 0 ? "last tests passed" : "last tests failed · exit \($0)" } ?? "last tests ended · exit unavailable"
+        case .interrupted: return "last tests interrupted · exit unavailable"
+        }
+    }
+    public var detail: String {
+        let ended = finishedAt.map { "; finished " + Date(timeIntervalSince1970: $0).formatted(date: .abbreviated, time: .standard) } ?? ""
+        let lead = "\(suite) tests: " + line + ended
+        return holder.map { lead + "; waiting for " + $0 } ?? lead
     }
 }
 
@@ -162,10 +197,15 @@ public struct SessionTitle: Codable, Equatable, Sendable {
 }
 
 public struct UsageWindow: Codable, Equatable, Sendable { public var usedPercent: Int; public var resetsAt: Int? }
+public struct UsageRetrievalFailure: Codable, Equatable, Sendable {
+    public var message: String
+    public var at: Int
+}
 public struct Usage: Codable, Equatable, Sendable {
     public var fiveHour, sevenDay, spend: UsageWindow?
     /// When the vendor last reported, in epoch seconds.
     public var updatedAt: Int
+    public var retrievalFailure: UsageRetrievalFailure? = nil
 }
 public struct UsageSnapshot: Codable, Equatable, Sendable { public var claude, codex: Usage?
     public static let empty = UsageSnapshot(claude: nil, codex: nil) }
@@ -311,3 +351,10 @@ struct DaemonErrorBody: Decodable { var code: DaemonError.Code, message: String 
 struct Reply<Value: Decodable>: Decodable { var result: Value }
 /// An event's `payload`, as the type its name says.
 struct EventPayload<Value: Decodable>: Decodable { var payload: Value }
+
+/// A prompt and the visible screen read with it. Older helpers may know only its kind.
+public struct PromptDetails: Codable, Equatable, Sendable {
+    public var kind: PromptKind?
+    public var text: String?
+    public init(kind: PromptKind?, text: String? = nil) { self.kind = kind; self.text = text }
+}

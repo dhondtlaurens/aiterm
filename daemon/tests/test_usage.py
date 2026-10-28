@@ -72,3 +72,32 @@ def test_parse_codex_rejects_non_finite_numbers(bad):
     assert u.five_hour is None
     u = parse_codex_rate_limits({"primary": {"used_percent": 5, "window_minutes": 300, "resets_at": bad}}, updated_at=1)
     assert u.five_hour == UsageWindow(5, None)
+
+
+def test_an_empty_provider_update_preserves_last_known_usage_and_its_age():
+    store = UsageStore()
+    known = Usage(UsageWindow(31, 900), UsageWindow(58, 1200), None, 100)
+    store.set("codex", known)
+    assert store.set("codex", Usage(None, None, None, 200)) is False
+    assert store.snapshot()["codex"] == known.to_json()
+
+
+def test_an_older_rollout_cannot_replace_newer_account_usage():
+    store = UsageStore()
+    known = Usage(UsageWindow(31, 900), None, None, 200)
+    store.set("codex", known)
+    assert store.set("codex", Usage(UsageWindow(12, 900), None, None, 100)) is False
+    assert store.snapshot()["codex"] == known.to_json()
+
+
+def test_failed_retrieval_keeps_last_known_measurement_and_clears_on_success():
+    store = UsageStore()
+    usage = Usage(None, UsageWindow(92, 999), None, 10)
+    store.set("codex", usage)
+    assert store.failed("codex", "Cannot read rollout", 20)
+    reading = store.snapshot()["codex"]
+    assert reading["sevenDay"]["usedPercent"] == 92
+    assert reading["updatedAt"] == 10
+    assert reading["retrievalFailure"] == {"message": "Cannot read rollout", "at": 20}
+    assert store.set("codex", usage)
+    assert store.snapshot()["codex"]["retrievalFailure"] is None

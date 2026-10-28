@@ -163,17 +163,22 @@ import Testing
         #expect(row.status == .working)
 
         // A question about a task is the Operator's, answered in its window (2A, 22 Oct 2026): its row names the task,
-        // and the task's row goes on with its own line.
+        // and the task's row also shows what waits on its answer.
         var asking = busy
         asking.questions = [OperatorUIFixtures.question("retry policy?", task: drawer.id)]
         let about = try section(state(asking, [drawer]), sessions: [tab(drawer, .working)], acting: acting)
         #expect(about.operatorRow.line.text == "waiting on you · Cart drawer" && about.operatorRow.status == .needsInput)
-        #expect(about.tasks.first?.operatorLine?.look != .needsYou && about.tasks.first?.status == .working)
+        #expect(about.tasks.first?.operatorLine?.look == .needsYou && about.tasks.first?.status == .needsInput)
+        #expect(about.tasks.first?.operatorLine?.tooltip == "The Operator asks: retry policy?")
         // Its worker stopped on the answer is not ready for the Operator, as run_status says: it waits on you.
         var stopped = drawer
         stopped.operated?.flags = [.waitingOnYou]
         let waiting = try section(state(asking, [stopped]), sessions: [tab(stopped, .done)])
-        #expect(waiting.tasks.first?.operatorLine?.text == "Operator watching")
+        #expect(waiting.tasks.first?.operatorLine?.text == "waiting on you")
+        #expect(waiting.tasks.first?.status == .needsInput)
+        let flagged = try section(state(busy, [stopped]), sessions: [tab(stopped, .done)])
+        #expect(flagged.tasks.first?.operatorLine?.look == .needsYou && flagged.tasks.first?.status == .needsInput,
+                "a persisted waiting flag remains visible even before its question is listed")
         var twice = asking
         twice.questions.append(OperatorUIFixtures.question("which currency format?", task: nil))
         #expect(try section(state(twice, [drawer])).operatorRow.line.text == "waiting on you · 2 questions")
@@ -207,6 +212,24 @@ import Testing
         #expect(row.line.look == .needsYou)
     }
 
+    /// An ended Operator turn can leave a shell or monitor running, just as a worker's can. It
+    /// keeps the same background mark and names the work until its next turn starts.
+    @Test func theOperatorsBackgroundWorkKeepsItsOwnStatus() throws {
+        let run = run()
+        var tab = operatorTab(run, .done)
+        tab.background = [BackgroundJob(kind: .shell, text: "scripts/test.sh")]
+        let waiting = try section(state(run), sessions: [tab]).operatorRow
+        #expect(waiting.status == .background)
+        #expect(waiting.line == OperatorLine("in background", tooltip: "Running in the background: scripts/test.sh"))
+        #expect(try section(state(run), sessions: [tab]).needingAttention.isEmpty)
+
+        tab.state = .working
+        let resumed = try section(state(run), sessions: [tab]).operatorRow
+        #expect(resumed.status == .working && resumed.line.text == "working", "its next turn outranks the old background list")
+        tab.state = .needsInput
+        #expect(try section(state(run), sessions: [tab]).operatorRow.status == .needsInput)
+    }
+
     @Test func theOperatorsRowSaysWhenItsPausedClosedOrDone() throws {
         var paused = run()
         paused.state = .paused
@@ -222,10 +245,12 @@ import Testing
         var complete = run()
         complete.state = .complete
         complete.completedAt = OperatorUIFixtures.epoch
+        let writing = try section(state(complete), sessions: [operatorTab(complete, .working)]).operatorRow
+        #expect(writing.status == .done && writing.line == OperatorLine("done · writing summary", look: .ended))
         complete.summary = "Both merged."
         complete.summaryAt = OperatorUIFixtures.epoch
         let done = try section(state(complete), sessions: [operatorTab(complete, .idle)]).operatorRow
-        #expect(done.line == OperatorLine("done · summary ready") && done.status == .done, "the accent ring once the summary is ready")
+        #expect(done.line == OperatorLine("done · summary ready", look: .ended) && done.status == .done, "the completed check once the summary is ready")
     }
 
     // -- the header ------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import AiTermUI
 import AiTermCore
@@ -20,6 +21,10 @@ extension EnvironmentValues {
 }
 
 struct SidebarView: View {
+    /// The native titlebar band, outside the scrolling list. AppKit supplies its height: it is
+    /// window chrome, so the sidebar's interface scale must not change it.
+    private static var titlebarHeight: CGFloat { NSWindow.frameRect(forContentRect: .zero, styleMask: .titled).height }
+
     /// Every view below reads the controller directly: with Observation each one re-renders for the
     /// properties it read, not for every change. So the toast, the sheet and the footer are views of
     /// their own — read here, any of them would re-run this body on every change to it. The list
@@ -77,6 +82,7 @@ struct SidebarView: View {
         let scale = controller.preferences.interfaceSize.scale
         let rows = controller.rows
         VStack(spacing: 0) {
+            Color.clear.frame(height: Self.titlebarHeight).accessibilityHidden(true)
             SidebarBanners(controller: controller)
             ScrollViewReader { scroller in
                 List(selection: selection) {
@@ -117,8 +123,12 @@ struct SidebarView: View {
                     RunLoop.main.perform { MainActor.assumeIsolated { proxy.scrollTo(id) } }
                 })
             }
+            // List's native scroll-edge extension must not paint a row or its selection into the
+            // reserved titlebar band, even while rubber-banding or scrolling a selected row up.
+            .clipped()
             SidebarFooterHost(controller: controller)
         }
+        .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .bottom) { SidebarToast(controller: controller) }
         .frame(minWidth: scale(Size.sidebarMinWidth))
         .background(Palette.sidebar)

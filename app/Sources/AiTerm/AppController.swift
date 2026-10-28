@@ -603,7 +603,8 @@ final class AppController {
         return focus.activateSelection()
     }
 
-    /// A task row's click or ↩. A task the live broadcast drives brings its tab that asks, else the one last in
+    /// A task row's click or ↩. An unresolved Operator question about the task opens the Operator's
+    /// window, unless a worker prompt needs attention first. Otherwise a task the live broadcast drives brings its tab that asks, else the one last in
     /// front (`TaskItem.tabToBring(sessions:requests:)`, P5 A), through `bringTab`, so with several worker tabs
     /// the one that needs you stands in front. Any other task, a driven one with no tab listed (its window comes
     /// back as `RowFocus.select` brings it), one being removed and a queued one, which opens nothing, go to
@@ -611,9 +612,15 @@ final class AppController {
     @discardableResult
     func choose(task id: UUID) -> Task<Void, Never>? {
         if let task = state.task(id: id), let operated = task.operated, !operated.takenOver, !task.isQueuedByOperator,
-           let run = state.activeRun, run.id == operated.runId, removal(of: id)?.inProgress != true,
-           let tab = task.tabToBring(sessions: live.sessions, requests: OperatorRequests.open(run: run, state: state)) {
-            return bringTab(task: id, sessionId: tab.sessionId)
+           let run = state.activeRun, run.id == operated.runId, removal(of: id)?.inProgress != true {
+            let requests = OperatorRequests.open(run: run, state: state)
+            let first = requests.filter { $0.taskId == id }.min { $0.kind.rank < $1.kind.rank }
+            if first?.kind == .question, !task.workerTabs(in: live.sessions).contains(where: { $0.status == .needsInput }) {
+                return focus.select(.operation(run.id))
+            }
+            if let tab = task.tabToBring(sessions: live.sessions, requests: requests) {
+                return bringTab(task: id, sessionId: tab.sessionId)
+            }
         }
         return focus.select(.task(id))
     }

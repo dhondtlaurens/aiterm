@@ -121,6 +121,7 @@ final class BranchWatch {
         // The base branch and the default one, each as this clone has it and as origin's: asked once, and only for a
         // commit off the task branch.
         var baseRefs: [String]?
+        var priorHeads: Set<String>?
         func bases() -> [String] {
             if let baseRefs { return baseRefs }
             let names = [base.isEmpty ? nil : base, Repository(worktree, git: git).defaultBranch()].compactMap { $0 }
@@ -139,6 +140,17 @@ final class BranchWatch {
             let refs = listed.split(separator: "\n").map(String.init)
             let branches = refs.compactMap { $0.hasPrefix("refs/heads/") ? String($0.dropFirst("refs/heads/".count)) : nil }.filter { $0 != branch }
             guard held == nil else { return BranchDrift.Named(text: text, commit: commit, onTaskBranch: true, branches: branches) }
+            // Rewrites leave the old object readable. A previous head of this exact task branch is
+            // history when no live branch retains it. Work retained on another branch still needs
+            // attention unless its patch is already present. Reflogs can expire, so also ask git whether the
+            // old commit's patch is already present under another SHA after a rebase or cherry-pick.
+            if priorHeads == nil {
+                priorHeads = Set(((try? git.run(["reflog", "show", "--format=%H", "refs/heads/" + branch], in: worktree)) ?? "")
+                    .split(separator: "\n").map(String.init))
+            }
+            if refs.isEmpty, priorHeads?.contains(commit) == true { return nil }
+            if let cherry = try? git.run(["cherry", "refs/heads/" + branch, commit, commit + "^"], in: worktree),
+               cherry.split(separator: "\n").contains(where: { $0 == "- " + commit }) { return nil }
             let onBase = !Set(refs).isDisjoint(with: bases())
             return BranchDrift.Named(text: text, commit: commit, onTaskBranch: false, branches: branches, onBaseBranch: onBase,
                                      mergesTaskBranch: !onBase && merges(commit, branch: branch, worktree: worktree, git: git))

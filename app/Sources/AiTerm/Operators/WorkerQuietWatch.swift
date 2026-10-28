@@ -60,7 +60,9 @@ final class WorkerQuietWatch {
     /// The first worker of `task`, when its task is judged and its session says working.
     private func workingWorker(of task: TaskItem, in sessions: [SessionInfo]) -> WorkerTab? {
         guard isJudged(task) else { return nil }
-        let worker = task.workerTabs(in: sessions)[0]
+        let workers = task.workerTabs(in: sessions)
+        guard !workers.contains(where: { $0.session?.testActivity?.isActive == true }) else { return nil }
+        let worker = workers[0]
         return worker.session?.state == .working ? worker : nil
     }
 

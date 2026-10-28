@@ -180,7 +180,8 @@ import Foundation
             "Never deploys, force-pushes, or pushes to a default or protected branch.",
             "Never answers an agent’s permission prompt. That’s always yours.",
         ])
-        #expect(Pane.oracleHelp.hasSuffix("Changes apply to the next broadcast."))
+        #expect(Pane.oracleHelp.contains("Changes apply to running broadcasts"))
+        #expect(Pane.oracleHelp.contains("checks already running are discarded"))
         #expect(Pane.oracleHelp.contains("PI checks with read-only tools, not a sandbox."))
         #expect(Pane.instructionsHelp == "House rules for every broadcast. Type / for the agents’ skills.")
         let copy = [Pane.agentHelp, Pane.autonomyHelp, Pane.baseHelp, Pane.oracleHelp, Pane.instructionsHelp]

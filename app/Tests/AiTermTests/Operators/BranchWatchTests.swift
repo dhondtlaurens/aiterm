@@ -40,6 +40,20 @@ import Testing
         world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }.filter { $0.hasSuffix("call run_status") }
     }
 
+    @Test func aPriorTaskHeadKeptAsRealWorkOnAnotherBranchStillDrifts() async throws {
+        let (_, _, task, worktree) = try makeWorld()
+        let before = try git.run(["rev-parse", "HEAD"], in: worktree)
+        try "Retained off-branch work\n".write(toFile: worktree + "/retained.txt", atomically: true, encoding: .utf8)
+        try git.run(["add", "retained.txt"], in: worktree)
+        try git.run(["commit", "-q", "-m", "Work saved elsewhere"], in: worktree)
+        let saved = try git.run(["rev-parse", "HEAD"], in: worktree)
+        try git.run(["branch", "feat/retained", saved], in: worktree)
+        try git.run(["reset", "--hard", before], in: worktree)
+        let named = BranchWatch.named(in: "Work is saved as \(saved) on feat/retained.", branch: task.branch,
+                                      base: "main", worktree: worktree, git: git)
+        #expect(named.contains { $0.commit == saved && !$0.onTaskBranch && $0.branches.contains("feat/retained") })
+    }
+
     /// Each new task-branch head resets the stuck clock; its first reading only sets a baseline.
     @Test func newCommitsRestartTheStuckClockButAnUnchangedHeadDoesNot() async throws {
         let (world, _, task, worktree) = try makeWorld()
@@ -207,7 +221,7 @@ import Testing
         let status = try #require(world.controller.status(of: current))
         #expect(status.obligations.branchDrift == ["PLUTO-1"])
         #expect(await eventually(describing: "the operator told") {
-            driftLines(world) == ["[AiTerm] one task committed off its task branch, call run_status"]
+            driftLines(world) == ["[AiTerm] PLUTO-one needs its branch checked, call run_status"]
         })
         await tick(world)
         await world.controller.waker.lastSend?.value
@@ -379,5 +393,44 @@ import Testing
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": .string(text)]]]]
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent(conversation + ".jsonl"))
+    }
+}
+
+extension BranchWatchTests {
+    @Test func aRebasedCommitQuotedAsHistoryIsAlreadyPresentByPatchIdentity() async throws {
+        let (world, _, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-rebased")
+        try "fix\n".write(toFile: worktree + "/fix.swift", atomically: true, encoding: .utf8)
+        try git.run(["add", "fix.swift"], in: worktree)
+        try git.run(["commit", "-q", "-m", "the fix"], in: worktree)
+        let old = try git.run(["rev-parse", "HEAD"], in: worktree)
+        let project = try #require(world.state.project(id: task.projectId))
+        try "base\n".write(toFile: project.path + "/base.swift", atomically: true, encoding: .utf8)
+        try git.run(["add", "base.swift"], in: project.path)
+        try git.run(["commit", "-q", "-m", "base advanced"], in: project.path)
+        try git.run(["rebase", "main"], in: worktree)
+        let current = try git.run(["rev-parse", "HEAD"], in: worktree)
+        #expect(old != current)
+        // Prove patch equivalence still works after branch history metadata expires.
+        try git.run(["reflog", "expire", "--expire=now", "refs/heads/" + task.branch], in: worktree)
+        try saveReply("Before rebase: \(old). Current commit: \(current).", conversation: "conv-rebased", in: world)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift == nil)
+    }
+}
+
+extension BranchWatchTests {
+    @Test func anAmendedHistoricalTaskHeadDoesNotBecomeOffBranchWork() async throws {
+        let (world, _, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-amended")
+        try "old\n".write(toFile: worktree + "/fix.swift", atomically: true, encoding: .utf8)
+        try git.run(["add", "fix.swift"], in: worktree)
+        try git.run(["commit", "-q", "-m", "first version"], in: worktree)
+        let old = try git.run(["rev-parse", "HEAD"], in: worktree)
+        try "corrected\n".write(toFile: worktree + "/fix.swift", atomically: true, encoding: .utf8)
+        try git.run(["add", "fix.swift"], in: worktree)
+        try git.run(["commit", "--amend", "-q", "--no-edit"], in: worktree)
+        let current = try git.run(["rev-parse", "HEAD"], in: worktree)
+        try saveReply("Superseded \(old), current commit \(current).", conversation: "conv-amended", in: world)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift == nil)
     }
 }

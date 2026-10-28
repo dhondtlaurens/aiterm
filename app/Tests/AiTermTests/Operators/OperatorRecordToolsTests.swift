@@ -158,7 +158,7 @@ import Testing
         let agents = try #require(await world.call(run.id, "run_status").value?["run"]?["agents"])
         #expect(agents["claude"] == nil, "an agent not installed is left out")
         #expect(agents["codex"]?["models"] == ["gpt-6-astra", "gpt-6-mini"])
-        let fallback = AgentIntegrations.taskModels(remembered: world.state.lastModelByAgent)(.codex)
+        let fallback = world.controller.tools.defaultModel(for: .codex)
         #expect(agents["codex"]?["defaultModel"]?.stringValue == fallback.model)
     }
 

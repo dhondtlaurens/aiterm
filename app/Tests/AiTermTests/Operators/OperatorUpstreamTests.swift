@@ -134,11 +134,11 @@ import Testing
     @Test func aRepeatOfTheAcceptedCommitChangesAndRevokesNothingEvenWhilePaused() async throws {
         let family = try makeFamily(childState: .accepted)
         let before = family.world.state
-        let repeated = await accept("PLUTO-230", family.first, in: family)
+        let repeated = await accept("PLUTO-230", family.first, in: family, ["checkOutput": "ok"])
         #expect(repeated.value?["state"] == "published")
         #expect(family.world.state == before)
         family.world.workspace.mutate { $0.updateRun(id: family.run.id) { $0.state = .paused; $0.intent = .paused } }
-        #expect(await accept("PLUTO-230", family.first, in: family) == repeated, "a repeat answers from the record while paused")
+        #expect(await accept("PLUTO-230", family.first, in: family, ["checkOutput": "ok"]) == repeated, "a repeat answers from the record while paused")
         let second = try commit("b.swift", in: family.parent.worktreePath)
         #expect(await accept("PLUTO-230", second, in: family).message == "The person paused this broadcast. Wait until they resume it.")
         #expect(family.world.task(family.child.id)?.operated?.state == .accepted)

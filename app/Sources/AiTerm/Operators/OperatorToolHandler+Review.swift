@@ -99,6 +99,7 @@ extension OperatorToolHandler {
             runningReviews[id] = nil
             guard state.task(id: id)?.operated?.agentReview?.startedAt == review.startedAt else { return }
             let name = SidebarModel.agentName(review.agent), at = ports.now()
+            let key = OperatorWaker.taskReference(state.task(id: id)?.operated?.key ?? id.uuidString)
             workspace.mutate { state in
                 state.updateOperated(id) { task in
                     switch verdict {
@@ -109,8 +110,8 @@ extension OperatorToolHandler {
                 }
             }
             switch verdict {
-            case .findings: waker.say("\(name) reviewed one task", to: runId, colon: true)
-            case .failed: waker.say("\(name)’s review of one task failed", to: runId, colon: true)
+            case .findings: waker.say("\(key) review completed by \(name)", to: runId, colon: true)
+            case .failed: waker.say("\(key) review failed in \(name)", to: runId, colon: true)
             }
         }
         runningReviews[id] = running

@@ -294,7 +294,7 @@ import Testing
         #expect(r.world.task(r.task.id)?.operated?.state == state, "the review changes nothing of its state")
         let read = await r.world.call(r.run.id, "read_task", ["task": "A", "what": "review"])
         #expect(read.value?["agentReview"]?["findings"] == "Line 3 leaks the token.")
-        #expect(await wakes(r.world) == ["[AiTerm] Claude reviewed one task: call run_status"])
+        #expect(await wakes(r.world) == ["[AiTerm] letter-ay review completed by Claude: call run_status"])
         // A task in review was set up through the host; one at work has never reached it.
         let notified = state == .working ? !r.host.log.isEmpty
             : r.host.log.contains { $0.hasPrefix("reviewers") || $0.hasPrefix("ready") || $0.hasPrefix("reply") }
@@ -359,7 +359,7 @@ import Testing
         #expect(await wakes(r.world).isEmpty)
         r.host.update { $0.approvals = ["jan"] }
         watcher.poll(); await watcher.lastPoll?.value
-        #expect(await wakes(r.world) == ["[AiTerm] review feedback on one task: call run_status"])
+        #expect(await wakes(r.world) == ["[AiTerm] letter-ay has review feedback: call run_status"])
         #expect(r.world.task(r.task.id)?.operated?.peopleReview?.threads.isEmpty == true)
         #expect(r.world.task(r.task.id)?.operated?.peopleReview?.approvals == ["jan"])
         watcher.poll(); await watcher.lastPoll?.value
@@ -374,7 +374,7 @@ import Testing
         #expect(await wakes(r.world) == [], "nothing new, no wake")
         r.host.update { $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this")] }
         await poll()
-        #expect(await wakes(r.world) == ["[AiTerm] review feedback on one task: call run_status"])
+        #expect(await wakes(r.world) == ["[AiTerm] letter-ay has review feedback: call run_status"])
         #expect(r.world.task(r.task.id)?.operated?.peopleReview?.threads == ["d1": false])
         await poll()
         #expect(await wakes(r.world).count == 1, "the same thread is no news")
@@ -452,7 +452,7 @@ import Testing
         // Jan answers in the same thread: news.
         r.host.update { $0.threads[0] = ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Not quite, also the test.") }
         await poll()
-        #expect(await wakes(r.world) == Array(repeating: "[AiTerm] review feedback on one task: call run_status", count: 2))
+        #expect(await wakes(r.world) == Array(repeating: "[AiTerm] letter-ay has review feedback: call run_status", count: 2))
         // The same body again, and a stable signature across launches.
         #expect(ReviewWatcher.signature(ReviewThread(id: "x", resolved: false, lastAuthor: "jan", lastBody: "a")) == "jan:af63dc4c8601ec8c")
     }

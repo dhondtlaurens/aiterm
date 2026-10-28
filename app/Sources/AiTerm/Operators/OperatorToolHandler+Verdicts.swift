@@ -73,7 +73,11 @@ extension OperatorToolHandler {
         let verdict = ReviewVerdict(tab: tab, sha: sha, passed: passed, round: round, rounds: rounds, critical: critical,
                                     important: important, minor: minor, summary: summary, at: ports.now(), key: key)
         let answer = try Self.verdictAnswer((current.operated?.reviewVerdicts ?? []) + [verdict])
-        mutate(in: run.id) { $0.updateOperated(task.id) { $0.reviewVerdicts.append(verdict) } }
+        mutate(in: run.id) { $0.updateOperated(task.id) {
+            $0.reviewVerdicts.append(verdict)
+            $0.publication?.conditionsHeld = nil
+            $0.publication?.mergeRefusal = nil
+        } }
         return answer
     }
 

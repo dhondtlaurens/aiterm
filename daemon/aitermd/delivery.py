@@ -12,7 +12,7 @@ import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypedDict
 
 from .iterm_bridge import ItermPort, ItermUnavailable
 from .models import HARNESS_BY_AGENT, AgentKind, Harness, SessionInfo
@@ -41,6 +41,11 @@ OPERATOR_REQUEST_TIMEOUT = 30.0
 # an update offer) or a menu, by its markers or Claude's consecutive numbered options at the last
 # arrow. Checked in that order: approvals and startup dialogs draw menu options and footers too.
 PromptKind = Literal["permission", "startup", "menu"]
+
+
+class PromptDetails(TypedDict):
+    kind: PromptKind | None
+    text: str | None
 
 
 
@@ -542,12 +547,18 @@ class Deliverer:
         return None
 
     async def prompt(self, session_id: str) -> PromptKind | None:
-        """The prompt open in the session now (session.prompt). KeyError for a session not open."""
+        """The prompt open in the session now. KeyError for a session not open."""
+        return (await self.prompt_details(session_id))["kind"]
+
+    async def prompt_details(self, session_id: str) -> PromptDetails:
+        """Classify and quote one screen read, so the operator sees the question and all its options.
+        The full visible screen preserves context that harness-specific menu slicing could lose."""
         if (session := self.registry.get(session_id)) is None or (screen := await self.iterm.screen_text(session_id)) is None:
             raise KeyError(session_id)
         if not screen.strip():
             raise ItermUnavailable("the screen came back empty, so whether a prompt is open is unknown")
-        return _session_prompt(session, screen)
+        kind = _session_prompt(session, screen)
+        return {"kind": kind, "text": screen if kind is not None else None}
 
     async def dismiss_startup(self, session_id: str) -> bool:
         """Declines the CLI's update offer with Esc (session.dismissStartup): AiTerm always declines one

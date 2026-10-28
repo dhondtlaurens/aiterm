@@ -301,7 +301,11 @@ def test_unreadable_rollout_is_retried_without_a_file_change(tmp_path, monkeypat
 
     with monkeypatch.context() as patch:
         patch.setattr(type(path), "open", unreadable)
-        assert read() is None
+        if reading == "limits":
+            with pytest.raises(OSError, match="temporarily unavailable"):
+                read()
+        else:
+            assert read() is None
     expected = {"context": 10,
                 "limits": ({"limit_id": "codex", "primary": {"used_percent": 30, "window_minutes": 10080, "resets_at": 1},
                             "secondary": None, "plan_type": "team"}, 1790087469)}[reading]
@@ -325,3 +329,44 @@ def test_usage_and_multiple_threads_share_one_tree_listing(tmp_path, monkeypatch
     assert files.context_percent("one") == 10
     assert files.context_percent("two") == 20
     assert scans == [tmp_path]
+
+
+def test_structured_turn_state_tracks_completion_and_later_start(tmp_path):
+    files = CodexSessionFiles(tmp_path)
+    path = write_rollout(tmp_path, "turn-thread", [
+        {"type": "event_msg", "timestamp": "1970-01-01T00:01:41.250Z", "payload": {"type": "task_complete"}},
+    ])
+    assert files.turn_state("turn-thread") == ("done", 101.25)
+    with path.open("a") as stream:
+        stream.write(json.dumps({"type": "event_msg", "timestamp": "1970-01-01T00:01:42.500Z",
+                                 "payload": {"type": "task_started"}}) + "\n")
+    assert files.turn_state("turn-thread") == ("working", 102.5)
+
+
+def test_plain_assistant_text_is_not_a_completed_turn(tmp_path):
+    write_rollout(tmp_path, "turn-thread", [{"type": "response_item", "timestamp": "1970-01-01T00:01:41Z",
+        "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Done."}]}}])
+    assert CodexSessionFiles(tmp_path).turn_state("turn-thread") is None
+
+
+@pytest.mark.parametrize("later", [{"type": "task_started"}, {"type": "turn_aborted"}])
+def test_later_unstamped_turn_boundary_invalidates_previous_completion(tmp_path, later):
+    write_rollout(tmp_path, "thread", [
+        {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_complete"}},
+        {"type": "event_msg", "payload": later},
+    ])
+    assert CodexSessionFiles(tmp_path).turn_state("thread") is None
+
+
+def test_rate_limit_permission_failure_is_distinct_from_no_report(tmp_path, monkeypatch):
+    files = CodexSessionFiles(tmp_path)
+    rollout = tmp_path / "rollout-test.jsonl"
+    rollout.write_text("{}\n")
+    monkeypatch.setattr(files, "_newest_rollouts", lambda count: ((rollout, 1),))
+
+    def denied(paths):
+        raise PermissionError("rollout is unreadable")
+
+    monkeypatch.setattr(files, "_read_rate_limits", denied)
+    with pytest.raises(PermissionError, match="unreadable"):
+        files.rate_limits()

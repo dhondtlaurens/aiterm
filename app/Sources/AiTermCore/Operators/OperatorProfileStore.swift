@@ -1,9 +1,17 @@
 import Foundation
 
 /// Settings › Operator's profile, kept as JSON in UserDefaults under `operator.profile`. A broadcast
-/// copies it when it starts, so a change here applies to the next one.
+/// copies it when it starts. Oracle changes also apply to running broadcasts.
 public enum OperatorProfileStore {
     static let key = "operator.profile"
+    private static let oracleRevisionKey = "operator.oracleRevision"
+    public static let didSave = Notification.Name("AiTerm.OperatorProfileSaved")
+
+    public static func saved(_ defaults: UserDefaults) -> OperatorProfile? {
+        defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(OperatorProfile.self, from: $0) }
+    }
+
+    public static func oracleRevision(_ defaults: UserDefaults) -> Int { defaults.integer(forKey: oracleRevisionKey) }
 
     /// The saved profile; before the first save, or when what is saved cannot be read, Claude's default
     /// model with every slice off, the standard Oracle and no instructions.
@@ -16,7 +24,12 @@ public enum OperatorProfileStore {
 
     /// Writes `profile`; an encoding failure throws and leaves what was saved before.
     public static func save(_ profile: OperatorProfile, _ defaults: UserDefaults = .standard) throws {
-        defaults.set(try JSONEncoder().encode(profile), forKey: key)
+        let data = try JSONEncoder().encode(profile)
+        if saved(defaults)?.oracle != profile.oracle {
+            defaults.set(oracleRevision(defaults) + 1, forKey: oracleRevisionKey)
+        }
+        defaults.set(data, forKey: key)
+        NotificationCenter.default.post(name: didSave, object: defaults)
     }
 
     static let lastAgentsKey = "operator.lastBroadcastAgents"

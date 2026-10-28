@@ -133,7 +133,8 @@ public enum ChallengeLaunch {
 
     /// The Oracle's yes/no on merging `acceptedSHA` (spec §5, the Merge slice): whether `conditions` permit the act. Its
     /// answer is a veto, read with `verdict`.
-    public static func mergePrompt(task: String, acceptedSHA: String, brief: String, conditions: MergeConditions, run: String) -> String {
+    public static func mergePrompt(task: String, acceptedSHA: String, brief: String, conditions: MergeConditions, run: String,
+                                   evidence: String? = nil) -> String {
         let judged: String
         switch conditions {
         case .written(let review, let done, let agentReview):
@@ -171,7 +172,15 @@ public enum ChallengeLaunch {
             \(answers ?? "(none)")
             """
         }
-        return judged + "\n\n" + """
+        let evidence = evidence.map { """
+
+        Current commit-scoped evidence (recorded output is operator-attested, not independently executed by AiTerm):
+        \($0)
+        Later evidence supersedes earlier failures only for the same commit and required checks.
+        Earlier refusals are decisions, not test evidence. Do not cite a refusal as proof a check failed.
+        A main commit verified as an ancestor is already included; no additional rebase is needed for that commit.
+        """ } ?? ""
+        return judged + evidence + "\n\n" + """
         The broadcast before the proposed merge, as run_status shows it:
         An accepted or inReview state, or merged false, describes the state before this act and is not a reason to answer NO.
         \(run)

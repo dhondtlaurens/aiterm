@@ -852,3 +852,38 @@ def test_an_agent_exiting_from_its_trust_prompt_forgets_it(eng):
     engine.apply_trust_prompt("s1", True)
     engine.agent_exited("s1")
     assert reg.get("s1").state == "idle" and not engine.showing_trust_prompt("s1")
+
+
+def test_codex_rollout_completion_recovers_missed_stop_and_spinner(eng, clock):
+    engine, reg = eng
+    engine.apply_event("s2", hook("working"))
+    assert engine.apply_codex_title("s2", "Codex") == [], "no spinner was observed"
+    assert engine.apply_codex_rollout("s2", "done", 101.25) == ["s2"]
+    assert reg.get("s2").state == "done"
+    assert engine.apply_codex_rollout("s2", "done", 101.25) == [], "one completion event"
+    assert engine.apply_codex_rollout("s2", "working", 102.5) == ["s2"]
+    assert reg.get("s2").state == "working"
+    assert engine.apply_codex_rollout("s2", "done", 101.25) == [], "old completion cannot undo a later start"
+    clock.now = 104.0
+    engine.apply_event("s2", hook("needsInput"))
+    assert engine.apply_codex_rollout("s2", "done", 103.0) == []
+    assert reg.get("s2").state == "needsInput", "a newer hook wins"
+
+
+def test_resumed_codex_ignores_completion_from_before_session_start(eng, clock):
+    engine, reg = eng
+    engine.apply_event("s2", hook("working"))
+    clock.now = 110.0
+    engine.apply_event("s2", hook("sessionStart"))
+    assert engine.apply_codex_rollout("s2", "done", 105.0) == []
+    assert reg.get("s2").state == "working"
+
+
+def test_rollout_start_clears_the_previous_turns_deferred_completion(eng):
+    engine, reg = eng
+    engine.apply_event("s2", hook("working"))
+    engine.apply_event("s2", hook("subagentStart", "child"))
+    engine.apply_codex_rollout("s2", "done", 101.0)
+    engine.apply_codex_rollout("s2", "working", 102.0)
+    engine.apply_event("s2", hook("subagentStop", "child"))
+    assert reg.get("s2").state == "working"

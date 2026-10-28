@@ -75,10 +75,11 @@ def test_session_info_json_is_camel_case_and_drops_job_pid():
         "slashCommands": [{"text": "/effort high", "state": "ran", "deliveredAt": 1000.0, "seenAt": 1001.5,
                            "output": "Set effort level to high"}],
         "stoppedOn": {"error": "rate_limit", "resetsAt": 1793017200},
+        "testActivity": None,
     }
 
 
 def test_usage_json():
     u = Usage(UsageWindow(23, 1790172996), None, None, 1789568196)
     assert u.to_json() == {"fiveHour": {"usedPercent": 23, "resetsAt": 1790172996}, "sevenDay": None, "spend": None,
-                           "updatedAt": 1789568196}
+                           "updatedAt": 1789568196, "retrievalFailure": None}

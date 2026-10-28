@@ -217,7 +217,8 @@ import Foundation
         #expect(RunStatus.isReadyForAcceptance(working, live: .idle, extraTabs: [.done, nil]))
         #expect(!RunStatus.isReadyForAcceptance(working, live: .idle, extraTabs: [.working]))
         #expect(!RunStatus.isReadyForAcceptance(working, live: .done, extraTabs: [.needsInput]))
-        #expect(!RunStatus.isReadyForAcceptance(working, live: nil, extraTabs: [.idle]), "a first worker with no tab has not ended its turn")
+        #expect(RunStatus.isReadyForAcceptance(working, live: nil, extraTabs: [.idle]), "a closed original leaves its replacement to finish")
+        #expect(!RunStatus.isReadyForAcceptance(working, live: nil, extraTabs: [nil]), "at least one worker must remain")
     }
 
     /// A prompt open in an extra tab waits on you, named by its task and its tab, and the task is not ready.
@@ -231,10 +232,10 @@ import Foundation
     @Test func theTaskLineListsItsTabsOnlyWhenItHasExtraOnes() throws {
         let (status, b) = try twoTabs(first: .idle, review: nil, opening: true)
         #expect(status.tasks[0].live == .idle && status.tasks[0].agent == .claude && status.tasks[0].model == b.model)
-        #expect(status.tasks[0].tabs == [RunStatus.TabLine(key: "main", agent: .claude, model: b.model, live: .idle),
+        #expect(status.tasks[0].tabs == [RunStatus.TabLine(key: "main", agent: .claude, model: b.model, live: .idle, reasoning: b.reasoning),
                                          RunStatus.TabLine(key: "review", agent: .codex, model: "gpt-6-mini", live: nil, opening: true)])
         let json = String(decoding: try status.json(), as: UTF8.self)
-        #expect(json.contains(#""tabs":[{"agent":"claude","closed":false,"key":"main","live":"idle","model":"opus","opening":false},"#))
+        #expect(json.contains(#""tabs":[{"agent":"claude","closed":false,"key":"main","live":"idle","model":"opus","opening":false,"reasoning":"high"},"#))
         let (s, live, _) = scene()
         let plain = try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: live))
         #expect(plain.tasks.allSatisfy { $0.tabs == nil })
@@ -245,7 +246,7 @@ import Foundation
     /// is ready once its other tabs ended their turn.
     @Test func aClosedExtraTabIsListedClosed() throws {
         let (status, b) = try twoTabs(first: .idle, review: nil, closed: true)
-        #expect(status.tasks[0].tabs == [RunStatus.TabLine(key: "main", agent: .claude, model: b.model, live: .idle),
+        #expect(status.tasks[0].tabs == [RunStatus.TabLine(key: "main", agent: .claude, model: b.model, live: .idle, reasoning: b.reasoning),
                                          RunStatus.TabLine(key: "review", agent: .codex, model: "gpt-6-mini", live: nil, closed: true)])
         #expect(String(decoding: try status.json(), as: UTF8.self).contains(#"{"agent":"codex","closed":true,"key":"review","model":"gpt-6-mini","opening":false}"#))
         #expect(status.obligations.readyForAcceptance == ["B"])
@@ -471,6 +472,7 @@ import Foundation
             (TaskLiveFacts(status: .idle, tabs: [tab(nil, opening: true)]), "a tab opening"),
             (TaskLiveFacts(status: .idle, background: ["npm run test"]), "work in the background"),
             (TaskLiveFacts(status: .idle, turnUnread: true), "a turn not read yet"),
+            (TaskLiveFacts(status: .idle, tabs: [TaskLiveFacts.Tab(key: "review", agent: .claude, model: "sonnet", status: .idle, turnUnread: true)]), "an extra turn not read yet"),
             (TaskLiveFacts(status: .needsInput, waitingPrompt: "permission"), "a prompt waiting on you"),
             (TaskLiveFacts(status: .idle, tabs: [tab(.needsInput, prompt: "permission")]), "a tab's prompt waiting on you"),
         ]

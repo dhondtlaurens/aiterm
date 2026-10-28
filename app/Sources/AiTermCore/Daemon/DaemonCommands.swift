@@ -25,6 +25,7 @@ public protocol DaemonCommands: Sendable {
     /// current generation, `wake` holds it while the person types there.
     func deliver(sessionId: String, text: String, ownership: Int, wake: Bool, worktree: String?) async throws -> Delivery
     func prompt(sessionId: String) async throws -> PromptKind?
+    func promptDetails(sessionId: String) async throws -> PromptDetails
     /// Declines Codex's update offer with Esc, and nothing else: true when it did.
     func dismissStartup(sessionId: String) async throws -> Bool
     func setOwnership(sessionId: String, ownership: Int) async throws
@@ -36,6 +37,11 @@ public protocol DaemonCommands: Sendable {
 }
 
 extension DaemonCommands {
+    /// Compatibility for a helper that cannot return the prompt's visible text.
+    public func promptDetails(sessionId: String) async throws -> PromptDetails {
+        PromptDetails(kind: try await prompt(sessionId: sessionId))
+    }
+
     /// A task window in front, as every window but an operator's worker's opens.
     public func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame) async throws -> String {
         try await createTaskWindow(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand, frame: frame, background: false)

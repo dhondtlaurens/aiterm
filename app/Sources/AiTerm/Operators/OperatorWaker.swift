@@ -26,7 +26,8 @@ final class OperatorWaker {
     @MainActor private final class WakeState {
         var acknowledgedStatus: RunStatus?, lastSeen: RunStatus?
         var updates = 0
-        var reason: Reason?
+        var reasons: [Reason: UUID] = [:]
+        var reason: Reason? { reasons.count == 1 ? reasons.keys.first : nil }
         /// The news a delivered line told since the Operator last looked, and what its own calls changed meanwhile
         /// (`ownChange`): not news again until it looks.
         var told: Set<News> = []
@@ -44,16 +45,16 @@ final class OperatorWaker {
         func clearPending() {
             generation = UUID()
             updates = 0
-            reason = nil
+            reasons = [:]
             unsentNews = []
             armed?.cancel(); armed = nil
             retrying?.cancel(); retrying = nil
         }
     }
-    private struct Snapshot { let generation: UUID, count: Int, news: Set<News> }
+    private struct Snapshot { let generation: UUID, count: Int, news: Set<News>, reasons: [Reason: UUID] }
     private var wakes: [UUID: WakeState] = [:]
     /// A fixed reason, and what joins it to "call run_status": a comma, or a colon after news about one task.
-    struct Reason: Equatable { var text: String, colon: Bool }
+    struct Reason: Hashable { var text: String, colon: Bool }
     /// The latest delivery, for a test to await.
     private(set) var lastSend: Task<Void, Never>?
     /// A wake line the daemon refused for anything but a prompt that waits on you (`OperatorWakeNotice`).
@@ -107,7 +108,7 @@ final class OperatorWaker {
     /// arrived while a tool was suspended is already in `before` and stays unread; what the call itself
     /// changed is the operator's own, never news to it.
     func ownChange(from before: RunStatus, to after: RunStatus, of run: UUID) {
-        guard Self.content(before) == wakes[run]?.acknowledgedStatus, wakes[run]?.reason == nil else {
+        guard Self.content(before) == wakes[run]?.acknowledgedStatus, wakes[run]?.reasons.isEmpty != false else {
             wakes[run]?.told.formUnion(Self.news(from: Self.content(before), to: Self.content(after)))
             return
         }
@@ -120,7 +121,7 @@ final class OperatorWaker {
     func say(_ reason: String, to run: UUID, unlessAcknowledged status: RunStatus? = nil, colon: Bool = false) {
         let wake = state(for: run)
         if let status, Self.content(status) == wake.acknowledgedStatus { return }
-        wake.reason = Reason(text: reason, colon: colon)
+        wake.reasons[Reason(text: reason, colon: colon)] = UUID()
         // A reason stands for an update already counted, except news in an outstanding delivery:
         // that snapshot cannot have said this reason, so it must leave at least one update behind.
         wake.updates = max(wake.updates, sent(wake) + 1)
@@ -135,7 +136,7 @@ final class OperatorWaker {
     /// The news counted is undone, and none is left unsent: no line goes for it. A reason said still goes, as the only
     /// news; a line already out is left to land.
     private func undone(_ wake: WakeState) {
-        if wake.reason != nil { wake.updates = min(wake.updates, sent(wake) + 1); return }
+        if !wake.reasons.isEmpty { wake.updates = min(wake.updates, sent(wake) + 1); return }
         wake.updates = 0
         wake.armed?.cancel(); wake.armed = nil
         wake.retrying?.cancel(); wake.retrying = nil
@@ -203,6 +204,78 @@ final class OperatorWaker {
         }
     }
 
+    /// Task identifiers are spoken so a menu opening as the line lands cannot consume a digit
+    /// or a one-letter answer. The exact key remains in run_status.
+    static func taskReference(_ key: String) -> String {
+        let digits = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+        let letters: [String: String] = ["a": "ay", "b": "bee", "c": "see", "d": "dee", "e": "ee", "f": "eff", "g": "gee", "h": "aitch", "i": "eye", "j": "jay", "k": "kay", "l": "ell", "m": "em", "n": "en", "o": "oh", "p": "pee", "q": "cue", "r": "ar", "s": "ess", "t": "tee", "u": "you", "v": "vee", "w": "double-you", "x": "ex", "y": "why", "z": "zed"]
+        var words: [String] = [], word = ""
+        func flush() {
+            guard !word.isEmpty else { return }
+            words.append(word.count == 1 ? "letter-" + (letters[word.lowercased()] ?? word) : word)
+            word = ""
+        }
+        for character in key {
+            if character.isLetter { word.append(character) }
+            else {
+                flush()
+                if let digit = character.wholeNumberValue {
+                    words.append(contentsOf: String(digit).compactMap { $0.wholeNumberValue.map { digits[$0] } })
+                }
+            }
+        }
+        flush()
+        return words.isEmpty ? "task" : words.joined(separator: "-")
+    }
+
+    /// The daemon pastes wake lines directly and rejects anything over its limit. Keep whole
+    /// action clauses, reserving space to say that run_status has more; never cut into a key or word.
+    static func boundedLine(_ line: String) -> String {
+        let limit = 2000, prefix = "[AiTerm] ", suffix = ", call run_status", more = "more actionable updates"
+        guard line.unicodeScalars.count > limit else { return line }
+        guard line.hasPrefix(prefix) else { return prefix + more + suffix }
+        var body = String(line.dropFirst(prefix.count))
+        for ending in [suffix, ": call run_status"] where body.hasSuffix(ending) {
+            body = String(body.dropLast(ending.count))
+            break
+        }
+        var kept: [String] = []
+        for part in body.components(separatedBy: "; ") {
+            let candidate = prefix + (kept + [part, more]).joined(separator: "; ") + suffix
+            if candidate.unicodeScalars.count <= limit { kept.append(part) }
+        }
+        return prefix + (kept + [more]).joined(separator: "; ") + suffix
+    }
+
+    /// Each piece of concurrent actionable news stays in the same coalesced line.
+    static func actionReason(for news: Set<News>, status: RunStatus) -> String? {
+        let tasks = Dictionary(status.tasks.map { ($0.id, $0.key) }, uniquingKeysWith: { first, _ in first })
+        var actions = Set<String>()
+        for item in news {
+            switch item {
+            case .listed(let list, let key):
+                let action: String
+                switch list {
+                case .readyForAcceptance: action = "needs acceptance"
+                case .possiblyStalled: action = "may be stalled"
+                case .finishedWithoutCommit: action = "finished with no commit"
+                case .changedAfterAcceptance: action = "changed after acceptance"
+                case .promptsWaitingOnYou: action = "waits for your input"
+                case .branchDrift: action = "needs its branch checked"
+                }
+                actions.insert(taskReference(key) + " " + action)
+            case .asks(let key, _, let tab):
+                actions.insert(taskReference(key) + (tab.map { " tab " + taskReference($0) } ?? "") + " asks a question")
+            case .state(let id, .inReview):
+                if let key = tasks[id] { actions.insert(taskReference(key) + " entered review") }
+            case .quietReview(let id, _):
+                if let key = tasks[id] { actions.insert(taskReference(key) + " has no review activity waiting") }
+            default: break
+            }
+        }
+        return actions.isEmpty ? nil : actions.sorted().joined(separator: "; ")
+    }
+
     /// A piece of news the Operator acts on, between what it last looked at and what `run_status` would answer now
     /// (`news(from:to:)`). Each carries what it says, so that news told is not told again, and a different value is new.
     /// What runs where (each worker's and tab's live state, the background lists) is never news on its own, nor is a task
@@ -222,7 +295,7 @@ final class OperatorWaker {
         /// A task newly on one of the obligation lists (`List`), by its key.
         case listed(List, String)
         /// A question new or reworded, by its key; what you typed in its worker's window onto it; a worker's question.
-        case question(String, String), answered(String, String), asks(String, String)
+        case question(String, String), answered(String, String), asks(String, String, String?)
         /// A spell, news once however often it comes and goes while it lasts: a task's review with nothing waiting, by
         /// the review's start, and a task uncertain while its worker works.
         case quietReview(UUID, Date), uncertain(UUID)
@@ -286,7 +359,7 @@ final class OperatorWaker {
             if old?.text != question.text { news.insert(.question(question.key, question.text)) }
             if let typed = question.answeredInWindow, typed != old?.answeredInWindow { news.insert(.answered(question.key, typed)) }
         }
-        for ask in now.workerAsks where !was.workerAsks.contains(ask) { news.insert(.asks(ask.key, ask.question)) }
+        for ask in now.workerAsks where !was.workerAsks.contains(ask) { news.insert(.asks(ask.key, ask.question, ask.tab)) }
         return news
     }
 
@@ -343,6 +416,7 @@ final class OperatorWaker {
         var status = status
         status.revision = 0
         status.run.usage = [:]
+        status.run.usageTelemetry = [:]
         status.run.agents.installed = [:]
         for index in status.tasks.indices {
             status.tasks[index].mergeRequest = nil
@@ -357,6 +431,23 @@ final class OperatorWaker {
             }
         }
         return status
+    }
+
+    /// Fixed fallback notices can accompany the same keyed obligation, and a later controller
+    /// notice can say both an earlier reason and its consequence. Show each fact once.
+    private static func displayedReasons(_ reasons: [Reason], news: Set<News>) -> [Reason] {
+        let stalled = news.contains { if case .listed(.possiblyStalled, _) = $0 { return true }; return false }
+        let drift = news.contains { if case .listed(.branchDrift, _) = $0 { return true }; return false }
+        return reasons.filter { reason in
+            if stalled, ["one task may be stalled", "some tasks may be stalled"].contains(reason.text) { return false }
+            if drift, reason.text == "one task committed off its task branch" { return false }
+            return !reasons.contains { other in
+                guard other != reason else { return false }
+                return other.text.hasPrefix(reason.text + ", ") || other.text.hasPrefix(reason.text + ": ")
+                    || other.text.hasSuffix(", and " + reason.text)
+                    || (reason.text == "broadcast complete" && other.text.contains("the broadcast is complete"))
+            }
+        }.sorted { $0.text < $1.text }
     }
 
     private func arm(_ run: UUID, _ wake: WakeState) {
@@ -377,12 +468,21 @@ final class OperatorWaker {
         else { return }
         // News counted and since undone wakes nobody: the run reads as the Operator saw it, or was told it.
         let news = unsent(wake)
-        guard !news.isEmpty || wake.reason != nil else { undone(wake); return }
-        let snapshot = Snapshot(generation: wake.generation, count: count, news: news)
-        let text = Self.line(updates: count, reason: wake.reason, turn: Self.turnReason(for: news))
+        guard !news.isEmpty || !wake.reasons.isEmpty else { undone(wake); return }
+        let snapshot = Snapshot(generation: wake.generation, count: count, news: news, reasons: wake.reasons)
+        let action = wake.lastSeen.flatMap { Self.actionReason(for: news, status: $0) }
+        let reasons = Self.displayedReasons(Array(wake.reasons.keys), news: news)
+        let reason = reasons.count == 1 ? reasons.first : nil
+        var parts = action.map { [$0] } ?? []
+        if action != nil || reasons.count > 1 {
+            parts += reasons.map(\.text).filter(Self.isPlain)
+        }
+        let text = parts.isEmpty ? Self.line(updates: reason == nil ? count : 1, reason: reason, turn: Self.turnReason(for: news))
+            : "[AiTerm] " + parts.joined(separator: "; ") + ", call run_status"
+        let bounded = Self.boundedLine(text)
         wake.sending = snapshot
         lastSend = Task { [weak self] in
-            let delivery = try? await daemon.deliver(sessionId: tab.sessionId, text: text, ownership: 0, wake: true, worktree: nil)
+            let delivery = try? await daemon.deliver(sessionId: tab.sessionId, text: bounded, ownership: 0, wake: true, worktree: nil)
             guard let self else { return }
             wake.sending = nil
             if wake.isForgotten { wakes[run] = nil; return }
@@ -406,7 +506,7 @@ final class OperatorWaker {
             wake.told.formUnion(snapshot.news.subtracting(spells))
             wake.spells.formUnion(spells)
             wake.updates = max(0, wake.updates - snapshot.count)
-            if wake.updates == 0 { wake.reason = nil }
+            for (reason, token) in snapshot.reasons where wake.reasons[reason] == token { wake.reasons[reason] = nil }
             // A timer that fired during delivery could not send then. Already-coalesced news
             // that arrived meanwhile gets its own wake now.
             if wake.updates > 0, wake.armed == nil { send(run, wake) }

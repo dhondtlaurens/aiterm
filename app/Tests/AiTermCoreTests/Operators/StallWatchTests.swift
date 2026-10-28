@@ -283,4 +283,30 @@ import Testing
         #expect(!StallWatch.isQuietWhileWorking(transcriptGrewAt: nil, sessionWorkingSince: minutes(0), callOpenSince: minutes(0),
                                                 now: minutes(cap + 5)), "no transcript to read still says nothing")
     }
+    @Test func aLiveQueuedOwnCommandRestartsOnlyItsWorkersStallClock() {
+        let (world, busy, quiet) = twoWorkers()
+        var watch = StallWatch(), waiting = session("b", task: quiet)
+        waiting.testActivity = TestActivity(runId: "own", suite: "all", state: .queued, queuePosition: 2)
+        watch.observe([session("a", task: busy), waiting], at: minutes(0))
+        watch.observe([session("a", task: busy), waiting], at: minutes(40))
+        #expect(!watch.stalled(in: world.state, now: minutes(40)).contains(quiet))
+        #expect(watch.stalled(in: world.state, now: minutes(40)).contains(busy))
+    }
+
+    @Test func aLiveTaskTestHoldsTheExtraWorkersClockUntilItsOwnCompletion() {
+        let (world, task) = twoTabs()
+        var watch = StallWatch(), main = session("a", task: task, state: .done)
+        main.testActivity = TestActivity(runId: "own", suite: "all", state: .queued)
+        watch.observe([main, extra(task)], at: minutes(0))
+        watch.observe([main, extra(task)], at: minutes(40))
+        #expect(!watch.stalled(in: world.state, now: minutes(40)).contains(task))
+        main.testActivity = TestActivity(runId: "own", suite: "all", state: .completed, exitCode: 0)
+        watch.observe([main, extra(task)], at: minutes(41))
+        #expect(!watch.stalled(in: world.state, now: minutes(42)).contains(task))
+        watch.observe([main, extra(task)], at: minutes(60))
+        #expect(!watch.stalled(in: world.state, now: minutes(60)).contains(task))
+        watch.observe([main, extra(task)], at: minutes(62))
+        #expect(watch.stalled(in: world.state, now: minutes(62)).contains(task))
+    }
+
 }

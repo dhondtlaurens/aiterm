@@ -8,9 +8,9 @@ extension OperatorToolHandler {
     /// The most of a diff a review's prompt carries; `read_task`'s own answer is a `DiffDigest`, which is smaller.
     static let diffLimit = 60_000
 
-    /// Where the task's own work starts (spec §9): a stacked task's parent's accepted commit, else where its branch left
-    /// origin's copy of its base branch, fetched first, so a local `main` that lags origin is not read back as the
-    /// worker's changes. A project with no origin, or one that has no such branch, is read from the task's own base.
+    /// Where the task's own work starts (spec §9): a stacked task's parent's accepted commit, else the latest shared
+    /// ancestor of its saved launch baseline and its local and origin base refs. Either ref can lag the other; an older
+    /// origin must not make earlier tasks on local main look like this worker's work. A rebase can advance the baseline.
     /// A fetch that fails (offline) is not a refusal: origin's branch is read as it was last fetched.
     ///
     /// The fetch is bounded (`OperatorTiming.diffBaseFetchTimeout`) and done at most once a minute for the same base
@@ -21,21 +21,27 @@ extension OperatorToolHandler {
     /// even when a parent's accepted commit is not in the branch's history (it was rebased).
     func diffBase(of task: TaskItem, in run: OperatorRun) async throws -> String {
         let stacked = RunScheduler.baseCommit(for: task.id, in: state)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let git = ports.git, path = task.worktreePath, named = task.baseBranch, now = ports.now()
+        let git = ports.git, path = task.worktreePath, named = task.baseBranch, now = ports.now(), saved = task.operated?.diffBaseSHA
+        let accepted = task.operated.flatMap { [.accepted, .published, .inReview].contains($0.state) ? $0.acceptance?.resultSHA : nil }
         let recent = Set(diffBaseFetches.filter { now.timeIntervalSince($0.value) < OperatorTiming.diffBaseFetchInterval }.keys)
         let (base, fetched) = try await BackgroundWork.run { () throws -> (String, String?) in
             let repository = Repository(path, git: git)
+            // Once main contains the accepted task, a fresh merge-base would become its own HEAD
+            // and erase the accepted work from this reading. Keep the verified acceptance's boundary.
+            if let saved, let accepted, try repository.commit("HEAD") == accepted {
+                return (try repository.mergeBase(saved, "HEAD") ?? saved, nil)
+            }
             if let stacked, !stacked.isEmpty { return (try repository.mergeBase(stacked, "HEAD") ?? stacked, nil) }
-            guard try repository.hasOrigin else { return (try repository.mergeBase(named, "HEAD") ?? named, nil) }
             let branch = named.isEmpty ? repository.defaultBranch() : named
             let key = path + "\n" + branch
-            let fetching = !recent.contains(key)
+            let hasOrigin = try repository.hasOrigin
+            let fetching = hasOrigin && !recent.contains(key)
             if fetching {
                 Log.git.attempt("Fetching \(branch) from origin in \(path)") {
                     try repository.fetchFromOrigin(branch, timeout: OperatorTiming.diffBaseFetchTimeout)
                 }
             }
-            let base = try repository.mergeBase("origin/" + branch, "HEAD") ?? repository.mergeBase(named, "HEAD") ?? named
+            let base = try repository.taskDiffBase(stackedOn: stacked, baseBranch: named, savedBase: saved) ?? named
             return (base, fetching ? key : nil)
         }
         if let fetched { diffBaseFetches[fetched] = now }
@@ -83,26 +89,40 @@ extension OperatorToolHandler {
         switch reading {
         case .lastMessage:
             let worker = try self.worker(call, of: task)
+            var context: [String: JSONValue] = ["task": .string(key), "tab": .string(worker.key ?? WorkerTab.firstKey),
+                                              "sessionId": worker.session.map { .string($0.sessionId) } ?? .null,
+                                              "agent": .string(worker.agent.rawValue)]
             guard let conversation = worker.conversation else {
-                // A first worker just launched names its conversation at its first hook: Codex half a minute in.
-                let starting = worker.key == nil && task.workerTabs(in: live.sessions, now: ports.now())[0].isOpening
-                return ["lastMessage": .null, "note": starting
+                let starting = worker.key == nil ? task.workerTabs(in: live.sessions, now: ports.now())[0].isOpening : worker.isOpening
+                let availability = starting ? "starting" : worker.session == nil ? "noOpenWorker" : "identityUnavailable"
+                let note = starting
                     ? "Its worker is still starting: it hasn’t named a conversation yet. Read it again in a minute."
-                    : "Its worker hasn’t started a conversation yet."]
+                    : worker.session == nil ? "This worker has no open tab and no recorded conversation identity."
+                    : "Its worker is open, but its conversation identity is not available yet. This does not mean it has done no work."
+                context["lastMessage"] = .null
+                context["availability"] = .string(availability)
+                context["note"] = .string(note)
+                return .object(context)
             }
+            context["conversationId"] = .string(conversation)
             let transcripts = self.transcripts, agent = worker.agent
-            let text = await BackgroundWork.run { transcripts.lastMessage(agent: agent, conversation: conversation) }
-            // No reply found is unknown, not silence: the transcript reads only its tail, and a worker may have said it earlier.
-            guard let text else {
-                return ["lastMessage": .null, "note": "No reply found in the recent part of its conversation; that doesn’t mean it said nothing. Use read_task with what: diff or prompt."]
+            let (found, text) = await BackgroundWork.run { () -> (Bool, String?) in
+                guard let file = transcripts.file(agent: agent, conversation: conversation) else { return (false, nil) }
+                return (true, WorkerTranscript.lastMessage(in: file, agent: agent))
             }
-            return ["lastMessage": .string(text)]
+            context["lastMessage"] = text.map(JSONValue.string) ?? .null
+            context["availability"] = .string(text == nil ? (found ? "noRecentReply" : "transcriptUnavailable") : "available")
+            if text == nil {
+                context["note"] = .string("No reply found in the recent part of its conversation; that doesn’t mean it said nothing. Use read_task with what: diff or prompt.")
+            }
+            return .object(context)
         case .diff:
             guard task.hasCheckout else { throw ToolRefusal("\(key) hasn’t started: it has no worktree yet.") }
             // The committed work mark_task accepts: from where the branch left its base to HEAD, so a base that
             // moved on is not read back as the worker's changes; edits not yet committed are told apart.
             let git = ports.git, path = task.worktreePath
             let read: (head: String, commits: String, stat: String, diff: String, uncommitted: String)
+            let working: (text: String, truncated: Bool)
             let base: String
             do {
                 base = try await diffBase(of: task, in: run)
@@ -111,10 +131,11 @@ extension OperatorToolHandler {
                      try git.run(["log", "--oneline", "\(base)..HEAD"], in: path), try git.run(["diff", "--stat", "\(base)...HEAD"], in: path),
                      try git.run(["diff", "\(base)...HEAD"], in: path), try git.run(["status", "--porcelain"], in: path))
                 }
+                working = try await BackgroundWork.run { try Self.workingDiff(in: path, git: git) }
             } catch {
                 throw ToolRefusal("AiTerm couldn’t read \(key)’s branch against \(task.baseBranch.isEmpty ? "its base" : task.baseBranch).")
             }
-            return Self.diffReading(base: base, read: read)
+            return Self.diffReading(base: base, read: read, workingDiff: working.text, workingTruncated: working.truncated)
         case .prompt:
             let worker = try self.worker(call, of: task)
             guard let tab = worker.session, !worker.isOpening else {
@@ -122,7 +143,16 @@ extension OperatorToolHandler {
             }
             // No helper is unknown, not "no prompt".
             guard let daemon = daemon() else { throw ToolRefusal("AiTerm’s helper isn’t connected; try again in a moment.") }
-            return ["prompt": try await daemon.prompt(sessionId: tab.sessionId).map { .string($0.rawValue) } ?? .null]
+            let details: PromptDetails
+            do { details = try await daemon.promptDetails(sessionId: tab.sessionId) }
+            catch { throw ToolRefusal("AiTerm couldn’t read \(key)/\(worker.key ?? WorkerTab.firstKey)’s prompt (session \(tab.sessionId)): \(error.localizedDescription)") }
+            var answer: JSONValue = ["task": .string(key), "tab": .string(worker.key ?? WorkerTab.firstKey),
+                "sessionId": .string(tab.sessionId), "prompt": details.kind.map { .string($0.rawValue) } ?? .null,
+                "promptText": details.text.map(JSONValue.string) ?? .null]
+            if details.kind != nil, details.text?.isEmpty != false {
+                answer = answer.adding("note", "The helper detected an open prompt but did not provide readable text or options. Its cause is unknown; inspect this tab to answer it.")
+            }
+            return answer
         case .review:
             return try await reviewReading(task, in: run)
         }
@@ -153,14 +183,28 @@ extension OperatorToolHandler {
     }
 
     private static func diffReading(base: String,
-                                    read: (head: String, commits: String, stat: String, diff: String, uncommitted: String)) -> JSONValue {
+                                    read: (head: String, commits: String, stat: String, diff: String, uncommitted: String),
+                                    workingDiff: String = "", workingTruncated: Bool = false) -> JSONValue {
         // The whole answer is small, not only its patches: a wide diff lists some of its files, and the stat, the
         // commits and the uncommitted edits keep their ends.
         let stat = DiffDigest.lastLines(read.stat, DiffDigest.statLines), commits = DiffDigest.firstLines(read.commits, DiffDigest.commitLines)
         let uncommitted = DiffDigest.firstLines(read.uncommitted, DiffDigest.uncommittedLines)
         // What those leave of the answer's room is the patches': a file a line of stat lists is about a line of its answer.
-        let budget = DiffDigest.patchBudget(others: stat.text.count + commits.text.count + uncommitted.text.count,
+        let initialBudget = DiffDigest.patchBudget(others: stat.text.count + commits.text.count + uncommitted.text.count,
                                             files: read.stat.split(separator: "\n").count)
+        let working = DiffDigest.build(diff: workingDiff, total: min(6_000, initialBudget / 3))
+        let workingShown = working.files.prefix(20)
+        var workingFiles: [JSONValue] = workingShown.map { file in
+            var entry: [String: JSONValue] = ["path": .string(file.path), "truncated": .bool(file.truncated)]
+            if let patch = file.patch { entry["patch"] = .string(patch) }
+            if let summary = file.summary { entry["summary"] = .string(summary) }
+            return .object(entry)
+        }
+        let workingUnlisted = working.files.count - workingShown.count
+        if workingUnlisted > 0 { workingFiles.append(["path": .string("and \(workingUnlisted) more files"), "truncated": true]) }
+        let workingSize = workingShown.reduce(0) { $0 + ($1.patch?.count ?? 0) + ($1.summary?.count ?? 0) }
+        // Share the existing answer budget: adding dirty patches must not double the response size.
+        let budget = max(0, initialBudget - workingSize - workingFiles.count * 120)
         let digest = DiffDigest.build(diff: read.diff, total: budget)
         var files = digest.files.prefix(DiffDigest.listedFiles).map { file -> JSONValue in
             var entry: [String: JSONValue] = ["path": .string(file.path), "truncated": .bool(file.truncated)]
@@ -171,8 +215,10 @@ extension OperatorToolHandler {
         let unlisted = digest.files.count - files.count
         if unlisted > 0 { files.append(["path": .string("and \(unlisted) more files"), "truncated": true]) }
         return ["base": .string(base), "head": .string(read.head), "stat": .string(stat.text), "commits": .string(commits.text),
-                "files": .array(files), "truncated": .bool(digest.truncated || unlisted > 0 || stat.cut || commits.cut || uncommitted.cut),
-                "uncommitted": .string(uncommitted.text)]
+                "files": .array(files), "truncated": .bool(digest.truncated || unlisted > 0 || stat.cut || commits.cut || uncommitted.cut
+                                                            || working.truncated || workingTruncated || workingUnlisted > 0),
+                "uncommitted": .string(uncommitted.text), "uncommittedFiles": .array(workingFiles),
+                "uncommittedTruncated": .bool(working.truncated || workingTruncated || workingUnlisted > 0)]
     }
 
     func replayedMessage(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> JSONValue? {
@@ -210,7 +256,7 @@ extension OperatorToolHandler {
         let delivery = try await daemon.deliver(sessionId: tab.sessionId, text: text, ownership: operated.ownership, wake: false,
                                                 worktree: task.worktreePath)
         // Its worker has the Operator's word: what its last turn asked or left is answered (spec §J).
-        if delivery.result == .delivered, worker.key == nil { onMessaged(task.id) }
+        if delivery.result == .delivered { onMessaged(task.id, worker.key) }
         var fields: [String: JSONValue] = ["result": .string(delivery.result.rawValue), "reason": delivery.reason.map(JSONValue.string) ?? .null]
         // Steered, an accepted task is at work again; accepting it on its commit or another says what came of it.
         if delivery.result == .delivered, operated.state == .accepted, reopen(task) { fields["reopened"] = true }
@@ -277,6 +323,20 @@ extension OperatorToolHandler {
                 acceptedBase = try? await commit(diffBase(of: task, in: run), in: task)
                 try recheck(task)
             }
+            // Refresh evidence for the same verified head without revoking its dependents or publication.
+            // A prior Oracle yes/no no longer describes the evidence being judged.
+            if [.accepted, .published, .inReview].contains(operated.state), operated.acceptance?.resultSHA == sha {
+                mutate(in: run.id) { state in
+                    state.updateOperated(task.id) {
+                        $0.acceptance = acceptance
+                        $0.publication?.conditionsHeld = nil
+                        $0.publication?.mergeRefusal = nil
+                        if let acceptedBase { $0.diffBaseSHA = acceptedBase }
+                    }
+                    state.updateRun(id: run.id) { $0.challenges.removeAll { $0.tool == "finish_task" && $0.askedSHA == sha && $0.stage != .acted } }
+                }
+                return Self.taskAnswer(state.task(id: task.id) ?? task, created: false)
+            }
             // Accepted again on another commit: its dependents are revoked and flagged.
             if [.accepted, .published, .inReview].contains(operated.state) {
                 return try reaccept(task, as: acceptance, diffBase: acceptedBase)
@@ -307,8 +367,9 @@ extension OperatorToolHandler {
     }
 
     /// The accepted task's live diff base (`OperatedTask.diffBaseSHA`), set in its acceptance's own mutation so the
-    /// two are saved together. A broadcast without the Task step keeps none.
+    /// two are saved together. Without a newly computed boundary, retain the launch baseline.
     private static func keepDiffBase(_ base: String?, of id: UUID, in state: inout AppState) {
+        guard let base else { return }
         state.updateOperated(id) { $0.diffBaseSHA = base }
     }
 
@@ -318,6 +379,8 @@ extension OperatorToolHandler {
         case "accepted":
             guard [.accepted, .published, .inReview].contains(operated.state), let given = call.optionalString("sha") else { return false }
             return operated.acceptance?.resultSHA == (try await commit(given, in: task))
+                && operated.acceptance?.checkOutput == call.optionalString("checkOutput")
+                && operated.acceptance?.note == call.optionalString("note")
         case "noChange": return operated.state == .noChange
         case "blocked", "failed": return operated.state.rawValue == outcome && operated.blockedReason == call.optionalString("note")
         default: return false

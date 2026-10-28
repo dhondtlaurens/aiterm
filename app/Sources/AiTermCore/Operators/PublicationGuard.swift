@@ -16,12 +16,7 @@ public enum PublicationGuard {
         guard let operated = task.operated, let acceptance = operated.acceptance else { return notOperated }
         // The slices froze with the broadcast: the run's, never the profile in Settings.
         if operated.end.merges, !run.profile.slices.merge { return mergeSliceOff }
-        // With the Oracle on, a merge goes ahead only on its yes for the commit accepted now (the tool handler asks it).
-        if operated.end.merges, run.profile.oracle.isOn, !TaskPublisher.Context.entersReview(operated, run: run),
-           operated.publication?.conditionsHeld != acceptance.resultSHA {
-            let conditions = run.taskSettings == nil ? "the conditions written in the Review and the Done" : "the task’s review conditions"
-            return "The Oracle hasn’t said that \(conditions) hold for \(operated.key), so AiTerm doesn’t merge it: call finish_task again."
-        }
+        if let why = oracleRefusal(task, in: run) { return why }
         // The way `Repository.push` compares: case-folded and without a leading refs/heads/.
         let branch = Repository.folded(Repository.shortBranch(task.branch))
         if branch.isEmpty || branch == Repository.folded(Repository.shortBranch(defaultBranch)) {
@@ -92,10 +87,38 @@ public enum PublicationGuard {
         return nil
     }
 
+    private static func oracleRefusal(_ task: TaskItem, in run: OperatorRun) -> String? {
+        guard let operated = task.operated else { return notOperated }
+        guard operated.end.merges, run.profile.oracle.isOn, !TaskPublisher.Context.entersReview(operated, run: run),
+              operated.publication?.conditionsHeld != operated.acceptance?.resultSHA
+                || operated.publication?.conditionsEvidence != evidence(task: task, run: run) else { return nil }
+        let conditions = run.taskSettings == nil ? "the conditions written in the Review and the Done" : "the task’s review conditions"
+        return "The Oracle hasn’t said that \(conditions) hold for \(operated.key), so AiTerm doesn’t merge it: call finish_task again."
+    }
+
+    /// The same required-check inputs identify the Oracle's evidence and every publication step.
+    /// Excludes earlier refusals and mutable publication progress: neither is evidence of tests.
+    public static func evidence(task: TaskItem, run: OperatorRun) -> String {
+        struct Evidence: Encodable {
+            var acceptance: TaskAcceptance?
+            var review: String?, done: String?, taskSettings: TaskSettings?
+            var agentReview: AgentReviewResult?
+            var reviewVerdicts: [ReviewVerdict]
+            var answers: [OperatorQuestion]
+        }
+        let operated = task.operated
+        let review = operated?.agentReview.flatMap { $0.head == operated?.acceptance?.resultSHA ? $0 : nil }
+        let value = Evidence(acceptance: operated?.acceptance, review: run.review, done: run.done, taskSettings: run.taskSettings,
+                             agentReview: review, reviewVerdicts: operated?.reviewVerdicts ?? [],
+                             answers: run.questions.filter { $0.task == task.id && $0.about == OperatorQuestion.fixRounds && $0.resolution != nil })
+        let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
+        return (try? encoder.encode(value)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+    }
+
     /// What may have changed since the first step, read fresh before the next: the broadcast's state and
     /// your intent (a Pause or End), and the task's state, ownership (a takeover, even one handed back)
     /// and accepted commit.
-    public static func recheck(task: TaskItem?, run: OperatorRun?, ownership: Int, acceptedSHA: String) -> String? {
+    public static func recheck(task: TaskItem?, run: OperatorRun?, ownership: Int, acceptedSHA: String, expectedEvidence: String? = nil) -> String? {
         guard let task, let run else { return gone }
         guard let operated = task.operated else { return notOperated }
         if let why = runRefusal(run) { return why }
@@ -103,7 +126,10 @@ public enum PublicationGuard {
         guard operated.state == .accepted, operated.acceptance?.resultSHA == acceptedSHA else { return changedMidway }
         if operated.flags.contains(.upstreamReplaced) { return upstreamReplaced(operated.key) }
         if operated.end.merges, !run.profile.slices.merge { return mergeSliceOff }
-        return nil
+        if let expectedEvidence, evidence(task: task, run: run) != expectedEvidence {
+            return "The acceptance or required-check evidence changed while this task was being published. What was done so far is recorded; call finish_task again for a fresh check."
+        }
+        return oracleRefusal(task, in: run)
     }
 
     /// A broadcast publishes while it is active or complete and you have neither paused nor ended it.

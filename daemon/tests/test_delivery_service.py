@@ -125,9 +125,9 @@ async def test_a_long_message_goes_through_the_worktree(claude, tmp_path):
 
 async def test_session_prompt_reads_the_open_prompt(claude):
     _svc, it, sid, call, _policy = claude
-    assert (await call("session.prompt", {"sessionId": sid}))["result"] == {"kind": None}
+    assert (await call("session.prompt", {"sessionId": sid}))["result"] == {"kind": None, "text": None}
     it.screens[sid] = " Do you want to proceed?\n ❯ 1. Yes\n   2. No"
-    assert (await call("session.prompt", {"sessionId": sid}))["result"] == {"kind": "permission"}
+    assert (await call("session.prompt", {"sessionId": sid}))["result"] == {"kind": "permission", "text": it.screens[sid]}
     assert (await call("session.prompt", {"sessionId": "s404"}))["error"]["code"] == "not_found"
 
 
@@ -186,7 +186,7 @@ async def test_a_screen_only_menu_is_read_and_refuses_delivery(claude, screen):
     svc, it, sid, call, _policy = claude
     it.screens[sid] = screen
     assert svc.registry.get(sid).state == "idle"
-    assert (await call("session.prompt", {"sessionId": sid}))["result"] == {"kind": "menu"}
+    assert (await call("session.prompt", {"sessionId": sid}))["result"] == {"kind": "menu", "text": screen}
     reply = await call("session.deliver", {"sessionId": sid, "text": "Continue", "ownership": 1})
     assert reply["result"] == {"result": "refused", "code": "prompt", "reason": "a menu prompt is open"}
     assert it.sent == []

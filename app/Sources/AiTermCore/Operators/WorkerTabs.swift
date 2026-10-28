@@ -34,7 +34,9 @@ public struct WorkerTab: Equatable, Sendable {
     /// lists each subagent until it ends, while the rest that Stop listed may have ended since.
     public var background: [String] {
         let jobs = session?.background ?? []
-        return (status?.turnEnded == true ? jobs : jobs.filter { $0.kind == .subagent }).map(\.text)
+        var result = (status?.turnEnded == true ? jobs : jobs.filter { $0.kind == .subagent }).map(\.text)
+        if let activity = session?.testActivity, activity.isActive { result.append(activity.line) }
+        return result
     }
 
     /// An extra tab that opened and is listed no more: closed, and never opened again. A first worker is never closed
@@ -105,7 +107,7 @@ public extension TaskItem {
     /// first hook, half a minute in, and that is no ended turn. Without `now` it is taken as its tab says.
     func workerTabs(in sessions: [SessionInfo], now: Date? = nil) -> [WorkerTab] {
         let worker = firstWorker(in: sessions), conversation = worker?.conversationId ?? firstWorkerConversation?.id
-        let first = WorkerTab(key: nil, agent: agent, model: model, session: worker,
+        let first = WorkerTab(key: nil, agent: worker?.agent.agentKind ?? agent, model: model, session: worker,
                               isOpening: conversation == nil && isLaunching(worker, now: now), conversation: conversation)
         return [first] + (operated?.extraTabs ?? []).filter { $0.failure == nil }.map { tab in
             let session = sessions.first { $0.taskUUID == id && $0.tabKey == tab.key }

@@ -244,7 +244,7 @@ NOT_LEGACY = "a broadcast started before them doesn't take it"
 
 def test_the_agents_rows_bound_every_worker_tab_and_reviewer():
     """Broadcast setup v2: create_task, update_task and open_tab take a reasoning level, and with Agents rows only a row.
-    The reasoning is the steps' alone: a broadcast started before them doesn't take it."""
+    Legacy broadcasts resolve explicit effort and preserve configured default effort."""
     tools = {tool["name"]: tool for tool in TOOLS}
     for name in ("create_task", "update_task", "open_tab"):
         properties = tools[name]["inputSchema"]["properties"]
@@ -252,7 +252,9 @@ def test_the_agents_rows_bound_every_worker_tab_and_reviewer():
         assert "first row" in properties["model"]["description"], name
         reasoning = properties["reasoning"]["description"]
         assert "agents.allowed" in reasoning and "refused" in reasoning, name
-        assert reasoning.startswith(STEPS_ONLY) and NOT_LEGACY in reasoning, name
+        assert "Explicit reasoning wins" in reasoning, name
+        assert "configured default model keeps its configured reasoning" in reasoning, name
+        assert "catalogue fallback" in reasoning, name
     assert "reasoning" in tools["update_task"]["description"]
     assert "Agents and Task steps" in tools["update_task"]["description"]
 

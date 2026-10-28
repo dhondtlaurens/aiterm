@@ -173,6 +173,11 @@ final class OperatorController {
             if let ending = WorkerTurn.ending(lastMessage: reading.lastMessage, commitsAhead: reading.commitsAhead,
                                              atReopenedCommit: reading.atReopenedCommit) { acts.turns[task] = ending }
         }
+        for (task, readings) in turns.extraReadings {
+            if readings.values.contains(where: { !$0.messaged && WorkerTurn.ending(lastMessage: $0.lastMessage, commitsAhead: $0.commitsAhead) == .asks }) {
+                acts.turns[task] = .asks
+            }
+        }
         return acts
     }
     /// How many lines each run's activity log has been written since this launch: the Operator sheet watches it to
@@ -216,6 +221,9 @@ final class OperatorController {
         self.transcripts = transcripts
         tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, waker: waker, tabs: tabs,
                                     transcripts: transcripts)
+        NotificationCenter.default.addObserver(forName: OperatorProfileStore.didSave, object: nil, queue: .main) { [weak tools] _ in
+            MainActor.assumeIsolated { tools?.refreshOracleSettings() }
+        }
         starter = WorkerStarter(workspace: workspace, live: live, daemon: daemon, taskFrame: taskFrame, ports: ports)
         // It captures nothing of `self`: its callbacks are installed once every stored property is set.
         finisher = TaskFinisher(store: workspace, git: ports.git, connect: ports.publisher, now: ports.publishNow, sleep: ports.mergeSleep)
@@ -262,8 +270,9 @@ final class OperatorController {
         tools.onChange = { [weak self] in self?.runChanged($0) }
         tools.onActivity = { [weak self] run in self?.activityWritten[run, default: 0] += 1 }
         tools.turnReadings = { [weak self] in self?.turns.readings ?? [:] }
+        tools.extraTurnReadings = { [weak self] in self?.turns.extraReadings ?? [:] }
         tools.quietTasks = { [weak self] in self?.quiet.quiet ?? [] }
-        tools.onMessaged = { [weak self] task in self?.turns.messaged(task) }
+        tools.onMessaged = { [weak self] task, tab in self?.turns.messaged(task, tab: tab) }
         tools.onMessageResult = { [weak self] task, tab in
             // Reading a screen must not delay the delivery result or its replay cache.
             Task { await self?.probeAfterMessage(task, tab: tab) }
@@ -333,17 +342,18 @@ final class OperatorController {
     /// The run as `run_status` would show it now, numbered 0: the waker compares content.
     func status(of run: OperatorRun) -> RunStatus? {
         Self.status(of: run.id, state: workspace.state, sessions: live.sessions, revision: 0,
-                    usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turns.readings, quiet: quiet.quiet, now: ports.now())
+                    usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turns.readings, extraTurns: turns.extraReadings, quiet: quiet.quiet, now: ports.now())
     }
 
     /// `run_status`'s snapshot: the run from the workspace, each task's live facts from its worker's tab and what its
     /// worker's last ended turn left (`WorkerTurnReader.readings`). `usage` is each agent's weekly percent
     /// (`SidebarModel.weeklyUsage`). `quiet` is the tasks whose working worker's transcript went quiet (`WorkerQuietWatch`); `now` is what a quiet review (spec §K) is measured against.
     static func status(of run: UUID, state: AppState, sessions: [SessionInfo], revision: Int,
-                       usage: [AgentKind: Int] = [:], turns: [UUID: WorkerTurnReader.Reading], quiet: Set<UUID> = [],
+                       usage: [AgentKind: Int] = [:], turns: [UUID: WorkerTurnReader.Reading],
+                       extraTurns: [UUID: [String: WorkerTurnReader.Reading]] = [:], quiet: Set<UUID> = [],
                        now: Date = Date()) -> RunStatus? {
         RunStatus.build(state: state, run: run, revision: revision,
-                        live: liveFacts(of: run, state: state, sessions: sessions, turns: turns, quiet: quiet, now: now),
+                        live: liveFacts(of: run, state: state, sessions: sessions, turns: turns, extraTurns: extraTurns, quiet: quiet, now: now),
                         runLive: RunLiveFacts(weeklyUsage: usage), now: now)
     }
 
@@ -355,7 +365,8 @@ final class OperatorController {
     /// under way as of `now` and that has named no conversation yet is opening (`TaskItem.workerTabs(in:now:)`): at work,
     /// its turn not ended.
     static func liveFacts(of run: UUID, state: AppState, sessions: [SessionInfo],
-                          turns: [UUID: WorkerTurnReader.Reading], quiet: Set<UUID> = [], now: Date = Date()) -> [UUID: TaskLiveFacts] {
+                          turns: [UUID: WorkerTurnReader.Reading], extraTurns: [UUID: [String: WorkerTurnReader.Reading]] = [:],
+                          quiet: Set<UUID> = [], now: Date = Date()) -> [UUID: TaskLiveFacts] {
         let questions = state.run(id: run)?.questions ?? []
         var facts: [UUID: TaskLiveFacts] = [:]
         for task in state.tasks(inRun: run) {
@@ -364,11 +375,15 @@ final class OperatorController {
             let extra = workers.dropFirst().compactMap { worker in
                 worker.key.map { key in
                     let prompt = open.first { $0.tab == key }?.text
+                    let reading = extraTurns[task.id]?[key]
+                    let ended = worker.status?.turnEnded == true
+                    let read = reading.flatMap { $0.session == worker.session?.sessionId && !$0.messaged ? $0 : nil }
                     return TaskLiveFacts.Tab(key: key, agent: worker.agent, model: worker.model,
                                              status: prompt == nil || worker.session == nil ? worker.session?.state : .needsInput,
                                              opening: worker.isOpening, closed: worker.isClosed, waitingPrompt: prompt,
                                              liveModel: worker.session?.liveModel, liveReasoning: worker.session?.liveReasoning,
-                                             slashCommands: worker.session?.slashCommands ?? [])
+                                             slashCommands: worker.session?.slashCommands ?? [],
+                                             lastMessage: ended ? read?.lastMessage : nil, turnUnread: ended && read == nil)
                 }
             }
             if tab != nil || prompt != nil || !extra.isEmpty || workers[0].isOpening {
@@ -378,7 +393,7 @@ final class OperatorController {
                                          quiet: prompt == nil && quiet.contains(task.id), liveModel: tab?.liveModel,
                                          liveReasoning: tab?.liveReasoning, slashCommands: tab?.slashCommands ?? [],
                                          stoppedOn: workers.lazy.compactMap { $0.session?.stoppedOn }.first?.reason(now: now),
-                                         opening: workers[0].isOpening)
+                                         opening: workers[0].isOpening, testActivities: workers.compactMap { $0.session?.testActivity })
                 if let tab, !live.opening, live.status?.turnEnded == true {
                     if let turn = turns[task.id], turn.session == tab.sessionId, !turn.messaged {
                         live.lastMessage = turn.lastMessage
@@ -388,6 +403,19 @@ final class OperatorController {
                     } else {
                         live.turnUnread = true
                     }
+                }
+                // Git belongs to the shared checkout. A newer extra-worker result supersedes
+                // an idle main worker's old count and changed-after-acceptance reading.
+                let completed = workers.compactMap { worker -> WorkerTurnReader.Reading? in
+                    guard worker.status?.turnEnded == true else { return nil }
+                    let reading = worker.key.flatMap { extraTurns[task.id]?[$0] } ?? (worker.key == nil ? turns[task.id] : nil)
+                    guard let reading, !reading.messaged, reading.session == worker.session?.sessionId else { return nil }
+                    return reading
+                }
+                if let newest = completed.max(by: { $0.observedOrder < $1.observedOrder }) {
+                    live.commitsAhead = newest.commitsAhead
+                    live.atReopenedCommit = newest.atReopenedCommit
+                    live.changedAfterAcceptance = newest.changedAfterAcceptance
                 }
                 facts[task.id] = live
             }
@@ -772,6 +800,7 @@ final class OperatorController {
     /// connected snapshot after the helper attaches. What it changed is scheduled and settled, and
     /// whatever it freed or the helper's return allows to start starts — the way the tool paths do.
     func reconcileTick() {
+        tools.refreshOracleSettings()
         // The code hosts are read whether or not iTerm2's tabs are known: a wake waits for the Operator's tab.
         reviewWatcher.poll()
         // Time alone can make a review quiet (spec §K): what `run_status` would show is read again on every tick.

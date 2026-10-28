@@ -230,6 +230,30 @@ struct StatusMarkTests {
         #expect(circularDistance(first, second) > 30, "the arc did not turn")
     }
 
+    /// Switching from activity to background work installs the slow dashed animation; selecting
+    /// the row and returning to work keep both animations alive.
+    @Test func backgroundActivityTurnsThroughStatusAndSelectionChanges() throws {
+        let model = StatusModel()
+        let (window, host) = hostInWindow(Mark(model: model, size: size))
+        defer { window.close() }
+        pump(0.1)
+        model.status = .background
+        model.surface = .accent
+        pump(0.1)
+        let waiting = try arc(in: host)
+        #expect(waiting.style == .dashed && waiting.arc.lineDashPattern?.count == 2)
+        #expect(waiting.arc.animation(forKey: SpinningArcView.spinKey)?.duration == StatusMark.backgroundSpinDuration)
+        let first = try angle(host)
+        pump(0.35)
+        #expect(circularDistance(first, try angle(host)) > 10, "the background ring must keep turning on the selected row")
+        model.status = .working
+        pump(0.1)
+        #expect(try arc(in: host).style == .arc)
+        let resumed = try angle(host)
+        pump(0.25)
+        #expect(circularDistance(resumed, try angle(host)) > 30, "resumed work must animate again")
+    }
+
     /// Many working marks cost no more updates than one does: none per frame.
     @Test func manyWorkingMarksUpdateNothingPerFrame() {
         let marks = HStack(spacing: 0) {

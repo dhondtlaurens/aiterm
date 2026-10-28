@@ -23,7 +23,7 @@ extension OperatorToolHandler {
         let brief = try role == .review ? (call.optionalString("brief") ?? "") : call.string("brief")
         let pinned = call.arguments["agentPinned"]?.boolValue ?? false
         if let recorded = try recordedTab(key, of: task, call, agent: agent, modelReason: modelReason,
-                                          brief: brief, pinned: pinned, role: role, checksReasoning: run.taskSettings != nil) {
+                                          brief: brief, pinned: pinned, role: role, checksReasoning: true) {
             return recorded
         }
         try tabRefusal(task, in: run)
@@ -35,12 +35,13 @@ extension OperatorToolHandler {
             throw ToolRefusal("This task is no longer in this broadcast.")
         }
         if let recorded = try recordedTab(key, of: current, call, agent: agent, modelReason: modelReason,
-                                          brief: brief, pinned: pinned, role: role, checksReasoning: run.taskSettings != nil) {
+                                          brief: brief, pinned: pinned, role: role, checksReasoning: true) {
             return recorded
         }
         try tabRefusal(current, in: fresh)
-        let tab = ExtraTab(key: key, agent: agent, model: model.model, reasoning: model.reasoning, modelReason: modelReason, brief: brief,
+        var tab = ExtraTab(key: key, agent: agent, model: model.model, reasoning: model.reasoning, modelReason: modelReason, brief: brief,
                            agentPinned: pinned, launch: LaunchAttempt(number: 1, requestedAt: ports.now()), role: role)
+        tab.requestedLaunch = LaunchRequest(model: call.optionalString("model"), reasoning: call.optionalString("reasoning"))
         mutate(in: run.id) { $0.updateOperated(task.id) { $0.extraTabs.append(tab) } }
         // On disk before the daemon is asked: a restart then finds the tab it opened, and opens no second one.
         guard workspace.flush() else {
@@ -88,6 +89,7 @@ extension OperatorToolHandler {
 
     static func tabAnswer(_ tab: ExtraTab, of task: TaskItem, outcome: TabOpener.Outcome) -> JSONValue {
         ["task": .string(task.operated?.key ?? ""), "key": .string(tab.key), "agent": .string(tab.agent.rawValue), "model": .string(tab.model),
+         "reasoning": tab.reasoning.map(JSONValue.string) ?? .null,
          "state": .string(outcome == .opened ? "opened" : "opening")]
     }
 }

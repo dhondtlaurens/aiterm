@@ -127,6 +127,8 @@ struct OperatorBadgeTests {
         defer { window.close() }
         settle(host) { host.firstDescendant(DecodeWordsView.self) != nil }
         let words = try #require(host.firstDescendant(DecodeWordsView.self))
+        #expect(words.bounds.width > 0 && words.bounds.height > 0, "the acting status has a visible text slot")
+        #expect(words.words.frame.size == words.bounds.size, "its text layer fills that slot")
         settle(host, describing: "the words to settle") { !words.isDecoding && words.shown == "consulting the Oracle" }
         #expect(!words.isDecoding && words.shown == "consulting the Oracle", "settled: \(words.shown)")
         #expect(words.frames > 1, "it decoded a frame at a time")
@@ -141,5 +143,29 @@ struct OperatorBadgeTests {
         defer { still.close() }
         settle(stillHost, for: 0.1)
         #expect(stillHost.firstDescendant(DecodeWordsView.self) == nil, "standing still, the words are SwiftUI's text")
+    }
+
+    /// A row moves repeatedly between the native decoding view and plain SwiftUI text. Returning to
+    /// acting after watching or waiting must give the new layer both its words and its layout.
+    @Test func secondaryWordsSurviveWorkingWatchingAndWaitingTransitions() throws {
+        let host = testHost(OperatorBadge(line: OperatorLine("working", look: .acting)).surface(.washed),
+                            size: CGSize(width: 240, height: Size.chip), appearance: NSAppearance(named: .darkAqua))
+        let window = testWindow(hosting: host)
+        defer { window.orderOut(nil) }
+        for line in [OperatorLine("working", look: .acting), OperatorLine("watching 3 tasks"),
+                     OperatorLine("in background"), OperatorLine("waiting on you", look: .needsYou),
+                     OperatorLine("consulting the Oracle", look: .acting)] {
+            host.rootView = OperatorBadge(line: line).surface(.washed)
+            settle(host, for: 0.1)
+            if line.look == .acting {
+                let words = try #require(host.firstDescendant(DecodeWordsView.self))
+                #expect(!words.shown.isEmpty && !words.words.frame.isEmpty)
+                settle(host) { !words.isDecoding }
+                #expect(words.shown == line.text)
+            } else {
+                #expect(host.firstDescendant(DecodeWordsView.self) == nil)
+                #expect(host.fittingSize.height >= Size.chip)
+            }
+        }
     }
 }

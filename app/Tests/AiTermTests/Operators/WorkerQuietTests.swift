@@ -286,4 +286,36 @@ import Testing
                 .contains("[AiTerm] updates waiting, call run_status")
         })
     }
+    @Test func aLongQueueWaitWithItsOwnCommandAliveIsNeitherQuietNorStalled() async throws {
+        let (world, run, task) = try makeWorld(.working)
+        try writeTranscript(world, writtenAgo: 0)
+        var tabs = sessions(run, task, .working)
+        tabs[1].testActivity = TestActivity(runId: "own", suite: "all", state: .queued, queuePosition: 2)
+        world.show(tabs)
+        clock.advance(by: 1800)
+        await tick(world)
+        #expect(try uncertain(world, run).isEmpty)
+        #expect(!possiblyStalled(world, task))
+        #expect(try line(world, run).testActivities?.first?.queuePosition == 2)
+    }
+
+    @Test func aTestOwnedByAnotherWorkerHoldsTaskUncertaintyUntilItCompletes() async throws {
+        let (world, run, task) = try makeWorld(.working, extraTab: true)
+        try writeTranscript(world, writtenAgo: 0)
+        var tabs = sessions(run, task, .working)
+        tabs[2].testActivity = TestActivity(runId: "own", suite: "all", state: .running)
+        world.show(tabs)
+        clock.advance(by: 1800)
+        await tick(world)
+        #expect(try uncertain(world, run).isEmpty)
+        #expect(!possiblyStalled(world, task))
+        tabs[2].testActivity = TestActivity(runId: "own", suite: "all", state: .completed, exitCode: 0)
+        world.show(tabs)
+        await tick(world)
+        #expect(try uncertain(world, run).isEmpty)
+        clock.advance(by: 180)
+        await tick(world)
+        #expect(try uncertain(world, run) == ["PLUTO-1"])
+    }
+
 }

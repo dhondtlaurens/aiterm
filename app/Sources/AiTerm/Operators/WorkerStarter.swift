@@ -156,11 +156,17 @@ final class WorkerStarter {
         do {
             let start = try await startPoint(of: id, in: project)
             let reserved = state.reservedWorktreeSlugs(projectId: project.id)
-            let made = try await BackgroundWork.run { try TaskCreator.checkOutWorker(task, project: project, start: start, reserved: reserved, git: git) }
+            let (made, baseline) = try await BackgroundWork.run {
+                let made = try TaskCreator.checkOutWorker(task, project: project, start: start, reserved: reserved, git: git)
+                // Adoption may find a branch with work already on it: record its fork, never its head.
+                let baseline = try Repository(made.task.worktreePath, git: git).mergeBase(start, "HEAD")
+                return (made, baseline)
+            }
             workspace.mutate { state in
                 guard let i = state.tasks.firstIndex(where: { $0.id == id }) else { return }
                 state.tasks[i].worktreePath = made.task.worktreePath
                 state.tasks[i].baseBranch = made.task.baseBranch
+                if state.tasks[i].operated?.diffBaseSHA == nil { state.tasks[i].operated?.diffBaseSHA = baseline }
             }
             let prompt = Self.prompt(for: task, operated: operated), worktree = made.task.worktreePath
             let choice = launchChoice(for: task, operated: operated, attempt: attempt)
@@ -324,7 +330,7 @@ final class WorkerStarter {
               [.working, .blocked].contains(operated.state) else { return }
         let tabs = sessions.filter { $0.taskUUID == id }
         guard !tabs.isEmpty else { return }
-        if tabs.contains(where: Self.isFirstWorkerTab) {
+        if tabs.contains(where: Self.isWorkerTab) {
             if operated.flags.contains(.uncertain) { workspace.mutate { $0.updateOperated(id) { $0.flags.remove(.uncertain) } } }
         } else if !operated.flags.contains(.uncertain) {
             workspace.mutate { $0.updateOperated(id) { $0.flags.insert(.uncertain) } }
@@ -350,7 +356,9 @@ final class WorkerStarter {
             + "Do not create another worktree or branch. Inventories, audits and lists go in your final message, "
             + "never in a new file in the repository. "
             + "Never type /model, /effort or /config into a live agent session: they save the person's defaults. "
-            + "To try a model or effort, use launch flags or a scratch CLAUDE_CONFIG_DIR."
+            + "To try a model or effort, use launch flags or a scratch CLAUDE_CONFIG_DIR. "
+            + "Keep each background command's handle/PID, log and exit status. Queued tests are not stalled. "
+            + "Finish when your command exits; do not poll other test processes."
     }
 
     /// Whether the task has a code parent and no accepted commit of its parent's to start from.

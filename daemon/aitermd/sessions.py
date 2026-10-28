@@ -61,6 +61,7 @@ class SessionRegistry:
                 info.your_prompt = old.your_prompt
                 info.transcript, info.slash_commands = old.transcript, old.slash_commands
                 info.stopped_on = old.stopped_on
+                info.test_activity = old.test_activity
             if info != old:
                 self._sessions[r.session_id] = info
                 diff.changed.append(r.session_id)

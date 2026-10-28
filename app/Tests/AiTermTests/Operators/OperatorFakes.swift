@@ -121,7 +121,13 @@ extension OperatorPorts {
             ([.claude: "2.1.301", .codex: "0.160.0"] as [AgentKind: String])[agent].map { (agent, $0) } }) }
         // Settings › Operator's profile, never this Mac's, and preferences of the test's own.
         ports.profile = { OperatorServiceFixtures.profile() }
-        ports.preferences = ScratchDefaults.make()
+        let defaults = ScratchDefaults.make()
+        for (agent, models) in OperatorServiceFixtures.models {
+            if let first = models.first {
+                ModelSettings.save(ModelPreference(model: first.id, reasoning: first.defaultEffort), for: agent, defaults: defaults)
+            }
+        }
+        ports.preferences = defaults
         return ports
     }
 }

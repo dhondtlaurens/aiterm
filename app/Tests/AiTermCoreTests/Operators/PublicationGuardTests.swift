@@ -22,6 +22,23 @@ import Testing
                                         defaultBranch: defaultBranch, branchTip: tip ?? sha)
     }
 
+    @Test func publicationRechecksOracleAuthorityAndSameCommitEvidence() {
+        var (w, task, run) = world(end: .merge)
+        w.state.updateRun(id: run) { $0.profile.oracle.isOn = true }
+        let current = w.state.task(id: task)!
+        let broadcast = w.state.run(id: run)!
+        let evidence = PublicationGuard.evidence(task: current, run: broadcast)
+        #expect(PublicationGuard.recheck(task: current, run: broadcast, ownership: 0, acceptedSHA: sha)?.contains("Oracle") == true)
+        w.state.updateOperated(task) { $0.publication = TaskPublication(conditionsHeld: sha) }
+        let approvedInputs = PublicationGuard.evidence(task: w.state.task(id: task)!, run: w.state.run(id: run)!)
+        w.state.updateOperated(task) { $0.publication?.conditionsEvidence = approvedInputs }
+        #expect(PublicationGuard.recheck(task: w.state.task(id: task), run: broadcast, ownership: 0, acceptedSHA: sha,
+                                        expectedEvidence: evidence) == nil)
+        w.state.updateOperated(task) { $0.acceptance?.checkOutput = "Fresh evidence for the same SHA" }
+        #expect(PublicationGuard.recheck(task: w.state.task(id: task), run: broadcast, ownership: 0, acceptedSHA: sha,
+                                        expectedEvidence: evidence)?.contains("evidence changed") == true)
+    }
+
     @Test func anAcceptedDraftOrMergeTaskOnItsOwnBranchPasses() {
         for end in [TaskEnd.draftMR, .merge, .mergeLocal] {
             let (w, task, run) = world(end: end)
@@ -186,6 +203,8 @@ import Testing
             w.state.updateOperated(task) { $0.publication = TaskPublication(conditionsHeld: "0123456789abcdef") }
             #expect(refusal(w, task, run) == unconfirmed, "a yes for another commit, \(end)")
             w.state.updateOperated(task) { $0.publication = TaskPublication(conditionsHeld: sha) }
+            let inputs = PublicationGuard.evidence(task: w.state.task(id: task)!, run: w.state.run(id: run)!)
+            w.state.updateOperated(task) { $0.publication?.conditionsEvidence = inputs }
             #expect(refusal(w, task, run) == nil, "\(end)")
         }
         var (w, task, run) = world(end: .merge, slices: Slices(review: true, merge: true))

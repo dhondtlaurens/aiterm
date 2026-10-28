@@ -16,7 +16,9 @@ import Testing
         [AiTerm] You are already in this task's worktree, on branch task-branch. Commit only here, on task-branch. \
         Do not create another worktree or branch. Inventories, audits and lists go in your final message, never in a new file \
         in the repository. Never type /model, /effort or /config into a live agent session: they save the person's defaults. \
-        To try a model or effort, use launch flags or a scratch CLAUDE_CONFIG_DIR.
+        To try a model or effort, use launch flags or a scratch CLAUDE_CONFIG_DIR. \
+        Keep each background command's handle/PID, log and exit status. Queued tests are not stalled. \
+        Finish when your command exits; do not poll other test processes.
 
         [AiTerm] Review commit abc123, the head of branch task-branch when this tab opened. You share this worktree with this \
         task's other workers.

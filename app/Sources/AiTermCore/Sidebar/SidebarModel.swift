@@ -72,6 +72,8 @@ public struct TaskRow: Equatable, Identifiable, Sendable {
     /// The status line of a task the Operator drives (`OperatorLine.task`), its row's third line; nil for a
     /// task you made yourself or took over.
     public var operatorLine: OperatorLine? = nil
+    /// The task's own test command, also visible on tasks the Operator does not drive.
+    public var testLine: OperatorLine? = nil
     /// The task is driven by a broadcast that has not ended: its menu leads with the Operator's items.
     /// False for a task you made yourself, and for every task of an ended broadcast, handed to you.
     public var broadcastLive = false
@@ -267,7 +269,9 @@ public enum SidebarModel {
     /// What a row's tabs that ended their turn left running, in tab order: a tab still at work has started a new
     /// turn, which waits on nothing yet.
     public static func backgroundJobs(of tabs: [SessionInfo]) -> [BackgroundJob] {
-        tabs.filter(\.state.turnEnded).sorted { $0.tabIndex < $1.tabIndex }.flatMap(\.background)
+        let jobs = tabs.filter(\.state.turnEnded).sorted { $0.tabIndex < $1.tabIndex }.flatMap(\.background)
+        let tests = tabs.compactMap(\.testActivity).filter(\.isActive)
+        return jobs + tests.map { BackgroundJob(kind: .shell, text: $0.detail) }
     }
 
     /// The order the chips are drawn in: a task's life, left to right. Not the urgency order
@@ -501,6 +505,11 @@ public enum SidebarModel {
                        avatars: queued && own.isEmpty ? AvatarGroup(marks: [task.agent.session], overflow: 0) : avatars(for: own),
                        status: queued ? status : heldStatus(status, line: line),
                        diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line,
+                       testLine: own.lazy.compactMap { session -> OperatorLine? in
+                           guard session.state != .needsInput, let tests = session.testActivity,
+                                 tests.isActive || session.state.turnEnded else { return nil }
+                           return tests.statusLine
+                       }.first,
                        broadcastLive: run.map { !$0.hasEnded } ?? false, queued: queued, background: backgroundJobs(of: own))
     }
 

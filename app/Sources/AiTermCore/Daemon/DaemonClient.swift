@@ -482,7 +482,7 @@ public final class DaemonClient: Sendable {
     struct OwnershipParams: Encodable { var sessionId: String; var ownership: Int }
     struct RegisterParams: Encodable { var runId, token: String }
     struct RunParams: Encodable { var runId: String }
-    struct PromptResult: Decodable { var kind: PromptKind? }
+    typealias PromptResult = PromptDetails
     struct DismissResult: Decodable { var dismissed: Bool }
     struct DeliveryPolicyResult: Decodable { var agents: [String: DeliveryVerdict] }
     /// `result` and `error` are both always sent, `null` when absent, as the daemon reads them.
@@ -574,7 +574,10 @@ public final class DaemonClient: Sendable {
                                                                  worktree: worktree), as: Delivery.self)
     }
     public func prompt(sessionId: String) async throws -> PromptKind? {
-        try await request(.sessionPrompt, params: SessionParams(sessionId: sessionId), as: PromptResult.self).kind
+        try await promptDetails(sessionId: sessionId).kind
+    }
+    public func promptDetails(sessionId: String) async throws -> PromptDetails {
+        try await request(.sessionPrompt, params: SessionParams(sessionId: sessionId), as: PromptDetails.self)
     }
     /// True when the daemon found Codex's update offer open and declined it with Esc; false for any
     /// other screen, a trust question included, which it leaves for the person.

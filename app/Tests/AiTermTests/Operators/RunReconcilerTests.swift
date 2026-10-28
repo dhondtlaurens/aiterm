@@ -162,7 +162,7 @@ import Testing
         #expect(world.task(task.id)?.operated?.flags.contains(.possiblyStalled) == true)
         #expect(world.task(busy.id)?.operated?.flags.contains(.possiblyStalled) == false)
         try await world.daemon.received("session.deliver")
-        #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String == "[AiTerm] one task may be stalled, call run_status")
+        #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String == "[AiTerm] PLUTO-two may be stalled, call run_status")
         world.controller.reconcileTick()
         // A second line would be armed with no coalescing delay and typed within a few turns of the main actor.
         for _ in 0..<50 { await Task.yield() }

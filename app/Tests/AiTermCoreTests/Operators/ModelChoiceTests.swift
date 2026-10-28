@@ -12,6 +12,20 @@ import Foundation
                                 catalogue: [Self.opus, Self.sonnet], defaultModel: Self.fallback)
     }
 
+    @Test func namingConfiguredDefaultPreservesConfiguredEffort() throws {
+        let chosen = try ModelChoice.resolve(agent: .claude, requested: "opus", installed: [.claude],
+            catalogue: [AgentModel(id: "opus", label: "Opus", detail: nil,
+                efforts: ["medium", "high"], defaultEffort: "medium")], defaultModel: ("opus", "high"))
+        #expect(chosen.reasoning == "high")
+    }
+
+    @Test(arguments: [nil, "opus"] as [String?])
+    func explicitEffortOverridesConfiguredAndCatalogue(model: String?) throws {
+        let chosen = try ModelChoice.resolve(agent: .claude, requested: model, installed: [.claude],
+            catalogue: [Self.opus, Self.sonnet], defaultModel: Self.fallback, requestedReasoning: "low")
+        #expect(chosen.model == "opus" && chosen.reasoning == "low")
+    }
+
     @Test func unknownModelIsRefused() {
         #expect(throws: ModelChoice.Refusal.unknownModel("gpt-9", .claude)) { try resolve("gpt-9") }
     }

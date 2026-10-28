@@ -72,7 +72,7 @@ import Testing
         #expect(obligations.readyForAcceptance.isEmpty)
         #expect(world.controller.acting.turns[task.id] == .asks)
         #expect(await eventually(describing: "the Operator told") {
-            wakeLines(world).last == "[AiTerm] one worker asks something, call run_status"
+            wakeLines(world).last == "[AiTerm] PLUTO-one asks a question, call run_status"
         })
 
         _ = await world.call(run.id, "message_task", ["task": "PLUTO-1", "text": "No, leave eslint."])
@@ -113,7 +113,7 @@ import Testing
         #expect(obligations.finishedWithoutCommit == ["PLUTO-1"] && obligations.readyForAcceptance.isEmpty)
         #expect(world.controller.acting.turns[task.id] == .noCommit)
         #expect(await eventually(describing: "the Operator told") {
-            wakeLines(world).last == "[AiTerm] one task finished with no commit, call run_status"
+            wakeLines(world).last == "[AiTerm] PLUTO-one finished with no commit, call run_status"
         })
     }
 
@@ -257,5 +257,149 @@ import Testing
         await world.controller.turns.lastRead?.value
         #expect(world.controller.turns.readings[task.id]?.changedAfterAcceptance == false)
         #expect(try status(world, run).changedAfterAcceptance.isEmpty)
+    }
+    @Test func aNewConversationInTheSameIdleSessionReplacesThePreviousTurn() async throws {
+        let (world, run, task, worktree) = try makeWorld()
+        try git.run(["commit", "--allow-empty", "-q", "-m", "work"], in: worktree)
+        try await endTurn(saying: "All done.", world, run, task)
+        #expect(try status(world, run).readyForAcceptance == ["PLUTO-1"])
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": "Should I include archived orders?"]]]]
+        try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-2.jsonl"))
+        world.show(sessions(run, task, .idle, conversation: "conv-2"))
+        await world.controller.turns.lastRead?.value
+        #expect(try status(world, run).workerAsks == [RunStatus.WorkerAsk(key: "PLUTO-1", question: "Should I include archived orders?")])
+        #expect(try status(world, run).readyForAcceptance.isEmpty)
+    }
+
+    @Test func anExtraWorkerQuestionIsReadWhileTheMainWorkerIsBusy() async throws {
+        let (world, run, task, _) = try makeWorld()
+        world.workspace.mutate { $0.updateOperated(task.id) {
+            $0.extraTabs = [ExtraTab(key: "review", agent: .claude, model: "m", reasoning: nil, modelReason: "Review", brief: "Review",
+                                   launch: LaunchAttempt(number: 1, requestedAt: Date(timeIntervalSince1970: 0), openedAt: Date(timeIntervalSince1970: 0)),
+                                   sessionId: "review", conversation: "conv-review")]
+        } }
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": "Should I review the migration too?"]]]]
+        try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-review.jsonl"))
+        var tabs = sessions(run, task, .working)
+        var review = OperatorServiceFixtures.session("review", window: "w9", tag: task.id, agent: .claude, state: .idle, conversation: "conv-review")
+        review.tabKey = "review"
+        tabs.append(review)
+        world.show(tabs)
+        await world.controller.turns.lastRead?.value
+        #expect(try status(world, run).workerAsks == [RunStatus.WorkerAsk(key: "PLUTO-1", question: "Should I review the migration too?", tab: "review")])
+        #expect(world.controller.acting.turns[task.id] == .asks)
+    }
+
+    @Test func aReplacementWorkerCanFinishAfterTheOriginalTabCloses() async throws {
+        let (world, run, task, worktree) = try makeWorld()
+        try git.run(["commit", "--allow-empty", "-q", "-m", "replacement work"], in: worktree)
+        world.workspace.mutate { $0.updateOperated(task.id) {
+            $0.extraTabs = [ExtraTab(key: "replacement", agent: .claude, model: "m", reasoning: nil, modelReason: "Continue", brief: "Continue",
+                                   launch: LaunchAttempt(number: 1, requestedAt: Date(timeIntervalSince1970: 0), openedAt: Date(timeIntervalSince1970: 0)),
+                                   sessionId: "replacement", conversation: "conv-replacement")]
+        } }
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": "Rebase and build passed."]]]]
+        try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-replacement.jsonl"))
+        var replacement = OperatorServiceFixtures.session("replacement", window: "w9", tag: task.id, agent: .claude, state: .working, conversation: "conv-replacement")
+        replacement.tabKey = "replacement"
+        let op = OperatorServiceFixtures.session("op", window: "wo", tag: run.id)
+        world.show([op, replacement])
+        #expect(world.task(task.id)?.operated?.flags.contains(.uncertain) == false)
+        replacement.state = .idle
+        world.show([op, replacement])
+        await world.controller.turns.lastRead?.value
+        #expect(try status(world, run).readyForAcceptance == ["PLUTO-1"])
+        #expect(try status(world, run).finishedWithoutCommit.isEmpty)
+        let line = try #require(world.controller.status(of: run)?.tasks.first)
+        #expect(line.tabs?.first?.closed == true)
+    }
+
+    @Test func anObservedReplacementHarnessReadsItsOwnTranscript() async throws {
+        let (world, run, task, worktree) = try makeWorld(agent: .codex)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "work"], in: worktree)
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": "Should I update the fixtures too?"]]]]
+        try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-claude.jsonl"))
+        let replacement = OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .claude, state: .idle, conversation: "conv-claude")
+        world.show([OperatorServiceFixtures.session("op", window: "wo", tag: run.id), replacement])
+        await world.controller.turns.lastRead?.value
+        #expect(try status(world, run).workerAsks == [RunStatus.WorkerAsk(key: "PLUTO-1", question: "Should I update the fixtures too?")])
+        #expect(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "lastMessage"]).value?["lastMessage"] == "Should I update the fixtures too?")
+    }
+
+    @Test func aFollowupCompletionIsReadWhenItsWorkingHookWasMissed() async throws {
+        let (world, run, task, worktree) = try makeWorld()
+        try git.run(["commit", "--allow-empty", "-q", "-m", "work"], in: worktree)
+        try await endTurn(saying: "All done.", world, run, task)
+        _ = await world.call(run.id, "message_task", ["task": "PLUTO-1", "text": "Check archived orders too."])
+        #expect(try status(world, run).readyForAcceptance.isEmpty)
+        // The next Stop snapshot is also idle: no working snapshot reached the app.
+        try await endTurn(saying: "Should archived orders include cancelled ones?", world, run, task)
+        world.controller.reconcileTick()
+        await world.controller.turns.lastRead?.value
+        #expect(try status(world, run).workerAsks == [RunStatus.WorkerAsk(key: "PLUTO-1", question: "Should archived orders include cancelled ones?")])
+    }
+
+    @Test func aWorkingWorkerWithoutAConversationReportsMissingIdentity() async throws {
+        let (world, run, _, _) = try makeWorld(worker: .working, conversation: nil)
+        let answer = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "lastMessage"]).value)
+        #expect(answer["availability"] == "identityUnavailable")
+        #expect(answer["task"] == "PLUTO-1" && answer["tab"] == "main" && answer["sessionId"] == "w1")
+        #expect(answer["note"]?.stringValue?.contains("hasn’t started") == false)
+    }
+
+    @Test func anExtraWorkersFreshCommitSupersedesTheIdleMainWorkersOldCount() async throws {
+        let (world, run, task, worktree) = try makeWorld(worker: .idle)
+        await world.controller.turns.lastRead?.value
+        #expect(try status(world, run).finishedWithoutCommit == ["PLUTO-1"])
+        world.workspace.mutate { $0.updateOperated(task.id) {
+            $0.extraTabs = [ExtraTab(key: "fix", agent: .claude, model: "m", reasoning: nil, modelReason: "Fix", brief: "Fix",
+                                   launch: LaunchAttempt(number: 1, requestedAt: Date(timeIntervalSince1970: 0), openedAt: Date(timeIntervalSince1970: 0)),
+                                   sessionId: "fix", conversation: "conv-fix")]
+        } }
+        var fix = OperatorServiceFixtures.session("fix", window: "w9", tag: task.id, agent: .claude, state: .working, conversation: "conv-fix")
+        fix.tabKey = "fix"
+        world.show(sessions(run, task, .idle) + [fix])
+        try git.run(["commit", "--allow-empty", "-q", "-m", "fixed"], in: worktree)
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": "Committed the fix."]]]]
+        try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-fix.jsonl"))
+        fix.state = .idle
+        world.show(sessions(run, task, .idle) + [fix])
+        await world.controller.turns.lastRead?.value
+        #expect(try status(world, run).readyForAcceptance == ["PLUTO-1"])
+        #expect(try status(world, run).finishedWithoutCommit.isEmpty)
+    }
+
+}
+
+extension WorkerTurnReaderTests {
+    @Test func earlierLocalMainCommitsDoNotMakeAnEmptyTaskReadyWhenOriginLags() async throws {
+        let (world, run, task, worktree) = try makeWorld()
+        let project = try #require(world.state.project(id: task.projectId))
+        let origin = try GitFixture.folder("op-count-origin-")
+        try git.run(["init", "--bare", "-q", "--initial-branch=main", origin], in: "/")
+        try git.run(["remote", "add", "origin", origin], in: project.path)
+        try git.run(["push", "-q", "origin", "main"], in: project.path)
+        try "earlier task\n".write(toFile: project.path + "/earlier.swift", atomically: true, encoding: .utf8)
+        try git.run(["add", "earlier.swift"], in: project.path)
+        try git.run(["commit", "-q", "-m", "earlier task"], in: project.path)
+        try git.run(["rebase", "main"], in: worktree)
+        let baseline = try git.run(["rev-parse", "HEAD"], in: worktree)
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.diffBaseSHA = baseline } }
+        try await endTurn(saying: "Nothing to change; no files or commits changed.", world, run, task)
+        #expect(world.controller.turns.readings[task.id]?.commitsAhead == 0)
+        let obligations = try status(world, run)
+        #expect(obligations.finishedWithoutCommit == ["PLUTO-1"])
+        #expect(obligations.readyForAcceptance.isEmpty)
+        let diff = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value)
+        #expect(diff["commits"] == "" && diff["files"] == .array([]))
     }
 }

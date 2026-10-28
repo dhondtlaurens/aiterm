@@ -47,6 +47,7 @@ extension OperatorToolHandler {
         task.operated = OperatedTask(runId: current.id, key: key, state: .planned, end: draft.end, brief: brief, dependsOn: draft.dependencies,
                                      stackedOn: draft.dependencies.first { $0.kind == .code }?.task, revision: current.openRevision,
                                      modelReason: draft.modelReason, agentPinned: draft.agentPinned)
+        task.operated?.requestedLaunch = LaunchRequest(model: call.optionalString("model"), reasoning: call.optionalString("reasoning"))
         mutate(in: run.id) { $0.tasks.append(task) }
         let answer = Self.taskAnswer(task, created: true)
         return draft.deliveryWarning.map { answer.adding("warning", .string($0)) } ?? answer
@@ -215,7 +216,7 @@ extension OperatorToolHandler {
         // A reasoning-only change keeps the task's model.
         let model: (model: String, reasoning: String?)?
         if (agent != nil && agent != task.agent) || call.optionalString("model") != nil
-            || (run.taskSettings != nil && (agent != nil || call.optionalString("reasoning") != nil)) {
+            || call.optionalString("reasoning") != nil || (run.taskSettings != nil && agent != nil) {
             let target = agent ?? task.agent
             let catalogue = await modelCatalogue(for: target, in: run)
             let requested = call.optionalString("model") ?? (agent == nil ? task.model : nil)
@@ -244,7 +245,10 @@ extension OperatorToolHandler {
                 guard let i = state.tasks.firstIndex(where: { $0.id == task.id }), var record = state.tasks[i].operated else { return }
                 if let brief { record.brief = brief; state.tasks[i].firstPrompt = brief }
                 if let agent { state.tasks[i].agent = agent }
-                if let model { state.tasks[i].model = model.model; state.tasks[i].reasoning = model.reasoning }
+                if let model {
+                    state.tasks[i].model = model.model; state.tasks[i].reasoning = model.reasoning
+                    record.requestedLaunch = LaunchRequest(model: call.optionalString("model"), reasoning: call.optionalString("reasoning"))
+                }
                 if let end { record.end = end }
                 if let dependencies { record.dependsOn = dependencies; record.stackedOn = dependencies.first { $0.kind == .code }?.task }
                 state.tasks[i].operated = record
@@ -336,11 +340,13 @@ extension OperatorToolHandler {
         }
         do {
             return try ModelChoice.resolve(agent: agent, requested: requested, installed: installedAgents, catalogue: catalogue,
-                                           defaultModel: fallback)
+                                           defaultModel: fallback, requestedReasoning: call.optionalString("reasoning"))
         } catch {
             switch error {
             case .notInstalled(let agent):
                 throw ToolRefusal("\(agent.harness.displayName) isn’t installed on this Mac. Choose an installed agent from run_status.")
+            case .unsupportedReasoning(let reasoning, let model):
+                throw ToolRefusal("\(reasoning) isn’t a reasoning level for \(model). Choose one from Settings › Agents.")
             case .unknownModel(let model, let agent):
                 let ids = catalogue.map(\.id)
                 throw ToolRefusal("\(model) isn’t in \(agent.harness.displayName)’s model list in Settings › Agents. "
@@ -352,7 +358,7 @@ extension OperatorToolHandler {
 
     /// The model and reasoning Settings › Agents gives `agent`, else the model last picked for it.
     func defaultModel(for agent: AgentKind) -> (model: String, reasoning: String?) {
-        Self.defaultModel(for: agent, remembered: state.lastModelByAgent)
+        AgentIntegrations.taskModel(agent, remembered: state.lastModelByAgent, defaults: ports.preferences ?? .standard)
     }
 
     /// `defaultModel(for:)` over the models remembered in `state`, for a launch that moves a task to the other agent.
@@ -420,7 +426,8 @@ extension OperatorToolHandler {
 
     static func taskAnswer(_ task: TaskItem, created: Bool) -> JSONValue {
         ["task": .string(task.id.uuidString), "key": .string(task.operated?.key ?? ""), "state": .string(task.operated?.state.rawValue ?? ""),
-         "revision": .int(task.operated?.revision ?? 0), "created": .bool(created)]
+         "revision": .int(task.operated?.revision ?? 0), "created": .bool(created),
+         "model": .string(task.model), "reasoning": task.reasoning.map(JSONValue.string) ?? .null]
     }
 }
 

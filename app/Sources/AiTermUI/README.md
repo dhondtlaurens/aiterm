@@ -146,6 +146,10 @@ popup's rows are handed no flag — and `SegmentedControl` for a segment, whose 
 
 AiTerm is dark-only. There is no light variant to keep in sync.
 
+The sidebar reserves a fixed empty titlebar band in `Palette.sidebar`, using AppKit's native titlebar
+height rather than the sidebar's interface scale. Its list is clipped below that band: scrolling rows,
+selection pills and status marks never reach the macOS traffic-light controls, active or inactive.
+
 ## States are a matrix
 
 Default, hover, pressed, disabled, focused, selected. Declare them up front rather than discovering
@@ -292,8 +296,11 @@ hovered, in `RowPill`'s pill, which selection replaces; its ground `Surface.wash
 avatar ring is `Palette.operatorRowSolid` and `operatorRowHoveredSolid`. Claude's `VendorMark` is its avatar,
 `Operator` its title, its line its own session's alone (`OperatorLine.session`: its act, `working`, `watching
 3 tasks` between its turns (`waiting for its tasks` with none at work), `waiting on you` (`waiting on you · PAY-232`
-for its question about a task), `paused`, `window closed`; never a worker's request nor what its tasks do) and its `StatusMark` trailing, following the line: amber while it asks, spinning while it
-acts or works, the accent ring once the summary is written or AiTerm gave up waiting for it, else the idle ring. No project, ticket or branch line. It has an id of its own
+for its question about a task), `in background` with its running jobs on the tooltip, `paused`, `window closed`;
+never a worker's request nor what its tasks do) and the shared `TaskRowMarkView` trailing: amber while it asks,
+spinning while it acts or works, the same slow dashed ring as tasks while its background work runs, the completed
+check when the broadcast succeeds (its secondary line says `done · writing summary` until the summary arrives),
+else the idle ring. No project, ticket or branch line. It has an id of its own
 (`OperatorRow.id(of:)`), selected as `RowSelection.operation`, the header being `.broadcast` with the run's.
 ↑ ↓ peek at its window; a click or ↩ brings it to front with iTerm2, or reopens it in front when it is
 closed. VoiceOver calls it "Operator, Claude Code session".
@@ -362,11 +369,14 @@ window shows it whole), `waiting on you · docs` (one of several worker tabs ask
 tests fail on main` and `blocked · the rebase conflicted` (the reason kept: no window says it), and
 `left for you · 4f2a91c`, a publication handed back. The Operator's own row says its session's line
 (`OperatorLine.session`), nothing of its tasks but how many it watches: its act, `working`, `watching 3 tasks`
-between turns (`waiting for its tasks` with none at work), `writing the summary` (acting) once every task is done, then
+between turns (`waiting for its tasks` with none at work), `in background` while its ended turn left jobs running,
+`done · writing summary` (ended) once every task is done, then
 `done · summary ready` or `done`,
 `paused`, `waiting on you` (needs you: its tab waits on input, or one of its questions is open, answered in its
 window; a question about one task names it, `waiting on you · PAY-232`, several are counted, `waiting on you · 2
-questions`, and the task's own row goes on with its worker's line) and `window closed`; its mark follows the line, the idle ring between turns and amber when it needs you.
+questions`, and the task's own row also shows `waiting on you`; choosing that task opens the Operator's question,
+with worker prompts keeping precedence) and `window closed`; its mark follows the line, the idle ring between
+turns and amber when it needs you.
 A line is at most `OperatorLine.maxLength` (40) characters, its detail cut at a word. The group, its header and
 the Operator's row are values, `BroadcastSection`, `BroadcastRow` and `OperatorRow`
 (`AiTermCore/Sidebar/BroadcastRow.swift`).
@@ -784,8 +794,8 @@ led by `nosign`, all in `Palette.muted`: facts, not failures. **Oracle** carries
 group's accessory over Agent (Claude Code, Codex or PI, whichever is installed, and the saved one
 shown as it is though it is not), Model and Reasoning; off, they are disabled, fade to `Opacity.disabled` and keep
 their values. Its help says PI's checks are read-only by their tool list, not a sandbox. **Instructions** is a `PromptEditor` whose `/` lists both agents'
-skills. Autonomy's and the Oracle's help end “Changes apply to the next broadcast.”: a broadcast
-freezes the profile as it starts.
+skills. Autonomy's help ends “Changes apply to the next broadcast.”: a broadcast freezes its authority as it starts.
+Oracle settings also apply to running broadcasts; checks from older settings are discarded. Repository checks remain required.
 
 `InterfaceSettingsPane` draws its preferences outside cards: the terminal-background row, a
 "Sidebar size" group (a `SegmentedControl` of `InterfaceSize`, applied to the sidebar behind the

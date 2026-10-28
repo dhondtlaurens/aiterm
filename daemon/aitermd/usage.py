@@ -1,6 +1,6 @@
 from __future__ import annotations
 import math
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from .models import USAGE_VENDORS, Usage, UsageWindow
@@ -12,6 +12,12 @@ FIVE_HOUR_MINS, WEEK_MINS = 300, 10080
 HEARTBEAT_SECONDS = 60
 
 
+@dataclass(frozen=True)
+class UsageReadFailure:
+    message: str
+    at: int
+
+
 class UsageStore:
     def __init__(self) -> None:
         # Every vendor is in the snapshot, a None until it first reports.
@@ -19,20 +25,38 @@ class UsageStore:
         # What the clients were last told, per vendor: the reference for "is this news?", which
         # the latest stored value cannot be once a quiet minute has been absorbed into it.
         self._announced: dict[str, Usage] = {}
+        self._failures: dict[str, UsageReadFailure] = {}
 
     def set(self, vendor: str, usage: Usage) -> bool:
         """Stores `usage` and says whether clients should hear about it: new content, or the same
         content a heartbeat older than the last announcement."""
+        # Feed gaps are not measurements. A newly touched older rollout can also be returned when
+        # a newer file is unavailable; neither should erase or rejuvenate the last known account data.
+        previous = self._usage.get(vendor)
+        if not (usage.five_hour or usage.seven_day or usage.spend) or (
+                previous is not None and usage.updated_at < previous.updated_at):
+            return False
+        failure = self._failures.pop(vendor, None)
         told = self._announced.get(vendor)
-        changed = (told is None or replace(told, updated_at=usage.updated_at) != usage
+        changed = (failure is not None or told is None or replace(told, updated_at=usage.updated_at) != usage
                    or usage.updated_at - told.updated_at >= HEARTBEAT_SECONDS)
         self._usage[vendor] = usage
         if changed:
             self._announced[vendor] = usage
         return changed
 
+    def failed(self, vendor: str, message: str, at: int) -> bool:
+        if self._failures.get(vendor) is not None and self._failures[vendor].message == message:
+            return False
+        self._failures[vendor] = UsageReadFailure(message, at)
+        return True
+
     def snapshot(self) -> dict[str, Any]:
-        return {v: (u.to_json() if u else None) for v, u in self._usage.items()}
+        result: dict[str, Any] = {v: (u.to_json() if u else None) for v, u in self._usage.items()}
+        for vendor, failure in self._failures.items():
+            reading = result[vendor] or Usage(None, None, None, 0).to_json()
+            result[vendor] = reading | {"retrievalFailure": {"message": failure.message, "at": failure.at}}
+        return result
 
 
 def finite_number(value: Any) -> float | None:

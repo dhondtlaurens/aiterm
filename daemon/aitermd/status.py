@@ -49,6 +49,8 @@ class Turn:
     # Whether a Codex title has shown a spinner since the last hook said working. Codex draws it a
     # moment after UserPromptSubmit; its absence before then does not end a turn.
     spun: bool = False
+    # Last explicit rollout boundary applied; an unchanged event never restores stale state.
+    rollout_at: float = float("-inf")
     # The subagents running, by id.
     children: dict[str, _Child] = field(default_factory=dict)
     # A hook, title or session file said the foreground turn ended while a child still runs: the
@@ -115,6 +117,9 @@ class StatusEngine:
         turn = self._turn(session_id)
         if kind == "sessionStart":
             self.reset_turn(session_id)
+            session = self.reg.get(session_id)
+            if session is not None and session.agent == "codex":
+                self._turn(session_id).rollout_at = self._clock()
             # Another conversation: what stopped the last one's turn is not this one's.
             cleared = self.reg.set_stopped_on(session_id, None)
             return [session_id] if self._show_children(session_id) or cleared else []
@@ -369,6 +374,28 @@ class StatusEngine:
         else:
             target = "done" if s.state in {"working", "needsInput"} else s.state
         return [session_id] if self.reg.set_state(session_id, target) else []
+
+    def apply_codex_rollout(self, session_id: str, state: State, reported_at: float) -> list[str]:
+        """Recover a missing hook from a structured Codex boundary; a newer hook or boundary wins."""
+        s = self.reg.get(session_id)
+        if s is None or s.agent != "codex" or state not in ("working", "done"):
+            return []
+        turn = self._turn(session_id)
+        if reported_at <= max(turn.hook_at, turn.rollout_at):
+            return []
+        turn.rollout_at = reported_at
+        if state == "done" and turn.children:
+            self._defer_done(turn)
+            return []
+        changed = False
+        turn.before_prompt, turn.prompts_open = None, 0
+        if state == "working":
+            turn.deferred_done = False
+            if s.state != "working":
+                turn.spun = False
+            changed = self.reg.set_stopped_on(session_id, None)
+            changed = self.reg.set_background(session_id, ()) or changed
+        return [session_id] if self.reg.set_state(session_id, state) or changed else []
 
     def apply_codex_title(self, session_id: str, title: str) -> list[str]:
         s = self.reg.get(session_id)

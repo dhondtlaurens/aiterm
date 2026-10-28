@@ -26,6 +26,7 @@ final class LiveSessions {
     /// each of those re-ran the whole row list when the sidebar read `sessions`.
     private(set) var rowSessions: [SessionInfo] = []
     var usage = UsageSnapshot.empty
+    private(set) var usageUnavailable: Set<AgentKind> = []
     /// The context fill each row last reported, per provider. Written only when a value moves:
     /// session events arrive several a second, and every write re-renders the sidebar.
     private var contexts = SessionContexts()
@@ -55,7 +56,7 @@ final class LiveSessions {
         switch event {
         case .snapshot(let snapshot):
             sessions = snapshot.sessions
-            usage = snapshot.usage
+            receiveUsage(snapshot.usage)
         case .sessionOpened(let session), .sessionChanged(let session):
             let index = sessions.firstIndex(where: { $0.sessionId == session.sessionId })
             let old = index.map { sessions[$0] }, state = workspace.state
@@ -67,10 +68,31 @@ final class LiveSessions {
         // here under the old one until its `session.changed`, which the daemon sends after the close:
         // it comes back with that.
         case .windowClosed(let wid): sessions.removeAll { $0.windowId == wid }
-        case .usageChanged(let value): usage = value
+        case .usageChanged(let value): receiveUsage(value)
         case .itermConnected, .itermDisconnected, .itermAuthFailed, .itermCookieRequested,
              .windowActivated, .operatorRequest, .unknown: break
         }
+    }
+
+    /// A reconnecting helper may have no provider reading yet. Keep measurements on their original
+    /// clock and report the missing feed separately, rather than erasing useful account context.
+    private func receiveUsage(_ reported: UsageSnapshot) {
+        func keep(_ agent: AgentKind, _ next: Usage?, _ previous: Usage?) -> Usage? {
+            guard let next else { usageUnavailable.insert(agent); return previous }
+            if next.fiveHour == nil && next.sevenDay == nil && next.spend == nil {
+                usageUnavailable.insert(agent)
+                guard var previous else { return next }
+                previous.retrievalFailure = next.retrievalFailure
+                return previous
+            }
+            usageUnavailable.remove(agent)
+            if let previous, previous.updatedAt > next.updatedAt { return previous }
+            return next
+        }
+        var merged = usage
+        merged.claude = keep(.claude, reported.claude, usage.claude)
+        merged.codex = keep(.codex, reported.codex, usage.codex)
+        usage = merged
     }
 
     /// The context each provider last reported in `row`; empty with nothing selected.

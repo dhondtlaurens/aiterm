@@ -25,12 +25,13 @@ from .publisher import Publisher
 from .resolver import SessionResolver
 from .rpc_params import frame_param, guard, optional_param, param, require_iterm
 from .rpc_server import RpcError, RpcServer
-from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
+from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo, State
 from .sessions import SessionRegistry, SnapshotDiff
 from .slash_commands import SlashCommands
 from .status import StatusEngine, shows_trust_prompt
 from .stop_failures import LIMIT_ERRORS, RESET_READ_SECONDS, limit_resets_at
-from .usage import UsageStore, parse_codex_rate_limits
+from .test_activity import TestActivityReader
+from .usage import UsageReadFailure, UsageStore, parse_codex_rate_limits
 from .windows import WindowManager
 
 log = logging.getLogger(__name__)
@@ -112,6 +113,7 @@ class Service:
         self._ticks_started = 0
         self._last_good_tick = 0
         self.subagent_transcripts = SubagentTranscripts()
+        self.test_activity = TestActivityReader(clock=clock)
         # Each off-loop check's latest run, by name, while its worker thread may still be running: a
         # thread stuck on a hung mount cannot be cancelled, so no second one is started beside it.
         self._checks: dict[str, asyncio.Future[Any]] = {}
@@ -236,7 +238,7 @@ class Service:
     async def _h_prompt(self, p: Any) -> dict[str, Any]:
         session_id = param(p, "sessionId", str)
         require_iterm(self.iterm)
-        return {"kind": await guard(self.deliverer.prompt(session_id))}
+        return dict(await guard(self.deliverer.prompt_details(session_id)))
 
     async def _h_dismiss_startup(self, p: Any) -> dict[str, Any]:
         session_id = param(p, "sessionId", str)
@@ -372,6 +374,8 @@ class Service:
             changed += await self._apply_slash_commands()
         with _logged("reading when the limits that stopped sessions reset"):
             changed += await self._apply_limit_resets()
+        with _logged("reading worktree test activity"):
+            changed += self.test_activity.apply(self.registry)
 
     def _corroborate(self, s: SessionInfo, threads: dict[str, str], screens: list[str], changed: list[str]) -> None:
         """Adds to `changed` what the agent's own files and the tab say of `s` that its hooks have
@@ -420,8 +424,8 @@ class Service:
         stall its read, so it is read on a worker thread: everything that touches the caches runs there."""
         files = self.codex_files
 
-        def read() -> dict[str, tuple[int | None, str | None]]:
-            readings: dict[str, tuple[int | None, str | None]] = {}
+        def read() -> dict[str, tuple[int | None, str | None, tuple[State, float] | None]]:
+            readings: dict[str, tuple[int | None, str | None, tuple[State, float] | None]] = {}
             for thread_id in set(threads.values()):
                 # Another process's file: one that cannot be read costs only its own thread, and only
                 # the reading that failed.
@@ -435,21 +439,28 @@ class Service:
                     version = files.cli_version(thread_id)
                 except Exception:  # noqa: BLE001
                     log.exception("reading the Codex version of thread %s failed", thread_id)
-                readings[thread_id] = (context, version)
+                turn = None
+                try:
+                    turn = files.turn_state(thread_id)
+                except Exception:  # noqa: BLE001
+                    log.exception("reading the Codex turn boundary of thread %s failed", thread_id)
+                readings[thread_id] = (context, version, turn)
             files.retain(set(threads.values()))
             return readings
 
-        none: dict[str, tuple[int | None, str | None]] = {}
+        none: dict[str, tuple[int | None, str | None, tuple[State, float] | None]] = {}
         readings = await self._off_loop(CODEX_READ, read, none)
         changed: list[str] = []
         for session_id, thread_id in threads.items():
             # A hook or a replacement process may have changed the binding during the read.
             if self.resolver.codex_thread(session_id) != thread_id:
                 continue
-            context, version = readings.get(thread_id, (None, None))
+            context, version, turn = readings.get(thread_id, (None, None, None))
             # The running Codex's version, which delivery is held against (delivery.Verdict).
             self.registry.set_cli_version(session_id, version)
             changed += self.status.apply_metadata(session_id, context=context)
+            if turn is not None:
+                changed += self.status.apply_codex_rollout(session_id, *turn)
         return changed
 
     async def _subagent_tails(self, paths: set[str]) -> dict[str, TranscriptTail | None]:
@@ -535,7 +546,17 @@ class Service:
         # with no subprocess to spawn, time out or kill. Account-wide, hence once per tick rather
         # than per session, and before the iTerm2 check: the feed does not depend on the terminal.
         # On a worker thread, as the contexts are: a rollout without a `token_count` is read to its start.
-        found = await self._off_loop(CODEX_READ, self.codex_files.rate_limits, None)
+        def read() -> tuple[dict[str, Any], int | None] | UsageReadFailure | None:
+            try:
+                return self.codex_files.rate_limits()
+            except Exception as error:  # noqa: BLE001 - distinguish a failed retrieval from absent telemetry
+                return UsageReadFailure(str(error), int(self.clock()))
+
+        found = await self._off_loop(CODEX_READ, read, None)
+        if isinstance(found, UsageReadFailure):
+            if self.usage.failed("codex", found.message, found.at):
+                await self.publisher.usage_changed()
+            return
         if found is None:
             return
         limits, written_at = found

@@ -122,8 +122,7 @@ struct ReadmeDesktop: View {
         let terminalWidth = Self.windowsWidth - Size.sidebarMinWidth - Self.gap
         HStack(alignment: .top, spacing: Self.gap) {
             DesktopWindow {
-                // The list's own top inset already clears the traffic lights, as the real
-                // window's transparent title bar leaves it.
+                // The sidebar's fixed titlebar band clears the traffic lights as in its real window.
                 SidebarView(controller: controller)
             }
             .frame(width: Size.sidebarMinWidth, height: Self.windowHeight)

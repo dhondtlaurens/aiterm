@@ -26,15 +26,57 @@ public enum WorkerTurn {
     /// (`**Ready?**`) and spaces.
     private static let trailing = CharacterSet.whitespaces.union(CharacterSet(charactersIn: "*_`~"))
 
-    /// Whether the message's last line that says something, its markdown emphasis and spaces stripped, ends with `?`. A
-    /// question earlier in the message is one the worker went on past.
-    static func endsWithQuestion(_ lastMessage: String?) -> Bool {
-        guard let line = lastMessage?.split(whereSeparator: \.isNewline).last(where: { !$0.trimmingCharacters(in: trailing).isEmpty })
-        else { return false }
-        return line.trimmingCharacters(in: trailing).hasSuffix("?")
+    /// Whether the worker left a pending question: an explicit Question marker, a scope decision
+    /// it stopped for, or its final question with any answer choices. Trailing status does not answer a marked question.
+    static func endsWithQuestion(_ lastMessage: String?) -> Bool { questionLines(lastMessage) != nil }
+
+    /// Scope stops and explicit Question markers remain pending through trailing status output.
+    /// Unmarked historical questions followed by completed work are not requests for an answer.
+    private static func questionLines(_ message: String?) -> [String]? {
+        guard let message else { return nil }
+        let lines = message.components(separatedBy: .newlines)
+        var paragraphs: [[String]] = [], current: [String] = []
+        for line in lines {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                if !current.isEmpty { paragraphs.append(current); current = [] }
+            } else { current.append(line) }
+        }
+        if !current.isEmpty { paragraphs.append(current) }
+        let lower = message.lowercased()
+        let scopeStop = (lower.contains("scope rule") && lower.contains("stop"))
+            || lower.contains("outside the authorized scope") || lower.contains("out-of-scope")
+            || lower.contains("stopped at a spec question")
+        for index in paragraphs.indices.reversed() {
+            let paragraph = paragraphs[index].joined(separator: "\n").trimmingCharacters(in: .whitespaces)
+            let bare = paragraph.trimmingCharacters(in: CharacterSet(charactersIn: "#*_` "))
+            let explicit = bare.range(of: #"^question(?:\*\*)?\s*:"#, options: [.regularExpression, .caseInsensitive]) != nil
+            let permission = scopeStop && bare.hasPrefix("May I ") && bare.contains("?")
+            let scopeChoice = scopeStop && bare.hasPrefix("Should ") && (bare.contains("?") || bare.hasSuffix(":"))
+            guard explicit || permission || scopeChoice else { continue }
+            var chosen = paragraphs[index]
+            for options in paragraphs.dropFirst(index + 1) {
+                guard let first = options.first?.trimmingCharacters(in: .whitespaces),
+                      first.hasPrefix("- ") || first.hasPrefix("* ") || first.hasPrefix("• ")
+                        || first.range(of: #"^\d+[.)]\s"#, options: .regularExpression) != nil else { break }
+                chosen += [""] + options
+            }
+            return chosen
+        }
+        var tail: [String] = []
+        for line in lines.reversed() {
+            let raw = line.trimmingCharacters(in: .whitespaces)
+            let text = raw.trimmingCharacters(in: trailing)
+            if text.isEmpty { continue }
+            tail.insert(line, at: 0)
+            if text.hasSuffix("?") { return tail }
+            let option = raw.hasPrefix("- ") || raw.hasPrefix("* ") || raw.hasPrefix("• ")
+                || raw.range(of: #"^\d+[.)]\s"#, options: .regularExpression) != nil
+            if !option { return nil }
+        }
+        return nil
     }
 
-    /// The question as `run_status` carries it: the message's last paragraph, cut to `questionLimit` characters.
+    /// The question and any answer choices, cut to the tool's display limit.
     static func question(_ lastMessage: String) -> String {
         let lines = lastMessage.components(separatedBy: .newlines)
         var paragraph: [String] = []
@@ -43,7 +85,9 @@ public enum WorkerTurn {
             if blank, !paragraph.isEmpty { break }
             if !blank { paragraph.insert(line, at: 0) }
         }
-        let text = paragraph.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        let question = questionLines(lastMessage)
+        let chosen = question?.first.map { paragraph.contains($0) ? paragraph : question! } ?? paragraph
+        let text = chosen.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         return text.count > questionLimit ? String(text.prefix(questionLimit - 1)) + "…" : text
     }
 
@@ -58,17 +102,30 @@ public enum WorkerTurn {
 }
 
 public extension Repository {
+    /// One baseline for both a working task's diff and its commit count. Local and origin refs
+    /// can each lag; the launch fork also survives a reset or removal of those refs. A stacked
+    /// task keeps its parent's accepted boundary, reduced to the actual shared ancestor after rebase.
+    func taskDiffBase(stackedOn parent: String?, baseBranch: String, savedBase: String? = nil) throws -> String? {
+        if let parent, !parent.isEmpty { return try mergeBase(parent, "HEAD") ?? parent }
+        let branch = baseBranch.isEmpty ? defaultBranch() : baseBranch
+        let refs = [savedBase, branch, "refs/remotes/origin/" + branch].compactMap { $0 }
+        let candidates = try refs.compactMap { try mergeBase($0, "HEAD") }
+        guard var base = candidates.first else { return nil }
+        for candidate in candidates.dropFirst() where candidate != base {
+            if try isAncestor(base, of: candidate) { base = candidate }
+        }
+        return base
+    }
+
     /// How many commits HEAD has past where a working task's work starts, without fetching: the commit it was accepted on
-    /// before it was steered back to work (`reopenedFrom`), else its stacked parent's accepted commit, else origin's copy
-    /// of its base branch as this clone last fetched it, else the local base branch. `baseBranch` empty is the default
-    /// branch. Nil when git couldn't count.
-    func commitsAhead(reopenedFrom: String?, stackedOn parent: String?, baseBranch: String) -> Int? {
+    /// before it was steered back to work (`reopenedFrom`), else the same saved/local/origin boundary
+    /// as its diff (`taskDiffBase`), with its stacked parent's boundary preserved. Nil when git couldn't count.
+    func commitsAhead(reopenedFrom: String?, stackedOn parent: String?, baseBranch: String, savedBase: String? = nil) -> Int? {
         let base: String
         if let reopenedFrom, !reopenedFrom.isEmpty { base = reopenedFrom }
-        else if let parent, !parent.isEmpty { base = parent }
         else {
-            let branch = baseBranch.isEmpty ? defaultBranch() : baseBranch
-            base = sha("refs/remotes/origin/" + branch) != nil ? "origin/" + branch : branch
+            guard let found = try? taskDiffBase(stackedOn: parent, baseBranch: baseBranch, savedBase: savedBase) else { return nil }
+            base = found
         }
         return count(base, "HEAD")
     }

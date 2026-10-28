@@ -105,6 +105,8 @@ final class OperatorToolHandler {
     /// The second opinions running now, by challenge id: one in a run's records but not here was lost
     /// with AiTerm's restart.
     var runningChallenges: [String: Task<Void, Never>] = [:]
+    var lastOracleRevision: Int?
+    var oracleGenerations: [UUID: Int] = [:]
     /// The challenges whose acting call is performing now: a second call for one is refused, not performed too.
     var actingChallenges: Set<String> = []
     /// The `create_task` and `check_goal` invocations the Oracle said yes to, while the call performs: an addition past the
@@ -153,10 +155,11 @@ final class OperatorToolHandler {
     var onChange: @MainActor (UUID) -> Void = { _ in }
     /// What each task's worker's last ended turn left (`WorkerTurnReader.readings`), which `run_status` shows.
     var turnReadings: @MainActor () -> [UUID: WorkerTurnReader.Reading] = { [:] }
+    var extraTurnReadings: @MainActor () -> [UUID: [String: WorkerTurnReader.Reading]] = { [:] }
     /// The tasks whose working worker's transcript went quiet (`WorkerQuietWatch.quiet`).
     var quietTasks: @MainActor () -> Set<UUID> = { [] }
     /// Said once `message_task` delivered to a task's first worker: what its last turn left is answered (spec §J).
-    var onMessaged: @MainActor (UUID) -> Void = { _ in }
+    var onMessaged: @MainActor (UUID, String?) -> Void = { _, _ in }
     /// Reads the addressed worker's screen after delivery or a refusal that suggests a prompt.
     var onMessageResult: @MainActor (UUID, String?) -> Void = { _, _ in }
     /// Carries out a task's recorded end (G10), past the push hooks when told (`noVerify`): the controller's `TaskFinisher`.
@@ -251,6 +254,7 @@ final class OperatorToolHandler {
 
     /// The answer, and how the call went, which the activity log keeps.
     func respond(_ request: OperatorRequest) async -> (ToolAnswer, ActivityEntry.Outcome) {
+        refreshOracleSettings()
         // A shell command is the gate's alone: never a tool, a challenge or a replayed message. It answers an ended
         // broadcast itself, with a deny rather than an error, which the hook would let run.
         if request.tool == Self.gateTool { return (.result(await gate(request)), .ok) }
@@ -359,8 +363,18 @@ final class OperatorToolHandler {
     }
 
     func currentStatus(of run: OperatorRun) -> RunStatus? {
-        OperatorController.status(of: run.id, state: state, sessions: live.sessions, revision: 0,
-                                  usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turnReadings(), quiet: quietTasks(), now: ports.now())
+        var status = OperatorController.status(of: run.id, state: state, sessions: live.sessions, revision: 0,
+                                  usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turnReadings(), extraTurns: extraTurnReadings(), quiet: quietTasks(), now: ports.now())
+        for (agent, reading) in [("claude", live.usage.claude), ("codex", live.usage.codex)] {
+            var telemetry = RunStatus.UsageTelemetry(lastKnown: reading, now: ports.now())
+            if let kind = AgentKind(rawValue: agent), live.usageUnavailable.contains(kind), reading?.retrievalFailure == nil {
+                telemetry.availability = "unavailable"
+                telemetry.note = "The helper has no current provider report. Any value shown is last known; its age and reset time still apply. No retrieval failure or limit is confirmed."
+            }
+            status?.run.usageTelemetry[agent] = telemetry
+            if let percent = reading?.sevenDay?.usedPercent { status?.run.usage[agent] = percent }
+        }
+        return status
     }
 
     /// The task an operator names in `key`, in this run.

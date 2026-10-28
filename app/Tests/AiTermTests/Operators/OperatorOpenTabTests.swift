@@ -55,6 +55,27 @@ import Testing
 
     func tabs(of task: TaskItem, in world: OperatorWorld) -> [ExtraTab] { world.task(task.id)?.operated?.extraTabs ?? [] }
 
+    @Test(arguments: [nil, "claude-opus-5-5"] as [String?])
+    func replacementTabsKeepConfiguredEffortUnlessExplicitlyOverridden(model: String?) async throws {
+        let (world, run, task) = try makeWorld(adjust: { ports in
+            ModelSettings.save(ModelPreference(model: "claude-opus-5-5", reasoning: "high"), for: .claude,
+                               defaults: ports.preferences!)
+            ports.agentModels = { _ in [AgentModel(id: "claude-opus-5-5", label: "Opus", detail: nil,
+                                                   efforts: ["medium", "high"], defaultEffort: "medium")] }
+        })
+        let args = Self.arguments(key: "takeover", agent: "claude", model: model)
+        let answer = await world.call(run.id, "open_tab", args)
+        #expect(answer.value?["reasoning"] == "high")
+        #expect(tabs(of: task, in: world).first?.reasoning == "high")
+        #expect(tabs(of: task, in: world).first?.requestedLaunch?.model == model)
+        let explicit = await world.call(run.id, "open_tab", Self.arguments(key: "explicit", agent: "claude", model: model)
+            .adding("reasoning", "medium"))
+        #expect(explicit.value?["reasoning"] == "medium")
+        let commands = world.daemon.requests("tab.create").compactMap { $0.params["agentCommand"] as? String }
+        #expect(commands.contains { $0.contains("--effort high") })
+        #expect(commands.contains { $0.contains("--effort medium") })
+    }
+
     // -- opening -------------------------------------------------------------------------------------
 
     /// `main` is what `run_status` calls the task's first worker among its tabs: no extra tab takes it.
@@ -69,7 +90,7 @@ import Testing
         let (world, run, task) = try makeWorld()
         let brief = "Write the tests.\n\n" + String(repeating: "Cover every refusal. ", count: 80) + "Then stop."
         let answer = await world.call(run.id, "open_tab", Self.arguments(brief: brief))
-        #expect(answer.value == ["task": "PLUTO-1", "key": "review", "agent": "codex", "model": "gpt-6-mini", "state": "opened"])
+        #expect(answer.value == ["task": "PLUTO-1", "key": "review", "agent": "codex", "model": "gpt-6-mini", "reasoning": .null, "state": "opened"])
         let request = try #require(world.daemon.requests("tab.create").first)
         #expect(request.params["windowId"] as? String == "w1")
         #expect(request.params["cwd"] as? String == task.worktreePath)
@@ -88,14 +109,17 @@ import Testing
         #expect(world.task(task.id)?.operated?.state == .working, "the task stays one task")
     }
 
-    @Test func aShortFirstPromptIsTypedWithTheCommandItStartsWithAiTermsLines() async throws {
+    @Test func aShortBriefLaunchesSafelyWithTheFullWorkerPreamble() async throws {
         let (world, run, task) = try makeWorld()
         #expect(await world.call(run.id, "open_tab", Self.arguments(agent: "claude", model: "claude-named")).value?["state"] == "opened")
         let command = try #require(world.daemon.requests("tab.create").first?.params["agentCommand"] as? String)
         let prompt = TabOpener.prompt(branch: task.branch, brief: "Write the tests.")
         #expect(prompt.contains("Inventories, audits and lists go in your final message, never in a new file in the repository."))
         #expect(prompt.hasPrefix(WorkerStarter.worktreeLine(branch: task.branch) + "\n\n" + TabOpener.sharedLine + "\n\n"))
-        #expect(command.hasPrefix("claude --model claude-named ") && command.hasSuffix(AgentCommand.shellQuote(prompt)))
+        #expect(command.hasPrefix("claude --model claude-named "))
+        let fileSuffix = "\"$(command cat .aiterm/\(TabOpener.promptFile(for: "review")))\""
+        #expect(command.hasSuffix(AgentCommand.shellQuote(prompt)) || command.hasSuffix(fileSuffix))
+        #expect(command.utf8.count <= AgentCommand.inlineLimit, "the full preamble may require file delivery to fit canonical input")
         #expect(command.contains("--permission-mode auto"), "the Operator's worker flags")
     }
 
@@ -353,13 +377,13 @@ extension OperatorOpenTabTests {
         #expect(tabs(of: task, in: world).isEmpty && world.daemon.requests("tab.create").isEmpty)
     }
 
-    @Test func legacyTabIgnoresRoleAndReasoning() async throws {
+    @Test func legacyTabIgnoresRoleButHonorsReasoning() async throws {
         let (world, run, task) = try makeWorld()
         let answer = await world.call(run.id, "open_tab",
-            Self.arguments().adding("role", "review").adding("reasoning", "high"))
+            Self.arguments(model: "gpt-6-astra").adding("role", "review").adding("reasoning", "medium"))
         #expect(answer.value?["state"] == "opened")
         let tab = try #require(tabs(of: task, in: world).first)
-        #expect(tab.role == .work && tab.reasoning == nil)
+        #expect(tab.role == .work && tab.reasoning == "medium")
     }
 
     @Test func newTabDoesNotReadTheCatalogue() async throws {

@@ -96,6 +96,8 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
             fail "expected a domain naming AiTerm, and only that one, to fail the run (status $runner_status)"
         fi
 
+        "$ROOT/scripts/test-test-queue.sh"
+
         # A run waits while another holds the test lock, and gets it once that one ends; a run
         # started inside one that holds it (as these fixture runs are) does not wait at all.
         zmodload zsh/system

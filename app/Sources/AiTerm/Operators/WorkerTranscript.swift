@@ -39,7 +39,12 @@ enum WorkerTranscript {
     }
 
     /// The newest reply in the file's last `tailBytes`, read from the end.
-    static func lastMessage(in file: URL, agent: AgentKind) -> String? {
+    struct Reply: Sendable { let text: String; let identity: Int }
+
+    static func lastMessage(in file: URL, agent: AgentKind) -> String? { lastReply(in: file, agent: agent)?.text }
+
+    /// The full assistant record identifies the reply even when its text repeats in a later turn.
+    static func lastReply(in file: URL, agent: AgentKind) -> Reply? {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { try? handle.close() }
         let size = (try? handle.seekToEnd()) ?? 0
@@ -52,7 +57,7 @@ enum WorkerTranscript {
         for line in lines.reversed() {
             guard let record = try? decoder.decode(JSONValue.self, from: Data(line.utf8)),
                   let text = agent == .codex ? codexReply(record) : claudeReply(record), !text.isEmpty else { continue }
-            return text
+            return Reply(text: text, identity: line.hashValue)
         }
         return nil
     }
@@ -200,7 +205,9 @@ final class TranscriptLocator: Sendable {
     }
 
     /// The worker's last message in its conversation's file (`WorkerTranscript.lastMessage(in:agent:)`).
-    func lastMessage(agent: AgentKind, conversation: String) -> String? {
-        file(agent: agent, conversation: conversation).flatMap { WorkerTranscript.lastMessage(in: $0, agent: agent) }
+    func lastMessage(agent: AgentKind, conversation: String) -> String? { lastReply(agent: agent, conversation: conversation)?.text }
+
+    func lastReply(agent: AgentKind, conversation: String) -> WorkerTranscript.Reply? {
+        file(agent: agent, conversation: conversation).flatMap { WorkerTranscript.lastReply(in: $0, agent: agent) }
     }
 }

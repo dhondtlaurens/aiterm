@@ -226,6 +226,23 @@ class StoppedOn:
         return {"error": self.error, "resetsAt": self.resets_at}
 
 
+@dataclass(frozen=True, slots=True)
+class TestActivity:
+    """One test runner's own lifecycle. Live states require its inherited kernel liveness lock."""
+    run_id: str
+    suite: str
+    state: Literal["queued", "running", "completed", "interrupted"]
+    queue_position: int | None = None
+    holder: str | None = None
+    exit_code: int | None = None
+    finished_at: float | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        return {"runId": self.run_id, "suite": self.suite, "state": self.state,
+                "queuePosition": self.queue_position, "holder": self.holder, "exitCode": self.exit_code,
+                "finishedAt": self.finished_at}
+
+
 @dataclass
 class SessionInfo:
     session_id: str
@@ -285,6 +302,8 @@ class SessionInfo:
     # What ended its last turn short (StoppedOn), until it works again: a new turn, a Stop, another conversation. It goes
     # with the agent's process.
     stopped_on: StoppedOn | None = None
+    # Exact-worktree test command metadata. Completed/interrupted records never count as live work.
+    test_activity: TestActivity | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -297,6 +316,7 @@ class SessionInfo:
             "background": [job.to_json() for job in self.background], "yourPrompt": self.your_prompt,
             "slashCommands": [command.to_json() for command in self.slash_commands],
             "stoppedOn": self.stopped_on.to_json() if self.stopped_on else None,
+            "testActivity": self.test_activity.to_json() if self.test_activity else None,
         }
 
 
@@ -322,4 +342,5 @@ class Usage:
             "sevenDay": self.seven_day.to_json() if self.seven_day else None,
             "spend": self.spend.to_json() if self.spend else None,
             "updatedAt": self.updated_at,
+            "retrievalFailure": None,
         }

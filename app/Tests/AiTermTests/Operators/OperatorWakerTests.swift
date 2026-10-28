@@ -61,6 +61,17 @@ import Testing
         #expect(hand.requested == 0 && lines.isEmpty)
     }
 
+    @Test func usageAvailabilityInRunStatusDoesNotCreateWakeNews() async throws {
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
+        let observed = status(questions: 0)
+        var acknowledged = observed
+        acknowledged.run.usageTelemetry["claude"] = RunStatus.UsageTelemetry(lastKnown: nil, now: Date())
+        waker.acknowledged(acknowledged, of: run.id)
+        waker.observe(observed, of: run.id)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(hand.requested == 0 && lines.isEmpty)
+    }
+
     /// What a host says of a task's request is filled in by `run_status` alone: the run reads without it, and the difference is no news.
     @Test func whatTheHostSaysOfARequestIsNoNews() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
@@ -340,9 +351,9 @@ import Testing
             await waker.lastSend?.value
             return daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
         }
-        #expect(try await woken(by: ["PAY-2": asks, "PAY-3": quiet]) == ["[AiTerm] one worker asks something, call run_status"])
-        #expect(try await woken(by: ["PAY-2": empty, "PAY-3": quiet]) == ["[AiTerm] one task finished with no commit, call run_status"])
-        #expect(try await woken(by: ["PAY-2": asks, "PAY-3": empty]) == ["[AiTerm] updates waiting, call run_status"])
+        #expect(try await woken(by: ["PAY-2": asks, "PAY-3": quiet]) == ["[AiTerm] PAY-two asks a question, call run_status"])
+        #expect(try await woken(by: ["PAY-2": empty, "PAY-3": quiet]) == ["[AiTerm] PAY-two finished with no commit, call run_status"])
+        #expect(try await woken(by: ["PAY-2": asks, "PAY-3": empty]) == ["[AiTerm] PAY-three finished with no commit; PAY-two asks a question, call run_status"])
     }
 
     /// A worker an API error stopped is news, once: a usage limit or a billing failure keeps the task off every list it
@@ -375,7 +386,7 @@ import Testing
         waker.observe(status(changed: true), of: run.id)
         await hand.release(1)
         try await daemon.received("session.deliver")
-        #expect(lines == ["[AiTerm] one task changed after acceptance, call run_status"])
+        #expect(lines == ["[AiTerm] PAY-two changed after acceptance, call run_status"])
     }
 
     /// A prompt you typed into a task's worker, which the controller writes on its open question (`answeredInWindow`), wakes
@@ -401,7 +412,7 @@ import Testing
     /// A review with nothing waiting wakes the Operator with a keyless line, once per task per review: the same review going
     /// loud and quiet again, or the status read again, never repeats it; a new review of the task does (spec §K).
     @Test func itWakesOncePerReview() async throws {
-        let waker = makeWaker(), quietLine = "[AiTerm] one task is in review with nothing waiting, call run_status"
+        let waker = makeWaker(), quietLine = "[AiTerm] PAY-two has no review activity waiting, call run_status"
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .inReview)
         func status(began: Double, threads: [String: Bool] = [:], minutes: Double) -> RunStatus {
             task.operated?.peopleReview = PeopleReview(threads: threads, startedAt: Date(timeIntervalSince1970: began))
@@ -471,7 +482,7 @@ import Testing
         waker.observe(ready, of: run.id)
         await hand.release(3)
         try await daemon.received("session.deliver")
-        #expect(lines == ["[AiTerm] updates waiting, call run_status"])
+        #expect(lines == ["[AiTerm] PAY-two needs acceptance, call run_status"])
     }
 
     /// A task newly ready wakes the Operator once: leaving the list is no news, and coming back to it before the Operator
@@ -487,7 +498,7 @@ import Testing
         waker.observe(ready, of: run.id)
         try await daemon.received("session.deliver")
         await settle()
-        #expect(lines == ["[AiTerm] updates waiting, call run_status"])
+        #expect(lines == ["[AiTerm] PAY-two needs acceptance, call run_status"])
         waker.observe(working, of: run.id)
         waker.observe(ready, of: run.id)
         await settle()
@@ -622,6 +633,63 @@ import Testing
                 == "[AiTerm] Codex’s review failed: call run_status")
         #expect(OperatorWaker.line(updates: 1, reason: .init(text: "PAY-2 merged", colon: false)) == "[AiTerm] updates waiting, call run_status")
         #expect(OperatorWaker.line(updates: 3, reason: nil) == "[AiTerm] updates waiting, call run_status")
+    }
+
+    @Test func completionWakeNamesTheTaskAndActionWithoutUnsafeMenuAnswers() async throws {
+        let waker = makeWaker()
+        let before = status(questions: 0)
+        var after = before
+        after.obligations.readyForAcceptance = ["PAY-12"]
+        waker.acknowledged(before, of: run.id)
+        waker.observe(after, of: run.id)
+        try await daemon.received("session.deliver")
+        await waker.lastSend?.value
+        #expect(lines == ["[AiTerm] PAY-one-two needs acceptance, call run_status"])
+        #expect(lines.allSatisfy(OperatorWaker.isPlain))
+    }
+
+    @Test func simultaneousCompletionStallAndReviewEachRemainInTheWake() async throws {
+        let waker = makeWaker()
+        let before = status(questions: 0)
+        var after = before
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "R", state: .inReview)
+        after.tasks = [RunStatus.TaskLine(id: task.id, key: "R", title: "Review", project: "Test", agent: .claude, model: "m",
+                                         state: .inReview, end: .merge, revision: 1, branch: "work")]
+        after.obligations.readyForAcceptance = ["PAY-12", "PAY-13"]
+        after.obligations.possiblyStalled = ["S"]
+        waker.acknowledged(before, of: run.id)
+        waker.observe(after, of: run.id)
+        try await daemon.received("session.deliver")
+        await waker.lastSend?.value
+        #expect(lines.count == 1)
+        #expect(lines[0].contains("PAY-one-two needs acceptance"))
+        #expect(lines[0].contains("PAY-one-three needs acceptance"))
+        #expect(lines[0].contains("letter-ess may be stalled"))
+        #expect(lines[0].contains("letter-ar entered review"))
+        waker.observe(after, of: run.id)
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(lines.count == 1, "the same events are not told twice")
+    }
+
+    @Test func aLargeCompletionBurstFitsTheDaemonWakeLimitAndIsToldOnce() async throws {
+        let waker = makeWaker()
+        let before = status(questions: 0)
+        var after = before
+        after.obligations.readyForAcceptance = (0..<60).map { "PAY-" + String($0) }
+            + [String(repeating: "LongTask", count: 500)]
+        waker.acknowledged(before, of: run.id)
+        waker.observe(after, of: run.id)
+        try await daemon.received("session.deliver")
+        await waker.lastSend?.value
+        let line = try #require(lines.first)
+        #expect(line.count <= 2000)
+        #expect(OperatorWaker.isPlain(line))
+        #expect(line.contains("more actionable updates"))
+        #expect(line.contains("needs acceptance"))
+        waker.observe(after, of: run.id)
+        waker.operatorSessionChanged(run.id)
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(lines.count == 1)
     }
 
     // -- a refused wake line, for the sidebar's Notice -----------------------------------------------

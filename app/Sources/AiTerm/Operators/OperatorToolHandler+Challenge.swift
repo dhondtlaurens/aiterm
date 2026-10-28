@@ -32,7 +32,8 @@ extension OperatorToolHandler {
         guard call.operatorTool == .finishTask, run.profile.slices.merge, PublicationGuard.runRefusal(run) == nil,
               let task = try? task(call, in: run), let operated = task.operated, operated.end.merges, !operated.takenOver,
               let sha = operated.acceptance?.resultSHA, operated.publication?.merged != true,
-              operated.publication?.conditionsHeld != sha else { return nil }
+              operated.publication?.conditionsHeld != sha
+                || operated.publication?.conditionsEvidence != mergeEvidenceIdentity(of: task, in: run) else { return nil }
         switch operated.state {
         case .inReview: return task
         case .accepted: return TaskPublisher.Context.entersReview(operated, run: run) ? nil : task
@@ -83,7 +84,8 @@ extension OperatorToolHandler {
         if call.operatorTool == .finishTask, let task = try? task(call, in: run), task.operated?.publication?.mergeRefusal != nil {
             mutate(in: run.id) { $0.updateOperated(task.id) { $0.publication?.mergeRefusal = nil } }
         }
-        let opinion = run.profile.oracle
+        let opinion = state.run(id: run.id)?.profile.oracle ?? run.profile.oracle
+        let generation = oracleGeneration(run.id)
         // A call naming a challenge of its tool is that challenge's, whatever the call's arguments say now: the acting call
         // repeated must still replay, not act again.
         let named = call.optionalString("challengeId").flatMap { id in
@@ -99,6 +101,7 @@ extension OperatorToolHandler {
         let goal = call.operatorTool == .checkGoal ? Self.goalToCheck(run) : nil
         if named == nil, call.operatorTool == .checkGoal, goal == nil || Self.repeatedGoalCheck(call, in: run) != nil { return nil }
         if named == nil, !Self.isChallenged(call, oracleIsOn: opinion.isOn, backlog: backlog(of: call, in: run), merges: merging != nil) { return nil }
+        if !opinion.isOn, named?.stage != .acted { return nil }
         if let id = call.optionalString("challengeId") {
             guard let kept = named else {
                 throw ToolRefusal("No challenge \(id) for \(call.tool) here; call again without challengeId.")
@@ -163,7 +166,7 @@ extension OperatorToolHandler {
                 conditions = .written(review: OperatorCommand.said(run.review), done: OperatorCommand.said(run.done), agentReview: evidence)
             }
             mergeQuestion = ChallengeLaunch.mergePrompt(task: operated.key, acceptedSHA: sha, brief: operated.brief, conditions: conditions,
-                                                        run: status())
+                                                        run: status(), evidence: await mergeEvidence(of: merging))
         }
         if let skipping {
             // A call that also merges asks both in one prompt: one Oracle run, and its yes holds for both.
@@ -186,8 +189,9 @@ extension OperatorToolHandler {
         let id = UUID().uuidString
         // A merge's or a push's yes holds for the commit accepted now, which the record keeps, with whether it was a merge's.
         let askedSHA = (merging ?? skipping?.task)?.operated?.acceptance?.resultSHA, merges = merging != nil
+        let askedEvidence = merging.map { mergeEvidenceIdentity(of: $0, in: run) }
         let asked = ChallengeRecord(id: id, tool: call.tool, kind: kind, askedArguments: Self.invocation(call), askedSHA: askedSHA,
-                                    askedAt: ports.now(), askedMerge: call.operatorTool == .finishTask ? merges : nil)
+                                    askedAt: ports.now(), askedMerge: call.operatorTool == .finishTask ? merges : nil, askedEvidence: askedEvidence)
         mutate(in: run.id) { $0.updateRun(id: run.id) { $0.challenges.append(asked) } }
         let runner = ports.secondOpinion, folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
@@ -207,6 +211,7 @@ extension OperatorToolHandler {
             guard let self else { return }
             runningChallenges[id] = nil
             onActing(consulting, false)
+            guard oracleGeneration(run.id) == generation else { return }
             guard let verdict, state.run(id: run.id)?.challenges.first(where: { $0.id == id })?.stage == .running else { return }
             updateChallenge(id, in: run.id) { kept in
                 switch verdict {
@@ -222,7 +227,13 @@ extension OperatorToolHandler {
         lastChallenge = settled
         // Nil out of budget, or cancelled with AiTerm quitting.
         let answered = try? await Self.within(ports.challengeReplyBudget, cancelling: false) { await challenge.value }.get()
+        refreshOracleSettings()
+        if oracleGeneration(run.id) != generation {
+            guard state.run(id: run.id)?.profile.oracle.isOn != false else { return nil }
+            throw ToolRefusal("The Oracle settings changed while this check ran. Call \(call.tool) again without challengeId for a fresh check.")
+        }
         if kind == .veto {
+            try validateMergeEvidence(askedEvidence, call: call, in: run)
             // Within the budget the answer is this call's, and the record goes: its id was never named to the operator.
             guard let verdict = answered else { return try vetoPendingAnswer(call, id, merges: merges, in: run) }
             mutate(in: run.id) { $0.updateRun(id: run.id) { $0.challenges.removeAll { $0.id == id } } }
@@ -263,6 +274,7 @@ extension OperatorToolHandler {
             throw ToolRefusal("Challenge \(id) was asked about another \(call.tool). Call again without challengeId.")
         }
         let merges = kept.asksMerge
+        try validateMergeEvidence(kept.askedEvidence, call: call, in: run)
         switch kept.stage {
         case .running where runningChallenges[id] != nil:
             return try vetoPendingAnswer(call, id, merges: merges, in: run)
@@ -300,10 +312,12 @@ extension OperatorToolHandler {
                               + "\(merges ? "merge" : "push past the hook"): call finish_task again without challengeId.")
         }
         guard merges else { return }
+        let evidence = mergeEvidenceIdentity(of: task, in: state.run(id: run.id) ?? run)
         mutate(in: run.id) { state in
             state.updateOperated(task.id) { operated in
                 var publication = operated.publication ?? TaskPublication()
                 publication.conditionsHeld = sha
+                publication.conditionsEvidence = evidence
                 operated.publication = publication
             }
         }

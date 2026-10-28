@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .models import State
 from .text import nonempty_string
 from .jsonl import JsonlCursor
 from .usage import finite_number
@@ -30,6 +31,11 @@ class _MetaCursor(JsonlCursor):
     was read from, the start of a line Codex was still writing, and the version found so far."""
     version: str | None = None
 
+@dataclass(slots=True)
+class _TurnCursor(JsonlCursor):
+    latest: tuple[State, float] | None = None
+
+
 Stamp = tuple[Path, int, int]  # path, st_mtime_ns, st_size
 
 
@@ -48,6 +54,7 @@ class CodexSessionFiles:
         self._context: dict[str, tuple[Stamp, int | None]] = {}
         # Rollout -> how far it has been read for the Codex version (cli_version).
         self._versions: dict[Path, _MetaCursor] = {}
+        self._turns: dict[Path, _TurnCursor] = {}
         # The rollouts `rate_limits()` last consulted, by (path, mtime), and what they said: the
         # tick asks every two seconds, and a file nobody has written to has nothing new to say.
         self._limits_seen: tuple[tuple[Path, int], ...] | None = None
@@ -62,8 +69,9 @@ class CodexSessionFiles:
         for cache in (self._paths, self._missed, self._context):
             for session_id in cache.keys() - session_ids:
                 del cache[session_id]
-        for path in self._versions.keys() - set(self._paths.values()):
-            del self._versions[path]
+        for cursors in (self._versions, self._turns):
+            for path in cursors.keys() - set(self._paths.values()):
+                del cursors[path]
 
     def context_percent(self, session_id: str) -> int | None:
         path = self._path_for(session_id)
@@ -108,6 +116,37 @@ class CodexSessionFiles:
                 cursor.version = version
         return cursor.version
 
+    def turn_state(self, thread_id: str) -> tuple[State, float] | None:
+        """The latest explicit turn boundary, with its own precise wall-clock stamp. Text alone
+        cannot end a turn. Read incrementally, and discard remembered completion on interruption."""
+        path = self._path_for(thread_id)
+        if path is None:
+            return None
+        try:
+            st = path.stat()
+            cursor = self._turns.get(path)
+            if cursor is None or cursor.rewritten(st.st_ino, st.st_size):
+                cursor = self._turns[path] = _TurnCursor(st.st_ino)
+            for line in cursor.read_lines(path, st.st_size):
+                if not any(kind in line for kind in (b'"task_started"', b'"task_complete"', b'"turn_aborted"')):
+                    continue
+                try:
+                    record = json.loads(line)
+                except (UnicodeDecodeError, ValueError):
+                    continue
+                payload = record.get("payload") if isinstance(record, dict) and record.get("type") == "event_msg" else None
+                if not isinstance(payload, dict):
+                    continue
+                kind = payload.get("type")
+                if kind == "turn_aborted":
+                    cursor.latest = None
+                elif kind in ("task_started", "task_complete"):
+                    stamp = _seconds(record.get("timestamp"))
+                    cursor.latest = ("working" if kind == "task_started" else "done", stamp) if stamp is not None else None
+            return cursor.latest
+        except OSError:
+            return None
+
     def _read_context(self, path: Path) -> int | None:
         for _, payload in self._token_counts(path):
             info = payload.get("info")
@@ -134,7 +173,7 @@ class CodexSessionFiles:
             return self._limits_answer
         try:
             answer = self._read_rate_limits([path for path, _ in newest])
-        except OSError:
+        except FileNotFoundError:
             return None
         self._limits_seen, self._limits_answer = newest, answer
         return self._limits_answer
@@ -244,6 +283,18 @@ def _mtime(path: Path) -> int | None:
     try:
         return path.stat().st_mtime_ns
     except OSError:
+        return None
+
+
+def _seconds(timestamp: Any) -> float | None:
+    if not isinstance(timestamp, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(timestamp)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.timestamp()
+    except (ValueError, OverflowError):
         return None
 
 

@@ -37,6 +37,7 @@ import Testing
         let started = try #require(world.task(task.id))
         #expect(started.hasCheckout && FileManager.default.fileExists(atPath: started.worktreePath))
         #expect(started.baseBranch == "main")
+        #expect(started.operated?.diffBaseSHA == (try head(project.path)), "the launch records its own starting baseline before worker commits")
         let window = try #require(daemon.requests("window.createTask").first)
         #expect(window.params["background"] as? Bool == true)
         #expect(window.params["taskId"] as? String == task.id.uuidString)
@@ -45,7 +46,9 @@ import Testing
         let prompt = "[AiTerm] You are already in this task's worktree, on branch feat/pluto-1. Commit only here, on feat/pluto-1. "
             + "Do not create another worktree or branch. Inventories, audits and lists go in your final message, never in a new file in the repository. "
             + "Never type /model, /effort or /config into a live agent session: they save the person's defaults. "
-            + "To try a model or effort, use launch flags or a scratch CLAUDE_CONFIG_DIR.\n\nDo PLUTO-1."
+            + "To try a model or effort, use launch flags or a scratch CLAUDE_CONFIG_DIR. "
+            + "Keep each background command's handle/PID, log and exit status. Queued tests are not stalled. "
+            + "Finish when your command exits; do not poll other test processes.\n\nDo PLUTO-1."
         let expected = try AgentCommand.build(agent: .codex, model: "m", reasoning: nil, prompt: prompt,
                                               worktreePath: started.worktreePath, git: git, operated: true)
         #expect(window.params["agentCommand"] as? String == expected)

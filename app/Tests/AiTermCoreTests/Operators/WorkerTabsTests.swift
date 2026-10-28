@@ -181,4 +181,17 @@ import Testing
         // None listed: nothing to bring, its window comes back as a row's click brings it today.
         #expect(task.tabToBring(sessions: [], requests: [prompt("docs")]) == nil)
     }
+    @Test(arguments: [TestActivity.State.queued, .running])
+    func anActiveOwnTestCommandHoldsAcceptanceEvenWithAnIdleWorker(_ state: TestActivity.State) {
+        let task = task([])
+        var done = session("s1", task: task.id, state: .done)
+        done.testActivity = TestActivity(runId: "own", suite: "swift", state: state, queuePosition: 2)
+        #expect(!task.workerTabs(in: [done]).flatMap(\.background).isEmpty)
+        #expect(!task.isReadyForAcceptance(in: [done]))
+        done.testActivity?.state = .completed
+        done.testActivity?.exitCode = 0
+        #expect(task.workerTabs(in: [done]).flatMap(\.background).isEmpty)
+        #expect(task.isReadyForAcceptance(in: [done]))
+    }
+
 }

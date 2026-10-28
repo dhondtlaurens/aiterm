@@ -83,6 +83,34 @@ import Testing
         #expect(revised.run(revisedRun.id)?.planRevision == 1)
     }
 
+    @Test func savedOracleChangesApplyToActiveBroadcastWithoutRestart() async throws {
+        let (world, run) = try await makeWorld(runner: .answering("Critique when enabled."))
+        let defaults = try #require(world.ports.preferences)
+        var profile = run.profile
+        profile.oracle.isOn = false
+        try OperatorProfileStore.save(profile, defaults)
+        #expect(await world.call(run.id, "run_status").value?["run"]?["oracleIsOn"] == false)
+        #expect(await world.call(run.id, "submit_plan", ["revision": 1]).value?["submitted"] == true)
+        profile.oracle.isOn = true
+        try OperatorProfileStore.save(profile, defaults)
+        #expect(await world.call(run.id, "run_status").value?["run"]?["oracleIsOn"] == true)
+        #expect(await world.call(run.id, "submit_plan", ["revision": 2]).value?["challenged"] == true)
+    }
+
+    @Test func disablingOracleDiscardsPendingCritique() async throws {
+        let gate = OracleGate()
+        let (world, run) = try await makeWorld(runner: .answering("Obsolete critique", gate: gate), budget: .milliseconds(10))
+        let id = try #require(await world.call(run.id, "submit_plan", ["revision": 1]).value?["challengeId"]?.stringValue)
+        let defaults = try #require(world.ports.preferences)
+        var profile = run.profile; profile.oracle.isOn = false
+        try OperatorProfileStore.save(profile, defaults)
+        _ = await world.call(run.id, "run_status")
+        await gate.open()
+        await world.controller.tools.lastChallenge?.value
+        #expect(await world.call(run.id, "submit_plan", ["revision": 1, "challengeId": .string(id)]).value?["submitted"] == true)
+        #expect(world.run(run.id)?.challenges.contains { $0.critique == "Obsolete critique" } == false)
+    }
+
     @Test func withTheOracleOffTheCallActsAtOnce() async throws {
         let (world, run) = try await makeWorld(oracle: false, runner: .answering("never asked"))
         #expect(await world.call(run.id, "submit_plan", ["revision": 1]).value?["submitted"] == true)

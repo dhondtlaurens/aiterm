@@ -45,9 +45,14 @@ public struct StallWatch: Equatable, Sendable {
     /// changed since the last call has shown a sign of life, on that tab's clock.
     public mutating func observe(_ sessions: [SessionInfo], at now: Date) {
         var seen: [String: SessionInfo] = [:]
+        // Test metadata is attached once to the task's preferred tab. Its own live worktree
+        // command holds every sibling worker's clock, including an extra tab still at working.
+        let testing = Set(sessions.filter { $0.testActivity?.isActive == true }.compactMap(\.taskUUID))
+        let wasTesting = Set(listed.filter { $0.testActivity?.isActive == true }.compactMap(\.taskUUID))
         for session in sessions where Self.runsAgent(session) {
             seen[session.sessionId] = session
-            guard let task = session.taskUUID, lastSeen[session.sessionId] != session else { continue }
+            guard let task = session.taskUUID,
+                  lastSeen[session.sessionId] != session || testing.contains(task) || wasTesting.contains(task) else { continue }
             if let key = session.tabKey { noteSign(of: Tab(task: task, key: key), at: now) } else { noteSign(of: task, at: now) }
         }
         lastSeen = seen

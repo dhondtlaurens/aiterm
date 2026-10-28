@@ -146,7 +146,8 @@ private struct FoldAction: ViewModifier {
 
 /// The Operator's own row, first in the broadcast's group (decided 21 Oct 2026): a full task row
 /// (`SelectableRow`) washed at rest (`Palette.operatorRow`), Claude's `VendorMark` as its avatar, the title
-/// `Operator`, then its own session's line, `OperatorBadge(line:)`, and its `StatusMark` trailing. No project,
+/// `Operator`, then its own session's line, `OperatorBadge(line:)`, and the shared task mark trailing,
+/// a completed check once the broadcast succeeds. No project,
 /// ticket or branch line: the board has all of that. ↑ ↓ peek at its window, as on a task; a click or ↩ brings
 /// it to front with iTerm2, or reopens it in front when it is closed (`RowFocus.select(.operation)`).
 struct OperatorRowView: View {
@@ -175,7 +176,8 @@ struct OperatorRowView: View {
                 // Laid out before the spacer, so the line takes the row's width before it is cut.
                 .layoutPriority(1)
                 Spacer(minLength: scale(Space.tight))
-                StatusMark(status: row.status, size: SidebarRowLayout.trailingGlyph(scale))
+                TaskRowMarkView(mark: TaskRowMark(status: row.status, line: row.line, removing: false),
+                                size: SidebarRowLayout.trailingGlyph(scale))
                     .frame(width: SidebarRowLayout.trailingSlot(scale))
             }
         }

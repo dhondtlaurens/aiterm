@@ -193,16 +193,19 @@ import Testing
         #expect(OperatorLine.task(byKey, run: run, acting: nil, requests: [], tasks: [parent.id: parent])?.text == "queued · after PAY-232")
     }
 
-    /// A question the Operator asks about a task is the Operator's row's (2A, 22 Oct 2026): you answer it in the
-    /// Operator's window, so the task's own line goes on saying what its worker does. A worker's prompt stays its own.
-    @Test func aQuestionAboutATaskIsNotOnItsLineAndABlockedReasonIsCutToFit() throws {
+    /// A question the Operator asks also marks the task whose work it holds. The question is answered
+    /// in the Operator's window, and a worker's prompt still takes precedence.
+    @Test func aQuestionAboutATaskIsVisibleAndABlockedReasonIsCutToFit() throws {
         let run = OperatorUIFixtures.run()
         let asked = task(run: run, .working)
         let question = "The Operator asks: Should the signup block keep its subtitle on mobile, where the design leaves it out?"
         let line = try #require(OperatorLine.task(asked, run: run, acting: nil, requests: [request(.question, run, asked, question)]))
-        #expect(line == OperatorLine("Operator watching", look: .acting))
+        #expect(line == OperatorLine("waiting on you", look: .needsYou, tooltip: question))
         let prompt = "Claude Code asks for permission in the signup block."
         #expect(OperatorLine.task(asked, run: run, acting: nil, requests: [request(.permission, run, asked, prompt)])
+                == OperatorLine("waiting on you", look: .needsYou, tooltip: prompt))
+        #expect(OperatorLine.task(asked, run: run, acting: nil,
+                                  requests: [request(.question, run, asked, question), request(.permission, run, asked, prompt)])
                 == OperatorLine("waiting on you", look: .needsYou, tooltip: prompt))
         // No window says why a task is blocked, so its line keeps the reason, cut to fit.
         let because = "npm ci failed with a lockfile that no longer matches package.json"
@@ -416,10 +419,10 @@ import Testing
         #expect(line() == OperatorLine("watching 1 task"), "between turns: its working tasks counted, quiet")
         #expect(OperatorLine.session(acting: nil, working: false, asking: false, windowClosed: false, tasks: [])
                 == OperatorLine("waiting for its tasks"), "none at work")
-        #expect(line(summary: .writing) == OperatorLine("writing the summary", look: .acting), "every task done: it writes the summary")
+        #expect(line(summary: .writing) == OperatorLine("done · writing summary", look: .ended), "the broadcast is complete while its summary follows")
         #expect(line(working: true, summary: .written(text: "Both merged.", at: OperatorUIFixtures.epoch))
-                == OperatorLine("done · summary ready"), "as the header says it")
-        #expect(line(summary: .notComing) == OperatorLine("done"), "AiTerm gave up waiting for it")
+                == OperatorLine("done · summary ready", look: .ended), "the Operator's work is complete")
+        #expect(line(summary: .notComing) == OperatorLine("done", look: .ended), "AiTerm gave up waiting for it")
         #expect(line(asking: true, summary: .writing).look == .needsYou, "its own ask still comes first")
         #expect(line(working: true) == OperatorLine("working", look: .acting))
         #expect(line(acting: (.answering, task: "pay-231"), working: true) == OperatorLine("answering Claude · PAY-231", look: .acting))

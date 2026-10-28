@@ -33,6 +33,65 @@ import Testing
         world.state.tasks.compactMap(\.operated).first { $0.key == key }
     }
 
+    @Test(arguments: [nil, "claude-opus-5-5"] as [String?])
+    func configuredEffortSurvivesDefaultModelSpelling(model: String?) async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { ports in
+            ModelSettings.save(ModelPreference(model: "claude-opus-5-5", reasoning: "high"), for: .claude,
+                               defaults: ports.preferences!)
+            ports.agentModels = { _ in [AgentModel(id: "claude-opus-5-5", label: "Opus", detail: nil,
+                                                   efforts: ["medium", "high"], defaultEffort: "medium")] }
+        }
+        var args: JSONValue = ["key": "A", "title": "A", "brief": "Do A.", "project": "Shop", "agent": "claude",
+                               "modelReason": "Configured default", "end": "commit"]
+        if let model { args = args.adding("model", .string(model)) }
+        let answer = await world.call(run.id, "create_task", args)
+        #expect(answer.value?["reasoning"] == "high")
+        let task = try #require(world.state.tasks.only)
+        #expect(task.reasoning == "high" && task.operated?.requestedLaunch?.model == model)
+        let status = await world.call(run.id, "run_status")
+        #expect(status.value?["tasks"]?.arrayValue?.first?["reasoning"] == "high")
+        #expect(status.value?["run"]?["agents"]?["claude"]?["defaultReasoning"] == "high")
+    }
+
+    @Test func reconnectWithoutUsageKeepsLastKnownReportWithUnavailableState() async throws {
+        let (world, run) = try makeWorld()
+        let reading = Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 92, resetsAt: nil), spend: nil,
+                            updatedAt: Int(Date().timeIntervalSince1970))
+        world.live.handle(.usageChanged(UsageSnapshot(claude: nil, codex: reading)))
+        world.live.handle(.usageChanged(.empty))
+        let status = try #require(await world.call(run.id, "run_status").value)
+        #expect(status["run"]?["usage"]?["codex"] == 92)
+        #expect(status["run"]?["usageTelemetry"]?["codex"]?["availability"] == "unavailable")
+        world.live.handle(.usageChanged(UsageSnapshot(claude: nil, codex: reading)))
+        #expect(!world.live.usageUnavailable.contains(.codex))
+    }
+
+    @Test func failedUsageRetrievalRetainsMeasurementWithoutClaimingExhaustion() async throws {
+        let (world, run) = try makeWorld()
+        let reading = Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 92, resetsAt: nil), spend: nil, updatedAt: 10)
+        world.live.handle(.usageChanged(UsageSnapshot(claude: nil, codex: reading)))
+        var failed = Usage(fiveHour: nil, sevenDay: nil, spend: nil, updatedAt: 0)
+        failed.retrievalFailure = UsageRetrievalFailure(message: "Permission denied reading rollout", at: 20)
+        world.live.handle(.usageChanged(UsageSnapshot(claude: nil, codex: failed)))
+        let status = try #require(await world.call(run.id, "run_status").value)
+        #expect(status["run"]?["usage"]?["codex"] == 92)
+        let telemetry = status["run"]?["usageTelemetry"]?["codex"]
+        #expect(telemetry?["availability"] == "failed")
+        #expect(telemetry?["lastKnown"]?["updatedAt"] == 10)
+        #expect(telemetry?["note"]?.stringValue?.contains("does not confirm exhaustion") == true)
+    }
+
+    @Test func unavailableUsageRetainsExpiredLastKnownReading() async throws {
+        let (world, run) = try makeWorld()
+        world.live.usage = UsageSnapshot(claude: nil, codex: Usage(fiveHour: nil,
+            sevenDay: UsageWindow(usedPercent: 92, resetsAt: 1), spend: nil, updatedAt: 1))
+        let status = try #require(await world.call(run.id, "run_status").value)
+        #expect(status["run"]?["usage"]?["codex"] == 92)
+        #expect(status["run"]?["usageTelemetry"]?["codex"]?["availability"] == "stale")
+        #expect(status["run"]?["usageTelemetry"]?["claude"]?["availability"] == "unavailable")
+    }
+
     @Test func createTaskAddsOnePlannedRowWithoutAWorktreePerKey() async throws {
         let (world, run) = try makeWorld()
         let first = await create(world, run, "PLUTO-231"), again = await create(world, run, "PLUTO-231")
@@ -375,7 +434,7 @@ import Testing
         let (world, run) = try makeWorld()
         world.workspace.mutate { $0.lastModelByAgent[.claude] = "claude-remembered" }
         // What Settings › Agents (or the remembered model) gives claude: the fallback create_task uses too.
-        let fallback = AgentIntegrations.taskModels(remembered: world.state.lastModelByAgent)(.claude)
+        let fallback = world.controller.tools.defaultModel(for: .claude)
         try #require(!fallback.model.isEmpty)
         _ = await create(world, run, "A")
         world.workspace.mutate { $0.tasks[0].reasoning = "old-agents-reasoning" }
@@ -636,17 +695,18 @@ extension OperatorPlanToolsTests {
 }
 
 extension OperatorPlanToolsTests {
-    @Test func legacyRunStillUsesCatalogueReasoningAndAllowsEnd() async throws {
+    @Test func legacyRunHonorsExplicitReasoningAndAllowsEnd() async throws {
         let (world, run) = try makeWorld()
         world.workspace.mutate { $0.updateRun(id: run.id) {
             $0.agents = [AgentChoice(agent: .claude, model: "claude-named", reasoning: "high")]
         } }
         let answer = await world.call(run.id, "create_task",
-            rowArguments().adding("model", "gpt-6-astra").adding("reasoning", "low").adding("end", "commit"))
+            rowArguments().adding("model", "gpt-6-astra").adding("reasoning", "medium").adding("end", "commit"))
         #expect(answer.value?["created"] == true)
         #expect(world.state.tasks.first?.reasoning == "medium")
         #expect(world.state.tasks.first?.operated?.end == .commit)
-        _ = await world.call(run.id, "update_task", ["task": "A", "reasoning": "low"])
+        let unsupported = await world.call(run.id, "update_task", ["task": "A", "reasoning": "low"])
+        #expect(unsupported.message?.contains("isn’t a reasoning level") == true)
         #expect(world.state.tasks.first?.reasoning == "medium")
     }
 }

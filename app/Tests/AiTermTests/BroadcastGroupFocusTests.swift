@@ -252,6 +252,39 @@ struct BroadcastGroupFocusTests {
         #expect(daemon.requests("session.activate").last?.params["sessionId"] as? String == "s1")
     }
 
+    /// An ask_you about a task is answered in the Operator's window. Choosing its waiting row
+    /// reaches that question until it is resolved, then returns to the task's worker.
+    @Test func aTaskWaitingForAnOperatorQuestionOpensTheQuestion() async throws {
+        let run = OperatorUIFixtures.run(windowId: "operator-window")
+        let project = OperatorUIFixtures.project("pluto-web")
+        let operated = OperatorUIFixtures.operated(run: run.id, key: "P2", state: .working, flags: [.waitingOnYou])
+        let task = OperatorUIFixtures.task("Pick an effort", project: project.id, windowId: "worker-window", operated: operated)
+        let (controller, daemon) = try controller(run)
+        defer { controller.shutdown() }
+        controller.workspace.mutate { state in
+            state.append(project: project)
+            state.tasks = [task]
+            state.runs[0].questions = [OperatorUIFixtures.question("Which effort?", task: task.id)]
+        }
+        controller.live.sessions = [Self.operatorTab(of: run), OperatorUIFixtures.tab("s1", of: task, .idle)]
+        #expect(controller.rows.broadcast?.tasks.first?.operatorLine?.look == .needsYou)
+        #expect(controller.rows.broadcast?.operatorRow.status == .needsInput)
+        await controller.choose(task: task.id)?.value
+        #expect(controller.focus.selection == .operation(run.id))
+        #expect(activated(daemon) == ["operator-window"])
+        #expect(daemon.requests("session.activate").isEmpty)
+
+        controller.live.sessions[1].state = .needsInput
+        await controller.choose(task: task.id)?.value
+        #expect(controller.focus.selection == .task(task.id), "a live worker prompt still takes priority")
+        #expect(daemon.requests("session.activate").last?.params["sessionId"] as? String == "s1")
+        controller.live.sessions[1].state = .idle
+
+        controller.workspace.mutate { $0.runs[0].questions[0].resolution = "Use medium." }
+        await controller.choose(task: task.id)?.value
+        #expect(controller.focus.selection == .task(task.id), "a resolved question no longer redirects the task")
+    }
+
     /// A task of your own is raised as ever: its window, no tab of it chosen.
     @Test func aTaskOfYourOwnBringsOnlyItsWindow() async throws {
         let run = OperatorUIFixtures.run()

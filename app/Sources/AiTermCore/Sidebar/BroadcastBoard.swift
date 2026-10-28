@@ -507,6 +507,11 @@ public struct BroadcastBoard: Equatable, Sendable {
         let key = worker.key ?? WorkerTab.firstKey
         let opens = worker.session.map { Opens.tab(task: task, sessionId: $0.sessionId) } ?? .nothing
         if worker.isOpening { return TabLine(key: key, agent: worker.agent, line: OperatorLine("opening"), status: .working, opens: .nothing) }
+        if let tests = worker.session?.testActivity, worker.session?.state != .needsInput,
+           tests.isActive || worker.session?.state.turnEnded == true {
+            return TabLine(key: key, agent: worker.agent, line: tests.statusLine,
+                           status: tests.isActive ? .background : .idle, opens: opens)
+        }
         switch worker.session?.state {
         case nil: return TabLine(key: key, agent: worker.agent, line: OperatorLine("closed"), status: nil, opens: .nothing)
         case .working?: return TabLine(key: key, agent: worker.agent, line: OperatorLine("at work"), status: .working, opens: opens)
@@ -544,8 +549,7 @@ public struct BroadcastBoard: Equatable, Sendable {
     private static func opens(_ task: TaskItem, _ operated: OperatedTask, requests: [BroadcastRequest]) -> Opens {
         var kind: BroadcastRequest.Kind?
         if !operated.takenOver, !operated.isFinished {
-            // A question the Operator asks about it is the Operator's row's, as on its line.
-            kind = OperatorLine.first(requests.filter { $0.runId == operated.runId && $0.taskId == task.id && $0.kind != .question })?.kind
+            kind = OperatorLine.first(requests.filter { $0.runId == operated.runId && $0.taskId == task.id })?.kind
             // Blocked, whether or not its request was passed in: what blocks it is the Operator's, or AiTerm's.
             if kind == nil, operated.state == .blocked { kind = operated.problem == nil ? .blocked : .problem }
         }

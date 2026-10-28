@@ -85,6 +85,8 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     /// The Merge slice with the Oracle on: the accepted commit the Oracle said yes for, that the conditions written in
     /// the Review and the Done hold. A merge goes ahead only while it is the commit accepted now.
     public var conditionsHeld: String?
+    /// Required-check inputs the Oracle approved, alongside the commit. Old SHA-only approvals are refreshed.
+    public var conditionsEvidence: String?
     /// The Oracle refused this merge; separate from a publication failure, cleared on the next finish_task.
     public var mergeRefusal: String?
     /// The repository the request was opened in, as its host and path (`MergeRequestPublishing.repository`). A review
@@ -119,6 +121,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case pushedSHA, mergeRequestURL, mergeRequestNumber, targetBranch, waitingSince, readySince, merged, mergedSHA, mergedHead, problem
+        case conditionsEvidence
         case conditionsHeld, repository, leftForYou, waitingReason, mergeRefusal, lastPushFailure, lastPushFailureSHA, landedSHA
     }
 
@@ -146,6 +149,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
             problem = nil
         }
         conditionsHeld = try c.decodeIfPresent(String.self, forKey: .conditionsHeld)
+        conditionsEvidence = try c.decodeIfPresent(String.self, forKey: .conditionsEvidence)
         repository = try c.decodeIfPresent(String.self, forKey: .repository)
         leftForYou = try c.decodeIfPresent(Bool.self, forKey: .leftForYou) ?? false
         waitingReason = try c.decodeIfPresent(String.self, forKey: .waitingReason)
@@ -169,6 +173,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         try c.encodeIfPresent(problem, forKey: .problem)
         try c.encodeIfPresent(mergeRefusal, forKey: .mergeRefusal)
         try c.encodeIfPresent(conditionsHeld, forKey: .conditionsHeld)
+        try c.encodeIfPresent(conditionsEvidence, forKey: .conditionsEvidence)
         try c.encodeIfPresent(repository, forKey: .repository)
         try c.encode(leftForYou, forKey: .leftForYou)
         try c.encodeIfPresent(waitingReason, forKey: .waitingReason)
@@ -201,6 +206,7 @@ public struct ExtraTab: Codable, Equatable, Sendable {
     public var agent: AgentKind
     public var model: String
     public var reasoning: String?
+    public var requestedLaunch: LaunchRequest?
     /// Why the Operator chose its agent and model, in its words.
     public var modelReason: String
     /// The tab's first prompt as the Operator wrote it, before AiTerm's own lines (`TabOpener.prompt`).
@@ -228,6 +234,7 @@ public struct ExtraTab: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case requestedLaunch
         case key, agent, model, reasoning, modelReason, brief, agentPinned, launch, sessionId, failure, conversation, role
     }
 
@@ -238,6 +245,7 @@ public struct ExtraTab: Codable, Equatable, Sendable {
         agent = try c.decode(AgentKind.self, forKey: .agent)
         model = try c.decode(String.self, forKey: .model)
         reasoning = try c.decodeIfPresent(String.self, forKey: .reasoning)
+        requestedLaunch = try c.decodeIfPresent(LaunchRequest.self, forKey: .requestedLaunch)
         modelReason = try c.decode(String.self, forKey: .modelReason)
         brief = try c.decode(String.self, forKey: .brief)
         agentPinned = try c.decode(Bool.self, forKey: .agentPinned)
@@ -254,6 +262,7 @@ public struct ExtraTab: Codable, Equatable, Sendable {
         try c.encode(agent, forKey: .agent)
         try c.encode(model, forKey: .model)
         try c.encodeIfPresent(reasoning, forKey: .reasoning)
+        try c.encodeIfPresent(requestedLaunch, forKey: .requestedLaunch)
         try c.encode(modelReason, forKey: .modelReason)
         try c.encode(brief, forKey: .brief)
         try c.encode(agentPinned, forKey: .agentPinned)
@@ -343,6 +352,13 @@ public enum ClosingWait: String, Codable, Sendable, LocalizedError {
     public var errorDescription: String? { text }
 }
 
+/// What a launch API requested. Nil fields mean omitted; a nil record predates this metadata.
+public struct LaunchRequest: Codable, Equatable, Sendable {
+    public var model: String?
+    public var reasoning: String?
+    public init(model: String?, reasoning: String?) { self.model = model; self.reasoning = reasoning }
+}
+
 /// Everything an operator adds to a task. `TaskItem.operated` — nil for every task you made yourself.
 public struct OperatedTask: Codable, Equatable, Sendable {
     private var preservedFields = PreservedFields()
@@ -383,6 +399,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     public var flags: Set<OperatedFlag>
     /// Why the Operator chose the task's model, in its words.
     public var modelReason: String?
+    public var requestedLaunch: LaunchRequest?
     /// The prompt or the Instructions named the task's agent: it starts on that agent whatever its use.
     public var agentPinned: Bool
     /// The id of the AiTerm issue blocking it, while one does.
@@ -405,7 +422,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     /// What the closing waits for before it tries this task again, which its card says while the closing is due; nil while
     /// it waits for nothing.
     public var closingWait: ClosingWait?
-    /// Where its diff started while it was live, set with its acceptance in a broadcast with the Task step: its code
+    /// The fork recorded before its worker launched, refined to its current base when accepted: its code
     /// parent's accepted commit, or else where its branch left its base. Auto-close carries it into the task's
     /// `FinishedTaskRecord`, as a merge makes the accepted commit part of the base it would be worked out from.
     public var diffBaseSHA: String?
@@ -440,6 +457,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         case runId, key, state, end, brief, dependsOn, stackedOn, revision, firstRevision, acceptance, publication
         case takenOver, ownership, launch, retriesUsed, runtimeUsed, totalRuntimeUsed, runtimeHead
         case blockedReason, blockedFrom, lastFailure, flags
+        case requestedLaunch
         case modelReason, agentPinned, problem, agentReview, peopleReview, branchDrift, extraTabs, reopenedFrom, reviewVerdicts, keptReason
         case closingWait, diffBaseSHA
     }
@@ -471,6 +489,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         lastFailure = try c.decodeIfPresent(String.self, forKey: .lastFailure)
         flags = Set((try c.decodeIfPresent([String].self, forKey: .flags) ?? []).compactMap(OperatedFlag.init(rawValue:)))
         modelReason = try c.decodeIfPresent(String.self, forKey: .modelReason)
+        requestedLaunch = try c.decodeIfPresent(LaunchRequest.self, forKey: .requestedLaunch)
         agentPinned = try c.decodeIfPresent(Bool.self, forKey: .agentPinned) ?? false
         problem = try c.decodeIfPresent(String.self, forKey: .problem)
         // A review an older or newer build wrote that does not read is dropped, not a failed task.
@@ -512,6 +531,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         // Sorted, so the file does not change on a resave of the same flags.
         try c.encode(flags.map(\.rawValue).sorted(), forKey: .flags)
         try c.encodeIfPresent(modelReason, forKey: .modelReason)
+        try c.encodeIfPresent(requestedLaunch, forKey: .requestedLaunch)
         try c.encode(agentPinned, forKey: .agentPinned)
         try c.encodeIfPresent(problem, forKey: .problem)
         try c.encodeIfPresent(agentReview, forKey: .agentReview)
@@ -678,6 +698,8 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     /// A finish_task's veto, on a merge or a push past the hook (`noVerify`): the commit accepted when the Oracle was
     /// asked. Its yes holds for that commit only.
     public var askedSHA: String?
+    /// Acceptance and required-check inputs used by this veto; refreshed evidence cannot reuse its verdict.
+    public var askedEvidence: String?
     /// A finish_task's veto: whether the Oracle was asked about the merge's conditions, alone or with a push past the
     /// hook. False for one asked about the hook alone, whose yes is no merge's. Nil on a record saved before `noVerify`,
     /// when every finish_task veto was a merge's (`asksMerge`).
@@ -693,14 +715,15 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
 
     public init(id: String, tool: String, kind: ChallengeKind = .critique, stage: ChallengeStage = .running, critique: String? = nil,
                 approved: Bool? = nil, askedArguments: String? = nil, askedSHA: String? = nil, unchallengedReason: String? = nil,
-                actedArguments: String? = nil, result: String? = nil, askedAt: Date, askedMerge: Bool? = nil) {
+                actedArguments: String? = nil, result: String? = nil, askedAt: Date, askedMerge: Bool? = nil, askedEvidence: String? = nil) {
         self.id = id; self.tool = tool; self.kind = kind; self.stage = stage; self.critique = critique; self.approved = approved
         self.askedArguments = askedArguments; self.askedSHA = askedSHA; self.askedMerge = askedMerge
         self.unchallengedReason = unchallengedReason; self.actedArguments = actedArguments; self.result = result
-        self.askedAt = askedAt
+        self.askedAt = askedAt; self.askedEvidence = askedEvidence
     }
 
     private enum CodingKeys: String, CodingKey {
+        case askedEvidence
         case id, tool, kind, stage, critique, approved, askedArguments, askedSHA, askedMerge, unchallengedReason, actedArguments, result, askedAt
     }
 
@@ -718,6 +741,7 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
         approved = try c.decodeIfPresent(Bool.self, forKey: .approved)
         askedArguments = try c.decodeIfPresent(String.self, forKey: .askedArguments)
         askedSHA = try c.decodeIfPresent(String.self, forKey: .askedSHA)
+        askedEvidence = try c.decodeIfPresent(String.self, forKey: .askedEvidence)
         askedMerge = try c.decodeIfPresent(Bool.self, forKey: .askedMerge)
         unchallengedReason = try c.decodeIfPresent(String.self, forKey: .unchallengedReason)
         actedArguments = try c.decodeIfPresent(String.self, forKey: .actedArguments)

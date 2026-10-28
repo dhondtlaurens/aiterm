@@ -58,6 +58,80 @@ import Synchronization
         return Merging(world: world, run: run, task: task, host: host, sha: fixture.sha, prompts: prompts)
     }
 
+    @Test func mergeReceivesAcceptedCheckEvidenceAndVerifiedMainAncestry() async throws {
+        let m = try merging(review: "Tests must pass on the accepted commit and include main.", answer: "YES")
+        _ = await m.world.call(m.run.id, "finish_task", ["task": "A"])
+        let prompt = try #require(m.prompts.list.first)
+        #expect(prompt.contains("12 passed"))
+        #expect(prompt.contains("checkOutput"))
+        #expect(prompt.contains("includesCurrentMain"))
+        #expect(prompt.contains("Earlier refusals are decisions, not test evidence"))
+        let status = await m.world.call(m.run.id, "run_status")
+        #expect(status.value?["tasks"]?.arrayValue?.first?["acceptanceEvidence"]?["checkOutput"] == "12 passed")
+    }
+
+    @Test func refreshingAcceptedEvidenceOnSameCommitReplacesOldOutput() async throws {
+        let m = try merging(answer: "YES")
+        let args: JSONValue = ["task": "A", "outcome": "accepted", "sha": .string(m.sha),
+            "checkOutput": "scripts/test.sh: 25 tests passed on this commit", "note": "Fresh verification after the earlier refusal."]
+        let critique = await m.world.call(m.run.id, "mark_task", args)
+        let id = try #require(critique.value?["challengeId"]?.stringValue)
+        let updated = await m.world.call(m.run.id, "mark_task", args.adding("challengeId", .string(id)))
+        #expect(updated.message == nil)
+        #expect(m.world.task(m.task.id)?.operated?.acceptance?.checkOutput == "scripts/test.sh: 25 tests passed on this commit")
+        #expect(m.world.task(m.task.id)?.operated?.acceptance?.note == "Fresh verification after the earlier refusal.")
+    }
+
+    @Test func evidenceRefreshCannotAttachToAnOldCommitAfterTheBranchMoved() async throws {
+        let m = try merging(answer: "YES")
+        try GitRunner.hermetic().run(["commit", "--allow-empty", "-q", "-m", "new work"], in: m.task.worktreePath)
+        var profile = m.run.profile; profile.oracle.isOn = false
+        try OperatorProfileStore.save(profile, m.world.ports.preferences!)
+        let answer = await m.world.call(m.run.id, "mark_task", ["task": "A", "outcome": "accepted", "sha": .string(m.sha),
+            "checkOutput": "Fresh pass for old commit"])
+        #expect(answer.message?.contains("accept the commit its branch is on") == true)
+        #expect(m.world.task(m.task.id)?.operated?.acceptance?.checkOutput == "12 passed")
+    }
+
+    @Test func savedOracleOffAndOnChangesSubsequentMergeChecks() async throws {
+        let m = try merging(answer: "NO\nRequired review is missing.")
+        var profile = m.run.profile; profile.oracle.isOn = false
+        try OperatorProfileStore.save(profile, m.world.ports.preferences!)
+        let without = await m.world.call(m.run.id, "finish_task", ["task": "A"])
+        #expect(without.value?["result"] == "waitingToMerge")
+        #expect(m.prompts.list.isEmpty)
+        profile.oracle.isOn = true
+        try OperatorProfileStore.save(profile, m.world.ports.preferences!)
+        let checked = await m.world.call(m.run.id, "finish_task", ["task": "A"])
+        #expect(checked.message?.contains("Required review is missing") == true)
+        #expect(m.prompts.list.count == 1 && publication(m)?.merged != true)
+    }
+
+    @Test func changedSameCommitEvidenceCannotReusePendingOracleVerdict() async throws {
+        let gate = OracleGate()
+        let m = try merging(answer: "YES", gate: gate, budget: .milliseconds(10))
+        let pending = await m.world.call(m.run.id, "finish_task", ["task": "A"])
+        let id = try #require(pending.value?["challengeId"]?.stringValue)
+        m.world.workspace.mutate { $0.updateOperated(m.task.id) { $0.acceptance?.checkOutput = "New verification evidence" } }
+        await gate.open()
+        await m.world.controller.tools.lastChallenge?.value
+        let answer = await m.world.call(m.run.id, "finish_task", ["task": "A", "challengeId": .string(id)])
+        #expect(answer.message?.contains("acceptance evidence or required checks changed") == true)
+        #expect(publication(m)?.conditionsHeld == nil && m.host.log.isEmpty)
+    }
+
+    @Test func changedTestingInstructionsRefreshPreviouslyApprovedMerge() async throws {
+        let m = try merging(answer: "YES")
+        #expect(await m.world.call(m.run.id, "finish_task", ["task": "A"]).value?["result"] == "waitingToMerge")
+        let before = m.prompts.list.count
+        m.world.workspace.mutate { $0.updateRun(id: m.run.id) { $0.done = "Require the full suite on this accepted commit." } }
+        _ = await m.world.call(m.run.id, "finish_task", ["task": "A"])
+        #expect(m.prompts.list.count == before + 1)
+        #expect(m.prompts.list.last?.contains("Require the full suite on this accepted commit.") == true)
+        let status = await m.world.call(m.run.id, "run_status")
+        #expect(status.value?["run"]?["done"] == "Require the full suite on this accepted commit.")
+    }
+
     func publication(_ m: Merging) -> TaskPublication? { m.world.task(m.task.id)?.operated?.publication }
 
     @Test(arguments: [true, false]) func mergeEndConditionsJudgeTheAcceptedCommitBeforePublication(approved: Bool) async throws {
