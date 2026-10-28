@@ -344,7 +344,7 @@ final class OperatorToolHandler {
         case .markTask: return try await markTask(call, in: run)
         case .resumeTask: return try resumeTask(call, in: run)
         case .retryTask: return try retryTask(call, in: run)
-        case .recordReview: return try recordReview(call, in: run)
+        case .recordReview: return try await recordReview(call, in: run)
         case .checkGoal: return try checkGoal(call, in: run)
         case .reviewTask: return try await reviewTask(call, in: run)
         case .requestReview: return try await requestReview(call, in: run)

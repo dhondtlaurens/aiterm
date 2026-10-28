@@ -161,7 +161,7 @@ public enum TabRole: String, Codable, Sendable { case work, review }
 /// the review prompt's own words, its fix round and the rounds the prompt names, and its findings counted.
 public struct ReviewVerdict: Codable, Equatable, Sendable {
     private var preservedFields = PreservedFields()
-    /// The Operator's idempotency key within its task; nil for a verdict saved before keys.
+    /// The Operator's idempotency key within its task; nil for a verdict saved without a key.
     public var key: String?
     /// The review tab's key.
     public var tab: String

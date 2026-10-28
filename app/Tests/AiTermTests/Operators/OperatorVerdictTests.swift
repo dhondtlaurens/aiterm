@@ -5,24 +5,13 @@ import Testing
 @testable import AiTermTestSupport
 
 @MainActor @Suite(.blocking) struct OperatorVerdictTests {
-    func fixture(agent: AgentKind = .codex, brief: String = "Operator's extra instructions.") throws -> (OperatorWorld, OperatorRun, TaskItem) {
-        let (world, run, task) = try OperatorOpenTabTests().makeWorld(change: { task in
-            task.operated?.extraTabs = [ExtraTab(key: "review", agent: agent, model: "review-model", reasoning: "high",
-                modelReason: "Review", brief: brief, launch: LaunchAttempt(number: 1, requestedAt: Date()), role: .review),
-                ExtraTab(key: "work", agent: .codex, model: "worker", reasoning: nil, modelReason: "Work", brief: "Work",
-                launch: LaunchAttempt(number: 1, requestedAt: Date()))]
-        })
-        world.workspace.mutate { $0.updateRun(id: run.id) { $0.taskSettings = TaskSettings(review: "Check correctness with /review.", end: .commit) } }
-        return (world, run, task)
-    }
-
     func arguments(sha: String, key: String = "first", passed: Bool = false) -> JSONValue {
         ["task": "PLUTO-1", "tab": "review", "sha": .string(sha), "key": .string(key), "passed": .bool(passed),
          "critical": 1, "important": 2, "minor": 3, "summary": "A race needs fixing.", "round": 1, "rounds": 2]
     }
 
-    @Test(arguments: [AgentKind.claude, .codex, .pi]) func reviewLaunchNamesBranchHeadAndKeepsReviewCapabilities(agent: AgentKind) async throws {
-        let (world, _, task) = try fixture(agent: agent, brief: String(repeating: "Operator context. ", count: 80))
+    @Test(arguments: [AgentKind.claude, .codex]) func reviewLaunchNamesBranchHeadAndKeepsReviewCapabilities(agent: AgentKind) async throws {
+        let (world, _, task) = try OperatorVerdictFixtures.make(agent: agent, brief: String(repeating: "Operator context. ", count: 80))
         let git = GitRunner.hermetic()
         let sha = try git.run(["rev-parse", "refs/heads/" + task.branch], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
         _ = try git.run(["checkout", "--detach"], in: task.worktreePath)
@@ -37,41 +26,110 @@ import Testing
         #expect(prompt.contains("subagents") && prompt.contains("read-only commands"))
         #expect(!prompt.contains("Commit only your own changes"))
         for field in ["passed:", "critical:", "important:", "minor:", "summary:"] { #expect(prompt.contains(field)) }
-        #expect(prompt.hasSuffix(tab.brief))
-        switch agent {
-        case .claude:
+        #expect(prompt.contains(tab.brief + "\n\n" + ReviewVerdict.block))
+        #expect(prompt.hasSuffix(ReviewVerdict.block))
+        if agent == .claude {
             for denial in AgentCommand.operatedClaudeDenials + ["Edit", "Write", "NotebookEdit"] {
                 #expect(command.contains(" " + AgentCommand.shellWord(denial) + " "))
             }
             #expect(command.contains("--permission-mode auto"))
             #expect(!command.contains("--allowedTools") && !command.contains("'Bash(git *)'") && !command.contains(" Task "))
-        case .codex:
+        } else {
             #expect(command.contains("--sandbox read-only"))
             #expect(!command.contains("--dangerously-bypass-approvals-and-sandbox"))
-        case .pi:
-            #expect(prompt.contains("no read-only mode"))
         }
     }
 
     @Test func reviewWithNoOperatorBriefStillHasInstructionsAndVerdict() async throws {
-        let (world, _, task) = try fixture(brief: "")
+        let (world, _, task) = try OperatorVerdictFixtures.make(brief: "")
         let tab = try #require(world.task(task.id)?.operated?.extraTabs.first)
         #expect(await world.controller.tabs.open(.init(task: task.id, key: tab.key), attempt: tab.launch) == .opened)
         let command = try #require(world.daemon.requests("tab.create").first?.params["agentCommand"] as? String)
         let file = task.worktreePath + "/.aiterm/" + TabOpener.promptFile(for: tab.key)
-        let text = (try? String(contentsOfFile: file, encoding: .utf8)) ?? command
-        #expect(text.contains("Check correctness with /review."))
-        #expect(text.contains("passed:") && text.contains("summary:"))
+        #expect(!FileManager.default.fileExists(atPath: file), "this short Codex prompt is inline")
+        #expect(!command.contains("$(command cat"))
+        #expect(command.contains("Check correctness with /review."))
+        #expect(command.contains("passed:") && command.contains("summary:"))
+    }
+
+    @Test func reviewTabsNeverUseLegacyReviewText() async throws {
+        let (world, run, task) = try OperatorVerdictFixtures.make(brief: String(repeating: "Context. ", count: 200))
+        world.workspace.mutate { $0.updateRun(id: run.id) {
+            $0.taskSettings?.review = nil
+            $0.review = "Legacy instructions must not reach this tab."
+        } }
+        let tab = try #require(world.task(task.id)?.operated?.extraTabs.first)
+        #expect(await world.controller.tabs.open(.init(task: task.id, key: tab.key), attempt: tab.launch) == .opened)
+        let command = try #require(world.daemon.requests("tab.create").first?.params["agentCommand"] as? String)
+        #expect(command.contains("$(command cat"))
+        let prompt = try String(contentsOfFile: task.worktreePath + "/.aiterm/" + TabOpener.promptFile(for: tab.key), encoding: .utf8)
+        #expect(!prompt.contains("Legacy instructions"))
+    }
+
+    @Test func overlappingKeysReturnOneRecordedVerdict() async throws {
+        let git = HeldVerdictGit()
+        let (world, run, task) = try OperatorVerdictFixtures.make(git: git)
+        let sha = try GitRunner.hermetic().run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
+        let first = Task { await world.call(run.id, "record_review", arguments(sha: sha)) }
+        let second = Task { await world.call(run.id, "record_review", arguments(sha: sha, passed: true)) }
+        #expect(await eventually(describing: "both verdicts reading git off the main thread") { git.waiting == 2 })
+        git.open()
+        let answer = await first.value
+        #expect(answer.value?["verdicts"]?.arrayValue?.count == 1)
+        #expect(await second.value == answer)
+        #expect(world.task(task.id)?.operated?.reviewVerdicts.count == 1)
+    }
+
+    @Test func overlappingDifferentKeysAnswerTheFreshVerdictList() async throws {
+        let git = HeldVerdictGit()
+        let (world, run, task) = try OperatorVerdictFixtures.make(git: git)
+        let sha = try GitRunner.hermetic().run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
+        let first = Task { await world.call(run.id, "record_review", arguments(sha: sha)) }
+        let second = Task { await world.call(run.id, "record_review", arguments(sha: sha, key: "second")) }
+        #expect(await eventually(describing: "both keys reading git") { git.waiting == 2 })
+        git.open()
+        let answers = [await first.value, await second.value]
+        #expect(answers.compactMap { $0.value?["verdicts"]?.arrayValue?.count }.sorted() == [1, 2])
+        #expect(world.task(task.id)?.operated?.reviewVerdicts.count == 2)
+    }
+
+    @Test(arguments: ["takeover", "ownership", "branch", "worktree", "tabRole", "tabReplaced", "tabRemoved", "taskRemoved", "pause", "ended"])
+    func changesDuringTheCommitReadRefuseTheVerdict(change: String) async throws {
+        let git = HeldVerdictGit()
+        let (world, run, task) = try OperatorVerdictFixtures.make(git: git)
+        let sha = try GitRunner.hermetic().run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
+        let pending = Task { await world.call(run.id, "record_review", arguments(sha: sha)) }
+        #expect(await eventually(describing: "verdict reading git off the main thread") { git.waiting == 1 })
+        world.workspace.mutate { state in
+            switch change {
+            case "pause": state.updateRun(id: run.id) { $0.intent = .paused }
+            case "ended": state.updateRun(id: run.id) { $0.intent = .stopped }
+            case "taskRemoved": state.tasks.removeAll { $0.id == task.id }
+            case "takeover": state.updateOperated(task.id) { $0.takenOver = true }
+            case "ownership": state.updateOperated(task.id) { $0.ownership += 1 }
+            case "tabReplaced": state.updateOperated(task.id) { $0.extraTabs[0].agent = .claude }
+            case "tabRole": state.updateOperated(task.id) { $0.extraTabs[0].role = .work }
+            case "tabRemoved": state.updateOperated(task.id) { $0.extraTabs.removeFirst() }
+            default:
+                if let i = state.tasks.firstIndex(where: { $0.id == task.id }) {
+                    if change == "branch" { state.tasks[i].branch = "other" }
+                    else { state.tasks[i].worktreePath += "-moved" }
+                }
+            }
+        }
+        git.open()
+        #expect(await pending.value.message != nil)
+        #expect(world.task(task.id)?.operated?.reviewVerdicts.isEmpty != false)
     }
 
     @Test func newRunsRefuseHeadlessReview() async throws {
-        let (world, run, _) = try fixture()
+        let (world, run, _) = try OperatorVerdictFixtures.make()
         #expect(await world.call(run.id, "review_task", ["task": "PLUTO-1", "instructions": "Review."]).message
             == "Run the review in a tab: open_tab with role review, then record_review.")
     }
 
     @Test func recordsVerdictsAndReplaysTheOriginalPrefixAfterAnotherReviewAndReload() async throws {
-        let (world, run, task) = try fixture()
+        let (world, run, task) = try OperatorVerdictFixtures.make()
         let sha = try GitRunner.hermetic().run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
         let first = await world.call(run.id, "record_review", arguments(sha: sha))
         #expect(first.message == nil)
@@ -91,7 +149,7 @@ import Testing
     }
 
     @Test(arguments: ["main", "work", "missing"]) func refusesTabsThatAreNotThisTasksReview(tab: String) async throws {
-        let (world, run, task) = try fixture()
+        let (world, run, task) = try OperatorVerdictFixtures.make()
         let sha = try GitRunner.hermetic().run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
         var args = try #require(arguments(sha: sha).objectValue)
         args["tab"] = .string(tab)
@@ -102,7 +160,7 @@ import Testing
 
     @Test(arguments: ["passed", "critical", "important", "minor", "round", "rounds", "summary"])
     func refusesMalformedVerdictFields(field: String) async throws {
-        let (world, run, task) = try fixture()
+        let (world, run, task) = try OperatorVerdictFixtures.make()
         let sha = try GitRunner.hermetic().run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
         var args = try #require(arguments(sha: sha).objectValue)
         args[field] = field == "summary" ? "Two\nlines" : "wrong type"
@@ -112,7 +170,7 @@ import Testing
 
     @Test(arguments: ["critical", "important", "minor", "round", "rounds"])
     func refusesNegativeCountsAndRounds(field: String) async throws {
-        let (world, run, task) = try fixture()
+        let (world, run, task) = try OperatorVerdictFixtures.make()
         let sha = try GitRunner.hermetic().run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
         var args = try #require(arguments(sha: sha).objectValue)
         args[field] = -1
@@ -121,7 +179,7 @@ import Testing
     }
 
     @Test func refusesACommitOffTheTaskBranchButAcceptsAnAncestor() async throws {
-        let (world, run, task) = try fixture()
+        let (world, run, task) = try OperatorVerdictFixtures.make()
         let git = GitRunner.hermetic(), path = task.worktreePath
         let ancestor = try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
         _ = try git.run(["commit", "--allow-empty", "-m", "Task branch advances"], in: path)

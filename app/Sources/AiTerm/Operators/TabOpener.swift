@@ -63,17 +63,18 @@ final class TabOpener {
         let task = found.task, tab = found.tab
         let worktree = task.worktreePath, git = ports.git
         let run = task.operated.flatMap { state.run(id: $0.runId) }
-        let review = run?.taskSettings?.review ?? run?.review
+        let review = run?.taskSettings?.review
         let workerPrompt = tab.role == .work ? Self.prompt(branch: task.branch, brief: tab.brief) : ""
         let file = Self.promptFile(for: id.key)
         do {
+            // The Operator's worker flags, its own prompt file: the task's other workers started in this worktree too.
             // Read the named branch when opening the review, not HEAD: the shared worktree may have moved.
             let command = try await BackgroundWork.run {
                 let prompt: String
                 if tab.role == .review {
                     let sha = try git.run(["rev-parse", "--verify", "refs/heads/" + task.branch + "^{commit}"], in: worktree)
                         .trimmingCharacters(in: .whitespacesAndNewlines)
-                    prompt = Self.reviewPrompt(branch: task.branch, sha: sha, review: review, brief: tab.brief, agent: tab.agent)
+                    prompt = Self.reviewPrompt(branch: task.branch, sha: sha, review: review, brief: tab.brief)
                 } else {
                     prompt = workerPrompt
                 }
@@ -154,15 +155,11 @@ final class TabOpener {
         WorkerStarter.worktreeLine(branch: branch) + "\n\n" + sharedLine + "\n\n" + brief
     }
 
-    /// The person's review prompt first, AiTerm's review-only instructions, then the Operator's optional context.
-    nonisolated static func reviewPrompt(branch: String, sha: String, review: String?, brief: String, agent: AgentKind) -> String {
-        var parts = [review ?? "", "[AiTerm] Review commit \(sha), the head of branch \(branch) when this tab opened. You are in this task's shared worktree.",
+    /// The person's review prompt, AiTerm's review-only instructions, the Operator's context, and the verdict block last.
+    nonisolated static func reviewPrompt(branch: String, sha: String, review: String?, brief: String) -> String {
+        let parts = [review ?? "", "[AiTerm] Review commit \(sha), the head of branch \(branch) when this tab opened. You are in this task's shared worktree.",
                      "[AiTerm] This tab only reviews: it never edits, commits or pushes. You may start subagents and run read-only commands.",
-                     ReviewVerdict.block]
-        if agent == .pi {
-            parts.append("[AiTerm] PI has no read-only mode for interactive sessions. This tab starts with the worker's denials alone; the review-only instructions still apply.")
-        }
-        parts.append(brief)
+                     brief, ReviewVerdict.block]
         return parts.filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 

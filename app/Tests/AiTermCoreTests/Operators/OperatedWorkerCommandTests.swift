@@ -53,6 +53,22 @@ import Foundation
                 == "claude --model opus")
     }
 
+    @Test func reviewWorkersKeepTheirModelAndReadOnlyCapabilities() {
+        let claude = AgentCommand.workerWords(agent: .claude, model: "opus", reasoning: "high", readOnly: true)
+        #expect(claude == ["claude", "--model", "opus", "--effort", "high", "--disallowedTools"]
+            + AgentCommand.operatedClaudeDenials + ["Edit", "Write", "NotebookEdit", "--permission-mode", "auto"])
+        #expect(AgentCommand.workerWords(agent: .codex, model: "gpt-6-astra", reasoning: "medium", readOnly: true)
+            == ["codex", "-m", "gpt-6-astra", "-c", "model_reasoning_effort=medium", "--sandbox", "read-only", "--ask-for-approval", "never"])
+    }
+
+    @Test func readOnlyDoesNotChangeAPersonsLaunch() throws {
+        for agent in [AgentKind.claude, .codex] {
+            #expect(try AgentCommand.build(agent: agent, model: "m", reasoning: nil, prompt: nil, worktreePath: wt,
+                                           git: .hermetic(), readOnly: true)
+                == AgentCommand.previewCommand(agent: agent, model: "m", reasoning: nil, prompt: nil))
+        }
+    }
+
     @Test func onlyClaudeAndCodexAreOfferedToAnOperator() {
         #expect(AgentCommand.operatedAgents == [.claude, .codex])
         #expect(AgentCommand.workerWords(agent: .pi, model: "anthropic/claude-sonnet", reasoning: nil) == ["pi", "--model", "anthropic/claude-sonnet"])

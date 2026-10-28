@@ -21,7 +21,7 @@ public enum AgentCommand {
     /// footer preview can never drift from the command that is actually run. Every word goes
     /// through `shellWord`: the model and reasoning come from catalogues the app does not write.
     static func invocation(agent: AgentKind, model: String, reasoning: String?, operated: Bool = false, readOnly: Bool = false) -> [String] {
-        let words = operated || readOnly ? workerWords(agent: agent, model: model, reasoning: reasoning, readOnly: readOnly)
+        let words = operated ? workerWords(agent: agent, model: model, reasoning: reasoning, readOnly: readOnly)
             : agent.harness.launchWords(model: model, reasoning: reasoning)
         return words.map(shellWord)
     }
@@ -43,18 +43,19 @@ public enum AgentCommand {
     /// - Codex: the same `--dangerously-bypass-approvals-and-sandbox` as a task you make.
     /// - PI is not offered to the Operator (`operatedAgents`) and launches as it always does.
     /// Review tabs add Claude's file-edit denials or use Codex's read-only sandbox. Neither removes subagents or
-    /// read-only shell commands. PI has no interactive read-only mode, so it keeps the worker's launch words.
+    /// read-only shell commands.
     public static func workerWords(agent: AgentKind, model: String, reasoning: String?, readOnly: Bool = false) -> [String] {
+        if agent == .codex, readOnly {
+            let harness = agent.harness
+            return [harness.executable] + harness.modelArguments(model: model, reasoning: reasoning)
+                + ["--sandbox", "read-only", "--ask-for-approval", "never"]
+        }
         let words = agent.harness.launchWords(model: model, reasoning: reasoning)
         switch agent {
         case .claude:
             let denials = operatedClaudeDenials + (readOnly ? ["Edit", "Write", "NotebookEdit"] : [])
             return words + ["--disallowedTools"] + denials + ["--permission-mode", "auto"]
-        case .codex:
-            return readOnly
-                ? words.filter { $0 != "--dangerously-bypass-approvals-and-sandbox" } + ["--sandbox", "read-only", "--ask-for-approval", "never"]
-                : words
-        case .pi:
+        case .codex, .pi:
             return words
         }
     }

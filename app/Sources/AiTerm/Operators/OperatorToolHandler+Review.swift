@@ -1,8 +1,8 @@
 import Foundation
 import AiTermCore
 
-/// Reviews (spec §3.1, §5). An agent review is the base: `review_task` has another agent read a working task's
-/// branch headless and read-only, and nobody is notified. People are the Review slice: `request_review` marks the
+/// Reviews (spec §3.1, §5). On legacy runs, `review_task` has another agent read a working task's branch headless
+/// and read-only; new runs use a review tab and `record_review`. People are the Review slice: `request_review` marks the
 /// request ready and asks its reviewers, `reply_thread` answers in a thread, each refused unless the broadcast's
 /// frozen slice allows it, and the refusal leaves what was not done for the person once. `find_user` only reads.
 extension OperatorToolHandler {
@@ -12,7 +12,7 @@ extension OperatorToolHandler {
 
     // -- the agent review (base) ---------------------------------------------------------------
 
-    /// Starts an agent review of a working task's branch and answers at once; AiTerm wakes the Operator with the
+    /// Starts a legacy run's agent review of a working task's branch and answers at once; AiTerm wakes the Operator with the
     /// findings, which `read_task` with `what: review` reads. A review running already, or one of the same commit
     /// with the same instructions done already, is not started again.
     func reviewTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
