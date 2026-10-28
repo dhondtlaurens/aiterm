@@ -287,37 +287,68 @@ swift_test() {
 # One host per test target, so that is what a full run must report; pinning its test count instead
 # would churn on every test added. No test raises a real modal alert — the app's questions go
 # through a `Prompter` that tests script, and the test controller's default one fails the test on a
-# question nobody scripted — so every test runs in this one pass. (AiTermTestSupport is a library,
-# not a test target: it adds no host.)
+# question nobody scripted — so no test needs a pass of its own for that. (AiTermTestSupport is a
+# library, not a test target: it adds no host.)
 # A run filtered to selectors (^<Target>\. for a target, ^<Target>\.<Suite>/ for a suite: Swift
 # Testing's IDs read AiTermCoreTests.ReleaseFeedTests/missingFeedIsNoFeed()) reports only the hosts
 # its filters reach. Measured on Swift 6.4: a host the filters match nothing in prints no "Test run
 # with" line at all, not one with 0 tests, so filters on a Core and a UI suite printed two, none for
 # AiTermTests. Every selector names a target with tests in it, so the run must report exactly one
 # line per distinct target the selectors name, and each named suite its own passing line.
+# The snapshot suites run in a pass of their own, after the rest (SNAPSHOT_SUITES says why); a run
+# that reaches none of them has no such pass.
 # Arguments after `--` narrow the run to hosts that are not known beforehand, so it is green when at
-# least one finished and every one that did passed.
+# least one finished and every one that did passed. They run as given, in one pass.
 swift_suite() {
     if (( ${#SWIFT_ARGS} )); then
         swift_test main '' '' "${SWIFT_ARGS[@]}"
-    elif (( ${#SWIFT_SELECTORS} )); then
-        local item rest filters=() targets=() suites=()
+        return
+    fi
+    local item rest filters=() targets=() suites=() skips=() snapshots=()
+    for item in $SNAPSHOT_SUITES; do skips+=(--skip "^${item%%.*}\\.${item#*.}/"); done
+    if (( ${#SWIFT_SELECTORS} )); then
         for item in $SWIFT_SELECTORS; do
             rest="${item#*:}"
+            if (( ${SNAPSHOT_SUITES[(Ie)$rest]} )); then
+                snapshots+=("$rest")
+                continue
+            fi
             targets+=("${rest%%.*}")
             if [[ "$item" == suite:* ]]; then
                 suites+=("${rest#*.}")
                 filters+=(--filter "^${rest%%.*}\\.${rest#*.}/")
             else
                 filters+=(--filter "^$rest\\.")
+                snapshots+=(${(M)SNAPSHOT_SUITES:#$rest.*})
             fi
         done
         targets=(${(u)targets})
-        swift_test main "${#targets}" "${suites[*]}" "${filters[@]}"
+        if (( ${#filters} )); then
+            swift_test main "${#targets}" "${suites[*]}" "${filters[@]}" "${skips[@]}" || return 1
+        fi
     else
-        swift_test main "$(grep -c '\.testTarget(' "$ROOT/app/Package.swift")" ''
+        swift_test main "$(grep -c '\.testTarget(' "$ROOT/app/Package.swift")" '' "${skips[@]}" || return 1
+        snapshots=($SNAPSHOT_SUITES)
     fi
+
+    snapshots=(${(u)snapshots})
+    (( ${#snapshots} )) || return 0
+    filters=() targets=() suites=()
+    for item in $snapshots; do
+        targets+=("${item%%.*}")
+        suites+=("${item#*.}")
+        filters+=(--filter "^${item%%.*}\\.${item#*.}/")
+    done
+    targets=(${(u)targets})
+    swift_test snapshots "${#targets}" "${suites[*]}" "${filters[@]}"
 }
+
+# The snapshot suites, as <Target>.<Suite>: every suite named *SnapshotTests. They draw each image
+# twice and hold the two to the same bytes. Beside suites that host windows, the setup sheet's AppKit
+# stand-ins drew one colour level apart from one drawing to the next, so they run apart from every
+# other suite rather than with a looser comparison.
+SNAPSHOT_SUITES=(${(f)"$( (cd "$ROOT/app/Tests" 2>/dev/null && grep -rEo '^(@[A-Za-z]+ )*struct [A-Za-z0-9_]+SnapshotTests\b' .) \
+    | sed -E 's|^\./([^/]+)/.*struct ([A-Za-z0-9_]+)$|\1.\2|' | sort -u)"})
 
 # The preferences domains naming AiTerm, one file name per line. A test's UserDefaults suite named
 # like an app lands in ~/Library/Preferences and stays there, if only as an empty plist

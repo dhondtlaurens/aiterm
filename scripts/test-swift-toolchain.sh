@@ -165,14 +165,15 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
         if [[ "$runner_status" != 73 || "$(<"$calls")" != pytest ]] || ! grep -Fq "test selector guard passed" "$bad_output"; then
             fail "expected a daemon-only change to run the reader guard before the daemon's tests (status $runner_status)"
         fi
-        changed_case "app code" 0 'swift test --filter ^AiTermUITests\.DesignRulesTests/ --filter ^AiTermTests\.' \
-            app/Sources/AiTerm/X.swift
+        # The snapshot suites a target holds run in a pass of their own, after the rest of it.
+        app_main='swift test --filter ^AiTermUITests\.DesignRulesTests/ --filter ^AiTermTests\. --skip ^AiTermTests\.BroadcastSetupSnapshotTests/ --skip ^AiTermTests\.OperatorSnapshotTests/'
+        app_snapshots='swift test --filter ^AiTermTests\.BroadcastSetupSnapshotTests/ --filter ^AiTermTests\.OperatorSnapshotTests/'
+        changed_case "app code" 0 "$app_main"$'\n'"$app_snapshots" app/Sources/AiTerm/X.swift
         grep -Fq "app/Sources/AiTerm/X.swift" "$bad_output" || fail "expected the selection to name the path that picked it"
         changed_case "docs only, with swift test arguments" 0 'swift test --filter fixture' docs/x.md -- --filter fixture
         # A filtered run must reach every host its selectors name and finish every suite they name.
         for result in nosuite onehost; do
-            AITERM_FIXTURE_TEST_RUN="$result" changed_case "app code, $result" 1 \
-                'swift test --filter ^AiTermUITests\.DesignRulesTests/ --filter ^AiTermTests\.' app/Sources/AiTerm/X.swift
+            AITERM_FIXTURE_TEST_RUN="$result" changed_case "app code, $result" 1 "$app_main" app/Sources/AiTerm/X.swift
         done
 
         # A git that finds the merge base but then fails to list the changes must stop the run: going
