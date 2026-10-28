@@ -162,7 +162,8 @@ final class TabOpener {
         let parts = [review ?? "", WorkerStarter.worktreeLine(branch: branch),
                      "[AiTerm] Review commit \(sha), the head of branch \(branch) when this tab opened. "
                         + "You share this worktree with this task's other workers.",
-                     "[AiTerm] This tab only reviews: it never edits, commits or pushes. You may start subagents and run read-only commands.",
+                     "[AiTerm] This tab only reviews: it never edits, commits or pushes, so \"Commit only here\" above is for this task's "
+                        + "other workers. You may start subagents and run read-only commands.",
                      brief, ReviewVerdict.block(sha: sha)]
         return parts.filter { !$0.isEmpty }.joined(separator: "\n\n")
     }

@@ -58,7 +58,7 @@ import Foundation
         #expect(claude == ["claude", "--model", "opus", "--effort", "high", "--disallowedTools"]
             + AgentCommand.operatedClaudeDenials + ["Edit", "Write", "NotebookEdit", "--permission-mode", "auto"])
         #expect(AgentCommand.workerWords(agent: .codex, model: "gpt-6-astra", reasoning: "medium", readOnly: true)
-            == ["codex", "-m", "gpt-6-astra", "-c", "model_reasoning_effort=medium", "--sandbox", "read-only", "--ask-for-approval", "never"])
+            == ["codex", "--sandbox", "read-only", "--ask-for-approval", "never", "-m", "gpt-6-astra", "-c", "model_reasoning_effort=medium"])
     }
 
     @Test func readOnlyDoesNotChangeAPersonsLaunch() throws {

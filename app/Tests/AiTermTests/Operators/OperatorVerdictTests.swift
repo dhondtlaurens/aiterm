@@ -21,7 +21,8 @@ import Testing
         [AiTerm] Review commit abc123, the head of branch task-branch when this tab opened. You share this worktree with this \
         task's other workers.
 
-        [AiTerm] This tab only reviews: it never edits, commits or pushes. You may start subagents and run read-only commands.
+        [AiTerm] This tab only reviews: it never edits, commits or pushes, so "Commit only here" above is for this task's \
+        other workers. You may start subagents and run read-only commands.
         """
         let block = """
         End with this verdict block, replacing the placeholders. Set passed by the review prompt's criteria. \
@@ -85,6 +86,47 @@ import Testing
         #expect(world.task(task.id)?.operated?.reviewVerdicts.isEmpty == true)
     }
 
+    @Test func refusesAShortSHAThatMatchesMoreThanOneCommit() async throws {
+        let (world, run, task) = try OperatorVerdictFixtures.make()
+        // Two commits whose SHAs share 5ef3, written as objects alone: their contents fix their SHAs.
+        for n in [1, 626] {
+            let file = task.worktreePath + "/.git-ambiguous-\(n)"
+            try "tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\nauthor A <a@example.com> 0 +0000\ncommitter A <a@example.com> 0 +0000\n\nAmbiguous \(n)\n"
+                .write(toFile: file, atomically: true, encoding: .utf8)
+            _ = try GitRunner.hermetic().run(["hash-object", "-t", "commit", "-w", file], in: task.worktreePath)
+        }
+        #expect(await world.call(run.id, "record_review", arguments(sha: "5ef3")).message
+            == "sha 5ef3 matches more than one object; give more of its digits.")
+        #expect(world.task(task.id)?.operated?.reviewVerdicts.isEmpty == true)
+    }
+
+    @Test func withNoBaseBranchTheRepositorysOwnDefaultIsTheBase() async throws {
+        let (world, run, task) = try OperatorVerdictFixtures.make()
+        let git = GitRunner.hermetic(), path = task.worktreePath
+        let base = try git.run(["rev-parse", "refs/heads/main"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = try git.run(["branch", "-m", "main", "trunk"], in: path)
+        _ = try git.run(["update-ref", "refs/remotes/origin/trunk", base], in: path)
+        _ = try git.run(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk"], in: path)
+        world.workspace.mutate { state in
+            if let i = state.tasks.firstIndex(where: { $0.id == task.id }) { state.tasks[i].baseBranch = "" }
+        }
+        #expect(await world.call(run.id, "record_review", arguments(sha: base)).message
+            == "sha must be one of PLUTO-1's own commits, not one already on trunk.")
+    }
+
+    @Test func withNoBaseBranchAndNoDefaultNoVerdictIsRecorded() async throws {
+        let (world, run, task) = try OperatorVerdictFixtures.make()
+        let git = GitRunner.hermetic(), path = task.worktreePath
+        let sha = try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = try git.run(["branch", "-m", "main", "trunk"], in: path)
+        world.workspace.mutate { state in
+            if let i = state.tasks.firstIndex(where: { $0.id == task.id }) { state.tasks[i].baseBranch = "" }
+        }
+        #expect(await world.call(run.id, "record_review", arguments(sha: sha)).message
+            == "AiTerm can't tell PLUTO-1's own commits: it has no base branch and its repository names no default branch.")
+        #expect(world.task(task.id)?.operated?.reviewVerdicts.isEmpty == true)
+    }
+
     @Test func aGitFailureIsNotCalledACommitOffTheBranch() async throws {
         let (world, run, task) = try OperatorVerdictFixtures.make(git: TimedOutVerdictGit())
         let sha = try GitRunner.hermetic().run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -112,6 +154,15 @@ import Testing
         #expect(await pending.value.value?["verdicts"]?.arrayValue?.count == 1)
         #expect(world.task(task.id)?.operated?.extraTabs[0].conversation == conversation)
         #expect(world.task(task.id)?.operated?.reviewVerdicts.first?.sha == sha)
+    }
+
+    @Test func refusesRoundZero() async throws {
+        let (world, run, task) = try OperatorVerdictFixtures.make()
+        let sha = try GitRunner.hermetic().run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
+        var args = try #require(arguments(sha: sha).objectValue)
+        args["round"] = 0
+        #expect(await world.call(run.id, "record_review", .object(args)).message == "round must be an integer of at least 1.")
+        #expect(world.task(task.id)?.operated?.reviewVerdicts.isEmpty == true)
     }
 
     @Test(arguments: [0, -1, 1])

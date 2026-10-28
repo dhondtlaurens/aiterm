@@ -12,6 +12,7 @@ extension Harness {
         skillSigil: "/", hookEndpoint: "/hook/claude",
         bundledResource: .script("claude-statusline-shim.sh"),
         launchArguments: { Harness.claude.modelArguments(model: $0, reasoning: $1) },
+        readOnlyArguments: nil,
         resumeArguments: { ["--resume", $0] },
         models: .files(sources: { ModelFiles.claudeSources(home: $0, claudeConfig: config) }, read: { ModelFiles.claudeModels(home: $0, claudeConfig: config) }),
         skillRoots: { home, project in
@@ -40,6 +41,10 @@ extension Harness {
         launchArguments: { model, reasoning in
             ["--dangerously-bypass-approvals-and-sandbox"] + Harness.codex.modelArguments(model: model, reasoning: reasoning)
         },
+        // Its read-only sandbox, never asking: there is no one at the tab to approve.
+        readOnlyArguments: { model, reasoning in
+            ["--sandbox", "read-only", "--ask-for-approval", "never"] + Harness.codex.modelArguments(model: model, reasoning: reasoning)
+        },
         resumeArguments: { ["resume", $0] },       // a subcommand: its options follow the id
         models: .files(sources: { ModelFiles.codexSources(home: $0) }, read: { ModelFiles.codexModels(home: $0) }),
         skillRoots: { home, project in
@@ -67,6 +72,7 @@ extension Harness {
         skillSigil: "/", hookEndpoint: "/hook/pi",
         bundledResource: .source("pi-aiterm-status.ts"),
         launchArguments: { Harness.pi.modelArguments(model: $0, reasoning: $1) },
+        readOnlyArguments: nil,
         resumeArguments: { ["--session", $0] },    // a session id or file
         models: .launch(sources: { PiModelCatalog.sources(home: $0) },
                         list: { try PiModelCatalog.discover(executable: $0, runner: $1) }),
