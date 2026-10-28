@@ -62,10 +62,19 @@ import Foundation
     }
 
     @Test func aClaudeReviewTabWritesNeitherFilesNorGit() {
-        #expect(AgentCommand.reviewClaudeDenials == ["Edit", "Write", "NotebookEdit", "Bash(git commit:*)", "Bash(git checkout:*)",
-            "Bash(git switch:*)", "Bash(git reset:*)", "Bash(git rebase:*)", "Bash(git merge:*)", "Bash(git stash:*)", "Bash(git add:*)"])
+        #expect(AgentCommand.reviewClaudeDenials == ["Edit", "Write", "NotebookEdit",
+            "Bash(git commit:*)", "Bash(git -C * commit:*)", "Bash(git * commit:*)",
+            "Bash(git checkout:*)", "Bash(git -C * checkout:*)", "Bash(git * checkout:*)",
+            "Bash(git switch:*)", "Bash(git -C * switch:*)", "Bash(git * switch:*)",
+            "Bash(git reset:*)", "Bash(git -C * reset:*)", "Bash(git * reset:*)",
+            "Bash(git rebase:*)", "Bash(git -C * rebase:*)", "Bash(git * rebase:*)",
+            "Bash(git merge:*)", "Bash(git -C * merge:*)", "Bash(git * merge:*)",
+            "Bash(git stash:*)", "Bash(git -C * stash:*)", "Bash(git * stash:*)",
+            "Bash(git add:*)", "Bash(git -C * add:*)", "Bash(git * add:*)"])
         // git push is the worker's denial already, kept by every review tab.
-        #expect(AgentCommand.operatedClaudeDenials.contains("Bash(git push:*)"))
+        for form in ["Bash(git push:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"] {
+            #expect(AgentCommand.operatedClaudeDenials.contains(form))
+        }
     }
 
     @Test func readOnlyDoesNotChangeAPersonsLaunch() throws {

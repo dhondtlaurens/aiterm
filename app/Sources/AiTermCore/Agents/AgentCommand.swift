@@ -35,9 +35,12 @@ public enum AgentCommand {
     public static let operatedClaudeDenials = ["AskUserQuestion", "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"]
 
     /// What a Claude review tab may never do on top of `operatedClaudeDenials`, which deny its push already: write a
-    /// file, or write through git, so the commit it reviews is the one it reads.
-    public static let reviewClaudeDenials = ["Edit", "Write", "NotebookEdit", "Bash(git commit:*)", "Bash(git checkout:*)",
-        "Bash(git switch:*)", "Bash(git reset:*)", "Bash(git rebase:*)", "Bash(git merge:*)", "Bash(git stash:*)", "Bash(git add:*)"]
+    /// file, or write through git, so the commit it reviews is the one it reads. Each git command is denied in the
+    /// three forms the push is: plain, after `-C <dir>`, and after any other option.
+    public static let reviewClaudeDenials = ["Edit", "Write", "NotebookEdit"]
+        + ["commit", "checkout", "switch", "reset", "rebase", "merge", "stash", "add"].flatMap { command in
+            ["Bash(git \(command):*)", "Bash(git -C * \(command):*)", "Bash(git * \(command):*)"]
+        }
 
     /// A worker's launch words, unquoted, when the Operator drives its task: one profile for every
     /// broadcast, whatever the slices (spec §12's worker launch profile):
