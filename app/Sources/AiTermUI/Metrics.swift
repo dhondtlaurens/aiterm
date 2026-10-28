@@ -233,3 +233,9 @@ public enum Sheet {
     /// show at once and the row of columns scrolls sideways (the Operator sheet, option 1B, 21 Oct 2026).
     public static let boardColumn: CGFloat = 236
 }
+
+/// How far a control fades while it can't be used: a segment `SegmentedControl`'s `isSelectable` rejects, Settings ›
+/// Operator's Oracle fields while it is off, and New Broadcast's goal editor and Extra rounds field while the Oracle is.
+public enum Opacity {
+    public static let disabled: Double = 0.4
+}

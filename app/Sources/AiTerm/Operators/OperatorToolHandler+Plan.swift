@@ -167,7 +167,7 @@ extension OperatorToolHandler {
         if end.merges, !run.profile.slices.merge {
             throw refusal("Merge is off for this broadcast", legacyAdvice: "end it at a commit or a draft MR.")
         }
-        if (end == .draftMR || end == .merge), !connected {
+        if end.needsCodeHost, !connected {
             throw refusal("\(project.name) has no connected code host", legacyAdvice: "end it at a commit.")
         }
     }

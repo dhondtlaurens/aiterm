@@ -9,4 +9,9 @@ struct MetricsTests {
         #expect(Size.inlineMark == 12)
         #expect(Sheet.boardColumn == 236)
     }
+
+    /// A control that can't be used now is faded to the opacity `SegmentedControl` gives a segment it rejects.
+    @Test func aDisabledControlsOpacity() {
+        #expect(Opacity.disabled == 0.4)
+    }
 }

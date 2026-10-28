@@ -165,7 +165,7 @@ final class SheetCoordinator {
     func presentNewBroadcast(context: NewBroadcastContext, loadJiraProjects: @escaping @MainActor () async throws -> [JiraProjectRef],
                              readiness: @escaping @MainActor () -> BroadcastReadiness = { .ready },
                              checkReadiness: @escaping @MainActor () async -> Void = {},
-                             hasCodeHost: @escaping @Sendable (Project) async -> Bool = { _ in true },
+                             hasCodeHost: (@Sendable (Project) async -> Bool)? = nil,
                              start: @escaping @MainActor (NewBroadcastModel.Request) async throws -> UUID) {
         guard canChangeWorkspace, sheet == nil else { return }
         preparingSheet?.cancel()

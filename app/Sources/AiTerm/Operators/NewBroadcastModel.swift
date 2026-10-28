@@ -70,6 +70,8 @@ final class NewBroadcastModel: Identifiable {
     private var pickedEnd = TaskEnd.draftMR
     /// The chosen projects found with no connected code host, as last checked: Draft MR and Merge wait for none.
     private(set) var projectsWithoutCodeHost: [Project] = []
+    /// The chosen projects, by id, as the last check found them: Start waits until they are the chosen ones.
+    private var codeHostsChecked: [UUID] = []
     /// Unticked, it unticks deleting branches too: a branch is deleted only by closing its task.
     var closeWhenDone = true { didSet { if !closeWhenDone { deleteMergedBranch = false } } }
     var deleteMergedBranch = false
@@ -112,7 +114,7 @@ final class NewBroadcastModel: Identifiable {
     /// and the delivery check's file, both observed, so the footer follows them while the sheet is up.
     @ObservationIgnored private let readinessSource: @MainActor () -> BroadcastReadiness
     @ObservationIgnored private let prepareReadiness: @MainActor () async -> Void
-    @ObservationIgnored private let hasCodeHost: @Sendable (Project) async -> Bool
+    @ObservationIgnored private let hasCodeHost: (@Sendable (Project) async -> Bool)?
 
     static let title = "New broadcast"
     static let stepNames = ["Broadcast", "Prompt", "Agents", "Task", "Done"]
@@ -149,7 +151,7 @@ final class NewBroadcastModel: Identifiable {
 
     /// `readiness` is what Start waits for as it stands; `checkReadiness` reads it, for as long as the
     /// sheet is open. A test or a snapshot that leaves them out is ready at once. `hasCodeHost` says whether a project's
-    /// origin is on a code host AiTerm is connected to; left out, every project's is.
+    /// origin is on a code host AiTerm is connected to; left out, every project's is, with nothing to wait for.
     init(projects: [Project], context: NewBroadcastContext,
          skills: @escaping @Sendable (AgentKind, String?) -> [AgentCompletion] = { SkillCatalog.discover(agent: $0, projectPath: $1) },
          files: @escaping @Sendable (String) -> FileIndex = { _ in .empty },
@@ -157,7 +159,7 @@ final class NewBroadcastModel: Identifiable {
          canChangeWorkspace: @escaping @MainActor () -> Bool = { true },
          readiness: @escaping @MainActor () -> BroadcastReadiness = { .ready },
          checkReadiness: @escaping @MainActor () async -> Void = {},
-         hasCodeHost: @escaping @Sendable (Project) async -> Bool = { _ in true },
+         hasCodeHost: (@Sendable (Project) async -> Bool)? = nil,
          start: @escaping @MainActor (Request) async throws -> UUID) {
         offeredProjects = projects
         linkedJiraProjects = projects.flatMap(\.jiraProjects).linkedOnce
@@ -333,7 +335,7 @@ final class NewBroadcastModel: Identifiable {
     /// Merge and Local merge only with the Merge slice on; Draft MR and Merge only while every chosen project has a
     /// connected code host.
     func canPick(_ end: TaskEnd) -> Bool {
-        (!end.merges || slices.merge) && (projectsWithoutCodeHost.isEmpty || ![.draftMR, .merge].contains(end))
+        (!end.merges || slices.merge) && (!end.needsCodeHost || projectsWithoutCodeHost.isEmpty)
     }
 
     func pick(end: TaskEnd) { if canPick(end) { pickedEnd = end } }
@@ -361,13 +363,19 @@ final class NewBroadcastModel: Identifiable {
 
     /// Checks each chosen project for a connected code host, as the chosen ones change.
     func loadCodeHosts() async {
+        guard let hasCodeHost else { return }
+        let chosen = projects
         var without: [Project] = []
-        for project in projects {
+        for project in chosen {
             if await !hasCodeHost(project) { without.append(project) }
         }
         guard !Task.isCancelled else { return }
         received(withoutCodeHost: without)
+        codeHostsChecked = chosen.map(\.id)
     }
+
+    /// Whether the chosen projects' code hosts are known: checked as they stand, or not checked at all.
+    private var codeHostsKnown: Bool { hasCodeHost == nil || codeHostsChecked == projects.map(\.id) }
 
     /// The projects a check found with no connected code host; the snapshots hand them in directly.
     func received(withoutCodeHost projects: [Project]) { projectsWithoutCodeHost = projects }
@@ -404,16 +412,14 @@ final class NewBroadcastModel: Identifiable {
     }
 
     /// Step 1 needs a project; every later step a prompt too, and from the Agents step on a row. The review and the goal
-    /// may be left empty. Start Broadcast also waits for everything the broadcast needs to be ready (`readiness`);
-    /// Continue never does.
+    /// may be left empty. Start Broadcast also waits for everything the broadcast needs to be ready (`readiness`), and
+    /// for the chosen projects' code hosts to be checked; Continue never does.
     func canAdvance(step: Int) -> Bool {
         guard !starting, canChangeWorkspace(), !projects.isEmpty else { return false }
         guard step == 1 || Self.said(prompt) != nil else { return false }
-        guard step < Self.agentsStep || !agentRows.isEmpty else { return false }
-        return step < CreationSteps.broadcast.count || readiness == .ready
+        if let agentsStep = CreationSteps.broadcast.agentsListStep, step >= agentsStep, agentRows.isEmpty { return false }
+        return step < CreationSteps.broadcast.count || (readiness == .ready && codeHostsKnown)
     }
-
-    private static var agentsStep: Int { CreationSteps.broadcast.agentsListStep ?? 0 }
 
     var canStart: Bool { canAdvance(step: CreationSteps.broadcast.count) }
 

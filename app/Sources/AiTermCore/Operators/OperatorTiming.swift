@@ -74,6 +74,9 @@ public extension TaskEnd {
     /// A merge through the request, or a local one: what the Merge slice governs.
     var merges: Bool { self == .merge || self == .mergeLocal }
 
+    /// A draft MR or a merge through the request: what goes through the project's code host.
+    var needsCodeHost: Bool { self == .draftMR || self == .merge }
+
     /// The end as the plan, the board and a refusal say it.
     var displayName: String {
         switch self {

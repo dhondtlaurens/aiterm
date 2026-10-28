@@ -22,7 +22,7 @@ struct DoneStep: View {
                 Input(placeholder: NewBroadcastModel.extraRoundsPlaceholder, text: $model.extraRoundsText)
                     .frame(width: Self.roundsWidth)
                     .disabled(!available)
-                    .opacity(available ? 1 : PromptStep<EmptyView>.disabledOpacity)
+                    .opacity(available ? 1 : Opacity.disabled)
                 if let help = model.extraRoundsHelp { HelpText(help) }
             }
         }

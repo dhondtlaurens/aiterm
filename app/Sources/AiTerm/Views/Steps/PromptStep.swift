@@ -36,8 +36,6 @@ struct PromptStep<Extra: View>: View {
     private static var completionPopupTrim: CGFloat { 40 }
     /// The prompt editor's height. Moved with the step; it was a literal here before.
     static var editorHeight: CGFloat { 150 }
-    /// A disabled field's opacity: `OracleGroup`'s dimming, and the Done step's Extra rounds field's.
-    static var disabledOpacity: Double { 0.4 }
 
     var body: some View {
         let text = self.text()
@@ -50,7 +48,7 @@ struct PromptStep<Extra: View>: View {
                         .fieldBox(focused: editorFocused)
                     PromptPlaceholder(text: text, placeholder: placeholder)
                 }
-                .opacity(isEnabled ? 1 : Self.disabledOpacity)
+                .opacity(isEnabled ? 1 : Opacity.disabled)
                 .overlay(alignment: .topLeading) {
                     CompletionPopup(completions: completions,
                                     width: Sheet.width - 2 * Space.margin - Self.completionPopupTrim)

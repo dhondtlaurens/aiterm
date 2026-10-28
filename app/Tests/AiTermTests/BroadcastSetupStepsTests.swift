@@ -229,6 +229,29 @@ struct BroadcastSetupStepsTests {
         #expect(TaskEnd.allCases.map(model.canPick) == [true, true, true, true])
     }
 
+    /// A draft MR and a merge go through the code host; a commit and a local merge stay on this Mac.
+    @Test func draftMRAndMergeNeedACodeHost() {
+        #expect(TaskEnd.allCases.filter(\.needsCodeHost) == [.draftMR, .merge])
+    }
+
+    /// Start waits for the chosen projects' code hosts to be checked, again whenever they change; Continue doesn't.
+    @Test func startWaitsForTheCodeHostCheck() async {
+        let blog = project("blog")
+        let model = NewBroadcastModel(projects: [webshop, blog], context: .installed(), hasCodeHost: { _ in true },
+                                      start: { _ in UUID() })
+        model.add(project: webshop)
+        model.prompt = "Implement PAY-230"
+        let start = CreationSteps.broadcast.count
+        #expect(!model.canAdvance(step: start))
+        #expect(model.canAdvance(step: start - 1))
+        await model.loadCodeHosts()
+        #expect(model.canAdvance(step: start))
+        model.add(project: blog)
+        #expect(!model.canAdvance(step: start), "blog isn't checked yet")
+        await model.loadCodeHosts()
+        #expect(model.canAdvance(step: start))
+    }
+
     /// An end picked that becomes dimmed moves to Commit, and the help says so.
     @Test func theDefaultDraftMRWithAHostlessProjectMovesToCommit() async {
         let blog = project("blog")

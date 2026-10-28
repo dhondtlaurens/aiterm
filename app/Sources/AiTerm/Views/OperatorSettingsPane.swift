@@ -123,10 +123,6 @@ private struct OperatorAutonomyGroup: View {
 /// draw it alone, off.
 struct OracleGroup: View {
     let model: OperatorSettingsModel
-    /// The Oracle's fields while it is off: the drawing's `.dim`, and the opacity `SegmentedControl`
-    /// gives a segment that cannot be picked. One view reads it, so it stays here.
-    private static let dimmedOpacity: Double = 0.4
-
     var body: some View {
         let oracle = model.oracle
         let dimmed = OperatorSettingsPane.oracleFieldsDimmed(oracle)
@@ -143,7 +139,7 @@ struct OracleGroup: View {
                             selectModel: { model.select(oracleModel: $0) }, selectReasoning: { model.select(oracleReasoning: $0) })
             }
             .disabled(dimmed)
-            .opacity(dimmed ? Self.dimmedOpacity : 1)
+            .opacity(dimmed ? Opacity.disabled : 1)
         }
     }
 }
