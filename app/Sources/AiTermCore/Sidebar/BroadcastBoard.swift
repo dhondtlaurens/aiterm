@@ -7,9 +7,10 @@ import Foundation
 /// (`OperatorLine.broadcast`) and `· 2 of 8 done` after it, then the Asked line. A broadcast set up with the Agents, Task
 /// and Done steps (broadcast setup v2) puts its goal on the Asked line and what every task follows on an Each task line
 /// under it; its band counts the goal's rounds while it is checked, and once ended says how the goal went and how much
-/// was left for you. The board is the plan: Todo · In progress · Review · Done, Review only when the broadcast has a
-/// review, each task's card in the column its state puts it in, in the plan's order, and once every task is done they
-/// all sit in Done, beside the cards of the tasks closed at the broadcast's end, drawn from their records.
+/// was left for you. The board is the plan: Todo · In progress · Review · Done, Review only while the broadcast's tasks
+/// go into people's review (`TaskPublisher.Context.reviews`) or, set up with the Task step, its review prompt is written,
+/// each task's card in the column its state puts it in, in the plan's order, and once every task is done they all sit
+/// in Done, beside the cards of the tasks closed at the broadcast's end, drawn from their records.
 /// What the sheet's other tabs read is here too: the Summary's state, what is left for you and what the Operator
 /// worked around in AiTerm, and which tab it opens on. An ended broadcast read from the Shelf is a `shelved` board, read-only.
 public struct BroadcastBoard: Equatable, Sendable {
@@ -221,7 +222,8 @@ public struct BroadcastBoard: Equatable, Sendable {
     public var eachTask: Clause? = nil
     /// How the goal went, once checked: the Summary's.
     public var goalOutcome: GoalOutcome? = nil
-    /// The board's columns, Review left out without a review.
+    /// The board's columns, Review left out unless its tasks go into people's review or, set up with the Task step, it
+    /// has a review prompt.
     public var columns: [Lane]
     /// Paused by you, or its Operator's window closed: the footer offers Resume Broadcast.
     public var isPaused: Bool
@@ -290,7 +292,9 @@ public struct BroadcastBoard: Equatable, Sendable {
         let byId = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let projects = run.projectIds.compactMap(state.project(id:))
         let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        // People's review, or a set-up broadcast's review prompt: an agent review's tabs need no slice.
         let hasReview = TaskPublisher.Context.reviews(run)
+            || run.taskSettings.map { OperatorCommand.said($0.review) != nil } == true
 
         // A task you stopped is no longer the broadcast's work: it is on no column. One End handed you stays In
         // progress on the Shelf's board, taken over, as it was when the broadcast ended.

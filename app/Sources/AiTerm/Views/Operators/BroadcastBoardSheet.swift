@@ -79,13 +79,12 @@ struct BoardFooter: Equatable {
 /// Asked line and, for a broadcast set up with the Task step, the Each task line under it (15A), each two lines at
 /// most, the whole of it in its tooltip; then the tab bar, Settings' `SegmentedControl` in its accent style, Board ·
 /// Activity · Summary, picked by click or ⌘1–⌘3. It opens on `BroadcastBoard.firstTab` and stays where you put it;
-/// Summary is dimmed until the broadcast reached it. Board is the columns, each
-/// `Sheet.boardColumn` wide and scrolling on its own, the row of them scrolling sideways; once every task is done
-/// they all sit in Done. A card's click closes the sheet first, then opens what resolves it (`choose`). Activity
-/// is the run's log (`BroadcastActivityView`), Summary the Operator's summary and what it left for you
-/// (`BroadcastSummaryView`); both scroll as one. The footer is the same on every tab. Equatable by what it draws,
-/// its actions left out (they act on the broadcast as it is when pressed), so the host's `.equatable()` skips a
-/// body that would draw the same; the feed redraws Activity alone.
+/// Summary is dimmed until the broadcast reached it. Board is the columns, each `Sheet.boardColumn` wide and scrolling
+/// on its own, the row of them scrolling sideways; once every task is done they all sit in Done. A card's click closes
+/// the sheet first, then opens what resolves it (`choose`). Activity is the run's log (`BroadcastActivityView`),
+/// Summary the Operator's summary and what it left for you (`BroadcastSummaryView`); both scroll as one. The footer is
+/// the same on every tab. Equatable by what it draws, its actions left out (they act on the broadcast as it is when
+/// pressed), so the host's `.equatable()` skips a body that would draw the same; the feed redraws Activity alone.
 struct BroadcastBoardSheet: View, Equatable {
     let board: BroadcastBoard
     let reopenFailed: Bool

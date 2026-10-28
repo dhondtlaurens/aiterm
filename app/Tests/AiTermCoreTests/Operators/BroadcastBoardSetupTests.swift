@@ -329,13 +329,26 @@ import Testing
         #expect(column(legacy, open) == .inProgress)
     }
 
-    /// The Review column is there while the broadcast's tasks go into review, as `TaskPublisher.Context.entersReview`
-    /// decides it: a review prompt written, and the Review slice on.
-    @Test func theReviewColumnFollowsWhetherTasksGoIntoReview() {
+    /// The Review column is there while the broadcast's tasks go into people's review (`TaskPublisher.Context.reviews`:
+    /// a review prompt written, and the Review slice on), or, set up with the Task step, while its review prompt is
+    /// written: an agent review's tabs need no slice. A legacy broadcast with the slice off has none.
+    @Test func theReviewColumnFollowsWhetherTasksAreReviewed() {
         func hasColumn(_ run: OperatorRun) -> Bool { board(run, []).columns.contains { $0.column == .review } }
         #expect(hasColumn(run()))
-        #expect(!hasColumn(run(review: false)), "the Review slice off: nothing goes into review")
+        #expect(hasColumn(run(review: false)), "the Review slice off: the agent review's tabs still sit in Review")
         #expect(!hasColumn(run(settings: TaskSettings(review: "  ", end: .draftMR, closeWhenDone: true))), "no review prompt")
+        #expect(!hasColumn(run(review: false, settings: TaskSettings(review: nil, end: .draftMR, closeWhenDone: true))))
+
+        let unpeopled = run(review: false)
+        var drawer = task("Address autocomplete", run: unpeopled, .working)
+        var tab = OperatorUIFixtures.extraTab("review")
+        tab.role = .review
+        drawer.operated?.extraTabs = [tab]
+        let open = [OperatorUIFixtures.tab("s1", of: drawer, .idle),
+                    OperatorUIFixtures.tab("s2", of: drawer, .working, index: 1, key: "review", agent: .codex)]
+        #expect(board(unpeopled, [drawer], sessions: open).columns.first { $0.column == .review }?.cards.map(\.id) == [drawer.id],
+                "a review tab open, the Review slice off: in Review")
+
         var legacy = run()
         legacy.taskSettings = nil
         legacy.review = "assign Jan"

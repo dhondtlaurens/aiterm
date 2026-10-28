@@ -87,6 +87,7 @@ public extension TaskEnd {
         }
     }
 
-    /// The end as the Task step's segment and a card's end badge and menu name it: `Draft MR`.
+    /// The end as the Task step's segment and help and a card's end menu name it: `Draft MR`. The badge says
+    /// `displayName`.
     var title: String { displayName.capitalizingFirst }
 }
