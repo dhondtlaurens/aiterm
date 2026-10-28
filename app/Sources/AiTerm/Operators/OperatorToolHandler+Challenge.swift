@@ -10,7 +10,7 @@ import AiTermCore
 extension OperatorToolHandler {
     /// With the Oracle on, a plan and a verdict on a task are critiqued (spec §8), a backlog addition past
     /// the threshold (`backlog` is `.needsOracle`) gets its veto (spec §4.1), a `finish_task` that would merge
-    /// (`merges`) its yes that the conditions written in the Review and the Done hold (spec §5), and one with
+    /// (`merges`) its yes that the person's conditions for it hold (spec §5), and one with
     /// `noVerify` its yes that the push hook failed on the environment (spec §B), and a goal check its yes that the
     /// Operator's verdict on the goal is right; with it off, nothing is. A message to a worker never is.
     static func isChallenged(_ call: ToolCall, oracleIsOn: Bool, backlog: BacklogBudget.Verdict = .free, merges: Bool = false) -> Bool {
@@ -95,8 +95,8 @@ extension OperatorToolHandler {
         if named == nil, let task = merging, await landed(task) { merging = nil }
         // A noVerify with nothing to judge goes on to the finisher, which refuses it before it acts.
         if named == nil, call.operatorTool == .finishTask, call.optionalBool("noVerify") == true, skipping == nil { return nil }
-        // A check_goal while no goal check is due goes on to the tool, which refuses it: it costs no Oracle run.
-        if named == nil, call.operatorTool == .checkGoal, !run.goalCheckDue { return nil }
+        // A check_goal the tool refuses, or the last one again, goes on to the tool: it costs no Oracle run.
+        if named == nil, call.operatorTool == .checkGoal, !Self.acceptsGoalCheck(run) || Self.repeatsLastGoalCheck(call, in: run) { return nil }
         if named == nil, !Self.isChallenged(call, oracleIsOn: opinion.isOn, backlog: backlog(of: call, in: run), merges: merging != nil) { return nil }
         if let id = call.optionalString("challengeId") {
             guard let kept = named else {
@@ -145,12 +145,19 @@ extension OperatorToolHandler {
         let prompt: String
         var mergeQuestion: String?
         if let merging, let operated = merging.operated, let sha = operated.acceptance?.resultSHA {
-            // Only a finished review of this very commit is evidence for merging it.
-            let evidence = operated.agentReview.flatMap { review in
-                review.head == sha && review.findings != nil ? (try? JSONValue(encoding: review)).map(Self.json) : nil
+            let conditions: ChallengeLaunch.MergeConditions
+            if let settings = run.taskSettings {
+                conditions = .reviewed(prompt: OperatorCommand.said(settings.review),
+                                       verdicts: Self.json((try? JSONValue(encoding: operated.reviewVerdicts)) ?? .array([])))
+            } else {
+                // Only a finished review of this very commit is evidence for merging it.
+                let evidence = operated.agentReview.flatMap { review in
+                    review.head == sha && review.findings != nil ? (try? JSONValue(encoding: review)).map(Self.json) : nil
+                }
+                conditions = .written(review: OperatorCommand.said(run.review), done: OperatorCommand.said(run.done), agentReview: evidence)
             }
-            mergeQuestion = ChallengeLaunch.mergePrompt(task: operated.key, acceptedSHA: sha, brief: operated.brief, review: OperatorCommand.said(run.review),
-                                                        done: OperatorCommand.said(run.done), agentReview: evidence, run: status())
+            mergeQuestion = ChallengeLaunch.mergePrompt(task: operated.key, acceptedSHA: sha, brief: operated.brief, conditions: conditions,
+                                                        run: status())
         }
         if let skipping {
             // A call that also merges asks both in one prompt: one Oracle run, and its yes holds for both.
@@ -159,7 +166,10 @@ extension OperatorToolHandler {
         } else if let mergeQuestion {
             prompt = mergeQuestion
         } else if call.operatorTool == .checkGoal {
-            prompt = Self.goalPrompt(verdict: Self.invocation(call), run: status())
+            // A check the tool would refuse costs no Oracle run.
+            _ = try Self.goalVerdict(call)
+            prompt = ChallengeLaunch.goalPrompt(goal: run.goal?.text ?? "(not said)", verdict: Self.invocation(call),
+                                                results: await goalResults(in: run))
         } else if kind == .veto {
             // A call that would be refused anyway costs no Oracle run.
             try await vetoPrecheck(call, in: run)
@@ -218,8 +228,8 @@ extension OperatorToolHandler {
                 try approve(call, in: run, askedSHA: askedSHA, merges: merges)
                 return nil
             case .unchallenged:
-                if call.operatorTool == .finishTask { try proceedUnchallenged(call, in: run, askedSHA: askedSHA, merges: merges); return nil }
-                try await refuseUnanswered(call, in: run)
+                try await unanswered(call, in: run, askedSHA: askedSHA, merges: merges)
+                return nil
             }
         }
         switch answered {
@@ -239,8 +249,8 @@ extension OperatorToolHandler {
     }
 
     /// A veto's call again with its id (spec §4.1). Unlike a critique, only the Oracle's yes acts, with no reply
-    /// needed and only for the call it was asked about; a no, a failure, a timeout, or a veto lost with AiTerm's
-    /// restart refuses, and AiTerm notes the addition for the summary.
+    /// needed and only for the call it was asked about; a no refuses, and so does a failure, a timeout, or a veto lost
+    /// with AiTerm's restart, but for a merge, a push past the hook or a goal check, which go ahead (`unanswered`).
     private func vetoAnswer(_ call: ToolCall, _ kept: ChallengeRecord, in run: OperatorRun) async throws -> JSONValue? {
         let id = kept.id
         // A challenge answers only the call it was asked about, whatever its stage: never another task's.
@@ -253,11 +263,11 @@ extension OperatorToolHandler {
             return try vetoPendingAnswer(call, id, merges: merges, in: run)
         case .running:
             updateChallenge(id, in: run.id) { $0.stage = .unchallenged; $0.unchallengedReason = "AiTerm restarted before the Oracle answered." }
-            if call.operatorTool == .finishTask { try proceedUnchallenged(call, in: run, askedSHA: kept.askedSHA, merges: merges); return nil }
-            try await refuseUnanswered(call, in: run)
+            try await unanswered(call, in: run, askedSHA: kept.askedSHA, merges: merges)
+            return nil
         case .unchallenged:
-            if call.operatorTool == .finishTask { try proceedUnchallenged(call, in: run, askedSHA: kept.askedSHA, merges: merges); return nil }
-            try await refuseUnanswered(call, in: run)
+            try await unanswered(call, in: run, askedSHA: kept.askedSHA, merges: merges)
+            return nil
         case .ready, .delivered, .acted:
             guard kept.approved == true else { try await refuseVetoed(call, in: run, why: kept.critique, merges: merges) }
             try approve(call, in: run, askedSHA: kept.askedSHA, merges: merges)
@@ -265,22 +275,6 @@ extension OperatorToolHandler {
             actingChallenges.insert(id)
             return nil
         }
-    }
-
-    /// What the Oracle is asked of a `check_goal`: whether the Operator's verdict on the goal is right, given the broadcast
-    /// as run_status shows it, answered YES or NO first (`ChallengeLaunch.verdict`).
-    private static func goalPrompt(verdict: String, run: String) -> String {
-        """
-        You are the Oracle for an AI operator that plans work and steers coding agents for a person. Every task of the \
-        broadcast is done, and the operator judged whether the broadcast's goal is met. Answer YES on the first line if \
-        its verdict is right, or NO with one short line why.
-
-        The verdict: check_goal with
-        \(verdict)
-
-        The broadcast now, as run_status shows it:
-        \(run)
-        """
     }
 
     /// The Oracle's answer to a veto as AiTerm keeps it: an answer that is neither yes nor no is a no.
@@ -331,6 +325,10 @@ extension OperatorToolHandler {
             throw ToolRefusal("The Oracle judged that the conditions to merge \(key) don’t hold yet: \(reason) "
                               + "AiTerm recorded it on the task; call finish_task again once they hold.")
         }
+        if call.operatorTool == .checkGoal {
+            throw ToolRefusal("The Oracle judged your verdict on the goal wrong: \(Self.asSentence(why ?? "it gave no reason")) "
+                              + "Check the goal again and call check_goal with what you find.")
+        }
         let filing = await noteFind(call, in: run, why: why ?? "The Oracle judged it off-brief.")
         throw ToolRefusal("The Oracle judged this off-brief. AiTerm noted it for the summary" + Self.ending(filing))
     }
@@ -354,6 +352,17 @@ extension OperatorToolHandler {
                     run.decisions.append(OperatorDecision(key: key, text: text, task: task.id, at: ports.now(), challenge: "unchallenged", why: why))
                 }
             }
+        }
+    }
+
+    /// No answer from the Oracle (missing, failed, too slow, or lost with AiTerm's restart): a merge or a push past the hook
+    /// goes ahead unchallenged, a goal check acts recorded as not checked by the Oracle (`checkGoal`), and an addition is
+    /// refused.
+    private func unanswered(_ call: ToolCall, in run: OperatorRun, askedSHA: String?, merges: Bool) async throws {
+        switch call.operatorTool {
+        case .finishTask: try proceedUnchallenged(call, in: run, askedSHA: askedSHA, merges: merges)
+        case .checkGoal: return
+        default: try await refuseUnanswered(call, in: run)
         }
     }
 
@@ -394,6 +403,10 @@ extension OperatorToolHandler {
             }
             return ["challenged": true, "challengeId": .string(id), "pending": true,
                     "note": .string("Nothing was done yet. The Oracle is still judging whether \(question): call finish_task again with this challengeId in a little while.")]
+        }
+        if call.operatorTool == .checkGoal {
+            return ["challenged": true, "challengeId": .string(id), "pending": true,
+                    "note": "Nothing was recorded yet. The Oracle is still judging your verdict on the goal: call check_goal again with this challengeId in a little while."]
         }
         return ["challenged": true, "challengeId": .string(id), "pending": true,
                 "note": "Nothing was added yet. The Oracle is still judging this addition: call create_task again with this challengeId in a little while."]

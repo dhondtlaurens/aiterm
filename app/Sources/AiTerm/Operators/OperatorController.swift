@@ -456,14 +456,26 @@ final class OperatorController {
     /// A broadcast whose every task has ended and with no question open is complete (spec §9): when is
     /// recorded, the operator is told — which asks it for its summary — and the wait for that summary begins.
     /// You are notified once the summary is written or given up on (`OperatorNotifier`). A later `submit_plan`
-    /// makes it active again.
+    /// makes it active again. One with a goal not yet resolved completes only once `check_goal` resolves it: until
+    /// then it stays active, with `goalCheckDue` set while a check is due (`OperatorToolHandler.goalCheckIsDue`), and
+    /// the operator is woken for it.
     func settle(_ id: UUID) {
-        guard let run = run(id: id), run.state == .active, RunScheduler.isComplete(run, in: workspace.state) else { return }
+        guard let run = run(id: id), run.state == .active else { return }
+        let complete = RunScheduler.isComplete(run, in: workspace.state)
+        let due = complete && OperatorToolHandler.goalCheckIsDue(run)
+        if due != run.goalCheckDue {
+            mutateRun(id) { $0.goalCheckDue = due }
+            if due { waker.say(Self.goalCheckReason, to: id) }
+        }
+        guard complete, run.goal == nil || run.goalOutcome != nil else { return }
         let now = ports.now()
         mutateRun(id) { $0.state = .complete; $0.completedAt = now }
         waker.say("broadcast complete", to: id)
         awaitSummary(id, completedAt: now)
     }
+
+    /// What wakes the operator once a goal check is due.
+    static let goalCheckReason = "every task is done: check the goal with check_goal"
 
     /// Waits `OperatorTiming.summaryWait` for the summary of the completion at `completedAt`, then gives up on it
     /// if none came. A new completion's wait replaces the one before.
@@ -485,19 +497,23 @@ final class OperatorController {
     /// run completed with none written — `waited` is a completion whose wait has ended — or at once when its window
     /// is gone (`windowGone`, or `.operatorOffline`). Saved, as the notification that follows is. A summary
     /// written later still replaces it. A run that completed before AiTerm recorded when starts its wait now.
-    func giveUpOnSummary(_ id: UUID, waited: Date? = nil, windowGone: Bool = false) {
-        guard let run = run(id: id), !run.hasEnded, run.summary == nil, !run.summaryGivenUp else { return }
+    /// True when it gave up: a caller outside `runChanged` then goes through it, so `onRunChanged` hears of it.
+    @discardableResult
+    func giveUpOnSummary(_ id: UUID, waited: Date? = nil, windowGone: Bool = false) -> Bool {
+        guard let run = run(id: id), !run.hasEnded, run.summary == nil, !run.summaryGivenUp else { return false }
         guard let completedAt = run.completedAt else {
-            guard run.state == .complete else { return }
+            guard run.state == .complete else { return false }
             let now = ports.now()
             mutateRun(id) { $0.completedAt = now }
-            if windowGone { giveUpOnSummary(id, windowGone: true) } else { awaitSummary(id, completedAt: now) }
-            return
+            if windowGone { return giveUpOnSummary(id, windowGone: true) }
+            awaitSummary(id, completedAt: now)
+            return false
         }
         let due = waited == completedAt || ports.now() >= completedAt.addingTimeInterval(OperatorTiming.summaryWait)
-        guard due || windowGone || run.state == .operatorOffline else { return }
+        guard due || windowGone || run.state == .operatorOffline else { return false }
         mutateRun(id) { $0.summaryGivenUp = true }
         _ = workspace.flush()
+        return true
     }
 
     // -- starting ---------------------------------------------------------------------------
@@ -741,7 +757,7 @@ final class OperatorController {
     /// complete until End, and a click reopens its window as it is; a summary it had not written is not coming,
     /// so AiTerm stops waiting for it. A pause of yours stays a pause.
     private func operatorWindowClosed(_ id: UUID) {
-        giveUpOnSummary(id, windowGone: true)
+        if giveUpOnSummary(id, windowGone: true) { runChanged(id) }
         guard let run = run(id: id), run.intent == nil, run.state == .planning || run.state == .active else { return }
         mutateRun(id) { $0.state = .operatorOffline }
     }
@@ -756,7 +772,7 @@ final class OperatorController {
         // Time alone can make a review quiet (spec §K): what `run_status` would show is read again on every tick.
         observeRuns()
         // A summary overdue while AiTerm was not running, or whose wait went with it, is given up on here.
-        for run in runs where run.state == .complete { giveUpOnSummary(run.id) }
+        for run in runs where run.state == .complete && giveUpOnSummary(run.id) { runChanged(run.id) }
         guard tabsKnown else { return }
         for id in reconciler.tick() { runChanged(id) }
         applyStallFlags()

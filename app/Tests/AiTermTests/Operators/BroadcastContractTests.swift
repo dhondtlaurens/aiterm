@@ -67,13 +67,12 @@ import Testing
         #expect(OperatorProfileStore.lastAgents(preferences).isEmpty, "what can't be read is none")
     }
 
-    /// Both new tools change the run, so each is mutating; until built, each refuses.
-    @Test func recordReviewAndCheckGoalAreMutatingAndRefusedUntilBuilt() async throws {
+    /// Both new tools change the run, so each is mutating; record_review, until built, refuses.
+    @Test func recordReviewAndCheckGoalAreMutatingAndRecordReviewIsRefusedUntilBuilt() async throws {
         #expect(OperatorToolHandler.mutating.isSuperset(of: [.recordReview, .checkGoal]))
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
         #expect(await world.call(run.id, "record_review", ["task": "A"]).message == "record_review is not built yet.")
-        #expect(await world.call(run.id, "check_goal", ["met": true, "evidence": "All shipped."]).message == "check_goal is not built yet.")
     }
 
     /// With the Oracle on, check_goal is its veto; while no goal check is due it costs no Oracle run.
@@ -89,7 +88,8 @@ import Testing
             $0.secondOpinion = .answering("YES", receivePrompt: { prompts.append($0) })
             $0.challengeReplyBudget = .seconds(60)
         }
-        #expect(await world.call(run.id, "check_goal", ["met": true, "evidence": "All shipped."]).message == "check_goal is not built yet.")
+        #expect(await world.call(run.id, "check_goal", ["met": true, "evidence": "All shipped."]).message
+                == "No goal check is due: AiTerm wakes you for it once every task is done.")
         #expect(prompts.list.isEmpty, "no goal check is due")
 
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.goalCheckDue = true } }
