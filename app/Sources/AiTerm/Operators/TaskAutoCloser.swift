@@ -3,8 +3,9 @@ import AiTermCore
 
 /// End-of-broadcast cleanup (spec, Auto-close). A task's `FinishedTaskRecord` is written just before its
 /// removal starts and taken back when the removal fails or waits, so `finished` holds only tasks whose row
-/// is gone; why a task stays is on its row (`TaskRemover`). A person's turn, an agent's, or the helper being
-/// away defers only that task: a turn until its end, the helper until it is back (`sweep`).
+/// is gone; why a task stays is on the task, for its card (`OperatedTask.keptReason`). A person's turn, an
+/// agent's, or the helper being away defers only that task: a turn until its end, the helper until it is back
+/// (`sweep`).
 @MainActor
 final class TaskAutoCloser {
     nonisolated static let unsavedWork = "Not closed: its worktree has uncommitted changes. Remove it yourself once they are safe."

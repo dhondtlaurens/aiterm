@@ -27,9 +27,9 @@ import Testing
                               sessionsKnown: true, remove: remove ?? { try await app.remover.removeAutomatically($0, starting: $1) })
     }
 
+    /// Why the closing kept the task, as its card reads it: on the task, never in the remover's row outcome.
     private func note(_ task: TaskItem, in fixture: RaceFixture) -> String? {
-        guard case .stopped(let note, _)? = fixture.controller.remover.removals[task.id] else { return nil }
-        return note
+        fixture.controller.state.task(id: task.id)?.operated?.keptReason
     }
 
     @Test(arguments: [false, true]) func appWiringClosesOnCompletionAndEnd(ending: Bool) async throws {
@@ -135,6 +135,9 @@ import Testing
         #expect(fixture.prompter.asked.isEmpty)
         #expect(fixture.controller.state.run(id: run.id)?.finished.isEmpty == true)
         #expect(note(task, in: fixture) == TaskAutoCloser.unsavedWork)
+        #expect(fixture.controller.workspace.flush())
+        #expect(try fixture.controller.savedWorkspace().task(id: task.id)?.operated?.keptReason == TaskAutoCloser.unsavedWork)
+        #expect(fixture.controller.remover.removals[task.id] == nil)
         #expect(FileManager.default.fileExists(atPath: task.worktreePath + "/file"))
     }
 
@@ -212,6 +215,7 @@ import Testing
         #expect(app.state.task(id: task.id) != nil)
         #expect(server.requests("window.close").isEmpty)
         #expect(note(task, in: fixture) == TaskAutoCloser.waitingForAgent)
+        #expect(app.remover.removals[task.id] == nil)
         #expect(app.state.run(id: run.id)?.finished.isEmpty == true)
         #expect(app.state.run(id: run.id)?.closedAt == nil)
         session.state = .idle
@@ -531,6 +535,7 @@ import Testing
         await closing.value
         #expect(app.state.task(id: task.id) != nil)
         #expect(app.remover.removals[task.id] == .stopped(note: "Worktree removed; close its window, then retry", worktreeRemoved: true))
+        #expect(note(task, in: fixture) == "Not closed: Worktree removed; close its window, then retry")
         #expect(app.state.run(id: run.id)?.finished.isEmpty == true)
     }
 

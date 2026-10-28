@@ -194,7 +194,8 @@ final class TaskRemover: CheckoutRemovals {
 
     /// AiTerm's own Remove (Auto-close): no questions and no permission to discard changes. `starting` writes the
     /// task's finished record once nothing is left to keep the task, just before its window closes; false stops it.
-    /// Why it stopped is left on the row. The caller deletes a merged branch once the row is gone.
+    /// Why it stopped is saved on the task for its card (`OperatedTask.keptReason`). The caller deletes a merged branch
+    /// once the row is gone.
     func removeAutomatically(_ task: TaskItem, starting: @MainActor () -> Bool) async throws {
         guard workspace.canChangeWorkspace, let current = workspace.state.task(id: task.id), current == task,
               let project = workspace.state.project(id: task.projectId),
@@ -240,11 +241,14 @@ final class TaskRemover: CheckoutRemovals {
                 throw ActionUnavailable("Its removal could not be completed or saved.")
             }
         } catch {
-            // A removal that stopped after its worktree went has left its row its own note.
-            if outcomes[task.id] == nil {
-                let folder = await hasWorktreeFolder(task)
-                outcomes[task.id] = .stopped(note: TaskAutoCloser.failureReason(error), worktreeRemoved: task.hasCheckout && !folder)
+            // A removal that stopped after its worktree went has left the row its own note, with the retry the person's
+            // Remove offers there; its card says the same.
+            let reason = if case .stopped(let note, _)? = outcomes[task.id] {
+                TaskAutoCloser.failureReason(ActionUnavailable(note))
+            } else {
+                TaskAutoCloser.failureReason(error)
             }
+            workspace.mutate { $0.updateOperated(task.id) { $0.keptReason = reason } }
             throw error
         }
     }
