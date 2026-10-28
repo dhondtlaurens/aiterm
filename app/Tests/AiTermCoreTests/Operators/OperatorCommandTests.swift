@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import CryptoKit
 @testable import AiTermCore
 
 @Suite struct OperatorCommandTests {
@@ -568,6 +569,116 @@ import Foundation
         run.profile.reasoning = "low"
         let prepared = try OperatorCommand.prepare(run: run, projects: [], home: home, token: token)
         #expect(try line(of: prepared).hasPrefix("claude --model claude-sonnet-5 --effort low"))
+    }
+
+    /// Byte preservation is part of the legacy contract, including every slice and the Oracle being off.
+    @Test func legacyBriefAndFirstMessageStayByteForByte() {
+        var texts: [String] = []
+        for oracle in [false, true] {
+            for review in [false, true] {
+                for merge in [false, true] {
+                    var run = F.run(oracle: oracle, slices: Slices(jira: true, review: review, merge: merge))
+                    run.review = "  Review every commit. \n"
+                    texts.append(OperatorCommand.brief(run: run, projects: [F.project()]))
+                    texts.append(OperatorCommand.firstMessage(for: run))
+                }
+            }
+        }
+        let digest = SHA256.hash(data: Data(texts.joined(separator: "\u{0}").utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        #expect(digest == "69ed7639c189306653b9c846e8a47cfcb5e33a8ab784eaee6e3b9c3d06af7307")
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func newBroadcastFirstMessageUsesTaskReviewAndGoal(review: Bool, goal: Bool) {
+        var run = newBroadcast()
+        run.taskSettings?.review = review ? "  Review every commit. \n" : nil
+        run.goal = goal ? BroadcastGoal(text: "  The release is ready. \n", extraRounds: 2) : nil
+        let expected = "Your broadcast:\n\nImplement the sprint."
+            + (review ? "\n\nEach task is reviewed with: Review every commit." : "")
+            + (goal ? "\n\nGoal: The release is ready." : "")
+        #expect(OperatorCommand.firstMessage(for: run) == expected)
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func newBroadcastBriefSeparatesEachTaskFromTheGoal(review: Bool, goal: Bool) {
+        var run = newBroadcast()
+        run.taskSettings?.review = review ? "Review every commit." : nil
+        run.goal = goal ? BroadcastGoal(text: "The release is ready.", extraRounds: 0) : nil
+        let brief = OperatorCommand.brief(run: run, projects: [F.project()])
+        let broadcast = section("## This broadcast", of: brief)
+        #expect(broadcast.contains("Agents:\n- claude · opus · high\n- codex · gpt"))
+        #expect(broadcast.contains("Each task:\nReview: " + (review ? "Review every commit." : "none")))
+        #expect(broadcast.contains("End: local merge"))
+        #expect(broadcast.contains("Closing: close finished tasks' tabs and remove their worktrees at the end of the broadcast"))
+        #expect(broadcast.contains("Goal: " + (goal ? "The release is ready.\nExtra rounds: 0" : "none")))
+        #expect(broadcast.contains("- Shop: /tmp/shop"))
+        #expect(!brief.contains("legacy review") && !brief.contains("legacy done"))
+        #expect(!brief.contains("review_task"))
+        #expect(!brief.contains("Your words win.") && !brief.contains("as the Done"))
+        #expect(section("## Agent and model", of: brief).contains("ask_you on no task"))
+        #expect(section("## Agent and model", of: brief).contains("80 %"))
+        #expect(section("## The end", of: brief).contains("only the person changes"))
+        let reviews = section("## Reviews", of: brief)
+        #expect(reviews.contains("open_tab with role: review"))
+        #expect(reviews.contains("record_review") && reviews.contains("about: fixRounds"))
+        #expect(reviews.contains("your own judgement"))
+        let goalRule = section("## The goal", of: brief)
+        #expect(goalRule.contains("check_goal") && goalRule.contains("missing"))
+        #expect(goalRule.contains("extra rounds are the budget"))
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func newBroadcastClosingHonoursBothSettings(close: Bool, delete: Bool) {
+        var run = newBroadcast()
+        run.taskSettings?.closeWhenDone = close
+        run.taskSettings?.deleteMergedBranch = delete
+        let broadcast = section("## This broadcast", of: OperatorCommand.brief(run: run, projects: []))
+        #expect(broadcast.contains(close ? "Closing: close finished tasks' tabs" : "Closing: keep tabs, worktrees and local branches"))
+        #expect(broadcast.contains("delete their local branches once merged into the default branch") == (close && delete))
+    }
+
+    @Test func blankReviewAndGoalAreOmittedFromTheFirstMessage() {
+        var run = newBroadcast()
+        run.taskSettings?.review = " \n "
+        run.goal = BroadcastGoal(text: " \n ")
+        #expect(OperatorCommand.firstMessage(for: run) == "Your broadcast:\n\nImplement the sprint.")
+    }
+
+    @Test(arguments: TaskEnd.allCases)
+    func newBroadcastNamesItsChosenEnd(end: TaskEnd) {
+        var run = newBroadcast()
+        run.taskSettings?.end = end
+        let brief = OperatorCommand.brief(run: run, projects: [])
+        #expect(section("## This broadcast", of: brief).contains("End: " + end.displayName))
+        #expect(section("## The end", of: brief).contains("Every task ends at " + end.displayName))
+        #expect(!brief.contains("as the Done, the prompt or the Instructions ask"))
+    }
+
+    @Test func exhaustedFixRoundsCanPutAQuestionOnTheTask() {
+        let brief = OperatorCommand.brief(run: newBroadcast(), projects: [])
+        let talking = section("## Talking to the person", of: brief)
+        #expect(talking.contains("or when its fix rounds are used up (about: fixRounds)"))
+        #expect(talking.contains("Other questions about your own next step"))
+    }
+
+    @Test func theGoalUsesTheOracleVetoAndTheReturnedRoundDecision() {
+        let brief = OperatorCommand.brief(run: newBroadcast(), projects: [])
+        let goal = section("## The goal", of: brief)
+        #expect(goal.contains("When the Oracle answers, only its yes acts"))
+        #expect(goal.contains("A no is refused with its reason"))
+        #expect(goal.contains("When check_goal answers stopped, stop and say what is left"))
+        #expect(section("## Mechanics", of: brief).contains("Except for check_goal"))
+    }
+
+    private func newBroadcast() -> OperatorRun {
+        var run = F.run(slices: Slices(jira: true, review: true, merge: true))
+        run.review = "legacy review"
+        run.done = "legacy done"
+        run.agents = [AgentChoice(agent: .claude, model: "opus", reasoning: "high"),
+                      AgentChoice(agent: .codex, model: "gpt", reasoning: nil)]
+        run.taskSettings = TaskSettings(review: nil, end: .mergeLocal)
+        return run
     }
 
     /// The largest brief: the Oracle on, every slice, with Instructions.
