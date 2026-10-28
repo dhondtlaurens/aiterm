@@ -329,9 +329,6 @@ final class NewBroadcastModel: Identifiable {
 
     // -- step 4: task -------------------------------------------------------------------
 
-    /// An end as its segment reads: its name, capitalised.
-    static func title(of end: TaskEnd) -> String { end.displayName.prefix(1).uppercased() + end.displayName.dropFirst() }
-
     /// Merge and Local merge only with the Merge slice on; Draft MR and Merge only while every chosen project has a
     /// connected code host.
     func canPick(_ end: TaskEnd) -> Bool {
@@ -358,7 +355,7 @@ final class NewBroadcastModel: Identifiable {
         guard !reasons.isEmpty else { return lead }
         let ends = TaskEnd.allCases.filter(canPick).map { "a " + $0.displayName }
         let help = "\(lead) \(reasons.joined(separator: " and ")), so a task ends at \(ends.joined(separator: " or "))."
-        return end == pickedEnd ? help : "\(help) \(Self.title(of: pickedEnd)) moved to \(Self.title(of: end))."
+        return end == pickedEnd ? help : "\(help) \(pickedEnd.title) moved to \(end.title)."
     }
 
     /// Checks each chosen project for a connected code host, as the chosen ones change.

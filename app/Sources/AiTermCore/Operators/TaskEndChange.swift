@@ -68,11 +68,6 @@ public enum TaskEndChange {
     public static func wakeReason(key: String, end: TaskEnd) -> String { "You changed \(key)’s end to \(end.displayName)" }
 }
 
-public extension TaskEnd {
-    /// The end as its card's menu and the Task step name it: `Draft MR`.
-    var title: String { displayName.capitalizingFirst }
-}
-
 public extension String {
     /// Its first letter in capitals and the rest as it is: `draft MR` as `Draft MR`, where `capitalized` would lower
     /// the rest.

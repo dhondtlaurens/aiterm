@@ -23,6 +23,8 @@ import Testing
                                          questions: questions, projectIds: projects ?? [web.id, api.id])
         run.prompt = "implement PAY-230 to PAY-236, the new checkout"
         run.review = review
+        // Its tasks go into people's review only with the Review slice on (`TaskPublisher.Context.reviews`).
+        run.profile.slices.review = true
         run.firstPlanSize = 8
         return run
     }
@@ -143,6 +145,10 @@ import Testing
         var blank = run(review: "  ")
         blank.review = "  "
         #expect(BroadcastBoard.make(run: blank, state: state(blank), acting: .none, requests: []).columns.count == 3)
+        var agentOnly = reviewed
+        agentOnly.profile.slices.review = false
+        #expect(BroadcastBoard.make(run: agentOnly, state: state(agentOnly), acting: .none, requests: []).columns.count == 3,
+                "an agent review with the Review slice off puts nothing in people's review")
     }
 
     @Test func projectOnlyWhenSeveral() throws {

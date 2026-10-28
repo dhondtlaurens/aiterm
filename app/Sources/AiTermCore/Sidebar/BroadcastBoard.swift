@@ -290,7 +290,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         let byId = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let projects = run.projectIds.compactMap(state.project(id:))
         let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
-        let hasReview = !(run.taskSettings?.review ?? run.review ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasReview = TaskPublisher.Context.reviews(run)
 
         // A task you stopped is no longer the broadcast's work: it is on no column. One End handed you stays In
         // progress on the Shelf's board, taken over, as it was when the broadcast ended.

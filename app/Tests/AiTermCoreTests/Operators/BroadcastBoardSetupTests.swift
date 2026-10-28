@@ -9,10 +9,10 @@ import Testing
 @Suite struct BroadcastBoardSetupTests {
     private let web = OperatorUIFixtures.project("webshop"), api = OperatorUIFixtures.project("payments-api")
 
-    private func run(_ state: OperatorRunState = .active, merge: Bool = true, settings: TaskSettings? = OperatorUIFixtures.taskSettings,
+    private func run(_ state: OperatorRunState = .active, review: Bool = true, merge: Bool = true, settings: TaskSettings? = OperatorUIFixtures.taskSettings,
                      goal: BroadcastGoal? = OperatorUIFixtures.goal, questions: [OperatorQuestion] = []) -> OperatorRun {
         var profile = OperatorUIFixtures.profile
-        profile.slices = Slices(merge: merge)
+        profile.slices = Slices(review: review, merge: merge)
         var run = OperatorUIFixtures.run(name: "Checkout redesign", profile: profile, state: state, questions: questions,
                                          projectIds: [web.id], agents: OperatorUIFixtures.agents, taskSettings: settings, goal: goal)
         run.prompt = "implement PAY-230 to PAY-236, the new checkout"
@@ -327,6 +327,21 @@ import Testing
         legacy.taskSettings = nil
         legacy.review = "assign Jan"
         #expect(column(legacy, open) == .inProgress)
+    }
+
+    /// The Review column is there while the broadcast's tasks go into review, as `TaskPublisher.Context.entersReview`
+    /// decides it: a review prompt written, and the Review slice on.
+    @Test func theReviewColumnFollowsWhetherTasksGoIntoReview() {
+        func hasColumn(_ run: OperatorRun) -> Bool { board(run, []).columns.contains { $0.column == .review } }
+        #expect(hasColumn(run()))
+        #expect(!hasColumn(run(review: false)), "the Review slice off: nothing goes into review")
+        #expect(!hasColumn(run(settings: TaskSettings(review: "  ", end: .draftMR, closeWhenDone: true))), "no review prompt")
+        var legacy = run()
+        legacy.taskSettings = nil
+        legacy.review = "assign Jan"
+        #expect(hasColumn(legacy))
+        legacy.profile.slices.review = false
+        #expect(!hasColumn(legacy))
     }
 
     @Test func aMergeHeldForTheOperatorsFinishIsQuietAndAsksYouNothing() throws {

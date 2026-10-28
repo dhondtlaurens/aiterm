@@ -182,7 +182,7 @@ struct BroadcastSetupStepsTests {
         #expect(NewBroadcastModel.closingLabel == "When the broadcast ends")
         #expect(NewBroadcastModel.closeLabel == "Close finished tasks’ tabs and remove their worktrees")
         #expect(NewBroadcastModel.deleteBranchLabel == "Delete their local branches once merged into the default branch")
-        #expect(TaskEnd.allCases.map(NewBroadcastModel.title(of:)) == ["Commit", "Draft MR", "Merge", "Local merge"])
+        #expect(TaskEnd.allCases.map(\.title) == ["Commit", "Draft MR", "Merge", "Local merge"])
     }
 
     @Test func mergeAndLocalMergeArePickedOnlyWithTheMergeSlice() {
