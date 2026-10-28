@@ -8,7 +8,7 @@ import AiTermCore
 struct DoneStep: View {
     @Bindable var model: NewBroadcastModel
 
-    /// The extra rounds' field, as wide as the Agents step's Reasoning column: room for a few digits.
+    /// The extra rounds' field, fitted to a count of a few digits rather than the step's width.
     private static let roundsWidth: CGFloat = 112
 
     var body: some View {

@@ -52,6 +52,29 @@ struct BroadcastSetupStepsTests {
 
     @Test func identicalLastRowsAreKeptOnce() {
         #expect(rows(sheet(.installed(last: [Self.astraMedium, Self.astraMedium]))) == [Self.astraMedium])
+        let high = AgentChoice(agent: .claude, model: Self.sonnet.id, reasoning: "high")
+        #expect(rows(sheet(.installed(last: [high, Self.sonnetMedium]))) == [Self.sonnetMedium],
+                "alike once Sonnet's reasoning is adjusted")
+    }
+
+    /// An installed agent whose Settings › Agents default names a model no longer listed still has a default: its first
+    /// model at that model's own reasoning. So it is offered, and a kept row on it stays one it can pick.
+    @Test func anAgentWhoseSavedDefaultIsGoneDefaultsToItsFirstModel() throws {
+        let preferences = ScratchDefaults.make()
+        ModelSettings.save(ModelPreference(model: "gpt-5-retired", reasoning: "high"), for: .codex, defaults: preferences)
+        let lists: [AgentKind: [AgentModel]] = [.claude: [Self.opus, Self.sonnet], .codex: [Self.astra]]
+        let context = NewBroadcastContext.read(profile: nil, installed: [.claude, .codex], models: { lists[$0] ?? [] },
+                                               remembered: [:], preferences: preferences)
+        #expect(context.defaults[.codex] == Self.astraMedium)
+        #expect(rows(sheet(context)) == [Self.opusHigh, Self.astraMedium], "no last rows: Codex at its first model")
+        #expect(sheet(context).offeredAgents == [.claude, .codex])
+
+        try OperatorProfileStore.saveLastAgents([Self.astraMedium], preferences)
+        let kept = NewBroadcastContext.read(profile: nil, installed: [.claude, .codex], models: { lists[$0] ?? [] },
+                                            remembered: [:], preferences: preferences)
+        let model = sheet(kept)
+        #expect(rows(model) == [Self.astraMedium])
+        #expect(model.offeredAgents.contains(.codex), "the kept row's agent is one its Agent menu lists")
     }
 
     // -- Agents: the rows ---------------------------------------------------------------
@@ -154,8 +177,12 @@ struct BroadcastSetupStepsTests {
         let model = sheet()
         #expect(model.closeWhenDone && !model.deleteMergedBranch, "close on, branches kept")
         #expect(model.canDeleteMergedBranch)
+        model.deleteMergedBranch = true
         model.closeWhenDone = false
         #expect(!model.canDeleteMergedBranch)
+        #expect(!model.deleteMergedBranch, "unticked with it, so no branch is deleted without closing")
+        model.closeWhenDone = true
+        #expect(!model.deleteMergedBranch, "ticking close again leaves it to the person")
     }
 
     // -- Done ---------------------------------------------------------------------------
@@ -177,9 +204,13 @@ struct BroadcastSetupStepsTests {
         model.extraRoundsText = "1a2"
         #expect(model.extraRoundsText == "12" && model.extraRounds == 12)
         model.extraRoundsText = "-3"
-        #expect(model.extraRounds == 3, "never below 0")
+        #expect(model.extraRounds == 3, "a minus sign is dropped like any other non-digit")
         model.extraRoundsText = ""
         #expect(model.extraRounds == 0)
+        model.extraRoundsText = String(Int.max)
+        #expect(model.extraRounds == Int.max)
+        model.extraRoundsText = String(Int.max) + "9"
+        #expect(model.extraRoundsText == String(Int.max), "a digit past what a count can hold is refused")
     }
 
     @Test func everyNewStepsCopyKeepsTheHouseStyle() {

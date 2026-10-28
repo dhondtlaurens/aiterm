@@ -10,7 +10,7 @@ struct NewBroadcastContext: Equatable {
     var oracleIsOn = false
     /// Each installed agent's models, by agent: an agent not installed is left out.
     var models: [AgentKind: [AgentModel]] = [:]
-    /// Each installed agent's default in Settings › Agents; an agent it resolves none for is left out.
+    /// Each installed agent's default in Settings › Agents, else its first model; an agent listing none is left out.
     var defaults: [AgentKind: AgentChoice] = [:]
     /// The last broadcast's Agents rows (`OperatorProfileStore.lastAgents`), as saved.
     var lastAgents: [AgentChoice] = []
@@ -23,7 +23,9 @@ struct NewBroadcastContext: Equatable {
         let lists = Dictionary(installed.map { ($0, models($0)) }, uniquingKeysWith: { first, _ in first })
         var defaults: [AgentKind: AgentChoice] = [:]
         for (agent, list) in lists {
-            let preference = ModelSettings.resolve(for: agent, catalog: list, remembered: remembered[agent], defaults: preferences)
+            var preference = ModelSettings.resolve(for: agent, catalog: list, remembered: remembered[agent], defaults: preferences)
+            // A saved default no longer listed resolves to none: the agent's first model stands in, so it is still offered.
+            if preference.model.isEmpty, let first = list.first { preference.select(first) }
             if !preference.model.isEmpty { defaults[agent] = AgentChoice(agent: agent, model: preference.model, reasoning: preference.reasoning) }
         }
         return NewBroadcastContext(slices: profile?.slices ?? .none, oracleIsOn: profile?.oracle.isOn ?? false, models: lists, defaults: defaults,
@@ -66,13 +68,18 @@ final class NewBroadcastModel: Identifiable {
     var review = ""
     /// Every task's end as it starts.
     private(set) var end = TaskEnd.draftMR
-    var closeWhenDone = true
+    /// Unticked, it unticks deleting branches too: a branch is deleted only by closing its task.
+    var closeWhenDone = true { didSet { if !closeWhenDone { deleteMergedBranch = false } } }
     var deleteMergedBranch = false
     /// The Done step's goal.
     var done = ""
-    /// The Done step's extra rounds as typed: digits only.
+    /// The Done step's extra rounds as typed: digits only, and no more of them than a count can hold.
     var extraRoundsText = "2" {
-        didSet { let digits = extraRoundsText.filter { $0.isASCII && $0.isNumber }; if digits != extraRoundsText { extraRoundsText = digits } }
+        didSet {
+            let digits = extraRoundsText.filter { $0.isASCII && $0.isNumber }
+            let kept = digits.isEmpty || Int(digits) != nil ? digits : oldValue
+            if kept != extraRoundsText { extraRoundsText = kept }
+        }
     }
     private(set) var starting = false
     /// Why the last start failed, shown in the footer as a `Notice`.

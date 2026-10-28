@@ -58,7 +58,8 @@ struct AgentsStep: View {
                 if efforts.isEmpty {
                     Color.clear.frame(height: Size.control)
                 } else {
-                    Select(values: efforts, selection: Binding(get: { choice.reasoning ?? efforts[0] }, set: { model.setReasoning($0, of: row.id) }),
+                    Select(values: efforts, selection: Binding(get: { choice.reasoning ?? picked?.defaultEffort ?? efforts[0] },
+                                                               set: { model.setReasoning($0, of: row.id) }),
                            label: { $0.capitalized })
                 }
             }
