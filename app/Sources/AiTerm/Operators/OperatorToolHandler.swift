@@ -104,7 +104,7 @@ final class OperatorToolHandler {
     var runningChallenges: [String: Task<Void, Never>] = [:]
     /// The challenges whose acting call is performing now: a second call for one is refused, not performed too.
     var actingChallenges: Set<String> = []
-    /// The `create_task` invocations the Oracle said yes to, while the call performs: past the backlog's threshold they add.
+    /// The `create_task` and `check_goal` invocations the Oracle said yes to, while the call performs: an addition past the threshold, a goal check it agreed with.
     var vettedCalls: Set<String> = []
     /// A message to one worker tab: `tab` is an extra tab's key, nil for the first worker.
     struct MessageKey: Hashable { let task: UUID; let tab: String?; let text: String }

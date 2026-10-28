@@ -243,6 +243,19 @@ import Testing
         #expect(told == [run.id])
     }
 
+    /// A summary overdue, given up on by the reconcile tick (its wait gone with a relaunch), is told to the hook too.
+    @Test func aSummaryGivenUpOnByTheReconcileTickIsToldToTheHook() throws {
+        let clock = TestClock.operators()
+        let (world, run, task) = try broadcast(clock)
+        try world.controller.stop(task: task.id)
+        var told: [UUID] = []
+        world.controller.onRunChanged = { told.append($0) }
+        clock.advance(by: OperatorTiming.summaryWait)
+        world.controller.reconcileTick()
+        #expect(world.run(run.id)?.summaryGivenUp == true)
+        #expect(told.first == run.id)
+    }
+
     @Test func endingRecordsWhen() async throws {
         let clock = TestClock.operators()
         let (world, run, _) = try broadcast(clock)

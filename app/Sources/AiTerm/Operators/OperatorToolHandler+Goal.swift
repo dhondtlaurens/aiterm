@@ -15,15 +15,12 @@ extension OperatorToolHandler {
         return run.revisionAtLastCheck.map { run.planRevision > $0 } ?? true
     }
 
-    /// Whether `check_goal` is taken now: while one is due, or as the check again once the last answer was planMore
-    /// and no revision has been submitted since, when the Operator found nothing it could plan.
-    static func acceptsGoalCheck(_ run: OperatorRun) -> Bool {
-        run.goalCheckDue || isRecheck(run)
-    }
-
-    /// The last answer was planMore, and no revision has been submitted since.
-    private static func isRecheck(_ run: OperatorRun) -> Bool {
-        run.goal != nil && run.goalOutcome == nil && run.goalChecks.last?.met == false && run.revisionAtLastCheck == run.planRevision
+    /// The goal `check_goal` checks now: while a check is due, or as the check again once the last answer was planMore and
+    /// no revision has been submitted since, when the Operator found nothing it could plan. Nil while it is refused.
+    static func goalToCheck(_ run: OperatorRun) -> BroadcastGoal? {
+        guard let goal = run.goal else { return nil }
+        let recheck = run.goalOutcome == nil && run.goalChecks.last?.met == false && run.revisionAtLastCheck == run.planRevision
+        return run.goalCheckDue || recheck ? goal : nil
     }
 
     /// A check_goal's arguments, refused when they can't be one: not met needs what is missing.
@@ -37,18 +34,18 @@ extension OperatorToolHandler {
         return (met, evidence, met ? [] : missing)
     }
 
-    /// Whether `call` is the check `run` last acted on, again with its reply lost: it answers what it answered, and is
-    /// neither a check again nor asked of the Oracle again.
-    static func repeatsLastGoalCheck(_ call: ToolCall, in run: OperatorRun) -> Bool {
+    /// The check `run` last acted on, when `call` is that check again with its reply lost: it answers what it answered,
+    /// and is neither a check again nor asked of the Oracle again.
+    static func repeatedGoalCheck(_ call: ToolCall, in run: OperatorRun) -> GoalCheck? {
         guard let last = run.goalChecks.last, !run.goalCheckDue, run.revisionAtLastCheck == run.planRevision,
-              let verdict = try? goalVerdict(call) else { return false }
-        return (last.met, last.evidence, last.missing) == verdict
+              let verdict = try? goalVerdict(call), (last.met, last.evidence, last.missing) == verdict else { return nil }
+        return last
     }
 
     func checkGoal(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let verdict = try Self.goalVerdict(call)
-        if Self.repeatsLastGoalCheck(call, in: run) { return Self.goalAnswer(run) }
-        guard Self.acceptsGoalCheck(run), let goal = run.goal else { throw ToolRefusal(Self.noGoalCheck) }
+        if let last = Self.repeatedGoalCheck(call, in: run) { return Self.goalAnswer(run, last) }
+        guard let goal = Self.goalToCheck(run) else { throw ToolRefusal(Self.noGoalCheck) }
         // The Oracle's yes is this call's (`vettedCalls`); without it the check acts unchallenged, not checked by the Oracle.
         let agreed: Bool? = vettedCalls.contains(Self.invocation(call)) ? true : nil
         // A round is left only for a check that is due: the check again, finding nothing to plan, takes none.
@@ -68,16 +65,17 @@ extension OperatorToolHandler {
                 }
             }
         }
-        return Self.goalAnswer(state.run(id: run.id) ?? run)
+        return Self.goalAnswer(state.run(id: run.id) ?? run, check)
     }
 
-    /// The answer to the last check `run` acted on: complete, planMore with the rounds left, or stopped with what went to you.
-    private static func goalAnswer(_ run: OperatorRun) -> JSONValue {
-        guard let last = run.goalChecks.last else { return .null }
+    /// The answer to `last`, the last check `run` acted on: complete, planMore with the rounds left, or stopped with what
+    /// went to you.
+    private static func goalAnswer(_ run: OperatorRun, _ last: GoalCheck) -> JSONValue {
         guard run.goalOutcome != nil else {
             return ["answer": "planMore", "roundsLeft": .int(max(0, (run.goal?.extraRounds ?? 0) - run.roundsUsed)),
                     "missing": .array(last.missing.map(JSONValue.string)),
-                    "note": "Plan only what missing names: create_task, then submit_plan. If nothing can be planned, call check_goal again before submitting anything."]
+                    "note": .string("Plan only what missing names: create_task, then submit_plan. If nothing can be planned, call check_goal "
+                                    + "again before submitting anything, with new evidence saying why.")]
         }
         guard !last.met else {
             return ["answer": "complete", "note": "The goal is met and the broadcast is complete: write its summary with write_summary."]
@@ -86,33 +84,64 @@ extension OperatorToolHandler {
                 "note": "The goal isn’t met and no more is planned: what is missing went to the person, and the broadcast is complete. Write its summary with write_summary."]
     }
 
+    /// The most a task's diff stat may take: every task is read at once, ahead of the Oracle's reply budget, inside the
+    /// daemon's wait for the answer.
+    nonisolated static let goalStatTimeout: TimeInterval = 5
+
     /// Each of `run`'s tasks as the Oracle judges the goal by: its accepted commit, its merge record, its diff stat and its
-    /// verdicts, as JSON.
+    /// verdicts, as JSON. The stats are read from local commits, nothing fetched, every task at once.
     func goalResults(in run: OperatorRun) async -> String {
-        var results: [JSONValue] = []
-        for task in state.tasks(inRun: run.id) {
-            guard let operated = task.operated else { continue }
+        let tasks = state.tasks(inRun: run.id).compactMap { task in task.operated.map { (task, $0) } }
+        let git = ports.git
+        let reads = tasks.map { task, operated in
+            (path: task.hasCheckout ? task.worktreePath : nil, sha: operated.acceptance?.resultSHA,
+             base: RunScheduler.baseCommit(for: task.id, in: state) ?? task.baseBranch,
+             merge: operated.publication?.merged == true ? operated.publication?.mergedSHA : nil)
+        }
+        let stats = await withTaskGroup(of: (Int, String?).self) { group in
+            for (i, read) in reads.enumerated() {
+                guard let path = read.path, let sha = read.sha else { continue }
+                group.addTask { await BackgroundWork.run { (i, Self.diffStat(git: git, in: path, base: read.base, sha: sha, merge: read.merge)) } }
+            }
+            var stats: [Int: String] = [:]
+            for await (i, stat) in group { stats[i] = stat }
+            return stats
+        }
+        let results = tasks.enumerated().map { i, entry -> JSONValue in
+            let (task, operated) = entry
             var result: [String: JSONValue] = ["key": .string(operated.key), "title": .string(task.title),
                                                "state": .string(operated.state.rawValue), "end": .string(operated.end.rawValue)]
-            if let sha = operated.acceptance?.resultSHA {
-                result["acceptedSHA"] = .string(sha)
-                if let stat = await diffStat(of: task, at: sha, in: run) { result["diffStat"] = .string(stat) }
-            }
-            if let publication = operated.publication, let merge = try? JSONValue(encoding: publication) { result["merge"] = merge }
+            if let sha = operated.acceptance?.resultSHA { result["acceptedSHA"] = .string(sha) }
+            if let stat = stats[i] { result["diffStat"] = .string(stat) }
+            if let publication = operated.publication { result["merge"] = Self.mergeRecord(publication) }
             if !operated.reviewVerdicts.isEmpty, let verdicts = try? JSONValue(encoding: operated.reviewVerdicts) {
                 result["verdicts"] = verdicts
             }
-            results.append(.object(result))
+            return .object(result)
         }
         return Self.json(.array(results))
     }
 
-    /// `git diff --shortstat` from where the task's branch left its base to `sha`; nil without a worktree, or when git can't say.
-    private func diffStat(of task: TaskItem, at sha: String, in run: OperatorRun) async -> String? {
-        guard task.hasCheckout, let base = try? await diffBase(of: task, in: run) else { return nil }
-        let git = ports.git, path = task.worktreePath
-        return try? await BackgroundWork.run {
-            try git.run(["diff", "--shortstat", "\(base)...\(sha)"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
+    /// What the Oracle reads of a task's publication: whether it merged, at which commit, and its request with what became
+    /// of it. Nil for one with neither a merge nor a request.
+    private static func mergeRecord(_ publication: TaskPublication) -> JSONValue? {
+        var record: [String: JSONValue] = [:]
+        if publication.merged { record["merged"] = true }
+        if let sha = publication.mergedSHA { record["mergedSHA"] = .string(sha) }
+        if let url = publication.mergeRequestURL {
+            let state = publication.merged ? "merged" : publication.leftForYou ? "leftForYou" : "open"
+            record["request"] = ["url": .string(url), "state": .string(state)]
         }
+        return record.isEmpty ? nil : .object(record)
+    }
+
+    /// `git diff --shortstat` of a task's work, from local commits: its merge against the merge's first parent, which a
+    /// merge commit and a squash read alike, or else from where its branch left `base` (its default branch when empty) to
+    /// `sha`. Nil when git can't say, or the stat comes out empty.
+    nonisolated static func diffStat(git: any GitRunning, in path: String, base: String, sha: String, merge: String?) -> String? {
+        let range = merge.map { ["\($0)^1", $0] } ?? ["\(base.isEmpty ? Repository(path, git: git).defaultBranch() : base)...\(sha)"]
+        let stat = (try? git.run(["diff", "--shortstat"] + range, in: path, timeout: goalStatTimeout))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return stat?.isEmpty == false ? stat : nil
     }
 }

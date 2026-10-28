@@ -477,6 +477,12 @@ final class OperatorController {
     /// What wakes the operator once a goal check is due.
     static let goalCheckReason = "every task is done: check the goal with check_goal"
 
+    /// Wakes the operator for a goal check still due, as a restart or its return from offline may have lost the wake.
+    private func sayGoalCheckDue(_ id: UUID) {
+        guard run(id: id)?.goalCheckDue == true else { return }
+        waker.say(Self.goalCheckReason, to: id)
+    }
+
     /// Waits `OperatorTiming.summaryWait` for the summary of the completion at `completedAt`, then gives up on it
     /// if none came. A new completion's wait replaces the one before.
     private func awaitSummary(_ id: UUID, completedAt: Date) {
@@ -652,7 +658,7 @@ final class OperatorController {
 
     /// A daemon attached — after AiTerm's launch, or the daemon's restart, which forgets the tokens:
     /// every run's token is registered again but a stopped run's (a revoke that failed is tried again), and each operator that may be woken
-    /// is told `reconnected` (spec §11).
+    /// is told `reconnected` (spec §11), and that its goal is to check when a check is due.
     func daemonAttached() {
         // A new daemon's tabs are known once its first connected snapshot comes.
         tabsKnown = false
@@ -677,6 +683,7 @@ final class OperatorController {
         }
         for (id, _) in open {
             waker.say("reconnected", to: id)
+            sayGoalCheckDue(id)
             // News that was waiting before the daemon went is tried again now.
             waker.operatorSessionChanged(id)
         }
@@ -772,9 +779,16 @@ final class OperatorController {
         // Time alone can make a review quiet (spec §K): what `run_status` would show is read again on every tick.
         observeRuns()
         // A summary overdue while AiTerm was not running, or whose wait went with it, is given up on here.
-        for run in runs where run.state == .complete && giveUpOnSummary(run.id) { runChanged(run.id) }
+        for run in runs where run.state == .complete {
+            if giveUpOnSummary(run.id) { runChanged(run.id) }
+        }
         guard tabsKnown else { return }
-        for id in reconciler.tick() { runChanged(id) }
+        let offline = Set(runs.filter { $0.state == .operatorOffline }.map(\.id))
+        for id in reconciler.tick() {
+            runChanged(id)
+            // Its Operator back from offline: told `reconnected`, and a goal check still due again.
+            if offline.contains(id), run(id: id)?.state == .active { sayGoalCheckDue(id) }
+        }
         applyStallFlags()
         quiet.refresh()
         // A first worker whose launch is over, still idle, has its turn read now (`TaskItem.workerTabs(in:now:)`).

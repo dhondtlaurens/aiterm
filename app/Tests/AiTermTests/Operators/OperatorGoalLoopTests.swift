@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Synchronization
 @testable import AiTermCore
 @testable import AiTerm
 @testable import AiTermTestSupport
@@ -105,6 +106,8 @@ import Testing
         let answer = try #require(await world.call(run.id, "check_goal", notMet).value)
         #expect(answer["answer"] == "planMore" && answer["roundsLeft"] == 1)
         #expect(answer["missing"] == ["Ship the search page."])
+        #expect(answer["note"]?.stringValue == "Plan only what missing names: create_task, then submit_plan. If nothing can be planned, "
+                + "call check_goal again before submitting anything, with new evidence saying why.")
         let planning = try #require(world.run(run.id))
         #expect(planning.state == .active && !planning.goalCheckDue && planning.roundsUsed == 1 && planning.goalOutcome == nil)
         #expect(planning.leftForYou.isEmpty)
@@ -229,6 +232,10 @@ import Testing
             state.updateRun(id: m.run.id) {
                 $0.review = nil; $0.done = nil
                 $0.taskSettings = OperatorServiceFixtures.taskSettings
+                $0.questions = [OperatorQuestion(id: "rounds-A", text: "A is out of fix rounds.", task: m.task.id, askedAt: Date(timeIntervalSince1970: 0),
+                                                 resolution: "The person accepted it as it is.", about: OperatorQuestion.fixRounds),
+                                OperatorQuestion(id: "locale", text: "Which locale?", task: m.task.id, askedAt: Date(timeIntervalSince1970: 0),
+                                                 resolution: "English.")]
             }
             state.updateOperated(m.task.id) {
                 $0.reviewVerdicts = [ReviewVerdict(tab: "review", sha: m.sha, passed: true, round: 2, rounds: 3, critical: 0, important: 0,
@@ -240,6 +247,128 @@ import Testing
         let prompt = try #require(prompts.list.first)
         #expect(prompt.contains("The review prompt, as the person wrote it:\n\(OperatorServiceFixtures.taskSettings.review ?? "")"))
         #expect(prompt.contains("One nit left.") && prompt.contains(m.sha))
+        #expect(prompt.contains("The person accepted it as it is.") && !prompt.contains("English."), "only its fix rounds' answers")
         #expect(!prompt.contains("The Review, as the person wrote it") && !prompt.contains("The Done, as the person wrote it"))
+    }
+
+    // -- a restart ---------------------------------------------------------------------------
+    /// A check due when the helper attaches again (AiTerm's launch, or the daemon's restart) is said again.
+    @Test func aCheckDueWhenTheHelperAttachesWakesTheOperatorAgain() async throws {
+        let (world, _) = try due()
+        try await world.daemon.received("session.deliver")
+        world.controller.daemonAttached()
+        try await world.daemon.received("session.deliver", count: 2)
+        #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String
+                == "[AiTerm] every task is done: check the goal with check_goal, call run_status")
+    }
+
+    /// A check due when its Operator comes back from offline is said again.
+    @Test func aCheckDueWhenItsOperatorComesBackWakesItAgain() async throws {
+        let (world, run) = try due()
+        try await world.daemon.received("session.deliver")
+        world.show([])
+        #expect(world.run(run.id)?.state == .operatorOffline && world.run(run.id)?.goalCheckDue == true)
+        world.show([OperatorServiceFixtures.session("op", tag: run.id)])
+        world.controller.reconcileTick()
+        #expect(world.run(run.id)?.state == .active)
+        try await world.daemon.received("session.deliver", count: 2)
+        #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String
+                == "[AiTerm] every task is done: check the goal with check_goal, call run_status")
+    }
+
+    // -- what the Oracle reads of each task ----------------------------------------------------
+    @MainActor @Suite(.blocking) struct Results {
+        let project = OperatorServiceFixtures.project()
+        let git = GitRunner.hermetic()
+
+        /// The JSON each task's result reads as, by its key.
+        func results(_ world: OperatorWorld, _ run: OperatorRun) async throws -> [String: JSONValue] {
+            let text = await world.controller.tools.goalResults(in: try #require(world.run(run.id)))
+            let all = try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)).arrayValue ?? []
+            return Dictionary(uniqueKeysWithValues: all.compactMap { result in result["key"]?.stringValue.map { ($0, result) } })
+        }
+
+        func commit(_ file: String, lines: Int, in repo: String) throws -> String {
+            try (1...lines).map { "line \($0)" }.joined(separator: "\n").appending("\n")
+                .write(toFile: repo + "/" + file, atomically: true, encoding: .utf8)
+            try git.run(["add", file], in: repo)
+            try git.run(["commit", "-q", "-m", "Add \(file)"], in: repo)
+            return try git.run(["rev-parse", "HEAD"], in: repo)
+        }
+
+        func task(_ key: String, in run: OperatorRun, repo: String, sha: String, publication: TaskPublication? = nil) -> TaskItem {
+            var task = OperatorServiceFixtures.task(in: run, project: project, key: key, state: .accepted, worktree: repo)
+            task.baseBranch = "main"
+            task.operated?.acceptance = TaskAcceptance(resultSHA: sha, prerequisiteSHAs: [], checkOutput: "ok", note: nil,
+                                                       at: Date(timeIntervalSince1970: 0))
+            task.operated?.publication = publication
+            return task
+        }
+
+        /// A merged task's stat is its merge against the merge's first parent, a merge commit's or a squash's alike; an
+        /// unmerged one's is from where its branch left its base. A stat that comes out empty is left out, and the merge
+        /// record carries only what the Oracle needs.
+        @Test func eachTasksDiffStatIsItsOwnWorkMergedOrNot() async throws {
+            let repo = try GitFixture.makeRepo(prefix: "op-goal-stat-")
+            try git.run(["checkout", "-q", "-b", "feat/a"], in: repo)
+            let a = try commit("a.txt", lines: 2, in: repo)
+            try git.run(["checkout", "-q", "-b", "feat/b", "main"], in: repo)
+            let b = try commit("b.txt", lines: 3, in: repo)
+            try git.run(["checkout", "-q", "-b", "feat/c", "main"], in: repo)
+            let c = try commit("c.txt", lines: 4, in: repo)
+            try git.run(["checkout", "-q", "main"], in: repo)
+            try git.run(["merge", "--no-ff", "-q", "-m", "Merge A", "feat/a"], in: repo)
+            let mergedA = try git.run(["rev-parse", "HEAD"], in: repo)
+            try git.run(["merge", "--squash", "-q", "feat/c"], in: repo)
+            try git.run(["commit", "-q", "-m", "Squash C"], in: repo)
+            let squashedC = try git.run(["rev-parse", "HEAD"], in: repo)
+
+            let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1,
+                                                  taskSettings: OperatorServiceFixtures.taskSettings, goal: OperatorServiceFixtures.goal)
+            let tasks = [
+                task("A", in: run, repo: repo, sha: a, publication: TaskPublication(mergeRequestURL: "https://git.example/mr/1", merged: true,
+                                                                                    mergedSHA: mergedA, lastPushFailure: "hook said no")),
+                task("B", in: run, repo: repo, sha: b),
+                task("C", in: run, repo: repo, sha: c, publication: TaskPublication(merged: true, mergedSHA: squashedC)),
+                // Merged by ancestry: no merge commit names it, and its accepted commit is in main already.
+                task("D", in: run, repo: repo, sha: a, publication: TaskPublication(merged: true, landedSHA: a)),
+            ]
+            let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: tasks))
+            let results = try await results(world, run)
+            #expect(results["A"]?["diffStat"] == "1 file changed, 2 insertions(+)")
+            #expect(results["B"]?["diffStat"] == "1 file changed, 3 insertions(+)")
+            #expect(results["C"]?["diffStat"] == "1 file changed, 4 insertions(+)")
+            #expect(results["D"]?["diffStat"] == nil, "an empty stat is left out")
+            #expect(results["A"]?["merge"] == ["merged": true, "mergedSHA": .string(mergedA),
+                                               "request": ["url": "https://git.example/mr/1", "state": "merged"]])
+            #expect(results["B"]?["merge"] == nil)
+        }
+
+        /// Reading the stats fetches nothing and reads every task at once, so many tasks stay inside the reply budget.
+        @Test func manyTasksAreReadAtOnceWithNoFetch() async throws {
+            let git = CountingGit()
+            let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1,
+                                                  taskSettings: OperatorServiceFixtures.taskSettings, goal: OperatorServiceFixtures.goal)
+            let tasks = (1...6).map { task("T\($0)", in: run, repo: "/tmp/aiterm-goal-\($0)", sha: "sha\($0)") }
+            let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: tasks), git: git)
+            let results = try await results(world, run)
+            #expect(results.count == 6 && results.values.allSatisfy { $0["diffStat"] == "1 file changed, 1 insertion(+)" })
+            #expect(!git.calls.contains { $0.contains("fetch") }, "\(git.calls)")
+            #expect(git.most > 1, "the tasks were read one after another")
+        }
+    }
+}
+
+/// A git that answers every command with a one-line stat after a short wait, keeping each command and the most it ran
+/// at once.
+final class CountingGit: GitRunning, @unchecked Sendable {
+    private let state = Mutex<(calls: [[String]], running: Int, most: Int)>(([], 0, 0))
+    var calls: [[String]] { state.withLock { $0.calls } }
+    var most: Int { state.withLock { $0.most } }
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        state.withLock { $0.calls.append(args); $0.running += 1; $0.most = max($0.most, $0.running) }
+        defer { state.withLock { $0.running -= 1 } }
+        Thread.sleep(forTimeInterval: 0.2)
+        return " 1 file changed, 1 insertion(+)"
     }
 }

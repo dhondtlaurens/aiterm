@@ -129,16 +129,30 @@ import Testing
     @Test func aNewMergeIsJudgedByTheReviewPromptAndTheVerdicts() {
         let prompt = ChallengeLaunch.mergePrompt(task: "A", acceptedSHA: "abc", brief: "Do A.",
                                                  conditions: .reviewed(prompt: "Review with /code-review; no critical finding.",
-                                                                       verdicts: #"[{"passed":true,"sha":"abc"}]"#), run: "{}")
+                                                                       verdicts: #"[{"passed":true,"sha":"abc"}]"#, answers: nil), run: "{}")
         #expect(prompt.contains("The act: merge the accepted commit abc for task A."))
         #expect(prompt.contains("The review prompt, as the person wrote it:\nReview with /code-review; no critical finding."))
         #expect(prompt.contains(#"[{"passed":true,"sha":"abc"}]"#))
         #expect(!prompt.contains("The Review, as the person wrote it") && !prompt.contains("Done"))
         #expect(prompt.contains("Answer YES or NO alone on the first line"))
-        let none = ChallengeLaunch.mergePrompt(task: "A", acceptedSHA: "abc", brief: "Do A.", conditions: .reviewed(prompt: nil, verdicts: "[]"),
-                                               run: "{}")
+        #expect(prompt.contains("The person's answers when the task ran out of fix rounds:\n(none)"))
+        let none = ChallengeLaunch.mergePrompt(task: "A", acceptedSHA: "abc", brief: "Do A.",
+                                               conditions: .reviewed(prompt: nil, verdicts: "[]", answers: nil), run: "{}")
         #expect(none.contains("(none: a task is accepted without a review)"))
         #expect(!none.contains("\u{2014}") && !prompt.contains("\u{2014}"))
+    }
+
+    /// A person who accepted a task as it is, out of fix rounds, has decided: the merge check reads the answer, and the
+    /// verdicts it accepted are no reason for a no.
+    @Test func aPersonsAcceptOutOfFixRoundsStandsInTheMergeCheck() {
+        let answers = #"[{"question":"A is out of fix rounds.","answer":"Accept as it is."}]"#
+        let prompt = ChallengeLaunch.mergePrompt(task: "A", acceptedSHA: "abc", brief: "Do A.",
+                                                 conditions: .reviewed(prompt: "Three rounds of fixes, then ask me.",
+                                                                       verdicts: #"[{"passed":false,"sha":"abc"}]"#, answers: answers),
+                                                 run: "{}")
+        #expect(prompt.contains("The person's answers when the task ran out of fix rounds:\n\(answers)"))
+        #expect(prompt.contains("When the person answered the task's fix rounds by accepting it as it is, that answer stands"))
+        #expect(prompt.contains("judge only the review prompt's other conditions"))
     }
 
     /// The goal check asks whether the Operator's verdict is right, given the goal, each task's result and its evidence.
