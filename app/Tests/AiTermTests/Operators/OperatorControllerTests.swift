@@ -231,6 +231,31 @@ import Testing
         #expect(offline.run(other.id)?.summaryGivenUp == true, "offline")
     }
 
+    /// A summary given up on as the window goes is a change to the run like any other: `onRunChanged` hears of it.
+    @Test func aSummaryGivenUpOnAsTheWindowGoesIsToldToTheHook() throws {
+        let clock = TestClock.operators()
+        let (world, run, task) = try broadcast(clock)
+        try world.controller.stop(task: task.id)
+        var told: [UUID] = []
+        world.controller.onRunChanged = { told.append($0) }
+        world.show([])
+        #expect(world.run(run.id)?.summaryGivenUp == true)
+        #expect(told == [run.id])
+    }
+
+    /// A summary overdue, given up on by the reconcile tick (its wait gone with a relaunch), is told to the hook too.
+    @Test func aSummaryGivenUpOnByTheReconcileTickIsToldToTheHook() throws {
+        let clock = TestClock.operators()
+        let (world, run, task) = try broadcast(clock)
+        try world.controller.stop(task: task.id)
+        var told: [UUID] = []
+        world.controller.onRunChanged = { told.append($0) }
+        clock.advance(by: OperatorTiming.summaryWait)
+        world.controller.reconcileTick()
+        #expect(world.run(run.id)?.summaryGivenUp == true)
+        #expect(told == [run.id], "told once")
+    }
+
     @Test func endingRecordsWhen() async throws {
         let clock = TestClock.operators()
         let (world, run, _) = try broadcast(clock)
