@@ -55,12 +55,11 @@ public enum AgentCommand {
     /// Neither review launch removes subagents or read-only shell commands.
     public static func workerWords(agent: AgentKind, model: String, reasoning: String?, readOnly: Bool = false) -> [String] {
         let harness = agent.harness
+        if readOnly, let words = harness.readOnlyLaunchWords(model: model, reasoning: reasoning) { return words }
         switch agent {
         case .claude:
             let denials = operatedClaudeDenials + (readOnly ? reviewClaudeDenials : [])
             return harness.launchWords(model: model, reasoning: reasoning) + ["--disallowedTools"] + denials + ["--permission-mode", "auto"]
-        case .codex where readOnly:
-            return harness.readOnlyLaunchWords(model: model, reasoning: reasoning) ?? harness.launchWords(model: model, reasoning: reasoning)
         case .codex, .pi:
             return harness.launchWords(model: model, reasoning: reasoning)
         }

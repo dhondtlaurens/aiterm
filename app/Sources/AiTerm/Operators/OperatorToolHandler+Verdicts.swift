@@ -27,19 +27,17 @@ extension OperatorToolHandler {
         let git = ports.git, path = task.worktreePath, branch = task.branch, baseBranch = task.baseBranch
         let read = await BackgroundWork.run {
             Result { () throws -> ReviewedCommit in
-                guard let sha = try git.ask(["rev-parse", "--verify", "--quiet", "--end-of-options", ref + "^{commit}"], in: path, none: [1])?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) else {
+                let repository = Repository(path, git: git)
+                guard let sha = try repository.commit(ref) else {
                     // No commit, or more than one object by that abbreviation: git says neither apart from the other.
                     let matches = try git.run(["rev-parse", "--disambiguate=" + ref], in: path).split(separator: "\n")
                     return matches.count > 1 ? .ambiguous : .offBranch
                 }
                 // A branch or tag named in hex resolves before the commit it spells.
                 guard sha.hasPrefix(ref.lowercased()) else { return .notASHA }
-                guard try git.ask(["merge-base", "--is-ancestor", sha, "refs/heads/" + branch], in: path, none: [1]) != nil else {
-                    return .offBranch
-                }
+                guard try repository.isAncestor(sha, of: "refs/heads/" + branch) else { return .offBranch }
                 // Below the fork point the commit is the base's, not the task's: here or on origin.
-                guard let base = baseBranch.isEmpty ? try Repository(path, git: git).detectDefaultBranch() : baseBranch else { return .noBase }
+                guard let base = baseBranch.isEmpty ? try repository.detectDefaultBranch() : baseBranch else { return .noBase }
                 let holders = try git.run(["for-each-ref", "--contains", sha, "--format=%(refname)",
                                            "refs/heads/" + base, "refs/remotes/origin/" + base], in: path)
                 return holders.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .commit(sha) : .onBase(base)
