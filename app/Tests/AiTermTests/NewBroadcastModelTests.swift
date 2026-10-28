@@ -314,3 +314,43 @@ extension NewBroadcastModelTests {
         #expect(names.contains("moved") && !names.contains("wrong-folder"))
     }
 }
+
+extension NewBroadcastModelTests {
+    /// The heading's "+" checks each chosen project's code host as the Operator's tools do (`CodeHostCheck`): an origin
+    /// AiTerm has no connection for dims Draft MR and Merge, one it connects to leaves them, and an origin git can't read
+    /// is no code host either.
+    @Test(arguments: [(connected: false, readable: true), (true, true), (true, false)])
+    func newBroadcastChecksCodeHostsAsTheOperatorDoes(connected: Bool, readable: Bool) async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fixture = try GitFixture.withOrigin(branch: "feat/source")
+        var ports = OperatorPorts.scratch(git: readable ? GitRunner.hermetic() : UnreadableOriginGit())
+        let host = FakeMergeHost()
+        if connected { ports.publisher = { _ in host } }
+        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
+                                       operatorPorts: ports)
+        try controller.loadWorkspace()
+        var shop = project("shop")
+        shop.path = fixture.path
+        controller.workspace.mutate { [shop] in $0.items = [.project(shop)] }
+        controller.presentNewBroadcast()
+        #expect(await eventually(describing: "New Broadcast opens") { controller.sheet != nil })
+        guard case .newBroadcast(let sheet)? = controller.sheet else { Issue.record("no New Broadcast sheet"); return }
+        sheet.add(project: shop)
+        await sheet.loadCodeHosts()
+        #expect(sheet.canPick(.draftMR) == (connected && readable))
+    }
+}
+
+/// A git whose `remote get-url` fails with something other than git's "no such remote", and that runs every other
+/// command for real.
+private struct UnreadableOriginGit: GitRunning {
+    let inner: any GitRunning = GitRunner.hermetic()
+
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        if args.starts(with: ["remote", "get-url"]) {
+            throw GitError(args: args, code: 128, stderr: "fatal: unable to access '.git/config': Permission denied")
+        }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
+    }
+}

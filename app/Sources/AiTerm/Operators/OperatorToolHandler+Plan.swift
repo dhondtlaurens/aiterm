@@ -153,26 +153,10 @@ extension OperatorToolHandler {
         return done.contains(/\bcommits?\b/) && !saysRequest ? .commit : .draftMR
     }
 
-    /// Only an origin whose host AiTerm can connect to supports a remote publication end. Git saying there is no origin
-    /// (exit 2), or no repository to have one (a folder that is none, or is gone), is no origin; any other failure of
-    /// git's (a timeout, a config it can't read) is refused with git's own words, not read as no origin.
+    /// `CodeHostCheck`'s answer; an origin git can't read is refused with git's own words, not read as no origin.
     private func hasCodeHost(_ project: Project) async throws(ToolRefusal) -> Bool {
-        let git = ports.git, path = project.path
-        let origin: String?
-        do { origin = try await BackgroundWork.run({ try git.ask(["remote", "get-url", "origin"], in: path, none: [2]) }) }
-        catch let error as GitError where Self.isNoRepository(error) { return false }
-        catch _ where !FileManager.default.fileExists(atPath: path) { return false }
-        catch {
-            throw ToolRefusal("AiTerm couldn’t read \(project.name)’s origin: \((error as? GitError)?.reason ?? error.localizedDescription)")
-        }
-        guard let origin else { return false }
-        let remote = ProviderDetector.detect(remoteUrl: origin, repoPath: path)
-        do { _ = try ports.publisher(remote); return true } catch { return false }
-    }
-
-    /// Git's answer that the folder is no repository, or is gone: in its own words, which `GitRunner` keeps English.
-    private static func isNoRepository(_ error: GitError) -> Bool {
-        !error.timedOut && error.code == 128 && (error.stderr.contains("not a git repository") || error.stderr.contains("cannot change to"))
+        do { return try await ports.codeHost.connects(project) }
+        catch { throw ToolRefusal("AiTerm couldn’t read \(project.name)’s origin: \(error.reason)") }
     }
 
     private func validateEnd(_ end: TaskEnd, in run: OperatorRun, project: Project, connected: Bool) throws(ToolRefusal) {

@@ -160,10 +160,12 @@ final class SheetCoordinator {
     /// its Agents step offers. `/` lists both agents' skills from the person's home; `@` the files
     /// git tracks in the one picked project; the Jira picker the connection's Jira projects, fetched as
     /// the Jira projects sheet fetches them; Start waits for `readiness`, which `checkReadiness` reads
-    /// while the sheet is open. Not over another sheet.
+    /// while the sheet is open; the Task step dims the ends a chosen project's code host can't take (`hasCodeHost`). Not
+    /// over another sheet.
     func presentNewBroadcast(context: NewBroadcastContext, loadJiraProjects: @escaping @MainActor () async throws -> [JiraProjectRef],
                              readiness: @escaping @MainActor () -> BroadcastReadiness = { .ready },
                              checkReadiness: @escaping @MainActor () async -> Void = {},
+                             hasCodeHost: @escaping @Sendable (Project) async -> Bool = { _ in true },
                              start: @escaping @MainActor (NewBroadcastModel.Request) async throws -> UUID) {
         guard canChangeWorkspace, sheet == nil else { return }
         preparingSheet?.cancel()
@@ -172,7 +174,8 @@ final class SheetCoordinator {
                                                 skills: { SkillCatalog.discover(agent: $0, projectPath: $1, home: home, claudeConfig: claudeConfig) },
                                                 files: { ProjectFiles.list(in: $0, git: git) }, loadJiraProjects: loadJiraProjects,
                                                 canChangeWorkspace: { workspace.canChangeWorkspace },
-                                                readiness: readiness, checkReadiness: checkReadiness, start: start))
+                                                readiness: readiness, checkReadiness: checkReadiness, hasCodeHost: hasCodeHost,
+                                                start: start))
     }
 
     /// The broadcast's board, built by its caller, put in the slot at once (New Broadcast is built here, `presentNewBroadcast`).
