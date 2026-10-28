@@ -755,8 +755,8 @@ enum OperatorSnapshots {
     private static var broadcastContext: NewBroadcastContext {
         let opus = AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high")
         let astra = AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
-        return NewBroadcastContext(slices: Slices(jira: true, review: true, merge: true), oracleIsOn: true, models: agentModels, defaults: [.claude: opus, .codex: astra],
-                                   lastAgents: [opus, astra])
+        return NewBroadcastContext(slices: Slices(jira: true, review: true, merge: true), oracleIsOn: true,
+                                   models: agentModels, defaults: [.claude: opus, .codex: astra], lastAgents: [opus, astra])
     }
 
     /// Claude's and Codex's model lists in Settings › Agents, one model each.

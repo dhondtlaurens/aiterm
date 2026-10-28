@@ -77,9 +77,9 @@ struct BoardFooter: Equatable {
 /// The broadcast's sheet (spec §4, §13; the Operator sheet, 21 Oct 2026), `Sheet.width` by `Sheet.height` in
 /// `SheetLayout`'s anatomy: the title; a band line, the broadcast's `BroadcastStatusLine` as its row says it; the
 /// Asked line and, for a broadcast set up with the Task step, the Each task line under it (15A), each two lines at
-/// most, the whole of it in its tooltip; then the tab bar, Settings' `SegmentedControl` in
-/// its accent style, Board · Activity · Summary, picked by click or ⌘1–⌘3. It opens on `BroadcastBoard.firstTab`
-/// and stays where you put it; Summary is dimmed until the broadcast reached it. Board is the columns, each
+/// most, the whole of it in its tooltip; then the tab bar, Settings' `SegmentedControl` in its accent style, Board ·
+/// Activity · Summary, picked by click or ⌘1–⌘3. It opens on `BroadcastBoard.firstTab` and stays where you put it;
+/// Summary is dimmed until the broadcast reached it. Board is the columns, each
 /// `Sheet.boardColumn` wide and scrolling on its own, the row of them scrolling sideways; once every task is done
 /// they all sit in Done. A card's click closes the sheet first, then opens what resolves it (`choose`). Activity
 /// is the run's log (`BroadcastActivityView`), Summary the Operator's summary and what it left for you
@@ -504,9 +504,8 @@ struct BoardEndLine: View {
 /// title's leading edge; its state `Space.base` after it, an `OperatorBadge` (needs you in the attention chip);
 /// its `StatusMark` at `Size.statusMarkSmall` trailing; under it, on a broadcast set up with the Agents step, the tab's
 /// model and reasoning on a `Size.chip` line of their own on the key's edge, in `Typography.monoCode` and `Palette.muted`.
-/// Hovered, `Palette.badgeHovered` at `Radius.chip`,
-/// `Space.tight` beyond the line. Its click closes the board and brings the tab forward; a closed tab is muted,
-/// with no mark, and is no button.
+/// Hovered, `Palette.badgeHovered` at `Radius.chip`, `Space.tight` beyond the line. Its click closes the board and
+/// brings the tab forward; a closed tab is muted, with no mark, and is no button.
 struct BoardTabLine: View {
     let tab: BroadcastBoard.TabLine
     let choose: () -> Void
