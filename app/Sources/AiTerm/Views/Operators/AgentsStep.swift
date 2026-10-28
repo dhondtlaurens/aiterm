@@ -28,10 +28,11 @@ struct AgentsStep: View {
             }
             if !model.offeredAgents.isEmpty {
                 Button(action: model.addAgent) {
-                    HStack(spacing: Space.tight) {
+                    HStack(spacing: Space.snug) {
                         Image(systemName: "plus").font(Typography.micro)
                         Text(NewBroadcastModel.addAgentLabel).font(Typography.body)
                     }
+                    .frame(height: Size.control)
                     .foregroundStyle(Palette.link)
                 }
                 .buttonStyle(.plain)

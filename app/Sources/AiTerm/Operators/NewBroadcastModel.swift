@@ -299,9 +299,10 @@ final class NewBroadcastModel: Identifiable {
 
     func removeAgent(_ row: AgentRow.ID) { agentRows.removeAll { $0.id == row } }
 
-    /// The row on `agent`, at its Settings › Agents default.
+    /// The row on `agent`, at its Settings › Agents default. The agent it already runs keeps its model and reasoning: a
+    /// popup reports picking its selected item again.
     func setAgent(_ agent: AgentKind, of row: AgentRow.ID) {
-        guard let choice = context.defaults[agent] else { return }
+        guard agentRows.first(where: { $0.id == row })?.choice.agent != agent, let choice = context.defaults[agent] else { return }
         update(row) { $0 = choice }
     }
 

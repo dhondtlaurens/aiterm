@@ -107,6 +107,9 @@ struct BroadcastSetupStepsTests {
         model.setReasoning("low", of: row)
         model.setModel(Self.sonnet, of: row)
         #expect(rows(model) == [AgentChoice(agent: .claude, model: Self.sonnet.id, reasoning: "low")], "Sonnet offers low")
+        model.setAgent(.claude, of: row)
+        #expect(rows(model) == [AgentChoice(agent: .claude, model: Self.sonnet.id, reasoning: "low")],
+                "picking the agent it already runs keeps its model and reasoning")
         model.setReasoning("medium", of: row)
         model.setModel(Self.opus, of: row)
         model.setReasoning("high", of: row)
