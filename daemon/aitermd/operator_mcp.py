@@ -159,10 +159,19 @@ _AGENT = _choice("The agent that works the task, among those installed.", "claud
 _END = _choice("Where the task ends, from the broadcast's Done when: commit; draftMR, push and open a draft merge request; "
                "merge, push, open a merge request and merge it once the host says it can be; or mergeLocal, merge the "
                "accepted commit into the project's own default branch, with nothing pushed. A merge needs the broadcast's "
-               "Merge slice. Left out, a task ends at a draftMR, or at a commit when the Done says a commit.",
+               "Merge slice. Left out, a task ends at a draftMR, or at a commit when the Done says a commit. In a broadcast "
+               "whose run_status shows taskSettings, every task ends at its end and this is refused with: Every task ends at "
+               "<end>, which only the person changes.",
                "commit", "draftMR", "merge", "mergeLocal")
 _MODEL = _text("A model id from the agent's own list, as run_status shows it under agents. Left out, the agent's default. "
-               "A model not in that list is refused.")
+               "A model not in that list is refused. In a broadcast whose run_status lists rows under agents.allowed, only a "
+               "row's model, and left out, the agent's first row.")
+# Said first by each argument that is the Agents and Task steps' alone.
+_STEPS_ONLY = "Only in a broadcast started with the Agents and Task steps, whose run_status shows taskSettings"
+_REASONING = _text(f"{_STEPS_ONLY}; a broadcast started before them doesn't take it. The model's reasoning level, as Settings › "
+                   "Agents lists it. Left out, the model's default. The agent, model and reasoning must be one of the rows "
+                   "under agents.allowed: anything else is refused, naming the rows. The person's words choose among the rows, "
+                   "never outside them: ask them with ask_you about a combination that isn't one.")
 _DEPENDS_ON: dict[str, Any] = {
     "type": "array",
     "description": "What the task waits for. An order dependency waits until the other task is accepted or needs no change; "
@@ -173,8 +182,8 @@ _DEPENDS_ON: dict[str, Any] = {
 _CHALLENGE = {
     "challengeId": _text("The challengeId a challenged call returned: send it with your revised arguments, or with "
                          "challengeReply. A reply that says pending has no answer yet: call again with its challengeId "
-                         "and the same arguments. For create_task and finish_task, the call again acts only on the Oracle's "
-                         "yes. The same "
+                         "and the same arguments. For create_task, finish_task and check_goal, the call again acts only on "
+                         "the Oracle's yes. The same "
                          "challengeId again, once answered, returns the recorded result."),
     "challengeReply": _text("Your answer to each point of the second opinion's critique, when you keep the act as it was."),
 }
@@ -182,9 +191,10 @@ _CHALLENGE = {
 # that answers it, with its challengeId, takes effect. An Oracle not back within the app's 20 s answers
 # {"challenged": true, "challengeId": …, "critique": null, "pending": true}, and the operator calls
 # again with that challengeId (integration decision 3). Whether a call is challenged follows the
-# broadcast's Oracle switch, and is the app's to decide. A create_task past the backlog's threshold, and a
-# finish_task that would merge, get the Oracle's yes or no the same way: it may answer pending, and only a yes acts.
-CHALLENGED_TOOLS = ("submit_plan", "mark_task", "create_task", "finish_task")
+# broadcast's Oracle switch, and is the app's to decide. A create_task past the backlog's threshold, a
+# finish_task that would merge, and a check_goal get the Oracle's yes or no the same way: it may answer pending, and only
+# a yes acts.
+CHALLENGED_TOOLS = ("submit_plan", "mark_task", "create_task", "finish_task", "check_goal")
 
 
 def _tool(name: str, description: str, properties: dict[str, Any] | None = None, required: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -238,7 +248,14 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "twice after a restart), each agent's weekly use, and under agents each installed agent's models with its default "
           "model and, under delivery, whether its workers can be messaged. A task with a merge request shows what the host "
           "says of it under mergeRequest (draft, pipeline, mergeable, approvedBy, head), or why it could not be read "
-          "under mergeRequestNote. Call it first after any restart or compaction."),
+          "under mergeRequestNote. "
+          "A broadcast set up with the Agents, Task and Done steps also shows under run: agents.allowed, its Agents rows "
+          "(agent, model, reasoning), the only combinations it may start workers, tabs and reviewers on; taskSettings, what "
+          "every task follows (review, the review prompt; end; closeWhenDone and deleteMergedBranch, its closing at the "
+          "broadcast's end); goal, with its text and extraRounds; goalCheckDue, true once every task is done and the goal "
+          "is still to check with check_goal; and roundsUsed. Each task lists reviewVerdicts, the verdicts record_review "
+          "kept, and finished lists the tasks closed and removed at the broadcast's end, as their records keep them. "
+          "Call it first after any restart or compaction."),
     _tool("jira_search", "Searches Jira, read-only, within the Jira projects linked to the broadcast's projects.",
           {"jql": _text("The JQL query.")}, ("jql",)),
     _tool("jira_create", "Creates a Jira ticket in one of the broadcast's Jira projects. Refused unless the broadcast's Jira slice "
@@ -302,16 +319,16 @@ TOOLS: tuple[dict[str, Any], ...] = (
            "project": _text("The project it belongs to, one of the broadcast's, by name or by id from run_status."),
            "ticket": _text("The Jira key it works, if any."),
            "issueType": _text("The Jira issue type, or feat, fix or chore. Sets the branch prefix."),
-           "agent": _AGENT, "model": _MODEL,
+           "agent": _AGENT, "model": _MODEL, "reasoning": _REASONING,
            "modelReason": _text("Why this agent and model, in one line, as the task's card and the summary show it."),
            "agentPinned": {"type": "boolean", "description": "True when the person's words named this task's agent: it then "
                                                              "starts on that agent whatever its weekly use."},
            "end": _END, "dependsOn": _DEPENDS_ON},
           ("key", "title", "brief", "project", "agent", "modelReason")),
-    _tool("update_task", "Changes an unstarted task's brief, agent, model, end or dependencies. Steer a started task with "
-          "message_task instead.",
-          {"task": _TASK, "brief": _text("The new brief."), "agent": _AGENT, "model": _MODEL, "end": _END,
-           "dependsOn": _DEPENDS_ON}, ("task",)),
+    _tool("update_task", "Changes an unstarted task's brief, agent, model, end or dependencies, and in a broadcast started with "
+          "the Agents and Task steps its reasoning. Steer a started task with message_task instead.",
+          {"task": _TASK, "brief": _text("The new brief."), "agent": _AGENT, "model": _MODEL, "reasoning": _REASONING,
+           "end": _END, "dependsOn": _DEPENDS_ON}, ("task",)),
     _tool("submit_plan", "Closes a plan revision: its planned tasks are queued at once, with nothing to approve. "
           "Submitting the same revision again returns the earlier result.",
           {"revision": {"type": "integer", "description": "The revision run_status shows open."}}, ("revision",)),
@@ -331,7 +348,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "read-only brief. That tab's review is not recorded as this task's agent review. "
           "Nobody is notified, so it needs no slice. It answers started at once; AiTerm wakes you when the findings are in, "
           "and read_task with what: review reads them. Have the task's agent fix them with message_task. A review running "
-          "already, or the same review of the same commit, is not started again.",
+          "already, or the same review of the same commit, is not started again. In a broadcast whose run_status shows "
+          "taskSettings it is refused with: Run the review in a tab: open_tab with role review, then record_review.",
           {"task": _TASK, "instructions": _text("What the review checks and how, from the broadcast's Review, such as "
                                                 "an adversarial review with /review-skill."),
            "agent": _choice("Who reviews: claude, codex or pi. Left out, the other of Claude and Codex from the task's own agent.",
@@ -365,12 +383,48 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "Its first prompt is your brief, after AiTerm's lines on where it works and that it shares the worktree. It opens "
           "behind the person's work. The same key on the same task returns the first call's tab and opens nothing more; the same "
           "key with other arguments is refused. Returns the tab's key, agent, model, and opened or opening.",
-          {"task": _TASK, "key": _KEY, "agent": _AGENT, "model": _MODEL,
+          {"task": _TASK, "key": _KEY, "agent": _AGENT, "model": _MODEL, "reasoning": _REASONING,
            "modelReason": _text("Why this agent and model, in one line."),
            "agentPinned": {"type": "boolean", "description": "True when the person's words named this agent: an agent whose "
                                                              "workers can't be messaged is then not refused."},
-           "brief": _text("The tab's first prompt: what this worker does, since it sees nothing else.")},
-          ("task", "key", "agent", "modelReason", "brief")),
+           "brief": _text("The tab's first prompt: what this worker does, since it sees nothing else. Needed for a work tab, "
+                          "and for every tab of a broadcast started before the Agents and Task steps; optional for a review "
+                          "tab, whose first prompt is the broadcast's review prompt with AiTerm's lines, and what you write "
+                          "is added after it."),
+           "role": _choice(f"{_STEPS_ONLY}; a broadcast started before them doesn't take it. work, more work on the task; or "
+                           "review, a reviewer of the task's branch head as the tab opens, which only reviews and ends with a "
+                           "verdict: read it once its turn ends and call record_review. Run each review this way, on a row of "
+                           "agents.allowed, another agent than the task's worker where the rows have one. Left out, work.",
+                           "work", "review")},
+          ("task", "key", "agent", "modelReason")),
+    _tool("record_review", "Records a review tab's verdict on a task, once its turn ended and you read it: the commit it reviewed, "
+          "whether it passed by the review prompt's own words, its findings counted, and its fix round. sha must be on the "
+          "task's branch and tab one of its review tabs (open_tab with role review). The same key returns the first answer. "
+          "It answers the task's verdicts and how many failed. You decide when to accept: AiTerm doesn't refuse an "
+          "acceptance without a passing verdict. When the rounds the prompt names are used up, ask the person with ask_you "
+          "on the task, about fixRounds.",
+          {"task": _TASK, "tab": _text("The review tab's key."), "sha": _text("The commit it reviewed, as its first prompt named it."),
+           "passed": {"type": "boolean", "description": "Whether it passed, by the review prompt's own words."},
+           "critical": {"type": "integer", "description": "How many critical findings it reported."},
+           "important": {"type": "integer", "description": "How many important findings it reported."},
+           "minor": {"type": "integer", "description": "How many minor findings it reported."},
+           "summary": _text("Its verdict in one line."),
+           "round": {"type": "integer", "description": "The fix round this review closes, counted by you from 1."},
+           "rounds": {"type": "integer", "description": "The rounds of fixes the review prompt allows, when it names a number."},
+           "key": _KEY},
+          ("task", "tab", "sha", "passed", "critical", "important", "minor", "summary", "round", "key")),
+    _tool("check_goal", "Answers the broadcast's goal once every task is done: refused unless run_status shows goalCheckDue, "
+          "when AiTerm wakes you for it. Say whether the goal is met, with evidence from each task's result, and when not, "
+          "what is still missing, one line each. With the Oracle on it needs the Oracle's yes that your verdict is right; "
+          "without its answer it acts unchallenged. It answers complete, the broadcast done and its summary asked for; "
+          "planMore, with the rounds left: plan only what missing names (create_task, then submit_plan), and if nothing can "
+          "be planned call check_goal again before submitting anything; or stopped, no rounds left, with what went to "
+          "leftForYou.",
+          {"met": {"type": "boolean", "description": "Whether the goal is met."},
+           "evidence": _text("Why, from each task's result: its accepted commit, its merge and its verdicts."),
+           "missing": {"type": "array", "items": {"type": "string"},
+                       "description": "When not met: what is still to do, one line each."}},
+          ("met", "evidence")),
     _tool("mark_task", "Records a working task's outcome: accepted, with the result commit on its branch and the worker's check "
           "output; noChange; blocked or failed, with the reason in note. The same outcome for the same commit returns the earlier "
           "result.",
@@ -441,7 +495,10 @@ TOOLS: tuple[dict[str, Any], ...] = (
                          "run_status. Your row then shows waiting on the person, naming the task, and the task waits for the answer: it "
                          "isn't ready to accept and isn't watched for stalls until you resolve the question. "
                          "Left out for a question about your own next step, such as a reviewer's username, a scope choice or a "
-                         "merge decision.")},
+                         "merge decision."),
+           "about": _choice("What the question is about, when its task's card answers it: fixRounds, a task whose review "
+                            "used up its fix rounds, asked on that task. Its card then offers One More Round and Accept As "
+                            "It Is. Left out for any other question.", "fixRounds")},
           ("key", "question")),
     _tool("resolve_question", "Closes a question: answered by the person, or withdrawn by you when it became moot. "
           "Record the answer in summary for a question you asked with ask_you, or AiTerm's question about a merge on "

@@ -2,6 +2,35 @@ import Foundation
 import Observation
 import AiTermCore
 
+/// What New Broadcast opens with, read as the sheet opens: Settings › Operator's slices and Oracle switch, as the profile
+/// the broadcast will freeze has them; the installed agents a task can run (Claude, Codex), each with its own models in
+/// Settings › Agents and the default it gives it there; and the last broadcast's Agents rows.
+struct NewBroadcastContext: Equatable {
+    var slices: Slices = .none
+    var oracleIsOn = false
+    /// Each installed agent's models, by agent: an agent not installed is left out.
+    var models: [AgentKind: [AgentModel]] = [:]
+    /// Each installed agent's default in Settings › Agents; an agent it resolves none for is left out.
+    var defaults: [AgentKind: AgentChoice] = [:]
+    /// The last broadcast's Agents rows (`OperatorProfileStore.lastAgents`), as saved.
+    var lastAgents: [AgentChoice] = []
+
+    /// Read from `profile` (none read: every slice and the Oracle off), the `installed` agents' model lists (`models`), the
+    /// models last picked for each (`remembered`, the workspace's), and the defaults and rows `preferences` keeps.
+    /// Blocking: read off the main actor.
+    static func read(profile: OperatorProfile?, installed: [AgentKind], models: (AgentKind) -> [AgentModel],
+                     remembered: [AgentKind: String], preferences: UserDefaults) -> NewBroadcastContext {
+        let lists = Dictionary(installed.map { ($0, models($0)) }, uniquingKeysWith: { first, _ in first })
+        var defaults: [AgentKind: AgentChoice] = [:]
+        for (agent, list) in lists {
+            let preference = ModelSettings.resolve(for: agent, catalog: list, remembered: remembered[agent], defaults: preferences)
+            if !preference.model.isEmpty { defaults[agent] = AgentChoice(agent: agent, model: preference.model, reasoning: preference.reasoning) }
+        }
+        return NewBroadcastContext(slices: profile?.slices ?? .none, oracleIsOn: profile?.oracle.isOn ?? false, models: lists, defaults: defaults,
+                                   lastAgents: OperatorProfileStore.lastAgents(preferences))
+    }
+}
+
 /// The New Broadcast sheet's state (spec §3.1): step 1's name, Jira projects and projects, then the
 /// prompt, the review and the done, and Start Broadcast, which hands them to
 /// `OperatorController.startBroadcast`. The Review and Done help read the slices of Settings ›
@@ -18,6 +47,9 @@ final class NewBroadcastModel: Identifiable {
         let prompt: String
         let review: String?
         let done: String?
+        let agents: [AgentChoice]
+        let taskSettings: TaskSettings?
+        let goal: BroadcastGoal?
     }
 
     nonisolated let id = UUID()
@@ -46,7 +78,9 @@ final class NewBroadcastModel: Identifiable {
     /// The connection's Jira projects, as the Jira projects sheet fetches them (`JiraClient.projects`).
     private(set) var fetchedJiraProjects: [JiraProjectRef] = []
     private(set) var jiraLoad = JiraLoad.loading
-    let slices: Slices
+    /// What the sheet opened with.
+    let context: NewBroadcastContext
+    var slices: Slices { context.slices }
     @ObservationIgnored private let skills: @Sendable (AgentKind, String?) -> [AgentCompletion]
     @ObservationIgnored private let files: @Sendable (String) -> FileIndex
     @ObservationIgnored private let startBroadcast: @MainActor (Request) async throws -> UUID
@@ -77,7 +111,7 @@ final class NewBroadcastModel: Identifiable {
 
     /// `readiness` is what Start waits for as it stands; `checkReadiness` reads it, for as long as the
     /// sheet is open. A test or a snapshot that leaves them out is ready at once.
-    init(projects: [Project], slices: Slices,
+    init(projects: [Project], context: NewBroadcastContext,
          skills: @escaping @Sendable (AgentKind, String?) -> [AgentCompletion] = { SkillCatalog.discover(agent: $0, projectPath: $1) },
          files: @escaping @Sendable (String) -> FileIndex = { _ in .empty },
          loadJiraProjects: @escaping @MainActor () async throws -> [JiraProjectRef] = { [] },
@@ -91,7 +125,7 @@ final class NewBroadcastModel: Identifiable {
         self.canChangeWorkspace = canChangeWorkspace
         readinessSource = readiness
         prepareReadiness = checkReadiness
-        self.slices = slices
+        self.context = context
         self.skills = skills
         self.files = files
         startBroadcast = start
@@ -234,7 +268,8 @@ final class NewBroadcastModel: Identifiable {
         defer { starting = false }
         error = nil
         let request = Request(name: Self.said(name), jiraProjectKeys: jiraProjects.map(\.key), projectIds: projects.map(\.id),
-                              prompt: prompt, review: Self.said(review), done: Self.said(done))
+                              prompt: prompt, review: Self.said(review), done: Self.said(done),
+                              agents: [], taskSettings: nil, goal: nil)
         do { return try await startBroadcast(request) }
         catch { self.error = CreationFailure(reason: OperationIssue.reason(of: error), detail: nil); return nil }
     }

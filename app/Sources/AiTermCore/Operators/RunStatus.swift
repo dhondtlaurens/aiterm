@@ -116,6 +116,30 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         }
     }
 
+    /// `run.agents`: each installed agent's models and default by the agent's raw value, as before the Agents step, and
+    /// under `allowed` the broadcast's Agents rows, the only combinations it may start. `allowed` is left out for a
+    /// broadcast started before the rows.
+    public struct Agents: Encodable, Equatable, Sendable {
+        public var installed: [String: AgentChoice]
+        public var allowed: [AiTermCore.AgentChoice]
+        public init(installed: [String: AgentChoice] = [:], allowed: [AiTermCore.AgentChoice] = []) {
+            self.installed = installed; self.allowed = allowed
+        }
+
+        private struct Key: CodingKey {
+            let stringValue: String
+            var intValue: Int? { nil }
+            init(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { return nil }
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: Key.self)
+            for (agent, choice) in installed { try c.encode(choice, forKey: Key(stringValue: agent)) }
+            if !allowed.isEmpty { try c.encode(allowed, forKey: Key(stringValue: "allowed")) }
+        }
+    }
+
     /// A snag the Operator reported: the rest of it is kept beside the summary.
     public struct SnagLine: Encodable, Equatable, Sendable {
         public var key: String, title: String
@@ -139,19 +163,31 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var oracleIsOn: Bool
         /// Each agent's weekly usage in percent, by the agent's raw value; an agent with no open window is left out.
         public var usage: [String: Int]
-        /// Each installed agent's models and default, by the agent's raw value; an agent not installed is left out.
-        public var agents: [String: AgentChoice]
+        /// Each installed agent's models and default, by the agent's raw value, an agent not installed left out; and the
+        /// Agents rows under `allowed`.
+        public var agents: Agents
         /// The run is complete and its summary is not written: the Operator writes it with `write_summary`.
         public var summaryDue: Bool
+        /// What every task follows (the Task step); nil for a broadcast started before it.
+        public var taskSettings: TaskSettings?
+        /// The broadcast's goal; nil for none.
+        public var goal: BroadcastGoal?
+        /// True while every task is done and the goal is still to check with `check_goal`; nil otherwise.
+        public var goalCheckDue: Bool?
+        /// The extra rounds the goal checks used; nil for a broadcast with no goal.
+        public var roundsUsed: Int?
         public init(id: UUID, name: String, state: OperatorRunState, prompt: String, review: String? = nil, done: String? = nil,
                     planRevision: Int, openRevision: Int, firstPlanSize: Int? = nil, finds: [OffBriefFind] = [], snags: [SnagLine] = [],
-                    slices: Slices = .none, oracleIsOn: Bool = false, usage: [String: Int] = [:], agents: [String: AgentChoice] = [:], jiraProjectKeys: [String] = [],
-                    summaryDue: Bool = false) {
+                    slices: Slices = .none, oracleIsOn: Bool = false, usage: [String: Int] = [:], agents: Agents = Agents(), jiraProjectKeys: [String] = [],
+                    summaryDue: Bool = false, taskSettings: TaskSettings? = nil, goal: BroadcastGoal? = nil, goalCheckDue: Bool = false,
+                    roundsUsed: Int = 0) {
             self.id = id; self.name = name; self.state = state; self.prompt = prompt; self.review = review; self.done = done
             self.planRevision = planRevision; self.openRevision = openRevision; self.firstPlanSize = firstPlanSize
             self.jiraProjectKeys = jiraProjectKeys
             self.finds = finds; self.snags = snags; self.slices = slices; self.oracleIsOn = oracleIsOn; self.usage = usage; self.agents = agents
             self.summaryDue = summaryDue
+            self.taskSettings = taskSettings; self.goal = goal; self.goalCheckDue = goalCheckDue ? true : nil
+            self.roundsUsed = goal == nil ? nil : roundsUsed
         }
     }
 
@@ -282,6 +318,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         /// True while its first worker is still starting: launched a moment ago, it has named no conversation yet, and counts
         /// as at work whatever `live` says. Nil otherwise.
         public var opening: Bool?
+        /// What its review tabs found, each against the commit it reviewed (`record_review`); nil when none is recorded.
+        public var reviewVerdicts: [ReviewVerdict]?
         public init(id: UUID, key: String, title: String, project: String, agent: AgentKind, model: String,
                     state: OperatedState, end: TaskEnd, revision: Int, live: LiveState? = nil, branch: String,
                     dependsOn: [Dependency] = [],
@@ -290,7 +328,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                     peopleReview: PeopleReviewLine? = nil, branchDrift: BranchDrift? = nil, tabs: [TabLine]? = nil, background: [String]? = nil,
                     yourPrompt: String? = nil, mergeRefusal: String? = nil, reopenedFrom: String? = nil, liveModel: String? = nil,
                     liveReasoning: String? = nil, slashCommands: [SlashCommandLine]? = nil, stoppedOn: String? = nil,
-                    opening: Bool = false) {
+                    opening: Bool = false, reviewVerdicts: [ReviewVerdict] = []) {
             self.id = id; self.key = key; self.title = title; self.project = project; self.agent = agent; self.model = model
             self.state = state; self.end = end; self.revision = revision; self.live = live; self.branch = branch
             self.dependsOn = dependsOn
@@ -303,6 +341,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             self.liveModel = liveModel; self.liveReasoning = liveReasoning; self.slashCommands = slashCommands
             self.stoppedOn = stoppedOn
             self.opening = opening ? true : nil
+            self.reviewVerdicts = reviewVerdicts.isEmpty ? nil : reviewVerdicts
         }
     }
 
@@ -368,10 +407,13 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     public var revision: Int
     public var run: Run
     public var tasks: [TaskLine]
+    /// The tasks closed and removed at the broadcast's end, as their records keep them; nil while none is.
+    public var finished: [FinishedTaskRecord]?
     public var obligations: Obligations
 
-    public init(revision: Int, run: Run, tasks: [TaskLine] = [], obligations: Obligations = Obligations()) {
-        self.revision = revision; self.run = run; self.tasks = tasks; self.obligations = obligations
+    public init(revision: Int, run: Run, tasks: [TaskLine] = [], finished: [FinishedTaskRecord] = [], obligations: Obligations = Obligations()) {
+        self.revision = revision; self.run = run; self.tasks = tasks; self.finished = finished.isEmpty ? nil : finished
+        self.obligations = obligations
     }
 
     /// The snapshot of `run` in `state` as of `now`, which the quiet review is measured against; nil for a run the workspace
@@ -400,7 +442,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 // As on its card: a task finished or taken over is past the refusal.
                 mergeRefusal: o.takenOver || o.isFinished ? nil : o.publication?.mergeRefusal,
                 reopenedFrom: o.state == .working ? o.reopenedFrom : nil, liveModel: facts.liveModel, liveReasoning: facts.liveReasoning,
-                slashCommands: SlashCommandLine.lines(facts.slashCommands), stoppedOn: facts.stoppedOn, opening: facts.opening))
+                slashCommands: SlashCommandLine.lines(facts.slashCommands), stoppedOn: facts.stoppedOn, opening: facts.opening,
+                reviewVerdicts: o.reviewVerdicts))
             // What the first worker's ended turn left, on a task in any state but yours (spec §J): a new turn is at work.
             let turn = facts.turnEnded && !o.takenOver && o.state != .stopped
             let asking = turn && WorkerTurn.endsWithQuestion(facts.lastMessage)
@@ -431,9 +474,12 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                      planRevision: run.planRevision, openRevision: run.openRevision, firstPlanSize: run.firstPlanSize,
                      finds: run.finds, snags: run.snags.map { SnagLine(key: $0.key, title: $0.title) }, slices: run.profile.slices, oracleIsOn: run.profile.oracle.isOn,
                      usage: Dictionary(runLive.weeklyUsage.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
-                     agents: Dictionary(runLive.agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }), jiraProjectKeys: run.jiraProjectKeys,
-                     summaryDue: run.state == .complete && run.summary == nil),
+                     agents: Agents(installed: Dictionary(runLive.agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
+                                    allowed: run.agents),
+                     jiraProjectKeys: run.jiraProjectKeys, summaryDue: run.state == .complete && run.summary == nil,
+                     taskSettings: run.taskSettings, goal: run.goal, goalCheckDue: run.goalCheckDue, roundsUsed: run.roundsUsed),
             tasks: lines,
+            finished: run.finished,
             obligations: Obligations(
                 questionsWaiting: run.questions.filter { $0.resolution == nil }.map {
                     Question(key: $0.id, text: $0.text, task: $0.task.flatMap { keys[$0] }, askedAt: $0.askedAt,

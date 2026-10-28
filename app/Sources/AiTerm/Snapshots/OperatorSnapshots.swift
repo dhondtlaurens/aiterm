@@ -589,7 +589,7 @@ enum OperatorSnapshots {
         let projects = [OperatorScene.project("webshop"), OperatorScene.project("payments-api")]
         // What `/` lists: seeded, and found again by the load the sheet starts when hosted.
         let skills = [brainstorming]
-        let model = NewBroadcastModel(projects: projects, slices: slices, skills: { _, _ in skills },
+        let model = NewBroadcastModel(projects: projects, context: broadcastContext(slices: slices), skills: { _, _ in skills },
                                       readiness: { readiness }) { _ in UUID() }
         model.received([OperatorScene.payments])
         model.add(jiraProject: OperatorScene.payments)
@@ -600,6 +600,22 @@ enum OperatorSnapshots {
         if slices.merge { model.done = "Merged after Jan’s approval, pipeline green." }
         return NewBroadcastSheet(model: model).seeded(step: step)
     }
+
+    /// What New Broadcast opens with in the drawings: `slices` with the Oracle on, Claude and Codex installed with their
+    /// models and Settings › Agents' defaults, and the last broadcast's rows, one on each.
+    private static func broadcastContext(slices: Slices) -> NewBroadcastContext {
+        let opus = AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high")
+        let astra = AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
+        return NewBroadcastContext(slices: slices, oracleIsOn: true, models: agentModels, defaults: [.claude: opus, .codex: astra],
+                                   lastAgents: [opus, astra])
+    }
+
+    /// Claude's and Codex's model lists in Settings › Agents, one model each.
+    private static let agentModels: [AgentKind: [AgentModel]] = {
+        let efforts = ["low", "medium", "high"]
+        return [.claude: [AgentModel(id: "claude-opus-5-5", label: "Opus 5.5", detail: nil, efforts: efforts, defaultEffort: "high")],
+                .codex: [AgentModel(id: "gpt-6-astra", label: "gpt-6-astra", detail: nil, efforts: efforts, defaultEffort: "medium")]]
+    }()
 
     /// The skill `/` lists in New Broadcast's and Settings › Operator's editors.
     private static let brainstorming = AgentCompletion(name: "superpowers:brainstorming", kind: .skill,
@@ -613,11 +629,9 @@ enum OperatorSnapshots {
         var profile = OperatorScene.profile
         profile.slices = Slices(jira: true, review: true, merge: false)
         profile.oracle.isOn = oracle
-        let efforts = ["low", "medium", "high"]
         let loaded = OperatorSettingsModel.Loaded(
             profile: profile,
-            models: [.claude: [AgentModel(id: "claude-opus-5-5", label: "Opus 5.5", detail: nil, efforts: efforts, defaultEffort: "high")],
-                     .codex: [AgentModel(id: "gpt-6-astra", label: "gpt-6-astra", detail: nil, efforts: efforts, defaultEffort: "medium")]],
+            models: agentModels,
             agentDefaults: [:],
             skills: [brainstorming])
         let model = OperatorSettingsModel(installed: { [.claude, .codex] }, load: { loaded }, save: { _ in })

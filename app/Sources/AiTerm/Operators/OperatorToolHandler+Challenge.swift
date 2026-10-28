@@ -11,8 +11,8 @@ extension OperatorToolHandler {
     /// With the Oracle on, a plan and a verdict on a task are critiqued (spec §8), a backlog addition past
     /// the threshold (`backlog` is `.needsOracle`) gets its veto (spec §4.1), a `finish_task` that would merge
     /// (`merges`) its yes that the conditions written in the Review and the Done hold (spec §5), and one with
-    /// `noVerify` its yes that the push hook failed on the environment (spec §B); with it off, nothing is. A
-    /// message to a worker never is.
+    /// `noVerify` its yes that the push hook failed on the environment (spec §B), and a goal check its yes that the
+    /// Operator's verdict on the goal is right; with it off, nothing is. A message to a worker never is.
     static func isChallenged(_ call: ToolCall, oracleIsOn: Bool, backlog: BacklogBudget.Verdict = .free, merges: Bool = false) -> Bool {
         guard oracleIsOn else { return false }
         switch call.operatorTool {
@@ -20,6 +20,7 @@ extension OperatorToolHandler {
         case .markTask: return ["accepted", "blocked", "failed"].contains(call.optionalString("outcome") ?? "")
         case .createTask: return backlog == .needsOracle
         case .finishTask: return merges || call.optionalBool("noVerify") == true
+        case .checkGoal: return true
         default: return false
         }
     }
@@ -94,6 +95,8 @@ extension OperatorToolHandler {
         if named == nil, let task = merging, await landed(task) { merging = nil }
         // A noVerify with nothing to judge goes on to the finisher, which refuses it before it acts.
         if named == nil, call.operatorTool == .finishTask, call.optionalBool("noVerify") == true, skipping == nil { return nil }
+        // A check_goal while no goal check is due goes on to the tool, which refuses it: it costs no Oracle run.
+        if named == nil, call.operatorTool == .checkGoal, !run.goalCheckDue { return nil }
         if named == nil, !Self.isChallenged(call, oracleIsOn: opinion.isOn, backlog: backlog(of: call, in: run), merges: merging != nil) { return nil }
         if let id = call.optionalString("challengeId") {
             guard let kept = named else {
@@ -136,7 +139,7 @@ extension OperatorToolHandler {
                 return nil
             }
         }
-        let kind: ChallengeKind = [.createTask, .finishTask].contains(call.operatorTool) ? .veto : .critique
+        let kind: ChallengeKind = [.createTask, .finishTask, .checkGoal].contains(call.operatorTool) ? .veto : .critique
         // Built only for a prompt that carries it: a push past the hook alone doesn't.
         let status = { Self.json(self.currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null) }
         let prompt: String
@@ -155,6 +158,8 @@ extension OperatorToolHandler {
                                                     tried: await tried(call, on: skipping.task, in: run), mergeConditions: mergeQuestion)
         } else if let mergeQuestion {
             prompt = mergeQuestion
+        } else if call.operatorTool == .checkGoal {
+            prompt = Self.goalPrompt(verdict: Self.invocation(call), run: status())
         } else if kind == .veto {
             // A call that would be refused anyway costs no Oracle run.
             try await vetoPrecheck(call, in: run)
@@ -260,6 +265,22 @@ extension OperatorToolHandler {
             actingChallenges.insert(id)
             return nil
         }
+    }
+
+    /// What the Oracle is asked of a `check_goal`: whether the Operator's verdict on the goal is right, given the broadcast
+    /// as run_status shows it, answered YES or NO first (`ChallengeLaunch.verdict`).
+    private static func goalPrompt(verdict: String, run: String) -> String {
+        """
+        You are the Oracle for an AI operator that plans work and steers coding agents for a person. Every task of the \
+        broadcast is done, and the operator judged whether the broadcast's goal is met. Answer YES on the first line if \
+        its verdict is right, or NO with one short line why.
+
+        The verdict: check_goal with
+        \(verdict)
+
+        The broadcast now, as run_status shows it:
+        \(run)
+        """
     }
 
     /// The Oracle's answer to a veto as AiTerm keeps it: an answer that is neither yes nor no is a no.

@@ -24,7 +24,7 @@ struct NewBroadcastSheetTests {
     }
 
     private func harness() -> Harness {
-        let model = NewBroadcastModel(projects: [webshop, blog], slices: .none, skills: { _, _ in [] }) { _ in UUID() }
+        let model = NewBroadcastModel(projects: [webshop, blog], context: NewBroadcastContext(slices: .none), skills: { _, _ in [] }) { _ in UUID() }
         let host = testHost(NewBroadcastSheet(model: model), size: CGSize(width: Sheet.width, height: Sheet.height))
         let window = testWindow(hosting: host, styleMask: [])
         host.layoutSubtreeIfNeeded()

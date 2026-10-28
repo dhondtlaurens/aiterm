@@ -21,7 +21,7 @@ struct NewBroadcastModelTests {
 
     private func model(projects: [Project] = [], slices: Slices = .none,
                        start: @escaping @MainActor (NewBroadcastModel.Request) async throws -> UUID = { _ in UUID() }) -> NewBroadcastModel {
-        NewBroadcastModel(projects: projects, slices: slices, start: start)
+        NewBroadcastModel(projects: projects, context: NewBroadcastContext(slices: slices), start: start)
     }
 
     @Test func itNamesItsStepsAndWhereItOpens() {
@@ -87,7 +87,7 @@ struct NewBroadcastModelTests {
         let ops = JiraProjectRef(id: "10003", key: "OPS", name: "Operations", siteURL: Self.site)
         let web = JiraProjectRef(id: "10004", key: "WEB", name: "Website", siteURL: Self.site)
         let webshop = project("webshop", jira: [shop, pay]), api = project("payments-api", jira: [pay])
-        let sheet = NewBroadcastModel(projects: [webshop, api], slices: .none, loadJiraProjects: { [ops, pay, web, shop] },
+        let sheet = NewBroadcastModel(projects: [webshop, api], context: NewBroadcastContext(slices: .none), loadJiraProjects: { [ops, pay, web, shop] },
                                       start: { _ in UUID() })
         #expect(sheet.jiraLoad == .loading)
         #expect(sheet.jiraStatus == "Loading Jira projects…")
@@ -106,7 +106,7 @@ struct NewBroadcastModelTests {
     }
 
     @Test func aConnectionWithNoJiraProjectsSaysSo() async {
-        let sheet = NewBroadcastModel(projects: [project("blog")], slices: .none, loadJiraProjects: { [] }, start: { _ in UUID() })
+        let sheet = NewBroadcastModel(projects: [project("blog")], context: NewBroadcastContext(slices: .none), loadJiraProjects: { [] }, start: { _ in UUID() })
         await sheet.loadJiraProjects()
         #expect(sheet.offeredJiraProjects.isEmpty)
         #expect(sheet.jiraStatus == "No Jira projects found.")
@@ -115,7 +115,7 @@ struct NewBroadcastModelTests {
     /// Jira away, or not connected: the linked ones stay on offer, the help says so, and Start isn't held up.
     @Test func aJiraThatCantBeReachedKeepsTheLinkedOnesAndDoesNotBlockStart() async {
         let webshop = project("webshop", jira: [pay])
-        let sheet = NewBroadcastModel(projects: [webshop], slices: .none,
+        let sheet = NewBroadcastModel(projects: [webshop], context: NewBroadcastContext(slices: .none),
                                       loadJiraProjects: { throw ActionUnavailable("The connection dropped.") }, start: { _ in UUID() })
         await sheet.loadJiraProjects()
         #expect(sheet.jiraLoad == .failed("The connection dropped."))
@@ -130,11 +130,11 @@ struct NewBroadcastModelTests {
     /// Jira not connected says why, in the words the Jira projects sheet shows, not that Jira couldn’t be reached.
     @Test func jiraNotConnectedSaysToConnectIt() async {
         let reason = "Connect Jira in Settings › Integrations to choose a Jira project."
-        let linked = NewBroadcastModel(projects: [project("webshop", jira: [pay])], slices: .none,
+        let linked = NewBroadcastModel(projects: [project("webshop", jira: [pay])], context: NewBroadcastContext(slices: .none),
                                        loadJiraProjects: { throw ActionUnavailable(reason) }, start: { _ in UUID() })
         await linked.loadJiraProjects()
         #expect(linked.jiraStatus == reason + " Only the Jira projects your projects link are offered.")
-        let none = NewBroadcastModel(projects: [project("blog")], slices: .none,
+        let none = NewBroadcastModel(projects: [project("blog")], context: NewBroadcastContext(slices: .none),
                                      loadJiraProjects: { throw ActionUnavailable(reason) }, start: { _ in UUID() })
         await none.loadJiraProjects()
         #expect(none.jiraStatus == reason, "with no linked project there is nothing to offer, so nothing to add")
@@ -144,7 +144,7 @@ struct NewBroadcastModelTests {
     @Test func itWaitsForAWorkspaceThatCanChange() {
         let canChange = Mutex(false)
         let webshop = project("webshop")
-        let sheet = NewBroadcastModel(projects: [webshop], slices: .none, canChangeWorkspace: { canChange.withLock { $0 } }, start: { _ in UUID() })
+        let sheet = NewBroadcastModel(projects: [webshop], context: NewBroadcastContext(slices: .none), canChangeWorkspace: { canChange.withLock { $0 } }, start: { _ in UUID() })
         sheet.add(project: webshop)
         sheet.prompt = "PAY-230"
         #expect(!sheet.canAdvance(step: 1) && !sheet.canStart)
@@ -181,7 +181,8 @@ struct NewBroadcastModelTests {
         sheet.done = " \n"
         #expect(await sheet.start() == id)
         #expect(requests == [NewBroadcastModel.Request(name: nil, jiraProjectKeys: ["PAY"], projectIds: [webshop.id, api.id],
-                                                         prompt: "Implement PAY-230 to PAY-236", review: "Assign Jan.", done: nil)])
+                                                         prompt: "Implement PAY-230 to PAY-236", review: "Assign Jan.", done: nil,
+                                                         agents: [], taskSettings: nil, goal: nil)])
         sheet.name = " Checkout redesign "
         _ = await sheet.start()
         #expect(requests.last?.name == "Checkout redesign")
@@ -262,7 +263,7 @@ struct NewBroadcastModelTests {
     @Test func slashListsBothAgentsSkills() async {
         let webshop = project("webshop")
         let path = webshop.path
-        let sheet = NewBroadcastModel(projects: [webshop], slices: .none, skills: { agent, at in
+        let sheet = NewBroadcastModel(projects: [webshop], context: NewBroadcastContext(slices: .none), skills: { agent, at in
             @Sendable func skill(_ name: String) -> AgentCompletion { AgentCompletion(name: name, kind: .skill, detail: nil, source: .user) }
             return switch agent {
             case .claude: [skill("superpowers:brainstorming"), skill("code-review")] + (at == path ? [skill("deploy")] : [])

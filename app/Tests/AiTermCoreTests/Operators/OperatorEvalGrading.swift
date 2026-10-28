@@ -94,10 +94,11 @@ enum OperatorEvalGrading {
             id: evalRun.id, name: evalRun.name, state: .active, prompt: evalRun.prompt, review: evalRun.review, done: evalRun.done,
             planRevision: 1, openRevision: 2, firstPlanSize: 2, slices: evalRun.profile.slices, oracleIsOn: false,
             usage: ["claude": 41, "codex": 18],
-            agents: ["claude": RunStatus.AgentChoice(models: ["claude-opus-5-5", "claude-sonnet-5"], defaultModel: "claude-opus-5-5",
-                                                     defaultReasoning: "high", delivery: delivery("2.1.306")),
-                     "codex": RunStatus.AgentChoice(models: ["gpt-6.1-sol", "gpt-6-mini"], defaultModel: "gpt-6.1-sol",
-                                                    defaultReasoning: "high", delivery: delivery("0.163.0"))],
+            agents: RunStatus.Agents(installed: [
+                "claude": RunStatus.AgentChoice(models: ["claude-opus-5-5", "claude-sonnet-5"], defaultModel: "claude-opus-5-5",
+                                                defaultReasoning: "high", delivery: delivery("2.1.306")),
+                "codex": RunStatus.AgentChoice(models: ["gpt-6.1-sol", "gpt-6-mini"], defaultModel: "gpt-6.1-sol",
+                                               defaultReasoning: "high", delivery: delivery("0.163.0"))]),
             jiraProjectKeys: evalRun.jiraProjectKeys)
         return (try? JSONValue(encoding: RunStatus(revision: 7, run: run, tasks: tasks, obligations: obligations))) ?? .null
     }
