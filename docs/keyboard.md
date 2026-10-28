@@ -20,7 +20,7 @@ carries one keyboard shortcut, so a second one hangs on a hidden button in an ov
 | ⌘T | New Terminal… | The target project; any provider, a plain folder too. |
 | ⌘+ ⌘− ⌘0 | Zoom In, Zoom Out, Actual Size | The sidebar only — sheets keep Apple's sizes. ⌘= is a hidden alias of ⌘+, as in Safari. Off while a sheet is up. |
 | ⌘F | Focus View | View menu; off while a sheet is up. Opens the projects with a row that needs attention, folds the rest, and peeks at the first row waiting on you, showing its window even when it was already selected and leaving the keyboard in the sidebar. The rows waiting on you are those needing input or done and unseen, terminals included, and in the broadcast's group only what is amber, the Operator's row first; the group is opened while one of those is in it and folded otherwise. The Dock badge counts the same rows (`SidebarModel.needingAttention`). |
-| ⌘L | List View | View menu; off while a sheet is up. Opens every project that has rows, and the broadcast's group. |
+| ⌘L | List View | View menu; off while a sheet is up. Opens every project that has rows, folding the broadcast's section into OPERATOR: the two are open one at a time. |
 | ⌘S | Show Shelf | View menu, after the views, in a group of its own with Show Settings. Off while a sheet is up and while the workspace can't change. |
 | ⌘U | Unplugged | View menu, after the views. Unplugged: opens its sheet at the desk, plugs back in when unplugged. Checked while on. ⌘U, not ⌘B: the name's initial, and free in every menu. |
 | ⌘Q | Quit | Flushes a sidebar move made in the last 150 ms, then takes the daemon down — an orphan would block the next launch's socket. |
@@ -31,7 +31,7 @@ project's "+" and its context menu all list them in this order: Add Project…, 
 New Task…, New Review…, New Terminal…. None clashes with a sheet: ⌘P, ⌘D, ⌘R and ⌘T mean nothing
 to a text field, and the File menu is off while a sheet is up anyway.
 
-There is no Window menu, so no ⌘M or ⌘W (see Not bound). Row actions — Rename, Open in…, Pull, Shelve Task, Remove — stay in the rows' context menus; a row's window comes back by itself. So do the broadcast header's — Open Board, Rename…, Pause Broadcast (Resume Broadcast while paused) and End Broadcast… — and a driven task's Take Over or Hand Back and Stop Task…; the OPERATOR heading's "+" (New Broadcast…) has no key, and there is no File menu item for it.
+There is no Window menu, so no ⌘M or ⌘W (see Not bound). Row actions — Rename, Open in…, Pull, Shelve Task, Remove — stay in the rows' context menus; a row's window comes back by itself. So do the broadcast's, on OPERATOR and its lead row — Open Board, Rename…, Pause Broadcast (Resume Broadcast while paused) and End Broadcast… — and a driven task's Take Over or Hand Back and Stop Task…; the OPERATOR heading's "+" (New Broadcast…) has no key, and there is no File menu item for it.
 
 The Keyboard shortcuts section of Settings › Interface lists every key AiTerm answers to
 (`KeyBindings.all`), a row that mirrors a menu item under that item's exact title, and
@@ -62,7 +62,7 @@ plain ↩; ⌘↩ is the sheets' commit key and does nothing here.
 | ⌘W | Close a task window | Removal is ⌘⌫ on the list, which asks first because it deletes a worktree. A window-closing key in iTerm2 closes the window first; AiTerm then asks Remove's question a second later, Shelve puts the task away instead, and Cancel brings the window back. |
 | ← → | Fold and open a project, Finder-style | Dropped: ↩ on a header folds or opens it, as a click on its label does. ⌘L opens every project. |
 | ⌘A | — | Edit › Select All claims it even on the list, where it is disabled, so Show Shelf took ⌘S. |
-| ⌘I | Open the broadcast's board | Dropped: the header's board button opens it, and so does Open Board in its menu. |
+| ⌘I | Open the broadcast's board | Dropped: OPERATOR's board button opens it, and so does Open Board in its menu. |
 | — | Shelve a task | Shelve Task is in the row's menu and Shelve is in the window-close question. |
 
 ## New Task, New Review and New Broadcast sheets

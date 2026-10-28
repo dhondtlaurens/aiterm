@@ -39,7 +39,7 @@ enum OperatorMenus {
     /// The OPERATOR heading's "+", shown only while no broadcast exists: the one way to start one.
     static let headingPlus: [OperatorMenuItem] = [.newBroadcast]
 
-    /// The broadcast header's menu: Open Board, as its board button does; Rename…; Pause Broadcast while it
+    /// The broadcast's menu, OPERATOR's and its lead row's: Open Board, as its board button does; Rename…; Pause Broadcast while it
     /// can run, Resume Broadcast while it is paused or its Operator's window is closed, neither once every
     /// task is done, its summary written or not; End Broadcast…. No Interrupt Agents: an agent always finishes its
     /// turn (spec §9). Read from the header (`BroadcastRow.isPaused`, `isDone`), so the menu changes only with it.

@@ -135,7 +135,7 @@ struct ArchiveRow: View {
     }
 }
 
-/// An ended broadcast on the Shelf: the broadcast header's mark, its name, and the day it ended on the
+/// An ended broadcast on the Shelf: the broadcast's glyph, its name, and the day it ended on the
 /// name's line, where a shelved task's date sits. Inked from its `Surface`, which the pill around it declares.
 struct ShelvedBroadcastRow: View {
     let broadcast: ShelvedBroadcast

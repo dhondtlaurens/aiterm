@@ -81,6 +81,9 @@ struct ReadmeDesktop: View {
             state.append(project: acme)
             state.tasks = tasks
             state.runs = [broadcast]
+            // The selected task is a project's, so the projects are open and the broadcast folds into OPERATOR, its
+            // progress and its amber chip for the flag's question.
+            state.setFolded(run: broadcast.id, true)
         }
         controller.live.sessions = [
             // The selected task: Claude Code in front, its context the footer's `ctx` row.
@@ -99,7 +102,7 @@ struct ReadmeDesktop: View {
             {"claude":{"fiveHour":{"usedPercent":42,"resetsAt":\(Fixture.soon)},"sevenDay":{"usedPercent":61,"resetsAt":\(Fixture.later)},"spend":null,"updatedAt":\(Fixture.fresh)},
              "codex":{"fiveHour":null,"sevenDay":{"usedPercent":17,"resetsAt":\(Fixture.later)},"spend":null,"updatedAt":\(Fixture.fresh)}}
             """)
-        // The Mac in the bag: Backpack Mode on over the hotspot, on battery, its readings fixed.
+        // The Mac in the bag: Unplugged (Backpack Mode in the code) on over the hotspot, on battery, its readings fixed.
         controller.backpack.preview(state: .on(BackpackStatus(network: "iPhone", joined: true,
                                                                power: PowerReading(level: 64, onBattery: true))),
                                     setup: BackpackSetup(sleepRule: true, location: true, network: "iPhone"))
@@ -110,7 +113,7 @@ struct ReadmeDesktop: View {
     }
 
     /// The windows' size: as wide as they were on the 1512 × 982 pt desktop the picture used to sit
-    /// on, and tall enough for the broadcast's rows above every project's.
+    /// on, and tall enough for every project's rows under the folded broadcast.
     static let windowHeight: CGFloat = 990, windowsWidth: CGFloat = 1300, gap: CGFloat = 12
     /// The transparent margin around the windows, the same on every side and wide enough that
     /// `DesktopWindow`'s shadow has faded out before the picture's edge.

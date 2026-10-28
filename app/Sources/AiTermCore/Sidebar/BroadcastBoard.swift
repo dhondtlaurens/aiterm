@@ -380,7 +380,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         return parts.joined(separator: " · ")
     }
 
-    /// `2 of 8`, the progress as the broadcast's header in the sidebar says it; nil until the first plan is
+    /// `2 of 8`, the progress as the OPERATOR heading in the sidebar says it; nil until the first plan is
     /// in Todo. A stopped task is not counted, unless `keepsHanded` and End handed it to you.
     static func count(of run: OperatorRun, tasks: [TaskItem], keepsHanded: Bool = false) -> String? {
         guard run.firstPlanSize != nil else { return nil }

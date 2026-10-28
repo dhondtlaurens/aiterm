@@ -189,7 +189,7 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 | `CommandPreview` | the command the selected agent will run |
 | `SidebarBannerText` | the sidebar banner’s title and detail |
 | `SidebarFooterHost`, `SelectedRowSidebarFooter` | footer observation scoped to the selected row |
-| `DecodeWordsView` | the Operator’s animated words |
+| `DecodeWordsView` | the Operator’s animated words and OPERATOR’s, in katakana, green, glowing |
 | `OracleGroup` | Settings › Operator’s Oracle controls |
 | `ModelReasoningFields` | shared model and reasoning controls; callers keep their missing-model policy; `labelled: false` drops the labels for rows whose columns are labelled once (New Broadcast's Agents step) |
 
@@ -219,7 +219,7 @@ vendor needs both.
 `PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarConnectionBanner`, `IssueBanner`, `OperatorWakeBanner`, `SidebarToast`,
 `SidebarSheetPresenter`, `SidebarSheet`, `SidebarHeader`, `SidebarEmptyState`,
 `ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`,
-`OperatorHeading`, `BroadcastHeaderRow`, `OperatorRowView`, `OperatorBadge`, `BroadcastStatusLine`, `OperatorMenuButtons`, `TerminalRowView`, `DividerRow`,
+`OperatorHeading`, `OperatorTitle`, `SectionFoldChevron`, `BroadcastMenu`, `OperatorRowView`, `OperatorBadge`, `BroadcastStatusLine`, `OperatorMenuButtons`, `TerminalRowView`, `DividerRow`,
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
 `HelpWithProblemsGroup`, `OperatorSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
@@ -273,45 +273,59 @@ wear `BackpackController.symbol`, `iphone`.
 start a broadcast, so with none it is the heading and its "+" and nothing else; there is no File menu
 item. One broadcast at a time: while one exists the "+" is absent and the broadcast's group sits under
 the heading (decided 21 Oct 2026), its own section of the sidebar (`BroadcastSection`,
-`SidebarProjection.broadcast`), drawn by `SidebarView.operatorRows` above the projects' `entries`.
+`SidebarProjection.broadcast`), drawn by `SidebarView.operatorRows` above the projects (`SidebarView.projectRows`).
 
-Its header (`BroadcastHeaderRow`, a `BroadcastRow` value) is a project header's anatomy at
-`Size.projectRow` in a `RowPill`: `HeaderChevron`, the broadcast's glyph, `dot.radiowaves.left.and.right`,
-in a `ProviderIcon` (its `IconSource` init) where a project has its host, the name in `HeaderTitle`, its
-progress `Space.gap` after it, `2 of 6` (`paused · 2 of 6` while paused; nothing until the first plan is in
-Todo) in `Typography.monoChip` and the surface's secondary ink, then in the trailing slot where a project has
-"+" the board button, `rectangle.split.3x1` drawn as the "+" is. Its tooltip is its projects over its whole
-status line (`OperatorLine.broadcast`, as the board's band says it, the counts `OperatorLine.Count`'s), which
-VoiceOver reads as its value. A click on its label or ↩ folds it,
-kept with the workspace (`AppState.foldedRuns`), as a project's fold is; selected it shows no window. Folded,
-it shows what needs you in it once, as an amber `StatusCountChips` count, and nothing else of what it hides;
-that chip's click opens the group and selects its first row that needs you. Its menu is Open Board, Rename…
-(`NameSheet`), Pause Broadcast or Resume Broadcast, and End Broadcast…, which is not red: it asks with a blue
-default, since nothing is deleted. VoiceOver has the fold as its default action and the menu's items, Open
-Board first, as named ones. No ⌘I, no Interrupt Agents. Menus and buttons are Title Case, as everywhere.
+There is no header row (28 Oct 2026): the heading carries the broadcast (a `BroadcastRow` value). Its progress
+stands `Space.gap` after the word, `2 of 6` (`paused · 2 of 6` while paused; nothing until the first plan is in
+Todo) in `Typography.monoChip` and the surface's secondary ink (`HeaderProgress`), and in the trailing slot where
+the "+" was, the board button (`BoardButton`), `rectangle.split.3x1` drawn bare, as the "+" is. Its tooltip is
+the broadcast's projects over its whole status line (`OperatorLine.broadcast`, as the board's band says it, the
+counts `OperatorLine.Count`'s), which VoiceOver reads as its value after the broadcast's name. Its context menu,
+and its lead row's, is the broadcast's (`BroadcastMenu`): Open Board, Rename… (`NameSheet`), Pause Broadcast or
+Resume Broadcast, and End Broadcast…, which is not red: it asks with a blue default, since nothing is deleted.
+VoiceOver has the fold as its default action and the menu's items, Open Board first, as named ones. No ⌘I, no
+Interrupt Agents. Menus and buttons are Title Case, as everywhere.
+
+While a broadcast exists, the Operator's section and the projects fold into each other, one open at a time, kept
+with the workspace (`AppState.foldedRuns`: the run folded is the projects open). A broadcast that starts opens the
+Operator. A click on either heading's label switches; each has the disclosure chevron a macOS sidebar section has
+(`SectionFoldChevron`, `HeaderChevron` in the trailing column before its "+" or board button), shown folded and,
+open, under the pointer. Folded, a heading says what needs you in its section once, as an amber
+`StatusCountChips` count (`BroadcastSection.attention`, `SidebarProjection.projectsNeedingAttention`), and nothing
+else of what it hides; the chip's click switches over and selects that section's first row that needs you
+(`AppController.openAttention(of:)`, `openProjectsAttention()`). A row selected from away from the list in the
+folded section, by a notification or Focus View, switches over first (`AppController.reveal`, run by
+`SidebarScrollFollower`).
+
+While the broadcast runs, OPERATOR now and then decodes into one of eight phrases (`OperatorTitle.words`, the
+Operator's side of the Matrix, the way Claude Code shows its spinner words) and back: after 20–60 s, over
+`OperatorTitle.decodeDuration` (0.9 s), held 3 s. Under the pointer it decodes straight back to OPERATOR over
+0.35 s and changes no more until the pointer leaves. It never decodes while the broadcast is paused or done, nor
+while something in it needs you; it stands still under Reduce Motion and in the snapshots, and VoiceOver always
+reads "Operator". It is drawn by `DecodeWordsView`, as the Operator's lines are (below), in the heading's micro face,
+tracking (`SidebarHeading.tracking`) and muted ink, its first word shown as it is.
 
 The Operator's row (`OperatorRowView`, an `OperatorRow` value) is always first under it: a full `Size.row`
 `SelectableRow`, `washed` at rest in `Palette.operatorRow` (an alias of `badge`) and `Palette.badgeHovered`
 hovered, in `RowPill`'s pill, which selection replaces; its ground `Surface.washed` and `.washedHover`, so the
 avatar ring is `Palette.operatorRowSolid` and `operatorRowHoveredSolid`. Claude's `VendorMark` is its avatar,
-`Operator` its title, its line its own session's alone (`OperatorLine.session`: its act, `working`, `watching
+the broadcast's name its title, its line its own session's alone (`OperatorLine.session`: its act, `working`, `watching
 3 tasks` between its turns (`waiting for its tasks` with none at work), `waiting on you` (`waiting on you · PAY-232`
 for its question about a task), `in background` with its running jobs on the tooltip, `paused`, `window closed`;
 never a worker's request nor what its tasks do) and the shared `TaskRowMarkView` trailing: amber while it asks,
 spinning while it acts or works, the same slow dashed ring as tasks while its background work runs, the completed
 check when the broadcast succeeds (its secondary line says `done · writing summary` until the summary arrives),
 else the idle ring. No project, ticket or branch line. It has an id of its own
-(`OperatorRow.id(of:)`), selected as `RowSelection.operation`, the header being `.broadcast` with the run's.
-↑ ↓ peek at its window; a click or ↩ brings it to front with iTerm2, or reopens it in front when it is
-closed. VoiceOver calls it "Operator, Claude Code session".
+(`OperatorRow.id(of:)`), selected as `RowSelection.operation`. It is the broadcast's lead: its wash alone tells it
+from its tasks. ↑ ↓ peek at its window; a click or ↩ brings it to front with iTerm2, or reopens it in front when it
+is closed. VoiceOver calls it by the broadcast's name, "the Operator's Claude Code session".
 
 Under it come every task the broadcast holds, moved out of their projects, in the plan's order, then the
 queued ones (`TaskRow.queued`): a queued row has its planned agent's mark as its avatar, its title in the
 surface's secondary ink, its `queued` line and `pause.fill` as its mark (`TaskRowMark.queued`) in
-`Palette.idleRing`; it is selectable, and choosing it opens nothing. A project wears a quiet `Badge` with the
-broadcast's glyph and how many of its tasks the group holds (`ProjectOperatorBadge`), whose click opens the
-group at the first; its header's tooltip and Remove Project's question say how many worktrees the Operator
-holds there (`ProjectSection.operatorHelp`), and a project left with only those is empty. Focus View, List
+`Palette.idleRing`; it is selectable, and choosing it opens nothing. A project says nothing of the tasks the
+Operator holds there (28 Oct 2026: no badge); Remove Project's question says how many worktrees it holds
+(`ProjectSection.operatorHelp`), and a project left with only those is empty. Focus View, List
 View and the Dock badge know the group: it counts what is amber in it (`BroadcastSection.needingAttention`).
 
 A driven task's avatars are its own
@@ -327,10 +341,12 @@ task of an ended broadcast is yours, and its menu is any task's. Everything the 
 status line is that badge: its words in `Typography.monoChip` and no mark, since where the line sits
 says whose it is, always one `Size.chip` line cut with an ellipsis, the whole in its tooltip. Quiet, and
 ended, have no box and the surface's secondary ink; acting has no box and the surface's ink, and when its
-words change they decode once: each letter and digit runs through glyphs (`0-9a-z`, one advance wide in the mono
-face, so the line keeps its width) and they settle from the left over `OperatorBadge.decodeDuration` (0.5 s),
-then stand still, the row's spinner carrying the ongoing motion (`DecodeWordsView`: a `CATextLayer` with frames
-of its own at 30 a second, no SwiftUI update per frame, and no loop). The words stand still at once
+words change they decode once, as OPERATOR does: each letter and digit runs through the Matrix's half-width
+katakana, digits and signs (`DecodeWordsView.glyphs`) in `Palette.green` with a glow, and they settle from the left
+into the words' ink over `OperatorBadge.decodeDuration` (0.5 s), then stand still, the row's spinner carrying the
+ongoing motion (`DecodeWordsView`: two `CATextLayer`s with frames of their own at 30 a second, no SwiftUI update per
+frame, and no loop; the words' layer always draws the real characters, clear under a glyph, so the line keeps its
+width, and the glyphs are a layer of their own whose shadow is the glow, so nothing settled glows). The words stand still at once
 under Reduce Motion and in the snapshots; needs you is `statusChipAttentionFill` and `Stroke` with
 `Palette.text`, and on `Surface.accent` the surface's `badgeWash` and ink. The words are a closed list
 decided by `OperatorLine` (`AiTermCore/Sidebar/OperatorLine.swift`), from the task's state, the
@@ -352,8 +368,8 @@ already names its agent, so wherever the Operator acts on a task its row names t
 again, the commands on the tooltip, and a subagent it still waits on by its description: only its subagents while
 one holds its tab at working), `ready for the Operator` (every worker ended its turn with nothing left running:
 the Operator checks it next), the broadcast's `3 working` (`2
-working · 1 to check` while some wait for the Operator; the words are `OperatorLine.Count`'s, on the header's
-tooltip and VoiceOver value, the folded chips and the board's band), and the acts: `loading the construct`, `consulting the Oracle`,
+working · 1 to check` while some wait for the Operator; the words are `OperatorLine.Count`'s, on the
+heading's tooltip and VoiceOver value, the folded chips and the board's band), and the acts: `loading the construct`, `consulting the Oracle`,
 `starting Claude`, `answering Claude`, `checking the work`, `reviewing with Codex`, `opening the MR`,
 `assigning Jan` (`assigning reviewers` before it knows who), `relaying feedback`, `merging`, `filing
 a ticket` and `reopening its window`, on the broadcast's line and the Operator's row with the task named
@@ -634,7 +650,7 @@ and the project — newest first, or in `ArchiveSearch`'s order. It sits in a `R
 at rest is `Surface.sheet`, `Space.hairline` from the next, the list padded `Space.base` above and
 below rather than `Space.margin`, since the pills pad themselves (`SheetLayout`'s
 `contentVerticalPadding`). An ended broadcast is a `ShelvedBroadcastRow` among them, by the day it ended: the
-broadcast header's mark (`ProviderIcon` on `BroadcastHeaderRow.glyph`, in its `Size.avatar` square), the
+broadcast's glyph (`ProviderIcon` on `OperatorHeading.glyph`, in its `Size.avatar` square), the
 `RowTitle` with its name, and that day trailing as a task's does; its tooltip is what it was asked. On it the
 primary button reads Open: the Shelf gives its slot to the broadcast's sheet (`BroadcastBoardHost` from the shelved source), the
 `BroadcastBoardSheet` of `BroadcastBoard.shelved` — read-only, on Summary, Close alone. The footer counts — "5 shelved", "1 of 5" — beside Close and Restore;
@@ -661,7 +677,7 @@ from three sheets, but promotion's conditions are necessary, not a mandate: thei
 
 `SelectableRow` is a task's, terminal's or the Operator's row — its indent, the click that activates it —
 and owns its row's hover, so the pointer redraws one row. `RowPill` is the one pill every selectable sidebar
-row is drawn in, a project's and a broadcast's header included, and the Shelf sheet's rows: the selection fill
+row is drawn in, a project's header included, and the Shelf sheet's rows: the selection fill
 on `Surface.accent`, else the hover wash, else its `ground` — `Surface.sidebar` unless the pill sits on
 a sheet. A `washed` pill, the Operator's row, wears `Palette.operatorRow` at rest and `badgeHovered` in the
 hover wash's place, on `Surface.washed` and `.washedHover`. It declares the row's `Surface`, and `RowTitle` and `RowCaption` — a row's title, and a line

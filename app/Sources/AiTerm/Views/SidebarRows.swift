@@ -261,8 +261,8 @@ struct SelectableRow<Content: View>: View {
     }
 }
 
-/// The pill a selectable sidebar row is drawn in — a task's, a terminal's, the Operator's, a project's or a
-/// broadcast's header, and the Archive sheet's rows, which read as the sidebar's: the selection fill, else
+/// The pill a selectable sidebar row is drawn in — a task's, a terminal's, the Operator's, a project's
+/// header, and the Archive sheet's rows, which read as the sidebar's: the selection fill, else
 /// the hover wash, behind the row's own padding. It declares the ground everything inside reads — `ground`
 /// at rest, the sidebar's unless the pill sits on a sheet. A `washed` row, the Operator's, wears
 /// `Palette.operatorRow` at rest and `Palette.badgeHovered` hovered, in the hover wash's place; selection

@@ -124,7 +124,7 @@ public extension SidebarModel {
                                 folded: state.foldedRuns.contains(run.id))
     }
 
-    /// The broadcast's header: `AppState.activeRun`'s, or nil while there is none. `sessions` tell a task whose
+    /// The broadcast as OPERATOR says it: `AppState.activeRun`'s, or nil while there is none. `sessions` tell a task whose
     /// workers are done (`readyForAcceptance`), which its line reads.
     static func broadcastRow(state: AppState, acting: OperatorActs = .none, sessions: [SessionInfo] = []) -> BroadcastRow? {
         guard let run = state.activeRun else { return nil }

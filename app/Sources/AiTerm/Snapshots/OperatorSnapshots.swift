@@ -460,8 +460,8 @@ enum OperatorSnapshots {
         [
             // The sidebar with no broadcast: OPERATOR and its "+", nothing beneath it.
             Snapshot("operator-heading-empty.png") { headingEmpty() },
-            // The broadcast's header over the Operator's row in each state, then the Operator's row selected while
-            // it acts, and the header selected while it is asked.
+            // OPERATOR over the Operator's row in each state, then the Operator's row selected while
+            // it acts, and while it is asked.
             Snapshot("broadcast-row-states.png") { broadcastRowStates() },
             // A broadcast running: the heading without its "+", the group, and a driven task row in every state,
             // the one needing you selected.

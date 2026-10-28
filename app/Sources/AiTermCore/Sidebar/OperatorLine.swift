@@ -352,7 +352,7 @@ public struct OperatorLine: Equatable, Sendable {
 
     // MARK: - The Operator's own session
 
-    /// The Operator row's line: its own session's, nothing of its tasks (the broadcast's header and board say
+    /// The Operator row's line: its own session's, nothing of its tasks (OPERATOR's tooltip and the board say
     /// those). Its window closed, `window closed`; a prompt open in its tab or a question of its own, `waiting on
     /// you`, with `about` after it, the task one question is about, or how many it asks (`waiting on you · PAY-232`,
     /// 1A and 2A, 22 Oct 2026), and what it `asks` as the tooltip; paused,

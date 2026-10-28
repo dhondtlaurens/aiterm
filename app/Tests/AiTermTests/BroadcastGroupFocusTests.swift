@@ -134,10 +134,10 @@ struct BroadcastGroupFocusTests {
         controller.toggleFolded(run: run.id)
         #expect(try controller.savedWorkspace().foldedRuns == [run.id])
 
-        // ⌘L opens it; ⌘F keeps it open while the Operator asks, and peeks at the Operator's window.
-        controller.showListView()
-        #expect(controller.state.foldedRuns.isEmpty)
+        // ⌘L opens the projects, folding it; ⌘F opens it while the Operator asks, and peeks at the Operator's window.
         controller.toggleFolded(run: run.id)
+        controller.showListView()
+        #expect(controller.state.foldedRuns == [run.id])
         await controller.showFocusView()?.value
         #expect(controller.state.foldedRuns.isEmpty, "something in it needs you")
         #expect(controller.focus.selection == .operation(run.id))

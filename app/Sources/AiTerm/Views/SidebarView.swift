@@ -157,7 +157,7 @@ struct SidebarView: View {
 /// The sidebar's foot, SYSTEM over USAGE. The vendor rows are worked out here, from the usage,
 /// whether Claude's status line is AiTerm's, and the minute; the selected row's context row and the
 /// Mac's rows in ``SelectedRowSidebarFooter``, which alone reads the tabs, the context fills, the
-/// selection, the Mac's readings and Backpack Mode — so a session event or a 5 s sample redraws the
+/// selection, the Mac's readings and Unplugged (Backpack Mode in the code) — so a session event or a 5 s sample redraws the
 /// footer without working out the vendor rows again.
 struct SidebarFooterHost: View {
     let controller: AppController
@@ -177,7 +177,7 @@ struct SidebarFooterHost: View {
 }
 
 /// ``SidebarFooter`` with the selected row's context row and the Mac's rows over the vendor rows it
-/// is handed. A click on the Mac's rows is ⌘B; a right-click opens Settings › Integrations.
+/// is handed. A click on the Mac's rows is ⌘U; a right-click opens Settings › Integrations.
 struct SelectedRowSidebarFooter: View {
     let controller: AppController
     let vendors: [UsageVendorRow]

@@ -46,7 +46,7 @@ extension AppController {
     /// The OPERATOR heading's "+": New Broadcast…, its help following Settings › Operator's slices and Oracle as
     /// they are now, the profile the broadcast freezes as it starts, and its Agents step the installed agents' models,
     /// their defaults and the last broadcast's rows (`NewBroadcastContext`), and its Task step each chosen project's code
-    /// host as the Operator's tools check it, an origin git can't read as none. Started, the broadcast's header is
+    /// host as the Operator's tools check it, an origin git can't read as none. Started, the Operator's row is
     /// selected; its window comes forward by the operator controller's own start.
     func presentNewBroadcast() {
         guard canChangeWorkspace else { return }
@@ -97,7 +97,7 @@ extension AppController {
 }
 
 extension AppController {
-    /// The broadcast header's board button or Open Board (`openBoard`), or a notification's click: its
+    /// OPERATOR's board button or Open Board (`openBoard`), or a notification's click: its
     /// board, over whatever sheet is up.
     func presentBoard(run id: UUID) {
         guard state.activeRun?.id == id else { return }
@@ -162,13 +162,13 @@ extension AppController {
         }
     }
 
-    /// The broadcast header's menu and its VoiceOver actions, on the broadcast as it is now.
+    /// The broadcast's menu (OPERATOR's and its lead row's) and its VoiceOver actions, on the broadcast as it is now.
     func perform(_ item: OperatorMenuItem, onBroadcast id: UUID) {
         guard let run = state.activeRun, run.id == id else { return }
         perform(item, on: run)
     }
 
-    /// The broadcast header's menu.
+    /// The broadcast's menu.
     func perform(_ item: OperatorMenuItem, on run: OperatorRun) {
         switch item {
         case .openBoard: openBoard(run.id)
@@ -180,7 +180,7 @@ extension AppController {
         }
     }
 
-    /// The broadcast header's board button, or Open Board in its menu (decided 21 Oct 2026): its board
+    /// OPERATOR's board button, or Open Board in its menu (decided 21 Oct 2026): its board
     /// opens over the sidebar, and nothing else moves. The header's click and ↩ fold its group; the
     /// Operator's window is its own row's.
     func openBoard(_ id: UUID) {

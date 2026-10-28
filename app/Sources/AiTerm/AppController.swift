@@ -576,7 +576,7 @@ final class AppController {
         }
     }
 
-    /// ↩ on the list: a header folds or opens its project, a broadcast's header its group; any other row
+    /// ↩ on the list: a header folds or opens its project; any other row
     /// goes to its window, the Operator's row to the Operator's, a driven task's to its tab that asks
     /// (`choose(task:)`), and a queued task's to none. An empty
     /// project has nothing to fold, so its header opens its context menu — its first items are the ones
