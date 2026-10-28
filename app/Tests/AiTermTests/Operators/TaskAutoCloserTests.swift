@@ -19,12 +19,15 @@ import Testing
     }
 
     // The app's own closer does nothing until the helper's first connected snapshot, which only the wiring
-    // tests deliver: every other test drives a closer of its own, alone.
+    // tests deliver: every other test drives a closer of its own, alone, told the sessions are known as the app's is,
+    // by a sweep.
     private func closer(_ fixture: RaceFixture, git: (any GitRunning)? = nil,
                         remove: (@MainActor (TaskItem, @MainActor () -> Bool) async throws -> Void)? = nil) -> TaskAutoCloser {
         let app = fixture.controller
-        return TaskAutoCloser(workspace: app.workspace, live: app.live, git: git ?? fixture.git, now: { Date() },
-                              sessionsKnown: true, remove: remove ?? { try await app.remover.removeAutomatically($0, starting: $1) })
+        let closer = TaskAutoCloser(workspace: app.workspace, live: app.live, git: git ?? fixture.git, now: { Date() },
+                                    remove: remove ?? { try await app.remover.removeAutomatically($0, starting: $1) })
+        closer.sweep()
+        return closer
     }
 
     /// Why the closing kept the task, as its card reads it: on the task, never in the remover's row outcome.
@@ -166,6 +169,8 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let (run, _) = try prepare(fixture)
         let app = fixture.controller
+        // Not due yet as the closer's first sweep reads it.
+        app.workspace.mutate { $0.updateRun(id: run.id) { $0.summaryGivenUp = false } }
         var attempts = 0
         let closer = closer(fixture) { _, _ in
             attempts += 1
@@ -256,7 +261,7 @@ import Testing
         let gate = DispatchSemaphore(value: 0)
         TaskWorkflow.queue.async { gate.wait() }
         defer { gate.signal() }
-        let closing = Task { await closer.close(run.id) }
+        let closing = try #require(closer.lastClose, "the closer's sweep starts the closing")
         await eventually { app.remover.isRemoving(task.id) }
         var session = OperatorServiceFixtures.session("s", window: "alive", tag: task.id, agent: .codex)
         session.yourPrompt = "My turn"
@@ -525,7 +530,7 @@ import Testing
                 return starting()
             }
         }
-        let closing = Task { await closer.close(run.id) }
+        let closing = try #require(closer.lastClose, "the closer's sweep starts the closing")
         await eventually { app.state.task(id: task.id)?.windowId == nil }
         app.workspace.mutate { state in
             if let index = state.tasks.firstIndex(where: { $0.id == task.id }) { state.tasks[index].windowId = "again" }

@@ -103,6 +103,21 @@ import Testing
         #expect(try git.ask(["rev-parse", "--verify", "refs/heads/task"], in: path, none: [128]) == nil)
     }
 
+    /// The branch is gone once update-ref deleted it: a worktree list that then fails can't show a worktree took it, so
+    /// nothing is re-created and the deletion says the branch went, its settings with it.
+    @Test func aDeletionWhoseSecondWorktreeListFailsSaysTheBranchWent() async throws {
+        let git = GitRunner.hermetic()
+        let path = try GitFixture.makeRepo(prefix: "close-second-list-failure", git: git)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let sha = try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
+        try git.run(["branch", "task", sha], in: path)
+        try git.run(["config", "branch.task.remote", "origin"], in: path)
+        #expect(await MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .mergeLocal, publication: nil, kind: .task,
+                                                path: path, git: ListFailsOnceDeletedGit(branch: "task"), saveDeletion: { true }))
+        #expect(try git.ask(["rev-parse", "--verify", "refs/heads/task"], in: path, none: [128]) == nil)
+        #expect(try git.ask(["config", "--get", "branch.task.remote"], in: path, none: [1]) == nil)
+    }
+
     @Test func deletesOnlyTheAcceptedMergedHeadIncludingSquashMerges() async throws {
         let git = GitRunner.hermetic()
         let path = try GitFixture.makeRepo(prefix: "auto-close-branch", git: git)
@@ -154,6 +169,19 @@ private struct WorktreeRacingGit: GitRunning {
         }
         if args.starts(with: ["update-ref", "--no-deref", "-d"]) {
             _ = try inner.run(["worktree", "add", checkout, branch], in: dir, timeout: timeout, environment: environment)
+        }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
+    }
+}
+
+/// Fails `git worktree list` once `branch` is gone: the check after the deletion, never the one before it.
+private struct ListFailsOnceDeletedGit: GitRunning {
+    let branch: String
+    let inner = GitRunner.hermetic()
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        if args.starts(with: ["worktree", "list"]),
+           try inner.ask(["rev-parse", "--verify", "--quiet", "refs/heads/" + branch], in: dir, none: [1]) == nil {
+            throw GitError(args: args, code: 128, stderr: "fatal: unable to read worktrees")
         }
         return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }

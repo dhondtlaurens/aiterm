@@ -37,20 +37,21 @@ final class TaskAutoCloser {
     private let git: any GitRunning
     private let now: @MainActor () -> Date
     private let remove: @MainActor (TaskItem, _ starting: @MainActor () -> Bool) async throws -> Void
-    /// Until the helper's first connected snapshot an empty session list is unknown, not "nobody is driving".
-    private var sessionsKnown: Bool
+    /// Until the helper's first connected snapshot (`sweep`) an empty session list is unknown, not "nobody is driving".
+    private var sessionsKnown = false
     private var running: Set<UUID> = []
     private var passes: [UUID: Pass] = [:]
     /// The tasks whose branch is being deleted now, which `checkBranchRecords` leaves alone.
     private var deleting: Set<UUID> = []
     private var branchRecordsChecked = false
+    /// The latest closing `changed` started, for a test to await.
+    private(set) var lastClose: Task<Void, Never>?
 
     /// `remove` is the person's Remove without its questions (`TaskRemover.removeAutomatically`): it calls
     /// `starting` once nothing is left to keep the task, and stops when that returns false.
     init(workspace: WorkspaceStore, live: LiveSessions, git: any GitRunning, now: @escaping @MainActor () -> Date,
-         sessionsKnown: Bool, remove: @escaping @MainActor (TaskItem, _ starting: @MainActor () -> Bool) async throws -> Void) {
-        self.workspace = workspace; self.live = live; self.git = git; self.now = now
-        self.sessionsKnown = sessionsKnown; self.remove = remove
+         remove: @escaping @MainActor (TaskItem, _ starting: @MainActor () -> Bool) async throws -> Void) {
+        self.workspace = workspace; self.live = live; self.git = git; self.now = now; self.remove = remove
         // LiveSessions lives as long as the workspace. Its listener holds no owner alive.
         live.onSessionsChanged { [weak self] _ in
             guard let self else { return }
@@ -94,7 +95,7 @@ final class TaskAutoCloser {
 
     func changed(_ id: UUID) {
         guard sessionsKnown, !running.contains(id), let run = workspace.state.run(id: id), shouldClose(run) else { return }
-        Task { [weak self] in await self?.close(id) }
+        lastClose = Task { [weak self] in await self?.close(id) }
     }
 
     static func isDriving(_ task: TaskItem, in live: LiveSessions) -> Bool {

@@ -253,12 +253,12 @@ final class TaskRemover: CheckoutRemovals {
         }
     }
 
-    /// Whether the task's worktree folder is there, asked off the main actor: a mount that stopped answering stalls the
-    /// call, not the app.
+    /// Whether the task's worktree folder is there, asked on a thread of its own: a mount that stopped answering stalls
+    /// that thread, not the app or the shared pool.
     private func hasWorktreeFolder(_ task: TaskItem) async -> Bool {
         guard task.hasCheckout else { return false }
         let path = task.worktreePath
-        return await BackgroundWork.run { FileManager.default.fileExists(atPath: path) }
+        return await ThreadWork.run { FileManager.default.fileExists(atPath: path) }
     }
 
     /// The banner's Keep: the removal that stopped with the branch kept finishes, the branch left.
@@ -437,9 +437,7 @@ final class TaskRemover: CheckoutRemovals {
             let confirms = confirmsRemoval, projectPath = workspace.state.project(id: task.projectId)?.path
             confirmations[task.id] = Task {
                 defer { confirmations[task.id] = nil }
-                let confirmed = await withCheckedContinuation { continuation in
-                    Thread { continuation.resume(returning: confirms(task, projectPath)) }.start()
-                }
+                let confirmed = await ThreadWork.run { confirms(task, projectPath) }
                 guard confirmed, awaitsCleanup(task) else { return }
                 automaticallyForgetRemovedTask(task.id)
             }
