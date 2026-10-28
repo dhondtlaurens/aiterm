@@ -647,7 +647,7 @@ struct ProjectJiraBadge: Equatable {
         label = showsCount ? "\(jira.count)" : nil
         items = jira.map { .init(title: "\($0.key) · \($0.name)", url: $0.browseURL) }
         help = (["Jira"] + jira.map { "\($0.key) \($0.name)" }).joined(separator: " · ")
-        accessibilityLabel = "\(jira.count) Jira \(jira.count == 1 ? "project" : "projects"): \(jira.keyList)"
+        accessibilityLabel = "\(jira.count) Jira \(jira.count == 1 ? "project" : "projects"): \(jira.map(\.key).sentenceList)"
     }
 }
 

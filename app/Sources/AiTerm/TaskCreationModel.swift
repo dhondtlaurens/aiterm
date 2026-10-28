@@ -29,7 +29,7 @@ extension CreationModel where Kind == TaskCreation {
     /// The ticket field's placeholder names what it searches: the linked Jira projects, or — with
     /// none linked — every project the account can see, which needs no naming.
     var ticketPlaceholder: String {
-        project.jiraProjects.isEmpty ? "Search by key or title" : "Search \(project.jiraProjects.keyList) by key or title"
+        project.jiraProjects.isEmpty ? "Search by key or title" : "Search \(project.jiraProjects.map(\.key).sentenceList) by key or title"
     }
 
     /// An empty query lists the person's open tickets, across every linked Jira project; anything

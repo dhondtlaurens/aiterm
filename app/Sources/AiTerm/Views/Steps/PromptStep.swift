@@ -2,8 +2,8 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// Step 3 of New Task and New Review, and New Broadcast's Prompt, Review and Done: one `PromptEditor`
-/// at `editorHeight` under its label, its placeholder while empty, and `CompletionHint` under it, or
+/// Step 3 of New Task and New Review, and New Broadcast's Prompt step, its Task step's review and its Done step's goal:
+/// one `PromptEditor` at `editorHeight` under its label, its placeholder while empty, and `CompletionHint` under it, or
 /// the step's own `help` (New Broadcast's, which says what `/` and `@` open itself where it needs to).
 /// `extra` is New Task's "Include Jira ticket details" checkbox; the others pass nothing. Disabled, its editor alone is
 /// dimmed, as New Broadcast's Done step draws its goal with the Oracle off.

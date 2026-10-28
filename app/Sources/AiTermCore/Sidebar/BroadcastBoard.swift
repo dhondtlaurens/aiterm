@@ -482,7 +482,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         let found = [("Critical", verdict.critical), ("Important", verdict.important), ("Minor", verdict.minor)]
             .filter { $0.1 > 0 }.map { "\($0.1) \($0.0)" }
         let lead = "\(rounds) \(rounds == 1 ? "round" : "rounds") of fixes, and the last review, of \(verdict.sha.prefix(7)), "
-        return lead + (found.isEmpty ? "didn’t pass." : "still found " + OperatorLine.list(found) + ".")
+        return lead + (found.isEmpty ? "didn’t pass." : "still found " + found.sentenceList + ".")
     }
 
     /// A card's tab lines, as `sessions` list its worker tabs; none for a task with one. With `labels`, each tab's model

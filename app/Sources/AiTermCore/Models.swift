@@ -59,14 +59,6 @@ public struct JiraProjectRef: Codable, Identifiable, Equatable, Hashable, Sendab
 }
 
 extension Array where Element == JiraProjectRef {
-    /// The keys as a reader says them — "SHOP", "SHOP and PAY", "SHOP, PAY and WEB" — for the copy that
-    /// names what a search covers.
-    public var keyList: String {
-        let keys = map(\.key)
-        guard let last = keys.last else { return "" }
-        return keys.count == 1 ? last : keys.dropLast().joined(separator: ", ") + " and " + last
-    }
-
     /// The list with every repeat of a project after its first dropped: what a project links.
     public var linkedOnce: [JiraProjectRef] {
         var seen = Set<String>()

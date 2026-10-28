@@ -137,7 +137,7 @@ public extension SidebarModel {
                                           ready: readyForAcceptance(tasks, sessions: sessions))
         let projects = run.projectIds.compactMap(state.project(id:))
         return BroadcastRow(id: run.id, title: run.name, progress: BroadcastBoard.count(of: run, tasks: tasks),
-                            projectsHelp: OperatorLine.list(projects.map(\.name)), line: line,
+                            projectsHelp: projects.map(\.name).sentenceList, line: line,
                             isPaused: run.isPaused,
                             isDone: run.state == .complete)
     }

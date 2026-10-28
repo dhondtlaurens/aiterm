@@ -59,7 +59,7 @@ final class TaskFinisher {
 
     private let store: WorkspaceStore
     private let git: any GitRunning
-    private let connect: @Sendable (RemoteInfo) throws -> any MergeRequestPublishing
+    private let codeHost: CodeHostCheck
     private let now: @Sendable () -> Date
     private let sleep: @Sendable (TimeInterval) async throws -> Void
     /// Told when a watched merge ends — merged, blocked, out of time. The controller sets it after its own
@@ -90,7 +90,8 @@ final class TaskFinisher {
          connect: @escaping @Sendable (RemoteInfo) throws -> any MergeRequestPublishing,
          now: @escaping @Sendable () -> Date, sleep: @escaping @Sendable (TimeInterval) async throws -> Void,
          changed: @escaping @MainActor (UUID) -> Void = { _ in }) {
-        self.store = store; self.git = git; self.connect = connect; self.now = now; self.sleep = sleep; self.changed = changed
+        self.store = store; self.git = git; self.codeHost = CodeHostCheck(git: git, publisher: connect)
+        self.now = now; self.sleep = sleep; self.changed = changed
     }
 
     /// The tasks whose merge is being watched.
@@ -235,8 +236,8 @@ final class TaskFinisher {
         if operated.state == .published || operated.publication?.merged == true {
             return apply(.published(operated.publication ?? TaskPublication()), to: id)
         }
-        let repository = Repository(project.path, git: git), branch = task.branch, path = project.path, git = self.git
-        let remote: RemoteInfo
+        let repository = Repository(project.path, git: git), branch = task.branch
+        let host: any MergeRequestPublishing
         do {
             // What the plan or the broadcast rules out is said before any host is asked for.
             let (defaultBranch, tip) = try await BackgroundWork.run { (repository.defaultBranch(), try repository.tip(of: branch)) }
@@ -247,20 +248,17 @@ final class TaskFinisher {
             }
             // A local merge asks no host and pushes nothing.
             if fresh.operated.end == .mergeLocal { return await mergeLocally(fresh, repository: repository) }
-            guard let origin = try await BackgroundWork.run({ try git.ask(["remote", "get-url", "origin"], in: path, none: [2]) }) else {
-                return Result(fresh.operated.publication, result: .refused, reason: PublishRefusal.noOrigin.localizedDescription)
-            }
-            remote = ProviderDetector.detect(remoteUrl: origin, repoPath: path)
-        } catch {
-            let why = GitError.displayReason(of: error)
-            recordFailure(why, on: id)
-            return Result(store.state.task(id: id)?.operated?.publication, result: .failed, reason: why)
-        }
-        let host: any MergeRequestPublishing
-        do { host = try connect(remote) }
-        catch {
+            host = try await codeHost.host(of: project)
+        } catch CodeHostCheck.Failure.noOrigin {
+            return Result(store.state.task(id: id)?.operated?.publication, result: .refused, reason: PublishRefusal.noOrigin.localizedDescription)
+        } catch CodeHostCheck.Failure.unavailable(let error) {
             let reason = error is MergeRequestSearch.Unavailable ? "\(project.name) has no connected code host." : Self.unavailable(error)
             return Result(store.state.task(id: id)?.operated?.publication, result: .refused, reason: reason)
+        } catch {
+            let cause = if case CodeHostCheck.Failure.unreadable(let gitError) = error { gitError } else { error }
+            let why = GitError.displayReason(of: cause)
+            recordFailure(why, on: id)
+            return Result(store.state.task(id: id)?.operated?.publication, result: .failed, reason: why)
         }
         // Read fresh: the checks above awaited git.
         guard let current = context(of: id) else { return Result(result: .refused, reason: PublicationGuard.gone) }
@@ -415,12 +413,10 @@ final class TaskFinisher {
     /// The request still open from `current`'s branch, as the host reads it (`read`), named as `requestName` does. When the
     /// host can't be read, the one recorded, if any, unread; nil when the host has none open.
     private func openRequest(of current: Context) async -> (name: String, read: Bool)? {
-        let path = current.project.path, git = self.git
         let recorded = current.operated.publication.flatMap { publication in
             publication.mergeRequestNumber.map { (name: Self.requestName($0, url: publication.mergeRequestURL ?? ""), read: false) }
         }
-        guard let origin = (try? await BackgroundWork.run({ try git.ask(["remote", "get-url", "origin"], in: path, none: [2]) })) ?? nil,
-              let host = try? connect(ProviderDetector.detect(remoteUrl: origin, repoPath: path)) else { return recorded }
+        guard let host = try? await codeHost.host(of: current.project) else { return recorded }
         do {
             return try await host.existingRequest(from: current.task.branch).map { (name: Self.requestName($0.iid, url: $0.url), read: true) }
         } catch {

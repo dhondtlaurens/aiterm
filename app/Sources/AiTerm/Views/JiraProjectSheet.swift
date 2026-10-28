@@ -132,7 +132,7 @@ struct JiraProjectSheet: View {
         } else if linked.isEmpty {
             HelpText("Leave this empty to show tickets from every Jira project.")
         } else {
-            HelpText("New tasks will show tickets from \(linked.keyList).")
+            HelpText("New tasks will show tickets from \(linked.map(\.key).sentenceList).")
         }
     }
 

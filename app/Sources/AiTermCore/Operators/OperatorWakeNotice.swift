@@ -40,11 +40,7 @@ public struct OperatorWakeNotice: Equatable, Sendable {
                      tasks(o.workerAsks.map(\.key), "asking the Operator"), tasks(o.changedAfterAcceptance, "changed after acceptance"),
                      tasks(o.finishedWithoutCommit, "finished with no commit"),
                      tasks(o.reviewQuiet, "in review with nothing waiting")].compactMap { $0 }
-        let what = switch parts.count {
-        case 0: "News waits for it"
-        case 1: parts[0]
-        default: parts.dropLast().joined(separator: ", ") + " and " + parts[parts.count - 1]
-        }
+        let what = parts.isEmpty ? "News waits for it" : parts.sentenceList
         return "\(what) in “\(status.run.name)”."
     }
 

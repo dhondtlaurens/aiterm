@@ -347,10 +347,9 @@ final class NewBroadcastModel: Identifiable {
         let lead = "Where every task’s work ends."
         var reasons: [String] = []
         if !slices.merge { reasons.append("Merge is off in Settings › Operator") }
-        if let last = projectsWithoutCodeHost.last {
-            let names = projectsWithoutCodeHost.dropLast().map(\.name)
-            let listed = names.isEmpty ? last.name : names.joined(separator: ", ") + " and " + last.name
-            reasons.append(listed + (names.isEmpty ? " has" : " have") + " no connected code host")
+        if !projectsWithoutCodeHost.isEmpty {
+            reasons.append(projectsWithoutCodeHost.map(\.name).sentenceList
+                           + (projectsWithoutCodeHost.count == 1 ? " has" : " have") + " no connected code host")
         }
         guard !reasons.isEmpty else { return lead }
         let ends = TaskEnd.allCases.filter(canPick).map { "a " + $0.displayName }

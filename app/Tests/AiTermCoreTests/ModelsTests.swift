@@ -205,12 +205,11 @@ import Foundation
         #expect(try JSONDecoder().decode(Project.self, from: data).jiraProjects.map(\.key) == keys)
     }
 
-    @Test func testLinkedJiraProjectsReadAsTheirKeysInOrder() {
-        let site = URL(string: "https://example.atlassian.net")!
-        let refs = ["SHOP", "PAY", "WEB"].map { JiraProjectRef(id: $0, key: $0, name: $0, siteURL: site) }
-        #expect(Array(refs.prefix(1)).keyList == "SHOP")
-        #expect(Array(refs.prefix(2)).keyList == "SHOP and PAY")
-        #expect(refs.keyList == "SHOP, PAY and WEB")
+    @Test func aListReadsAsASentenceSaysIt() {
+        #expect([String]().sentenceList == "")
+        #expect(["SHOP"].sentenceList == "SHOP")
+        #expect(["SHOP", "PAY"].sentenceList == "SHOP and PAY")
+        #expect(["SHOP", "PAY", "WEB"].sentenceList == "SHOP, PAY and WEB")
     }
 
     /// A project linked twice is linked once, where it first came.

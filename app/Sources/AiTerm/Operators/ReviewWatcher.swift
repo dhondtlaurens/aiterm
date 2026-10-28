@@ -1,22 +1,6 @@
 import Foundation
 import AiTermCore
 
-/// The code host a project's requests are on, as `finish_task` finds it: origin's fetch URL, with the
-/// connections Settings saved. What cannot be had is said as Settings would fix it.
-@MainActor
-enum ReviewHosts {
-    static func host(of project: Project, git: any GitRunning,
-                     connect: @Sendable (RemoteInfo) throws -> any MergeRequestPublishing) async throws -> any MergeRequestPublishing {
-        let path = project.path
-        let origin: String?
-        do { origin = try await BackgroundWork.run { try git.ask(["remote", "get-url", "origin"], in: path, none: [2]) } }
-        catch { throw ToolRefusal(GitError.displayReason(of: error)) }
-        guard let origin else { throw ToolRefusal(PublishRefusal.noOrigin.localizedDescription) }
-        let remote = ProviderDetector.detect(remoteUrl: origin, repoPath: path)
-        do { return try connect(remote) } catch { throw ToolRefusal(TaskFinisher.unavailable(error)) }
-    }
-}
-
 /// Watches the requests people review (spec §5, the Review slice): every `OperatorTiming.reconcileInterval`,
 /// on the reconcile tick, each task in review has its threads read, and its approvals where the host gives
 /// them. A thread that is new and unresolved, one newly resolved or reopened, a new last note on an unresolved
@@ -62,7 +46,7 @@ final class ReviewWatcher {
               let project = state.project(id: task.projectId) else { return }
         let threads: [ReviewThread], approvals: [String]?, own: String?
         do {
-            let host = try await ReviewHosts.host(of: project, git: ports.git, connect: ports.publisher)
+            let host = try await ports.codeHost.host(of: project)
             // Another repository's request of the same number is not this one: origin changed since it was opened.
             if let publication = task.operated?.publication, let why = PublicationGuard.otherRepository(publication, repository: host.repository) {
                 Log.network.error("Not reading the review of \(task.operated?.key ?? task.title, privacy: .public): \(why, privacy: .public)")
