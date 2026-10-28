@@ -30,3 +30,14 @@ public enum RunSummary: Equatable, Sendable {
         }
     }
 }
+
+public extension GoalOutcome {
+    /// How the broadcast's goal went, as its band and its Summary say it.
+    var words: String {
+        switch self {
+        case .met: "goal met"
+        case .notMet: "goal not met"
+        case .unchecked: "goal not checked by the Oracle"
+        }
+    }
+}

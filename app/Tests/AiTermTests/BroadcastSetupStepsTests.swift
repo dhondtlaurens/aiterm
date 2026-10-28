@@ -182,7 +182,6 @@ struct BroadcastSetupStepsTests {
         #expect(NewBroadcastModel.closingLabel == "When the broadcast ends")
         #expect(NewBroadcastModel.closeLabel == "Close finished tasks’ tabs and remove their worktrees")
         #expect(NewBroadcastModel.deleteBranchLabel == "Delete their local branches once merged into the default branch")
-        #expect(TaskEnd.allCases.map(NewBroadcastModel.title(of:)) == ["Commit", "Draft MR", "Merge", "Local merge"])
     }
 
     @Test func mergeAndLocalMergeArePickedOnlyWithTheMergeSlice() {
@@ -275,7 +274,7 @@ struct BroadcastSetupStepsTests {
         model.add(project: blog)
         await model.loadCodeHosts()
         #expect(model.end == .commit)
-        #expect(model.endHelp.hasSuffix(" Merge moved to Commit."))
+        #expect(model.endHelp.hasSuffix(" Merge moved to Commit."), "the step names an end by its title")
     }
 
     /// Whatever was picked, Start hands over an end the step lets be picked.

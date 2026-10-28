@@ -350,8 +350,13 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         /// The newest prompt (its first line) you typed into the task's worker window while this was open: it may answer
         /// the question. Check, then resolve it. Nil when none.
         public var answeredInWindow: String?
-        public init(key: String, text: String, task: String? = nil, askedAt: Date, answeredInWindow: String? = nil) {
+        /// For a task out of its fix rounds, what the person answered on its card: `oneMoreRound` or `acceptAsItIs`.
+        /// Act on it, then resolve the question. Nil until answered there.
+        public var answeredOnCard: String?
+        public init(key: String, text: String, task: String? = nil, askedAt: Date, answeredInWindow: String? = nil,
+                    answeredOnCard: String? = nil) {
             self.key = key; self.text = text; self.task = task; self.askedAt = askedAt; self.answeredInWindow = answeredInWindow
+            self.answeredOnCard = answeredOnCard
         }
     }
 
@@ -483,7 +488,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             obligations: Obligations(
                 questionsWaiting: run.questions.filter { $0.resolution == nil }.map {
                     Question(key: $0.id, text: $0.text, task: $0.task.flatMap { keys[$0] }, askedAt: $0.askedAt,
-                             answeredInWindow: $0.answeredInWindow)
+                             answeredInWindow: $0.answeredInWindow, answeredOnCard: $0.answeredOnCard)
                 },
                 promptsWaitingOnYou: prompts, readyForAcceptance: ready, background: background, possiblyStalled: stalled, uncertain: uncertain,
                 branchDrift: drift, workerAsks: asks, changedAfterAcceptance: changed, finishedWithoutCommit: noCommit,

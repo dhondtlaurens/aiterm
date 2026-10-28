@@ -63,6 +63,43 @@ extension OperatorController {
         runChanged(runId)
     }
 
+    /// An end picked on a task's card (broadcast setup v2, Board): set as `TaskEndChange` decides, saved, and the
+    /// Operator woken with it, whose next `finish_task` follows it. A merge's watch stops with the wait it cleared, and no
+    /// change starts one: a change to Merge is held as a takeover holds one (`TaskEndChange.mergeWaitsForFinish`), so only
+    /// the Operator's next `finish_task` merges; a change away from Merge has no merge to hold, a takeover's hold going
+    /// with the rest of what was under way for it. A switch below what is done finishes the task, so the broadcast is
+    /// settled as every other end settles it; when that completes it, the one wake line says both, as the waker holds
+    /// one reason. Refused as `TaskEndChange.refusal` says, and while AiTerm is carrying out the task's end.
+    func changeEnd(of id: UUID, to end: TaskEnd) throws {
+        guard let task = workspace.state.task(id: id), let operated = task.operated, let run = run(id: operated.runId) else {
+            throw ActionUnavailable("That task isn’t the Operator’s.")
+        }
+        if let refusal = TaskEndChange.refusal(end, for: task, in: run) { throw ActionUnavailable(refusal) }
+        guard !finisher.running.contains(id) else { throw ActionUnavailable("AiTerm is finishing \(task.title). Change its end once it’s done.") }
+        workspace.mutate { TaskEndChange.apply(end, toTask: id, in: &$0) }
+        finisher.stopWatching(id)
+        if end == .merge { finisher.disarm(id, because: TaskEndChange.mergeWaitsForFinish) }
+        runChanged(run.id)
+        let completed = run.state != .complete && self.run(id: run.id)?.state == .complete
+        waker.say(TaskEndChange.wakeReason(key: operated.key, end: end) + (completed ? ", and the broadcast is complete" : ""), to: run.id)
+    }
+
+    /// One More Round or Accept As It Is, on the card of a task out of its review's fix rounds: recorded on its question
+    /// (`answeredOnCard`), which `run_status` and the card say, and the Operator woken with it. Once answered, a second
+    /// click does nothing. The question stays open: the Operator resolves it, as with an answer in its chat. Refused for
+    /// a task you took over or that has finished.
+    func answerFixRounds(of id: UUID, _ answer: BroadcastBoard.FixRoundsAnswer) throws {
+        guard let operated = workspace.state.task(id: id)?.operated, !operated.takenOver, !operated.isFinished,
+              let run = run(id: operated.runId), !run.hasEnded,
+              let question = run.fixRoundsQuestion(on: id)
+        else { throw ActionUnavailable("Nothing asks about that task’s fix rounds any more.") }
+        guard question.answeredOnCard == nil else { return }
+        mutateRun(run.id) { run in
+            if let i = run.questions.firstIndex(where: { $0.id == question.id }) { run.questions[i].answeredOnCard = answer.rawValue }
+        }
+        waker.say(answer.wakeReason(key: operated.key), to: run.id)
+    }
+
     /// A worker window you closed, back on your click or ↩ on its row (integration decision 7): its
     /// conversation resumed in a window behind your work under the broadcast's flags (`WorkerStarter.reopen`),
     /// the row's `windowId` left on that window so the click can raise it — whether it still names the closed

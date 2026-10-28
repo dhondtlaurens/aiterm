@@ -22,7 +22,7 @@ struct TaskStep: View {
             FormField(NewBroadcastModel.endLabel) {
                 SegmentedControl(values: TaskEnd.allCases, selection: Binding(get: { model.end }, set: { model.pick(end: $0) }),
                                  isSelectable: model.canPick) { end, _ in
-                    Text(NewBroadcastModel.title(of: end)).font(Typography.body)
+                    Text(end.title).font(Typography.body)
                 }
                 HelpText(model.endHelp)
             }

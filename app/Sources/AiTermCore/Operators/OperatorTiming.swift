@@ -86,4 +86,8 @@ public extension TaskEnd {
         case .mergeLocal: return "local merge"
         }
     }
+
+    /// The end as the Task step's segment and help and a card's end menu name it: `Draft MR`. The badge says
+    /// `displayName`.
+    var title: String { displayName.capitalizingFirst }
 }

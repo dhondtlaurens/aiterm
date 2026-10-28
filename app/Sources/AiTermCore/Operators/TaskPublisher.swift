@@ -34,13 +34,18 @@ public struct TaskPublisher: Sendable {
             self.task = task; self.run = run; self.parent = parent; self.forReview = forReview
         }
 
-        /// Whether the task goes into review before it ends: the broadcast says how each task is reviewed (a new
-        /// broadcast's per-task review prompt, a legacy one's Review), its Review slice lets people be involved, and
-        /// this task's review has not ended. A local merge opens no request for people to review.
+        /// Whether the task goes into review before it ends: its broadcast's tasks do (`reviews(_:)`), this task's
+        /// review has not ended, and its end opens a request: a local merge opens none for people to review.
         public static func entersReview(_ operated: OperatedTask, run: OperatorRun) -> Bool {
+            reviews(run) && operated.peopleReview?.ended != true && operated.end != .mergeLocal
+        }
+
+        /// Whether the broadcast's tasks go into review: it says how each task is reviewed (a new broadcast's per-task
+        /// review prompt, a legacy one's Review), and its Review slice lets people be involved. The board's Review
+        /// column is there while they do.
+        public static func reviews(_ run: OperatorRun) -> Bool {
             let review = if let settings = run.taskSettings { settings.review } else { run.review }
-            return OperatorCommand.said(review) != nil && run.profile.slices.review && operated.peopleReview?.ended != true
-                && operated.end != .mergeLocal
+            return OperatorCommand.said(review) != nil && run.profile.slices.review
         }
     }
 
