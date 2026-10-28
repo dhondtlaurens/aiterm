@@ -324,7 +324,8 @@ public enum OperatorCommand {
 
     private static func bullets(_ items: [String]) -> String { items.map { "- " + $0 }.joined(separator: "\n") }
 
-    /// `items` in a sentence: "a, b, and c".
+    /// `items` in a sentence: "a, b, and c". The brief keeps the comma before the last "and", which `OperatorCommandTests`
+    /// pins: one of its items can hold an "and" of its own. Copy for the person lists with `sentenceList`.
     private static func listed(_ items: [String]) -> String {
         items.count < 3 ? items.joined(separator: " and ") : items.dropLast().joined(separator: ", ") + ", and " + items[items.count - 1]
     }

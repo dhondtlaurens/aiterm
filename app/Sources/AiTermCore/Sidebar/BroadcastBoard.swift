@@ -176,8 +176,8 @@ public struct BroadcastBoard: Equatable, Sendable {
         public var end: EndLine? = nil
         /// Out of its review's fix rounds and asked about them, while it is not yours.
         public var fixRounds: FixRounds? = nil
-        /// Why the closing kept its worktree, or what it waits for while it is due (`OperatedTask.keptReason`), under its
-        /// rule; nil while none is recorded.
+        /// Under its rule: why the closing kept its worktree once it ran (`OperatedTask.keptReason`), or while it is due what
+        /// it waits for (`closingWait`); nil while neither is recorded.
         public var notice: String? = nil
     }
 
@@ -446,7 +446,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                         FixRounds(counts: operated.reviewVerdicts.last.map(counts),
                                   answered: question.answeredOnCard.flatMap(FixRoundsAnswer.init(rawValue:)))
                     },
-                    notice: closes && (kept || run.closingIsDue) ? operated.keptReason : nil)
+                    notice: kept ? operated.keptReason : closes && run.closingIsDue ? operated.closingWait?.text : nil)
     }
 
     /// Whether the closing has run since the broadcast last completed or ended (`closedAt`): a task that reached its

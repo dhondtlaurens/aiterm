@@ -4,24 +4,11 @@ import AiTermCore
 /// End-of-broadcast cleanup (spec, Auto-close). A task's `FinishedTaskRecord` is written just before its
 /// removal starts and taken back when the removal fails or waits, so `finished` holds only tasks whose row
 /// is gone; why a task stays is on the task, for its card (`OperatedTask.keptReason`). A person's turn, an
-/// agent's, or the helper being away defers only that task: a turn until its end, the helper until it is back
-/// (`sweep`).
+/// agent's, or the helper being away defers only that task (`ClosingWait`, on the task as `closingWait` for its card): a
+/// turn until its end, the helper until it is back (`sweep`).
 @MainActor
 final class TaskAutoCloser {
     nonisolated static let unsavedWork = "Not closed: its worktree has uncommitted changes. Remove it yourself once they are safe."
-
-    /// A removal that did not start and is tried again: for the person's turn, an agent's, or the helper. What it waits
-    /// for is its card's while it waits, as it is, with no `Not closed:`.
-    enum Deferred: LocalizedError {
-        case turn, agentTurn, helper
-        var errorDescription: String? {
-            switch self {
-            case .turn: "Waiting for your turn to end"
-            case .agentTurn: "Waiting for its turn to end"
-            case .helper: "Waiting for the helper"
-            }
-        }
-    }
 
     private struct Phase: Equatable {
         let completed: Date?, ended: Date?
@@ -30,7 +17,7 @@ final class TaskAutoCloser {
     private struct Pass {
         let phase: Phase
         var attempted: Set<UUID> = []
-        var deferred: [UUID: Deferred] = [:]
+        var deferred: [UUID: ClosingWait] = [:]
     }
     private let workspace: WorkspaceStore
     private let live: LiveSessions
@@ -103,7 +90,6 @@ final class TaskAutoCloser {
     }
 
     static func failureReason(_ error: Error) -> String {
-        if let deferred = error as? Deferred, let waiting = deferred.errorDescription { return waiting }
         let reason = OperationIssue.reason(of: error)
         return reason.hasPrefix("Not closed:") ? reason : "Not closed: " + reason
     }
@@ -208,7 +194,7 @@ final class TaskAutoCloser {
         guard let record = Self.record(task, in: run, at: now()) else { return workspace.persistenceError == nil }
         do {
             try await remove(task) { [self] in save(record, in: run.id) }
-        } catch let deferred as Deferred {
+        } catch let deferred as ClosingWait {
             passes[run.id]?.attempted.remove(task.id)
             passes[run.id]?.deferred[task.id] = deferred
             return takeBack(task.id, in: run.id)

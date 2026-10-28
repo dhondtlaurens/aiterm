@@ -35,11 +35,14 @@ final class SidebarProjection {
     /// What the Operator is doing, read on every derivation. The app points it at its
     /// `OperatorController`; a test or a snapshot at values of its own.
     @ObservationIgnored var actingSource: @MainActor () -> OperatorActs = { .none }
-    /// Whether a broadcast's sheet is showing, the live board's or the Shelf's, read on every derivation: the app points it
-    /// at its sheet slot; a test or a snapshot that reads `board` alone leaves it true.
+    /// Whether the board's sheet is showing, read on every derivation: the app points it at its sheet slot; a test or
+    /// a snapshot that reads `board` alone leaves it true.
     @ObservationIgnored var boardShown: @MainActor () -> Bool = { true }
+    /// Whether a sheet that names models without the live board is showing, the Shelf's, read on every derivation: the
+    /// labels are read as it opens, and no board is derived for it.
+    @ObservationIgnored var labelsWanted: @MainActor () -> Bool = { false }
     /// Reads the agents' model labels, as Settings › Agents lists them, which the board's cards name a model by, live or
-    /// shelved: blocking, so run off the main actor each time a broadcast's sheet opens. The app points it at its model catalogue; nil reads
+    /// on the Shelf: blocking, so run off the main actor each time either sheet opens. The app points it at its model catalogue; nil reads
     /// nothing, and a card names a model by its id.
     @ObservationIgnored var modelLabelSource: (@Sendable () -> BroadcastBoard.ModelLabels)?
     /// The labels last read, or set by a snapshot; a change derives the board again, and redraws the Shelf's, which
@@ -80,10 +83,10 @@ final class SidebarProjection {
         /// What the board's cards name each model by, read only while the board shows.
         var modelLabels: BroadcastBoard.ModelLabels
         var branchByCwd: [String: String], projectBranch: [UUID: String], diffByTask: [UUID: DiffStat]
-        var runs: [OperatorRun], acting: OperatorActs, folded: Set<UUID>, boardShown: Bool
+        var runs: [OperatorRun], acting: OperatorActs, folded: Set<UUID>, boardShown: Bool, labelsWanted: Bool
     }
 
-    /// The labels read again, off the main actor, as a broadcast's sheet opens: a model added in Settings › Agents since
+    /// The labels read again, off the main actor, as the board's sheet or the Shelf's opens: a model added in Settings › Agents since
     /// is named the next time it opens.
     private func readModelLabels() {
         guard let source = modelLabelSource else { return }
@@ -114,12 +117,13 @@ final class SidebarProjection {
                           liveModels: liveModels ?? [:], modelLabels: shown ? modelLabels : [:],
                           branchByCwd: checkouts.branchByCwd, projectBranch: checkouts.projectBranch,
                           diffByTask: checkouts.diffByTask,
-                          runs: state.runs, acting: actingSource(), folded: state.foldedRuns, boardShown: shown)
+                          runs: state.runs, acting: actingSource(), folded: state.foldedRuns, boardShown: shown,
+                          labelsWanted: labelsWanted())
         guard next != inputs else { return false }
         let previous = inputs
         inputs = next
         derivations += 1
-        if shown, previous?.boardShown != true { readModelLabels() }
+        if (shown && previous?.boardShown != true) || (next.labelsWanted && previous?.labelsWanted != true) { readModelLabels() }
         if next.acting != acting { acting = next.acting }
         if next.runs != previous?.runs {
             let runs = Dictionary(next.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

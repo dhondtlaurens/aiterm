@@ -153,11 +153,12 @@ extension OperatorToolHandler {
         return done.contains(/\bcommits?\b/) && !saysRequest ? .commit : .draftMR
     }
 
-    /// `CodeHostCheck`'s answer, read only when the task's end may need a code host (`TaskEnd.needsCodeHost`): the
-    /// broadcast's end, else the one `call` names, else the legacy default it picks with the answer. An end that needs none
-    /// is false without a read. An origin git can't read is refused with git's own words, not read as no origin.
+    /// `CodeHostCheck`'s answer, read only for an end that needs a code host (`TaskEnd.needsCodeHost`), or a legacy
+    /// default that hangs on the answer (`knownEnd`); any other end is false without a read. An end `call` names that is
+    /// none is refused first, with its own sentence. An origin git can't read is refused with git's own words, not read as
+    /// no origin.
     private func hasCodeHost(_ project: Project, for call: ToolCall, in run: OperatorRun) async throws(ToolRefusal) -> Bool {
-        if let end = run.taskSettings?.end ?? (try? self.end(call)), !end.needsCodeHost { return false }
+        if let end = try knownEnd(call, in: run), !end.needsCodeHost { return false }
         do { return try await ports.codeHost.connects(project) }
         catch { throw ToolRefusal("AiTerm couldn’t read \(project.name)’s origin: \(error.reason)") }
     }
@@ -357,6 +358,15 @@ extension OperatorToolHandler {
     /// `defaultModel(for:)` over the models remembered in `state`, for a launch that moves a task to the other agent.
     static func defaultModel(for agent: AgentKind, remembered: [AgentKind: String]) -> (model: String, reasoning: String?) {
         AgentIntegrations.taskModels(remembered: remembered)(agent)
+    }
+
+    /// The task's end as far as it is known before its code host is: the broadcast's, the one `call` names, or a legacy
+    /// broadcast's default from its Done; nil for a legacy broadcast with no Done, whose default is a draft MR only with a
+    /// code host.
+    private func knownEnd(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> TaskEnd? {
+        if let settings = run.taskSettings { return settings.end }
+        if let end = try end(call) { return end }
+        return OperatorCommand.said(run.done) == nil ? nil : Self.defaultEnd(for: run)
     }
 
     /// A broadcast with the Task step ends every task where its step says, so a call that names an end is refused there;

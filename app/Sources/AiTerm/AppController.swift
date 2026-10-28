@@ -269,14 +269,10 @@ final class AppController {
         let operators = operatorController
         rows.actingSource = { [weak operators] in operators?.acting ?? .none }
         operators.onChange { [weak self] in self?.refreshRows() }
-        // The board is derived only while a broadcast's sheet shows: opening it derives the rows with it. The Shelf's
-        // counts too, for the model labels its cards read.
-        rows.boardShown = { [weak sheets] in
-            switch sheets?.sheet {
-            case .broadcastBoard?, .shelvedBroadcast?: true
-            default: false
-            }
-        }
+        // The board is derived only while its sheet shows: opening it derives the rows with it. The Shelf's sheet derives
+        // no board, but its cards name models by the same labels.
+        rows.boardShown = { [weak sheets] in if case .broadcastBoard? = sheets?.sheet { true } else { false } }
+        rows.labelsWanted = { [weak sheets] in if case .shelvedBroadcast? = sheets?.sheet { true } else { false } }
         // Its cards name each worker's model as Settings › Agents lists it, for the agents a worker can run on.
         rows.modelLabelSource = { [catalogue = agents.catalogue] in
             Dictionary(uniqueKeysWithValues: DeliveryCheck.agents.map { agent in

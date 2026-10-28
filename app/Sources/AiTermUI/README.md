@@ -491,8 +491,8 @@ Accept As It Is as links in `Typography.help`, `Space.gap` apart and `Space.tigh
 (`BroadcastBoard.FixRoundsAnswer`); once you answered, “You answered: one more round.” in their place. A task the
 closing kept reads its end and `worktree kept` (`draft MR · worktree kept`) and says why under the same rule
 (`OperatedTask.keptReason`); while the closing waits on it, its line as it was, the same rule says what for
-(`Waiting for its turn to end`). A task the closing removed keeps its card in Done, drawn from its
-`FinishedTaskRecord`: its line as it ended with `· removed` after it, nothing to open; those come first in Done and
+(`OperatedTask.closingWait`: `Waiting for its turn to end`). A task the closing removed keeps its card in Done, drawn
+from its `FinishedTaskRecord`: its line as it ended with `· removed` after it, nothing to open; those come first in Done and
 count towards the progress. Once every task is done the band reads `checking the goal` until `check_goal`
 answers, and after an extra round its tail counts the rounds used, `· round 1 of 2`; ended, it says how the goal
 went (`ended · goal not met`) and, with the goal checked, `· 2 left for you`.

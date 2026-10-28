@@ -343,12 +343,13 @@ swift_suite() {
     swift_test snapshots "${#targets}" "${suites[*]}" "${filters[@]}"
 }
 
-# The snapshot suites, as <Target>.<Suite>: every suite named *SnapshotTests. They draw each image
+# The snapshot suites, as <Target>.<Suite>: every suite named *SnapshotTests, a struct, class, actor or enum whatever
+# its attributes and access. They draw each image
 # twice and hold the two to the same bytes. Beside suites that host windows, the setup sheet's AppKit
 # stand-ins drew one colour level apart from one drawing to the next, so they run apart from every
 # other suite rather than with a looser comparison.
-SNAPSHOT_SUITES=(${(f)"$( (cd "$ROOT/app/Tests" 2>/dev/null && grep -rEo '^(@[A-Za-z]+ )*struct [A-Za-z0-9_]+SnapshotTests\b' .) \
-    | sed -E 's|^\./([^/]+)/.*struct ([A-Za-z0-9_]+)$|\1.\2|' | sort -u)"})
+SNAPSHOT_SUITES=(${(f)"$( (cd "$ROOT/app/Tests" 2>/dev/null && grep -rEo '\b(struct|class|actor|enum) [A-Za-z0-9_]+SnapshotTests\b' .) \
+    | sed -E 's|^\./([^/]+)/[^:]*:[a-z]+ ([A-Za-z0-9_]+)$|\1.\2|' | sort -u)"})
 
 # The preferences domains naming AiTerm, one file name per line. A test's UserDefaults suite named
 # like an app lands in ~/Library/Preferences and stays there, if only as an empty plist

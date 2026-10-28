@@ -194,8 +194,8 @@ final class TaskRemover: CheckoutRemovals {
 
     /// AiTerm's own Remove (Auto-close): no questions and no permission to discard changes. `starting` writes the
     /// task's finished record once nothing is left to keep the task, just before its window closes; false stops it.
-    /// Why it stopped is saved on the task for its card (`OperatedTask.keptReason`). The caller deletes a merged branch
-    /// once the row is gone.
+    /// Why it stopped is saved on the task for its card (`OperatedTask.keptReason`), or what it waits for when it is to be
+    /// tried again (`closingWait`). The caller deletes a merged branch once the row is gone.
     func removeAutomatically(_ task: TaskItem, starting: @MainActor () -> Bool) async throws {
         guard workspace.canChangeWorkspace, let current = workspace.state.task(id: task.id), current == task,
               let project = workspace.state.project(id: task.projectId),
@@ -204,7 +204,14 @@ final class TaskRemover: CheckoutRemovals {
         }
         defer { end(token, of: task.id) }
         outcomes[task.id] = nil
+        // A turn under way is waited for: checked first, so a task you are driving with edits waits rather than reads as
+        // unsaved work, and again after the worktree checks, since a turn can start while they run.
+        func waitForTurns() throws(ClosingWait) {
+            guard !TaskAutoCloser.isDriving(task, in: live) else { throw .turn }
+            guard !Self.turnInFlight(task.id, in: live) else { throw .agentTurn }
+        }
         do {
+            try waitForTurns()
             // Unsaved work is what git status lists, uncommitted or untracked changes. Git-ignored files such as .env
             // are not: they go with the worktree, as with the person's Remove (plain git worktree remove, never forced).
             if try await workflow.hasUnsavedWork(task: task, project: project) {
@@ -218,8 +225,7 @@ final class TaskRemover: CheckoutRemovals {
             guard workspace.state.task(id: task.id) == task else {
                 throw ActionUnavailable("The task changed while its worktree was checked.")
             }
-            guard !TaskAutoCloser.isDriving(task, in: live) else { throw TaskAutoCloser.Deferred.turn }
-            guard !Self.turnInFlight(task.id, in: live) else { throw TaskAutoCloser.Deferred.agentTurn }
+            try waitForTurns()
             guard !task.workerTabs(in: live.sessions).contains(where: {
                 $0.session.map { $0.windowId != task.windowId } == true
             }) else {
@@ -230,7 +236,7 @@ final class TaskRemover: CheckoutRemovals {
                 try await teardown.closeWindow(of: task, holding: token, requiringDaemon: true,
                                                operation: { .removing(windowLetGo: $0) })
             } catch TeardownStop.noDaemon {
-                throw TaskAutoCloser.Deferred.helper
+                throw ClosingWait.helper
             }
             // Never forced, so changes made while the window closed are git's to refuse.
             let removed: TaskWorkflow.Removed
@@ -240,6 +246,9 @@ final class TaskRemover: CheckoutRemovals {
             guard workspace.state.task(id: task.id) == nil, workspace.persistenceError == nil else {
                 throw ActionUnavailable("Its removal could not be completed or saved.")
             }
+        } catch let waiting as ClosingWait {
+            workspace.mutate { $0.updateOperated(task.id) { $0.closingWait = waiting } }
+            throw waiting
         } catch {
             // A removal that stopped after its worktree went has left the row its own note, with the retry the person's
             // Remove offers there; its card says the same.
@@ -248,7 +257,7 @@ final class TaskRemover: CheckoutRemovals {
             } else {
                 TaskAutoCloser.failureReason(error)
             }
-            workspace.mutate { $0.updateOperated(task.id) { $0.keptReason = reason } }
+            workspace.mutate { $0.updateOperated(task.id) { $0.keptReason = reason; $0.closingWait = nil } }
             throw error
         }
     }

@@ -163,8 +163,9 @@ set.
   Done column, the summary, `run_status` and the ended broadcast on the Shelf read removed tasks from these records.
 - **Never loses work.** A worktree with uncommitted or untracked changes is not touched: the card says “worktree
   kept” with “Not closed: its worktree has uncommitted changes. Remove it yourself once they are safe.” A task
-  with a tab the person is driving (`youAreDriving`) waits until that turn ends. A removal that fails leaves the
-  row, and its card says why.
+  with a tab the person is driving (`youAreDriving`) waits until that turn ends. While the closing waits, the
+  card says what for in short copy under its rule: “Waiting for your turn to end”, “Waiting for its turn to end”
+  or “Waiting for the helper”. A removal that fails leaves the row, and its card says why.
 - **The branch** is deleted only when the second box is ticked, the local branch head is still the accepted
   commit, and one of these holds:
   - the accepted commit is an ancestor of the default branch, locally or on origin after a fetch;

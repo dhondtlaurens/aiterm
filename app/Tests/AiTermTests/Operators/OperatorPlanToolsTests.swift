@@ -520,6 +520,23 @@ extension OperatorPlanToolsTests {
             #expect(updated.message == nil, "\(String(describing: updated.message))")
         }
     }
+
+    /// A legacy call that names no end reads no origin when the broadcast's Done makes the default a commit, and an end
+    /// that is none is refused with its own sentence, not with git's.
+    @Test func aLegacyDefaultOfACommitAndAnEndThatIsNoneReadNoOrigin() async throws {
+        let fixture = try GitFixture.withOrigin(branch: "feat/source")
+        let project = OperatorServiceFixtures.project(path: fixture.path)
+        var run = OperatorServiceFixtures.run(projects: [project])
+        run.done = "a commit per item, tests green"
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]), git: OriginUnreadableGit())
+        let created = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "Do A.", "project": "Shop",
+                                                               "agent": "codex", "modelReason": "The default."])
+        #expect(created.value?["created"] == true, "\(String(describing: created.message))")
+        #expect(world.state.tasks.first?.operated?.end == .commit)
+        let endless = "A task’s end is commit, draftMR, merge or mergeLocal."
+        #expect(await create(world, run, "B", end: "shipped").message == endless)
+        #expect(await world.call(run.id, "update_task", ["task": "A", "end": "shipped"]).message == endless)
+    }
 }
 
 extension OperatorPlanToolsTests {

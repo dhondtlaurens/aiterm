@@ -5,7 +5,7 @@ import Testing
 @testable import AiTermTestSupport
 
 /// The board's cards name a model as Settings › Agents lists it (broadcast setup v2, 14A): the rows read the agents' labels
-/// off the main actor each time a broadcast's sheet opens, live or the Shelf's, and the board is derived again with them.
+/// off the main actor each time the board's sheet or the Shelf's opens, and the board is derived again with them.
 @MainActor
 struct BoardModelLabelsTests {
     /// Whether the board's sheet shows, as a test flips it.
@@ -34,11 +34,12 @@ struct BoardModelLabelsTests {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
         try controller.loadWorkspace()
-        let ended = OperatorUIFixtures.run(name: "Sprint 41", state: .stopped)
-        controller.workspace.mutate { $0.runs = [ended] }
+        let ended = OperatorUIFixtures.run(name: "Sprint 41", state: .stopped), live = OperatorUIFixtures.run(name: "Sprint 42")
+        controller.workspace.mutate { $0.runs = [ended, live] }
         controller.rows.modelLabelSource = { [.claude: ["claude-opus-5-5": "Opus 5.5"]] }
         controller.presentShelved(run: ended.id)
         await controller.rows.labelLoad?.value
         #expect(controller.rows.modelLabels == [.claude: ["claude-opus-5-5": "Opus 5.5"]])
+        #expect(controller.rows.board == nil, "the live board isn't derived for the Shelf's sheet")
     }
 }

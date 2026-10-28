@@ -327,6 +327,22 @@ public struct PeopleReview: Codable, Equatable, Sendable {
 /// read rather than failing the task (`OperatedTask.init(from:)`).
 public enum OperatedFlag: String, Codable, CaseIterable, Sendable { case possiblyStalled, uncertain, upstreamReplaced, waitingOnYou }
 
+/// What Auto-close waits for before it closes a task (`TaskAutoCloser`): the removal is tried again once it is over. Its
+/// card says it in the person's short copy while the closing waits.
+public enum ClosingWait: String, Codable, Sendable, LocalizedError {
+    case turn, agentTurn, helper
+
+    public var text: String {
+        switch self {
+        case .turn: "Waiting for your turn to end"
+        case .agentTurn: "Waiting for its turn to end"
+        case .helper: "Waiting for the helper"
+        }
+    }
+
+    public var errorDescription: String? { text }
+}
+
 /// Everything an operator adds to a task. `TaskItem.operated` — nil for every task you made yourself.
 public struct OperatedTask: Codable, Equatable, Sendable {
     private var preservedFields = PreservedFields()
@@ -384,9 +400,11 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     public var reopenedFrom: String?
     /// What its review tabs found, each against the commit it reviewed (`record_review`), oldest first.
     public var reviewVerdicts: [ReviewVerdict]
-    /// Why the broadcast's closing kept its worktree, row and tabs, or what it waits for, as its card shows it; nil while it
-    /// kept none.
+    /// Why the broadcast's closing kept its worktree, row and tabs, in a sentence its card shows; nil while it kept none.
     public var keptReason: String?
+    /// What the closing waits for before it tries this task again, which its card says while the closing is due; nil while
+    /// it waits for nothing.
+    public var closingWait: ClosingWait?
     /// Where its diff started while it was live, set with its acceptance in a broadcast with the Task step: its code
     /// parent's accepted commit, or else where its branch left its base. Auto-close carries it into the task's
     /// `FinishedTaskRecord`, as a merge makes the accepted commit part of the base it would be worked out from.
@@ -423,7 +441,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         case takenOver, ownership, launch, retriesUsed, runtimeUsed, totalRuntimeUsed, runtimeHead
         case blockedReason, blockedFrom, lastFailure, flags
         case modelReason, agentPinned, problem, agentReview, peopleReview, branchDrift, extraTabs, reopenedFrom, reviewVerdicts, keptReason
-        case diffBaseSHA
+        case closingWait, diffBaseSHA
     }
 
     /// Synthesised but for `flags`: a flag this build does not know is dropped, not a failed load.
@@ -463,6 +481,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         reopenedFrom = try c.decodeIfPresent(String.self, forKey: .reopenedFrom)
         reviewVerdicts = try c.decodeIfPresent([ReviewVerdict].self, forKey: .reviewVerdicts) ?? []
         keptReason = try c.decodeIfPresent(String.self, forKey: .keptReason)
+        closingWait = try? c.decodeIfPresent(ClosingWait.self, forKey: .closingWait)
         diffBaseSHA = try c.decodeIfPresent(String.self, forKey: .diffBaseSHA)
     }
 
@@ -503,6 +522,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         try c.encodeIfPresent(reopenedFrom, forKey: .reopenedFrom)
         if !reviewVerdicts.isEmpty { try c.encode(reviewVerdicts, forKey: .reviewVerdicts) }
         try c.encodeIfPresent(keptReason, forKey: .keptReason)
+        try c.encodeIfPresent(closingWait, forKey: .closingWait)
         try c.encodeIfPresent(diffBaseSHA, forKey: .diffBaseSHA)
     }
 }

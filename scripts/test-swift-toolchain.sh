@@ -165,16 +165,7 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
         if [[ "$runner_status" != 73 || "$(<"$calls")" != pytest ]] || ! grep -Fq "test selector guard passed" "$bad_output"; then
             fail "expected a daemon-only change to run the reader guard before the daemon's tests (status $runner_status)"
         fi
-        # The snapshot suites a target holds run in a pass of their own, after the rest of it.
-        app_main='swift test --filter ^AiTermUITests\.DesignRulesTests/ --filter ^AiTermTests\. --skip ^AiTermTests\.BroadcastSetupSnapshotTests/ --skip ^AiTermTests\.OperatorSnapshotTests/'
-        app_snapshots='swift test --filter ^AiTermTests\.BroadcastSetupSnapshotTests/ --filter ^AiTermTests\.OperatorSnapshotTests/'
-        changed_case "app code" 0 "$app_main"$'\n'"$app_snapshots" app/Sources/AiTerm/X.swift
-        grep -Fq "app/Sources/AiTerm/X.swift" "$bad_output" || fail "expected the selection to name the path that picked it"
         changed_case "docs only, with swift test arguments" 0 'swift test --filter fixture' docs/x.md -- --filter fixture
-        # A filtered run must reach every host its selectors name and finish every suite they name.
-        for result in nosuite onehost; do
-            AITERM_FIXTURE_TEST_RUN="$result" changed_case "app code, $result" 1 "$app_main" app/Sources/AiTerm/X.swift
-        done
 
         # A git that finds the merge base but then fails to list the changes must stop the run: going
         # on with what it did list could test nothing and still pass.
@@ -214,6 +205,20 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
         if [[ "$runner_status" != 73 || "$(<"$calls")" != pytest ]] || ! grep -Fxq "  everything" "$bad_output"; then
             fail "expected a checkout with no main to select everything (status $runner_status)"
         fi
+
+        # App code runs the suites its routes pick, and the snapshot suites a target holds, however they are declared, in
+        # a pass of their own after the rest of it. The scratch repository's test files are the fixture's own.
+        mkdir -p "$repo/app/Tests/AiTermTests"
+        print -rl -- '@MainActor @Suite(.serialized)' 'final class AlphaSnapshotTests {}' \
+            '@MainActor private struct BetaSnapshotTests {}' 'struct SnapshotHelpers {}' >"$repo/app/Tests/AiTermTests/Snaps.swift"
+        app_main='swift test --filter ^AiTermUITests\.DesignRulesTests/ --filter ^AiTermTests\. --skip ^AiTermTests\.AlphaSnapshotTests/ --skip ^AiTermTests\.BetaSnapshotTests/'
+        app_snapshots='swift test --filter ^AiTermTests\.AlphaSnapshotTests/ --filter ^AiTermTests\.BetaSnapshotTests/'
+        CASE_ROOT="$repo" changed_case "app code" 0 "$app_main"$'\n'"$app_snapshots" app/Sources/AiTerm/X.swift
+        grep -Fq "app/Sources/AiTerm/X.swift" "$bad_output" || fail "expected the selection to name the path that picked it"
+        # A filtered run must reach every host its selectors name and finish every suite they name.
+        for result in nosuite onehost; do
+            AITERM_FIXTURE_TEST_RUN="$result" CASE_ROOT="$repo" changed_case "app code, $result" 1 "$app_main" app/Sources/AiTerm/X.swift
+        done
 
         # A route the runner cannot act on stops the run; skipping it would test less than it says.
         for row in $'bad/*\tfrobnicate' $'bad/*\ttarget:NoSuchTests' $'bad/*\tsuite:AiTermTests' 'bad/*'; do
