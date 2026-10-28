@@ -254,8 +254,8 @@ extension OperatorToolHandler {
     }
 
     /// A veto's call again with its id (spec §4.1). Unlike a critique, only the Oracle's yes acts, with no reply
-    /// needed and only for the call it was asked about; a no refuses, and so does a failure, a timeout, or a veto lost
-    /// with AiTerm's restart, but for a merge, a push past the hook or a goal check, which go ahead (`unanswered`).
+    /// needed and only for the call it was asked about; a no refuses, and a failure, a timeout, or a veto lost with
+    /// AiTerm's restart does what `OperatorTool.vetoes` says for that tool (`unanswered`).
     private func vetoAnswer(_ call: ToolCall, _ kept: ChallengeRecord, in run: OperatorRun) async throws -> JSONValue? {
         let id = kept.id
         // A challenge answers only the call it was asked about, whatever its stage: never another task's.
@@ -360,9 +360,9 @@ extension OperatorToolHandler {
         }
     }
 
-    /// No answer from the Oracle (missing, failed, too slow, or lost with AiTerm's restart): a merge or a push past the hook
-    /// goes ahead unchallenged, a goal check acts recorded as not checked by the Oracle (`checkGoal`), and an addition is
-    /// refused.
+    /// No answer from the Oracle (missing, failed, too slow, or lost with AiTerm's restart): the call does what
+    /// `OperatorTool.vetoes` says for its tool. One that goes ahead is logged as unchallenged, and a goal check that acts is
+    /// recorded as not checked by the Oracle (`checkGoal`).
     private func unanswered(_ call: ToolCall, in run: OperatorRun, askedSHA: String?, merges: Bool) async throws {
         switch call.operatorTool?.unanswered {
         case .goesAhead: try proceedUnchallenged(call, in: run, askedSHA: askedSHA, merges: merges)

@@ -129,12 +129,14 @@ extension OperatorToolHandler {
                          in run: OperatorRun) throws(ToolRefusal) -> String? {
         guard let mine = delivery?[agent], mine.messaging != .auto else { return nil }
         guard mine.messaging == .off else { return mine.note }
-        let name = SidebarModel.agentName(agent), why = "\(name)’s workers can’t be messaged: \(mine.note ?? "")"
+        // A new run names the agent as its Agents rows do.
+        let name = run.taskSettings != nil ? agent.displayName : SidebarModel.agentName(agent)
+        let why = "\(name)’s workers can’t be messaged: \(mine.note ?? "")"
         let canMessage: (AgentKind) -> Bool = {
             $0 != agent && (delivery?[$0]).map { $0.messaging != .off } == true
         }
         let other = if run.taskSettings != nil {
-            run.agents.first { canMessage($0.agent) }.map(Self.rowName)
+            run.agents.first { canMessage($0.agent) }.map(\.label)
         } else {
             ModelChoice.pair.first(where: canMessage).map(SidebarModel.agentName)
         }
@@ -160,18 +162,19 @@ extension OperatorToolHandler {
     }
 
     private func validateEnd(_ end: TaskEnd, in run: OperatorRun, project: Project, connected: Bool) throws(ToolRefusal) {
-        // A new run's end is the person's alone, so the Operator can't be told to pick another; with no task created
-        // there is no card to change it on, so the Operator asks the person.
-        func refusal(_ why: String, legacyAdvice: String) -> ToolRefusal {
+        // A new run's end is the person's alone, so the Operator can't be told to pick another, and with no task created
+        // there is no card to change it on: the Operator asks the person for what they can do.
+        func refusal(_ why: String, legacyAdvice: String, ask: String) -> ToolRefusal {
             ToolRefusal(run.taskSettings == nil ? "\(why): \(legacyAdvice)"
-                        : "\(why), so no task can end at \(end.displayName): ask the person with ask_you, on no task, "
-                            + "to change the broadcast’s end.")
+                        : "\(why), so no task can end at \(end.displayName): ask the person with ask_you, on no task, \(ask)")
         }
         if end.merges, !run.profile.slices.merge {
-            throw refusal("Merge is off for this broadcast", legacyAdvice: "end it at a commit or a draft MR.")
+            throw refusal("Merge is off for this broadcast", legacyAdvice: "end it at a commit or a draft MR.",
+                          ask: "how to go on, since a running broadcast’s slices and end can’t change.")
         }
         if end.needsCodeHost, !connected {
-            throw refusal("\(project.name) has no connected code host", legacyAdvice: "end it at a commit.")
+            throw refusal("\(project.name) has no connected code host", legacyAdvice: "end it at a commit.",
+                          ask: "to connect \(project.name)’s code host (Settings), then call it again.")
         }
     }
 
@@ -313,7 +316,7 @@ extension OperatorToolHandler {
         if run.taskSettings != nil {
             guard let row = ModelChoice.row(agent: agent, model: requested,
                                             reasoning: call.optionalString("reasoning"), in: run.agents) else {
-                let rows = run.agents.map(Self.rowName).joined(separator: "; ")
+                let rows = run.agents.map(\.label).joined(separator: "; ")
                 throw ToolRefusal("Choose a row from this broadcast’s Agents list: \(rows).")
             }
             guard installedAgents.contains(agent) else {
@@ -339,10 +342,6 @@ extension OperatorToolHandler {
                                                  : "Its models are: \(ids.joined(separator: ", "))."))
             }
         }
-    }
-
-    private static func rowName(_ row: AgentChoice) -> String {
-        [row.agent.displayName, row.model, row.reasoning].compactMap { $0 }.joined(separator: " · ")
     }
 
     /// The model and reasoning Settings › Agents gives `agent`, else the model last picked for it.

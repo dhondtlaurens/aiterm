@@ -204,4 +204,10 @@ import Foundation
         #expect(try roundTrip(question).about == "fixRounds")
         #expect(!(try saved(OperatorQuestion(id: "q", text: "?", task: nil, askedAt: Self.at))).keys.contains("about"))
     }
+
+    /// An Agents row as the brief and the tool refusals name it.
+    @Test func anAgentsRowIsNamedAgentModelReasoning() {
+        #expect(AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high").label == "Claude Code · claude-opus-5-5 · high")
+        #expect(AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: nil).label == "Codex · gpt-6-astra")
+    }
 }

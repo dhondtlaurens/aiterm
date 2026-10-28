@@ -263,9 +263,7 @@ public enum OperatorCommand {
     private static func broadcastDetails(run: OperatorRun, projects: [Project]) -> String {
         var lines = ["Broadcast: \(run.name)"]
         if let settings = run.taskSettings {
-            lines += ["Agents:"] + run.agents.map { choice in
-                "- " + ([choice.agent.displayName, choice.model] + (choice.reasoning.map { [$0] } ?? [])).joined(separator: " · ")
-            }
+            lines += ["Agents:"] + run.agents.map { "- " + $0.label }
             let closing = settings.closeWhenDone
                 ? "close finished tasks' tabs and remove their worktrees at the end of the broadcast; "
                     + (settings.deleteMergedBranch ? "delete their local branches once merged into the default branch" : "keep local branches")
@@ -345,8 +343,9 @@ public enum OperatorCommand {
             + "Don't plan around it: create_task and update_task take no end for this broadcast. "
             + "Read each task's current end in run_status after the person changes it. "
             + "A commit end stops at the accepted commit, with no push, no merge request and no finish_task. "
-            + "If create_task is refused because a project has no connected code host or Merge is off, no card exists to "
-            + "change: ask the person with ask_you, on no task, to change the broadcast's end."
+            + "If create_task is refused because a project has no connected code host, ask the person with ask_you, on no "
+            + "task, to connect its code host (Settings), then call it again. If it is refused because Merge is off, ask the "
+            + "person with ask_you, on no task, how to go on: a running broadcast's slices and end can't change."
     }
 
     /// The base every broadcast has: the plan starts at once, workers commit, and AiTerm carries out each task's end. A

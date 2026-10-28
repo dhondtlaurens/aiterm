@@ -656,8 +656,10 @@ import Foundation
     /// A create_task refused for the broadcast's end leaves no card to wait on: the Operator asks the person.
     @Test func aRefusedEndIsAskedAboutOnNoTask() {
         let end = section("## The end", of: OperatorCommand.brief(run: newBroadcast(), projects: []))
-        #expect(end.contains("If create_task is refused because a project has no connected code host or Merge is off, "
-            + "no card exists to change: ask the person with ask_you, on no task, to change the broadcast's end."))
+        #expect(end.contains("If create_task is refused because a project has no connected code host, ask the person with "
+            + "ask_you, on no task, to connect its code host (Settings), then call it again. If it is refused because Merge is "
+            + "off, ask the person with ask_you, on no task, how to go on: a running broadcast's slices and end can't change."))
+        #expect(!end.contains("change the broadcast's end"))
     }
 
     /// A new run's people's review starts from the task's review prompt, as TaskPublisher.Context.entersReview reads it.
@@ -693,8 +695,10 @@ import Foundation
         run.goal = BroadcastGoal(text: "The release is ready.")
         let brief = OperatorCommand.brief(run: run, projects: [F.project()])
         // 2480 as P1 left it, the Oracle's vetoes named in full: 50 more leaves room for a rule, not a section.
+        // Raised by 65 in P1's review rounds: what each veto does with no answer from the Oracle, and what to ask the
+        // person when create_task is refused for the task's end.
         let today = 2480
-        #expect(words(brief) <= today + 50, "\(words(brief)) words")
+        #expect(words(brief) <= today + 115, "\(words(brief)) words")
     }
 
     @Test func newRunsReadAllowedRowsInsteadOfTheInstalledModelList() {
