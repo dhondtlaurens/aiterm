@@ -296,6 +296,7 @@ final class AppController {
         // D7 records the request on the operator controller; this presents it, and any made before now.
         sheets.onDismiss = { [weak self] in self?.presentRequestedBoard() }
         presentRequestedBoard()
+        installTaskAutoCloser()
         watchBoardRequests()
     }
 

@@ -214,8 +214,8 @@ final class TaskRemover: CheckoutRemovals {
             guard workspace.state.task(id: task.id) == task else {
                 throw ActionUnavailable("The task changed while its worktree was checked.")
             }
-            guard !task.workerTabs(in: live.sessions).contains(where: { $0.session?.yourPrompt != nil }) else {
-                throw ActionUnavailable(TaskAutoCloser.waitingForTurn)
+            guard !TaskAutoCloser.isDriving(task, in: live) else {
+                throw TaskAutoCloser.WaitingForTurn()
             }
             guard !task.workerTabs(in: live.sessions).contains(where: {
                 $0.session.map { $0.windowId != task.windowId } == true
@@ -230,12 +230,6 @@ final class TaskRemover: CheckoutRemovals {
             }
             // No forced worktree removal, including changes made while the close was in flight.
             let removed = try await workflow.remove(task: task, project: project, deleteBranch: false, force: false)
-            var deleted = false
-            if deleteMergedBranch, task.kind != .review, let operated = task.operated {
-                deleted = try await MergedBranchCheck.delete(branch: task.branch, acceptedSHA: operated.acceptance?.resultSHA,
-                                                             end: operated.end, publication: operated.publication,
-                                                             path: project.path, git: git)
-            }
             let remaining = workspace.state.task(id: task.id) ?? task
             await finishRemoval(of: task, after: removed)
             if workspace.persistenceError != nil, workspace.state.task(id: task.id) == nil {
@@ -244,10 +238,12 @@ final class TaskRemover: CheckoutRemovals {
             guard workspace.state.task(id: task.id) == nil, workspace.persistenceError == nil else {
                 throw ActionUnavailable("Its removal could not be completed or saved.")
             }
-            return deleted
+            guard deleteMergedBranch, let operated = task.operated else { return false }
+            return await MergedBranchCheck.delete(branch: task.branch, acceptedSHA: operated.acceptance?.resultSHA,
+                                                   end: operated.end, publication: operated.publication, kind: task.kind,
+                                                   path: project.path, git: git)
         } catch {
-            let reason = OperationIssue.reason(of: error)
-            outcomes[task.id] = .stopped(note: reason.hasPrefix("Not closed:") ? reason : "Not closed: " + reason,
+            outcomes[task.id] = .stopped(note: TaskAutoCloser.failureReason(error),
                                        worktreeRemoved: !FileManager.default.fileExists(atPath: task.worktreePath))
             throw error
         }

@@ -10,7 +10,7 @@ import Testing
         defer { try? FileManager.default.removeItem(atPath: path) }
         let sha = try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
         try git.run(["symbolic-ref", "refs/heads/alias", "refs/heads/main"], in: path)
-        _ = try await MergedBranchCheck.delete(branch: "alias", acceptedSHA: sha, end: .mergeLocal,
+        _ = await MergedBranchCheck.delete(branch: "alias", acceptedSHA: sha, end: .mergeLocal,
                                                 publication: nil, path: path, git: git)
         #expect(try git.run(["rev-parse", "refs/heads/main"], in: path).trimmingCharacters(in: .whitespacesAndNewlines) == sha)
     }
@@ -26,8 +26,38 @@ import Testing
         try git.run(["branch", "task", sha], in: remote)
         try git.run(["fetch", "origin", "task"], in: local)
         try git.run(["branch", "task", sha], in: local)
-        #expect(try await MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .merge, publication: nil, path: local, git: git))
+        #expect(await MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .merge, publication: nil, path: local, git: git))
         #expect(try git.run(["rev-parse", "refs/heads/task"], in: remote).trimmingCharacters(in: .whitespacesAndNewlines) == sha)
+    }
+
+    @Test func aFailedFetchKeepsTheBranch() async throws {
+        let git = GitRunner.hermetic()
+        let path = try GitFixture.makeRepo(prefix: "close-fetch-failure", git: git)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        try git.run(["checkout", "-b", "task"], in: path)
+        try git.run(["commit", "--allow-empty", "-m", "work"], in: path)
+        let sha = try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
+        try git.run(["checkout", "main"], in: path)
+        try git.run(["remote", "add", "origin", path + "/missing.git"], in: path)
+        // Even a tracking ref that looks merged is not proof after a failed fetch.
+        try git.run(["update-ref", "refs/remotes/origin/main", sha], in: path)
+        #expect(await !MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .merge, publication: nil, path: path, git: git))
+        #expect(try git.run(["rev-parse", "refs/heads/task"], in: path).trimmingCharacters(in: .whitespacesAndNewlines) == sha)
+    }
+
+    @Test(arguments: [["worktree", "list"], ["remote", "get-url"], ["update-ref"]])
+    func aFailedBranchCheckKeepsTheBranch(command: [String]) async throws {
+        let git = GitRunner.hermetic()
+        let path = try GitFixture.makeRepo(prefix: "close-check-failure", git: git)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        try git.run(["checkout", "-b", "task"], in: path)
+        try git.run(["commit", "--allow-empty", "-m", "work"], in: path)
+        let sha = try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
+        try git.run(["checkout", "main"], in: path)
+        if command == ["update-ref"] { try git.run(["merge", "--ff-only", "task"], in: path) }
+        #expect(await !MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .merge, publication: nil,
+                                                 path: path, git: BranchFailureGit(command: command)))
+        #expect(try git.run(["rev-parse", "refs/heads/task"], in: path).trimmingCharacters(in: .whitespacesAndNewlines) == sha)
     }
 
     @Test func deletesOnlyTheAcceptedMergedHeadIncludingSquashMerges() async throws {
@@ -40,7 +70,7 @@ import Testing
         try git.run(["commit", "-m", "task"], in: path)
         let sha = try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
         try git.run(["checkout", "main"], in: path)
-        #expect(try await !MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .merge, publication: nil, path: path, git: git))
+        #expect(await !MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .merge, publication: nil, path: path, git: git))
         try git.run(["merge", "--squash", "task"], in: path)
         try git.run(["commit", "-m", "squash"], in: path)
         #expect(try git.ask(["merge-base", "--is-ancestor", sha, "main"], in: path, none: [1]) == nil)
@@ -48,15 +78,24 @@ import Testing
         publication.merged = true
         publication.mergedHead = sha
         // A host-confirmed squash merge need not have the accepted commit as an ancestor.
-        #expect(try await !MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .commit, publication: publication, path: path, git: git))
-        #expect(try await !MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .draftMR, publication: publication, path: path, git: git))
+        #expect(await !MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .commit, publication: publication, path: path, git: git))
+        #expect(await !MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .draftMR, publication: publication, path: path, git: git))
         try git.run(["update-ref", "refs/heads/task", "main"], in: path)
-        #expect(try await !MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .merge, publication: publication, path: path, git: git))
+        #expect(await !MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .merge, publication: publication, path: path, git: git))
         try git.run(["update-ref", "refs/heads/task", sha], in: path)
-        #expect(try await MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .merge, publication: publication, path: path, git: git))
+        #expect(await MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .merge, publication: publication, path: path, git: git))
         #expect(try git.ask(["rev-parse", "--verify", "refs/heads/task"], in: path, none: [128]) == nil)
         try git.run(["branch", "task", sha], in: path)
         try git.run(["merge", "--no-edit", "task"], in: path)
-        #expect(try await MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .mergeLocal, publication: nil, path: path, git: git))
+        #expect(await MergedBranchCheck.delete(branch: "task", acceptedSHA: sha, end: .mergeLocal, publication: nil, path: path, git: git))
+    }
+}
+
+private struct BranchFailureGit: GitRunning {
+    let command: [String]
+    let inner = GitRunner.hermetic()
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        if args.starts(with: command) { throw GitError(args: args, code: 128, stderr: "Cannot read or lock ref") }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }
 }

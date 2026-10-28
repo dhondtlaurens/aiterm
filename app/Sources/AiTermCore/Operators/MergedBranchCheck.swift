@@ -3,12 +3,12 @@ import Foundation
 /// Auto-close's branch rule. Only the accepted local head may go; a host's merge at that head also
 /// proves a squash merge, whose original commits need not be ancestors of the default branch.
 public enum MergedBranchCheck {
-    @discardableResult
     public static func delete(branch: String, acceptedSHA: String?, end: TaskEnd, publication: TaskPublication?,
-                              path: String, git: any GitRunning) async throws -> Bool {
-        try await BackgroundWork.run(on: TaskWorkflow.queue) {
+                              kind: TaskKind = .task, path: String, git: any GitRunning) async -> Bool {
+        guard kind != .review else { return false }
+        return (try? await BackgroundWork.run(on: TaskWorkflow.queue) {
             try deleteNow(branch: branch, acceptedSHA: acceptedSHA, end: end, publication: publication, path: path, git: git)
-        }
+        }) ?? false
     }
 
     private static func deleteNow(branch: String, acceptedSHA: String?, end: TaskEnd, publication: TaskPublication?,

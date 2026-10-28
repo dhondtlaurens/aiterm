@@ -65,15 +65,22 @@ extension OperatorToolHandler {
                              : "\(key)’s tab \(name) was closed. AiTerm doesn’t open it again."
     }
 
+    private enum TaskReading: String {
+        case lastMessage, diff, prompt, review
+    }
+
     func readTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
-        let ref = try call.string("task")
+        let ref = try call.string("task"), what = try call.string("what")
+        guard let reading = TaskReading(rawValue: what) else {
+            throw ToolRefusal("read_task reads lastMessage, diff, prompt or review, not \(what).")
+        }
         if state.task(inRun: run.id, named: ref) == nil,
            let record = run.finished.first(where: { $0.key == ref || $0.task.uuidString.caseInsensitiveCompare(ref) == .orderedSame }) {
-            return try await readClosedTask(call, record: record)
+            return try await readClosedTask(reading, record: record)
         }
         let task = try self.task(call, in: run), key = task.operated?.key ?? task.title
-        switch try call.string("what") {
-        case "lastMessage":
+        switch reading {
+        case .lastMessage:
             let worker = try self.worker(call, of: task)
             guard let conversation = worker.conversation else {
                 // A first worker just launched names its conversation at its first hook: Codex half a minute in.
@@ -89,7 +96,7 @@ extension OperatorToolHandler {
                 return ["lastMessage": .null, "note": "No reply found in the recent part of its conversation; that doesn’t mean it said nothing. Use read_task with what: diff or prompt."]
             }
             return ["lastMessage": .string(text)]
-        case "diff":
+        case .diff:
             guard task.hasCheckout else { throw ToolRefusal("\(key) hasn’t started: it has no worktree yet.") }
             // The committed work mark_task accepts: from where the branch left its base to HEAD, so a base that
             // moved on is not read back as the worker's changes; edits not yet committed are told apart.
@@ -107,7 +114,7 @@ extension OperatorToolHandler {
                 throw ToolRefusal("AiTerm couldn’t read \(key)’s branch against \(task.baseBranch.isEmpty ? "its base" : task.baseBranch).")
             }
             return Self.diffReading(base: base, read: read)
-        case "prompt":
+        case .prompt:
             let worker = try self.worker(call, of: task)
             guard let tab = worker.session, !worker.isOpening else {
                 return ["prompt": .null, "note": .string(worker.key == nil ? "Its worker has no open tab right now." : Self.noAgent(in: worker, of: task))]
@@ -115,35 +122,33 @@ extension OperatorToolHandler {
             // No helper is unknown, not "no prompt".
             guard let daemon = daemon() else { throw ToolRefusal("AiTerm’s helper isn’t connected; try again in a moment.") }
             return ["prompt": try await daemon.prompt(sessionId: tab.sessionId).map { .string($0.rawValue) } ?? .null]
-        case "review":
+        case .review:
             return try await reviewReading(task, in: run)
-        case let other:
-            throw ToolRefusal("read_task reads lastMessage, diff, prompt or review, not \(other).")
         }
     }
 
-    /// Removed rows have no live tabs. Their saved endpoints keep the whole task's diff readable
-    /// even after a merge moves the default branch; old records show the accepted commit's patch.
-    private func readClosedTask(_ call: ToolCall, record: FinishedTaskRecord) async throws -> JSONValue {
-        let what = try call.string("what")
-        guard ["diff", "lastMessage", "prompt", "review"].contains(what) else {
-            throw ToolRefusal("read_task reads lastMessage, diff, prompt or review, not \(what).")
-        }
-        guard what == "diff" else { return [what: .null, "note": "Its tabs are closed: the task was removed when the broadcast ended."] }
+    /// Removed rows have no live tabs. The base saved at acceptance, before publication, keeps the
+    /// whole task's diff readable after a merge; old records show the accepted commit's own patch.
+    private func readClosedTask(_ what: TaskReading, record: FinishedTaskRecord) async throws -> JSONValue {
+        guard what == .diff else { return [what.rawValue: .null, "note": "Its tabs are closed: the task was removed after the broadcast completed or ended."] }
         guard let sha = record.acceptedSHA else { return ["diff": .null, "note": "This task ended with no change; its tabs are closed."] }
         guard let project = state.project(id: record.project) else { throw ToolRefusal("Its project is no longer in AiTerm.") }
         let git = ports.git, path = project.path, base = record.diffBaseSHA
-        let read = try await BackgroundWork.run {
-            if let base {
-                return (head: sha, commits: try git.run(["log", "--oneline", "\(base)..\(sha)"], in: path),
-                        stat: try git.run(["diff", "--stat", base, sha], in: path),
-                        diff: try git.run(["diff", base, sha], in: path), uncommitted: "")
+        do {
+            let read = try await BackgroundWork.run {
+                if let base {
+                    return (head: sha, commits: try git.run(["log", "--oneline", "\(base)..\(sha)"], in: path),
+                            stat: try git.run(["diff", "--stat", base, sha], in: path),
+                            diff: try git.run(["diff", base, sha], in: path), uncommitted: "")
+                }
+                return (head: sha, commits: try git.run(["show", "-s", "--oneline", sha], in: path),
+                        stat: try git.run(["show", "--format=", "--stat", sha], in: path),
+                        diff: try git.run(["show", "--format=", sha], in: path), uncommitted: "")
             }
-            return (head: sha, commits: try git.run(["show", "-s", "--oneline", sha], in: path),
-                    stat: try git.run(["show", "--format=", "--stat", sha], in: path),
-                    diff: try git.run(["show", "--format=", sha], in: path), uncommitted: "")
+            return Self.diffReading(base: base ?? "", read: read)
+        } catch {
+            throw ToolRefusal("AiTerm couldn’t read \(record.key)’s saved diff from its accepted commit.")
         }
-        return Self.diffReading(base: base ?? "", read: read)
     }
 
     private static func diffReading(base: String,
@@ -247,6 +252,7 @@ extension OperatorToolHandler {
         try recheck(task)
         let operated = try self.operated(task, in: run)
         let action: OperatedAction
+        var acceptedBase: String?
         switch outcome {
         case "accepted":
             let given = try call.string("sha"), check = try call.string("checkOutput")
@@ -264,15 +270,26 @@ extension OperatorToolHandler {
             let prerequisites = RunScheduler.baseCommit(for: task.id, in: state).map { [$0] } ?? []
             let acceptance = TaskAcceptance(resultSHA: sha, prerequisiteSHAs: prerequisites, checkOutput: check,
                                             note: call.optionalString("note"), at: ports.now())
+            if run.taskSettings != nil {
+                // Capture before publication can move the default branch onto this accepted head.
+                let base = try await diffBase(of: task, in: run)
+                if let parent = RunScheduler.baseCommit(for: task.id, in: state) { acceptedBase = parent }
+                else { acceptedBase = try await commit(base, in: task) }
+                try recheck(task)
+            }
             // Accepted again on another commit: its dependents are revoked and flagged.
             if [.accepted, .published, .inReview].contains(operated.state) {
-                return try reaccept(task, as: acceptance)
+                let answer = try reaccept(task, as: acceptance)
+                try saveAcceptedDiff(task.id, in: run, base: acceptedBase)
+                return answer
             }
             // Steered back to work after it was accepted (spec §D), and now on another commit: what its children were
             // built on is replaced, as for any task accepted again.
             if operated.state == .working, let earlier = operated.reopenedFrom,
                !OperatedTransitions.sameCommit(earlier, sha) {
-                return try reacceptReopened(task, as: acceptance, branchHead: tip)
+                let answer = try reacceptReopened(task, as: acceptance, branchHead: tip)
+                try saveAcceptedDiff(task.id, in: run, base: acceptedBase)
+                return answer
             }
             action = .accept(acceptance, branchHead: tip)
         case "noChange":
@@ -286,8 +303,18 @@ extension OperatorToolHandler {
         try apply(action, to: task)
         // Its result holds each code parent's accepted commit (`upstreamRefusal` said so): the flag is done with.
         if outcome == "accepted" { mutate(in: run.id) { $0.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) } } }
+        if outcome == "accepted" { try saveAcceptedDiff(task.id, in: run, base: acceptedBase) }
         let marked = state.task(id: task.id) ?? task
         return Self.taskAnswer(marked, created: false)
+    }
+
+    /// Persist the accepted task's live base before finish_task can publish it. The row still supplies
+    /// its card until cleanup; the snapshot supplies the historical base even after an app restart.
+    private func saveAcceptedDiff(_ id: UUID, in run: OperatorRun, base: String?) throws {
+        guard run.taskSettings != nil, let task = state.task(id: id),
+              let record = TaskAutoCloser.record(task, in: run, base: base, at: ports.now()) else { return }
+        TaskAutoCloser.save(record, in: run.id, workspace: workspace)
+        guard workspace.flush() else { throw ToolRefusal("AiTerm couldn’t save the accepted task’s diff base. Try again before publishing it.") }
     }
 
     /// Whether `outcome` is what the task already records: the same commit accepted, no change, or the same reason.

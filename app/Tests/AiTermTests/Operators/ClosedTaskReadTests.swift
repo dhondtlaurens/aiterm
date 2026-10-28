@@ -33,5 +33,12 @@ import Testing
             let answer = try await world.controller.tools.readTask(ToolCall(tool: "read_task", arguments: ["task": "A", "what": .string(what)]), in: run)
             #expect(String(data: try JSONEncoder().encode(answer), encoding: .utf8)!.contains("closed"))
         }
+        // A missing saved endpoint is a tool refusal, not a raw git failure.
+        run.finished[0].acceptedSHA = String(repeating: "0", count: 40)
+        do {
+            _ = try await world.controller.tools.readTask(ToolCall(tool: "read_task", arguments: ["task": "A", "what": "diff"]), in: run)
+            Issue.record("Expected a refusal for an unreadable accepted commit")
+        } catch is ToolRefusal {
+        } catch { Issue.record("Expected ToolRefusal, got \(error)") }
     }
 }

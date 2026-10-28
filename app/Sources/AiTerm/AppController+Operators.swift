@@ -133,25 +133,24 @@ extension AppController {
         presentBoard(run: id)
     }
 
-    /// Watches `OperatorController.presentBoard` for as long as the app runs: each request is
-    /// presented on the main actor's next turn — Observation reports a change before it is stored —
-    /// and the watch re-armed. The initial call also attaches end-of-broadcast cleanup; re-arming
-    /// keeps the same closer and only renews the board observation.
-    func watchBoardRequests(installAutoCloser: Bool = true) {
-        if installAutoCloser {
-            let controller = operatorController, git = operatorController.ports.git
-            let closer = TaskAutoCloser(workspace: workspace, live: live, tools: controller.tools) { [remover] task, delete in
-                try await remover.removeAutomatically(task, deleteMergedBranch: delete, git: git)
-            }
-            controller.onRunChanged = { [closer] in closer.changed($0) }
+    /// Installs cleanup once; the controller owns its hook for the app's lifetime.
+    func installTaskAutoCloser() {
+        let controller = operatorController, git = operatorController.ports.git
+        let closer = TaskAutoCloser(workspace: workspace, live: live, tools: controller.tools) { [remover] task, delete in
+            try await remover.removeAutomatically(task, deleteMergedBranch: delete, git: git)
         }
+        controller.onRunChanged = { [closer] in closer.changed($0) }
+    }
+
+    /// Watches board requests for the app's lifetime, re-arming after each presentation.
+    func watchBoardRequests() {
         withObservationTracking {
             _ = operatorController.presentBoard
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 presentRequestedBoard()
-                watchBoardRequests(installAutoCloser: false)
+                watchBoardRequests()
             }
         }
     }
@@ -250,6 +249,7 @@ extension AppController {
         let controller = operatorController
         return await attemptNow("Couldn’t end “\(run.name)”") {
             try await controller.end(run: run.id)
+            // End Broadcast does not pass through runChanged, so it triggers cleanup here.
             controller.onRunChanged(run.id)
         }
     }
