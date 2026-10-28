@@ -206,7 +206,7 @@ import Testing
         #expect(prompt.contains(tab.brief + "\n\n" + ReviewVerdict.block(sha: sha)))
         #expect(prompt.hasSuffix(ReviewVerdict.block(sha: sha)))
         if agent == .claude {
-            for denial in AgentCommand.operatedClaudeDenials + ["Edit", "Write", "NotebookEdit"] {
+            for denial in AgentCommand.operatedClaudeDenials + AgentCommand.reviewClaudeDenials {
                 #expect(command.contains(" " + AgentCommand.shellWord(denial) + " "))
             }
             #expect(command.contains("--permission-mode auto"))

@@ -56,9 +56,16 @@ import Foundation
     @Test func reviewWorkersKeepTheirModelAndReadOnlyCapabilities() {
         let claude = AgentCommand.workerWords(agent: .claude, model: "opus", reasoning: "high", readOnly: true)
         #expect(claude == ["claude", "--model", "opus", "--effort", "high", "--disallowedTools"]
-            + AgentCommand.operatedClaudeDenials + ["Edit", "Write", "NotebookEdit", "--permission-mode", "auto"])
+            + AgentCommand.operatedClaudeDenials + AgentCommand.reviewClaudeDenials + ["--permission-mode", "auto"])
         #expect(AgentCommand.workerWords(agent: .codex, model: "gpt-6-astra", reasoning: "medium", readOnly: true)
             == ["codex", "--sandbox", "read-only", "--ask-for-approval", "never", "-m", "gpt-6-astra", "-c", "model_reasoning_effort=medium"])
+    }
+
+    @Test func aClaudeReviewTabWritesNeitherFilesNorGit() {
+        #expect(AgentCommand.reviewClaudeDenials == ["Edit", "Write", "NotebookEdit", "Bash(git commit:*)", "Bash(git checkout:*)",
+            "Bash(git switch:*)", "Bash(git reset:*)", "Bash(git rebase:*)", "Bash(git merge:*)", "Bash(git stash:*)", "Bash(git add:*)"])
+        // git push is the worker's denial already, kept by every review tab.
+        #expect(AgentCommand.operatedClaudeDenials.contains("Bash(git push:*)"))
     }
 
     @Test func readOnlyDoesNotChangeAPersonsLaunch() throws {

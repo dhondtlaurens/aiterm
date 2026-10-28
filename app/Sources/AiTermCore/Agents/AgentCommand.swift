@@ -34,13 +34,18 @@ public enum AgentCommand {
     /// which `finish_task` does through the host when the plan's end says so (spec §4.3).
     public static let operatedClaudeDenials = ["AskUserQuestion", "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"]
 
+    /// What a Claude review tab may never do on top of `operatedClaudeDenials`, which deny its push already: write a
+    /// file, or write through git, so the commit it reviews is the one it reads.
+    public static let reviewClaudeDenials = ["Edit", "Write", "NotebookEdit", "Bash(git commit:*)", "Bash(git checkout:*)",
+        "Bash(git switch:*)", "Bash(git reset:*)", "Bash(git rebase:*)", "Bash(git merge:*)", "Bash(git stash:*)", "Bash(git add:*)"]
+
     /// A worker's launch words, unquoted, when the Operator drives its task: one profile for every
     /// broadcast, whatever the slices (spec §12's worker launch profile):
     ///
     /// - Claude: its usual words, then `--disallowedTools` with `operatedClaudeDenials`, then
     ///   `--permission-mode auto`. `--disallowedTools` takes any number of values, so it is never
     ///   last: the prompt after `--permission-mode auto` would otherwise be read as one more tool. A review tab
-    ///   (`readOnly`) adds Edit, Write and NotebookEdit to the denials.
+    ///   (`readOnly`) adds `reviewClaudeDenials`.
     /// - Codex: the same `--dangerously-bypass-approvals-and-sandbox` as a task you make. A review tab launches
     ///   read-only instead (`Harness.readOnlyArguments`).
     /// - PI is not offered to the Operator (`operatedAgents`) and launches as it always does.
@@ -49,7 +54,7 @@ public enum AgentCommand {
         let harness = agent.harness
         switch agent {
         case .claude:
-            let denials = operatedClaudeDenials + (readOnly ? ["Edit", "Write", "NotebookEdit"] : [])
+            let denials = operatedClaudeDenials + (readOnly ? reviewClaudeDenials : [])
             return harness.launchWords(model: model, reasoning: reasoning) + ["--disallowedTools"] + denials + ["--permission-mode", "auto"]
         case .codex where readOnly:
             return harness.readOnlyLaunchWords(model: model, reasoning: reasoning) ?? harness.launchWords(model: model, reasoning: reasoning)
