@@ -186,7 +186,7 @@ import Testing
     }
 
     @Test func theSheetSaysWhatItDoes() {
-        #expect(BackpackSheetPresentation.subtitle == "Keeps your agents working with the lid closed, online through your iPhone.")
+        #expect(BackpackSheetPresentation.subtitle == "Frees your agents from the desk: they keep working with the lid closed, online through your iPhone.")
         #expect(BackpackSheetPresentation.onTheIPhone == "On the iPhone")
         #expect(BackpackSheetPresentation.looking == "Looking for hotspots…")
     }
@@ -196,10 +196,10 @@ import Testing
     @Test func theMissingPermissionsAreANotice() {
         func setup(_ sleep: Bool, _ location: Bool) -> BackpackSetup { BackpackSetup(sleepRule: sleep, location: location, network: nil) }
         let lid = BackpackSheetPresentation.permissionNotice(setup(false, true))
-        #expect(lid?.title == "Backpack mode needs lid sleep")
+        #expect(lid?.title == "Unplugged needs lid sleep")
         #expect(lid?.description == "Allow AiTerm to keep the Mac awake with the lid closed. macOS asks for your password once. "
                 + "Also in Settings › Integrations › Mac.")
-        #expect(BackpackSheetPresentation.permissionNotice(setup(false, false))?.title == "Backpack mode needs lid sleep and network discovery")
+        #expect(BackpackSheetPresentation.permissionNotice(setup(false, false))?.title == "Unplugged needs lid sleep and network discovery")
         #expect(BackpackSheetPresentation.permissionNotice(setup(true, true)) == nil)
     }
 
@@ -215,20 +215,20 @@ import Testing
         #expect(checks(.failed(.joinFailed(network: phone)))[0]
                 == ConnectCheck(text: "Couldn’t join Laurens’s iPhone: check its password", mark: .idle, warns: true))
         #expect(checks(.failed(.batteryLow(level: 8)))[0]
-                == ConnectCheck(text: "Battery at 8 %: backpack mode stays off", mark: .idle, warns: true))
+                == ConnectCheck(text: "Battery at 8 %: Unplugged stays off", mark: .idle, warns: true))
         #expect(checks(.keychainRefused)[0]
                 == ConnectCheck(text: "Couldn’t save the hotspot password in Keychain", mark: .idle, warns: true))
     }
 
     /// The result is the Mac card's anatomy, in the footer's ready voice (proposal 1A · 2A, 27 Oct 2026).
     @Test func theSafeStateSaysWhatHappensNext() {
-        #expect(BackpackSheetPresentation.safeTitle == "Safe to close the lid.")
-        #expect(BackpackSheetPresentation.safeStatus == SettingsStatus(.ready, "Backpack mode enabled"))
+        #expect(BackpackSheetPresentation.safeTitle == "Unplugged. Safe to close the lid.")
+        #expect(BackpackSheetPresentation.safeStatus == SettingsStatus(.ready, "Unplugged enabled"))
         #expect(BackpackSheetPresentation.safeHelp(hotspot: "Laurens’s iPhone", until: .agentsStop)
-                == "On Laurens’s iPhone. Backpack mode ends when your agents stop, or at 10 % battery.")
+                == "On Laurens’s iPhone. Unplugged ends when your agents stop, or at 10 % battery.")
         #expect(BackpackSheetPresentation.safeHelp(hotspot: "Laurens’s iPhone", until: .turnedOff)
-                == "On Laurens’s iPhone. Backpack mode stays on until you turn it off, or at 10 % battery.")
-        #expect(BackpackSheetPresentation.title == "Backpack mode")
+                == "On Laurens’s iPhone. Unplugged stays on until you turn it off, or at 10 % battery.")
+        #expect(BackpackSheetPresentation.title == "Unplugged")
         #expect(BackpackSheetPresentation.subtitle.hasSuffix("through your iPhone."))
     }
 

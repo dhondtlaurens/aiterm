@@ -350,7 +350,7 @@ final class AppController {
         helper.shutdown()
     }
 
-    /// The Mac's rows' click and ⌘B. Backpack mode goes off at once; desk mode opens the sheet, unless
+    /// The Mac's rows' click and ⌘U. Unplugged goes off at once; desk mode opens the sheet, unless
     /// another one is up. Ignored while it switches — a connect or turn-off, or the rejoin after the
     /// mode ended itself, which runs without `busy`.
     func toggleBackpack() {

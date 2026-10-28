@@ -31,11 +31,11 @@ struct MacModeTests {
     /// say the state (proposal 2A and 3A, 6 Oct 2026).
     @Test func theLineSaysTheStateAndTheDeskHasNone() {
         #expect(MacMode.desk.words == nil)
-        #expect(MacMode.turningOn.words == "backpack turning on…")
-        #expect(MacMode.on.words == "backpack enabled")
-        #expect(MacMode.needsYou(.lostHotspot).words == "backpack needs you")
-        #expect(MacMode.needsYou(.lowBattery(level: 13)).words == "backpack needs you")
-        #expect(MacMode.turningOff.words == "backpack turning off…")
+        #expect(MacMode.turningOn.words == "unplugging…")
+        #expect(MacMode.on.words == "unplugged")
+        #expect(MacMode.needsYou(.lostHotspot).words == "unplugged · needs you")
+        #expect(MacMode.needsYou(.lowBattery(level: 13)).words == "unplugged · needs you")
+        #expect(MacMode.turningOff.words == "plugging back in…")
     }
 
     /// The line speaks a Settings card's tone, never a task's `StatusMark`: green on, amber when it
@@ -52,16 +52,16 @@ struct MacModeTests {
         func help(_ mode: MacMode, wifi: String? = "Office-WiFi") -> String {
             MacModePresentation.line(mode: mode, hotspot: "Laurens’s iPhone", wifi: wifi).help
         }
-        #expect(help(.desk) == "desk mode · Office-WiFi · ⌘B turns on backpack mode")
-        #expect(help(.desk, wifi: nil) == "desk mode · ⌘B turns on backpack mode")
+        #expect(help(.desk) == "desk mode · Office-WiFi · ⌘U turns on Unplugged")
+        #expect(help(.desk, wifi: nil) == "desk mode · ⌘U turns on Unplugged")
         // Off with no other network in range: it stayed on the hotspot, and says so.
-        #expect(help(.desk, wifi: "Laurens’s iPhone") == "desk mode · still on Laurens’s iPhone · ⌘B turns on backpack mode")
-        #expect(help(.turningOn) == "Turning on backpack mode · joining Laurens’s iPhone")
-        #expect(help(.on) == "Backpack mode on · Laurens’s iPhone · ends when your agents stop, or at 10 %")
+        #expect(help(.desk, wifi: "Laurens’s iPhone") == "desk mode · still on Laurens’s iPhone · ⌘U turns on Unplugged")
+        #expect(help(.turningOn) == "Unplugging · joining Laurens’s iPhone")
+        #expect(help(.on) == "Unplugged · Laurens’s iPhone · ends when your agents stop, or at 10 %")
         #expect(MacModePresentation.line(mode: .on, hotspot: "Laurens’s iPhone", wifi: nil, until: .turnedOff).help
-                == "Backpack mode on · Laurens’s iPhone · stays on until you turn it off, or at 10 %")
-        #expect(help(.needsYou(.lostHotspot)) == "Backpack mode needs you · lost Laurens’s iPhone, open Personal Hotspot on the iPhone")
-        #expect(help(.needsYou(.lowBattery(level: 13))) == "Backpack mode needs you · battery at 13 %, turns off at 10 %")
-        #expect(help(.turningOff) == "Turning off backpack mode · rejoining Wi-Fi")
+                == "Unplugged · Laurens’s iPhone · stays on until you turn it off, or at 10 %")
+        #expect(help(.needsYou(.lostHotspot)) == "Unplugged needs you · lost Laurens’s iPhone, open Personal Hotspot on the iPhone")
+        #expect(help(.needsYou(.lowBattery(level: 13))) == "Unplugged needs you · battery at 13 %, turns off at 10 %")
+        #expect(help(.turningOff) == "Plugging back in · rejoining Wi-Fi")
     }
 }

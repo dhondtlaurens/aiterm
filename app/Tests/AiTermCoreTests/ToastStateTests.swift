@@ -26,7 +26,7 @@ import Testing
         var state = ToastState()
         state.show("Saved.")
         #expect(state.toast?.symbol == "checkmark.circle.fill")
-        state.show("Backpack Mode on · joined Phone", symbol: "backpack.fill")
+        state.show("Unplugged · joined Phone", symbol: "backpack.fill")
         #expect(state.toast?.symbol == "backpack.fill")
     }
 }

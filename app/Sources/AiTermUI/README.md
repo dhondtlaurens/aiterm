@@ -226,7 +226,7 @@ vendor needs both.
 `NewBroadcastSheet` (with `ChipsPicker`, `PickChip`, `ChipFlow` and `ProjectResultRow`), `AgentsStep`, `TaskStep`, `DoneStep`, `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardEndLine`, `BoardTabLine`, `BoardHeading`, `BoardScroll`,
 `TaskBadges`, `BroadcastActivityView`, `BroadcastSummaryView`, `ArchiveSheet`, `ArchiveRow`, `ShelvedBroadcastRow`.
 
-**Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
+**Unplugged.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
 tab's mark, the `UsageRing` and the percentage; a shell draws its mark alone), then the Mac's rows,
 always there (proposal 1A · 2A · 3A, 6 Oct 2026). The first is its readings, under a `SymbolMark`
@@ -235,13 +235,13 @@ Mac runs on its battery, drawn by the same renderer as `ctx` and the vendor wind
 samples them every 5 s through a `MachineSensor` — Mach host statistics, `thermalState` and the
 memory-pressure sysctl, in-process — and `MachineReadings` turns two samples and the battery into
 `UsageLine`s. A reading turns amber only on macOS's own warning: the CPU when the Mac throttles for
-heat, memory under pressure, the battery within five points of Backpack Mode's cutoff. While the mode
+heat, memory under pressure, the battery within five points of Unplugged's cutoff. While the mode
 is on or switching, a second row follows: a `ToneRing` at `Size.statusMarkSmall`, centred in the marks'
-column, then the words in its `SettingsTone` — `backpack turning on…` and `backpack turning off…` idle,
-`backpack enabled` ready, `backpack needs you` attention. That is the one colour in the footer that is
+column, then the words in its `SettingsTone` — `unplugging…` and `plugging back in…` idle,
+`unplugged` ready, `unplugged · needs you` attention. That is the one colour in the footer that is
 not ink or amber, and a Settings card's voice: the task list keeps `StatusMark` to itself. At the desk
-there is no such row. A click on either Mac row opens the sheet at the desk and turns the mode off in
-the backpack; a right-click offers Mac Settings…; ⌘B does what the click does. The words, tooltip and
+there is no such row. A click on either Mac row opens the sheet at the desk and plugs back in when
+unplugged; a right-click offers Mac Settings…; ⌘U (View › Unplugged) does what the click does. The words, tooltip and
 VoiceOver sentence come from `MacModePresentation.line`, decided by `MacMode` apart from the view.
 
 Turning on is `BackpackSheet`, one `SheetLayout` with a `SheetSubtitle`, laid out in the order it
@@ -261,11 +261,11 @@ place, the fields disabled, Cancel the only action, and two live checks appear u
 `StatusMark` in a `Size.slot` column beside a `Typography.caption` line, amber on the one that
 failed. A failure leaves the fields live and Connect retries; there is no Back. Once the Mac has
 joined and is held awake the body becomes the Mac card's anatomy (proposal 1A · 2A, 27 Oct 2026): one
-`SettingsCard` with `SymbolMark` and `macbook` at `Size.control`, “Safe to close the lid.” its title, “Backpack
-mode enabled” its ready status — the footer's `backpack enabled`, in its tone — and under its rule a `HelpText`
+`SettingsCard` with `SymbolMark` and `macbook` at `Size.control`, “Unplugged. Safe to close the lid.” its title, “Unplugged
+enabled” its ready status — the footer's `unplugged`, in its tone — and under its rule a `HelpText`
 saying what will end it, the work or the person, and the cutoff. The checks have done their job and are gone
 (`checks(phase: .safe)` is empty). Done is on ⌘↩; the mode stays on. Closing the lid dismisses the sheet.
-Its words are `BackpackSheetPresentation`'s, its state `BackpackSheetModel`'s. The Backpack toasts
+Its words are `BackpackSheetPresentation`'s, its state `BackpackSheetModel`'s. The Unplugged toasts
 wear `BackpackController.symbol`, `iphone`.
 
 **The Operator.** The OPERATOR heading leads the list, above PROJECTS (`OperatorHeading`): a
@@ -724,7 +724,7 @@ once, as the sheet opens, and a test answering afterwards never switches the tab
 `SettingsCard` is the one box every Settings entry is drawn in — a harness on Agents; iTerm2
 (`ItermSettingsCard`), the Mac (`MacSettingsCard`), then Jira, GitLab and GitHub (`ServiceCard`) on Integrations —
 and the Backpack sheet's result once it is safe: a `Size.control` mark,
-a title with optional check chips, a status line in one of three tones (`SettingsTone`: ready, attention, idle, led by its `ToneRing` — the ring the footer's backpack line draws too)
+a title with optional check chips, a status line in one of three tones (`SettingsTone`: ready, attention, idle, led by its `ToneRing` — the ring the footer's Unplugged line draws too)
 and with no full stop (`SettingsStatus` drops the one an error's own sentence ends with),
 trailing actions at `.controlSize(.large)`, fields below a divider. Cards carry no Test button:
 Settings tests every card when it opens (and a service again once its fields stop changing), and

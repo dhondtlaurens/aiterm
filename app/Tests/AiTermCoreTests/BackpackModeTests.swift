@@ -62,7 +62,7 @@ import Synchronization
         _ = try mode(fake).turnOn().get()
     }
 
-    /// A locked iPhone's hotspot is missing from scans but joins with its password: ⌘B tries.
+    /// A locked iPhone's hotspot is missing from scans but joins with its password: ⌘U tries.
     @Test func turningOnJoinsEvenWhenTheScanCannotSeeIt() throws {
         let fake = FakeBackpack()
         fake.wifi.inRange = ["Home"]

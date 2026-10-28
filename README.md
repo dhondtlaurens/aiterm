@@ -3,7 +3,7 @@
 A native macOS sidebar that runs coding agents in real iTerm2 windows, one git worktree per task,
 with an Operator that plans the work and steers the agents for you.
 
-<img src="docs/desktop.png" alt="AiTerm beside iTerm2. The sidebar's Operator group shows the broadcast Ranking v2: the Operator working, one task with Operator watching and one waiting on you. Below it the projects: a home folder, aiterm under Personal with Claude Code and PI tasks, acme under Work with a PI task and a merge-request review. The footer shows the selected task's context, the Mac's load in Backpack Mode and the agents' usage. Beside it, the selected task's iTerm2 window shows Claude Code mid-refactor.">
+<img src="docs/desktop.png" alt="AiTerm beside iTerm2. The sidebar's Operator group shows the broadcast Ranking v2: the Operator working, one task with Operator watching and one waiting on you. Below it the projects: a home folder, aiterm under Personal with Claude Code and PI tasks, acme under Work with a PI task and a merge-request review. The footer shows the selected task's context, the Mac's load while Unplugged and the agents' usage. Beside it, the selected task's iTerm2 window shows Claude Code mid-refactor.">
 
 > AiTerm is built for its maintainer's own workflow. Bug reports are welcome; feature requests and
 > pull requests are not taken. See [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -42,7 +42,7 @@ missing, and stops for the clicks only you can make. The steps are in
 - **Agent drivers**: only when you press **Install** on an agent's card; a backup is kept next to
   every file it edits.
 - **A local port**: the helper listens on `127.0.0.1:47821` for the agents' hooks.
-- **Backpack Mode**: the sudoers rule `/etc/sudoers.d/aiterm`, which lets AiTerm switch lid sleep
+- **Unplugged**: the sudoers rule `/etc/sudoers.d/aiterm`, which lets AiTerm switch lid sleep
   with `pmset`, only once you allow it on the [Mac card](#integrations).
 - **Worktrees**: one per task, under `<repo>/.worktrees/`.
 - **Its own state and log**: `~/Library/Application Support/AiTerm/`.
@@ -86,7 +86,7 @@ where each one stands.
 - **Focus View** (⌘F): opens only the projects with a row waiting on you, which the Dock badge
   counts. **List View** (⌘L) opens them all again.
 - **Footer**: SYSTEM shows the selected task's context fill, the Mac's CPU, memory and battery,
-  and `backpack enabled` while [Backpack Mode](#integrations) is on. USAGE shows each agent's
+  and `unplugged` while [Unplugged](#integrations) is on. USAGE shows each agent's
   account usage.
 
 ## Settings
@@ -322,7 +322,7 @@ The connections AiTerm needs (Core) and the services it reads and writes (Servic
 tests itself as you type; tokens are kept in the Keychain, and **Disconnect** removes them.
 
 - **iTerm2**: the Python helper's connection, with numbered steps when it is not working.
-- **Mac**: Backpack Mode (⌘B) keeps the Mac awake with the lid shut while agents work, joined to
+- **Mac**: Unplugged (⌘U) keeps the Mac awake with the lid shut while agents work, joined to
   your iPhone's hotspot. It turns itself off two minutes after the last agent stops, or when the
   battery reaches 10 %. It needs two permissions: **Lid sleep** (the sudoers rule, one password
   prompt) and **Network discovery** (Location access, which macOS needs to show Wi-Fi names; AiTerm
@@ -361,7 +361,7 @@ The README uses `docs/desktop.png` (above). The snapshot suite
 - **Settings › Agents** (`settings-agents.png`): the three cards with their checks.
 - **Settings › Operator** (`settings-operator.png`): the slices, the never lines and the Oracle.
 - **Find a Fix** (`banner-find-a-fix-proposal.png`): a proposed fix with Apply.
-- **Backpack Mode** (`backpack-sheet-*.png`): the sheet that joins the hotspot.
+- **Unplugged** (`backpack-sheet-*.png`): the sheet that joins the hotspot.
 - **The Shelf** (`archive.png`): shelved tasks and an ended broadcast.
 
 ## Licence
