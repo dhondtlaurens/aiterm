@@ -664,8 +664,10 @@ import Foundation
     /// challenged finish_task (one that would merge or push with noVerify) and check_goal.
     @Test func newRunsNameAllOracleVetoes() {
         let mechanics = section("## Mechanics", of: OperatorCommand.brief(run: newBroadcast(), projects: []))
-        #expect(mechanics.contains("create_task past the backlog limit, a finish_task that would merge or push with noVerify, "
-            + "and check_goal act only on the Oracle's yes."))
+        #expect(mechanics.contains("When the Oracle answers, create_task past the backlog limit, a finish_task that would merge "
+            + "or push with noVerify, and check_goal act only on its yes. With no answer from it, finish_task goes ahead and "
+            + "check_goal acts as not checked by the Oracle, but create_task is refused."))
+        #expect(mechanics.contains("For other challenged calls: read the critique, then call the same tool again"))
         #expect(!mechanics.contains("Except for check_goal, keeping"))
     }
 

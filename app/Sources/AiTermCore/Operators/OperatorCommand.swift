@@ -504,8 +504,8 @@ public enum OperatorCommand {
     /// How the Operator asks the person something. Every question shows on the Operator's own row, a question on a
     /// task naming it, and is answered in the chat (2A, 22 Oct 2026). A question on a task also holds that task: it is
     /// not ready to accept and not watched for stalls. A task question is for a stopped worker, or, in a new broadcast,
-    /// for exhausted fix rounds that need the person's decision. Rule 2 says what `ask_you`'s `task` property says, which
-    /// names fix rounds for both kinds of run because a legacy run has none: keep the two in step.
+    /// for exhausted fix rounds that need the person's decision. `ask_you`'s `task` property serves both kinds of run, so
+    /// it names both cases; a legacy run's rule 2 leaves fix rounds out, as it has none. Keep rule 2 and the property in step.
     static func askRules(newBroadcast: Bool) -> [String] {
         [
             "Ask the person in this chat first: one short question in your reply, on a line starting \"Question:\".",
@@ -553,18 +553,21 @@ public enum OperatorCommand {
     static let legacyReviewQuietRule = "reviewQuiet: if the broadcast's Done says the MR is the end, call finish_task to end "
         + "the review and move the ticket."
     /// How the Oracle's challenge is met. A new broadcast names the vetoes, where only the Oracle's yes acts, from
-    /// `OperatorTool.vetoes`, which the tool handler challenges as `ChallengeKind.veto` too.
+    /// `OperatorTool.vetoes`, which the tool handler challenges as `ChallengeKind.veto` too, and what each does with no
+    /// answer, as the handler's `unanswered` has it.
     static let challengeLead = "The Oracle, a second opinion, challenges some calls. A challenged call may first return a critique, "
         + "or `pending: true` while it is still being written; nothing has happened yet. "
     static let challengeReplyRule = "Read the critique, then call the same tool again with the challengeId and either a challengeReply "
         + "or revised arguments; only that second call takes effect. "
     static let critiqueDecisionRule = "Keeping the act is your decision: say so in your summary, with the Oracle's objection."
     static let legacyChallengeRule = challengeLead + challengeReplyRule + critiqueDecisionRule
-    static let newBroadcastChallengeRule = challengeLead
+    static let newBroadcastChallengeRule = challengeLead + "When the Oracle answers, "
         + OperatorTool.vetoes.dropLast().map(\.call).joined(separator: ", ") + ", and " + OperatorTool.vetoes.last!.call
-        + " act only on the Oracle's yes. "
+        + " act only on its yes. With no answer from it, finish_task goes ahead and check_goal acts as not checked by the "
+        + "Oracle, but create_task is refused. "
         + "Read its answer and call again with challengeId; a no refuses the act. "
-        + "For other challenged calls: " + challengeReplyRule + critiqueDecisionRule
+        + "For other challenged calls: " + challengeReplyRule.prefix(1).lowercased() + challengeReplyRule.dropFirst()
+        + critiqueDecisionRule
 
     static func mechanics(oracleIsOn: Bool, newBroadcast: Bool) -> [String] {
         var rules = [
