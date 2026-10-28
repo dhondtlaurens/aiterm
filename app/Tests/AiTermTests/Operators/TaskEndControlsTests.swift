@@ -79,21 +79,23 @@ import Testing
         #expect(!world.controller.finisher.watching.contains(task.id))
         try world.controller.changeEnd(of: task.id, to: .merge)
         #expect(!world.controller.finisher.watching.contains(task.id), "no merge starts without a finish_task")
-        #expect(world.task(task.id)?.operated?.publication?.problem == OperatorController.mergeWaitsForFinish)
+        #expect(world.task(task.id)?.operated?.publication?.problem == TaskEndChange.mergeWaitsForFinish)
         // A pass that resumes every watch, as a Resume or a hand back runs, starts none either.
         world.controller.finisher.resumeWatching()
         #expect(!world.controller.finisher.watching.contains(task.id))
     }
 
-    @Test func aTakeoversHoldOnTheMergeOutlastsAnEndChange() async throws {
+    @Test func aTakeoversHoldGoesWithItsMergeAndAMergeAgainIsHeld() async throws {
         let (world, _, task) = try makeWorld(publication: openRequest)
         try await world.controller.takeOver(task: task.id)
         try await world.controller.handBack(task: task.id)
         #expect(world.task(task.id)?.operated?.publication?.problem == TaskFinisher.takenOverProblem)
+        // A draft MR end has no merge to hold: no stale "taken over" on its card.
         try world.controller.changeEnd(of: task.id, to: .draftMR)
-        #expect(world.task(task.id)?.operated?.publication?.problem == TaskFinisher.takenOverProblem, "kept through the change")
+        #expect(world.task(task.id)?.operated?.publication?.problem == nil)
+        // Back to Merge: held until the Operator's finish_task, as every switch to Merge is.
         try world.controller.changeEnd(of: task.id, to: .merge)
-        #expect(world.task(task.id)?.operated?.publication?.problem == TaskFinisher.takenOverProblem)
+        #expect(world.task(task.id)?.operated?.publication?.problem == TaskEndChange.mergeWaitsForFinish)
         #expect(!world.controller.finisher.watching.contains(task.id))
     }
 
@@ -136,6 +138,7 @@ import Testing
 
     @Test func theFixRoundsAnswersWords() {
         #expect(BroadcastBoard.FixRoundsAnswer.allCases.map(\.title) == ["One More Round", "Accept As It Is"])
+        #expect(BoardCardView.answered(.oneMoreRound) == "You answered: one more round.")
         #expect(BroadcastBoard.FixRoundsAnswer.acceptAsItIs.words == "accept it as it is")
     }
 }

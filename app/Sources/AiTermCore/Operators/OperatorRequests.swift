@@ -57,7 +57,8 @@ public enum OperatorRequests {
                 requests.append(BroadcastRequest(kind: .permission, runId: run.id, taskId: task.id,
                                                  text: sentence("\(recorded.text) in \(task.title)"), tab: recorded.tab ?? WorkerTab.firstKey))
             }
-            if operated.problem != nil || operated.publication?.problem != nil {
+            // A merge end you picked, waiting for the Operator's finish_task, asks you nothing (`TaskEndChange.mergeWaitsForFinish`).
+            if operated.problem != nil || (operated.publication?.problem).map({ $0 != TaskEndChange.mergeWaitsForFinish }) == true {
                 // The banner's sentence is the reason a blocked task keeps; one that kept its state has only the issue.
                 let said = operated.publication?.problem ?? operated.blockedReason ?? "The problem is shown in the banner"
                 requests.append(BroadcastRequest(kind: .problem, runId: run.id, taskId: task.id, text: sentence("\(task.title): \(said)")))

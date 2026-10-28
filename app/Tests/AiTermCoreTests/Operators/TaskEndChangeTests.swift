@@ -81,6 +81,29 @@ import Testing
         #expect(state.run(id: run.id)?.leftForYou == [leftOpen])
     }
 
+    @Test func aSwitchBackFromCommitHandsTheRequestBackToItsEnd() throws {
+        let run = run()
+        let task = task(in: run, .working, publication: waitingMerge)
+        var state = state(run, [task])
+        TaskEndChange.apply(.commit, toTask: task.id, in: &state)
+        TaskEndChange.apply(.draftMR, toTask: task.id, in: &state)
+        let operated = try #require(state.task(id: task.id)?.operated)
+        #expect(operated.publication?.leftForYou == false, "the new end publishes it")
+        #expect(operated.publication?.mergeRequestNumber == 412)
+        #expect(state.run(id: run.id)?.leftForYou == [], "and the line the switch to Commit left goes")
+        // Only that line: what else was left for you stays.
+        TaskEndChange.apply(.commit, toTask: task.id, in: &state)
+        state.updateRun(id: run.id) { $0.leftForYou.insert("Review the analytics yourself.", at: 0) }
+        TaskEndChange.apply(.merge, toTask: task.id, in: &state)
+        #expect(state.run(id: run.id)?.leftForYou == ["Review the analytics yourself."])
+        #expect(state.task(id: task.id)?.operated?.publication?.leftForYou == false)
+    }
+
+    @Test func theWordsOfAHoldAndAFirstLetter() {
+        #expect(TaskEndChange.mergeWaitsForFinish == "its end changed to merge; call finish_task to merge it")
+        #expect("draft MR".capitalizingFirst == "Draft MR" && "".capitalizingFirst == "")
+    }
+
     @Test func aTaskInPeoplesReviewSwitchedToCommitEndsItsReviewAndFinishes() throws {
         let run = run()
         var task = task(in: run, .inReview, publication: waitingMerge)

@@ -333,7 +333,7 @@ struct BoardScroll<Content: View>: View {
 /// that, whose menu picks another, Merge and Local merge disabled while the Merge slice is off. The badge takes its own
 /// click. A task out of its fix rounds (16) has, under the card's rule, a `Hairline` as over the tabs, the last
 /// verdict's counts in a `HelpText` when one was recorded, then One More Round and Accept As It Is as links, `Space.gap`
-/// apart and `Space.tight` under it. Equatable by its card alone, so a change to another card redraws this one not at all.
+/// apart and `Space.tight` under it; once one is clicked, what you answered in its place, until the question is resolved. Equatable by its card alone, so a change to another card redraws this one not at all.
 struct BoardCardView: View, Equatable {
     let card: BroadcastBoard.Card
     /// What the card's click, or a tab line's, opens: the sheet closes first (`BroadcastBoardSheet.choose`).
@@ -341,6 +341,8 @@ struct BoardCardView: View, Equatable {
     /// What its end line and its fix rounds' links do.
     let actions: BoardActions
     @State private var hovered = false
+    /// What you answered its fix rounds with, while the sheet is open; cleared once nothing asks any more.
+    @State private var answered: BroadcastBoard.FixRoundsAnswer?
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
     #endif
@@ -371,6 +373,7 @@ struct BoardCardView: View, Equatable {
         .groupChrome(fill: hovered ? Palette.rowHoverSolid : Palette.surface,
                      edge: card.needsYou ? Palette.statusChipAttentionStroke : Palette.border)
         .help(card.modelTooltip ?? "")
+        .onChange(of: card.fixRounds) { _, now in if now == nil { answered = nil } }
     }
 
     /// The card's own part, its click's: the mark and the lines, `Space.inset` inside, `Space.base` above the
@@ -400,14 +403,25 @@ struct BoardCardView: View, Equatable {
     private var foot: some View {
         VStack(alignment: .leading, spacing: Space.tight) {
             if let counts = card.fixRounds?.counts { HelpText(counts) }
-            HStack(spacing: Space.gap) {
-                ForEach(BroadcastBoard.FixRoundsAnswer.allCases, id: \.self) { answer in
-                    Button(answer.title) { actions.answerFixRounds(card.id, answer) }.buttonStyle(.link).font(Typography.help)
+            if let answered {
+                HelpText(Self.answered(answered))
+            } else {
+                HStack(spacing: Space.gap) {
+                    ForEach(BroadcastBoard.FixRoundsAnswer.allCases, id: \.self) { answer in
+                        Button(answer.title) {
+                            answered = answer
+                            actions.answerFixRounds(card.id, answer)
+                        }
+                        .buttonStyle(.link).font(Typography.help)
+                    }
                 }
             }
         }
         .ruled()
     }
+
+    /// What the card says once you answered its fix rounds: `You answered: one more round.`
+    static func answered(_ answer: BroadcastBoard.FixRoundsAnswer) -> String { "You answered: \(answer.words)." }
 
     private var lines: some View {
         VStack(alignment: .leading, spacing: Space.tight) {

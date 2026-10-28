@@ -169,7 +169,7 @@ struct BroadcastSummaryView: View {
     }
 
     /// How the goal went, as a line of its own: `Goal not met`.
-    static func goal(_ outcome: GoalOutcome) -> String { outcome.words.prefix(1).uppercased() + outcome.words.dropFirst() }
+    static func goal(_ outcome: GoalOutcome) -> String { outcome.words.capitalizingFirst }
 
     /// `Written by the Operator at 16:05`.
     static func byline(at date: Date, calendar: Calendar) -> String {

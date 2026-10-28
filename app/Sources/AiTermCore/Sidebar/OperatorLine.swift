@@ -181,6 +181,8 @@ public struct OperatorLine: Equatable, Sendable {
                 // Its publication handed back: the one finished state that is yours to act on.
                 return OperatorLine(ending, look: operated.publication?.leftForYou == true ? .needsYou : .ended)
             }
+            // A merge end you picked waits for the Operator's next finish_task: nothing of yours.
+            if operated.publication?.problem == TaskEndChange.mergeWaitsForFinish { return quiet("accepted", "waiting on the Operator") }
             if let problem = reason(operated.publication?.problem) { return needsYou("blocked", problem, tooltip: nil) }
             // Worked out from the end it has now: what a merge left behind says nothing once you changed it.
             if operated.end == .merge, let publication = operated.publication, publication.waitingSince != nil {
@@ -196,13 +198,18 @@ public struct OperatorLine: Equatable, Sendable {
         }
     }
 
-    /// `round 2 of 3` while one of a working task's review tabs is open, the review prompt names its rounds and the
-    /// Operator has recorded a verdict (`record_review`): the last verdict's round. Nil otherwise, for today's words.
+    /// `round 2 of 3` while the task is in review (`isInReview`), the review prompt names its rounds and the Operator
+    /// has recorded a verdict (`record_review`): the last verdict's round. Nil otherwise, for today's words.
     private static func reviewRound(of operated: OperatedTask, tabs: [WorkerTab]) -> String? {
-        let reviewing = Set(operated.extraTabs.filter { $0.role == .review }.map(\.key))
-        guard tabs.contains(where: { $0.key.map(reviewing.contains) == true && !$0.isClosed }),
-              let last = operated.reviewVerdicts.last, let rounds = last.rounds else { return nil }
+        guard isInReview(operated, tabs: tabs), let last = operated.reviewVerdicts.last, let rounds = last.rounds else { return nil }
         return "round \(last.round) of \(rounds)"
+    }
+
+    /// Whether one of the task's review tabs (`TabRole.review`) is open among `tabs`, its worker tabs as iTerm2 lists
+    /// them: the task is in review, as its line and its column say.
+    static func isInReview(_ operated: OperatedTask, tabs: [WorkerTab]) -> Bool {
+        let reviewing = Set(operated.extraTabs.filter { $0.role == .review }.map(\.key))
+        return tabs.contains { $0.key.map(reviewing.contains) == true && !$0.isClosed }
     }
 
     /// What a finished task ended at, as its line and its card say it: `done · 4f2a91c`,

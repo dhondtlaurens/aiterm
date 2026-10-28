@@ -207,6 +207,8 @@ import Testing
         let card = try card(board(run, [drawer], sessions: sessions), "Address autocomplete")
         #expect(card.line == OperatorLine("in review · round 2 of 3", look: .acting))
         #expect(card.tabs.map(\.key) == ["main", "review"], "its review tab listed like any other")
+        #expect(board(run, [drawer], sessions: sessions).columns.first { $0.column == .review }?.cards.map(\.id) == [drawer.id],
+                "its review tab open, it is in review")
         // A prompt that names no rounds: today's words.
         let unnamed: [ReviewVerdict] = (drawer.operated?.reviewVerdicts ?? []).map { var verdict = $0; verdict.rounds = nil; return verdict }
         drawer.operated?.reviewVerdicts = unnamed
@@ -288,6 +290,39 @@ import Testing
         #expect(try card(board(run, [shipping]), "Shipping step").line?.text == "draft MR · worktree kept")
     }
 
+    @Test func aTaskWhoseReviewTabIsOpenIsInTheReviewColumn() throws {
+        let run = run()
+        var drawer = task("Address autocomplete", run: run, .working)
+        var review = OperatorUIFixtures.extraTab("review")
+        review.role = .review
+        drawer.operated?.extraTabs = [review]
+        func column(_ run: OperatorRun, _ sessions: [SessionInfo]) -> BroadcastBoard.Column? {
+            board(run, [drawer], sessions: sessions).columns.first { $0.cards.contains { $0.id == drawer.id } }?.column
+        }
+        let open = [OperatorUIFixtures.tab("s1", of: drawer, .idle),
+                    OperatorUIFixtures.tab("s2", of: drawer, .working, index: 1, key: "review", agent: .codex)]
+        #expect(column(run, open) == .review)
+        // Closed, the review is over: back In progress until the Operator accepts it.
+        #expect(column(run, [OperatorUIFixtures.tab("s1", of: drawer, .working)]) == .inProgress)
+        // A legacy run's board is as it was.
+        var legacy = run
+        legacy.taskSettings = nil
+        legacy.review = "assign Jan"
+        #expect(column(legacy, open) == .inProgress)
+    }
+
+    @Test func aMergeHeldForTheOperatorsFinishIsQuietAndAsksYouNothing() throws {
+        let run = run()
+        var drawer = task("Cart drawer", run: run, .accepted, end: .merge)
+        drawer.operated?.publication = TaskPublication(mergeRequestNumber: 412, problem: TaskEndChange.mergeWaitsForFinish)
+        let state = state(run, [drawer])
+        let requests = OperatorRequests.open(run: run, state: state)
+        #expect(requests.isEmpty, "the Operator finishes it: nothing is yours")
+        let card = try card(board(run, [drawer], requests: requests), "Cart drawer")
+        #expect(card.line == OperatorLine("accepted · waiting on the Operator"))
+        #expect(!card.needsYou)
+    }
+
     @Test func aRemovedTasksCardIsDrawnFromItsRecord() throws {
         var run = run(.complete)
         run.completedAt = OperatorUIFixtures.epoch
@@ -295,14 +330,16 @@ import Testing
         let layout = task("Checkout layout", jira: "PAY-230", run: run, .published, end: .merge)
         let drawer = task("Cart drawer", run: run, .working)
         run.finished = [OperatorUIFixtures.finished(layout, result: "merged · 9b3e07d")]
-        let board = board(run, [drawer])
+        let shipping = task("Shipping step", run: run, .published)
+        let board = board(run, [drawer, shipping])
         let done = try #require(board.columns.first { $0.column == .done })
+        #expect(done.cards.map(\.id) == [layout.id, shipping.id], "closed with the plan's first tasks, before what finished since")
         let card = try #require(done.cards.first)
         #expect(card.id == layout.id && card.title == "Checkout layout" && card.ticket == "PAY-230" && card.agent == .claude)
         #expect(card.line == OperatorLine("merged · 9b3e07d · removed", look: .ended))
         #expect(card.combination == "claude-opus-5-5 · High")
         #expect(card.opens == .nothing && card.end == nil && !card.needsYou)
-        #expect(board.progress == "1 of 2 done", "a removed task still counts")
+        #expect(board.progress == "2 of 3 done", "a removed task still counts")
         #expect(BroadcastBoard.count(of: run, tasks: [drawer]) == "1 of 2")
         // A record of a row still there is that row's card, once.
         let twice = self.board(run, [layout, drawer])

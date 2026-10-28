@@ -8,8 +8,9 @@ import Foundation
 /// problem, the Oracle's refusal and its yes — and keeps what already happened: the push and the request. A switch to
 /// Commit is below a request already open: the request is left for you (`TaskPublication.leftForYou`), so AiTerm neither
 /// merges nor closes it and the closing skips the task, and that is said in Left for you. Accepted, or in people's
-/// review of its request, the task is then finished as it stands; at work, once it is accepted. Anything else is the next
-/// `finish_task`'s, which follows the new end.
+/// review of its request, the task is then finished as it stands; at work, once it is accepted. A switch back from Commit
+/// before it finished hands the request back to the new end, and takes that line out of Left for you. Anything else is
+/// the next `finish_task`'s, which follows the new end; a switch to Merge waits for it (`mergeWaitsForFinish`).
 public enum TaskEndChange {
     /// Whether `end` can be picked in `run`: Merge and Local merge only while its Merge slice is on.
     public static func isSelectable(_ end: TaskEnd, in run: OperatorRun) -> Bool { !end.merges || run.profile.slices.merge }
@@ -27,10 +28,21 @@ public enum TaskEndChange {
         return nil
     }
 
+    /// What holds a merge end you picked until the Operator's next `finish_task`, which clears it: a publication's
+    /// problem, so nothing watches the request and merges it meanwhile. Not yours to act on: its line is quiet.
+    public static let mergeWaitsForFinish = "its end changed to merge; call finish_task to merge it"
+
     /// `end` set on the task with this id in `state`, as the type says; a refusal is the caller's to check first.
     public static func apply(_ end: TaskEnd, toTask id: UUID, in state: inout AppState) {
         guard let task = state.task(id: id), let operated = task.operated else { return }
-        let request = end == .commit ? operated.publication?.mergeRequestNumber : nil
+        // The line Left for you says while its open request is left there by a switch to Commit.
+        let left = operated.publication?.mergeRequestNumber.map { number in
+            let reference = CodeHost(webURL: operated.publication?.mergeRequestURL ?? "").reference(number)
+            let project = state.project(id: task.projectId)?.name ?? "its project"
+            return "Close or merge \(reference) in \(project) yourself: you changed \(operated.key)’s end to commit, so AiTerm left it open."
+        }
+        let leaving = end == .commit && left != nil
+        let handedBack = end != .commit && operated.publication?.leftForYou == true && !operated.isFinished
         state.updateOperated(id) { operated in
             operated.end = end
             operated.publication?.waitingSince = nil
@@ -43,13 +55,13 @@ public enum TaskEndChange {
                 operated.state = .accepted
                 operated.peopleReview?.ended = true
             }
-            if request != nil { operated.publication?.leftForYou = true }
+            if leaving { operated.publication?.leftForYou = true } else if handedBack { operated.publication?.leftForYou = false }
         }
-        guard let request else { return }
-        let reference = CodeHost(webURL: operated.publication?.mergeRequestURL ?? "").reference(request)
-        let project = state.project(id: task.projectId)?.name ?? "its project"
-        let left = "Close or merge \(reference) in \(project) yourself: you changed \(operated.key)’s end to commit, so AiTerm left it open."
-        state.updateRun(id: operated.runId) { if !$0.leftForYou.contains(left) { $0.leftForYou.append(left) } }
+        guard let left else { return }
+        state.updateRun(id: operated.runId) { run in
+            if leaving, !run.leftForYou.contains(left) { run.leftForYou.append(left) }
+            if handedBack { run.leftForYou.removeAll { $0 == left } }
+        }
     }
 
     /// What the Operator is woken with: `[AiTerm] You changed cart-drawer’s end to draft MR, call run_status`.
@@ -58,7 +70,12 @@ public enum TaskEndChange {
 
 public extension TaskEnd {
     /// The end as its card's menu and the Task step name it: `Draft MR`.
-    var title: String { displayName.prefix(1).uppercased() + displayName.dropFirst() }
+    var title: String { displayName.capitalizingFirst }
+}
+
+public extension String {
+    /// Its first letter in capitals and the rest as it is: `draft MR` as `Draft MR`, where `capitalized` would lower the rest.
+    var capitalizingFirst: String { prefix(1).uppercased() + dropFirst() }
 }
 
 public extension OperatedTask {

@@ -74,7 +74,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         public init(current: TaskEnd, selectable: [TaskEnd]) { self.current = current; self.selectable = selectable }
     }
 
-    /// Your answer to a task out of its review's fix rounds, from its card: each wakes the Operator with it, and the
+    /// Your answer to a task out of its review's fix rounds (`OperatorRun.fixRoundsQuestion(on:)`), from its card: each wakes the Operator with it, and the
     /// Operator resolves the question.
     public enum FixRoundsAnswer: CaseIterable, Sendable {
         case oneMoreRound, acceptAsItIs
@@ -297,13 +297,16 @@ public struct BroadcastBoard: Equatable, Sendable {
             let card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId, sessions: sessions,
                                  live: liveModels[task.id], turn: acting.turns[task.id], labels: modelLabels,
                                  project: projects.count > 1 ? names[task.projectId] : nil)
-            return (handed ? .inProgress : Self.column(of: operated, hasReview: hasReview), card, task.agent)
+            // A set-up broadcast's task is in review while one of its review tabs is open.
+            let reviewing = run.taskSettings != nil && OperatorLine.isInReview(operated, tabs: task.workerTabs(in: sessions))
+            return (handed ? .inProgress : Self.column(of: operated, hasReview: hasReview, reviewing: reviewing), card, task.agent)
         }
         let removed = Self.removed(of: run, tasks: tasks).map { record in
             (Column.done, Self.card(record, labels: modelLabels, project: projects.count > 1 ? names[record.project] : nil), record.agent)
         }
         let columns = Column.allCases.filter { $0 != .review || hasReview }.map { column in
-            Lane(column: column, cards: (cards + removed).filter { $0.0 == column }.map(\.1),
+            // The closed ones first: the closing took them as they finished, before what finished since.
+            Lane(column: column, cards: (removed + cards).filter { $0.0 == column }.map(\.1),
                  empty: Self.empty(column, planned: !tasks.isEmpty || !removed.isEmpty))
         }
         return BroadcastBoard(
@@ -396,8 +399,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         let setUp = run.taskSettings != nil, takenOver = operated.takenOver
         let kept = setUp && run.taskSettings?.closeWhenDone == true && operated.reachedItsEnd && closingRan(run)
         // Asked about its fix rounds; a request of its own (a prompt, a block) is said first, as every request is.
-        let fixRounds = setUp && !operated.isFinished && !takenOver
-            ? run.questions.first { $0.task == task.id && $0.about == OperatorQuestion.fixRounds && $0.resolution == nil } : nil
+        let fixRounds = setUp && !operated.isFinished && !takenOver ? run.fixRoundsQuestion(on: task.id) : nil
         let asks = requests.contains { $0.runId == run.id && $0.taskId == task.id && $0.kind != .question }
         let line: OperatorLine? = if kept {
             // What it ended at without its detail, `draft MR · worktree kept`, so the line fits. Why it was kept is not
@@ -507,12 +509,14 @@ public struct BroadcastBoard: Equatable, Sendable {
     }
 
     /// The column a task's state puts it in. A blocked task stays where it was: In progress once it has
-    /// started, Todo while it has not. In review is Review's, or In progress on a board with no Review.
-    private static func column(of operated: OperatedTask, hasReview: Bool) -> Column {
+    /// started, Todo while it has not. In review is Review's, or In progress on a board with no Review; so is a working
+    /// task `reviewing` in a review tab.
+    private static func column(of operated: OperatedTask, hasReview: Bool, reviewing: Bool) -> Column {
         switch operated.state {
         case .planned, .queued: return .todo
         case .blocked: return operated.started ? .inProgress : .todo
-        case .working, .failed: return .inProgress
+        case .working: return reviewing && hasReview ? .review : .inProgress
+        case .failed: return .inProgress
         case .inReview: return hasReview ? .review : .inProgress
         case .accepted: return operated.isFinished ? .done : (hasReview && operated.peopleReview?.ended == false ? .review : .inProgress)
         case .noChange, .published, .stopped: return .done
@@ -570,5 +574,12 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// Text as one line: its runs of spaces and newlines each one space.
     private static func oneLine(_ text: String) -> String {
         text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
+    }
+}
+
+public extension OperatorRun {
+    /// The open question asking you about `task`'s fix rounds (`OperatorQuestion.fixRounds`), which its card answers.
+    func fixRoundsQuestion(on task: UUID) -> OperatorQuestion? {
+        questions.first { $0.task == task && $0.about == OperatorQuestion.fixRounds && $0.resolution == nil }
     }
 }
