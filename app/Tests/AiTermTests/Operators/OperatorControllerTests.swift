@@ -253,7 +253,7 @@ import Testing
         clock.advance(by: OperatorTiming.summaryWait)
         world.controller.reconcileTick()
         #expect(world.run(run.id)?.summaryGivenUp == true)
-        #expect(told.first == run.id)
+        #expect(told == [run.id], "told once")
     }
 
     @Test func endingRecordsWhen() async throws {

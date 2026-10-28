@@ -8,11 +8,11 @@ extension OperatorToolHandler {
     /// What the Operator reads on a check while none is due.
     static let noGoalCheck = "No goal check is due: AiTerm wakes you for it once every task is done."
 
-    /// Whether a goal check is due for `run`, whose every task is done (`RunScheduler.isComplete`): it has a goal not yet
-    /// resolved, and either no check yet or a plan revision submitted since the last one.
-    static func goalCheckIsDue(_ run: OperatorRun) -> Bool {
-        guard run.goal != nil, run.goalOutcome == nil else { return false }
-        return run.revisionAtLastCheck.map { run.planRevision > $0 } ?? true
+    /// Whether a goal check is due for `run` in `state`: every task is done (`RunScheduler.isComplete`), it has a goal not
+    /// yet resolved, and either no check yet or a plan revision submitted since the last one.
+    static func goalCheckIsDue(_ run: OperatorRun, in state: AppState) -> Bool {
+        guard run.goal != nil, run.goalOutcome == nil, run.revisionAtLastCheck.map({ run.planRevision > $0 }) ?? true else { return false }
+        return RunScheduler.isComplete(run, in: state)
     }
 
     /// The goal `check_goal` checks now: while a check is due, or as the check again once the last answer was planMore and
@@ -122,24 +122,30 @@ extension OperatorToolHandler {
         return Self.json(.array(results))
     }
 
-    /// What the Oracle reads of a task's publication: whether it merged, at which commit, and its request with what became
-    /// of it. Nil for one with neither a merge nor a request.
+    /// What the Oracle reads of a task's publication: whether it merged, at which commit, and its request, with what became
+    /// of it where the record can tell: merged, merged with another head, or left for you. Nil for one with neither a merge
+    /// nor a request.
     private static func mergeRecord(_ publication: TaskPublication) -> JSONValue? {
         var record: [String: JSONValue] = [:]
         if publication.merged { record["merged"] = true }
         if let sha = publication.mergedSHA { record["mergedSHA"] = .string(sha) }
         if let url = publication.mergeRequestURL {
-            let state = publication.merged ? "merged" : publication.leftForYou ? "leftForYou" : "open"
-            record["request"] = ["url": .string(url), "state": .string(state)]
+            var request: [String: JSONValue] = ["url": .string(url)]
+            if publication.merged { request["state"] = "merged" }
+            else if publication.mergedSHA != nil { request["state"] = "mergedWithAnotherHead" }
+            else if publication.leftForYou { request["state"] = "leftForYou" }
+            record["request"] = .object(request)
         }
         return record.isEmpty ? nil : .object(record)
     }
 
-    /// `git diff --shortstat` of a task's work, from local commits: its merge against the merge's first parent, which a
-    /// merge commit and a squash read alike, or else from where its branch left `base` (its default branch when empty) to
-    /// `sha`. Nil when git can't say, or the stat comes out empty.
+    /// `git diff --shortstat` of a task's work, from local commits: a merge commit here (two parents or more) against its
+    /// first parent; anything else, a squash, a fast-forward or a merge that isn't here among it, from where its branch left
+    /// `base` (its default branch when empty) to `sha`. Nil when git can't say, or the stat comes out empty.
     nonisolated static func diffStat(git: any GitRunning, in path: String, base: String, sha: String, merge: String?) -> String? {
-        let range = merge.map { ["\($0)^1", $0] } ?? ["\(base.isEmpty ? Repository(path, git: git).defaultBranch() : base)...\(sha)"]
+        let parents = merge.flatMap { try? git.run(["rev-list", "--parents", "-n", "1", $0], in: path, timeout: goalStatTimeout) }
+        let range = if let merge, (parents?.split(separator: " ").count ?? 0) > 2 { ["\(merge)^1", merge] }
+                    else { ["\(base.isEmpty ? Repository(path, git: git).defaultBranch() : base)...\(sha)"] }
         let stat = (try? git.run(["diff", "--shortstat"] + range, in: path, timeout: goalStatTimeout))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return stat?.isEmpty == false ? stat : nil

@@ -252,17 +252,18 @@ import Synchronization
     }
 
     // -- a restart ---------------------------------------------------------------------------
-    /// A check due when the helper attaches again (AiTerm's launch, or the daemon's restart) is said again.
+    /// A check due when the helper attaches again (AiTerm's launch, or the daemon's restart) is said again, in one line
+    /// with `reconnected`.
     @Test func aCheckDueWhenTheHelperAttachesWakesTheOperatorAgain() async throws {
         let (world, _) = try due()
         try await world.daemon.received("session.deliver")
         world.controller.daemonAttached()
         try await world.daemon.received("session.deliver", count: 2)
         #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String
-                == "[AiTerm] every task is done: check the goal with check_goal, call run_status")
+                == "[AiTerm] reconnected, and every task is done: check the goal with check_goal, call run_status")
     }
 
-    /// A check due when its Operator comes back from offline is said again.
+    /// A check due when its Operator comes back from offline is said again, in one line with `reconnected`.
     @Test func aCheckDueWhenItsOperatorComesBackWakesItAgain() async throws {
         let (world, run) = try due()
         try await world.daemon.received("session.deliver")
@@ -273,7 +274,7 @@ import Synchronization
         #expect(world.run(run.id)?.state == .active)
         try await world.daemon.received("session.deliver", count: 2)
         #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String
-                == "[AiTerm] every task is done: check the goal with check_goal, call run_status")
+                == "[AiTerm] reconnected, and every task is done: check the goal with check_goal, call run_status")
     }
 
     // -- what the Oracle reads of each task ----------------------------------------------------
@@ -305,9 +306,9 @@ import Synchronization
             return task
         }
 
-        /// A merged task's stat is its merge against the merge's first parent, a merge commit's or a squash's alike; an
-        /// unmerged one's is from where its branch left its base. A stat that comes out empty is left out, and the merge
-        /// record carries only what the Oracle needs.
+        /// A task merged by a merge commit here reads as that merge against its first parent; any other, merged or not,
+        /// from where its branch left its base: a squash, a fast-forward on the host, a merge commit the host made that
+        /// isn't here. A stat that comes out empty is left out, and the merge record carries only what the Oracle needs.
         @Test func eachTasksDiffStatIsItsOwnWorkMergedOrNot() async throws {
             let repo = try GitFixture.makeRepo(prefix: "op-goal-stat-")
             try git.run(["checkout", "-q", "-b", "feat/a"], in: repo)
@@ -322,6 +323,13 @@ import Synchronization
             try git.run(["merge", "--squash", "-q", "feat/c"], in: repo)
             try git.run(["commit", "-q", "-m", "Squash C"], in: repo)
             let squashedC = try git.run(["rev-parse", "HEAD"], in: repo)
+            // Merged on the host: E fast-forwarded there, F by a merge commit nothing fetched; main here moved for neither.
+            try git.run(["checkout", "-q", "-b", "feat/e", "main"], in: repo)
+            _ = try commit("e1.txt", lines: 1, in: repo)
+            let e = try commit("e2.txt", lines: 1, in: repo)
+            try git.run(["checkout", "-q", "-b", "feat/f", "main"], in: repo)
+            let f = try commit("f.txt", lines: 5, in: repo)
+            try git.run(["checkout", "-q", "main"], in: repo)
 
             let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1,
                                                   taskSettings: OperatorServiceFixtures.taskSettings, goal: OperatorServiceFixtures.goal)
@@ -332,6 +340,8 @@ import Synchronization
                 task("C", in: run, repo: repo, sha: c, publication: TaskPublication(merged: true, mergedSHA: squashedC)),
                 // Merged by ancestry: no merge commit names it, and its accepted commit is in main already.
                 task("D", in: run, repo: repo, sha: a, publication: TaskPublication(merged: true, landedSHA: a)),
+                task("E", in: run, repo: repo, sha: e, publication: TaskPublication(merged: true, mergedSHA: e)),
+                task("F", in: run, repo: repo, sha: f, publication: TaskPublication(merged: true, mergedSHA: String(repeating: "f", count: 40))),
             ]
             let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: tasks))
             let results = try await results(world, run)
@@ -339,9 +349,28 @@ import Synchronization
             #expect(results["B"]?["diffStat"] == "1 file changed, 3 insertions(+)")
             #expect(results["C"]?["diffStat"] == "1 file changed, 4 insertions(+)")
             #expect(results["D"]?["diffStat"] == nil, "an empty stat is left out")
+            #expect(results["E"]?["diffStat"] == "2 files changed, 2 insertions(+)", "a fast-forward is all the task's commits")
+            #expect(results["F"]?["diffStat"] == "1 file changed, 5 insertions(+)", "a merge that isn't here")
             #expect(results["A"]?["merge"] == ["merged": true, "mergedSHA": .string(mergedA),
                                                "request": ["url": "https://git.example/mr/1", "state": "merged"]])
             #expect(results["B"]?["merge"] == nil)
+        }
+
+        /// A request's state is said only where the record can tell it: merged, merged with another head, or left for you.
+        @Test func aRequestsStateIsSaidOnlyWhenTheRecordKnowsIt() async throws {
+            let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1,
+                                                  taskSettings: OperatorServiceFixtures.taskSettings, goal: OperatorServiceFixtures.goal)
+            let url = "https://git.example/mr/2"
+            let tasks = [
+                task("G", in: run, repo: "", sha: "g", publication: TaskPublication(mergeRequestURL: url, mergedSHA: "other")),
+                task("H", in: run, repo: "", sha: "h", publication: TaskPublication(mergeRequestURL: url)),
+                task("I", in: run, repo: "", sha: "i", publication: TaskPublication(mergeRequestURL: url, leftForYou: true)),
+            ]
+            let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: tasks))
+            let results = try await results(world, run)
+            #expect(results["G"]?["merge"] == ["mergedSHA": "other", "request": ["url": .string(url), "state": "mergedWithAnotherHead"]])
+            #expect(results["H"]?["merge"] == ["request": ["url": .string(url)]])
+            #expect(results["I"]?["merge"] == ["request": ["url": .string(url), "state": "leftForYou"]])
         }
 
         /// Reading the stats fetches nothing and reads every task at once, so many tasks stay inside the reply budget.

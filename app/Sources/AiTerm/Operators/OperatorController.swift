@@ -461,13 +461,12 @@ final class OperatorController {
     /// the operator is woken for it.
     func settle(_ id: UUID) {
         guard let run = run(id: id), run.state == .active else { return }
-        let complete = RunScheduler.isComplete(run, in: workspace.state)
-        let due = complete && OperatorToolHandler.goalCheckIsDue(run)
+        let due = OperatorToolHandler.goalCheckIsDue(run, in: workspace.state)
         if due != run.goalCheckDue {
             mutateRun(id) { $0.goalCheckDue = due }
             if due { waker.say(Self.goalCheckReason, to: id) }
         }
-        guard complete, run.goal == nil || run.goalOutcome != nil else { return }
+        guard RunScheduler.isComplete(run, in: workspace.state), run.goal == nil || run.goalOutcome != nil else { return }
         let now = ports.now()
         mutateRun(id) { $0.state = .complete; $0.completedAt = now }
         waker.say("broadcast complete", to: id)
@@ -477,10 +476,10 @@ final class OperatorController {
     /// What wakes the operator once a goal check is due.
     static let goalCheckReason = "every task is done: check the goal with check_goal"
 
-    /// Wakes the operator for a goal check still due, as a restart or its return from offline may have lost the wake.
-    private func sayGoalCheckDue(_ id: UUID) {
-        guard run(id: id)?.goalCheckDue == true else { return }
-        waker.say(Self.goalCheckReason, to: id)
+    /// Tells the operator `reconnected`, in one line with a goal check still due, which the restart or its time offline may
+    /// have lost the wake of.
+    private func sayReconnected(_ id: UUID) {
+        waker.say(run(id: id)?.goalCheckDue == true ? "reconnected, and \(Self.goalCheckReason)" : "reconnected", to: id)
     }
 
     /// Waits `OperatorTiming.summaryWait` for the summary of the completion at `completedAt`, then gives up on it
@@ -682,8 +681,7 @@ final class OperatorController {
             }
         }
         for (id, _) in open {
-            waker.say("reconnected", to: id)
-            sayGoalCheckDue(id)
+            sayReconnected(id)
             // News that was waiting before the daemon went is tried again now.
             waker.operatorSessionChanged(id)
         }
@@ -786,8 +784,8 @@ final class OperatorController {
         let offline = Set(runs.filter { $0.state == .operatorOffline }.map(\.id))
         for id in reconciler.tick() {
             runChanged(id)
-            // Its Operator back from offline: told `reconnected`, and a goal check still due again.
-            if offline.contains(id), run(id: id)?.state == .active { sayGoalCheckDue(id) }
+            // Its Operator back from offline, told `reconnected` already: a goal check still due goes in the same line.
+            if offline.contains(id), run(id: id)?.state == .active { sayReconnected(id) }
         }
         applyStallFlags()
         quiet.refresh()
