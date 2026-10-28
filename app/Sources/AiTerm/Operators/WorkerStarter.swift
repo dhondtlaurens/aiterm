@@ -345,7 +345,7 @@ final class WorkerStarter {
     /// the task branch alone, so work committed anywhere else goes unseen (`BranchWatch` flags it).
     /// Inventories stay in the conversation: repository files can expose personal paths and addresses. And no
     /// settings command in a live session: Claude Code saves a /model or /effort as the person's default.
-    static func worktreeLine(branch: String) -> String {
+    nonisolated static func worktreeLine(branch: String) -> String {
         "[AiTerm] You are already in this task's worktree, on branch \(branch). Commit only here, on \(branch). "
             + "Do not create another worktree or branch. Inventories, audits and lists go in your final message, "
             + "never in a new file in the repository. "

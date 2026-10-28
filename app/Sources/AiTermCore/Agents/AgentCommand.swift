@@ -39,24 +39,23 @@ public enum AgentCommand {
     ///
     /// - Claude: its usual words, then `--disallowedTools` with `operatedClaudeDenials`, then
     ///   `--permission-mode auto`. `--disallowedTools` takes any number of values, so it is never
-    ///   last: the prompt after `--permission-mode auto` would otherwise be read as one more tool.
-    /// - Codex: the same `--dangerously-bypass-approvals-and-sandbox` as a task you make.
+    ///   last: the prompt after `--permission-mode auto` would otherwise be read as one more tool. A review tab
+    ///   (`readOnly`) adds Edit, Write and NotebookEdit to the denials.
+    /// - Codex: the same `--dangerously-bypass-approvals-and-sandbox` as a task you make. A review tab runs instead
+    ///   in Codex's read-only sandbox, never asking for approval: no bypass, and its model words alone.
     /// - PI is not offered to the Operator (`operatedAgents`) and launches as it always does.
-    /// Review tabs add Claude's file-edit denials or use Codex's read-only sandbox. Neither removes subagents or
-    /// read-only shell commands.
+    /// Neither review launch removes subagents or read-only shell commands.
     public static func workerWords(agent: AgentKind, model: String, reasoning: String?, readOnly: Bool = false) -> [String] {
-        if agent == .codex, readOnly {
-            let harness = agent.harness
-            return [harness.executable] + harness.modelArguments(model: model, reasoning: reasoning)
-                + ["--sandbox", "read-only", "--ask-for-approval", "never"]
-        }
-        let words = agent.harness.launchWords(model: model, reasoning: reasoning)
+        let harness = agent.harness
         switch agent {
         case .claude:
             let denials = operatedClaudeDenials + (readOnly ? ["Edit", "Write", "NotebookEdit"] : [])
-            return words + ["--disallowedTools"] + denials + ["--permission-mode", "auto"]
+            return harness.launchWords(model: model, reasoning: reasoning) + ["--disallowedTools"] + denials + ["--permission-mode", "auto"]
+        case .codex where readOnly:
+            return [harness.executable] + harness.modelArguments(model: model, reasoning: reasoning)
+                + ["--sandbox", "read-only", "--ask-for-approval", "never"]
         case .codex, .pi:
-            return words
+            return harness.launchWords(model: model, reasoning: reasoning)
         }
     }
 

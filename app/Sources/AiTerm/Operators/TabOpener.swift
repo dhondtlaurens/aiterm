@@ -156,11 +156,14 @@ final class TabOpener {
         WorkerStarter.worktreeLine(branch: branch) + "\n\n" + sharedLine + "\n\n" + brief
     }
 
-    /// The person's review prompt, AiTerm's review-only instructions, the Operator's context, and the verdict block last.
+    /// The person's review prompt, AiTerm's line on where every worker works (`WorkerStarter.worktreeLine`), its
+    /// review-only instructions, the Operator's context, and the verdict block, filled with `sha`, last.
     nonisolated static func reviewPrompt(branch: String, sha: String, review: String?, brief: String) -> String {
-        let parts = [review ?? "", "[AiTerm] Review commit \(sha), the head of branch \(branch) when this tab opened. You are in this task's shared worktree.",
+        let parts = [review ?? "", WorkerStarter.worktreeLine(branch: branch),
+                     "[AiTerm] Review commit \(sha), the head of branch \(branch) when this tab opened. "
+                        + "You share this worktree with this task's other workers.",
                      "[AiTerm] This tab only reviews: it never edits, commits or pushes. You may start subagents and run read-only commands.",
-                     brief, ReviewVerdict.block]
+                     brief, ReviewVerdict.block(sha: sha)]
         return parts.filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 

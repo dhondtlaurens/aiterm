@@ -14,6 +14,8 @@ import Synchronization
         run.taskSettings = TaskSettings(review: "Check correctness with /review.", end: .commit)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working)
         task = try TaskCreator.checkOutWorker(task, project: project, start: "main", git: checkoutGit).task
+        // The task's own commit: one already on main is never the task's to review.
+        _ = try checkoutGit.run(["commit", "--allow-empty", "-m", "Task work"], in: task.worktreePath)
         task.windowId = "w1"
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: Date(), openedAt: Date())
         task.operated?.extraTabs = [ExtraTab(key: "review", agent: agent, model: "review-model", reasoning: "high",
@@ -25,6 +27,16 @@ import Synchronization
         world.show([OperatorServiceFixtures.session("op", window: "wop", tag: run.id),
                     OperatorServiceFixtures.session("s1", tag: task.id, state: .working)])
         return (world, run, task)
+    }
+}
+
+/// A git that runs out of time reading the commit `record_review` names, as a hung mount would.
+struct TimedOutVerdictGit: GitRunning {
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        if args.first == "rev-parse", args.contains("--end-of-options") {
+            throw GitError(args: args, code: 1, stderr: "", timedOut: true)
+        }
+        return try GitRunner.hermetic().run(args, in: dir, timeout: timeout, environment: environment)
     }
 }
 

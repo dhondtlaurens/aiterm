@@ -10,44 +10,50 @@ import Testing
          "critical": 1, "important": 2, "minor": 3, "summary": "A race needs fixing.", "round": 1, "rounds": 2]
     }
 
-    @Test func reviewPromptPinsInstructionsBriefAndVerdictInOrder() {
-        let expected = """
-        Check correctness with /review.
+    /// The review prompt as the tab reads it, `review` and `brief` in their places.
+    func expectedReviewPrompt(review: String?, brief: String?) -> String {
+        let lines = """
+        [AiTerm] You are already in this task's worktree, on branch task-branch. Commit only here, on task-branch. \
+        Do not create another worktree or branch. Inventories, audits and lists go in your final message, never in a new file \
+        in the repository. Never type /model, /effort or /config into a live agent session: they save the person's defaults. \
+        To try a model or effort, use launch flags or a scratch CLAUDE_CONFIG_DIR.
 
-        [AiTerm] Review commit abc123, the head of branch task-branch when this tab opened. You are in this task's shared worktree.
+        [AiTerm] Review commit abc123, the head of branch task-branch when this tab opened. You share this worktree with this \
+        task's other workers.
 
         [AiTerm] This tab only reviews: it never edits, commits or pushes. You may start subagents and run read-only commands.
-
-        Operator context.
-
+        """
+        let block = """
         End with this verdict block, replacing the placeholders. Set passed by the review prompt's criteria. \
-        Counts are non-negative integers; summary is one line the Operator can copy into record_review.
+        Counts are non-negative integers; summary is one line the Operator can copy into record_review with the sha as it stands.
+        sha: abc123
         passed: <true or false>
         critical: <count>
         important: <count>
         minor: <count>
         summary: <one-line summary>
         """
-        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: "Check correctness with /review.", brief: "Operator context.") == expected)
+        return [review, lines, brief, block].compactMap { $0 }.joined(separator: "\n\n")
+    }
+
+    @Test func reviewPromptPinsInstructionsBriefAndVerdictInOrder() {
+        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: "Check correctness with /review.", brief: "Operator context.")
+            == expectedReviewPrompt(review: "Check correctness with /review.", brief: "Operator context."))
     }
 
     @Test func reviewPromptWithoutBriefPinsInstructionsAndVerdictInOrder() {
-        let expected = """
-        Check correctness with /review.
+        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: "Check correctness with /review.", brief: "")
+            == expectedReviewPrompt(review: "Check correctness with /review.", brief: nil))
+    }
 
-        [AiTerm] Review commit abc123, the head of branch task-branch when this tab opened. You are in this task's shared worktree.
+    @Test(arguments: [nil, ""]) func reviewPromptWithoutReviewTextStartsWithAiTermsLines(review: String?) {
+        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: review, brief: "Operator context.")
+            == expectedReviewPrompt(review: nil, brief: "Operator context."))
+    }
 
-        [AiTerm] This tab only reviews: it never edits, commits or pushes. You may start subagents and run read-only commands.
-
-        End with this verdict block, replacing the placeholders. Set passed by the review prompt's criteria. \
-        Counts are non-negative integers; summary is one line the Operator can copy into record_review.
-        passed: <true or false>
-        critical: <count>
-        important: <count>
-        minor: <count>
-        summary: <one-line summary>
-        """
-        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: "Check correctness with /review.", brief: "") == expected)
+    @Test func reviewPromptsCarryTheWorkersWorktreeLine() {
+        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: nil, brief: "")
+            .hasPrefix(WorkerStarter.worktreeLine(branch: "task-branch") + "\n\n"))
     }
 
     @Test(arguments: ["HEAD", "main", "HEAD~0"])
@@ -55,6 +61,35 @@ import Testing
         let (world, run, task) = try OperatorVerdictFixtures.make()
         #expect(await world.call(run.id, "record_review", arguments(sha: ref)).message
             == "sha must be a commit SHA, not a branch name or revision expression.")
+        #expect(world.task(task.id)?.operated?.reviewVerdicts.isEmpty == true)
+    }
+
+    @Test func refusesAHexNamedBranchOrTagThatIsNotItsOwnSHA() async throws {
+        let (world, run, task) = try OperatorVerdictFixtures.make()
+        let git = GitRunner.hermetic()
+        _ = try git.run(["branch", "cafe", "refs/heads/" + task.branch], in: task.worktreePath)
+        _ = try git.run(["tag", "beef", "refs/heads/" + task.branch], in: task.worktreePath)
+        for ref in ["cafe", "beef"] {
+            #expect(await world.call(run.id, "record_review", arguments(sha: ref, key: ref)).message
+                == "sha must be a commit SHA, not a branch name or revision expression.")
+        }
+        #expect(world.task(task.id)?.operated?.reviewVerdicts.isEmpty == true)
+    }
+
+    @Test func refusesACommitAlreadyOnTheBaseBranch() async throws {
+        let (world, run, task) = try OperatorVerdictFixtures.make()
+        let base = try GitRunner.hermetic().run(["rev-parse", "refs/heads/main"], in: task.worktreePath)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(await world.call(run.id, "record_review", arguments(sha: base)).message
+            == "sha must be one of PLUTO-1's own commits, not one already on main.")
+        #expect(world.task(task.id)?.operated?.reviewVerdicts.isEmpty == true)
+    }
+
+    @Test func aGitFailureIsNotCalledACommitOffTheBranch() async throws {
+        let (world, run, task) = try OperatorVerdictFixtures.make(git: TimedOutVerdictGit())
+        let sha = try GitRunner.hermetic().run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
+        let message = try #require(await world.call(run.id, "record_review", arguments(sha: sha)).message)
+        #expect(message.hasPrefix("AiTerm couldn't read PLUTO-1's branch"))
         #expect(world.task(task.id)?.operated?.reviewVerdicts.isEmpty == true)
     }
 
@@ -117,8 +152,8 @@ import Testing
         #expect(prompt.contains("subagents") && prompt.contains("read-only commands"))
         #expect(!prompt.contains("Commit only your own changes"))
         for field in ["passed:", "critical:", "important:", "minor:", "summary:"] { #expect(prompt.contains(field)) }
-        #expect(prompt.contains(tab.brief + "\n\n" + ReviewVerdict.block))
-        #expect(prompt.hasSuffix(ReviewVerdict.block))
+        #expect(prompt.contains(tab.brief + "\n\n" + ReviewVerdict.block(sha: sha)))
+        #expect(prompt.hasSuffix(ReviewVerdict.block(sha: sha)))
         if agent == .claude {
             for denial in AgentCommand.operatedClaudeDenials + ["Edit", "Write", "NotebookEdit"] {
                 #expect(command.contains(" " + AgentCommand.shellWord(denial) + " "))
@@ -137,10 +172,11 @@ import Testing
         #expect(await world.controller.tabs.open(.init(task: task.id, key: tab.key), attempt: tab.launch) == .opened)
         let command = try #require(world.daemon.requests("tab.create").first?.params["agentCommand"] as? String)
         let file = task.worktreePath + "/.aiterm/" + TabOpener.promptFile(for: tab.key)
-        #expect(!FileManager.default.fileExists(atPath: file), "this short Codex prompt is inline")
-        #expect(!command.contains("$(command cat"))
-        #expect(command.contains("Check correctness with /review."))
-        #expect(command.contains("passed:") && command.contains("summary:"))
+        // AiTerm's lines alone are too long to type, so even a review with no brief reads its prompt file.
+        #expect(command.contains("$(command cat"))
+        let prompt = try String(contentsOfFile: file, encoding: .utf8)
+        #expect(prompt.hasPrefix("Check correctness with /review.\n\n" + WorkerStarter.worktreeLine(branch: task.branch)))
+        #expect(prompt.contains("read-only commands.\n\nEnd with this verdict block"))
     }
 
     @Test func reviewTabsNeverUseLegacyReviewText() async throws {
