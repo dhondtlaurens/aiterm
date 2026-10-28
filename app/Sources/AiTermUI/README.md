@@ -30,9 +30,10 @@ list of exceptions each carries its reason.
    token, because it is one rule for every vendor.
 2. **Every height, radius, spacing and text size comes from `Metrics.swift`** — `Space`, `Radius`,
    `Size`, `Typography`, `Sheet`, `Opacity`. `Opacity.disabled` (0.4) is the one fade for a control that
-   can't be used now — a segment `SegmentedControl` rejects, Settings › Operator's Oracle fields while it
-   is off, New Broadcast's goal editor and Extra rounds field while the Oracle is — and it fades the
-   control alone, never its label or help.
+   can't be used now. What it fades is the view's to say: `SegmentedControl` fades the segment its
+   `isSelectable` rejects; `PromptStep` and `DoneStep` fade the editor and the field alone, under their
+   label and help, while New Broadcast's Oracle is off; `OracleGroup` fades its whole group of fields,
+   labels included, under the switch that turned them off.
 
 Where macOS publishes a scale, `Metrics` uses that number: the system text styles for `Typography`,
 AppKit's control sizes for `Size`, AppKit's corner radii for `Radius` (4 small, 6 regular, 8 large,
@@ -400,7 +401,8 @@ unlabelled `ModelReasoningFields` splitting what is left, and a ✕ in `Typograp
 `Space.snug` apart. A row's models and reasoning levels are its agent's own, as Settings › Agents lists them;
 picking an agent takes its default there, and a model keeps the reasoning while it offers it. It opens on the last
 broadcast's rows less any whose agent or model is gone, else each installed agent's default; “Add an agent” adds
-the first installed agent with no row yet, and is left out with none installed.
+the first installed agent with no row yet, or the first again once every agent has one, and is left out with
+none installed.
 
 **Task** (`TaskStep`) is what every task follows, under a lead line in `Typography.help`, “Every task follows
 these.” in `Palette.text` semibold and the rest muted, its fields `Space.block` apart: “Each task is reviewed
@@ -417,8 +419,9 @@ both are disabled and the editor and the field fade to `Opacity.disabled`, their
 the goal's help says why for both, and the rounds' help is left out. No new `Palette` member; one `Metrics`
 member, `Opacity.disabled`.
 Start Broadcast waits for what the broadcast needs (`BroadcastReadiness`): every agent the Operator may plan on,
-Claude Code and Codex where installed, Ready on its Settings card, Messaging included, and iTerm2's own delivery
-checks passed. Until then the footer, on every step, carries a `Notice` with no actions, “Not ready to start”,
+Claude Code and Codex where installed, Ready on its Settings card, Messaging included, iTerm2's own delivery
+checks passed, and the chosen projects' code hosts checked (`NewBroadcastModel.loadCodeHosts`), which the Task
+step's ends depend on; Continue waits for none of it. Until then the footer, on every step, carries a `Notice` with no actions, “Not ready to start”,
 its description one line per piece in its card's words (`Codex: Messaging not checked for 0.161`, `iTerm2 checks not run`).
 
 The header's board button and Open Board open the broadcast's sheet (`BroadcastBoardSheet`, presented by `BroadcastBoardHost`,

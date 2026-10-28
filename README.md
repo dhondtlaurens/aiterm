@@ -163,10 +163,13 @@ each saying what the Operator is doing (`Operator watching`, `waiting on you`). 
 heading starts a broadcast; a click on the broadcast opens its board (**Board**, **Activity**,
 **Summary**).
 
-- **Agent**: Claude Code, with its **Model** and **Reasoning**. Its workers, tabs and reviewers run
-  only on the broadcast's [Agents](#new-broadcast) list, on an agent with [Messaging](#agents). When
-  a task's agent reaches 80 % of its weekly use, the task starts on the list's first row for the other
-  agent instead, while that one is under it, unless the Operator pinned its agent.
+- **Agent**: Claude Code, with its **Model** and **Reasoning**. Its workers run on an agent with
+  [Messaging](#agents). In a broadcast set up with the [New Broadcast](#new-broadcast) steps, its
+  workers, tabs and reviewers run only on the Agents list, and when a task's agent reaches 80 % of its
+  weekly use the task starts on the list's first row for the other agent instead, while that one is
+  under it, unless the Operator pinned its agent. A broadcast started before those steps keeps each
+  agent's default model, unless the Operator picks another, and moves new tasks to the other agent at
+  80 %.
 - **Base** (always on): plans the tasks, starts their agents, answers them from the brief and the
   code, accepts or sends back their work, adds backlog tasks, commits, pushes the task's branch,
   opens a draft MR and runs review tabs.
@@ -180,12 +183,15 @@ heading starts a broadcast; a click on the broadcast opens its board (**Board**,
   an agent's permission prompt.
 - **Oracle**: a second agent, with its model and reasoning. It critiques the plan and the
   Operator's verdicts, answers the [gated shell](#the-gated-shell)'s commands, and vetoes three calls,
-  each acting only on its yes. On by default with Codex, when Codex is installed.
+  each refused on its no. On by default with Codex, when Codex is installed.
 - **Instructions**: house rules for every broadcast; `/` lists the agents' skills.
 
 The slices are off by default, and a broadcast keeps the settings it started with. A slice is
 enforced by AiTerm, which does every Jira and code-host write itself and refuses one whose slice is
 off; what that left undone shows under *Left for you* in the Summary.
+
+The Oracle's no refuses a vetoed call. With no answer from it, missing, failed, too slow or lost
+with a restart, each call does as the table says:
 
 | The Oracle vetoes | With no answer from the Oracle, the call |
 |---|---|
@@ -214,12 +220,12 @@ Five steps, **Broadcast · Prompt · Agents · Task · Done**:
    rounds** (2 by default). A goal is checked with the Oracle, so with the Oracle off both are
    disabled and the broadcast ends when its tasks do.
 
-Start Broadcast waits until every agent the Operator may use is Ready, Messaging included, and
-iTerm2's checks have passed.
+Start Broadcast waits until every agent the Operator may use is Ready, Messaging included,
+iTerm2's checks have passed, and the chosen projects' code hosts have been checked.
 
 #### Review tabs
 
-A task is reviewed in a tab of its own in the task's window, on an Agents row, so you can watch it:
+In a broadcast set up with these steps, a task is reviewed in a tab of its own in the task's window, on an Agents row, so you can watch it:
 the Operator opens it with `open_tab`, role `review`, and the tab is told to end with a verdict. It
 starts read-only. Codex runs with `--sandbox read-only`. Claude Code is denied Edit, Write and
 NotebookEdit and git's writing commands (`commit`, `checkout`, `switch`, `reset`, `rebase`, `merge`,
@@ -231,24 +237,26 @@ yes that the review prompt, the task's verdicts and your answers allow it.
 
 #### The end is yours
 
-Every task ends where the Task step says, and only you change it: `create_task` and `update_task`
-take no end. When an end can't be reached, because Merge is off or a project has no connected code
+In a broadcast set up with these steps, every task ends where the Task step says, and only you
+change it: `create_task` and `update_task` take no end there (a broadcast started before still lets
+the Operator set one). When an end can't be reached, because Merge is off or a project has no connected code
 host, `create_task` is refused and tells the Operator to ask you with `ask_you`. While a task runs,
 its card on the board shows `ends at` and its end as a menu. A pick changes that task alone. It
 clears what was under way for the old end (a merge's wait, the Oracle's refusal), keeps what already
-happened (the push, the MR), and wakes the Operator with `[AiTerm] You changed <key>’s end to <end>,
-call run_status`. Switching to Commit after an MR opened leaves that MR for you.
+happened (the push, the MR), and wakes the Operator. With nothing else pending, that is `[AiTerm] You changed <key>’s end to
+<end>, call run_status`, with `, and the broadcast is complete` before `, call run_status` when the change
+completed the broadcast. Switching to Commit after an MR opened leaves that MR for you.
 
 #### Closing at the end
 
-With closing ticked, AiTerm closes every task that reached its end when the broadcast ends, once
+With closing ticked on the Task step, AiTerm closes every task that reached its end when the broadcast ends, once
 its summary is written (or AiTerm stopped waiting for it) or when you End it. Reached its end means
 published, ended with no change, or accepted on a commit end. It records the task, closes its window
 and removes its worktree and row. The card stays on the board, and `read_task` still reads its diff.
 Stopped tasks and MRs left for you are never closed.
 
-- **Waits** while you are typing in one of its tabs, while any of its tabs' agents is mid-turn, and
-  while AiTerm's helper is away.
+- **Waits** while a turn you prompted in one of its tabs is running, while any of its tabs' agents
+  is mid-turn, and while AiTerm's helper is away.
 - **Keeps the task**, saying why on its card, when its worktree has uncommitted or untracked changes,
   is off its branch, has a tab outside its window, or the removal fails.
 - **Git-ignored files** such as `.env` are not kept: they go with the worktree, as plain
@@ -259,7 +267,7 @@ Stopped tasks and MRs left for you are never closed.
 
 #### The goal loop
 
-Once every task is done, AiTerm wakes the Operator with `[AiTerm] every task is done: check the goal
+Once every task of a broadcast with a goal is done, AiTerm wakes the Operator with `[AiTerm] every task is done: check the goal
 with check_goal, call run_status`, and the band reads `checking the goal`. The Operator answers with
 `check_goal`: met, with evidence from each task, or not met, with what is missing. A not-met answer
 with rounds left plans only what is missing; once that is done, the goal is checked again, and the
@@ -280,14 +288,14 @@ The Operator acts only through AiTerm's MCP tools:
 
 | For | Tool | What it does |
 |---|---|---|
-| Status | `run_status` | The broadcast now: every task's state, branch, last commit and what is open; its Agents rows, task settings, goal, `goalCheckDue` and rounds used; each task's review verdicts; the tasks closed at the end. |
+| Status | `run_status` | The broadcast now: every task's state, branch, last commit and what is open; set up with the New Broadcast steps, also its Agents rows, task settings, goal, `goalCheckDue` and rounds used; each task's review verdicts; the tasks closed at the end. |
 | Jira | `jira_search`, `jira_board` | Read tickets and boards of the broadcast's Jira projects. |
 | | `jira_create`, `jira_edit`, `jira_comment` | Create, edit and comment on tickets (Jira slice). |
 | | `jira_move`, `jira_link`, `jira_sprint` | Move status, link tickets, put them in a sprint (Jira slice). |
-| Plan | `create_task`, `update_task` | Add an unstarted task, or change its brief, agent, model, reasoning or dependencies, on an Agents row only. No end: the Task step's holds. Additions past a quarter of the first plan need the Oracle's yes. |
+| Plan | `create_task`, `update_task` | Add an unstarted task, or change its brief, agent, model or dependencies. Set up with the New Broadcast steps, also its reasoning, on an Agents row only, and no end: the Task step's holds, and an end that can't be reached is refused with word to ask you. Before those steps, also its end. Additions past a quarter of the first plan need the Oracle's yes. |
 | | `submit_plan` | Close a plan revision; its tasks are queued at once. |
 | Steer | `message_task` | Type a message into a started task's worker. |
-| | `open_tab` | Add another worker tab to a task, on the same worktree and an Agents row; `role` review opens a read-only review tab. |
+| | `open_tab` | Add another worker tab to a task, on the same worktree; set up with the New Broadcast steps, on an Agents row, and `role` review opens a read-only review tab. |
 | | `read_task` | Read a worker's last message, diff, open prompt or review; a closed task's diff from its record. |
 | | `resume_task`, `retry_task` | Put a blocked task back to work; queue a failed one again. |
 | Review | `record_review` | Record a review tab's verdict once its turn ended: the commit it reviewed, whether it passed by the prompt's own words, its Critical, Important and Minor findings, its fix round and how many the prompt allows. It answers the task's verdicts; it never blocks an acceptance. |
@@ -295,8 +303,8 @@ The Operator acts only through AiTerm's MCP tools:
 | | `find_user` | Find people on the code host who may review. |
 | | `request_review`, `reply_thread` | Mark the MR ready and ask reviewers; reply in a thread (Review slice). |
 | Finish | `mark_task` | Record a task's outcome: accepted, no change, blocked or failed. |
-| | `finish_task` | Carry out an accepted task's end: a commit, a draft MR, or a merge (Merge slice); into people's review first when the Review slice is on and the review prompt is written. |
-| | `check_goal` | Answer the broadcast's goal once AiTerm wakes it for it: met, or what is missing. It answers complete, planMore with the rounds left, or stopped (vetoed by the Oracle). |
+| | `finish_task` | Carry out an accepted task's end: a commit, a draft MR, or a merge (Merge slice); into people's review first when the Review slice is on and the review (the Task step's prompt, or before those steps the broadcast's Review) is written. |
+| | `check_goal` | Answer the broadcast's goal once AiTerm wakes it for it: met, with evidence, or not met, with what is missing. It answers complete; planMore, with the rounds left, to plan only what is missing; or stopped, not met with no rounds left, what is missing going to *Left for you*. The Oracle's no refuses it: check the goal again. |
 | You | `ask_you`, `resolve_question` | List a question under *Waiting on you* (`about` fixRounds for a task out of fix rounds, answered on its card); close it once answered, or withdraw the Operator's moot question or gate with a reason. |
 | Record | `report_find`, `report_snag` | Note an off-brief find (filed in Jira with the slice on); note an AiTerm glitch. |
 | | `leave_for_you`, `log_decision` | Note what a slice kept it from; log a decision it took. |
