@@ -105,6 +105,10 @@ public struct OperatorLine: Equatable, Sendable {
     /// `Typography.monoChip`, at the sidebar's narrowest.
     public static let maxLength = 40
 
+    /// The broadcast's line while every task is done and the goal is still to check (`check_goal`): the board's band
+    /// adds the round it checks only under it.
+    public static let checkingTheGoal = OperatorLine("checking the goal", look: .acting)
+
     // MARK: - A driven task's line
 
     /// The line on a driven task's row and its card; nil for a task you made yourself, one you took over
@@ -273,8 +277,7 @@ public struct OperatorLine: Equatable, Sendable {
         }
         // An ended broadcast with a goal says how it went: `ended · goal not met`.
         if run.hasEnded { return quiet(run.goalOutcome.map { "ended · " + $0.words } ?? "ended") }
-        // Every task is done and the goal is still to check (`check_goal`).
-        if run.goalCheckDue { return OperatorLine("checking the goal", look: .acting) }
+        if run.goalCheckDue { return checkingTheGoal }
         if let (act, ref) = acting {
             let task = ref.flatMap { ref in driven.first { $0.operated?.key == ref || $0.id.uuidString == ref } }
             return self.act(act, task: task, named: act.namesItsTask ? (label(of: task) ?? ref) : nil)

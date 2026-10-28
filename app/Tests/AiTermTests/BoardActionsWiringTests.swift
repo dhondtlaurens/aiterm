@@ -26,12 +26,14 @@ struct BoardActionsWiringTests {
 
         actions.answerFixRounds(task.id, .acceptAsItIs)
         await eventually(describing: "the answer recorded") {
-            controller.state.run(id: run.id)?.questions.first?.answeredOnCard == "accept it as it is"
+            controller.state.run(id: run.id)?.questions.first?.answeredOnCard == "acceptAsItIs"
         }
 
         // A refusal is said in the banner: Merge is off for this broadcast.
         actions.changeEnd(task.id, .merge)
         await eventually(describing: "the refusal reported") { controller.notices.issue != nil }
+        #expect(controller.notices.issue?.title == "Couldn’t change the task’s end.")
+        #expect(controller.notices.issue?.reason == "Merge is off for this broadcast, so a task ends at a commit or a draft MR.")
         #expect(controller.state.task(id: task.id)?.operated?.end == .commit)
     }
 }

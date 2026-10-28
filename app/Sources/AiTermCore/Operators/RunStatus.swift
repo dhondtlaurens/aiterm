@@ -350,8 +350,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         /// The newest prompt (its first line) you typed into the task's worker window while this was open: it may answer
         /// the question. Check, then resolve it. Nil when none.
         public var answeredInWindow: String?
-        /// For a task out of its fix rounds, what the person answered on its card: `one more round` or `accept it as it
-        /// is`. Act on it, then resolve the question. Nil until answered there.
+        /// For a task out of its fix rounds, what the person answered on its card: `oneMoreRound` or `acceptAsItIs`.
+        /// Act on it, then resolve the question. Nil until answered there.
         public var answeredOnCard: String?
         public init(key: String, text: String, task: String? = nil, askedAt: Date, answeredInWindow: String? = nil,
                     answeredOnCard: String? = nil) {

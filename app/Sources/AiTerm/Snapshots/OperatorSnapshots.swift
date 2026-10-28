@@ -418,7 +418,7 @@ struct OperatorScene {
         return scene
     }
 
-    /// Every task done and the goal being checked after its first round.
+    /// Every task done and the goal being checked after its first extra round, `round 1 of 2`.
     static func checkingTheGoal(_ scene: OperatorScene = OperatorScene()) -> OperatorScene {
         let all = [scene.layout, scene.provider, scene.drawer, scene.autocomplete, scene.summary, scene.shipping, scene.price, scene.retry]
         let tasks = scene.setUpCheckout(Dictionary(uniqueKeysWithValues: all.map { ($0, OperatedState.published) })).map { task in

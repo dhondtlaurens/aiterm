@@ -74,16 +74,11 @@ public struct BroadcastBoard: Equatable, Sendable {
         public init(current: TaskEnd, selectable: [TaskEnd]) { self.current = current; self.selectable = selectable }
     }
 
-    /// Your answer to a task out of its review's fix rounds (`OperatorRun.fixRoundsQuestion(on:)`), from its card: each wakes the Operator with it, and the
-    /// Operator resolves the question.
-    public enum FixRoundsAnswer: CaseIterable, Sendable {
+    /// Your answer to a task out of its review's fix rounds (`OperatorRun.fixRoundsQuestion(on:)`), from its card:
+    /// each wakes the Operator with it, and the Operator resolves the question. Its question keeps the case's name
+    /// (`OperatorQuestion.answeredOnCard`), so its words can change.
+    public enum FixRoundsAnswer: String, CaseIterable, Sendable {
         case oneMoreRound, acceptAsItIs
-
-        /// The answer `words` say, as its question keeps it (`OperatorQuestion.answeredOnCard`).
-        public init?(words: String) {
-            guard let answer = Self.allCases.first(where: { $0.words == words }) else { return nil }
-            self = answer
-        }
 
         /// Its link on the card.
         public var title: String {
@@ -318,11 +313,11 @@ public struct BroadcastBoard: Equatable, Sendable {
             Lane(column: column, cards: (removed + cards).filter { $0.0 == column }.map(\.1),
                  empty: Self.empty(column, planned: !tasks.isEmpty || !removed.isEmpty))
         }
+        let band = OperatorLine.broadcast(run, tasks: tasks, acting: acting.broadcast(run.id), requests: requests,
+                                          ready: SidebarModel.readyForAcceptance(tasks, sessions: sessions))
         return BroadcastBoard(
-            runId: run.id, title: run.name,
-            band: OperatorLine.broadcast(run, tasks: tasks, acting: acting.broadcast(run.id), requests: requests,
-                                         ready: SidebarModel.readyForAcceptance(tasks, sessions: sessions)),
-            progress: progress(of: run, tasks: tasks, keepsHanded: keepsHanded),
+            runId: run.id, title: run.name, band: band,
+            progress: progress(of: run, tasks: tasks, band: band, keepsHanded: keepsHanded),
             clauses: [Clause(label: "Asked", text: oneLine(run.prompt))]
                 + [("Review", run.review), ("Done", run.done), ("Goal", run.goal?.text)].compactMap { label, text in
                     text.map(oneLine).flatMap { $0.isEmpty ? nil : Clause(label: label, text: $0) }
@@ -343,8 +338,8 @@ public struct BroadcastBoard: Equatable, Sendable {
 
     /// The board of an ended `run` for the Shelf: every task it drove, the live ones and those archived since, in the
     /// order they were created (the state's order where that ties), and no card a button, no worker tab listed, no end to
-    /// change, nothing paused. Nothing is live: no acts, no requests, no sessions. What End handed you, mid-flight, stays In progress
-    /// reading `taken over` and counts towards the total, not as done: a broadcast ended at 2 of 8 says so.
+    /// change, nothing paused. Nothing is live: no acts, no requests, no sessions. What End handed you, mid-flight, stays
+    /// In progress reading `taken over` and counts towards the total, not as done: a broadcast ended at 2 of 8 says so.
     public static func shelved(run: OperatorRun, state: AppState) -> BroadcastBoard {
         var all = state
         let driven = state.tasks(inRun: run.id) + state.archive.map(\.task).filter { $0.operated?.runId == run.id }
@@ -367,13 +362,14 @@ public struct BroadcastBoard: Equatable, Sendable {
     }
 
     /// `2 of 8 done`, once the first plan is in Todo: the finished tasks of those not stopped, as the board's
-    /// band says it. While the goal is checked, the round it checks and the extra rounds, `· round 1 of 2`; ended with
-    /// the goal checked, how much was left for you, `· 2 left for you`.
-    static func progress(of run: OperatorRun, tasks: [TaskItem], keepsHanded: Bool = false) -> String? {
+    /// band says it. While the band says the goal is being checked (`OperatorLine.checkingTheGoal`) after an extra
+    /// round, the extra rounds used and how many there are, `· round 1 of 2`; ended with the goal checked, how much was
+    /// left for you, `· 2 left for you`.
+    static func progress(of run: OperatorRun, tasks: [TaskItem], band: OperatorLine? = nil, keepsHanded: Bool = false) -> String? {
         guard let count = count(of: run, tasks: tasks, keepsHanded: keepsHanded) else { return nil }
         var parts = [count + " done"]
-        // The round being checked: the first check is round 1.
-        if run.goalCheckDue, let goal = run.goal { parts.append("round \(run.roundsUsed + 1) of \(goal.extraRounds)") }
+        // The first check follows the original plan, so it has no round.
+        if band == .checkingTheGoal, run.roundsUsed > 0, let goal = run.goal { parts.append("round \(run.roundsUsed) of \(goal.extraRounds)") }
         if run.hasEnded, run.goalOutcome != nil, !run.leftForYou.isEmpty { parts.append("\(run.leftForYou.count) left for you") }
         return parts.joined(separator: " · ")
     }
@@ -441,7 +437,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                         ? EndLine(current: operated.end, selectable: TaskEnd.allCases.filter { TaskEndChange.isSelectable($0, in: run) }) : nil,
                     fixRounds: fixRounds.map { question in
                         FixRounds(counts: operated.reviewVerdicts.last.map(counts),
-                                  answered: question.answeredOnCard.flatMap(FixRoundsAnswer.init(words:)))
+                                  answered: question.answeredOnCard.flatMap(FixRoundsAnswer.init(rawValue:)))
                     },
                     notice: kept ? operated.keptReason : nil)
     }

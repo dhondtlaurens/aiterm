@@ -167,9 +167,28 @@ import Testing
                     task("Price formatting", run: checking, .published)]
         let board = board(checking, done)
         #expect(board.band == OperatorLine("checking the goal", look: .acting))
-        #expect(board.progress == "3 of 3 done · round 1 of 2", "from the first check: the round being checked")
+        #expect(board.progress == "3 of 3 done", "the first check, after the original plan: no extra round has run")
         checking.roundsUsed = 1
-        #expect(self.board(checking, done).progress == "3 of 3 done · round 2 of 2")
+        #expect(self.board(checking, done).progress == "3 of 3 done · round 1 of 2", "the check after extra round 1")
+        var last = checking
+        last.goal?.extraRounds = 3
+        last.roundsUsed = 2
+        #expect(self.board(last, done).progress == "3 of 3 done · round 2 of 3", "a middle round")
+        last.roundsUsed = 3
+        #expect(self.board(last, done).progress == "3 of 3 done · round 3 of 3", "the last round")
+        var none = checking
+        none.goal?.extraRounds = 0
+        none.roundsUsed = 0
+        #expect(self.board(none, done).band == .checkingTheGoal)
+        #expect(self.board(none, done).progress == "3 of 3 done", "no extra rounds: never a round")
+        // The round is said only while the band says the goal is being checked.
+        var paused = checking
+        paused.state = .paused
+        #expect(self.board(paused, done).band.text == "paused")
+        #expect(self.board(paused, done).progress == "3 of 3 done")
+        let asked = BroadcastRequest(kind: .question, runId: checking.id, taskId: nil, text: "Is the goal right?", key: "goal")
+        #expect(self.board(checking, done, requests: [asked]).band.look == .needsYou)
+        #expect(self.board(checking, done, requests: [asked]).progress == "3 of 3 done")
 
         var ended = checking
         ended.goalCheckDue = false

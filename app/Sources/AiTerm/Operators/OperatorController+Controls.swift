@@ -67,10 +67,9 @@ extension OperatorController {
     /// Operator woken with it, whose next `finish_task` follows it. A merge's watch stops with the wait it cleared, and no
     /// change starts one: a change to Merge is held as a takeover holds one (`TaskEndChange.mergeWaitsForFinish`), so only
     /// the Operator's next `finish_task` merges; a change away from Merge has no merge to hold, a takeover's hold going
-    /// with the rest of what was under way for it. A
-    /// switch below what is done finishes the task, so the broadcast is settled as every other end settles it; when that
-    /// completes it, the one wake line says both, as the waker holds one reason. Refused as `TaskEndChange.refusal` says,
-    /// and while AiTerm is carrying out the task's end.
+    /// with the rest of what was under way for it. A switch below what is done finishes the task, so the broadcast is
+    /// settled as every other end settles it; when that completes it, the one wake line says both, as the waker holds
+    /// one reason. Refused as `TaskEndChange.refusal` says, and while AiTerm is carrying out the task's end.
     func changeEnd(of id: UUID, to end: TaskEnd) throws {
         guard let task = workspace.state.task(id: id), let operated = task.operated, let run = run(id: operated.runId) else {
             throw ActionUnavailable("That task isn’t the Operator’s.")
@@ -96,7 +95,7 @@ extension OperatorController {
         else { throw ActionUnavailable("Nothing asks about that task’s fix rounds any more.") }
         guard question.answeredOnCard == nil else { return }
         mutateRun(run.id) { run in
-            if let i = run.questions.firstIndex(where: { $0.id == question.id }) { run.questions[i].answeredOnCard = answer.words }
+            if let i = run.questions.firstIndex(where: { $0.id == question.id }) { run.questions[i].answeredOnCard = answer.rawValue }
         }
         waker.say(answer.wakeReason(key: operated.key), to: run.id)
     }

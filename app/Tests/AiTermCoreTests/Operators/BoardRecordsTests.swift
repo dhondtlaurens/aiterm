@@ -21,11 +21,11 @@ import Testing
     @Test func aFixRoundsAnswerIsKeptOnItsQuestionOnlyOnceGiven() throws {
         #expect(try json(question)["answeredOnCard"] == nil, "a question nobody answered on its card saves as before")
         var answered = question
-        answered.answeredOnCard = BroadcastBoard.FixRoundsAnswer.oneMoreRound.words
-        #expect(try json(answered)["answeredOnCard"] as? String == "one more round")
+        answered.answeredOnCard = BroadcastBoard.FixRoundsAnswer.oneMoreRound.rawValue
+        #expect(try json(answered)["answeredOnCard"] as? String == "oneMoreRound", "the answer's case, so its words can change")
         let decoded = try JSONDecoder().decode(OperatorQuestion.self, from: JSONEncoder().encode(answered))
         #expect(decoded == answered)
-        #expect(BroadcastBoard.FixRoundsAnswer(words: "accept it as it is") == .acceptAsItIs)
+        #expect(BroadcastBoard.FixRoundsAnswer(rawValue: "acceptAsItIs") == .acceptAsItIs)
     }
 
     @Test func runStatusSaysTheAnswerGivenOnTheCard() throws {
@@ -34,16 +34,16 @@ import Testing
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "PAY-233", state: .working))
         var asked = question
         asked.task = task.id
-        asked.answeredOnCard = "accept it as it is"
+        asked.answeredOnCard = "acceptAsItIs"
         run.questions = [asked]
         var state = AppState()
         state.append(project: web)
         state.runs = [run]
         state.tasks = [task]
         let status = try #require(RunStatus.build(state: state, run: run.id, revision: 1, live: [:]))
-        #expect(status.obligations.questionsWaiting.first?.answeredOnCard == "accept it as it is")
+        #expect(status.obligations.questionsWaiting.first?.answeredOnCard == "acceptAsItIs")
         let encoded = try #require(String(data: JSONEncoder().encode(status), encoding: .utf8))
-        #expect(encoded.contains("\"answeredOnCard\":\"accept it as it is\""))
+        #expect(encoded.contains("\"answeredOnCard\":\"acceptAsItIs\""))
     }
 
     @Test func whyAWorktreeWasKeptIsKeptOnTheTaskOnlyOnceSet() throws {
@@ -83,7 +83,7 @@ import Testing
         asked.task = working.id
         active.questions = [asked]
         #expect(try card(active, [working]).fixRounds?.answered == nil)
-        active.questions[0].answeredOnCard = "one more round"
+        active.questions[0].answeredOnCard = "oneMoreRound"
         #expect(try card(active, [working]).fixRounds?.answered == .oneMoreRound)
     }
 }

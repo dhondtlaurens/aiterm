@@ -74,7 +74,8 @@ public extension TaskEnd {
 }
 
 public extension String {
-    /// Its first letter in capitals and the rest as it is: `draft MR` as `Draft MR`, where `capitalized` would lower the rest.
+    /// Its first letter in capitals and the rest as it is: `draft MR` as `Draft MR`, where `capitalized` would lower
+    /// the rest.
     var capitalizingFirst: String { prefix(1).uppercased() + dropFirst() }
 }
 

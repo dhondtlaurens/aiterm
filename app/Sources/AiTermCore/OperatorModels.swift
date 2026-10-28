@@ -515,9 +515,9 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// instead of answering in the Operator's chat (spec §I). AiTerm writes it while the question is open and never closes
     /// the question: the Operator checks whether it is answered and calls `resolve_question`. Nil for any other question.
     public var answeredInWindow: String?
-    /// For a `fixRounds` question, your answer from the task's card, as the Operator's wake line words it (`one more
-    /// round`, `accept it as it is`). AiTerm writes it once and never closes the question: the Operator resolves it, as
-    /// with an answer in its chat. Nil until answered there, and for any other question.
+    /// For a `fixRounds` question, your answer from the task's card, by its case (`oneMoreRound`, `acceptAsItIs`:
+    /// `BroadcastBoard.FixRoundsAnswer`). AiTerm writes it once and never closes the question: the Operator resolves
+    /// it, as with an answer in its chat. Nil until answered there, and for any other question.
     public var answeredOnCard: String?
     /// True when the Operator withdrew the question; `resolution` is its reason, not the person's answer.
     /// Nil in older runs and for questions that were not withdrawn.

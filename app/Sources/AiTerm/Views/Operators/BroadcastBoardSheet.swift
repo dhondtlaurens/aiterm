@@ -334,7 +334,8 @@ struct BoardScroll<Content: View>: View {
 /// click. A task out of its fix rounds (16) has, under the card's rule, a `Hairline` as over the tabs, the last
 /// verdict's counts in a `HelpText` when one was recorded, then One More Round and Accept As It Is as links, `Space.gap`
 /// apart and `Space.tight` under it; once you answered, what you answered in their place, until the question is
-/// resolved. A worktree the closing kept says why there, in a `HelpText`, once the closing recorded it. Equatable by its card alone, so a change to another card redraws this one not at all.
+/// resolved. A worktree the closing kept says why there, in a `HelpText`, once the closing recorded it. Equatable by
+/// its card alone, so a change to another card redraws this one not at all.
 struct BoardCardView: View, Equatable {
     let card: BroadcastBoard.Card
     /// What the card's click, or a tab line's, opens: the sheet closes first (`BroadcastBoardSheet.choose`).
