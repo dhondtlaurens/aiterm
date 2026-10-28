@@ -364,10 +364,10 @@ extension OperatorToolHandler {
     /// goes ahead unchallenged, a goal check acts recorded as not checked by the Oracle (`checkGoal`), and an addition is
     /// refused.
     private func unanswered(_ call: ToolCall, in run: OperatorRun, askedSHA: String?, merges: Bool) async throws {
-        switch call.operatorTool {
-        case .finishTask: try proceedUnchallenged(call, in: run, askedSHA: askedSHA, merges: merges)
-        case .checkGoal: return
-        default: try await refuseUnanswered(call, in: run)
+        switch call.operatorTool?.unanswered {
+        case .goesAhead: try proceedUnchallenged(call, in: run, askedSHA: askedSHA, merges: merges)
+        case .actsUnchecked: return
+        case .refused, nil: try await refuseUnanswered(call, in: run)
         }
     }
 

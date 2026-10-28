@@ -567,6 +567,10 @@ extension OperatorPlanToolsTests {
         let update = await world.call(run.id, "update_task", ["task": "A", "end": "merge"])
         #expect(update.message == "Every task ends at commit, which only the person changes.")
         #expect(world.state.tasks.first?.operated?.end == .commit)
+        // The end is named as the brief and the board name it.
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.taskSettings?.end = .draftMR } }
+        let draft = await world.call(run.id, "update_task", ["task": "A", "end": "merge"])
+        #expect(draft.message == "Every task ends at draft MR, which only the person changes.")
     }
 
     @Test func closedDependenciesAreRefusedByKeyAndID() async throws {
@@ -623,7 +627,8 @@ extension OperatorPlanToolsTests {
             #expect(answer.value?["created"] == true)
             #expect(world.state.tasks.first?.operated?.end == .mergeLocal)
         } else {
-            #expect(answer.message == "Shop has no connected code host, so the person must change this task’s end from its card.")
+            #expect(answer.message == "Shop has no connected code host, so no task can end at \(end.displayName): ask the person "
+                    + "with ask_you, on no task, to change the broadcast’s end.")
             #expect(world.state.tasks.isEmpty)
         }
     }
@@ -635,7 +640,8 @@ extension OperatorPlanToolsTests {
         let (world, run) = try rowsWorld()
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.taskSettings?.end = end } }
         let answer = await world.call(run.id, "create_task", rowArguments())
-        #expect(answer.message == "Merge is off for this broadcast, so the person must change this task’s end from its card.")
+        #expect(answer.message == "Merge is off for this broadcast, so no task can end at \(end.displayName): ask the person "
+                + "with ask_you, on no task, to change the broadcast’s end.")
         #expect(world.state.tasks.isEmpty)
     }
 }

@@ -588,7 +588,7 @@ import Foundation
         run.goal = goal ? BroadcastGoal(text: "The release is ready.", extraRounds: 0) : nil
         let brief = OperatorCommand.brief(run: run, projects: [F.project()])
         let broadcast = section("## This broadcast", of: brief)
-        #expect(broadcast.contains("Agents:\n- claude · opus · high\n- codex · gpt"))
+        #expect(broadcast.contains("Agents:\n- Claude Code · opus · high\n- Codex · gpt"))
         #expect(broadcast.contains("Each task:\nReview: " + (review ? "Review every commit." : "none")))
         #expect(broadcast.contains("End: local merge"))
         #expect(broadcast.contains("Closing: close finished tasks' tabs and remove their worktrees at the end of the broadcast"))
@@ -643,12 +643,21 @@ import Foundation
         #expect(talking.contains("Other questions about your own next step"))
     }
 
+    /// The goal's veto is said once, under Mechanics, which the goal rule points to.
     @Test func theGoalUsesTheOracleVetoAndTheReturnedRoundDecision() {
         let brief = OperatorCommand.brief(run: newBroadcast(), projects: [])
         let goal = section("## The goal", of: brief)
-        #expect(goal.contains("When the Oracle answers, only its yes acts"))
-        #expect(goal.contains("A no is refused with its reason"))
+        #expect(goal.contains("The Oracle checks your verdict as a veto (Mechanics)."))
+        #expect(!goal.contains("only its yes acts") && !goal.contains("A no is refused"))
+        #expect(section("## Mechanics", of: brief).contains("and check_goal act only on its yes"))
         #expect(goal.contains("When check_goal answers stopped, stop and say what is left"))
+    }
+
+    /// A create_task refused for the broadcast's end leaves no card to wait on: the Operator asks the person.
+    @Test func aRefusedEndIsAskedAboutOnNoTask() {
+        let end = section("## The end", of: OperatorCommand.brief(run: newBroadcast(), projects: []))
+        #expect(end.contains("If create_task is refused because a project has no connected code host or Merge is off, "
+            + "no card exists to change: ask the person with ask_you, on no task, to change the broadcast's end."))
     }
 
     /// A new run's people's review starts from the task's review prompt, as TaskPublisher.Context.entersReview reads it.
@@ -665,8 +674,8 @@ import Foundation
     @Test func newRunsNameAllOracleVetoes() {
         let mechanics = section("## Mechanics", of: OperatorCommand.brief(run: newBroadcast(), projects: []))
         #expect(mechanics.contains("When the Oracle answers, create_task past the backlog limit, a finish_task that would merge "
-            + "or push with noVerify, and check_goal act only on its yes. With no answer from it, finish_task goes ahead and "
-            + "check_goal acts as not checked by the Oracle, but create_task is refused."))
+            + "or push with noVerify, and check_goal act only on its yes. With no answer from it, create_task is refused, "
+            + "finish_task goes ahead, and check_goal acts as not checked by the Oracle."))
         #expect(mechanics.contains("For other challenged calls: read the critique, then call the same tool again"))
         #expect(!mechanics.contains("Except for check_goal, keeping"))
     }

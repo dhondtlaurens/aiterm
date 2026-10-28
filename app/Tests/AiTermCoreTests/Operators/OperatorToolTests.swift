@@ -59,7 +59,11 @@ import Testing
     @Test func theVetoesHaveOneHomeThatTheBriefNames() {
         #expect(OperatorTool.vetoes.map(\.tool) == [.createTask, .finishTask, .checkGoal])
         #expect(OperatorTool.allCases.filter(\.isVeto) == [.createTask, .finishTask, .checkGoal])
+        #expect(OperatorTool.vetoes.map(\.unanswered) == [.refused, .goesAhead, .actsUnchecked])
         let brief = OperatorCommand.brief(run: OperatorFixtures.run(taskSettings: OperatorFixtures.taskSettings), projects: [])
-        for veto in OperatorTool.vetoes { #expect(brief.contains(veto.call), "\(veto.call)") }
+        for veto in OperatorTool.vetoes {
+            #expect(brief.contains(veto.call), "\(veto.call)")
+            #expect(brief.contains(veto.tool.rawValue + " " + veto.unanswered.words), "\(veto.tool)")
+        }
     }
 }

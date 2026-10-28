@@ -160,9 +160,12 @@ extension OperatorToolHandler {
     }
 
     private func validateEnd(_ end: TaskEnd, in run: OperatorRun, project: Project, connected: Bool) throws(ToolRefusal) {
-        // A new run's end is the person's alone, so the Operator can't be told to pick another.
+        // A new run's end is the person's alone, so the Operator can't be told to pick another; with no task created
+        // there is no card to change it on, so the Operator asks the person.
         func refusal(_ why: String, legacyAdvice: String) -> ToolRefusal {
-            ToolRefusal(run.taskSettings == nil ? "\(why): \(legacyAdvice)" : "\(why), so the person must change this task’s end from its card.")
+            ToolRefusal(run.taskSettings == nil ? "\(why): \(legacyAdvice)"
+                        : "\(why), so no task can end at \(end.displayName): ask the person with ask_you, on no task, "
+                            + "to change the broadcast’s end.")
         }
         if end.merges, !run.profile.slices.merge {
             throw refusal("Merge is off for this broadcast", legacyAdvice: "end it at a commit or a draft MR.")
@@ -354,7 +357,7 @@ extension OperatorToolHandler {
 
     private func refuseEndChange(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) {
         if let settings = run.taskSettings, call.optionalString("end") != nil {
-            throw ToolRefusal("Every task ends at \(settings.end.rawValue), which only the person changes.")
+            throw ToolRefusal("Every task ends at \(settings.end.displayName), which only the person changes.")
         }
     }
 

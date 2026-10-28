@@ -264,7 +264,7 @@ public enum OperatorCommand {
         var lines = ["Broadcast: \(run.name)"]
         if let settings = run.taskSettings {
             lines += ["Agents:"] + run.agents.map { choice in
-                "- " + ([choice.agent.rawValue, choice.model] + (choice.reasoning.map { [$0] } ?? [])).joined(separator: " · ")
+                "- " + ([choice.agent.displayName, choice.model] + (choice.reasoning.map { [$0] } ?? [])).joined(separator: " · ")
             }
             let closing = settings.closeWhenDone
                 ? "close finished tasks' tabs and remove their worktrees at the end of the broadcast; "
@@ -311,8 +311,8 @@ public enum OperatorCommand {
     /// The broadcast's goal: checked with check_goal when AiTerm wakes the Operator for it, under the Oracle's veto, and
     /// planned for within its extra rounds (spec, The goal loop).
     static let goalRule = "Without a goal, the broadcast ends when its tasks do. With a goal, when AiTerm wakes you "
-        + "with goalCheckDue, call check_goal with met, evidence and, if not met, missing. The Oracle checks your verdict. "
-        + "When the Oracle answers, only its yes acts. A no is refused with its reason: read it and call check_goal again. "
+        + "with goalCheckDue, call check_goal with met, evidence and, if not met, missing. "
+        + "The Oracle checks your verdict as a veto (Mechanics). "
         + "Plan only what missing names, with create_task then submit_plan, when the answer says planMore. "
         + "The extra rounds are the budget; the backlog rule still counts from the first plan across the whole broadcast. "
         + "When every task in the revision is finished, check the goal again. If nothing can be planned, call check_goal "
@@ -325,6 +325,11 @@ public enum OperatorCommand {
     }
 
     private static func bullets(_ items: [String]) -> String { items.map { "- " + $0 }.joined(separator: "\n") }
+
+    /// `items` in a sentence: "a, b, and c".
+    private static func listed(_ items: [String]) -> String {
+        items.count < 3 ? items.joined(separator: " and ") : items.dropLast().joined(separator: ", ") + ", and " + items[items.count - 1]
+    }
 
     /// The role, ending in what a good run is: where the Done says in a legacy broadcast, each task's chosen end in a new one.
     static let roleLead = "You lead coding agents through AiTerm. You plan the work, start the tasks, steer the agents working in them, "
@@ -339,7 +344,9 @@ public enum OperatorCommand {
         "Every task ends at \(end.displayName), which only the person changes. "
             + "Don't plan around it: create_task and update_task take no end for this broadcast. "
             + "Read each task's current end in run_status after the person changes it. "
-            + "A commit end stops at the accepted commit, with no push, no merge request and no finish_task."
+            + "A commit end stops at the accepted commit, with no push, no merge request and no finish_task. "
+            + "If create_task is refused because a project has no connected code host or Merge is off, no card exists to "
+            + "change: ask the person with ask_you, on no task, to change the broadcast's end."
     }
 
     /// The base every broadcast has: the plan starts at once, workers commit, and AiTerm carries out each task's end. A
@@ -553,18 +560,17 @@ public enum OperatorCommand {
     static let legacyReviewQuietRule = "reviewQuiet: if the broadcast's Done says the MR is the end, call finish_task to end "
         + "the review and move the ticket."
     /// How the Oracle's challenge is met. A new broadcast names the vetoes, where only the Oracle's yes acts, from
-    /// `OperatorTool.vetoes`, which the tool handler challenges as `ChallengeKind.veto` too, and what each does with no
-    /// answer, as the handler's `unanswered` has it.
+    /// `OperatorTool.vetoes`, which the tool handler challenges as `ChallengeKind.veto` too, with what each does with no
+    /// answer, which the handler's `unanswered` reads from there as well.
     static let challengeLead = "The Oracle, a second opinion, challenges some calls. A challenged call may first return a critique, "
         + "or `pending: true` while it is still being written; nothing has happened yet. "
     static let challengeReplyRule = "Read the critique, then call the same tool again with the challengeId and either a challengeReply "
         + "or revised arguments; only that second call takes effect. "
     static let critiqueDecisionRule = "Keeping the act is your decision: say so in your summary, with the Oracle's objection."
     static let legacyChallengeRule = challengeLead + challengeReplyRule + critiqueDecisionRule
-    static let newBroadcastChallengeRule = challengeLead + "When the Oracle answers, "
-        + OperatorTool.vetoes.dropLast().map(\.call).joined(separator: ", ") + ", and " + OperatorTool.vetoes.last!.call
-        + " act only on its yes. With no answer from it, finish_task goes ahead and check_goal acts as not checked by the "
-        + "Oracle, but create_task is refused. "
+    static let newBroadcastChallengeRule = challengeLead
+        + "When the Oracle answers, " + listed(OperatorTool.vetoes.map(\.call)) + " act only on its yes. "
+        + "With no answer from it, " + listed(OperatorTool.vetoes.map { $0.tool.rawValue + " " + $0.unanswered.words }) + ". "
         + "Read its answer and call again with challengeId; a no refuses the act. "
         + "For other challenged calls: " + challengeReplyRule.prefix(1).lowercased() + challengeReplyRule.dropFirst()
         + critiqueDecisionRule
