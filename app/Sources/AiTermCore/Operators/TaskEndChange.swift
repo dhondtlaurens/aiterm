@@ -5,9 +5,11 @@ import Foundation
 /// `OperatorController.changeEnd`, which saves it and wakes the Operator.
 ///
 /// It sets the end. Of the publication it clears what was under way for the old end — the merge's wait and its reads, a
-/// problem, the Oracle's refusal and its yes — and keeps what already happened: the push and the request. A switch below
-/// what is done, Commit on an accepted task with a request open, finishes the task as it stands: the request is left
-/// open, and said in Left for you. Anything else is the next `finish_task`'s, which follows the new end.
+/// problem, the Oracle's refusal and its yes — and keeps what already happened: the push and the request. A switch to
+/// Commit is below a request already open: the request is left for you (`TaskPublication.leftForYou`), so AiTerm neither
+/// merges nor closes it and the closing skips the task, and that is said in Left for you. Accepted, or in people's
+/// review of its request, the task is then finished as it stands; at work, once it is accepted. Anything else is the next
+/// `finish_task`'s, which follows the new end.
 public enum TaskEndChange {
     /// Whether `end` can be picked in `run`: Merge and Local merge only while its Merge slice is on.
     public static func isSelectable(_ end: TaskEnd, in run: OperatorRun) -> Bool { !end.merges || run.profile.slices.merge }
@@ -28,9 +30,7 @@ public enum TaskEndChange {
     /// `end` set on the task with this id in `state`, as the type says; a refusal is the caller's to check first.
     public static func apply(_ end: TaskEnd, toTask id: UUID, in state: inout AppState) {
         guard let task = state.task(id: id), let operated = task.operated else { return }
-        // Below what is done: accepted, its request open, and now a commit end, which finishes it.
-        let finishes = end == .commit && [.accepted, .inReview].contains(operated.state)
-        let request = finishes ? operated.publication?.mergeRequestNumber : nil
+        let request = end == .commit ? operated.publication?.mergeRequestNumber : nil
         state.updateOperated(id) { operated in
             operated.end = end
             operated.publication?.waitingSince = nil
@@ -38,11 +38,12 @@ public enum TaskEndChange {
             operated.publication?.problem = nil
             operated.publication?.mergeRefusal = nil
             operated.publication?.conditionsHeld = nil
-            // Its people's review is over with it: the task was accepted before its request went into review.
-            if request != nil, operated.state == .inReview {
+            // A commit end has no review: the task was accepted before it went into review, and is again.
+            if end == .commit, operated.state == .inReview {
                 operated.state = .accepted
                 operated.peopleReview?.ended = true
             }
+            if request != nil { operated.publication?.leftForYou = true }
         }
         guard let request else { return }
         let reference = CodeHost(webURL: operated.publication?.mergeRequestURL ?? "").reference(request)

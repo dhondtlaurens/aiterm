@@ -462,7 +462,8 @@ private extension View {
 
 /// A running card's end line (17A), a `Size.chip` line: `ends at` in `Typography.monoCode` and `Palette.muted`, then
 /// `Space.base` on its end as a `Badge` whose menu, headed `Cart drawer ends at`, lists the four ends, the current one
-/// ticked and those the Merge slice keeps out disabled.
+/// ticked and those the Merge slice keeps out disabled. No test clicks the badge: AppKit's menu tracking blocks inside
+/// `sendEvent` until the menu closes.
 struct BoardEndLine: View {
     let title: String
     let end: BroadcastBoard.EndLine

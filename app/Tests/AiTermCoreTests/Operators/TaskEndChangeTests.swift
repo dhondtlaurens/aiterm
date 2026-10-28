@@ -62,17 +62,23 @@ import Testing
         let operated = try #require(state.task(id: task.id)?.operated)
         #expect(operated.end == .commit && operated.isFinished, "accepted on a commit end: finished")
         #expect(operated.publication?.mergeRequestNumber == 412, "the request is left open")
-        #expect(state.run(id: run.id)?.leftForYou
-                == ["Close or merge !412 in webshop yourself: you changed cart-drawer’s end to commit, so AiTerm left it open."])
+        #expect(operated.publication?.leftForYou == true, "and left for you: the closing skips it, and nothing merges it")
+        #expect(!operated.reachedItsEnd)
+        #expect(OperatorLine.ending(of: operated) == "left for you · 4f2a91c")
+        #expect(state.run(id: run.id)?.leftForYou == [leftOpen])
     }
 
-    @Test func aTaskStillAtWorkLeavesNothingForYouWithItsRequestOpen() throws {
+    private let leftOpen = "Close or merge !412 in webshop yourself: you changed cart-drawer’s end to commit, so AiTerm left it open."
+
+    @Test func aTaskStillAtWorkHasItsOpenRequestLeftForYouToo() throws {
         let run = run()
         let task = task(in: run, .working, publication: waitingMerge)
         var state = state(run, [task])
         TaskEndChange.apply(.commit, toTask: task.id, in: &state)
-        #expect(state.task(id: task.id)?.operated?.isFinished == false, "it finishes once it is accepted")
-        #expect(state.run(id: run.id)?.leftForYou == [], "nothing is left until the switch finishes it")
+        let operated = try #require(state.task(id: task.id)?.operated)
+        #expect(!operated.isFinished && operated.state == .working, "it finishes once it is accepted")
+        #expect(operated.publication?.leftForYou == true, "from now on AiTerm neither merges nor closes the request")
+        #expect(state.run(id: run.id)?.leftForYou == [leftOpen])
     }
 
     @Test func aTaskInPeoplesReviewSwitchedToCommitEndsItsReviewAndFinishes() throws {
@@ -85,6 +91,18 @@ import Testing
         #expect(operated.state == .accepted && operated.isFinished)
         #expect(state.run(id: run.id)?.leftForYou.count == 1)
         #expect(operated.peopleReview?.ended == true)
+    }
+
+    @Test func aTaskInReviewWithNoRequestNumberSwitchedToCommitIsNotLeftInReview() throws {
+        let run = run()
+        var task = task(in: run, .inReview, publication: TaskPublication(pushedSHA: "4f2a91c7d"))
+        task.operated?.peopleReview = PeopleReview(reviewers: ["Jan"])
+        var state = state(run, [task])
+        TaskEndChange.apply(.commit, toTask: task.id, in: &state)
+        let operated = try #require(state.task(id: task.id)?.operated)
+        #expect(operated.state == .accepted && operated.isFinished && operated.peopleReview?.ended == true)
+        #expect(operated.publication?.leftForYou == false && operated.reachedItsEnd, "no request to leave: done at its commit")
+        #expect(state.run(id: run.id)?.leftForYou == [])
     }
 
     @Test func aTaskAtWorkOnlyTakesItsNewEnd() throws {
