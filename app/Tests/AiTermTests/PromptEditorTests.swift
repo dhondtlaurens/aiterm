@@ -78,6 +78,26 @@ import AiTermTestSupport
         #expect(focus == [true, false])
     }
 
+    /// `.disabled(true)` around the editor reaches its text view: nothing can be typed or selected, and asking for the
+    /// keyboard on joining a window takes none.
+    @Test(arguments: [false, true]) func aDisabledEditorTakesNoTypingAndNoKeyboard(disabled: Bool) throws {
+        let text = TextBox()
+        let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
+                                  agent: .claude, completions: PromptCompletions(), focusOnAppear: true)
+            .frame(width: 420, height: 150)
+            .disabled(disabled)
+        let host = testHost(editor, size: CGSize(width: 420, height: 150))
+        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
+        window.contentView = host
+        defer { window.orderOut(nil) }
+        host.layoutSubtreeIfNeeded()
+        settle(host)
+
+        let textView = try #require(host.firstDescendant(NSScrollView.self)?.documentView as? NSTextView)
+        #expect(textView.isEditable == !disabled && textView.isSelectable == !disabled)
+        #expect((window.firstResponder === textView) == !disabled)
+    }
+
     /// `PromptStep` lays its placeholder on these two numbers, so the text view must really use
     /// them — not AppKit's defaults, which only happen to agree today.
     @Test func theTextSitsOnTheInsetThePlaceholderReads() throws {

@@ -45,12 +45,14 @@ extension AppController {
 extension AppController {
     /// The OPERATOR heading's "+": New Broadcast…, its help following Settings › Operator's slices and Oracle as
     /// they are now, the profile the broadcast freezes as it starts, and its Agents step the installed agents' models,
-    /// their defaults and the last broadcast's rows (`NewBroadcastContext`). Started, the broadcast's header is
+    /// their defaults and the last broadcast's rows (`NewBroadcastContext`), and its Task step each chosen project's code
+    /// host as the Operator's tools check it, an origin git can't read as none. Started, the broadcast's header is
     /// selected; its window comes forward by the operator controller's own start.
     func presentNewBroadcast() {
         guard canChangeWorkspace else { return }
         let controller = operatorController
         let profile = controller.ports.profile, models = controller.tools.agentModels, remembered = state.lastModelByAgent
+        let codeHost = controller.ports.codeHost
         let installed = ModelChoice.pair.filter(controller.tools.installedAgents.contains)
         // UserDefaults is thread-safe, though not marked Sendable.
         nonisolated(unsafe) let preferences = controller.ports.preferences ?? .standard
@@ -62,7 +64,8 @@ extension AppController {
             guard let self, self.canChangeWorkspace else { return }
             self.sheets.presentNewBroadcast(context: context, loadJiraProjects: { [weak self] in try await self?.loadJiraProjects() ?? [] },
                                             readiness: { [weak self] in self?.broadcastReadiness ?? .checking },
-                                            checkReadiness: { [weak self] in await self?.checkBroadcastReadiness() }) { [weak self] request in
+                                            checkReadiness: { [weak self] in await self?.checkBroadcastReadiness() },
+                                            hasCodeHost: { (try? await codeHost.connects($0)) ?? false }) { [weak self] request in
                 let id = try await controller.startBroadcast(name: request.name, jiraProjectKeys: request.jiraProjectKeys,
                                                              projectIds: request.projectIds, prompt: request.prompt,
                                                              review: request.review, done: request.done, agents: request.agents,

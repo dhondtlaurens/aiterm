@@ -127,15 +127,19 @@ extension CreationKind {
 /// What a creation sheet's steps decide about its frame, in one place: the footer's buttons, where
 /// the destination line and the command preview are drawn, and which steps are prompt editors. New
 /// Task and New Review have three steps, the agent second (`CreationKind`'s defaults); New Broadcast
-/// has four and no agent step (`broadcast`). The last step creates; the first has Cancel, every
-/// other Back.
+/// has five, its Agents list third and no agent step (`broadcast`). The last step creates; the first
+/// has Cancel, every other Back.
 struct CreationSteps: Equatable {
     let count: Int
     /// The step that picks the agent and its model; nil for a sheet that starts no agent of its own.
     let agentStep: Int?
+    /// New Broadcast's Agents step: the rows the Operator may start workers on, which starts no agent of the sheet's
+    /// own and is no prompt editor.
+    var agentsListStep: Int? = nil
 
-    /// Broadcast · Prompt · Review · Done: the Operator chooses each task's agent, so no step does.
-    static let broadcast = CreationSteps(count: 4, agentStep: nil)
+    /// Broadcast · Prompt · Agents · Task · Done: the Operator chooses each task's agent from the Agents rows, so no
+    /// step starts one.
+    static let broadcast = CreationSteps(count: 5, agentStep: nil, agentsListStep: 3)
 
     func creates(onStep step: Int) -> Bool { step == count }
     func primaryTitle(onStep step: Int, createLabel: String) -> String { creates(onStep: step) ? createLabel : "Continue" }
@@ -147,8 +151,9 @@ struct CreationSteps: Equatable {
     func showsCommand(onStep step: Int) -> Bool { agentStep != nil && step > 1 }
     /// Why no agent can run, on the create step of a sheet that starts one.
     func saysNoAgentCanRun(onStep step: Int) -> Bool { agentStep != nil && creates(onStep: step) }
-    /// The steps past the first that are not the agent's: a prompt editor, whose completion popup ⎋ closes.
-    func hasPrompt(onStep step: Int) -> Bool { step > 1 && step != agentStep }
+    /// The steps past the first that are not the agent's or the Agents list's: a prompt editor, whose completion popup
+    /// ⎋ closes.
+    func hasPrompt(onStep step: Int) -> Bool { step > 1 && step != agentStep && step != agentsListStep }
 }
 
 /// The dependencies shared by New Task and New Review; disk and preference sources are explicit.

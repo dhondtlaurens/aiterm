@@ -6,8 +6,8 @@ import Testing
 @testable import AiTermTestSupport
 
 /// New Broadcast as a model (spec §3.1): the name, the Jira projects and the projects on step 1, the
-/// prompt, review and done on the next three, the help the slices decide, and Start Broadcast
-/// handing them to `OperatorController.startBroadcast`.
+/// prompt on step 2, and Start Broadcast handing them to `OperatorController.startBroadcast`. Its Agents,
+/// Task and Done steps are `BroadcastSetupStepsTests`'.
 @MainActor
 struct NewBroadcastModelTests {
     private static let site = URL(string: "https://pauwels.atlassian.net")!
@@ -21,20 +21,18 @@ struct NewBroadcastModelTests {
 
     private func model(projects: [Project] = [], slices: Slices = .none,
                        start: @escaping @MainActor (NewBroadcastModel.Request) async throws -> UUID = { _ in UUID() }) -> NewBroadcastModel {
-        NewBroadcastModel(projects: projects, context: NewBroadcastContext(slices: slices), start: start)
+        NewBroadcastModel(projects: projects, context: .installed(slices: slices), start: start)
     }
 
     @Test func itNamesItsStepsAndWhereItOpens() {
         #expect(NewBroadcastModel.title == "New broadcast")
-        #expect(NewBroadcastModel.stepNames == ["Broadcast", "Prompt", "Review", "Done"])
+        #expect(NewBroadcastModel.stepNames == ["Broadcast", "Prompt", "Agents", "Task", "Done"])
         #expect(NewBroadcastModel.destination.text == "Opens in iTerm2 · the Operator’s window")
         #expect(NewBroadcastModel.namePlaceholder == "Named by the Operator from the prompt")
         #expect(NewBroadcastModel.nameHelp == "Optional.")
         #expect(NewBroadcastModel.jiraProjectsHelp == "Where it reads tickets, and files them with the Jira slice on.")
         #expect(NewBroadcastModel.projectsHelp == "The repositories it may work in. Picking a Jira project adds its linked projects.")
         #expect(NewBroadcastModel.promptHelp == "What to work on, as you’d tell a colleague. A Jira key brings in its ticket. Type / for skills, @ for files.")
-        #expect(NewBroadcastModel.reviewPlaceholder == "An adversarial review with /code-review, then fix what it finds")
-        #expect(NewBroadcastModel.donePlaceholder == "A draft MR per ticket")
     }
 
     @Test func needsAProjectAndAPrompt() async {
@@ -51,7 +49,7 @@ struct NewBroadcastModelTests {
         #expect(await sheet.start() == nil)
         #expect(started == 0)
         sheet.prompt = "Implement PAY-230 to PAY-236"
-        #expect(sheet.canAdvance(step: 2) && sheet.canAdvance(step: 3) && sheet.canAdvance(step: 4))
+        #expect(sheet.canAdvance(step: 2) && sheet.canAdvance(step: 3) && sheet.canAdvance(step: 4) && sheet.canAdvance(step: 5))
         #expect(sheet.canStart)
         sheet.remove(project: webshop)
         #expect(!sheet.canAdvance(step: 1) && !sheet.canStart, "the last project removed")
@@ -115,7 +113,7 @@ struct NewBroadcastModelTests {
     /// Jira away, or not connected: the linked ones stay on offer, the help says so, and Start isn't held up.
     @Test func aJiraThatCantBeReachedKeepsTheLinkedOnesAndDoesNotBlockStart() async {
         let webshop = project("webshop", jira: [pay])
-        let sheet = NewBroadcastModel(projects: [webshop], context: NewBroadcastContext(slices: .none),
+        let sheet = NewBroadcastModel(projects: [webshop], context: .installed(),
                                       loadJiraProjects: { throw ActionUnavailable("The connection dropped.") }, start: { _ in UUID() })
         await sheet.loadJiraProjects()
         #expect(sheet.jiraLoad == .failed("The connection dropped."))
@@ -144,7 +142,7 @@ struct NewBroadcastModelTests {
     @Test func itWaitsForAWorkspaceThatCanChange() {
         let canChange = Mutex(false)
         let webshop = project("webshop")
-        let sheet = NewBroadcastModel(projects: [webshop], context: NewBroadcastContext(slices: .none), canChangeWorkspace: { canChange.withLock { $0 } }, start: { _ in UUID() })
+        let sheet = NewBroadcastModel(projects: [webshop], context: .installed(), canChangeWorkspace: { canChange.withLock { $0 } }, start: { _ in UUID() })
         sheet.add(project: webshop)
         sheet.prompt = "PAY-230"
         #expect(!sheet.canAdvance(step: 1) && !sheet.canStart)
@@ -152,16 +150,9 @@ struct NewBroadcastModelTests {
         #expect(sheet.canAdvance(step: 1) && sheet.canStart)
     }
 
-    @Test func helpFollowsTheSlices() {
-        let off = model(slices: .none), on = model(slices: Slices(jira: false, review: true, merge: true))
-        #expect(on.reviewHelp == "Who reviews each task and how. Optional. An agent review (“an adversarial review with /code-review”) needs no switch; involving people needs Review, which is on in Settings › Operator.")
-        #expect(off.reviewHelp == "Who reviews each task and how. Optional. An agent review needs no switch. Review is off in Settings › Operator, so the Operator won’t involve people: those tasks stop at their draft MR.")
-        #expect(on.doneHelp == "Where each task ends: a commit, a draft MR, or merged and when. Write a condition per MR: “each MR merges once approved with all threads resolved; the run is done when every MR is merged”. Before a merge, the Oracle checks what the Review asks of an agent review against the review of the accepted commit. Optional: left empty, each task ends at a draft MR.")
-        #expect(off.doneHelp == "Where each task ends. Optional: left empty, each task ends at a draft MR. Merge is off in Settings › Operator: each task ends at a commit or a draft MR, and a merge you ask for is left for you.")
-        let reviewOnly = model(slices: Slices(review: true))
-        #expect(reviewOnly.reviewHelp == on.reviewHelp && reviewOnly.doneHelp == off.doneHelp, "each help reads its own slice")
-        let copy = [on.reviewHelp, off.reviewHelp, on.doneHelp, off.doneHelp, NewBroadcastModel.promptHelp,
-                    NewBroadcastModel.projectsHelp, NewBroadcastModel.jiraProjectsHelp, NewBroadcastModel.destination.text]
+    @Test func stepOnesAndTwosCopyKeepsTheHouseStyle() {
+        let copy = [NewBroadcastModel.promptHelp, NewBroadcastModel.projectsHelp, NewBroadcastModel.jiraProjectsHelp,
+                    NewBroadcastModel.destination.text]
         for text in copy {
             #expect(!text.contains("—"), "no em dash in \(text)")
             #expect(!text.contains("'"), "the app's curly apostrophe in \(text)")
@@ -177,12 +168,11 @@ struct NewBroadcastModelTests {
         sheet.add(project: api)
         sheet.name = "   "
         sheet.prompt = "  Implement PAY-230 to PAY-236\n"
-        sheet.review = "Assign Jan. "
-        sheet.done = " \n"
         #expect(await sheet.start() == id)
-        #expect(requests == [NewBroadcastModel.Request(name: nil, jiraProjectKeys: ["PAY"], projectIds: [webshop.id, api.id],
-                                                         prompt: "Implement PAY-230 to PAY-236", review: "Assign Jan.", done: nil,
-                                                         agents: [], taskSettings: nil, goal: nil)])
+        #expect(requests.map(\.name) == [nil])
+        #expect(requests.map(\.jiraProjectKeys) == [["PAY"]])
+        #expect(requests.map(\.projectIds) == [[webshop.id, api.id]])
+        #expect(requests.map(\.prompt) == ["Implement PAY-230 to PAY-236"])
         sheet.name = " Checkout redesign "
         _ = await sheet.start()
         #expect(requests.last?.name == "Checkout redesign")
@@ -197,14 +187,14 @@ struct NewBroadcastModelTests {
         sheet.add(project: webshop)
         sheet.prompt = TypedText.text("Prompt", bytes: 110_000)
         sheet.review = TypedText.text("Review")
-        sheet.done = TypedText.text("Done")
+        sheet.done = TypedText.text("Goal")
 
         _ = await sheet.start()
 
         let request = try #require(requests.first)
         #expect(Array(request.prompt.utf8) == Array(sheet.prompt.utf8))
-        #expect(request.review.map { Array($0.utf8) } == Array(sheet.review.utf8))
-        #expect(request.done.map { Array($0.utf8) } == Array(sheet.done.utf8))
+        #expect(request.taskSettings?.review.map { Array($0.utf8) } == Array(sheet.review.utf8))
+        #expect(request.goal.map { Array($0.text.utf8) } == Array(sheet.done.utf8))
     }
 
     @Test func aStartThatFailsSaysWhyInTheFooterAndCanBeTriedAgain() async {
@@ -235,7 +225,7 @@ struct NewBroadcastModelTests {
         sheet.prompt = "PAY-230"
         let first = Task { await sheet.start() }
         await enteredStarts.next()
-        #expect(sheet.starting && !sheet.canStart && !sheet.canAdvance(step: 4))
+        #expect(sheet.starting && !sheet.canStart && !sheet.canAdvance(step: 5))
         #expect(await sheet.start() == nil, "pressed again while the first is in flight")
         #expect(calls == 1)
         release?.resume()
@@ -322,5 +312,45 @@ extension NewBroadcastModelTests {
         await sheet.loadCompletions()
         let names = sheet.completions.all.map(\.name)
         #expect(names.contains("moved") && !names.contains("wrong-folder"))
+    }
+}
+
+extension NewBroadcastModelTests {
+    /// The heading's "+" checks each chosen project's code host as the Operator's tools do (`CodeHostCheck`): an origin
+    /// AiTerm has no connection for dims Draft MR and Merge, one it connects to leaves them, and an origin git can't read
+    /// is no code host either.
+    @Test(arguments: [(connected: false, readable: true), (true, true), (true, false)])
+    func newBroadcastChecksCodeHostsAsTheOperatorDoes(connected: Bool, readable: Bool) async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fixture = try GitFixture.withOrigin(branch: "feat/source")
+        var ports = OperatorPorts.scratch(git: readable ? GitRunner.hermetic() : UnreadableOriginGit())
+        let host = FakeMergeHost()
+        if connected { ports.publisher = { _ in host } }
+        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
+                                       operatorPorts: ports)
+        try controller.loadWorkspace()
+        var shop = project("shop")
+        shop.path = fixture.path
+        controller.workspace.mutate { [shop] in $0.items = [.project(shop)] }
+        controller.presentNewBroadcast()
+        #expect(await eventually(describing: "New Broadcast opens") { controller.sheet != nil })
+        guard case .newBroadcast(let sheet)? = controller.sheet else { Issue.record("no New Broadcast sheet"); return }
+        sheet.add(project: shop)
+        await sheet.loadCodeHosts()
+        #expect(sheet.canPick(.draftMR) == (connected && readable))
+    }
+}
+
+/// A git whose `remote get-url` fails with something other than git's "no such remote", and that runs every other
+/// command for real.
+private struct UnreadableOriginGit: GitRunning {
+    let inner: any GitRunning = GitRunner.hermetic()
+
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        if args.starts(with: ["remote", "get-url"]) {
+            throw GitError(args: args, code: 128, stderr: "fatal: unable to access '.git/config': Permission denied")
+        }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }
 }

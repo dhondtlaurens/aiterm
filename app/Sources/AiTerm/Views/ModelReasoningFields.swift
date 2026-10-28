@@ -11,6 +11,8 @@ struct ModelReasoningFields: View {
     var missingModelLabel = "Choose a current model…"
     var disabled = false
     var reasoningOptions: [String]? = nil
+    /// Off, the two `Select`s go without their labels: New Broadcast's Agents rows label their columns once.
+    var labelled = true
     let selectModel: (AgentModel) -> Void
 
     var selectedModel: AgentModel? { models.first { $0.id == model } }
@@ -23,21 +25,33 @@ struct ModelReasoningFields: View {
         let selected = selectedModel ?? placeholder
         let efforts = reasoningOptions ?? selected.efforts
         HStack(alignment: .top, spacing: Space.gap) {
-            FormField(prefix.isEmpty ? "Model" : prefix + "model") {
+            field(prefix.isEmpty ? "Model" : prefix + "model") {
                 Select(values: modelChoices,
                        selection: Binding(get: { selected }, set: { selectModel($0) }),
                        label: { $0.label }, detail: \.detail)
                     .disabled(disabled)
-            }.frame(maxWidth: .infinity)
+            }
             if !efforts.isEmpty {
-                FormField(prefix.isEmpty ? "Reasoning" : prefix + "reasoning") {
+                field(prefix.isEmpty ? "Reasoning" : prefix + "reasoning") {
                     Select(values: efforts, selection: Binding(
                         get: { reasoning.flatMap { efforts.contains($0) ? $0 : nil }
                             ?? selected.defaultEffort ?? efforts[0] },
                         set: { reasoning = $0 }), label: { $0.capitalized })
                         .disabled(disabled)
-                }.frame(maxWidth: .infinity)
+                }
+            } else if !labelled {
+                // The Reasoning column's cell, empty, so the Model column keeps its width under its label.
+                Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
             }
+        }
+    }
+
+    /// A control under its label; unlabelled, the control alone, for a caller that labels its columns once above rows.
+    @ViewBuilder private func field(_ label: String, @ViewBuilder _ control: () -> some View) -> some View {
+        if labelled {
+            FormField(label) { control() }.frame(maxWidth: .infinity)
+        } else {
+            control().frame(maxWidth: .infinity)
         }
     }
 }

@@ -58,7 +58,7 @@ public struct SegmentedControl<Value: Hashable, Content: View>: View {
                         .contentShape(Rectangle())
                 }
                 .segmentButtonStyle(selectable: selectable)
-                .opacity(selectable ? 1 : 0.4)
+                .opacity(selectable ? 1 : Opacity.disabled)
                 .transformEnvironment(\.surface) { if on && style == .accent { $0 = .accent } }
                 .optionalHelp(help(value))
                 .accessibilityAddTraits(on ? .isSelected : [])

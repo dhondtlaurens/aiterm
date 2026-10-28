@@ -10,7 +10,7 @@ struct NewBroadcastContext: Equatable {
     var oracleIsOn = false
     /// Each installed agent's models, by agent: an agent not installed is left out.
     var models: [AgentKind: [AgentModel]] = [:]
-    /// Each installed agent's default in Settings › Agents; an agent it resolves none for is left out.
+    /// Each installed agent's default in Settings › Agents, else its first model; an agent listing none is left out.
     var defaults: [AgentKind: AgentChoice] = [:]
     /// The last broadcast's Agents rows (`OperatorProfileStore.lastAgents`), as saved.
     var lastAgents: [AgentChoice] = []
@@ -23,7 +23,9 @@ struct NewBroadcastContext: Equatable {
         let lists = Dictionary(installed.map { ($0, models($0)) }, uniquingKeysWith: { first, _ in first })
         var defaults: [AgentKind: AgentChoice] = [:]
         for (agent, list) in lists {
-            let preference = ModelSettings.resolve(for: agent, catalog: list, remembered: remembered[agent], defaults: preferences)
+            var preference = ModelSettings.resolve(for: agent, catalog: list, remembered: remembered[agent], defaults: preferences)
+            // A saved default no longer listed resolves to none: the agent's first model stands in, so it is still offered.
+            if preference.model.isEmpty, let first = list.first { preference.select(first) }
             if !preference.model.isEmpty { defaults[agent] = AgentChoice(agent: agent, model: preference.model, reasoning: preference.reasoning) }
         }
         return NewBroadcastContext(slices: profile?.slices ?? .none, oracleIsOn: profile?.oracle.isOn ?? false, models: lists, defaults: defaults,
@@ -31,10 +33,11 @@ struct NewBroadcastContext: Equatable {
     }
 }
 
-/// The New Broadcast sheet's state (spec §3.1): step 1's name, Jira projects and projects, then the
-/// prompt, the review and the done, and Start Broadcast, which hands them to
-/// `OperatorController.startBroadcast`. The Review and Done help read the slices of Settings ›
-/// Operator's profile as the sheet opened, the profile the broadcast will freeze as it starts.
+/// The New Broadcast sheet's state (spec §3.1, broadcast setup v2): step 1's name, Jira projects and projects, then the
+/// prompt, the Agents rows, the Task step's review, end and closing, the Done step's goal and extra rounds, and Start
+/// Broadcast, which hands them to `OperatorController.startBroadcast`. The end the Task step allows reads the Merge slice,
+/// and the goal the Oracle switch, of Settings › Operator's profile as the sheet opened, the profile the broadcast will
+/// freeze as it starts.
 @MainActor
 @Observable
 final class NewBroadcastModel: Identifiable {
@@ -59,8 +62,29 @@ final class NewBroadcastModel: Identifiable {
     /// The repositories it may work in, in the sidebar's order.
     private(set) var projects: [Project] = []
     var prompt = ""
+    /// The Agents step's rows, as they stand: two alike are kept while one is being picked, and handed over once.
+    private(set) var agentRows: [AgentRow]
+    /// The Task step's review prompt.
     var review = ""
+    /// The end last picked on the Task step.
+    private var pickedEnd = TaskEnd.draftMR
+    /// The chosen projects found with no connected code host, as last checked: Draft MR and Merge wait for none.
+    private(set) var projectsWithoutCodeHost: [Project] = []
+    /// The chosen projects, by id, as the last check found them: Start waits until they are the chosen ones.
+    private var codeHostsChecked: [UUID] = []
+    /// Unticked, it unticks deleting branches too: a branch is deleted only by closing its task.
+    var closeWhenDone = true { didSet { if !closeWhenDone { deleteMergedBranch = false } } }
+    var deleteMergedBranch = false
+    /// The Done step's goal.
     var done = ""
+    /// The Done step's extra rounds as typed: digits only, and no more of them than a count can hold.
+    var extraRoundsText = String(defaultExtraRounds) {
+        didSet {
+            let digits = extraRoundsText.filter { $0.isASCII && $0.isNumber }
+            let kept = digits.isEmpty || Int(digits) != nil ? digits : oldValue
+            if kept != extraRoundsText { extraRoundsText = kept }
+        }
+    }
     private(set) var starting = false
     /// Why the last start failed, shown in the footer as a `Notice`.
     private(set) var error: CreationFailure?
@@ -90,9 +114,10 @@ final class NewBroadcastModel: Identifiable {
     /// and the delivery check's file, both observed, so the footer follows them while the sheet is up.
     @ObservationIgnored private let readinessSource: @MainActor () -> BroadcastReadiness
     @ObservationIgnored private let prepareReadiness: @MainActor () async -> Void
+    @ObservationIgnored private let hasCodeHost: (@Sendable (Project) async -> Bool)?
 
     static let title = "New broadcast"
-    static let stepNames = ["Broadcast", "Prompt", "Review", "Done"]
+    static let stepNames = ["Broadcast", "Prompt", "Agents", "Task", "Done"]
     static let createLabel = "Start Broadcast"
     static let destination = Destination.operatorWindow
     static let namePlaceholder = "Named by the Operator from the prompt"
@@ -105,12 +130,28 @@ final class NewBroadcastModel: Identifiable {
     static let projectsPlaceholder = "Add a project"
     static let projectsHelp = "The repositories it may work in. Picking a Jira project adds its linked projects."
     static let promptHelp = "What to work on, as you’d tell a colleague. A Jira key brings in its ticket. Type / for skills, @ for files."
+    static let agentsHelp = "The Operator starts every worker, tab and reviewer from this list, and nothing else. It starts as your last broadcast’s list."
+    static let addAgentLabel = "Add an agent"
+    static let taskLeadTitle = "Every task follows these."
+    static let taskLead = "The broadcast’s own goal is the next step."
+    static let reviewLabel = "Each task is reviewed with"
     static let reviewPlaceholder = "An adversarial review with /code-review, then fix what it finds"
-    static let donePlaceholder = "A draft MR per ticket"
-
+    static let reviewHelp = "Who reviews each task, what counts as passing, and how many rounds of fixes it gets before it comes to you. Type / for skills. Optional: left empty, a task is accepted without a review."
+    static let endLabel = "Each task ends at"
+    static let closingLabel = "When the broadcast ends"
+    static let closeLabel = "Close finished tasks’ tabs and remove their worktrees"
+    static let deleteBranchLabel = "Delete their local branches once merged into the default branch"
+    static let goalLabel = "Goal"
+    static let goalPlaceholder = "Every ticket is merged and its work is released"
+    static let extraRoundsLabel = "Extra rounds"
+    /// What an emptied extra-rounds field counts as, and shows.
+    static let extraRoundsPlaceholder = String(defaultExtraRounds)
+    /// A goal's own default (`BroadcastGoal`).
+    private static let defaultExtraRounds = BroadcastGoal(text: "").extraRounds
 
     /// `readiness` is what Start waits for as it stands; `checkReadiness` reads it, for as long as the
-    /// sheet is open. A test or a snapshot that leaves them out is ready at once.
+    /// sheet is open. A test or a snapshot that leaves them out is ready at once. `hasCodeHost` says whether a project's
+    /// origin is on a code host AiTerm is connected to; left out, every project's is, with nothing to wait for.
     init(projects: [Project], context: NewBroadcastContext,
          skills: @escaping @Sendable (AgentKind, String?) -> [AgentCompletion] = { SkillCatalog.discover(agent: $0, projectPath: $1) },
          files: @escaping @Sendable (String) -> FileIndex = { _ in .empty },
@@ -118,6 +159,7 @@ final class NewBroadcastModel: Identifiable {
          canChangeWorkspace: @escaping @MainActor () -> Bool = { true },
          readiness: @escaping @MainActor () -> BroadcastReadiness = { .ready },
          checkReadiness: @escaping @MainActor () async -> Void = {},
+         hasCodeHost: (@Sendable (Project) async -> Bool)? = nil,
          start: @escaping @MainActor (Request) async throws -> UUID) {
         offeredProjects = projects
         linkedJiraProjects = projects.flatMap(\.jiraProjects).linkedOnce
@@ -125,27 +167,12 @@ final class NewBroadcastModel: Identifiable {
         self.canChangeWorkspace = canChangeWorkspace
         readinessSource = readiness
         prepareReadiness = checkReadiness
+        self.hasCodeHost = hasCodeHost
         self.context = context
+        agentRows = Self.seededRows(context).map { AgentRow(choice: $0) }
         self.skills = skills
         self.files = files
         startBroadcast = start
-    }
-
-    // -- the help the slices decide -----------------------------------------------------
-
-    /// Plain text naming Settings › Operator: an agent review needs no switch, people need Review.
-    var reviewHelp: String {
-        slices.review
-            ? "Who reviews each task and how. Optional. An agent review (“an adversarial review with /code-review”) needs no switch; involving people needs Review, which is on in Settings › Operator."
-            : "Who reviews each task and how. Optional. An agent review needs no switch. Review is off in Settings › Operator, so the Operator won’t involve people: those tasks stop at their draft MR."
-    }
-
-    /// Plain text naming Settings › Operator: with Merge off a task ends at a commit or a draft MR. Only with Merge
-    /// on does the Oracle weigh an agent review before merging, so only then does the help say so.
-    var doneHelp: String {
-        slices.merge
-            ? "Where each task ends: a commit, a draft MR, or merged and when. Write a condition per MR: “each MR merges once approved with all threads resolved; the run is done when every MR is merged”. Before a merge, the Oracle checks what the Review asks of an agent review against the review of the accepted commit. Optional: left empty, each task ends at a draft MR."
-            : "Where each task ends. Optional: left empty, each task ends at a draft MR. Merge is off in Settings › Operator: each task ends at a commit or a draft MR, and a merge you ask for is left for you."
     }
 
     // -- step 1 ---------------------------------------------------------------------
@@ -235,6 +262,148 @@ final class NewBroadcastModel: Identifiable {
         return named.filter { $0.name.lowercased().hasPrefix(q) } + named.filter { !$0.name.lowercased().hasPrefix(q) }
     }
 
+    // -- step 3: agents ---------------------------------------------------------------
+
+    /// One row of the Agents step, kept apart from its combination so it stays put while that is picked.
+    struct AgentRow: Identifiable, Equatable {
+        let id = UUID()
+        var choice: AgentChoice
+    }
+
+    /// The last broadcast's rows less those whose agent is no longer installed or whose model is no longer listed, each at
+    /// a reasoning its model offers, alike rows once; with none of them, each installed agent at its Settings › Agents
+    /// default.
+    private static func seededRows(_ context: NewBroadcastContext) -> [AgentChoice] {
+        let kept = context.lastAgents.compactMap { row in
+            context.models[row.agent]?.first { $0.id == row.model }.map { picked(row, model: $0) }
+        }
+        return kept.isEmpty ? ModelChoice.pair.compactMap { context.defaults[$0] } : once(kept)
+    }
+
+    /// `row` on `model`, at its reasoning while `model` offers it, else `model`'s default (`ModelPreference.select`).
+    private static func picked(_ row: AgentChoice, model: AgentModel) -> AgentChoice {
+        var preference = ModelPreference(model: row.model, reasoning: row.reasoning)
+        preference.select(model)
+        return AgentChoice(agent: row.agent, model: preference.model, reasoning: preference.reasoning)
+    }
+
+    private static func once(_ rows: [AgentChoice]) -> [AgentChoice] {
+        var seen = Set<AgentChoice>()
+        return rows.filter { seen.insert($0).inserted }
+    }
+
+    /// The agents a row may run: those installed with a default, Claude first.
+    var offeredAgents: [AgentKind] { ModelChoice.pair.filter { context.defaults[$0] != nil } }
+
+    /// `agent`'s own models, as Settings › Agents lists them.
+    func models(for agent: AgentKind) -> [AgentModel] { context.models[agent] ?? [] }
+
+    /// The rows Start hands over: each combination once, in the order first given.
+    var agents: [AgentChoice] { Self.once(agentRows.map(\.choice)) }
+
+    /// Adds the first offered agent that has no row yet, else the first offered, at its Settings › Agents default.
+    func addAgent() {
+        let listed = Set(agentRows.map(\.choice.agent))
+        guard let agent = offeredAgents.first(where: { !listed.contains($0) }) ?? offeredAgents.first,
+              let choice = context.defaults[agent] else { return }
+        agentRows.append(AgentRow(choice: choice))
+    }
+
+    func removeAgent(_ row: AgentRow.ID) { agentRows.removeAll { $0.id == row } }
+
+    /// The row on `agent`, at its Settings › Agents default. The agent it already runs keeps its model and reasoning: a
+    /// popup reports picking its selected item again.
+    func setAgent(_ agent: AgentKind, of row: AgentRow.ID) {
+        guard agentRows.first(where: { $0.id == row })?.choice.agent != agent, let choice = context.defaults[agent] else { return }
+        update(row) { $0 = choice }
+    }
+
+    func setModel(_ model: AgentModel, of row: AgentRow.ID) { update(row) { $0 = Self.picked($0, model: model) } }
+
+    func setReasoning(_ reasoning: String?, of row: AgentRow.ID) { update(row) { $0.reasoning = reasoning } }
+
+    private func update(_ row: AgentRow.ID, _ change: (inout AgentChoice) -> Void) {
+        guard let index = agentRows.firstIndex(where: { $0.id == row }) else { return }
+        change(&agentRows[index].choice)
+    }
+
+    // -- step 4: task -------------------------------------------------------------------
+
+    /// An end as its segment reads: its name, capitalised.
+    static func title(of end: TaskEnd) -> String { end.displayName.prefix(1).uppercased() + end.displayName.dropFirst() }
+
+    /// Merge and Local merge only with the Merge slice on; Draft MR and Merge only while every chosen project has a
+    /// connected code host.
+    func canPick(_ end: TaskEnd) -> Bool {
+        (!end.merges || slices.merge) && (!end.needsCodeHost || projectsWithoutCodeHost.isEmpty)
+    }
+
+    func pick(end: TaskEnd) { if canPick(end) { pickedEnd = end } }
+
+    /// Every task's end as it starts, the one Start hands over: the end picked while it can be picked, else Commit.
+    var end: TaskEnd { canPick(pickedEnd) ? pickedEnd : .commit }
+
+    /// Plain text saying why an end is dimmed, Settings › Operator's Merge slice or the projects with no connected code
+    /// host, and the ends left: “… Merge is off in Settings › Operator, so a task ends at a commit or a draft MR.” An end
+    /// picked that is dimmed since is said to have moved to Commit.
+    var endHelp: String {
+        let lead = "Where every task’s work ends."
+        var reasons: [String] = []
+        if !slices.merge { reasons.append("Merge is off in Settings › Operator") }
+        if let last = projectsWithoutCodeHost.last {
+            let names = projectsWithoutCodeHost.dropLast().map(\.name)
+            let listed = names.isEmpty ? last.name : names.joined(separator: ", ") + " and " + last.name
+            reasons.append(listed + (names.isEmpty ? " has" : " have") + " no connected code host")
+        }
+        guard !reasons.isEmpty else { return lead }
+        let ends = TaskEnd.allCases.filter(canPick).map { "a " + $0.displayName }
+        let help = "\(lead) \(reasons.joined(separator: " and ")), so a task ends at \(ends.joined(separator: " or "))."
+        return end == pickedEnd ? help : "\(help) \(Self.title(of: pickedEnd)) moved to \(Self.title(of: end))."
+    }
+
+    /// Checks each chosen project for a connected code host, as the chosen ones change.
+    func loadCodeHosts() async {
+        guard let hasCodeHost else { return }
+        let chosen = projects
+        var without: [Project] = []
+        for project in chosen {
+            if await !hasCodeHost(project) { without.append(project) }
+        }
+        guard !Task.isCancelled else { return }
+        received(withoutCodeHost: without)
+        codeHostsChecked = chosen.map(\.id)
+    }
+
+    /// Whether the chosen projects' code hosts are known: checked as they stand, or not checked at all.
+    private var codeHostsKnown: Bool { hasCodeHost == nil || codeHostsChecked == projects.map(\.id) }
+
+    /// The projects a check found with no connected code host; the snapshots hand them in directly.
+    func received(withoutCodeHost projects: [Project]) { projectsWithoutCodeHost = projects }
+
+    /// A branch is deleted only by closing its task.
+    var canDeleteMergedBranch: Bool { closeWhenDone }
+
+    // -- step 5: done -------------------------------------------------------------------
+
+    /// A goal is checked with the Oracle, so it needs the Oracle on.
+    var goalIsAvailable: Bool { context.oracleIsOn }
+
+    var goalHelp: String {
+        goalIsAvailable
+            ? "What must be true once every task is done. The Operator checks it with the Oracle. Optional: left empty, the broadcast ends when its tasks do."
+            : "The Oracle is off in Settings › Operator, and a goal needs it: the broadcast ends when its tasks do."
+    }
+
+    /// None while the Oracle is off: the goal's help says it for both.
+    var extraRoundsHelp: String? {
+        goalIsAvailable
+            ? "How many times the Operator may plan what the goal still misses, once every task is done. When they are used up, it stops and says what is left."
+            : nil
+    }
+
+    /// The extra rounds typed, the default when none are.
+    var extraRounds: Int { Int(extraRoundsText) ?? Self.defaultExtraRounds }
+
     // -- moving on and starting -----------------------------------------------------
 
     private static func said(_ text: String) -> String? {
@@ -242,12 +411,14 @@ final class NewBroadcastModel: Identifiable {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    /// Step 1 needs a project; every later step a prompt too. Review and Done may be left empty. Start
-    /// Broadcast also waits for everything the broadcast needs to be ready (`readiness`); Continue never does.
+    /// Step 1 needs a project; every later step a prompt too, and from the Agents step on a row. The review and the goal
+    /// may be left empty. Start Broadcast also waits for everything the broadcast needs to be ready (`readiness`), and
+    /// for the chosen projects' code hosts to be checked; Continue never does.
     func canAdvance(step: Int) -> Bool {
         guard !starting, canChangeWorkspace(), !projects.isEmpty else { return false }
         guard step == 1 || Self.said(prompt) != nil else { return false }
-        return step < CreationSteps.broadcast.count || readiness == .ready
+        if let agentsStep = CreationSteps.broadcast.agentsListStep, step >= agentsStep, agentRows.isEmpty { return false }
+        return step < CreationSteps.broadcast.count || (readiness == .ready && codeHostsKnown)
     }
 
     var canStart: Bool { canAdvance(step: CreationSteps.broadcast.count) }
@@ -267,9 +438,11 @@ final class NewBroadcastModel: Identifiable {
         starting = true
         defer { starting = false }
         error = nil
+        let taskSettings = TaskSettings(review: Self.said(review), end: end, closeWhenDone: closeWhenDone,
+                                        deleteMergedBranch: deleteMergedBranch)
+        let goal = goalIsAvailable ? Self.said(done).map { BroadcastGoal(text: $0, extraRounds: extraRounds) } : nil
         let request = Request(name: Self.said(name), jiraProjectKeys: jiraProjects.map(\.key), projectIds: projects.map(\.id),
-                              prompt: prompt, review: Self.said(review), done: Self.said(done),
-                              agents: [], taskSettings: nil, goal: nil)
+                              prompt: prompt, review: nil, done: nil, agents: agents, taskSettings: taskSettings, goal: goal)
         do { return try await startBroadcast(request) }
         catch { self.error = CreationFailure(reason: OperationIssue.reason(of: error), detail: nil); return nil }
     }

@@ -42,6 +42,14 @@ struct InputTests {
         #expect(field.frame.height < 20)
     }
 
+    /// `.disabled(true)` around an `Input` has to reach the AppKit field, or it can still be typed in.
+    @Test(arguments: [false, true]) func aDisabledInputCannotBeEdited(disabled: Bool) throws {
+        let (window, host) = Self.host(Input(placeholder: "2", text: .constant("3")).frame(width: 120).disabled(disabled))
+        defer { window.orderOut(nil) }
+        let field = try #require(host.firstDescendant(NSTextField.self))
+        #expect(field.isEnabled == !disabled)
+    }
+
     /// What is typed reaches the caller, and what the caller sets reaches the field — a token
     /// field included, which is AppKit's secure field.
     @Test(arguments: [false, true]) func typingAndTheCallersTextMeetInTheField(secure: Bool) throws {

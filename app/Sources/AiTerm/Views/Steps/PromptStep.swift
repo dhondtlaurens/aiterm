@@ -5,7 +5,8 @@ import AiTermCore
 /// Step 3 of New Task and New Review, and New Broadcast's Prompt, Review and Done: one `PromptEditor`
 /// at `editorHeight` under its label, its placeholder while empty, and `CompletionHint` under it, or
 /// the step's own `help` (New Broadcast's, which says what `/` and `@` open itself where it needs to).
-/// `extra` is New Task's "Include Jira ticket details" checkbox; the others pass nothing.
+/// `extra` is New Task's "Include Jira ticket details" checkbox; the others pass nothing. Disabled, its editor alone is
+/// dimmed, as New Broadcast's Done step draws its goal with the Oracle off.
 struct PromptStep<Extra: View>: View {
     /// Made as the step draws rather than as the sheet builds it: a `Binding` reads its value when
     /// it is made, and a sheet that read the prompt would be redrawn whole on every keystroke.
@@ -16,6 +17,7 @@ struct PromptStep<Extra: View>: View {
     let placeholder: String?
     let help: String?
     let extra: () -> Extra
+    @Environment(\.isEnabled) private var isEnabled
     private var _editorFocused = State(initialValue: false)
     private var editorFocused: Bool {
         get { _editorFocused.wrappedValue }
@@ -46,6 +48,7 @@ struct PromptStep<Extra: View>: View {
                         .fieldBox(focused: editorFocused)
                     PromptPlaceholder(text: text, placeholder: placeholder)
                 }
+                .opacity(isEnabled ? 1 : Opacity.disabled)
                 .overlay(alignment: .topLeading) {
                     CompletionPopup(completions: completions,
                                     width: Sheet.width - 2 * Space.margin - Self.completionPopupTrim)

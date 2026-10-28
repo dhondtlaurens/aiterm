@@ -67,7 +67,7 @@ import Testing
     private func sheet(_ readiness: @escaping @MainActor () -> BroadcastReadiness) -> NewBroadcastModel {
         let webshop = Project(id: UUID(), name: "webshop", path: "/tmp/webshop", provider: .gitlab, remoteUrl: nil, addedAt: Date(),
                               collapsed: false, jiraProjects: [])
-        let model = NewBroadcastModel(projects: [webshop], context: NewBroadcastContext(slices: .none), readiness: readiness, start: { _ in UUID() })
+        let model = NewBroadcastModel(projects: [webshop], context: .installed(), readiness: readiness, start: { _ in UUID() })
         model.add(project: webshop)
         model.prompt = "Implement PAY-230"
         return model
@@ -76,11 +76,11 @@ import Testing
     @Test func startWaitsForEveryPiece() async {
         var now = BroadcastReadiness.checking
         let model = sheet { now }
-        #expect(model.canAdvance(step: 1) && model.canAdvance(step: 3), "Continue never waits")
+        #expect(model.canAdvance(step: 1) && model.canAdvance(step: 4), "Continue never waits")
         #expect(!model.canStart, "still checking")
         #expect(model.notReadyLines.isEmpty)
         now = .notReady(["Claude Code: Messaging not checked for 2.1", "iTerm2 checks not run"])
-        #expect(!model.canStart && !model.canAdvance(step: 4))
+        #expect(!model.canStart && !model.canAdvance(step: 5))
         #expect(model.notReadyLines == ["Claude Code: Messaging not checked for 2.1", "iTerm2 checks not run"])
         #expect(await model.start() == nil)
         now = .ready
