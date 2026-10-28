@@ -553,7 +553,7 @@ final class AppController {
         case .project(let id): state.project(id: id)
         case .task(let id): state.task(id: id).flatMap { state.project(id: $0.projectId) }
         case .terminal(let id): state.terminal(id: id).flatMap { state.project(id: $0.projectId) }
-        case .broadcast, .operation, nil: nil
+        case .operation, nil: nil
         }
     }
 
@@ -591,11 +591,6 @@ final class AppController {
                 // inside SwiftUI's key handler.
                 RunLoop.main.perform { MainActor.assumeIsolated { self.openRowMenu(project.id) } }
             }
-            return nil
-        }
-        // The broadcast's header folds, as its click does; its board is its button's and its menu's.
-        if let id = focus.selectedBroadcastId {
-            toggleFolded(run: id)
             return nil
         }
         // A task's row, as its click chooses it: a driven one brings the tab that asks.

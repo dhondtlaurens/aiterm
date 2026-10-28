@@ -70,7 +70,7 @@ extension AppController {
                                                              projectIds: request.projectIds, prompt: request.prompt,
                                                              review: request.review, done: request.done, agents: request.agents,
                                                              taskSettings: request.taskSettings, goal: request.goal)
-                self?.focus.browse(.broadcast(id))
+                self?.focus.browse(.operation(id))
                 return id
             }
         }
@@ -187,28 +187,35 @@ extension AppController {
         presentBoard(run: id)
     }
 
-    /// The folded header's amber chip (or ↩ on it): the group opens and its first row that needs you is
-    /// selected, its window shown as the arrows show one.
+    /// The folded OPERATOR heading's amber chip: the Operator's section opens, folding the projects, and its first
+    /// row that needs you is selected, its window shown as the arrows show one.
     @discardableResult
     func openAttention(of id: UUID) -> Task<Void, Never>? {
         guard let section = rows.broadcast, section.id == id, let first = section.firstNeedingAttention else { return nil }
-        unfold(run: id)
+        reveal(RowSelection(first))
         return focus.peek(RowSelection(first), force: true)
     }
 
-    /// A project header's broadcast badge: the group opens and the first of the project's tasks the
-    /// Operator holds is selected, its window shown as the arrows show one.
+    /// The folded PROJECTS heading's amber chip: the projects open, folding the Operator's section, and their first
+    /// row that needs you is selected, its window shown as the arrows show one.
     @discardableResult
-    func showOperatorTasks(of project: Project) -> Task<Void, Never>? {
-        guard let run = state.activeRun,
-              let first = state.tasks(inRun: run.id).first(where: { $0.projectId == project.id }) else { return nil }
-        unfold(run: run.id)
-        return focus.peek(.task(first.id), force: true)
+    func openProjectsAttention() -> Task<Void, Never>? {
+        guard let first = rows.projectsNeedingAttention.first else { return nil }
+        reveal(RowSelection(first))
+        return focus.peek(RowSelection(first), force: true)
     }
 
-    /// Opens the group, if it is folded.
-    private func unfold(run id: UUID) {
-        if state.foldedRuns.contains(id) { toggleFolded(run: id) }
+    /// While a broadcast runs, the Operator's section and the projects fold into each other: a row selected from away
+    /// from the list — a notification, Focus View, an amber chip — in the folded one opens it, folding the other.
+    func reveal(_ row: RowSelection) {
+        guard let run = state.activeRun else { return }
+        let folded = state.foldedRuns.contains(run.id)
+        let inBroadcast = switch row {
+        case .operation(let id): id == run.id
+        case .task(let id): state.task(id: id)?.operated?.runId == run.id
+        case .project, .terminal: false
+        }
+        if inBroadcast == folded { toggleFolded(run: run.id) }
     }
 
     /// Rename…: the `NameSheet`, on the broadcast's name.

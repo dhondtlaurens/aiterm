@@ -13,9 +13,10 @@ import AiTermCore
 /// - quiet, and ended: no box, the words in the surface's secondary ink (an ended row's check is its
 ///   trailing mark's, `TaskRowMark`, never the line's);
 /// - acting: no box, the words in the surface's ink. New words decode once (P3, decision 3, 21 Oct 2026):
-///   each character runs through glyphs and they settle from the left over `decodeDuration`, then stand
-///   still; the row's spinner carries the ongoing motion (`DecodeWordsView`, its own view, so the row is not
-///   redrawn per frame). At once under Reduce Motion and in the snapshots;
+///   each character runs through the Matrix's katakana, green and glowing, and they settle from the left into the
+///   ink over `decodeDuration`, then stand still (28 Oct 2026: the OPERATOR heading's decode, everywhere); the
+///   row's spinner carries the ongoing motion (`DecodeWordsView`, its own view, so the row is not redrawn per
+///   frame). At once under Reduce Motion and in the snapshots;
 /// - needs you: the attention chip's pair (`Palette.statusChipAttentionFill` and `Stroke`) with the words
 ///   in `Palette.text`, never amber; on `Surface.accent` the surface's `badgeWash` and ink, the amber left
 ///   to the row's `StatusMark`, since an amber wash on the selection's blue reads as mud.
@@ -118,12 +119,16 @@ extension OperatorBadge {
 }
 #endif
 
-/// The decoding words: drawn by `DecodeWordsView`, which runs its frames itself.
-private struct DecodeWords: NSViewRepresentable {
+/// The decoding words: drawn by `DecodeWordsView`, which runs its frames itself. `kerning` is the words' own
+/// tracking (the OPERATOR heading's); `decodesFirst` false shows the first words as they are, so a heading that
+/// appears does not decode its own name.
+struct DecodeWords: NSViewRepresentable {
     let text: String
     let font: NSFont
     let ink: Color
     let duration: Double
+    var kerning: CGFloat = 0
+    var decodesFirst = true
 
     func makeNSView(context: Context) -> DecodeWordsView { DecodeWordsView() }
 
@@ -131,27 +136,37 @@ private struct DecodeWords: NSViewRepresentable {
         #if DEBUG
         OperatorBadge.decodeUpdates += 1
         #endif
-        view.configure(text: text, font: font, ink: NSColor(ink), duration: duration)
+        view.configure(text: text, font: font, ink: NSColor(ink), duration: duration, kerning: kerning, decodesFirst: decodesFirst)
     }
 }
 
-/// Acting words that decode once when they change: each letter and digit runs through `glyphs` and the words
-/// settle from the left over `duration`, a frame every `1 / frameRate` s, then stand still; spaces and
-/// separators stay put. In the monospaced face every glyph is one advance wide, so the line never changes its
-/// width. A `CATextLayer`, layer-hosting, so AppKit leaves its layer to it; it passes every click through to
-/// its row. Its clock is `now`, Core Animation's media time unless a test drives it, each frame drawn by `tick`.
+/// Words that decode once when they change: each letter and digit runs through `glyphs`, the Matrix's
+/// half-width katakana and its digits and signs, in `Palette.green` with a glow, and the words settle from the left
+/// into their ink over `duration`, a frame every `1 / frameRate` s, then stand still; spaces and separators stay put.
+/// The words layer always draws the real characters, clear where a glyph stands, so the words never change their
+/// width, in the mono face or the heading's; each glyph is kerned to stand where its character does (`painted`).
+/// Two `CATextLayer`s, layer-hosting, so AppKit leaves its layer to it: the words, and over
+/// them the unsettled glyphs alone, whose layer's shadow is the glow, so a settled letter never glows. It passes
+/// every click through to its row. Its clock is `now`, Core Animation's media time unless a test drives it, each
+/// frame drawn by `tick`.
 final class DecodeWordsView: NSView {
     /// What a character runs through while it decodes.
-    static let glyphs = Array("0123456789abcdefghijklmnopqrstuvwxyz")
+    static let glyphs = Array("ｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ0123456789Z:・.=*+-<>¦")
     static let frameRate = 30.0
+    /// The glow's blur radius around a green glyph, in points: an optical effect on one element, so a shadow,
+    /// untokenised as every shadow is.
+    static let glowRadius: CGFloat = 3
+    static let glowOpacity: Float = 0.7
     let words = CATextLayer()
+    /// The unsettled glyphs, green, with the glow as the layer's shadow.
+    let glow = CATextLayer()
     /// The decode's clock, in seconds.
     var now: () -> CFTimeInterval = CACurrentMediaTime
     /// What it draws now: a frame of the decode, or the words once settled.
     private(set) var shown = ""
     /// Frames drawn since it was made, which a test reads to show the decode stops.
     private(set) var frames = 0
-    private var text = "", font: NSFont?, inkColor = NSColor.clear
+    private var text = "", font: NSFont?, inkColor = NSColor.clear, kerning: CGFloat = 0
     private var duration: CFTimeInterval = OperatorBadge.decodeDuration
     /// When the running decode began; nil once it settled.
     private var began: CFTimeInterval?
@@ -163,10 +178,18 @@ final class DecodeWordsView: NSView {
         super.init(frame: .zero)
         layer = CALayer()
         wantsLayer = true
-        words.isWrapped = false
-        words.truncationMode = .end
-        words.alignmentMode = .left
-        layer?.addSublayer(words)
+        for text in [words, glow] {
+            text.isWrapped = false
+            text.truncationMode = .end
+            text.alignmentMode = .left
+            layer?.addSublayer(text)
+        }
+        // A glyph a hair past the edge is clipped, never cut with a green ellipsis.
+        glow.truncationMode = .none
+        glow.masksToBounds = false
+        glow.shadowOffset = .zero
+        glow.shadowRadius = Self.glowRadius
+        glow.shadowOpacity = Self.glowOpacity
     }
 
     @available(*, unavailable)
@@ -174,12 +197,13 @@ final class DecodeWordsView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    /// New words start a decode; the same words in another ink or face are only redrawn.
-    func configure(text: String, font: NSFont, ink: NSColor, duration: Double) {
-        let changed = text != self.text
-        guard changed || font != self.font || ink != inkColor || duration != self.duration else { return }
-        self.text = text; self.font = font; inkColor = ink; self.duration = duration
-        if changed { start() } else { paint() }
+    /// New words start a decode — the first ones too, unless `decodesFirst` is false; the same words in another ink
+    /// or face are only redrawn.
+    func configure(text: String, font: NSFont, ink: NSColor, duration: Double, kerning: CGFloat = 0, decodesFirst: Bool = true) {
+        let changed = text != self.text, first = self.font == nil
+        guard changed || font != self.font || ink != inkColor || duration != self.duration || kerning != self.kerning else { return }
+        self.text = text; self.font = font; inkColor = ink; self.duration = duration; self.kerning = kerning
+        if changed && (decodesFirst || !first) { start() } else { if !isDecoding { shown = text }; paint() }
     }
 
     /// The decode's frame at `now`: the next frame while it runs, the words and the end of it once its time is up.
@@ -234,7 +258,7 @@ final class DecodeWordsView: NSView {
 
     override func layout() {
         super.layout()
-        unanimated { words.frame = bounds }
+        unanimated { words.frame = bounds; glow.frame = bounds }
     }
 
     override func viewDidMoveToWindow() {
@@ -254,14 +278,39 @@ final class DecodeWordsView: NSView {
 
     private func rescale() {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        unanimated { words.contentsScale = scale }
+        unanimated { words.contentsScale = scale; glow.contentsScale = scale }
+    }
+
+    /// `shown` against its `text`, as the two layers draw it: the words, always the real characters, in `ink` where
+    /// settled and clear where a glyph stands, so the line is exactly as wide as its words in every frame; and over
+    /// them the glyphs alone, in `glowInk`, each kerned by the difference between its advance and its character's so
+    /// it stands where that character does, the settled characters clear.
+    static func painted(_ shown: String, text: String, font: NSFont, kerning: CGFloat = 0, ink: NSColor,
+                        glowInk: NSColor) -> (words: NSAttributedString, glow: NSAttributedString) {
+        func advance(_ character: Character) -> CGFloat {
+            NSAttributedString(string: String(character), attributes: [.font: font]).size().width
+        }
+        let words = NSMutableAttributedString(), glow = NSMutableAttributedString()
+        for (glyph, real) in zip(shown, text) {
+            let unsettled = glyph != real
+            words.append(NSAttributedString(string: String(real), attributes: [.font: font, .kern: kerning,
+                                                                               .foregroundColor: unsettled ? NSColor.clear : ink]))
+            glow.append(NSAttributedString(string: String(glyph), attributes: [
+                .font: font, .kern: kerning + (unsettled ? advance(real) - advance(glyph) : 0),
+                .foregroundColor: unsettled ? glowInk : NSColor.clear]))
+        }
+        return (words, glow)
     }
 
     private func paint() {
         guard let font else { return }
         unanimated {
             effectiveAppearance.performAsCurrentDrawingAppearance {
-                words.string = NSAttributedString(string: shown, attributes: [.font: font, .foregroundColor: inkColor])
+                let green = NSColor(Palette.green)
+                let painted = Self.painted(shown, text: text, font: font, kerning: kerning, ink: inkColor, glowInk: green)
+                words.string = painted.words
+                glow.string = painted.glow
+                glow.shadowColor = green.cgColor
             }
         }
     }

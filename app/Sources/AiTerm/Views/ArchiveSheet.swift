@@ -144,7 +144,7 @@ struct ShelvedBroadcastRow: View {
 
     var body: some View {
         HStack(spacing: Space.inset) {
-            ProviderIcon(.symbol(BroadcastHeaderRow.glyph))
+            ProviderIcon(.symbol(OperatorHeading.glyph))
             HStack(alignment: .firstTextBaseline, spacing: Space.tight) {
                 RowTitle(broadcast.name)
                 Spacer(minLength: Space.tight)

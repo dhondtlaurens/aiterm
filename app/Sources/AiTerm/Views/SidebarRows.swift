@@ -41,15 +41,39 @@ struct AddMenu<Items: View>: View {
     }
 }
 
-/// `PROJECTS`, and the menu that adds a project or a divider.
+/// `PROJECTS`, and the menu that adds a project or a divider. While a broadcast exists it folds into the OPERATOR
+/// heading and back (`OperatorHeading`): its click switches, its chevron shows folded and, open, under the pointer,
+/// and folded it says what needs you among the projects once, as an amber count, whose click opens them at the first.
 struct SidebarHeader: View {
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
+    @State private var hovering = false
 
     var body: some View {
-        HStack {
-            SidebarHeading("Projects")
-            Spacer()
+        let rows = controller.rows, folds = rows.broadcast != nil && controller.canChangeWorkspace
+        HStack(spacing: scale(Space.base)) {
+            HStack(spacing: scale(Space.base)) {
+                SidebarHeading("Projects")
+                Spacer(minLength: scale(Space.tight))
+                if let broadcast = rows.broadcast {
+                    let attention = rows.projectsNeedingAttention.count
+                    if rows.projectsFolded, attention > 0 {
+                        Button { controller.openProjectsAttention() } label: {
+                            StatusCountChips(counts: [StatusCount(status: .needsInput, count: attention)])
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    SectionFoldChevron(folded: !broadcast.folded, hovering: hovering)
+                }
+            }
+            .contentShape(Rectangle())
+            .gesture(TapGesture().onEnded { if let id = rows.broadcast?.id { controller.toggleFolded(run: id) } },
+                     including: folds ? .all : .subviews)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Projects")
+            .accessibilityValue(rows.projectsFolded ? "folded" : "")
+            .accessibilityAddTraits(folds ? .isButton : [])
+            .modifier(DefaultAccessibilityAction(enabled: folds) { if let id = rows.broadcast?.id { controller.toggleFolded(run: id) } })
             AddMenu(help: "Add project or divider", enabled: controller.canChangeWorkspace) {
                 Button("Add Project…") { Task { await controller.addProject() } }
                 Button("Add Divider…") { controller.presentNewDivider() }
@@ -57,6 +81,7 @@ struct SidebarHeader: View {
         }
         .frame(height: scale(Size.menuRow)).padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
         .padding(.top, scale(Space.base)).padding(.bottom, scale(Space.tight))
+        .onHover { hovering = $0 }
     }
 }
 
@@ -118,13 +143,6 @@ struct ProjectHeaderRow: View {
                             controller.presentJiraProjects(for: project)
                         }
                     }
-                    // The tasks the broadcast holds, drawn under it: a click opens its group at the first.
-                    if let held = ProjectOperatorBadge(section: section) {
-                        Badge(held.label, icon: .symbol(BroadcastHeaderRow.glyph), help: held.help, style: .quiet,
-                              accessibilityLabel: held.accessibilityLabel) {
-                            controller.showOperatorTasks(of: project)
-                        }
-                    }
                 }
                 Spacer(minLength: scale(Space.tight))
                 // Only when collapsed: expanded, the task and terminal rows say all of this and more, and a
@@ -146,7 +164,6 @@ struct ProjectHeaderRow: View {
         }
         .frame(height: scale(Size.projectRow)).padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
         .modifier(RowPill(selected: selected))
-        .help(section.operatorHelp ?? "")
         // ↩ on an empty header opens this menu, which it has in place of a fold.
         .background(RowMenuAnchor(id: project.id))
         .contextMenu {
@@ -308,7 +325,7 @@ struct HeaderTitle: View {
 
 /// A default accessibility action that is there only while `enabled`: unlike a menu item, an action
 /// cannot be greyed, only left out.
-private struct DefaultAccessibilityAction: ViewModifier {
+struct DefaultAccessibilityAction: ViewModifier {
     let enabled: Bool
     let action: () -> Void
 
@@ -650,25 +667,6 @@ struct ProjectJiraBadge: Equatable {
         items = jira.map { .init(title: "\($0.key) · \($0.name)", url: $0.browseURL) }
         help = (["Jira"] + jira.map { "\($0.key) \($0.name)" }).joined(separator: " · ")
         accessibilityLabel = "\(jira.count) Jira \(jira.count == 1 ? "project" : "projects"): \(jira.map(\.key).sentenceList)"
-    }
-}
-
-/// The quiet badge a project header wears while the live broadcast holds some of its tasks, drawn under the
-/// broadcast and not here (decided 21 Oct 2026): the broadcast's glyph and how many. Its click opens the
-/// broadcast's group and selects the first of them. A value, so what it says is tested without rendering.
-struct ProjectOperatorBadge: Equatable {
-    let label: String
-    let help: String
-    let accessibilityLabel: String
-
-    /// The project's badge, or none while the broadcast holds none of its tasks.
-    init?(section: ProjectSection) {
-        let count = section.operatorTasks
-        guard count > 0 else { return nil }
-        let tasks = count == 1 ? "1 task" : "\(count) tasks"
-        label = "\(count)"
-        help = "\(tasks) with the Operator. Click to show \(count == 1 ? "it" : "them")."
-        accessibilityLabel = "\(tasks) with the Operator"
     }
 }
 

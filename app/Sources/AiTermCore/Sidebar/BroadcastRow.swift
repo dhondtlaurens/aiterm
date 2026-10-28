@@ -1,14 +1,16 @@
 import Foundation
 
-/// The broadcast's group under the OPERATOR heading (decided 21 Oct 2026): a header that folds as a project's
-/// does, the Operator's own row first under it, then every task the broadcast holds, moved out of its project,
-/// the queued ones last. Its own section of the sidebar, beside the projects' `entries`, and drawn above them.
+/// The broadcast's group under the OPERATOR heading (decided 21 Oct 2026; 28 Oct 2026 the heading took the header's
+/// progress and board, and the Operator's row the broadcast's name): the Operator's own row first, then every task the
+/// broadcast holds, moved out of its project, the queued ones last. Its own section of the sidebar, beside the
+/// projects' `entries`, drawn above them; it and the projects fold into each other, one open at a time.
 public struct BroadcastSection: Equatable, Identifiable, Sendable {
     public var header: BroadcastRow
     public var operatorRow: OperatorRow
     /// The broadcast's tasks in the plan's order, the queued ones (`TaskRow.queued`) last.
     public var tasks: [TaskRow]
-    /// Folded to its header, as you left it (`AppState.foldedRuns`).
+    /// The Operator's section folded to its heading and the projects open, as you left it (`AppState.foldedRuns`).
+    /// Open, the projects are folded to theirs.
     public var folded: Bool
 
     /// The run's: the header's id, and its tag in the list.
@@ -23,7 +25,7 @@ public struct BroadcastSection: Equatable, Identifiable, Sendable {
 
     public var needsAttention: Bool { !needingAttention.isEmpty }
 
-    /// The folded header's chips: what needs you, said once, as one amber count. Nothing else of what it hides.
+    /// The folded heading's chips: what needs you, said once, as one amber count. Nothing else of what it hides.
     public var attention: [StatusCount] {
         let count = needingAttention.count
         return count > 0 ? [StatusCount(status: .needsInput, count: count)] : []
@@ -33,32 +35,33 @@ public struct BroadcastSection: Equatable, Identifiable, Sendable {
     public var firstNeedingAttention: RowID? { needingAttention.first }
 }
 
-/// The broadcast's header, a value (spec §3, §13): its name, its progress, `2 of 8`, and `paused · 2 of 8`
-/// while paused, its projects in the tooltip with its whole status line, which the board's band says too.
+/// The broadcast as the OPERATOR heading and its lead row say it, a value (spec §3, §13): its name, its progress,
+/// `2 of 8`, and `paused · 2 of 8` while paused, its projects in the heading's tooltip with its whole status line,
+/// which the board's band says too.
 public struct BroadcastRow: Equatable, Identifiable, Sendable {
     /// The run's id.
     public var id: UUID
     public var title: String
     /// `2 of 8`, finished of planned; nil until the first plan is in Todo.
     public var progress: String?
-    /// Every project, as a sentence lists them: the header's tooltip.
+    /// Every project, as a sentence lists them: the heading's tooltip.
     public var projectsHelp: String
-    /// The broadcast's status line (`OperatorLine.broadcast`), as its board's band says it: the header's tooltip.
+    /// The broadcast's status line (`OperatorLine.broadcast`), as its board's band says it: the heading's tooltip.
     public var line: OperatorLine
     /// Paused by you, or its Operator's window closed: its menu offers Resume Broadcast.
     public var isPaused: Bool
     /// Every task done (`.complete`), its summary written or not: its menu offers neither Pause nor Resume.
     public var isDone: Bool
 
-    /// What the header says after its name: the progress, and `paused` before it while the broadcast is paused.
+    /// What the heading says after its word: the progress, and `paused` before it while the broadcast is paused.
     public var headerProgress: String? {
         guard isPaused else { return progress }
         return (["paused"] + [progress].compactMap { $0 }).joined(separator: " · ")
     }
 }
 
-/// The Operator's own row, first in the broadcast's group: a task row's grid, Claude's mark as its avatar, the
-/// title `Operator`, and a line and a mark from its own session alone: its act, what it does between turns,
+/// The Operator's own row, first in the broadcast's group and its lead: a task row's grid, Claude's mark as its
+/// avatar, the broadcast's name as its title, and a line and a mark from its own session alone: its act, what it does between turns,
 /// that it waits on you (a prompt in its tab, or a question of its own, whichever task it is about), or that its
 /// window is closed. Never a worker's request: those are the tasks' rows'. Its id is its own (`id(of:)`), so the list, which keys a row by one UUID, tells it from
 /// the header, which has the run's.
@@ -68,11 +71,10 @@ public struct OperatorRow: Equatable, Identifiable, Sendable {
     public var runId: UUID
     /// Claude Code, the only agent it runs on (spec §13).
     public var agent: SessionAgent
+    /// The broadcast's name, which the row leads with.
+    public var title: String
     public var line: OperatorLine
     public var status: TaskStatus
-
-    /// The title it is drawn with.
-    public static let title = "Operator"
 
     /// The row's id for the broadcast `run`: stable, and never the run's own.
     public static func id(of run: UUID) -> UUID {
@@ -99,7 +101,7 @@ public extension ProjectSection {
 }
 
 public extension AppState {
-    /// Folds or opens the broadcast's group, as `Project.collapsed` does a project's.
+    /// Folds the Operator's section and opens the projects, or the other way round, as `Project.collapsed` folds a project.
     mutating func setFolded(run id: UUID, _ folded: Bool) {
         if folded { foldedRuns.insert(id) } else { foldedRuns.remove(id) }
     }
@@ -174,7 +176,8 @@ public extension SidebarModel {
         case .ended: .done
         case .quiet: !background.isEmpty && !run.isPaused && run.state != .operatorOffline ? .background : .idle
         }
-        return OperatorRow(id: OperatorRow.id(of: run.id), runId: run.id, agent: AgentKind.claude.session, line: line, status: status)
+        return OperatorRow(id: OperatorRow.id(of: run.id), runId: run.id, agent: AgentKind.claude.session, title: run.name,
+                           line: line, status: status)
     }
 
     /// The Operator's tab: the first tab tagged with the run, by its place in the window.

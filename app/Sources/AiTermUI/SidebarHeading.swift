@@ -9,8 +9,9 @@ public struct SidebarHeading: View {
     private let title: String
 
     /// The tracking an uppercase run needs at this size to read as a word rather than a row of
-    /// capitals. An optical correction, not a size: it is not tokenised and does not scale.
-    private static let tracking: CGFloat = 0.45
+    /// capitals. An optical correction, not a size: it is not tokenised and does not scale. Public for
+    /// the one heading that draws its own words, OPERATOR's while it decodes, which must track alike.
+    public static let tracking: CGFloat = 0.45
 
     public init(_ title: String) { self.title = title }
 
