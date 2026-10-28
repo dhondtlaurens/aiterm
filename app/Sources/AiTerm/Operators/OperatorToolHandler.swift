@@ -12,6 +12,9 @@ enum ToolAnswer: Equatable, Sendable {
 struct ToolRefusal: Error, Equatable {
     let message: String
     init(_ message: String) { self.message = message }
+
+    /// Any tool of a broadcast that has ended.
+    static let ended = ToolRefusal("This broadcast has ended; its tools no longer act.")
 }
 
 /// One call's arguments, read with the error the operator needs when one is missing.
@@ -254,7 +257,7 @@ final class OperatorToolHandler {
         guard let id = UUID(uuidString: request.runId), let run = state.run(id: id) else {
             return (.error("This broadcast is no longer in AiTerm."), .refused)
         }
-        guard !run.hasEnded else { return (.error("This broadcast has ended; its tools no longer act."), .refused) }
+        guard !run.hasEnded else { return (.error(ToolRefusal.ended.message), .refused) }
         let call = ToolCall(tool: request.tool, arguments: request.arguments)
         let activity = activity(for: call, in: id)
         if let activity { onActing(activity, true) }
@@ -272,9 +275,7 @@ final class OperatorToolHandler {
             let acting = call.optionalString("challengeId").flatMap { actingChallenges.contains($0) ? $0 : nil }
             defer { if let acting { actingChallenges.remove(acting) } }
             guard let current = state.run(id: id) else { throw ToolRefusal("This broadcast is no longer in AiTerm.") }
-            guard !current.hasEnded else {
-                throw ToolRefusal("This broadcast has ended; its tools no longer act.")
-            }
+            guard !current.hasEnded else { throw ToolRefusal.ended }
             if Self.isMutating(call), current.state != run.state || current.intent != run.intent, current.isPaused {
                 try acceptsWork(current)
             }
@@ -344,7 +345,7 @@ final class OperatorToolHandler {
         case .markTask: return try await markTask(call, in: run)
         case .resumeTask: return try resumeTask(call, in: run)
         case .retryTask: return try retryTask(call, in: run)
-        case .recordReview: return try recordReview(call, in: run)
+        case .recordReview: return try await recordReview(call, in: run)
         case .checkGoal: return try checkGoal(call, in: run)
         case .reviewTask: return try await reviewTask(call, in: run)
         case .requestReview: return try await requestReview(call, in: run)

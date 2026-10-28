@@ -53,6 +53,38 @@ import Foundation
                 == "claude --model opus")
     }
 
+    @Test func reviewWorkersKeepTheirModelAndReadOnlyCapabilities() {
+        let claude = AgentCommand.workerWords(agent: .claude, model: "opus", reasoning: "high", readOnly: true)
+        #expect(claude == ["claude", "--model", "opus", "--effort", "high", "--disallowedTools"]
+            + AgentCommand.operatedClaudeDenials + AgentCommand.reviewClaudeDenials + ["--permission-mode", "auto"])
+        #expect(AgentCommand.workerWords(agent: .codex, model: "gpt-6-astra", reasoning: "medium", readOnly: true)
+            == ["codex", "--sandbox", "read-only", "--ask-for-approval", "never", "-m", "gpt-6-astra", "-c", "model_reasoning_effort=medium"])
+    }
+
+    @Test func aClaudeReviewTabWritesNeitherFilesNorGit() {
+        #expect(AgentCommand.reviewClaudeDenials == ["Edit", "Write", "NotebookEdit",
+            "Bash(git commit:*)", "Bash(git -C * commit:*)", "Bash(git * commit:*)",
+            "Bash(git checkout:*)", "Bash(git -C * checkout:*)", "Bash(git * checkout:*)",
+            "Bash(git switch:*)", "Bash(git -C * switch:*)", "Bash(git * switch:*)",
+            "Bash(git reset:*)", "Bash(git -C * reset:*)", "Bash(git * reset:*)",
+            "Bash(git rebase:*)", "Bash(git -C * rebase:*)", "Bash(git * rebase:*)",
+            "Bash(git merge:*)", "Bash(git -C * merge:*)", "Bash(git * merge:*)",
+            "Bash(git stash:*)", "Bash(git -C * stash:*)", "Bash(git * stash:*)",
+            "Bash(git add:*)", "Bash(git -C * add:*)", "Bash(git * add:*)"])
+        // git push is the worker's denial already, kept by every review tab.
+        for form in ["Bash(git push:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"] {
+            #expect(AgentCommand.operatedClaudeDenials.contains(form))
+        }
+    }
+
+    @Test func readOnlyDoesNotChangeAPersonsLaunch() throws {
+        for agent in [AgentKind.claude, .codex] {
+            #expect(try AgentCommand.build(agent: agent, model: "m", reasoning: nil, prompt: nil, worktreePath: wt,
+                                           git: .hermetic(), readOnly: true)
+                == AgentCommand.previewCommand(agent: agent, model: "m", reasoning: nil, prompt: nil))
+        }
+    }
+
     @Test func onlyClaudeAndCodexAreOfferedToAnOperator() {
         #expect(AgentCommand.operatedAgents == [.claude, .codex])
         #expect(AgentCommand.workerWords(agent: .pi, model: "anthropic/claude-sonnet", reasoning: nil) == ["pi", "--model", "anthropic/claude-sonnet"])

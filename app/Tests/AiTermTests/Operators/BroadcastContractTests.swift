@@ -67,12 +67,13 @@ import Testing
         #expect(OperatorProfileStore.lastAgents(preferences).isEmpty, "what can't be read is none")
     }
 
-    /// Both new tools change the run, so each is mutating; record_review, until built, refuses.
-    @Test func recordReviewAndCheckGoalAreMutatingAndRecordReviewIsRefusedUntilBuilt() async throws {
+    /// Both new tools change the run; recording a review is not challenged and must name a task in the run.
+    @Test func recordReviewAndCheckGoalAreMutating() async throws {
         #expect(OperatorToolHandler.mutating.isSuperset(of: [.recordReview, .checkGoal]))
+        #expect(!OperatorToolHandler.isChallenged(ToolCall(tool: "record_review", arguments: [:]), oracleIsOn: true))
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
-        #expect(await world.call(run.id, "record_review", ["task": "A"]).message == "record_review is not built yet.")
+        #expect(await world.call(run.id, "record_review", ["task": "A"]).message == "No task A in this broadcast.")
     }
 
     /// With the Oracle on, check_goal is its veto; while no goal check is due it costs no Oracle run.

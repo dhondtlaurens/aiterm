@@ -20,8 +20,8 @@ public enum AgentCommand {
     /// The invocation without its prompt argument — shared by `build` and `previewCommand` so the
     /// footer preview can never drift from the command that is actually run. Every word goes
     /// through `shellWord`: the model and reasoning come from catalogues the app does not write.
-    static func invocation(agent: AgentKind, model: String, reasoning: String?, operated: Bool = false) -> [String] {
-        let words = operated ? workerWords(agent: agent, model: model, reasoning: reasoning)
+    static func invocation(agent: AgentKind, model: String, reasoning: String?, operated: Bool = false, readOnly: Bool = false) -> [String] {
+        let words = operated ? workerWords(agent: agent, model: model, reasoning: reasoning, readOnly: readOnly)
             : agent.harness.launchWords(model: model, reasoning: reasoning)
         return words.map(shellWord)
     }
@@ -34,21 +34,35 @@ public enum AgentCommand {
     /// which `finish_task` does through the host when the plan's end says so (spec §4.3).
     public static let operatedClaudeDenials = ["AskUserQuestion", "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"]
 
+    /// What a Claude review tab may never do on top of `operatedClaudeDenials`, which deny its push already: write a
+    /// file, or write through git, so the commit it reviews is the one it reads. Each git command is denied in the
+    /// three forms the push is: plain, after `-C <dir>`, and after any other option.
+    public static let reviewClaudeDenials = ["Edit", "Write", "NotebookEdit"]
+        + ["commit", "checkout", "switch", "reset", "rebase", "merge", "stash", "add"].flatMap { command in
+            ["Bash(git \(command):*)", "Bash(git -C * \(command):*)", "Bash(git * \(command):*)"]
+        }
+
     /// A worker's launch words, unquoted, when the Operator drives its task: one profile for every
     /// broadcast, whatever the slices (spec §12's worker launch profile):
     ///
     /// - Claude: its usual words, then `--disallowedTools` with `operatedClaudeDenials`, then
     ///   `--permission-mode auto`. `--disallowedTools` takes any number of values, so it is never
-    ///   last: the prompt after `--permission-mode auto` would otherwise be read as one more tool.
-    /// - Codex: the same `--dangerously-bypass-approvals-and-sandbox` as a task you make.
+    ///   last: the prompt after `--permission-mode auto` would otherwise be read as one more tool. A review tab
+    ///   (`readOnly`) adds `reviewClaudeDenials`.
+    /// - Codex: the same `--dangerously-bypass-approvals-and-sandbox` as a task you make. A review tab launches
+    ///   read-only instead (`Harness.readOnlyArguments`).
     /// - PI is not offered to the Operator (`operatedAgents`) and launches as it always does.
-    public static func workerWords(agent: AgentKind, model: String, reasoning: String?) -> [String] {
-        let words = agent.harness.launchWords(model: model, reasoning: reasoning)
+    /// Neither review launch removes subagents or read-only shell commands.
+    public static func workerWords(agent: AgentKind, model: String, reasoning: String?, readOnly: Bool = false) -> [String] {
+        let harness = agent.harness
         switch agent {
         case .claude:
-            return words + ["--disallowedTools"] + operatedClaudeDenials + ["--permission-mode", "auto"]
+            let denials = operatedClaudeDenials + (readOnly ? reviewClaudeDenials : [])
+            return harness.launchWords(model: model, reasoning: reasoning) + ["--disallowedTools"] + denials + ["--permission-mode", "auto"]
+        case .codex where readOnly:
+            return harness.readOnlyLaunchWords(model: model, reasoning: reasoning) ?? harness.launchWords(model: model, reasoning: reasoning)
         case .codex, .pi:
-            return words
+            return harness.launchWords(model: model, reasoning: reasoning)
         }
     }
 
@@ -87,8 +101,8 @@ public enum AgentCommand {
     /// written to: an extra worker tab's own (`TabOpener`), so two agents started in one worktree never read
     /// each other's. It is typed into the command as it is, so it is a plain file name.
     public static func build(agent: AgentKind, model: String, reasoning: String?, prompt: String?, worktreePath: String,
-                             git: any GitRunning, operated: Bool = false, promptFile: String = "first-prompt.md") throws -> String {
-        var parts = invocation(agent: agent, model: model, reasoning: reasoning, operated: operated)
+                             git: any GitRunning, operated: Bool = false, readOnly: Bool = false, promptFile: String = "first-prompt.md") throws -> String {
+        var parts = invocation(agent: agent, model: model, reasoning: reasoning, operated: operated, readOnly: readOnly)
         if let prompt = prompt.map(normalized), !prompt.isEmpty {
             if readsFromFile(prompt, after: parts) {
                 let dir = worktreePath + "/.aiterm"

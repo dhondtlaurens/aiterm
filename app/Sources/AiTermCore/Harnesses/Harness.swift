@@ -27,6 +27,9 @@ public struct Harness: Sendable {
     let bundledResource: BundledResource?
     /// The launch command's arguments after the CLI and before the prompt, unquoted.
     let launchArguments: @Sendable (_ model: String, _ reasoning: String?) -> [String]
+    /// Those of a launch that may only read, where the CLI has a mode for it: none for Claude, which reads only through
+    /// `AgentCommand`'s denials, nor for PI.
+    let readOnlyArguments: (@Sendable (_ model: String, _ reasoning: String?) -> [String])?
     /// The arguments after the CLI that resume conversation `id` — the one the agent's own hooks name
     /// (`SessionInfo.conversationId`) — as the CLI's `--help` spells them, unquoted.
     let resumeArguments: @Sendable (_ conversation: String) -> [String]
@@ -52,6 +55,11 @@ public struct Harness: Sendable {
     /// The launch command's words before its prompt, unquoted (`AgentCommand` quotes them).
     func launchWords(model: String, reasoning: String?) -> [String] {
         [executable] + launchArguments(model, reasoning)
+    }
+
+    /// The read-only launch's words before its prompt, unquoted; `nil` without a read-only mode.
+    func readOnlyLaunchWords(model: String, reasoning: String?) -> [String]? {
+        readOnlyArguments.map { [executable] + $0(model, reasoning) }
     }
 
     /// The resume command's words, unquoted (`AgentCommand` quotes them): the CLI, the conversation,
