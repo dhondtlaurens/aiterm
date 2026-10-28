@@ -384,7 +384,8 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     public var reopenedFrom: String?
     /// What its review tabs found, each against the commit it reviewed (`record_review`), oldest first.
     public var reviewVerdicts: [ReviewVerdict]
-    /// Why the broadcast's closing kept its worktree, row and tabs, in a sentence its card shows; nil while it kept none.
+    /// Why the broadcast's closing kept its worktree, row and tabs, or what it waits for, as its card shows it; nil while it
+    /// kept none.
     public var keptReason: String?
     /// Where its diff started while it was live, set with its acceptance in a broadcast with the Task step: its code
     /// parent's accepted commit, or else where its branch left its base. Auto-close carries it into the task's

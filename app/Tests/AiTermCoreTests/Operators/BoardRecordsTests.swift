@@ -74,6 +74,16 @@ import Testing
         let keptCard = try card(run, [kept])
         #expect(keptCard.line?.text == "draft MR · worktree kept" && keptCard.notice == kept.operated?.keptReason)
 
+        // While the closing waits (`closedAt` nil, the summary in), the card says what for, under its rule, its line as it was.
+        var waiting = run
+        waiting.closedAt = nil
+        waiting.summary = "Shipped."
+        kept.operated?.keptReason = "Waiting for its turn to end"
+        let waitingCard = try card(waiting, [kept])
+        #expect(waitingCard.notice == "Waiting for its turn to end" && waitingCard.line?.text.hasSuffix("worktree kept") == false)
+        waiting.summary = nil
+        #expect(try card(waiting, [kept]).notice == nil, "a reason left from an earlier closing waits for this one to be due")
+
         var active = run
         active.state = .active
         active.completedAt = nil

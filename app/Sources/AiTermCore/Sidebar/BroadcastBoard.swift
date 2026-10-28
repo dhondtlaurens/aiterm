@@ -176,7 +176,8 @@ public struct BroadcastBoard: Equatable, Sendable {
         public var end: EndLine? = nil
         /// Out of its review's fix rounds and asked about them, while it is not yours.
         public var fixRounds: FixRounds? = nil
-        /// Why the closing kept its worktree (`OperatedTask.keptReason`), under its rule; nil while none is recorded.
+        /// Why the closing kept its worktree, or what it waits for while it is due (`OperatedTask.keptReason`), under its
+        /// rule; nil while none is recorded.
         public var notice: String? = nil
     }
 
@@ -407,7 +408,8 @@ public struct BroadcastBoard: Equatable, Sendable {
                              requests: [BroadcastRequest], tasks: [UUID: TaskItem], sessions: [SessionInfo], live: LiveModel?,
                              turn: WorkerTurn.Ending?, labels: ModelLabels, project: String?) -> Card {
         let setUp = run.taskSettings != nil, takenOver = operated.takenOver
-        let kept = setUp && run.taskSettings?.closeWhenDone == true && operated.reachedItsEnd && closingRan(run)
+        let closes = setUp && run.taskSettings?.closeWhenDone == true && operated.reachedItsEnd
+        let kept = closes && closingRan(run)
         // Asked about its fix rounds; a request of its own (a prompt, a block) is said first, as every request is.
         let fixRounds = setUp && !operated.isFinished && !takenOver ? run.fixRoundsQuestion(on: task.id) : nil
         let asks = requests.contains { $0.runId == run.id && $0.taskId == task.id && $0.kind != .question }
@@ -443,7 +445,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                         FixRounds(counts: operated.reviewVerdicts.last.map(counts),
                                   answered: question.answeredOnCard.flatMap(FixRoundsAnswer.init(rawValue:)))
                     },
-                    notice: kept ? operated.keptReason : nil)
+                    notice: closes && (kept || run.closingIsDue) ? operated.keptReason : nil)
     }
 
     /// Whether the closing has run since the broadcast last completed or ended (`closedAt`): a task that reached its

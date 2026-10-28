@@ -67,7 +67,7 @@ import Testing
         var session = OperatorServiceFixtures.session("s", window: "alive", tag: task.id, agent: .codex)
         session.yourPrompt = "My turn"
         app.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [session], usage: .empty)))
-        await eventually { note(task, in: fixture) == TaskAutoCloser.waitingForTurn }
+        await eventually { note(task, in: fixture) == "Waiting for your turn to end" }
         await eventually { (try? app.savedWorkspace().run(id: run.id)?.finished.isEmpty) == true }
         #expect(app.state.task(id: task.id) != nil)
         session.yourPrompt = nil
@@ -84,7 +84,7 @@ import Testing
         await closer.close(run.id)
         #expect(app.state.task(id: task.id) != nil)
         #expect(FileManager.default.fileExists(atPath: task.worktreePath))
-        #expect(note(task, in: fixture) == TaskAutoCloser.waitingForHelper)
+        #expect(note(task, in: fixture) == "Waiting for the helper")
         #expect(try app.savedWorkspace().run(id: run.id)?.finished.isEmpty == true)
         #expect(app.state.run(id: run.id)?.closedAt == nil)
         app.helper.setDaemonClient(RecordingDaemon())
@@ -192,7 +192,7 @@ import Testing
         await closer.close(run.id)
         #expect(app.state.task(id: task.id) != nil)
         #expect(server.requests("window.close").isEmpty)
-        #expect(note(task, in: fixture) == TaskAutoCloser.waitingForTurn)
+        #expect(note(task, in: fixture) == "Waiting for your turn to end")
         #expect(app.state.run(id: run.id)?.finished.isEmpty == true)
         #expect(app.state.run(id: run.id)?.closedAt == nil)
         session.yourPrompt = nil
@@ -214,7 +214,7 @@ import Testing
         await closer.close(run.id)
         #expect(app.state.task(id: task.id) != nil)
         #expect(server.requests("window.close").isEmpty)
-        #expect(note(task, in: fixture) == TaskAutoCloser.waitingForAgent)
+        #expect(note(task, in: fixture) == "Waiting for its turn to end")
         #expect(app.remover.removals[task.id] == nil)
         #expect(app.state.run(id: run.id)?.finished.isEmpty == true)
         #expect(app.state.run(id: run.id)?.closedAt == nil)

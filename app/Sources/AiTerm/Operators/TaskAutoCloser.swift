@@ -9,18 +9,16 @@ import AiTermCore
 @MainActor
 final class TaskAutoCloser {
     nonisolated static let unsavedWork = "Not closed: its worktree has uncommitted changes. Remove it yourself once they are safe."
-    nonisolated static let waitingForTurn = "Not closed: waiting for your turn to end."
-    nonisolated static let waitingForAgent = "Not closed: waiting for its agent’s turn to end."
-    nonisolated static let waitingForHelper = "Not closed: waiting for AiTerm’s helper to reconnect."
 
-    /// A removal that did not start and is tried again: for the person's turn, an agent's, or the helper.
+    /// A removal that did not start and is tried again: for the person's turn, an agent's, or the helper. What it waits
+    /// for is its card's while it waits, as it is, with no `Not closed:`.
     enum Deferred: LocalizedError {
         case turn, agentTurn, helper
         var errorDescription: String? {
             switch self {
-            case .turn: TaskAutoCloser.waitingForTurn
-            case .agentTurn: TaskAutoCloser.waitingForAgent
-            case .helper: TaskAutoCloser.waitingForHelper
+            case .turn: "Waiting for your turn to end"
+            case .agentTurn: "Waiting for its turn to end"
+            case .helper: "Waiting for the helper"
             }
         }
     }
@@ -104,6 +102,7 @@ final class TaskAutoCloser {
     }
 
     static func failureReason(_ error: Error) -> String {
+        if let deferred = error as? Deferred, let waiting = deferred.errorDescription { return waiting }
         let reason = OperationIssue.reason(of: error)
         return reason.hasPrefix("Not closed:") ? reason : "Not closed: " + reason
     }
@@ -114,15 +113,9 @@ final class TaskAutoCloser {
         return operated.isFinished && operated.state != .stopped && operated.publication?.leftForYou != true
     }
 
-    /// Legacy runs and unfinished summaries never initiate cleanup; End needs no summary.
-    private func ready(_ run: OperatorRun) -> Bool {
-        run.taskSettings?.closeWhenDone == true
-            && (run.hasEnded || (run.state == .complete && (run.summary != nil || run.summaryGivenUp)))
-    }
-
     /// A pass runs once per completion or End, then resumes only what it deferred, once that may go on.
     private func shouldClose(_ run: OperatorRun) -> Bool {
-        guard ready(run) else { return false }
+        guard run.closingIsDue else { return false }
         if let pass = passes[run.id], pass.phase == Phase(run) {
             return workspace.state.tasks(inRun: run.id).contains { task in
                 guard Self.eligible(task), waits(task.id, in: pass) else { return false }
@@ -142,7 +135,7 @@ final class TaskAutoCloser {
     private func waits(_ task: UUID, in pass: Pass) -> Bool { !pass.attempted.contains(task) }
 
     private func samePhase(_ run: OperatorRun) -> OperatorRun? {
-        guard let current = workspace.state.run(id: run.id), ready(current), Phase(current) == Phase(run) else { return nil }
+        guard let current = workspace.state.run(id: run.id), current.closingIsDue, Phase(current) == Phase(run) else { return nil }
         return current
     }
 
