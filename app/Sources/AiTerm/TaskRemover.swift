@@ -192,6 +192,75 @@ final class TaskRemover: CheckoutRemovals {
         return remove(current, from: project, deleteBranch: answer.checked, holding: token)
     }
 
+    /// AiTerm's own Remove (Auto-close): no questions and no permission to discard changes. `starting` writes the
+    /// task's finished record once nothing is left to keep the task, just before its window closes; false stops it.
+    /// Why it stopped is saved on the task for its card (`OperatedTask.keptReason`). The caller deletes a merged branch
+    /// once the row is gone.
+    func removeAutomatically(_ task: TaskItem, starting: @MainActor () -> Bool) async throws {
+        guard workspace.canChangeWorkspace, let current = workspace.state.task(id: task.id), current == task,
+              let project = workspace.state.project(id: task.projectId),
+              let token = work.begin(.removing(windowLetGo: false), onTask: task.id) else {
+            throw ActionUnavailable("The task changed or is busy. Remove it yourself once it is safe.")
+        }
+        defer { end(token, of: task.id) }
+        outcomes[task.id] = nil
+        do {
+            // Unsaved work is what git status lists, uncommitted or untracked changes. Git-ignored files such as .env
+            // are not: they go with the worktree, as with the person's Remove (plain git worktree remove, never forced).
+            if try await workflow.hasUnsavedWork(task: task, project: project) {
+                throw ActionUnavailable(TaskAutoCloser.unsavedWork)
+            }
+            if await hasWorktreeFolder(task) {
+                guard try await workflow.head(of: task, in: project) == .branch(task.branch) else {
+                    throw ActionUnavailable("Its worktree is no longer on its task branch.")
+                }
+            }
+            guard workspace.state.task(id: task.id) == task else {
+                throw ActionUnavailable("The task changed while its worktree was checked.")
+            }
+            guard !TaskAutoCloser.isDriving(task, in: live) else { throw TaskAutoCloser.Deferred.turn }
+            guard !Self.turnInFlight(task.id, in: live) else { throw TaskAutoCloser.Deferred.agentTurn }
+            guard !task.workerTabs(in: live.sessions).contains(where: {
+                $0.session.map { $0.windowId != task.windowId } == true
+            }) else {
+                throw ActionUnavailable("One of its tabs is outside its task window. Close it yourself, then retry Remove.")
+            }
+            guard starting() else { throw ActionUnavailable("Its finished record couldn’t be saved, so nothing was removed.") }
+            do {
+                try await teardown.closeWindow(of: task, holding: token, requiringDaemon: true,
+                                               operation: { .removing(windowLetGo: $0) })
+            } catch TeardownStop.noDaemon {
+                throw TaskAutoCloser.Deferred.helper
+            }
+            // Never forced, so changes made while the window closed are git's to refuse.
+            let removed: TaskWorkflow.Removed
+            do { removed = try await workflow.remove(task: task, project: project, deleteBranch: false, force: false) }
+            catch let error as GitError where error.refusedForUnsavedWork { throw ActionUnavailable(TaskAutoCloser.unsavedWork) }
+            await finishRemoval(of: task, after: removed)
+            guard workspace.state.task(id: task.id) == nil, workspace.persistenceError == nil else {
+                throw ActionUnavailable("Its removal could not be completed or saved.")
+            }
+        } catch {
+            // A removal that stopped after its worktree went has left the row its own note, with the retry the person's
+            // Remove offers there; its card says the same.
+            let reason = if case .stopped(let note, _)? = outcomes[task.id] {
+                TaskAutoCloser.failureReason(ActionUnavailable(note))
+            } else {
+                TaskAutoCloser.failureReason(error)
+            }
+            workspace.mutate { $0.updateOperated(task.id) { $0.keptReason = reason } }
+            throw error
+        }
+    }
+
+    /// Whether the task's worktree folder is there, asked off the main actor: a mount that stopped answering stalls the
+    /// call, not the app.
+    private func hasWorktreeFolder(_ task: TaskItem) async -> Bool {
+        guard task.hasCheckout else { return false }
+        let path = task.worktreePath
+        return await BackgroundWork.run { FileManager.default.fileExists(atPath: path) }
+    }
+
     /// The banner's Keep: the removal that stopped with the branch kept finishes, the branch left.
     /// Nil when the task is gone or busy, or no longer waiting on a retry.
     func keepBranch(of id: UUID) -> Task<Void, Never>? {
@@ -381,10 +450,12 @@ final class TaskRemover: CheckoutRemovals {
     /// running on it, not held for a removal's retry, and its agent not mid-turn.
     private func awaitsCleanup(_ task: TaskItem) -> Bool {
         workspace.state.tasks.contains(task) && work.operation(onTask: task.id) == nil
-            && removals[task.id]?.awaitsRetry != true && !turnInFlight(task.id)
+            && removals[task.id]?.awaitsRetry != true && !Self.turnInFlight(task.id, in: live)
     }
 
-    private func turnInFlight(_ taskId: UUID) -> Bool {
+    /// Whether any of the task's tabs has its agent mid-turn: working, or asking for input. The checkout cleanup and
+    /// Auto-close both wait for it.
+    static func turnInFlight(_ taskId: UUID, in live: LiveSessions) -> Bool {
         live.sessions.contains { $0.taskUUID == taskId && ($0.state == .working || $0.state == .needsInput) }
     }
 

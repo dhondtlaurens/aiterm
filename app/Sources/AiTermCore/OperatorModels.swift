@@ -386,6 +386,10 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     public var reviewVerdicts: [ReviewVerdict]
     /// Why the broadcast's closing kept its worktree, row and tabs, in a sentence its card shows; nil while it kept none.
     public var keptReason: String?
+    /// Where its diff started while it was live, set with its acceptance in a broadcast with the Task step: its code
+    /// parent's accepted commit, or else where its branch left its base. Auto-close carries it into the task's
+    /// `FinishedTaskRecord`, as a merge makes the accepted commit part of the base it would be worked out from.
+    public var diffBaseSHA: String?
 
     public init(runId: UUID, key: String, state: OperatedState = .planned, end: TaskEnd = .commit, brief: String,
                 dependsOn: [TaskDependency] = [], stackedOn: UUID? = nil, revision: Int, firstRevision: Int? = nil,
@@ -418,6 +422,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         case takenOver, ownership, launch, retriesUsed, runtimeUsed, totalRuntimeUsed, runtimeHead
         case blockedReason, blockedFrom, lastFailure, flags
         case modelReason, agentPinned, problem, agentReview, peopleReview, branchDrift, extraTabs, reopenedFrom, reviewVerdicts, keptReason
+        case diffBaseSHA
     }
 
     /// Synthesised but for `flags`: a flag this build does not know is dropped, not a failed load.
@@ -457,6 +462,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         reopenedFrom = try c.decodeIfPresent(String.self, forKey: .reopenedFrom)
         reviewVerdicts = try c.decodeIfPresent([ReviewVerdict].self, forKey: .reviewVerdicts) ?? []
         keptReason = try c.decodeIfPresent(String.self, forKey: .keptReason)
+        diffBaseSHA = try c.decodeIfPresent(String.self, forKey: .diffBaseSHA)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -496,6 +502,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         try c.encodeIfPresent(reopenedFrom, forKey: .reopenedFrom)
         if !reviewVerdicts.isEmpty { try c.encode(reviewVerdicts, forKey: .reviewVerdicts) }
         try c.encodeIfPresent(keptReason, forKey: .keptReason)
+        try c.encodeIfPresent(diffBaseSHA, forKey: .diffBaseSHA)
     }
 }
 

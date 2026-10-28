@@ -133,6 +133,20 @@ extension AppController {
         presentBoard(run: id)
     }
 
+    /// Installs Auto-close once, for the app's lifetime: the operator controller holds it. Each
+    /// connected snapshot sweeps it, the first one telling it who is driving, which a restart has to wait for.
+    func installTaskAutoCloser() {
+        let controller = operatorController
+        let closer = TaskAutoCloser(workspace: workspace, live: live, git: controller.ports.git, now: controller.ports.now,
+                                    sessionsKnown: false) { [remover] in try await remover.removeAutomatically($0, starting: $1) }
+        controller.onRunChanged = { [closer] in closer.changed($0) }
+        // After `live`'s own hook, so the sweep reads the snapshot's sessions. Weak, as the
+        // helper's other hooks are, so the closer goes with the controller that holds it.
+        helper.onEvent { [weak closer] event in
+            if case .snapshot(let snapshot) = event, snapshot.connected { closer?.sweep() }
+        }
+    }
+
     /// Watches `OperatorController.presentBoard` for as long as the app runs: each request is
     /// presented on the main actor's next turn — Observation reports a change before it is stored —
     /// and the watch re-armed.
@@ -240,7 +254,11 @@ extension AppController {
     @discardableResult
     func endNow(_ run: OperatorRun) async -> Bool {
         let controller = operatorController
-        return await attemptNow("Couldn’t end “\(run.name)”") { try await controller.end(run: run.id) }
+        return await attemptNow("Couldn’t end “\(run.name)”") {
+            try await controller.end(run: run.id)
+            // End Broadcast does not pass through runChanged, so it triggers cleanup here.
+            controller.onRunChanged(run.id)
+        }
     }
 
     /// The broadcast's chat — its Operator's window — brought forward as its row's click brings it: raised

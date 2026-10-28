@@ -65,10 +65,23 @@ extension OperatorToolHandler {
                              : "\(key)’s tab \(name) was closed. AiTerm doesn’t open it again."
     }
 
+    private enum TaskReading: String, CaseIterable {
+        case lastMessage, diff, prompt, review
+    }
+
     func readTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        let ref = try call.string("task"), what = try call.string("what")
+        guard let reading = TaskReading(rawValue: what) else {
+            let choices = TaskReading.allCases.map(\.rawValue)
+            throw ToolRefusal("read_task reads \(choices.dropLast().joined(separator: ", ")) or \(choices.last ?? ""), not \(what).")
+        }
+        if state.task(inRun: run.id, named: ref) == nil,
+           let record = run.finished.first(where: { $0.key == ref || $0.task.uuidString.caseInsensitiveCompare(ref) == .orderedSame }) {
+            return try await readClosedTask(reading, record: record)
+        }
         let task = try self.task(call, in: run), key = task.operated?.key ?? task.title
-        switch try call.string("what") {
-        case "lastMessage":
+        switch reading {
+        case .lastMessage:
             let worker = try self.worker(call, of: task)
             guard let conversation = worker.conversation else {
                 // A first worker just launched names its conversation at its first hook: Codex half a minute in.
@@ -84,7 +97,7 @@ extension OperatorToolHandler {
                 return ["lastMessage": .null, "note": "No reply found in the recent part of its conversation; that doesn’t mean it said nothing. Use read_task with what: diff or prompt."]
             }
             return ["lastMessage": .string(text)]
-        case "diff":
+        case .diff:
             guard task.hasCheckout else { throw ToolRefusal("\(key) hasn’t started: it has no worktree yet.") }
             // The committed work mark_task accepts: from where the branch left its base to HEAD, so a base that
             // moved on is not read back as the worker's changes; edits not yet committed are told apart.
@@ -101,26 +114,8 @@ extension OperatorToolHandler {
             } catch {
                 throw ToolRefusal("AiTerm couldn’t read \(key)’s branch against \(task.baseBranch.isEmpty ? "its base" : task.baseBranch).")
             }
-            // The whole answer is small, not only its patches: a wide diff lists some of its files, and the stat, the
-            // commits and the uncommitted edits keep their ends.
-            let stat = DiffDigest.lastLines(read.stat, DiffDigest.statLines), commits = DiffDigest.firstLines(read.commits, DiffDigest.commitLines)
-            let uncommitted = DiffDigest.firstLines(read.uncommitted, DiffDigest.uncommittedLines)
-            // What those leave of the answer's room is the patches': a file a line of stat lists is about a line of its answer.
-            let budget = DiffDigest.patchBudget(others: stat.text.count + commits.text.count + uncommitted.text.count,
-                                                files: read.stat.split(separator: "\n").count)
-            let digest = DiffDigest.build(diff: read.diff, total: budget)
-            var files = digest.files.prefix(DiffDigest.listedFiles).map { file -> JSONValue in
-                var entry: [String: JSONValue] = ["path": .string(file.path), "truncated": .bool(file.truncated)]
-                if let patch = file.patch { entry["patch"] = .string(patch) }
-                if let summary = file.summary { entry["summary"] = .string(summary) }
-                return .object(entry)
-            }
-            let unlisted = digest.files.count - files.count
-            if unlisted > 0 { files.append(["path": .string("and \(unlisted) more files"), "truncated": true]) }
-            return ["base": .string(base), "head": .string(read.head), "stat": .string(stat.text), "commits": .string(commits.text),
-                    "files": .array(files), "truncated": .bool(digest.truncated || unlisted > 0 || stat.cut || commits.cut || uncommitted.cut),
-                    "uncommitted": .string(uncommitted.text)]
-        case "prompt":
+            return Self.diffReading(base: base, read: read)
+        case .prompt:
             let worker = try self.worker(call, of: task)
             guard let tab = worker.session, !worker.isOpening else {
                 return ["prompt": .null, "note": .string(worker.key == nil ? "Its worker has no open tab right now." : Self.noAgent(in: worker, of: task))]
@@ -128,11 +123,56 @@ extension OperatorToolHandler {
             // No helper is unknown, not "no prompt".
             guard let daemon = daemon() else { throw ToolRefusal("AiTerm’s helper isn’t connected; try again in a moment.") }
             return ["prompt": try await daemon.prompt(sessionId: tab.sessionId).map { .string($0.rawValue) } ?? .null]
-        case "review":
+        case .review:
             return try await reviewReading(task, in: run)
-        case let other:
-            throw ToolRefusal("read_task reads lastMessage, diff, prompt or review, not \(other).")
         }
+    }
+
+    /// Removed rows have no live tabs. The base kept at acceptance, before publication, keeps the
+    /// whole task's diff readable after a merge; a record without one shows the accepted commit's own patch.
+    private func readClosedTask(_ what: TaskReading, record: FinishedTaskRecord) async throws -> JSONValue {
+        guard what == .diff else { return [what.rawValue: .null, "note": "Its tabs are closed: the task was removed after the broadcast completed or ended."] }
+        guard let sha = record.acceptedSHA else { return ["diff": .null, "note": "This task ended with no change; its tabs are closed."] }
+        guard let project = state.project(id: record.project) else { throw ToolRefusal("Its project is no longer in AiTerm.") }
+        let git = ports.git, path = project.path, base = record.diffBaseSHA
+        do {
+            let read = try await BackgroundWork.run {
+                if let base {
+                    return (head: sha, commits: try git.run(["log", "--oneline", "\(base)..\(sha)"], in: path),
+                            stat: try git.run(["diff", "--stat", "\(base)...\(sha)"], in: path),
+                            diff: try git.run(["diff", "\(base)...\(sha)"], in: path), uncommitted: "")
+                }
+                return (head: sha, commits: try git.run(["show", "-s", "--oneline", sha], in: path),
+                        stat: try git.run(["show", "--format=", "--stat", sha], in: path),
+                        diff: try git.run(["show", "--format=", sha], in: path), uncommitted: "")
+            }
+            return Self.diffReading(base: base ?? "", read: read)
+        } catch {
+            throw ToolRefusal("AiTerm couldn’t read \(record.key)’s saved diff from its accepted commit.")
+        }
+    }
+
+    private static func diffReading(base: String,
+                                    read: (head: String, commits: String, stat: String, diff: String, uncommitted: String)) -> JSONValue {
+        // The whole answer is small, not only its patches: a wide diff lists some of its files, and the stat, the
+        // commits and the uncommitted edits keep their ends.
+        let stat = DiffDigest.lastLines(read.stat, DiffDigest.statLines), commits = DiffDigest.firstLines(read.commits, DiffDigest.commitLines)
+        let uncommitted = DiffDigest.firstLines(read.uncommitted, DiffDigest.uncommittedLines)
+        // What those leave of the answer's room is the patches': a file a line of stat lists is about a line of its answer.
+        let budget = DiffDigest.patchBudget(others: stat.text.count + commits.text.count + uncommitted.text.count,
+                                            files: read.stat.split(separator: "\n").count)
+        let digest = DiffDigest.build(diff: read.diff, total: budget)
+        var files = digest.files.prefix(DiffDigest.listedFiles).map { file -> JSONValue in
+            var entry: [String: JSONValue] = ["path": .string(file.path), "truncated": .bool(file.truncated)]
+            if let patch = file.patch { entry["patch"] = .string(patch) }
+            if let summary = file.summary { entry["summary"] = .string(summary) }
+            return .object(entry)
+        }
+        let unlisted = digest.files.count - files.count
+        if unlisted > 0 { files.append(["path": .string("and \(unlisted) more files"), "truncated": true]) }
+        return ["base": .string(base), "head": .string(read.head), "stat": .string(stat.text), "commits": .string(commits.text),
+                "files": .array(files), "truncated": .bool(digest.truncated || unlisted > 0 || stat.cut || commits.cut || uncommitted.cut),
+                "uncommitted": .string(uncommitted.text)]
     }
 
     func replayedMessage(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> JSONValue? {
@@ -213,6 +253,7 @@ extension OperatorToolHandler {
         try recheck(task)
         let operated = try self.operated(task, in: run)
         let action: OperatedAction
+        var acceptedBase: String?
         switch outcome {
         case "accepted":
             let given = try call.string("sha"), check = try call.string("checkOutput")
@@ -230,15 +271,21 @@ extension OperatorToolHandler {
             let prerequisites = RunScheduler.baseCommit(for: task.id, in: state).map { [$0] } ?? []
             let acceptance = TaskAcceptance(resultSHA: sha, prerequisiteSHAs: prerequisites, checkOutput: check,
                                             note: call.optionalString("note"), at: ports.now())
+            if run.taskSettings != nil {
+                // Read now, while the task is live: once its work is merged, its base would be the accepted commit.
+                // Best effort: without one, a closed task's diff is its accepted commit's own patch.
+                acceptedBase = try? await commit(diffBase(of: task, in: run), in: task)
+                try recheck(task)
+            }
             // Accepted again on another commit: its dependents are revoked and flagged.
             if [.accepted, .published, .inReview].contains(operated.state) {
-                return try reaccept(task, as: acceptance)
+                return try reaccept(task, as: acceptance, diffBase: acceptedBase)
             }
             // Steered back to work after it was accepted (spec §D), and now on another commit: what its children were
             // built on is replaced, as for any task accepted again.
             if operated.state == .working, let earlier = operated.reopenedFrom,
                !OperatedTransitions.sameCommit(earlier, sha) {
-                return try reacceptReopened(task, as: acceptance, branchHead: tip)
+                return try reacceptReopened(task, as: acceptance, branchHead: tip, diffBase: acceptedBase)
             }
             action = .accept(acceptance, branchHead: tip)
         case "noChange":
@@ -249,11 +296,20 @@ extension OperatorToolHandler {
         default:
             throw ToolRefusal("mark_task’s outcome is accepted, noChange, blocked or failed.")
         }
-        try apply(action, to: task)
+        try apply(action, to: task) { state in
+            guard outcome == "accepted" else { return }
+            Self.keepDiffBase(acceptedBase, of: task.id, in: &state)
+        }
         // Its result holds each code parent's accepted commit (`upstreamRefusal` said so): the flag is done with.
         if outcome == "accepted" { mutate(in: run.id) { $0.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) } } }
         let marked = state.task(id: task.id) ?? task
         return Self.taskAnswer(marked, created: false)
+    }
+
+    /// The accepted task's live diff base (`OperatedTask.diffBaseSHA`), set in its acceptance's own mutation so the
+    /// two are saved together. A broadcast without the Task step keeps none.
+    private static func keepDiffBase(_ base: String?, of id: UUID, in state: inout AppState) {
+        state.updateOperated(id) { $0.diffBaseSHA = base }
     }
 
     /// Whether `outcome` is what the task already records: the same commit accepted, no change, or the same reason.
@@ -284,12 +340,13 @@ extension OperatorToolHandler {
     /// replaced (a published draft keeps its request, which `finish_task` pushes the new commit to), its
     /// accepted code dependents back to working and every started one flagged. The answer names them, and
     /// each broadcast holding one is woken once (`finish_task` of one of them refuses meanwhile).
-    private func reaccept(_ task: TaskItem, as acceptance: TaskAcceptance) throws -> JSONValue {
+    private func reaccept(_ task: TaskItem, as acceptance: TaskAcceptance, diffBase: String?) throws -> JSONValue {
         try recheck(task)
         return try answerRevoking(task) { state in
             do {
                 let revoked = try UpstreamReplacement.reaccept(task.id, as: acceptance, in: &state)
                 state.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) }
+                Self.keepDiffBase(diffBase, of: task.id, in: &state)
                 return revoked
             } catch let refusal as UpstreamReplacement.Refusal {
                 switch refusal {
@@ -301,7 +358,7 @@ extension OperatorToolHandler {
 
     /// A task steered back to work after it was accepted (`reopenedFrom`), accepted now on another commit: the accept and
     /// the replacement of its children in one change, answered as `reaccept` does.
-    private func reacceptReopened(_ task: TaskItem, as acceptance: TaskAcceptance, branchHead: String) throws -> JSONValue {
+    private func reacceptReopened(_ task: TaskItem, as acceptance: TaskAcceptance, branchHead: String, diffBase: String?) throws -> JSONValue {
         try recheck(task)
         return try answerRevoking(task) { state in
             do {
@@ -310,6 +367,7 @@ extension OperatorToolHandler {
                 throw ToolRefusal(refused.description)
             }
             state.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) }
+            Self.keepDiffBase(diffBase, of: task.id, in: &state)
             return UpstreamReplacement.revokeDependents(of: task.id, newSHA: acceptance.resultSHA, in: &state)
         }
     }
@@ -396,11 +454,12 @@ extension OperatorToolHandler {
     }
 
     /// A transition of the task by the operator, through part C's table: a failed task's dependents are blocked
-    /// with it; a refusal is the tool's error, in C's words.
-    func apply(_ action: OperatedAction, to task: TaskItem) throws {
+    /// with it; a refusal is the tool's error, in C's words. `also` is changed in the same mutation.
+    func apply(_ action: OperatedAction, to task: TaskItem, also: (inout AppState) -> Void = { _ in }) throws {
         do {
             try mutate(in: task.operated?.runId) { state in
                 _ = try OperatedTransitions.apply(action, toTask: task.id, in: &state, by: .operatorTool)
+                also(&state)
             }
         } catch let refused as OperatedTransitionError {
             throw ToolRefusal(refused.description)
