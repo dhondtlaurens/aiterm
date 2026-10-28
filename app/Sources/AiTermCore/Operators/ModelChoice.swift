@@ -24,6 +24,20 @@ public enum ModelChoice {
         return (known.id, known.defaultEffort)
     }
 
+    /// Omitted fields take the first matching Agents row, in the person's list order.
+    public static func row(agent: AgentKind, model: String?, reasoning: String?, in rows: [AgentChoice]) -> AgentChoice? {
+        rows.first { $0.agent == agent && (model == nil || $0.model == model)
+            && (reasoning == nil || $0.reasoning == reasoning) }
+    }
+
+    /// A new broadcast's weekly-use switch takes the first row on the other agent, or stays put.
+    public static func launchChoice(planned: AgentChoice, pinned: Bool, weekly: [AgentKind: Int],
+                                    installed: Set<AgentKind>, rows: [AgentChoice]) -> AgentChoice {
+        let agent = launchAgent(planned: planned.agent, pinned: pinned, weekly: weekly, installed: installed)
+        guard agent != planned.agent else { return planned }
+        return rows.first { $0.agent == agent } ?? planned
+    }
+
     /// The agent a task starts on: its planned agent, unless that agent's weekly use is at or past
     /// `switchAt`, the task isn't pinned, and the other agent is installed and under `switchAt`.
     public static func launchAgent(planned: AgentKind, pinned: Bool, weekly: [AgentKind: Int], installed: Set<AgentKind>) -> AgentKind {

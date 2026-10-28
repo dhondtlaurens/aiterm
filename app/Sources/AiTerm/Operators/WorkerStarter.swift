@@ -195,12 +195,20 @@ final class WorkerStarter {
 
     /// What a task launches with. Its planned agent and model, unless this is its first launch, it is not
     /// pinned and its agent's weekly use is near the limit (`ModelChoice.launchAgent`): then the other agent
-    /// and that agent's default model, and `switchedFrom` names the planned agent. A relaunch or a retry
-    /// keeps the agent it started on.
+    /// and its first allowed row (its default model for legacy runs). `switchedFrom` names the planned agent.
+    /// A relaunch or a retry keeps the agent it started on.
     private func launchChoice(for task: TaskItem, operated: OperatedTask, attempt: LaunchAttempt) -> LaunchChoice {
         let keep = LaunchChoice(agent: task.agent, model: task.model, reasoning: task.reasoning, switchedFrom: nil, percent: 0)
         guard attempt.number == 1, operated.retriesUsed == 0 else { return keep }
         let weekly = ports.weeklyUsage?() ?? [:], installed = ports.installedAgents?() ?? Set(AgentKind.allCases)
+        if let run = state.run(id: operated.runId), run.taskSettings != nil {
+            let planned = AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)
+            let row = ModelChoice.launchChoice(planned: planned, pinned: operated.agentPinned, weekly: weekly,
+                                               installed: installed, rows: run.agents)
+            guard row.agent != task.agent else { return keep }
+            return LaunchChoice(agent: row.agent, model: row.model, reasoning: row.reasoning, switchedFrom: task.agent,
+                                percent: weekly[task.agent] ?? 0)
+        }
         let agent = ModelChoice.launchAgent(planned: task.agent, pinned: operated.agentPinned, weekly: weekly, installed: installed)
         guard agent != task.agent else { return keep }
         let model = OperatorToolHandler.defaultModel(for: agent, remembered: state.lastModelByAgent)
