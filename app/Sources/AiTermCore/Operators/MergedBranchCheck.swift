@@ -6,7 +6,7 @@ public enum MergedBranchCheck {
     /// Deletes the local branch when the rule holds and `saveDeletion` has saved the task's record as
     /// saying so, so a record on disk never says a deleted branch was kept. False when anything fails.
     public static func delete(branch: String, acceptedSHA: String?, end: TaskEnd, publication: TaskPublication?,
-                              kind: TaskKind = .task, path: String, git: any GitRunning,
+                              kind: TaskKind, path: String, git: any GitRunning,
                               saveDeletion: @MainActor () -> Bool) async -> Bool {
         guard kind != .review, let acceptedSHA, !acceptedSHA.isEmpty else { return false }
         let merged = (try? await BackgroundWork.run(on: TaskWorkflow.queue) {
@@ -21,9 +21,10 @@ public enum MergedBranchCheck {
             try git.run(["update-ref", "--no-deref", "-d", ref, acceptedSHA], in: path)
             // git has no transaction over a ref and the worktrees' HEADs, and git branch -D, which checks
             // them, deletes the head it reads itself, not the accepted commit. So a worktree that took the
-            // branch since the check above gets it back, at the commit it had; nothing else could have moved it.
-            if try repository.worktrees().contains(where: { $0.branch == branch }) {
-                try git.run(["update-ref", "--no-deref", ref, acceptedSHA, ""], in: path)
+            // branch since the check above gets it back, at the commit it had. From here the ref is gone
+            // unless that re-create succeeds, so only that answers false.
+            if (try? repository.worktrees().contains(where: { $0.branch == branch })) == true,
+               (try? git.run(["update-ref", "--no-deref", ref, acceptedSHA, ""], in: path)) != nil {
                 return false
             }
             // What git branch -D also drops. A branch with no settings has none to remove.

@@ -139,8 +139,8 @@ extension OperatorToolHandler {
             let read = try await BackgroundWork.run {
                 if let base {
                     return (head: sha, commits: try git.run(["log", "--oneline", "\(base)..\(sha)"], in: path),
-                            stat: try git.run(["diff", "--stat", base, sha], in: path),
-                            diff: try git.run(["diff", base, sha], in: path), uncommitted: "")
+                            stat: try git.run(["diff", "--stat", "\(base)...\(sha)"], in: path),
+                            diff: try git.run(["diff", "\(base)...\(sha)"], in: path), uncommitted: "")
                 }
                 return (head: sha, commits: try git.run(["show", "-s", "--oneline", sha], in: path),
                         stat: try git.run(["show", "--format=", "--stat", sha], in: path),

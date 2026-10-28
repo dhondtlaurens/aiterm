@@ -534,6 +534,51 @@ import Testing
         #expect(app.state.tasks.map(\.id) == [other.id])
     }
 
+    @Test func aRestartSweepFindsARecordedDeletionWhoseBranchStayed() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let (run, task) = try prepare(fixture)
+        let app = fixture.controller
+        // What a quit between saving the deletion and update-ref leaves: the row gone, the branch still here.
+        var stayed = try #require(TaskAutoCloser.record(task, in: run, at: Date()))
+        stayed.branchDeleted = true
+        var gone = stayed
+        gone.task = UUID(); gone.branch = "feat/long-gone"
+        app.workspace.mutate { state in
+            state.tasks.removeAll()
+            state.updateRun(id: run.id) { $0.finished = [stayed, gone] }
+        }
+        let closer = closer(fixture)
+        closer.sweep()
+        await eventually { app.state.run(id: run.id)?.finished.first?.branchDeleted == false }
+        #expect(try app.savedWorkspace().run(id: run.id)?.finished.map(\.branchDeleted) == [false, true])
+        #expect(try !fixture.git.run(["branch", "--list", task.branch], in: fixture.repo.path).isEmpty)
+    }
+
+    @Test func aSaveThatFailsStopsThePass() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let (run, _) = try prepare(fixture)
+        let app = fixture.controller
+        var second = OperatorServiceFixtures.task(in: run, project: fixture.project, key: "B", state: .accepted, end: .commit)
+        second.operated?.acceptance = TaskAcceptance(resultSHA: "abc", prerequisiteSHAs: [], checkOutput: "", note: nil, at: Date())
+        app.workspace.mutate { $0.tasks.append(second) }
+        let backup = app.workspace.file.backupURL
+        defer { try? FileManager.default.removeItem(at: backup) }
+        var attempts = 0
+        // Saving breaks before any record is written, so there is nothing to take back.
+        await closer(fixture) { _, _ in
+            attempts += 1
+            try? FileManager.default.removeItem(at: backup)
+            try? FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
+            app.workspace.mutate { $0.lastModelByAgent[.claude] = "opus" }
+            _ = app.workspace.flush()
+            throw ActionUnavailable("Kept for this test")
+        }.close(run.id)
+        #expect(app.workspace.persistenceError != nil)
+        #expect(attempts == 1)
+    }
+
     @Test(arguments: ["legacy", "disabled", "summary", "active"])
     func runsThatMustNotCloseAreUnchanged(_ mode: String) async throws {
         let fixture = try RaceFixture()

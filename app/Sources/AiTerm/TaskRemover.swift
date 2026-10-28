@@ -209,7 +209,7 @@ final class TaskRemover: CheckoutRemovals {
             if try await workflow.hasUnsavedWork(task: task, project: project) {
                 throw ActionUnavailable(TaskAutoCloser.unsavedWork)
             }
-            if task.hasCheckout, FileManager.default.fileExists(atPath: task.worktreePath) {
+            if await hasWorktreeFolder(task) {
                 guard try await workflow.head(of: task, in: project) == .branch(task.branch) else {
                     throw ActionUnavailable("Its worktree is no longer on its task branch.")
                 }
@@ -241,11 +241,19 @@ final class TaskRemover: CheckoutRemovals {
         } catch {
             // A removal that stopped after its worktree went has left its row its own note.
             if outcomes[task.id] == nil {
-                outcomes[task.id] = .stopped(note: TaskAutoCloser.failureReason(error),
-                                           worktreeRemoved: task.hasCheckout && !FileManager.default.fileExists(atPath: task.worktreePath))
+                let folder = await hasWorktreeFolder(task)
+                outcomes[task.id] = .stopped(note: TaskAutoCloser.failureReason(error), worktreeRemoved: task.hasCheckout && !folder)
             }
             throw error
         }
+    }
+
+    /// Whether the task's worktree folder is there, asked off the main actor: a mount that stopped answering stalls the
+    /// call, not the app.
+    private func hasWorktreeFolder(_ task: TaskItem) async -> Bool {
+        guard task.hasCheckout else { return false }
+        let path = task.worktreePath
+        return await BackgroundWork.run { FileManager.default.fileExists(atPath: path) }
     }
 
     /// The banner's Keep: the removal that stopped with the branch kept finishes, the branch left.

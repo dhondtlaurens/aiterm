@@ -35,6 +35,9 @@ final class TaskAutoCloser {
     private var sessionsKnown: Bool
     private var running: Set<UUID> = []
     private var passes: [UUID: Pass] = [:]
+    /// The tasks whose branch is being deleted now, which `checkBranchRecords` leaves alone.
+    private var deleting: Set<UUID> = []
+    private var branchRecordsChecked = false
 
     /// `remove` is the person's Remove without its questions (`TaskRemover.removeAutomatically`): it calls
     /// `starting` once nothing is left to keep the task, and stops when that returns false.
@@ -54,12 +57,33 @@ final class TaskAutoCloser {
     /// app quit or crashed in.
     func sweep() {
         sessionsKnown = true
+        if !branchRecordsChecked {
+            branchRecordsChecked = true
+            Task { [weak self] in await self?.checkBranchRecords() }
+        }
         passes = passes.mapValues { pass in
             var pass = pass
             pass.deferred = pass.deferred.filter { $0.value != .helper }
             return pass
         }
         for run in workspace.state.runs { changed(run.id) }
+    }
+
+    /// A record saved as deleting its branch just before the app quit, or whose taking back could not be saved, can say
+    /// so of a branch that is still here. It is set back to kept: the deletion's rule was read from a row that is gone.
+    private func checkBranchRecords() async {
+        let records = workspace.state.runs.flatMap { run in run.finished.filter(\.branchDeleted).map { (run.id, $0) } }
+        for (id, record) in records where !deleting.contains(record.task) {
+            guard let project = workspace.state.project(id: record.project) else { continue }
+            let git = git, path = project.path, ref = "refs/heads/" + record.branch
+            // Unknown when git fails: the record is left as it is.
+            guard let stayed = try? await BackgroundWork.run({
+                try git.ask(["rev-parse", "--verify", "--quiet", ref], in: path, none: [1]) != nil
+            }), stayed, !deleting.contains(record.task),
+                  var kept = workspace.state.run(id: id)?.finished.first(where: { $0.task == record.task }), kept.branchDeleted else { continue }
+            kept.branchDeleted = false
+            guard save(kept, in: id) else { return }
+        }
     }
 
     func changed(_ id: UUID) {
@@ -144,7 +168,7 @@ final class TaskAutoCloser {
     /// removal that then failed or waited, or before the app quit mid-removal, is taken back.
     private func takeBack(_ task: UUID, in id: UUID) -> Bool {
         guard workspace.state.task(id: task) != nil,
-              workspace.state.run(id: id)?.finished.contains(where: { $0.task == task }) == true else { return true }
+              workspace.state.run(id: id)?.finished.contains(where: { $0.task == task }) == true else { return workspace.persistenceError == nil }
         workspace.mutate { $0.updateRun(id: id) { $0.finished.removeAll { $0.task == task } } }
         return workspace.flush()
     }
@@ -178,7 +202,7 @@ final class TaskAutoCloser {
     /// One task removed, its record written as the removal starts, then its merged branch deleted once its
     /// row is gone, so a failed branch check only keeps the branch. False when something could not be saved.
     private func close(_ task: TaskItem, in run: OperatorRun) async -> Bool {
-        guard let record = Self.record(task, in: run, at: now()) else { return true }
+        guard let record = Self.record(task, in: run, at: now()) else { return workspace.persistenceError == nil }
         do {
             try await remove(task) { [self] in save(record, in: run.id) }
         } catch let deferred as Deferred {
@@ -189,13 +213,15 @@ final class TaskAutoCloser {
             return takeBack(task.id, in: run.id)
         }
         guard run.taskSettings?.deleteMergedBranch == true, let operated = task.operated,
-              let project = workspace.state.project(id: task.projectId) else { return true }
+              let project = workspace.state.project(id: task.projectId) else { return workspace.persistenceError == nil }
         var deleted = record
         deleted.branchDeleted = true
+        deleting.insert(task.id)
+        defer { deleting.remove(task.id) }
         let gone = await MergedBranchCheck.delete(branch: task.branch, acceptedSHA: operated.acceptance?.resultSHA, end: operated.end,
                                                   publication: operated.publication, kind: task.kind, path: project.path, git: git,
                                                   saveDeletion: { [self] in save(deleted, in: run.id) })
         // A kept branch reads as kept, including one whose deletion was saved, or failed to save, before git refused it.
-        return gone || save(record, in: run.id)
+        return gone ? workspace.persistenceError == nil : save(record, in: run.id)
     }
 }
