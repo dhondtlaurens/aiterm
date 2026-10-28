@@ -65,8 +65,9 @@ extension OperatorController {
 
     /// An end picked on a task's card (broadcast setup v2, Board): set as `TaskEndChange` decides, saved, and the
     /// Operator woken with it, whose next `finish_task` follows it. A merge's watch stops with the wait it cleared. A
-    /// switch below what is done finishes the task, so the broadcast is settled as every other end settles it. Refused
-    /// as `TaskEndChange.refusal` says, and while AiTerm is carrying out the task's end.
+    /// switch below what is done finishes the task, so the broadcast is settled as every other end settles it; when that
+    /// completes it, the one wake line says both, as the waker holds one reason. Refused as `TaskEndChange.refusal` says,
+    /// and while AiTerm is carrying out the task's end.
     func changeEnd(of id: UUID, to end: TaskEnd) throws {
         guard let task = workspace.state.task(id: id), let operated = task.operated, let run = run(id: operated.runId) else {
             throw ActionUnavailable("That task isn’t the Operator’s.")
@@ -75,8 +76,9 @@ extension OperatorController {
         guard !finisher.running.contains(id) else { throw ActionUnavailable("AiTerm is finishing \(task.title). Change its end once it’s done.") }
         workspace.mutate { TaskEndChange.apply(end, toTask: id, in: &$0) }
         finisher.stopWatching(id)
-        waker.say(TaskEndChange.wakeReason(key: operated.key, end: end), to: run.id)
         runChanged(run.id)
+        let completed = run.state != .complete && self.run(id: run.id)?.state == .complete
+        waker.say(TaskEndChange.wakeReason(key: operated.key, end: end) + (completed ? ", and the broadcast is complete" : ""), to: run.id)
     }
 
     /// One More Round or Accept As It Is, on the card of a task out of its review's fix rounds: the Operator woken with

@@ -42,8 +42,7 @@ import Testing
         let run = run()
         let task = task(in: run, .accepted, publication: waitingMerge)
         var state = state(run, [task])
-        let left = TaskEndChange.apply(.mergeLocal, toTask: task.id, in: &state)
-        #expect(left == nil, "a local merge is no less than an open request: nothing is left for you")
+        TaskEndChange.apply(.mergeLocal, toTask: task.id, in: &state)
         let operated = try #require(state.task(id: task.id)?.operated)
         #expect(operated.end == .mergeLocal)
         let publication = try #require(operated.publication)
@@ -52,22 +51,28 @@ import Testing
         #expect(publication.pushedSHA == "4f2a91c7d", "the push happened")
         #expect(publication.mergeRequestNumber == 412 && publication.mergeRequestURL == waitingMerge.mergeRequestURL, "so did the request")
         #expect(operated.state == .accepted && !operated.isFinished, "the next finish_task follows the new end")
-        #expect(state.run(id: run.id)?.leftForYou == [])
+        #expect(state.run(id: run.id)?.leftForYou == [], "a local merge is no less than an open request: nothing is left for you")
     }
 
     @Test func aSwitchBelowWhatIsDoneFinishesTheTaskAsItStands() throws {
         let run = run()
         let task = task(in: run, .accepted, publication: waitingMerge)
         var state = state(run, [task])
-        let left = TaskEndChange.apply(.commit, toTask: task.id, in: &state)
+        TaskEndChange.apply(.commit, toTask: task.id, in: &state)
         let operated = try #require(state.task(id: task.id)?.operated)
         #expect(operated.end == .commit && operated.isFinished, "accepted on a commit end: finished")
         #expect(operated.publication?.mergeRequestNumber == 412, "the request is left open")
-        #expect(left == "Close or merge !412 in webshop yourself: you changed cart-drawer’s end to commit, so AiTerm left it open.")
-        #expect(state.run(id: run.id)?.leftForYou == [left].compactMap { $0 })
-        // Saying it again leaves it once.
-        _ = TaskEndChange.apply(.commit, toTask: task.id, in: &state)
-        #expect(state.run(id: run.id)?.leftForYou.count == 1)
+        #expect(state.run(id: run.id)?.leftForYou
+                == ["Close or merge !412 in webshop yourself: you changed cart-drawer’s end to commit, so AiTerm left it open."])
+    }
+
+    @Test func aTaskStillAtWorkLeavesNothingForYouWithItsRequestOpen() throws {
+        let run = run()
+        let task = task(in: run, .working, publication: waitingMerge)
+        var state = state(run, [task])
+        TaskEndChange.apply(.commit, toTask: task.id, in: &state)
+        #expect(state.task(id: task.id)?.operated?.isFinished == false, "it finishes once it is accepted")
+        #expect(state.run(id: run.id)?.leftForYou == [], "nothing is left until the switch finishes it")
     }
 
     @Test func aTaskInPeoplesReviewSwitchedToCommitEndsItsReviewAndFinishes() throws {
@@ -75,9 +80,10 @@ import Testing
         var task = task(in: run, .inReview, publication: waitingMerge)
         task.operated?.peopleReview = PeopleReview(reviewers: ["Jan"])
         var state = state(run, [task])
-        #expect(TaskEndChange.apply(.commit, toTask: task.id, in: &state) != nil)
+        TaskEndChange.apply(.commit, toTask: task.id, in: &state)
         let operated = try #require(state.task(id: task.id)?.operated)
         #expect(operated.state == .accepted && operated.isFinished)
+        #expect(state.run(id: run.id)?.leftForYou.count == 1)
         #expect(operated.peopleReview?.ended == true)
     }
 
@@ -85,7 +91,7 @@ import Testing
         let run = run()
         let task = task(in: run, .working, end: .draftMR)
         var state = state(run, [task])
-        #expect(TaskEndChange.apply(.commit, toTask: task.id, in: &state) == nil)
+        TaskEndChange.apply(.commit, toTask: task.id, in: &state)
         let operated = try #require(state.task(id: task.id)?.operated)
         #expect(operated.end == .commit && operated.state == .working && operated.publication == nil)
     }
@@ -98,6 +104,11 @@ import Testing
         #expect(TaskEndChange.refusal(.mergeLocal, for: working, in: run) != nil)
         #expect(TaskEndChange.isSelectable(.draftMR, in: run) && !TaskEndChange.isSelectable(.merge, in: run))
         #expect(TaskEndChange.isSelectable(.mergeLocal, in: self.run()))
+
+        #expect(TaskEndChange.refusal(.draftMR, for: working, in: run) == "Cart drawer already ends at draft MR.")
+        var yoursNow = working
+        yoursNow.operated?.takenOver = true
+        #expect(TaskEndChange.refusal(.commit, for: yoursNow, in: run) == "You took Cart drawer over: hand it back to change its end.")
 
         let published = task(in: run, .published, end: .draftMR)
         #expect(TaskEndChange.refusal(.commit, for: published, in: run) == "Cart drawer has finished, so its end can’t change.")

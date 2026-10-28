@@ -42,8 +42,9 @@ import Testing
     }
 
     private func board(_ run: OperatorRun, _ tasks: [TaskItem], requests: [BroadcastRequest] = [],
-                       sessions: [SessionInfo] = []) -> BroadcastBoard {
-        BroadcastBoard.make(run: run, state: state(run, tasks), acting: .none, requests: requests, sessions: sessions)
+                       sessions: [SessionInfo] = [], modelLabels: BroadcastBoard.ModelLabels = [:]) -> BroadcastBoard {
+        BroadcastBoard.make(run: run, state: state(run, tasks), acting: .none, requests: requests, sessions: sessions,
+                            modelLabels: modelLabels)
     }
 
     private func card(_ board: BroadcastBoard, _ title: String) throws -> BroadcastBoard.Card {
@@ -71,6 +72,30 @@ import Testing
         #expect(try card(self.board(merging, [tasks[0]]), "Cart drawer").end?.selectable == TaskEnd.allCases)
     }
 
+    @Test func aCombinationNamesTheModelAsSettingsAgentsListsIt() throws {
+        var run = run(.complete)
+        run.completedAt = OperatorUIFixtures.epoch
+        run.closedAt = OperatorUIFixtures.epoch
+        let labels: BroadcastBoard.ModelLabels = [.claude: ["claude-opus-5-5": "Opus 5.5"], .codex: ["gpt-6-astra": "gpt-6-astra"]]
+        var drawer = task("Cart drawer", run: run, .working)
+        let provider = task("Payment provider switch", run: run, .working, agent: .codex, model: "gpt-9-unlisted", reasoning: "medium")
+        let layout = task("Checkout layout", run: run, .published)
+        run.finished = [OperatorUIFixtures.finished(layout, result: "merged · 9b3e07d")]
+        var board = board(run, [drawer, provider], modelLabels: labels)
+        #expect(try card(board, "Cart drawer").combination == "Opus 5.5 · High")
+        #expect(try card(board, "Payment provider switch").combination == "gpt-9-unlisted · Medium", "no label known: the id")
+        #expect(try card(board, "Checkout layout").combination == "Opus 5.5 · High", "a record's too")
+        // A tab's under its key, by its own agent's labels.
+        var tests = OperatorUIFixtures.extraTab("e2e-tests")
+        tests.model = "claude-opus-5-5"; tests.reasoning = "low"
+        drawer.operated?.extraTabs = [tests]
+        let sessions = [OperatorUIFixtures.tab("s1", of: drawer, .working),
+                        OperatorUIFixtures.tab("s2", of: drawer, .idle, index: 1, key: "e2e-tests", agent: .codex)]
+        board = self.board(run, [drawer], sessions: sessions, modelLabels: labels)
+        #expect(try card(board, "Cart drawer").tabs.map(\.combination) == ["Opus 5.5 · High", "claude-opus-5-5 · Low"],
+                "e2e-tests runs Codex, whose list names no claude-opus-5-5")
+    }
+
     @Test func aCardWithSeveralTabsPutsEachCombinationUnderItsKey() throws {
         let run = run()
         var drawer = task("Cart drawer", run: run, .working)
@@ -92,7 +117,7 @@ import Testing
         legacy.done = "merged after Jan's approval"
         let board = board(legacy, [task("Cart drawer", run: legacy, .working)])
         let card = try card(board, "Cart drawer")
-        #expect(card.combination == nil && card.end == nil && card.notice == nil && card.fixRounds == nil)
+        #expect(card.combination == nil && card.end == nil && card.fixRounds == nil)
         #expect(board.clauses.map(\.label) == ["Asked", "Review", "Done"])
         #expect(board.eachTask == nil)
     }
@@ -200,32 +225,67 @@ import Testing
         let card = try card(board(run, [drawer], requests: requests), "Address autocomplete")
         #expect(card.line == OperatorLine("out of fix rounds", look: .needsYou, tooltip: question.text))
         #expect(card.needsYou)
-        #expect(card.fixRounds == "3 rounds of fixes, and the last review, of 4f2a91c, still found 1 Important.")
+        #expect(card.fixRounds == BroadcastBoard.FixRounds(counts: "3 rounds of fixes, and the last review, of 4f2a91c, still found 1 Important."))
         #expect(BroadcastBoard.counts(of: OperatorUIFixtures.verdict(passed: false, round: 1, critical: 1, important: 2, minor: 3))
                 == "1 round of fixes, and the last review, of 4f2a91c, still found 1 Critical, 2 Important and 3 Minor.")
         #expect(BroadcastBoard.counts(of: OperatorUIFixtures.verdict(passed: false, round: 2))
                 == "2 rounds of fixes, and the last review, of 4f2a91c, didn’t pass.")
+        // With no verdict recorded the answers are still offered, with no counts.
+        var unreviewed = drawer
+        unreviewed.operated?.reviewVerdicts = []
+        #expect(try self.card(board(run, [unreviewed], requests: requests), "Address autocomplete").fixRounds
+                == BroadcastBoard.FixRounds(counts: nil))
+        // A prompt waiting on you is said first, as every request is; the answers stay under the rule.
+        let prompt = BroadcastRequest(kind: .permission, runId: run.id, taskId: drawer.id, text: "Claude asks to run npm install.")
+        let prompted = try self.card(board(run, [drawer], requests: requests + [prompt]), "Address autocomplete")
+        #expect(prompted.line?.text == "waiting on you" && prompted.line?.tooltip == "Claude asks to run npm install.")
+        #expect(prompted.fixRounds != nil && prompted.needsYou)
+        // Taken over, it is yours: no answers and no end to change.
+        var yours = drawer
+        yours.operated?.takenOver = true
+        let taken = try self.card(board(run, [yours], requests: requests), "Address autocomplete")
+        #expect(taken.fixRounds == nil && taken.end == nil)
         // Answered and resolved, it is gone.
         run.questions[0].resolution = "One more round."
         #expect(try self.card(board(run, [drawer]), "Address autocomplete").fixRounds == nil)
     }
 
     @Test func aKeptWorktreeIsSaidOnlyOnceTheClosingRan() throws {
+        let kept = OperatorLine("draft MR · worktree kept", look: .ended), done = OperatorLine("draft MR · 9b3e07d", look: .ended)
         var run = run(.complete)
         run.completedAt = OperatorUIFixtures.epoch
         let shipping = task("Shipping step", run: run, .published)
-        #expect(try card(board(run, [shipping]), "Shipping step").notice == nil, "not closed yet")
-        run.closedAt = OperatorUIFixtures.epoch
-        let card = try card(board(run, [shipping]), "Shipping step")
-        #expect(card.line == OperatorLine("draft MR · worktree kept", look: .ended))
-        #expect(card.notice == "Not closed: its worktree has uncommitted changes. Remove it yourself once they are safe.")
+        #expect(try card(board(run, [shipping]), "Shipping step").line == done, "not closed yet")
+        run.closedAt = OperatorUIFixtures.epoch.addingTimeInterval(60)
+        #expect(try card(board(run, [shipping]), "Shipping step").line == kept)
+        // Ended early and closed at End: the same.
+        var ended = run
+        ended.completedAt = nil
+        ended.state = .stopped
+        ended.endedAt = OperatorUIFixtures.epoch
+        #expect(try card(BroadcastBoard.shelved(run: ended, state: state(ended, [shipping])), "Shipping step").line == kept)
         // A task that didn't reach its end isn't closed, so nothing is kept.
         let failed = task("Flaky", run: run, .failed)
-        #expect(try self.card(board(run, [failed]), "Flaky").notice == nil)
+        #expect(try self.card(board(run, [failed]), "Flaky").line?.text.hasSuffix("worktree kept") == false)
         // Nor with closing off.
         var open = run
         open.taskSettings?.closeWhenDone = false
-        #expect(try self.card(board(open, [shipping]), "Shipping step").notice == nil)
+        #expect(try self.card(board(open, [shipping]), "Shipping step").line == done)
+    }
+
+    @Test func aTaskThatFinishedAfterTheLastClosingIsNotKept() throws {
+        // A complete broadcast closed, then reopened by a new plan: its completion is cleared, and what finishes now is
+        // the next closing's to look at.
+        var run = run(.active)
+        run.closedAt = OperatorUIFixtures.epoch
+        let shipping = task("Shipping step", run: run, .published)
+        #expect(try card(board(run, [shipping]), "Shipping step").line?.text == "draft MR · 9b3e07d")
+        // Complete again, before its closing runs again.
+        run.state = .complete
+        run.completedAt = OperatorUIFixtures.epoch.addingTimeInterval(3600)
+        #expect(try card(board(run, [shipping]), "Shipping step").line?.text == "draft MR · 9b3e07d")
+        run.closedAt = OperatorUIFixtures.epoch.addingTimeInterval(7200)
+        #expect(try card(board(run, [shipping]), "Shipping step").line?.text == "draft MR · worktree kept")
     }
 
     @Test func aRemovedTasksCardIsDrawnFromItsRecord() throws {

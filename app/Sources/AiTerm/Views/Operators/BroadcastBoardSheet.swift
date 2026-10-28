@@ -331,9 +331,9 @@ struct BoardScroll<Content: View>: View {
 /// own under the badges, in `Typography.monoCode` and `Palette.muted`, never cut short (a card with several tabs puts
 /// each under its tab's key instead); and while the task runs, `ends at` and its end as a `Badge` on the line under
 /// that, whose menu picks another, Merge and Local merge disabled while the Merge slice is off. The badge takes its own
-/// click. What a stop says under the card's rule (16), a `Hairline` as over the tabs: a kept worktree's `HelpText`, or
-/// the last verdict's counts with One More Round and Accept As It Is as links, `Space.gap` apart and `Space.tight`
-/// under it. Equatable by its card alone, so a change to another card redraws this one not at all.
+/// click. A task out of its fix rounds (16) has, under the card's rule, a `Hairline` as over the tabs, the last
+/// verdict's counts in a `HelpText` when one was recorded, then One More Round and Accept As It Is as links, `Space.gap`
+/// apart and `Space.tight` under it. Equatable by its card alone, so a change to another card redraws this one not at all.
 struct BoardCardView: View, Equatable {
     let card: BroadcastBoard.Card
     /// What the card's click, or a tab line's, opens: the sheet closes first (`BroadcastBoardSheet.choose`).
@@ -394,18 +394,15 @@ struct BoardCardView: View, Equatable {
         .ruled()
     }
 
-    private var hasFoot: Bool { card.notice != nil || card.fixRounds != nil }
+    private var hasFoot: Bool { card.fixRounds != nil }
 
-    /// What a stop says under the card's rule: why its worktree was kept, or the fix rounds' counts and their answers.
+    /// A task out of its fix rounds, under the card's rule: the last verdict's counts, and the answers.
     private var foot: some View {
         VStack(alignment: .leading, spacing: Space.tight) {
-            if let notice = card.notice { HelpText(notice) }
-            if let counts = card.fixRounds {
-                HelpText(counts)
-                HStack(spacing: Space.gap) {
-                    ForEach(BroadcastBoard.FixRoundsAnswer.allCases, id: \.self) { answer in
-                        Button(answer.title) { actions.answerFixRounds(card.id, answer) }.buttonStyle(.link).font(Typography.help)
-                    }
+            if let counts = card.fixRounds?.counts { HelpText(counts) }
+            HStack(spacing: Space.gap) {
+                ForEach(BroadcastBoard.FixRoundsAnswer.allCases, id: \.self) { answer in
+                    Button(answer.title) { actions.answerFixRounds(card.id, answer) }.buttonStyle(.link).font(Typography.help)
                 }
             }
         }
@@ -492,8 +489,8 @@ struct BoardEndLine: View {
 /// centred under the card's `Size.avatar` mark; its key in `Typography.monoChip` and `Palette.text` on the
 /// title's leading edge; its state `Space.base` after it, an `OperatorBadge` (needs you in the attention chip);
 /// its `StatusMark` at `Size.statusMarkSmall` trailing; under it, on a broadcast set up with the Agents step, the tab's
-/// model and reasoning on a `Size.chip` line of their own on the key's edge, in `Typography.monoChip` at regular weight and
-/// `Palette.muted`. Hovered, `Palette.badgeHovered` at `Radius.chip`,
+/// model and reasoning on a `Size.chip` line of their own on the key's edge, in `Typography.monoCode` and `Palette.muted`.
+/// Hovered, `Palette.badgeHovered` at `Radius.chip`,
 /// `Space.tight` beyond the line. Its click closes the board and brings the tab forward; a closed tab is muted,
 /// with no mark, and is no button.
 struct BoardTabLine: View {
@@ -520,7 +517,7 @@ struct BoardTabLine: View {
                 line
             }
             if let combination = tab.combination {
-                Text(verbatim: combination).font(Typography.monoChip).fontWeight(.regular).foregroundStyle(Palette.muted)
+                Text(verbatim: combination).font(Typography.monoCode).foregroundStyle(Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, Size.avatar + Space.base).frame(minHeight: Size.chip)
             }

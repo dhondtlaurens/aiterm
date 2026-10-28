@@ -33,6 +33,9 @@ struct OperatorScene {
 
     init(projects: [Project] = [OperatorScene.project("webshop"), OperatorScene.project("payments-api")]) {
         self.projects = projects
+        // The drawing's model labels, set here rather than read from this Mac's agents, so every image is the same.
+        controller.rows.modelLabelSource = nil
+        controller.rows.modelLabels = Self.modelLabels
         // The board's images draw its sheet straight from the rows, with no sheet slot showing it.
         controller.rows.boardShown = { true }
         controller.workspace.mutate { state in for project in projects { state.append(project: project) } }
@@ -321,6 +324,9 @@ struct OperatorScene {
 
     // -- set up with the Agents, Task and Done steps (broadcast setup v2) ----------------------
 
+    /// What Settings › Agents names the drawing's models.
+    static let modelLabels: BroadcastBoard.ModelLabels = [.claude: ["claude-opus-5-5": "Opus 5.5"], .codex: ["gpt-6-astra": "gpt-6-astra"]]
+
     /// The drawing's Agents rows, Task step and goal (15A).
     static let agents = [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high"),
                          AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")]
@@ -348,10 +354,10 @@ struct OperatorScene {
         }
     }
 
-    /// The cards at the new stops (16), on one running broadcast whose closing has run once: the cart drawer at work,
-    /// the provider switch on the long model, the order summary's two tabs, the address autocomplete in its second
-    /// round of review and the same task out of its fix rounds, the shipping step's kept worktree, and the checkout
-    /// layout's card from its record. Returns the cards in that order.
+    /// The cards at the new stops (16), on one running broadcast: the cart drawer at work, the provider switch on the long
+    /// model, the order summary's two tabs, the address autocomplete in its second round of review and the same task out
+    /// of its fix rounds, and the checkout layout's card from its record; then, from the broadcast complete and closed,
+    /// the shipping step's kept worktree. Returns the cards in that order.
     static func stops(_ scene: OperatorScene = OperatorScene()) -> [BroadcastBoard.Card] {
         let opened = LaunchAttempt(number: 1, requestedAt: Snapshots.clock.now, openedAt: Snapshots.clock.now)
         let outOfRounds = UUID()
@@ -359,7 +365,7 @@ struct OperatorScene {
             ReviewVerdict(tab: "review", sha: "4f2a91c", passed: false, round: round, rounds: 3, critical: 0, important: 1, minor: 0,
                           summary: "One Important finding.", at: Snapshots.clock.now)
         }
-        var tasks = scene.setUpCheckout([scene.summary: .working, scene.autocomplete: .working, scene.shipping: .published])
+        var tasks = scene.setUpCheckout([scene.summary: .working, scene.autocomplete: .working])
         tasks = tasks.map { task in
             var task = task
             if task.id == scene.summary {
@@ -373,7 +379,6 @@ struct OperatorScene {
                                                      sessionId: "s-review", role: .review)]
                 task.operated?.reviewVerdicts = verdicts
             }
-            if task.id == scene.shipping { task.operated?.publication = nil }
             return task
         }
         var stuck = scene.task(outOfRounds, "Address autocomplete", jira: "PAY-233", .working, end: .draftMR)
@@ -384,14 +389,25 @@ struct OperatorScene {
         let question = OperatorQuestion(id: "fix-rounds-pay-233", text: "Address autocomplete is out of fix rounds: one more, or accept it?",
                                         task: outOfRounds, askedAt: Snapshots.clock.now, about: OperatorQuestion.fixRounds)
         var run = scene.setUp(.active, questions: [question])
-        run.closedAt = Snapshots.clock.now
         run.finished = [FinishedTaskRecord(task: layout.id, key: "PAY-230", title: layout.title, ticket: "PAY-230", project: layout.projectId,
                                            agent: .claude, model: layout.model, reasoning: layout.reasoning, end: .merge, state: .published,
                                            acceptedSHA: "9b3e07d", branch: layout.branch, mergeRequestURL: nil, mergedSHA: "9b3e07d",
                                            result: "merged · 9b3e07d", branchDeleted: true, at: Snapshots.clock.now)]
         scene.show(run, tasks.filter { $0.id != scene.layout } + [stuck], turnEnded: [scene.autocomplete])
         let cards = Dictionary((scene.board?.columns.flatMap(\.cards) ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return [scene.drawer, scene.provider, scene.summary, scene.autocomplete, outOfRounds, scene.shipping, scene.layout].compactMap { cards[$0] }
+        return [scene.drawer, scene.provider, scene.summary, scene.autocomplete, outOfRounds, scene.layout].compactMap { cards[$0] }
+            + [kept()].compactMap { $0 }
+    }
+
+    /// The shipping step's card once the broadcast completed and its closing ran, its worktree kept.
+    private static func kept(_ scene: OperatorScene = OperatorScene()) -> BroadcastBoard.Card? {
+        var shipping = scene.setUpCheckout([scene.shipping: .published]).first { $0.id == scene.shipping }!
+        shipping.operated?.publication = nil
+        var run = scene.setUp(.complete)
+        run.completedAt = Snapshots.clock.now
+        run.closedAt = Snapshots.clock.now
+        scene.show(run, [shipping])
+        return scene.board?.columns.flatMap(\.cards).first
     }
 
     /// A set-up broadcast while it runs (15A): the Asked line with its goal, the Each task line under it.

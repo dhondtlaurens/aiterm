@@ -51,6 +51,15 @@ import Testing
         #expect(world.task(task.id)?.operated?.isFinished == true)
         #expect(world.run(run.id)?.leftForYou.first?.hasPrefix("Close or merge !412 in Shop yourself") == true)
         #expect(world.run(run.id)?.state == .complete, "its last open task finished")
+        // One wake carries both: the change, and the completion it brought.
+        #expect(try await lastWake(world) == "[AiTerm] You changed cart-drawer’s end to commit, and the broadcast is complete, call run_status")
+    }
+
+    @Test func aTaskYouTookOverKeepsItsEnd() throws {
+        let (world, _, task) = try makeWorld()
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.takenOver = true } }
+        #expect(throws: ActionUnavailable.self) { try world.controller.changeEnd(of: task.id, to: .draftMR) }
+        #expect(world.task(task.id)?.operated?.end == .merge)
     }
 
     @Test func aChangeTheCardCantOfferIsRefused() throws {

@@ -123,6 +123,16 @@ public struct BroadcastBoard: Equatable, Sendable {
         }
     }
 
+    /// Each agent's model labels by model id, as Settings › Agents lists them: what a card names a model by.
+    public typealias ModelLabels = [AgentKind: [String: String]]
+
+    /// A task out of its review's fix rounds and asked about them (16): the answers' links, under the last verdict's
+    /// counts when one was recorded.
+    public struct FixRounds: Equatable, Sendable {
+        public var counts: String?
+        public init(counts: String?) { self.counts = counts }
+    }
+
     /// One task on the board.
     public struct Card: Equatable, Identifiable, Sendable {
         /// The task's id.
@@ -155,15 +165,14 @@ public struct BroadcastBoard: Equatable, Sendable {
         public var tabs: [TabLine] = []
         /// The Oracle’s reason for refusing a merge, separate from the task’s status.
         public var mergeRefusal: String? = nil
-        /// Its first worker's model and reasoning (14A), `claude-opus-5-5 · High`, while it has one worker tab; nil on a
-        /// legacy broadcast's board, where the tooltip alone says it.
+        /// Its first worker's model and reasoning (14A), `Opus 5.5 · High`, while it has one worker tab; nil on a legacy
+        /// broadcast's board, where the tooltip alone says it.
         public var combination: String? = nil
-        /// Its end line while it has not finished; nil once it has, on a legacy broadcast's board, and on the Shelf's.
+        /// Its end line while it has not finished and is not yours; nil once it has, on a legacy broadcast's board, and on
+        /// the Shelf's.
         public var end: EndLine? = nil
-        /// Out of its review's fix rounds and asked about them: the last verdict's counts, over the answers' links.
-        public var fixRounds: String? = nil
-        /// What its card says under its rule: why the closing at the broadcast's end left it.
-        public var notice: String? = nil
+        /// Out of its review's fix rounds and asked about them, while it is not yours.
+        public var fixRounds: FixRounds? = nil
     }
 
     /// A column: its head, its cards, and the one muted line it says while it has none.
@@ -247,11 +256,13 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// The board of `run` as `state` has it. `acting` is what the Operator is doing now, as
     /// `OperatorController.acting` says it; `requests` are the broadcast's open requests (`OperatorRequests`);
     /// `sessions` the tabs as iTerm2 lists them, which the band reads as its row does; `liveModels` what each task's
-    /// Claude worker runs now (`liveModels(of:state:sessions:)`), which the cards' tooltips say.
+    /// Claude worker runs now (`liveModels(of:state:sessions:)`), which the cards' tooltips say; `modelLabels` the names
+    /// the cards give the models, a model with none named by its id.
     public static func make(run: OperatorRun, state: AppState, acting: OperatorActs, requests: [BroadcastRequest],
-                            sessions: [SessionInfo] = [], liveModels: [UUID: LiveModel] = [:]) -> BroadcastBoard {
+                            sessions: [SessionInfo] = [], liveModels: [UUID: LiveModel] = [:],
+                            modelLabels: ModelLabels = [:]) -> BroadcastBoard {
         build(run: run, state: state, acting: acting, requests: requests, sessions: sessions, liveModels: liveModels,
-              keepsHanded: false)
+              modelLabels: modelLabels, keepsHanded: false)
     }
 
     /// What the first worker of each of `run`'s tasks says it runs now, a Claude's alone (`SessionInfo.liveModel`), by
@@ -269,7 +280,8 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// The board, `keepsHanded` keeping the tasks End handed to you (`handedOnEnd`) In progress and counted, as the
     /// Shelf reads an ended broadcast.
     private static func build(run: OperatorRun, state: AppState, acting: OperatorActs, requests: [BroadcastRequest],
-                              sessions: [SessionInfo], liveModels: [UUID: LiveModel], keepsHanded: Bool) -> BroadcastBoard {
+                              sessions: [SessionInfo], liveModels: [UUID: LiveModel], modelLabels: ModelLabels,
+                              keepsHanded: Bool) -> BroadcastBoard {
         let tasks = state.tasks(inRun: run.id)
         let byId = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let projects = run.projectIds.compactMap(state.project(id:))
@@ -283,11 +295,12 @@ public struct BroadcastBoard: Equatable, Sendable {
             let handed = keepsHanded && Self.handedOnEnd(operated)
             guard operated.state != .stopped || handed else { return nil }
             let card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId, sessions: sessions,
-                                 live: liveModels[task.id], turn: acting.turns[task.id], project: projects.count > 1 ? names[task.projectId] : nil)
+                                 live: liveModels[task.id], turn: acting.turns[task.id], labels: modelLabels,
+                                 project: projects.count > 1 ? names[task.projectId] : nil)
             return (handed ? .inProgress : Self.column(of: operated, hasReview: hasReview), card, task.agent)
         }
         let removed = Self.removed(of: run, tasks: tasks).map { record in
-            (Column.done, Self.card(record, project: projects.count > 1 ? names[record.project] : nil), record.agent)
+            (Column.done, Self.card(record, labels: modelLabels, project: projects.count > 1 ? names[record.project] : nil), record.agent)
         }
         let columns = Column.allCases.filter { $0 != .review || hasReview }.map { column in
             Lane(column: column, cards: (cards + removed).filter { $0.0 == column }.map(\.1),
@@ -324,7 +337,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         var all = state
         let driven = state.tasks(inRun: run.id) + state.archive.map(\.task).filter { $0.operated?.runId == run.id }
         all.tasks = driven.enumerated().sorted { ($0.element.createdAt, $0.offset) < ($1.element.createdAt, $1.offset) }.map(\.element)
-        var board = build(run: run, state: all, acting: .none, requests: [], sessions: [], liveModels: [:], keepsHanded: true)
+        var board = build(run: run, state: all, acting: .none, requests: [], sessions: [], liveModels: [:], modelLabels: [:], keepsHanded: true)
         board.columns = board.columns.map { lane in
             var lane = lane
             lane.cards = lane.cards.map { card in
@@ -379,21 +392,22 @@ public struct BroadcastBoard: Equatable, Sendable {
 
     private static func card(_ task: TaskItem, _ operated: OperatedTask, run: OperatorRun, acting: OperatorAct?,
                              requests: [BroadcastRequest], tasks: [UUID: TaskItem], sessions: [SessionInfo], live: LiveModel?,
-                             turn: WorkerTurn.Ending?, project: String?) -> Card {
-        let setUp = run.taskSettings != nil
-        // Closing ran and left it, having reached its end: its worktree held changes.
-        let kept = setUp && run.closedAt != nil && run.taskSettings?.closeWhenDone == true && operated.reachedItsEnd
-        let fixRounds = setUp && !operated.isFinished
+                             turn: WorkerTurn.Ending?, labels: ModelLabels, project: String?) -> Card {
+        let setUp = run.taskSettings != nil, takenOver = operated.takenOver
+        let kept = setUp && run.taskSettings?.closeWhenDone == true && operated.reachedItsEnd && closingRan(run)
+        // Asked about its fix rounds; a request of its own (a prompt, a block) is said first, as every request is.
+        let fixRounds = setUp && !operated.isFinished && !takenOver
             ? run.questions.first { $0.task == task.id && $0.about == OperatorQuestion.fixRounds && $0.resolution == nil } : nil
+        let asks = requests.contains { $0.runId == run.id && $0.taskId == task.id && $0.kind != .question }
         let line: OperatorLine? = if kept {
-            // What it ended at without its detail, `draft MR · worktree kept`, so the line fits.
+            // What it ended at without its detail, `draft MR · worktree kept`, so the line fits. Why it was kept is not
+            // recorded, so the card says no more.
             OperatorLine((OperatorLine.ending(of: operated)?.components(separatedBy: " · ").first ?? "done") + " · worktree kept", look: .ended)
-        } else if let fixRounds {
+        } else if let fixRounds, !asks {
             OperatorLine("out of fix rounds", look: .needsYou, tooltip: fixRounds.text)
         } else {
             OperatorLine.task(task, run: run, acting: acting, requests: requests, tasks: tasks, sessions: sessions, turn: turn)
         }
-        let takenOver = operated.takenOver
         let mr: (reference: String, host: CodeHost, title: String?)? = task.mr.map { ($0.reference, $0.host, $0.title) }
             ?? operated.publication.flatMap { publication in
                 publication.mergeRequestNumber.map { number in
@@ -401,7 +415,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                     return (host.reference(number), host, nil)
                 }
             }
-        let tabs = tabs(of: task, sessions: sessions, combinations: setUp)
+        let tabs = tabs(of: task, sessions: sessions, labels: setUp ? labels : nil)
         return Card(id: task.id, title: task.title, agent: task.agent,
                     ticket: task.jira?.key, ticketSummary: task.jira?.summary,
                     mr: mr?.reference, mrHost: mr?.host, mrTitle: mr?.title, project: project,
@@ -411,31 +425,37 @@ public struct BroadcastBoard: Equatable, Sendable {
                     modelTooltip: modelTooltip(task, operated, live: live), result: OperatorLine.ending(of: operated),
                     tabs: tabs,
                     mergeRefusal: takenOver || operated.isFinished || (setUp && !operated.end.merges) ? nil : operated.publication?.mergeRefusal,
-                    combination: setUp && tabs.isEmpty ? combination(task.model, task.reasoning) : nil,
-                    end: setUp && !operated.isFinished
+                    combination: setUp && tabs.isEmpty ? combination(task.agent, task.model, task.reasoning, labels: labels) : nil,
+                    end: setUp && !operated.isFinished && !takenOver
                         ? EndLine(current: operated.end, selectable: TaskEnd.allCases.filter { TaskEndChange.isSelectable($0, in: run) }) : nil,
-                    fixRounds: fixRounds.flatMap { _ in operated.reviewVerdicts.last.map(counts) },
-                    notice: kept ? keptNotice : nil)
+                    fixRounds: fixRounds.map { _ in FixRounds(counts: operated.reviewVerdicts.last.map(counts)) })
     }
 
-    /// What a card kept at the broadcast's end says under its rule.
-    static let keptNotice = "Not closed: its worktree has uncommitted changes. Remove it yourself once they are safe."
+    /// Whether the closing has run since the broadcast last completed or ended (`closedAt`): a task that reached its
+    /// end then and still has its row was kept. Once a new plan reopens a complete broadcast, its completion is cleared,
+    /// and what finishes after is the next closing's to look at.
+    private static func closingRan(_ run: OperatorRun) -> Bool {
+        guard let closed = run.closedAt, let settled = [run.completedAt, run.endedAt].compactMap({ $0 }).max() else { return false }
+        return closed >= settled
+    }
 
     /// The card of a task closed at the broadcast's end, from its record: the title, agent, ticket and combination it
     /// had, its line as it read with `· removed` after it, and nothing to open.
-    private static func card(_ record: FinishedTaskRecord, project: String?) -> Card {
+    private static func card(_ record: FinishedTaskRecord, labels: ModelLabels, project: String?) -> Card {
         let effort = record.reasoning.flatMap { $0.isEmpty ? nil : $0 }
         return Card(id: record.task, title: record.title, agent: record.agent, ticket: record.ticket, ticketSummary: nil,
                     mr: nil, mrHost: nil, mrTitle: nil, project: project,
                     line: OperatorLine(record.result + " · removed", look: .ended), takenOver: false, needsYou: false, opens: .nothing,
                     modelTooltip: modelLine(record.agent, record.model, effort), result: record.result,
-                    combination: combination(record.model, record.reasoning))
+                    combination: combination(record.agent, record.model, record.reasoning, labels: labels))
     }
 
-    /// A model and its reasoning as a card says them, `claude-opus-5-5 · High`; nil with no model.
-    static func combination(_ model: String, _ reasoning: String?) -> String? {
+    /// `agent`'s model and its reasoning as a card says them, `Opus 5.5 · High`: the model by its label in `labels`, or by
+    /// its id when none is known. Nil with no model.
+    static func combination(_ agent: AgentKind, _ model: String, _ reasoning: String?, labels: ModelLabels) -> String? {
         guard !model.isEmpty else { return nil }
-        return ([model] + [reasoning.flatMap { $0.isEmpty ? nil : $0.capitalized }].compactMap { $0 }).joined(separator: " · ")
+        let name = labels[agent]?[model] ?? model
+        return ([name] + [reasoning.flatMap { $0.isEmpty ? nil : $0.capitalized }].compactMap { $0 }).joined(separator: " · ")
     }
 
     /// What a card out of fix rounds says under its rule, from the last verdict: `3 rounds of fixes, and the last review,
@@ -448,17 +468,17 @@ public struct BroadcastBoard: Equatable, Sendable {
         return lead + (found.isEmpty ? "didn’t pass." : "still found " + OperatorLine.list(found) + ".")
     }
 
-    /// A card's tab lines, as `sessions` list its worker tabs; none for a task with one. `combinations` puts each tab's
-    /// model and reasoning under its key.
-    private static func tabs(of task: TaskItem, sessions: [SessionInfo], combinations: Bool) -> [TabLine] {
+    /// A card's tab lines, as `sessions` list its worker tabs; none for a task with one. With `labels`, each tab's model
+    /// and reasoning under its key.
+    private static func tabs(of task: TaskItem, sessions: [SessionInfo], labels: ModelLabels?) -> [TabLine] {
         let workers = task.workerTabs(in: sessions)
         guard workers.count > 1 else { return [] }
         let extra = Dictionary((task.operated?.extraTabs ?? []).map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
         return workers.map { worker in
             var tab = tabLine(of: worker, task: task.id)
-            if combinations {
-                tab.combination = worker.key.map { extra[$0].flatMap { combination($0.model, $0.reasoning) } }
-                    ?? combination(task.model, task.reasoning)
+            if let labels {
+                tab.combination = worker.key.map { extra[$0].flatMap { combination($0.agent, $0.model, $0.reasoning, labels: labels) } }
+                    ?? combination(task.agent, task.model, task.reasoning, labels: labels)
             }
             return tab
         }

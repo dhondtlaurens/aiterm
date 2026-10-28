@@ -271,6 +271,12 @@ final class AppController {
         operators.onChange { [weak self] in self?.refreshRows() }
         // The board is derived only while its sheet shows: opening it derives the rows with it.
         rows.boardShown = { [weak sheets] in if case .broadcastBoard? = sheets?.sheet { true } else { false } }
+        // Its cards name each worker's model as Settings › Agents lists it, Claude's and Codex's being the workers'.
+        rows.modelLabelSource = { [catalogue = agents.catalogue] in
+            Dictionary(uniqueKeysWithValues: [AgentKind.claude, .codex].map { agent in
+                (agent, Dictionary(((try? catalogue.models(for: agent)) ?? []).map { ($0.id, $0.label) }, uniquingKeysWith: { first, _ in first }))
+            })
+        }
         sheets.onChange = { [weak self] in self?.refreshRows() }
         // New Review's Fix goes through the same seam as the banner's. The sheets live as long as the controller.
         sheets.fixPipeline = { [unowned self] in self.fixPipeline($0) }

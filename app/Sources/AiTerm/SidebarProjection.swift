@@ -38,6 +38,16 @@ final class SidebarProjection {
     /// Whether the board's sheet is showing, read on every derivation: the app points it at its sheet slot; a test or
     /// a snapshot that reads `board` alone leaves it true.
     @ObservationIgnored var boardShown: @MainActor () -> Bool = { true }
+    /// Reads the agents' model labels, as Settings › Agents lists them, which the board's cards name a model by: blocking,
+    /// so run off the main actor each time the board's sheet opens. The app points it at its model catalogue; nil reads
+    /// nothing, and a card names a model by its id.
+    @ObservationIgnored var modelLabelSource: (@Sendable () -> BroadcastBoard.ModelLabels)?
+    /// The labels last read, or set by a snapshot; a change derives the board again.
+    @ObservationIgnored var modelLabels: BroadcastBoard.ModelLabels = [:] {
+        didSet { if modelLabels != oldValue { refresh() } }
+    }
+    /// The latest read of the labels, for a test to await.
+    @ObservationIgnored private(set) var labelLoad: Task<Void, Never>?
 
     /// Whether the sidebar has a project, as `AppState.hasProjects` says: every project is a section.
     var hasProjects: Bool { !sections.isEmpty }
@@ -66,8 +76,20 @@ final class SidebarProjection {
         /// What each of the board's tasks' Claude workers runs now, which `sessions` leaves out: read from every tab only
         /// while the board shows, since nothing else draws it.
         var liveModels: [UUID: BroadcastBoard.LiveModel]
+        /// What the board's cards name each model by, read only while the board shows.
+        var modelLabels: BroadcastBoard.ModelLabels
         var branchByCwd: [String: String], projectBranch: [UUID: String], diffByTask: [UUID: DiffStat]
         var runs: [OperatorRun], acting: OperatorActs, folded: Set<UUID>, boardShown: Bool
+    }
+
+    /// The labels read again, off the main actor, as the board's sheet opens: a model added in Settings › Agents since
+    /// is named the next time it opens.
+    private func readModelLabels() {
+        guard let source = modelLabelSource else { return }
+        labelLoad = Task { [weak self] in
+            let labels = await BackgroundWork.run(source)
+            self?.modelLabels = labels
+        }
     }
 
     /// `task` as the rows read it: without the conversations its window last showed, which no row draws.
@@ -87,13 +109,15 @@ final class SidebarProjection {
         let state = workspace.state, shown = boardShown()
         let liveModels = shown ? state.activeRun.map { BroadcastBoard.liveModels(of: $0, state: state, sessions: live.sessions) } : nil
         let next = Inputs(items: state.items, tasks: state.tasks.map(Self.drawn), terminals: state.terminals, sessions: live.rowSessions,
-                          liveModels: liveModels ?? [:], branchByCwd: checkouts.branchByCwd, projectBranch: checkouts.projectBranch,
+                          liveModels: liveModels ?? [:], modelLabels: shown ? modelLabels : [:],
+                          branchByCwd: checkouts.branchByCwd, projectBranch: checkouts.projectBranch,
                           diffByTask: checkouts.diffByTask,
                           runs: state.runs, acting: actingSource(), folded: state.foldedRuns, boardShown: shown)
         guard next != inputs else { return false }
         let previous = inputs
         inputs = next
         derivations += 1
+        if shown, previous?.boardShown != true { readModelLabels() }
         if next.acting != acting { acting = next.acting }
         if next.runs != previous?.runs {
             let runs = Dictionary(next.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -106,7 +130,7 @@ final class SidebarProjection {
         let board = !next.boardShown ? nil : state.activeRun.map { run in
             BroadcastBoard.make(run: run, state: state, acting: next.acting,
                                 requests: OperatorRequests.open(run: run, state: state), sessions: next.sessions,
-                                liveModels: next.liveModels)
+                                liveModels: next.liveModels, modelLabels: next.modelLabels)
         }
         if board != self.board { self.board = board }
         let entries = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,
