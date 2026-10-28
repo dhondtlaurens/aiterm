@@ -218,6 +218,7 @@ final class TaskRemover: CheckoutRemovals {
                 throw ActionUnavailable("The task changed while its worktree was checked.")
             }
             guard !TaskAutoCloser.isDriving(task, in: live) else { throw TaskAutoCloser.Deferred.turn }
+            guard !Self.turnInFlight(task.id, in: live) else { throw TaskAutoCloser.Deferred.agentTurn }
             guard !task.workerTabs(in: live.sessions).contains(where: {
                 $0.session.map { $0.windowId != task.windowId } == true
             }) else {
@@ -445,10 +446,12 @@ final class TaskRemover: CheckoutRemovals {
     /// running on it, not held for a removal's retry, and its agent not mid-turn.
     private func awaitsCleanup(_ task: TaskItem) -> Bool {
         workspace.state.tasks.contains(task) && work.operation(onTask: task.id) == nil
-            && removals[task.id]?.awaitsRetry != true && !turnInFlight(task.id)
+            && removals[task.id]?.awaitsRetry != true && !Self.turnInFlight(task.id, in: live)
     }
 
-    private func turnInFlight(_ taskId: UUID) -> Bool {
+    /// Whether any of the task's tabs has its agent mid-turn: working, or asking for input. The checkout cleanup and
+    /// Auto-close both wait for it.
+    static func turnInFlight(_ taskId: UUID, in live: LiveSessions) -> Bool {
         live.sessions.contains { $0.taskUUID == taskId && ($0.state == .working || $0.state == .needsInput) }
     }
 

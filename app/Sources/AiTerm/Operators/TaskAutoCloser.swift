@@ -3,18 +3,25 @@ import AiTermCore
 
 /// End-of-broadcast cleanup (spec, Auto-close). A task's `FinishedTaskRecord` is written just before its
 /// removal starts and taken back when the removal fails or waits, so `finished` holds only tasks whose row
-/// is gone; why a task stays is on its row (`TaskRemover`). A person's turn, or the helper being away,
-/// defers only that task: the turn until its end, the helper until it is back (`sweep`).
+/// is gone; why a task stays is on its row (`TaskRemover`). A person's turn, an agent's, or the helper being
+/// away defers only that task: a turn until its end, the helper until it is back (`sweep`).
 @MainActor
 final class TaskAutoCloser {
     nonisolated static let unsavedWork = "Not closed: its worktree has uncommitted changes. Remove it yourself once they are safe."
     nonisolated static let waitingForTurn = "Not closed: waiting for your turn to end."
+    nonisolated static let waitingForAgent = "Not closed: waiting for its agent’s turn to end."
     nonisolated static let waitingForHelper = "Not closed: waiting for AiTerm’s helper to reconnect."
 
-    /// A removal that did not start and is tried again: for the person's turn, or for the helper.
+    /// A removal that did not start and is tried again: for the person's turn, an agent's, or the helper.
     enum Deferred: LocalizedError {
-        case turn, helper
-        var errorDescription: String? { self == .turn ? TaskAutoCloser.waitingForTurn : TaskAutoCloser.waitingForHelper }
+        case turn, agentTurn, helper
+        var errorDescription: String? {
+            switch self {
+            case .turn: TaskAutoCloser.waitingForTurn
+            case .agentTurn: TaskAutoCloser.waitingForAgent
+            case .helper: TaskAutoCloser.waitingForHelper
+            }
+        }
     }
 
     private struct Phase: Equatable {
@@ -120,6 +127,7 @@ final class TaskAutoCloser {
                 guard Self.eligible(task), waits(task.id, in: pass) else { return false }
                 switch pass.deferred[task.id] {
                 case .turn?: return !Self.isDriving(task, in: live)
+                case .agentTurn?: return !TaskRemover.turnInFlight(task.id, in: live)
                 case .helper?: return false
                 case nil: return true
                 }

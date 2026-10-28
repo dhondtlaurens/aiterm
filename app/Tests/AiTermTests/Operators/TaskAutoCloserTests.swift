@@ -198,6 +198,28 @@ import Testing
         #expect(app.state.run(id: run.id)?.finished.map(\.task) == [task.id])
     }
 
+    @Test(arguments: [SessionState.working, .needsInput]) func anAgentMidTurnWaitsUntilItsTurnEnds(state: SessionState) async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let (run, task) = try prepare(fixture)
+        let app = fixture.controller
+        let server = RecordingDaemon()
+        app.helper.setDaemonClient(server)
+        var session = OperatorServiceFixtures.session("s", window: "alive", tag: task.id, agent: .codex, state: state)
+        app.live.sessions = [session]
+        let closer = closer(fixture)
+        await closer.close(run.id)
+        #expect(app.state.task(id: task.id) != nil)
+        #expect(server.requests("window.close").isEmpty)
+        #expect(note(task, in: fixture) == TaskAutoCloser.waitingForAgent)
+        #expect(app.state.run(id: run.id)?.finished.isEmpty == true)
+        #expect(app.state.run(id: run.id)?.closedAt == nil)
+        session.state = .idle
+        app.live.sessions = [session]
+        await eventually { app.state.task(id: task.id) == nil }
+        #expect(app.state.run(id: run.id)?.finished.map(\.task) == [task.id])
+    }
+
     @Test func aFailedRemovalTakesBackItsRecordAndLeavesTheRow() async throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
