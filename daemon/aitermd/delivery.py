@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypedDict
 
 from .iterm_bridge import ItermPort, ItermUnavailable
-from .models import HARNESS_BY_AGENT, AgentKind, Harness, SessionInfo
+from .models import HARNESS_BY_AGENT, AgentKind, Harness, SessionInfo, support_dir
 from .offload import run_detached
 from .text import shows
 from .sessions import SessionRegistry
@@ -154,7 +154,7 @@ def _below_input(harness: Harness, screen: str) -> str:
 # `auto` pastes and presses Enter; `pasteOnly` pastes and leaves the Enter to you; `off` types nothing.
 DeliveryPolicy = Literal["auto", "pasteOnly", "off"]
 # Written by the delivery check; read on every delivery, so a new check needs no daemon restart.
-POLICY_PATH = Path.home() / "Library" / "Application Support" / "AiTerm" / "delivery-policy.json"
+POLICY_PATH = support_dir() / "delivery-policy.json"
 
 
 class Verdict(NamedTuple):

@@ -1,7 +1,6 @@
 from __future__ import annotations
 import contextlib
 import json
-import math
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -12,7 +11,7 @@ from typing import Any
 from .models import State
 from .text import nonempty_string
 from .jsonl import JsonlCursor
-from .usage import finite_number
+from .usage import clamped_percent, finite_number
 
 # How often the whole sessions tree is listed again. In between, only the rollouts last seen to be
 # the newest, the tracked threads' own and today's directory are looked at: a new session writes
@@ -155,10 +154,8 @@ class CodexSessionFiles:
             window = finite_number(info.get("model_context_window")) if isinstance(info, dict) else None
             if total is None or window is None or window <= 0:
                 continue
-            percent = total / window * 100
-            if not math.isfinite(percent):
-                continue
-            return max(0, min(100, round(percent)))
+            if (percent := clamped_percent(total / window * 100)) is not None:
+                return percent
         return None
 
     def rate_limits(self) -> tuple[dict[str, Any], int | None] | None:

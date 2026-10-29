@@ -118,7 +118,7 @@ def request_cookie(runner_class: type | None = None) -> None:
     if not cookie or not key:
         # Never echo the reply: half of a cookie is still a credential.
         raise ItermAuthFailed("iTerm2 answered the cookie request with something other than a cookie and key")
-    os.environ["ITERM2_COOKIE"], os.environ["ITERM2_KEY"] = cookie, key
+    use_cookie(cookie, key)
 
 
 def _applescript_error(runner) -> str | None:
@@ -220,13 +220,7 @@ def _drop_notification_handlers(bridge: object) -> None:
         return owner is bridge or isinstance(owner, iterm2.app.App)
 
     with contextlib.suppress(AttributeError):
-        handlers = iterm2.notifications._handlers
-        for key, registered in list(handlers.items()):
-            # A new list, not an edit in place: a dispatch may be iterating the old one.
-            if kept := [handler for handler in registered if not ours(handler)]:
-                handlers[key] = kept
-            else:
-                del handlers[key]
+        _drop_handlers(ours)
 
 
 def _drop_app_refresh_handlers(app: iterm2.App) -> None:
@@ -245,13 +239,19 @@ def _drop_app_refresh_handlers(app: iterm2.App) -> None:
     if either has moved."""
     with contextlib.suppress(AttributeError):
         refreshing = {app.async_refresh, app._async_focus_change}
-        handlers = iterm2.notifications._handlers
-        for key, registered in list(handlers.items()):
-            # A new list, not an edit in place: a dispatch may be iterating the old one.
-            if kept := [handler for handler in registered if handler not in refreshing]:
-                handlers[key] = kept
-            else:
-                del handlers[key]
+        _drop_handlers(refreshing.__contains__)
+
+
+def _drop_handlers(drop: Callable[[object], bool]) -> None:
+    """Removes every registered notification handler `drop` picks, and each list it empties.
+    `_handlers` is private: its callers check it is still there."""
+    handlers = iterm2.notifications._handlers
+    for key, registered in list(handlers.items()):
+        # A new list, not an edit in place: a dispatch may be iterating the old one.
+        if kept := [handler for handler in registered if not drop(handler)]:
+            handlers[key] = kept
+        else:
+            del handlers[key]
 
 
 async def _get_app(conn: iterm2.Connection) -> iterm2.App:
@@ -264,6 +264,14 @@ async def _get_app(conn: iterm2.Connection) -> iterm2.App:
 def _iterm_frame(frame: Frame) -> iterm2.Frame:
     # Typed as int, but iTerm2 receives the frame as JSON: a fractional point is kept, not truncated.
     return iterm2.Frame(iterm2.Point(frame.x, frame.y), iterm2.Size(frame.w, frame.h))  # type: ignore[arg-type]
+
+
+def _in_directory(cwd: str) -> iterm2.LocalWriteOnlyProfile:
+    """The profile a new window or tab opens with: its session starts in `cwd`."""
+    prof = iterm2.LocalWriteOnlyProfile()
+    prof.set_initial_directory_mode(iterm2.InitialWorkingDirectory.INITIAL_WORKING_DIRECTORY_CUSTOM)
+    prof.set_custom_directory(cwd)
+    return prof
 
 
 async def _close(conn: iterm2.Connection) -> None:
@@ -567,9 +575,7 @@ class ItermBridge:
         return win.window_id, session.session_id
 
     async def _new_window(self, cwd: str, title: str) -> tuple[iterm2.Window, iterm2.Session]:
-        prof = iterm2.LocalWriteOnlyProfile()
-        prof.set_initial_directory_mode(iterm2.InitialWorkingDirectory.INITIAL_WORKING_DIRECTORY_CUSTOM)
-        prof.set_custom_directory(cwd)
+        prof = _in_directory(cwd)
         prof.set_name(f"AiTerm · {title}")
         return await self._make(None, prof)
 
@@ -597,10 +603,7 @@ class ItermBridge:
         win = await self._window(window_id, fresh=cwd is None)
         if cwd is None and (first := win.tabs[0].current_session if win.tabs else None):
             cwd = await first.async_get_variable("path")
-        prof = iterm2.LocalWriteOnlyProfile()
-        prof.set_initial_directory_mode(iterm2.InitialWorkingDirectory.INITIAL_WORKING_DIRECTORY_CUSTOM)
-        prof.set_custom_directory(cwd or os.path.expanduser("~"))
-        return (await self._make(window_id, prof, select=not background))[1]
+        return (await self._make(window_id, _in_directory(cwd or os.path.expanduser("~")), select=not background))[1]
 
     async def _make(self, window_id: str | None, prof: iterm2.LocalWriteOnlyProfile,
                     select: bool = True) -> tuple[iterm2.Window, iterm2.Session]:

@@ -72,6 +72,13 @@ def finite_number(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def clamped_percent(value: Any) -> int | None:
+    """A percentage from another process's arithmetic, rounded and held to 0-100 for a ring that
+    cannot render 140%; None when it is no finite number."""
+    number = finite_number(value)
+    return max(0, min(100, round(number))) if number is not None else None
+
+
 def _window(d: Any, percent_key: str) -> UsageWindow | None:
     """One rate-limit window: a used percentage (a float) and `resets_at` (epoch seconds). Anything
     that is not a number is not a window."""

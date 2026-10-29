@@ -3,6 +3,7 @@ import math
 import os
 import shlex
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 AgentKind = Literal["claude", "codex", "pi", "shell"]
@@ -101,6 +102,12 @@ TERMINAL_TAG = "aiterm_terminal"
 TAB_TAG = "aiterm_tab"
 # The tab's user variable an AiTerm branch title is kept in; the tab's title interpolates it.
 TITLE_TAG = "aiterm_title"
+
+
+def support_dir() -> Path:
+    """The folder the app and the daemon keep their files in: the daemon's socket, the delivery
+    policy, the Operator runs. A function, so a caller reads $HOME when it asks."""
+    return Path.home() / "Library" / "Application Support" / "AiTerm"
 
 
 def classify_agent(command_line: str | None) -> AgentKind:

@@ -7,7 +7,7 @@ from typing import Any, NamedTuple
 
 from .text import nonempty_string
 from .models import HARNESSES, ITERM_SESSION_FIELD, AgentKind, BackgroundJob, Transition, Usage
-from .usage import finite_number, parse_claude_rate_limits
+from .usage import clamped_percent, parse_claude_rate_limits
 
 NEEDS_INPUT_NOTIFICATIONS = {"permission_prompt", "agent_needs_input", "elicitation_dialog", "elicitation_url_dialog"}
 SIMPLE_EVENTS: dict[str, Transition] = {"UserPromptSubmit": "working", "Stop": "done", "PermissionRequest": "needsInput"}
@@ -230,11 +230,6 @@ PI_EVENTS: dict[str, Transition | None] = {
 PI_NEW_CONVERSATION_REASONS = frozenset({"startup", "new", "resume", "fork"})
 
 
-def _clamped_percent(value: Any) -> int | None:
-    number = finite_number(value)
-    return max(0, min(100, round(number))) if number is not None else None
-
-
 def parse_pi_hook(p: dict[str, Any]) -> HookEvent | None:
     if not isinstance(p, dict):
         return None
@@ -256,7 +251,7 @@ def parse_pi_hook(p: dict[str, Any]) -> HookEvent | None:
         subagent_id=child,
         iterm_session_id=nonempty_string(p.get(ITERM_SESSION_FIELD)),
         reasoning=nonempty_string(p.get("reasoning")),
-        context_percent=_clamped_percent(p.get("context_percent")),
+        context_percent=clamped_percent(p.get("context_percent")),
         event_name=name,
     )
 
@@ -269,7 +264,7 @@ def _context_percent(p: dict[str, Any]) -> int | None:
     cw = p.get("context_window")
     if not isinstance(cw, dict):
         return None
-    return _clamped_percent(cw.get("used_percentage"))
+    return clamped_percent(cw.get("used_percentage"))
 
 
 class StatusLine(NamedTuple):
