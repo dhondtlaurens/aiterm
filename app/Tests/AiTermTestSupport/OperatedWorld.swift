@@ -21,11 +21,10 @@ struct OperatedWorld {
                                          oracle: OracleSetting(isOn: false, agent: .codex, model: "gpt-6-astra", reasoning: "medium"),
                                          instructions: "You keep changes small.")
 
-    /// A new broadcast in `runState`, made `age` seconds after `createdAt`, its slices frozen as `slices`; its id. A legacy
-    /// one unless given the Agents rows, task settings or a goal.
+    /// A structured broadcast in `runState`, made `age` seconds after `createdAt`, with frozen slices.
     @discardableResult
     mutating func addRun(_ runState: OperatorRunState = .active, age: TimeInterval = 0, slices: Slices = Self.profile.slices,
-                         agents: [AgentChoice] = [], taskSettings: TaskSettings? = nil, goal: BroadcastGoal? = nil) -> UUID {
+                         agents: [AgentChoice] = OperatorUIFixtures.agents, taskSettings: TaskSettings = TaskSettings(review: nil, end: .commit, closeWhenDone: false), goal: BroadcastGoal? = nil) -> UUID {
         var profile = Self.profile
         profile.slices = slices
         let run = OperatorRun(id: UUID(), name: "Sprint 42", profile: profile, projectIds: [project.id],

@@ -44,6 +44,20 @@ public struct WorkerTab: Equatable, Sendable {
     public var isClosed: Bool { key != nil && session == nil && !isOpening }
 }
 
+/// An immutable view for one observation pass. Parse each session's task tag once, retaining daemon order.
+/// Build it again for the next pass; it carries no cache invalidation or mutable session ownership.
+public struct WorkerSessions: Sendable {
+    private var byTask: [UUID: [SessionInfo]] = [:]
+
+    public init(_ sessions: [SessionInfo]) {
+        for session in sessions {
+            if let task = session.taskUUID { byTask[task, default: []].append(session) }
+        }
+    }
+
+    public func sessions(for task: UUID) -> [SessionInfo] { byTask[task] ?? [] }
+}
+
 public extension TaskItem {
     /// Its first worker as `sessions` list it: the first tab tagged with the task that runs an agent and is none of the
     /// Operator's extra tabs.
@@ -115,6 +129,11 @@ public extension TaskItem {
             return WorkerTab(key: tab.key, agent: tab.agent, model: tab.model, session: session, isOpening: opening,
                              conversation: session?.conversationId ?? tab.conversation)
         }
+    }
+
+    /// A shared per-pass session view for callers observing several tasks.
+    func workerTabs(in sessions: WorkerSessions, now: Date? = nil) -> [WorkerTab] {
+        workerTabs(in: sessions.sessions(for: id), now: now)
     }
 
     /// Whether its first worker's launch is under way at `now`: a working task whose window was seen, else asked for, less

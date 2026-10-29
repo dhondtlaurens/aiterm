@@ -17,8 +17,6 @@ struct OperatorPorts {
     var jiraSearchBudget: Duration = .seconds(OperatorTiming.jiraSearchBudget)
     /// The Oracle's runner.
     var secondOpinion: SecondOpinionRunner = .unavailable
-    /// The runner of `review_task`'s agent reviews: the Oracle's recipe in a task's worktree.
-    var agentReviewer: SecondOpinionRunner = .unavailable
     /// How long a challenged call waits for its critique before answering that it is still coming: well
     /// inside the daemon's `operatorRequestTimeout`, which the challenge's own limit is not.
     var challengeReplyBudget: Duration = .seconds(20)
@@ -71,8 +69,7 @@ struct OperatorPorts {
     @MainActor static func live(home: URL, git: any GitRunning, jiraSettings: @escaping @Sendable () -> JiraConfig?,
                                 claudeConfig: ClaudeConfig = ClaudeConfig()) -> OperatorPorts {
         OperatorPorts(home: home, claudeConfig: claudeConfig, git: git, notifications: LiveOperatorNotifications(),
-                      jira: { jiraSettings().map { JiraClient(config: $0) } }, secondOpinion: .live,
-                      agentReviewer: .live)
+                      jira: { jiraSettings().map { JiraClient(config: $0) } }, secondOpinion: .live)
     }
 }
 
@@ -108,23 +105,17 @@ final class OperatorController {
     @ObservationIgnored let turns: WorkerTurnReader
     /// Which workers say working with a transcript gone quiet (spec §H): what `run_status` reads `working?`.
     @ObservationIgnored let quiet: WorkerQuietWatch
+    @ObservationIgnored let prompts: WorkerPrompts
     /// Where the workers' and the Operator's conversations are, shared by every reader of them.
     @ObservationIgnored let transcripts: TranscriptLocator
     @ObservationIgnored private var loop: Task<Void, Never>?
+    @ObservationIgnored private var isStopped = false
     /// An attach whose first connected snapshot is still to come: it reconciles and sets ownership again.
     @ObservationIgnored private var reattached = false
-    /// In-flight screen reads by session, shared by event, reconcile and post-delivery probes.
-    @ObservationIgnored private var probing: [String: Task<Void, Never>] = [:]
-    /// When each session last began a screen read: bounds reconcile and event polling.
-    @ObservationIgnored private var promptReadAt: [String: Date] = [:]
-    /// The last observed state: entering or answering needs-input clears the read gap.
-    @ObservationIgnored private var promptState: [String: SessionState] = [:]
     /// When each working task last showed a sign of life (spec §8, *possibly stalled*): any change the
     /// daemon reports for one of its tabs — status, title, context, conversation — and, on each tab's own clock, its
     /// transcript's growth or a tool call it still runs (`WorkerQuietWatch.sign`).
     @ObservationIgnored private var stallWatch = StallWatch()
-    /// The latest prompt probe, for a test to await.
-    @ObservationIgnored private(set) var lastProbe: Task<Void, Never>?
     /// The ownership being set again on a new daemon's tabs (`resendOwnership`), for a test to await; `stop()` cancels it.
     @ObservationIgnored private(set) var resending: Task<Void, Never>?
     /// The latest start a pass made, for a test to await.
@@ -208,6 +199,7 @@ final class OperatorController {
         self.daemon = daemon
         self.taskFrame = taskFrame
         self.ports = ports
+        prompts = WorkerPrompts(workspace: workspace, live: live, ports: ports, daemon: daemon)
         notifier = OperatorNotifier(notifications: ports.notifications, state: { [workspace] in workspace.state })
         waker = OperatorWaker(daemon: daemon,
                               session: { [live] run in Self.operatorTab(of: run, in: live.sessions) },
@@ -258,6 +250,8 @@ final class OperatorController {
             if self?.wakeNotice?.run == run { self?.wakeNotice = nil }
         }
         reconciler.tabsKnown = { [weak self] in self?.tabsKnown ?? false }
+        prompts.tabsKnown = { [weak self] in self?.tabsKnown ?? false }
+        prompts.changed = { [weak self] in self?.runChanged($0) }
         reconciler.waitsForProgress = { [weak self] task in
             task.operated?.runtimeHead != nil && self?.branchWatch.isWatched(task) == true
         }
@@ -275,7 +269,7 @@ final class OperatorController {
         tools.onMessaged = { [weak self] task, tab in self?.turns.messaged(task, tab: tab) }
         tools.onMessageResult = { [weak self] task, tab in
             // Reading a screen must not delay the delivery result or its replay cache.
-            Task { await self?.probeAfterMessage(task, tab: tab) }
+            self?.prompts.afterMessage(task, tab: tab)
         }
         starter.onUncertain = { [weak self] task in
             guard let operated = task.operated else { return }
@@ -303,6 +297,7 @@ final class OperatorController {
     /// A workspace change that touched the runs or the operated tasks: a run no longer paused has its held news
     /// delivered, and what needs you is posted or withdrawn.
     private func heardWorkspace() {
+        guard !isStopped else { return }
         let now = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         guard now.0 != lastHeard.0 || now.1 != lastHeard.1 else { return }
         let before = lastHeard.0
@@ -369,9 +364,10 @@ final class OperatorController {
                           quiet: Set<UUID> = [], now: Date = Date()) -> [UUID: TaskLiveFacts] {
         let questions = state.run(id: run)?.questions ?? []
         var facts: [UUID: TaskLiveFacts] = [:]
+        let workersByTask = WorkerSessions(sessions)
         for task in state.tasks(inRun: run) {
             let open = questions.filter { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix(OperatorQuestion.promptPrefix) }
-            let workers = task.workerTabs(in: sessions, now: now), tab = workers[0].session, prompt = open.first { $0.tab == nil }?.text
+            let workers = task.workerTabs(in: workersByTask, now: now), tab = workers[0].session, prompt = open.first { $0.tab == nil }?.text
             let extra = workers.dropFirst().compactMap { worker in
                 worker.key.map { key in
                     let prompt = open.first { $0.tab == key }?.text
@@ -448,7 +444,7 @@ final class OperatorController {
     /// from `runChanged(_:)` (a tool's change, a submitted plan, a block, a start ended, a resume, a hand
     /// back) and `reconcileTick()`.
     func startReadyTasks() {
-        guard daemon() != nil else { return }
+        guard !isStopped, daemon() != nil else { return }
         let claimed = starter.claimReady()
         guard !claimed.isEmpty else { return }
         // Not on disk, a crash would leave nothing saying a worker may be running: the claims are taken back.
@@ -473,6 +469,7 @@ final class OperatorController {
     /// merge it was waiting for is watched again once it runs — your Resume, or its operator back from offline.
     /// Then `onRunChanged` is told.
     func runChanged(_ id: UUID) {
+        guard !isStopped else { return }
         settle(id)
         giveUpOnSummary(id)
         notifyRequests(of: id)
@@ -485,16 +482,16 @@ final class OperatorController {
     /// recorded, the operator is told — which asks it for its summary — and the wait for that summary begins.
     /// You are notified once the summary is written or given up on (`OperatorNotifier`). A later `submit_plan`
     /// makes it active again. One with a goal not yet resolved completes only once `check_goal` resolves it: until
-    /// then it stays active, with `goalCheckDue` set while a check is due (`OperatorToolHandler.goalCheckIsDue`), and
+    /// then it stays active, with `goalCheckDue` set while a check is due (`BroadcastCompletion.goalCheckIsDue`), and
     /// the operator is woken for it.
     func settle(_ id: UUID) {
         guard let run = run(id: id), run.state == .active else { return }
-        let due = OperatorToolHandler.goalCheckIsDue(run, in: workspace.state)
+        let due = BroadcastCompletion.goalCheckIsDue(run, in: workspace.state)
         if due != run.goalCheckDue {
             mutateRun(id) { $0.goalCheckDue = due }
             if due { waker.say(Self.goalCheckReason, to: id) }
         }
-        guard RunScheduler.isComplete(run, in: workspace.state), run.goal == nil || run.goalOutcome != nil else { return }
+        guard BroadcastCompletion.isComplete(run, in: workspace.state) else { return }
         let now = ports.now()
         mutateRun(id) { $0.state = .complete; $0.completedAt = now }
         waker.say("broadcast complete", to: id)
@@ -565,8 +562,8 @@ final class OperatorController {
     /// needs it. Its rows are saved as the last broadcast's. Without `taskSettings` it is started as before those steps:
     /// no rows and no goal, whatever was given.
     @discardableResult
-    func startBroadcast(name: String?, jiraProjectKeys: [String], projectIds: [UUID], prompt: String, review: String?,
-                        done: String?, agents: [AgentChoice] = [], taskSettings: TaskSettings? = nil,
+    func startBroadcast(name: String?, jiraProjectKeys: [String], projectIds: [UUID], prompt: String,
+                        agents: [AgentChoice], taskSettings: TaskSettings,
                         goal: BroadcastGoal? = nil) async throws -> UUID {
         guard activeRun == nil else { throw ActionUnavailable(Self.oneBroadcast) }
         guard workspace.canChangeWorkspace else { throw ActionUnavailable("Save or recover the workspace before starting a broadcast.") }
@@ -580,16 +577,13 @@ final class OperatorController {
         let profile = await BackgroundWork.run {
             readProfile?() ?? OperatorProfileStore.load(claudeDefault: OperatorProfileStore.claudeDefault(models: []))
         }
-        let legacy = taskSettings == nil
-        let agents = legacy ? [] : agents
         let goal = goal.flatMap { goal in
             OperatorCommand.said(goal.text).map { BroadcastGoal(text: $0, extraRounds: goal.extraRounds) }
         }
         let run = OperatorRun(id: UUID(), name: OperatorCommand.said(name) ?? firstLine, profile: profile,
                               projectIds: projectIds, jiraProjectKeys: jiraProjectKeys, prompt: prompt,
-                              review: legacy ? OperatorCommand.said(review) : nil, done: legacy ? OperatorCommand.said(done) : nil,
                               createdAt: ports.now(), agents: agents, taskSettings: taskSettings,
-                              goal: legacy || !profile.oracle.isOn ? nil : goal)
+                              goal: !profile.oracle.isOn ? nil : goal)
         let home = ports.home
         // A fresh start: `prepare` makes the token and writes the first message the command reads.
         let prepared = try await BackgroundWork.run {
@@ -661,6 +655,7 @@ final class OperatorController {
     // -- the helper -------------------------------------------------------------------------
     /// The helper's events, after the window lock and the live sessions have taken theirs.
     func handle(_ event: DaemonEvent) {
+        guard !isStopped else { return }
         switch event {
         case .snapshot(let snapshot):
             tabsKnown = snapshot.connected
@@ -687,6 +682,7 @@ final class OperatorController {
     /// every run's token is registered again but a stopped run's (a revoke that failed is tried again), and each operator that may be woken
     /// is told `reconnected` (spec §11), and that its goal is to check when a check is due.
     func daemonAttached() {
+        guard !isStopped else { return }
         // A new daemon's tabs are known once its first connected snapshot comes.
         tabsKnown = false
         guard let daemon = daemon() else { return }
@@ -697,12 +693,14 @@ final class OperatorController {
         registering = Task {
             for (id, folder) in open {
                 guard let token = await BackgroundWork.run({ OperatorCommand.existingToken(in: folder) }) else { continue }
+                guard !Task.isCancelled else { return }
                 await Log.daemon.attempt("Registering the token of broadcast \(id.uuidString)") {
                     try await daemon.registerOperator(runId: id.uuidString, token: token)
                 }
             }
             for (id, folder) in ended {
                 guard await BackgroundWork.run({ OperatorCommand.existingToken(in: folder) }) != nil else { continue }
+                guard !Task.isCancelled else { return }
                 await Log.daemon.attempt("Revoking the token of broadcast \(id.uuidString)") {
                     try await daemon.revokeOperator(runId: id.uuidString)
                 }
@@ -719,6 +717,7 @@ final class OperatorController {
     /// conversation a resume continues — then whatever the tabs changed in what `run_status` shows.
     /// A tab seen before and missing from iTerm2's whole list is a window closed: the run forgets it.
     private func sessionsChanged() {
+        guard !isStopped else { return }
         stallWatch.observe(live.sessions, at: ports.now())
         turns.observe()
         quiet.observe()
@@ -800,6 +799,7 @@ final class OperatorController {
     /// connected snapshot after the helper attaches. What it changed is scheduled and settled, and
     /// whatever it freed or the helper's return allows to start starts — the way the tool paths do.
     func reconcileTick() {
+        guard !isStopped else { return }
         tools.refreshOracleSettings()
         // The code hosts are read whether or not iTerm2's tabs are known: a wake waits for the Operator's tab.
         reviewWatcher.poll()
@@ -851,6 +851,12 @@ final class OperatorController {
     /// last quit are watched again.
     func start() {
         guard loop == nil else { return }
+        isStopped = false
+        prompts.start()
+        waker.start()
+        starter.start()
+        tabs.start()
+        finisher.start()
         let interval = ports.reconcileInterval
         loop = Task { [weak self] in
             while !Task.isCancelled {
@@ -860,7 +866,6 @@ final class OperatorController {
             }
         }
         finisher.resumeWatching()
-        tools.settleLostReviews()
     }
 
     // -- publishing -------------------------------------------------------------------------
@@ -893,165 +898,37 @@ final class OperatorController {
         }
     }
 
-    /// AiTerm quits: the reconcile loop, the ownership resend, every merge watch, and the second opinions and agent
-    /// reviews the tools started.
+    /// Ends the runtime's polling, transcript reads, prompt probes, wake/summary timers, registration,
+    /// merge watches and Oracle checks. Late callbacks cannot start another scheduling pass.
     func stop() {
+        isStopped = true
+        starter.stop()
+        tabs.stop()
         loop?.cancel()
         loop = nil
         resending?.cancel()
         resending = nil
+        registering?.cancel()
+        registering = nil
+        for wait in summaryWaits.values { wait.cancel() }
+        summaryWaits = [:]
+        summaryWait = nil
+        prompts.stop()
+        turns.stop()
+        quiet.stop()
+        branchWatch.stop()
+        reviewWatcher.stop()
+        waker.stop()
         finisher.stopAll()
+        tools.cancelHostReads()
         tools.cancelChallenges()
-        tools.cancelReviews()
     }
 
-    /// Why a worker screen is read: events follow input, ticks discover menus, delivery checks bypass the gap.
-    enum PromptProbe { case event, reconcile, delivery }
-
-    /// Events read tabs needing input or with open questions; ticks also discover unannounced menus.
-    /// Both respect the per-tab read gap, except when entering or answering needs-input.
-    func probePrompts(_ source: PromptProbe = .event) {
-        let sessions = Set(live.sessions.map(\.sessionId))
-        promptReadAt = promptReadAt.filter { sessions.contains($0.key) }
-        promptState = promptState.filter { sessions.contains($0.key) }
-        for task in workspace.state.tasks where task.operated != nil { probePrompt(task.id, source: source) }
-    }
-
-    /// Read the addressed worker after delivery and once more after it has had time to draw a dialog.
-    /// Neither read delays the tool result; a replacement session is never probed for the old message.
-    private func probeAfterMessage(_ id: UUID, tab key: String?) async {
-        guard let worker = workspace.state.task(id: id)?.workerTab(key, in: live.sessions), let tab = worker.session else { return }
-        for attempt in 0..<2 {
-            if attempt > 0 {
-                do { try await ports.promptSleep(.seconds(OperatorTiming.promptAfterMessageDelay)) } catch { return }
-            }
-            // A read begun before the delivery cannot say what that message opened.
-            await probing[tab.sessionId]?.value
-            guard let current = workspace.state.task(id: id)?.workerTab(key, in: live.sessions),
-                  current.session?.sessionId == tab.sessionId else { return }
-            probePrompt(id, current, source: .delivery)
-            await probing[tab.sessionId]?.value
-        }
-    }
-
-    /// Hook-announced and post-delivery prompts are questions on steerable tasks in unfinished broadcasts.
-    /// Discovery on a tick is limited to working tasks in active broadcasts with no pause or stop intent.
-    /// Existing questions resolve in every state. Event and tick reads have a gap, except when entering
-    /// needs-input or leaving it with an open question; delivery bypasses it too.
-    /// Each extra tab has its own question.
-    func probePrompt(_ id: UUID, source: PromptProbe = .event) {
-        guard let task = workspace.state.task(id: id) else { return }
-        for worker in task.workerTabs(in: live.sessions) { probePrompt(id, worker, source: source) }
-    }
-
-    private func probePrompt(_ id: UUID, _ worker: WorkerTab, source: PromptProbe) {
-        guard let task = workspace.state.task(id: id), let operated = task.operated, let run = run(id: operated.runId) else { return }
-        let prefix = "\(OperatorQuestion.promptPrefix)\(id.uuidString)-"
-        let open = run.questions.first { $0.id.hasPrefix(prefix) && $0.tab == worker.key && $0.resolution == nil }
-        let tab = worker.session
-        guard let tab else {
-            // No tab listed yet is not an answer; a known closed tab has no prompt left to answer.
-            if let open, tabsKnown { resolvePrompt(open, in: run.id, task: id) }
-            return
-        }
-        let previous = promptState.updateValue(tab.state, forKey: tab.sessionId)
-        if previous != tab.state, tab.state == .needsInput || (open != nil && previous == .needsInput) {
-            promptReadAt[tab.sessionId] = nil
-        }
-        guard open != nil || mayRecordPrompt(task, in: run, tab: tab, source: source) else { return }
-        if source == .event, tab.state != .needsInput, open == nil { return }
-        let now = ports.now()
-        if source != .delivery, let last = promptReadAt[tab.sessionId],
-           now.timeIntervalSince(last) < OperatorTiming.promptProbeInterval { return }
-        guard probing[tab.sessionId] == nil, let daemon = daemon() else { return }
-        promptReadAt[tab.sessionId] = now
-        lastProbe = Task { [weak self] in
-            // The helper gone is not a prompt AiTerm can't read: nothing is recorded, and the next pass asks again.
-            let kind: PromptKind?
-            let readSucceeded: Bool
-            do {
-                kind = try await daemon.prompt(sessionId: tab.sessionId)
-                readSucceeded = true
-            } catch {
-                kind = nil
-                readSucceeded = false
-            }
-            // Codex's update offer is AiTerm's to decline (spec §7.1): the daemon sends Esc only when the
-            // screen shows that dialog. Anything else at startup — a trust question — is yours, and so is
-            // a dismissal that did not happen: only a dismissed offer is never put to you.
-            let declined = kind == .startup ? (try? await daemon.dismissStartup(sessionId: tab.sessionId)) == true : false
-            guard let self else { return }
-            probing[tab.sessionId] = nil
-            guard !declined else { return }
-            // A changed worker or turn makes the read stale. A new or answered prompt gets a fresh
-            // read now, even if its state event arrived while this read was in flight.
-            guard let task = workspace.state.task(id: id),
-                  let currentWorker = task.workerTab(worker.key, in: live.sessions), let current = currentWorker.session,
-                  current.sessionId == tab.sessionId else { return }
-            guard current.state == tab.state else {
-                if current.state == .needsInput || (open != nil && tab.state == .needsInput) {
-                    promptReadAt[tab.sessionId] = nil
-                    probePrompt(id, currentWorker, source: .event)
-                }
-                return
-            }
-            guard readSucceeded else { return }
-            if kind == nil, tab.state != .needsInput {
-                if let open { resolvePrompt(open, in: run.id, task: id) }
-                return
-            }
-            guard open == nil, let run = self.run(id: run.id),
-                  mayRecordPrompt(task, in: run, tab: current, source: source) else { return }
-            let now = ports.now()
-            workspace.mutate { state in
-                // Numbered as it is recorded: another tab of the task may have recorded one while this was read.
-                let number = (state.run(id: run.id)?.questions.filter { $0.id.hasPrefix(prefix) }.count ?? 0) + 1
-                let question = OperatorQuestion(id: prefix + String(number), text: Self.promptText(kind, agent: worker.agent), task: id,
-                                                askedAt: now, resolution: nil, tab: worker.key)
-                state.updateRun(id: run.id) { $0.questions.append(question) }
-                state.updateOperated(id) {
-                    $0.flags.insert(.waitingOnYou)
-                    $0.flags.remove(.possiblyStalled)
-                }
-            }
-        }
-        probing[tab.sessionId] = lastProbe
-    }
-
-    private func mayRecordPrompt(_ task: TaskItem, in run: OperatorRun, tab: SessionInfo, source: PromptProbe) -> Bool {
-        guard let operated = task.operated, run.intent != .stopped else { return false }
-        if source == .delivery || tab.state == .needsInput {
-            return [.working, .blocked, .inReview].contains(operated.state) && ![.complete, .stopped].contains(run.state)
-        }
-        return operated.state == .working && run.state == .active && run.intent == nil
-    }
-
-    /// Mark the tab's question answered and clear waiting-on-you once no question remains on its task.
-    /// This can also complete a broadcast whose tasks have already ended.
-    private func resolvePrompt(_ question: OperatorQuestion, in run: UUID, task: UUID) {
-        workspace.mutate { state in
-            state.updateRun(id: run) { run in
-                if let i = run.questions.firstIndex(where: { $0.id == question.id }) { run.questions[i].resolution = "Answered in its window." }
-            }
-            if state.run(id: run)?.questions.contains(where: { $0.task == task && $0.resolution == nil }) == false {
-                state.updateOperated(task) { $0.flags.remove(.waitingOnYou) }
-            }
-        }
-        // The last open question may be what kept the broadcast from completing.
-        runChanged(run)
-    }
-
-    /// What a prompt asks, as the board and the row say it. The daemon names the prompt's kind,
-    /// not its words, so this is what AiTerm can say of it.
-    static func promptText(_ kind: PromptKind?, agent: AgentKind) -> String {
-        let name = agent.harness.displayName
-        switch kind {
-        case .permission: return "\(name) asks for permission"
-        case .menu: return "\(name) shows a menu"
-        case .startup: return "\(name) shows a startup question"
-        case nil: return "\(name) waits for input AiTerm can’t read"
-        }
-    }
+    typealias PromptProbe = WorkerPrompts.Source
+    var lastProbe: Task<Void, Never>? { prompts.lastProbe }
+    func probePrompts(_ source: PromptProbe = .event) { prompts.observe(source) }
+    func probePrompt(_ id: UUID, source: PromptProbe = .event) { prompts.probePrompt(id, source: source) }
+    static func promptText(_ kind: PromptKind?, agent: AgentKind) -> String { WorkerPrompts.promptText(kind, agent: agent) }
 
     /// The daemon keeps ownership generations in memory only (part A): after its restart each operated
     /// task's is set again on its tabs.

@@ -488,9 +488,8 @@ extension OperatorTaskToolsTests {
 }
 
 extension OperatorTaskToolsTests {
-    @Test func legacyAcceptanceKeepsItsLaunchBaselineAndItsDiffAfterMainContainsTheTask() async throws {
+    @Test func acceptanceKeepsItsLaunchBaselineAndItsDiffAfterMainContainsTheTask() async throws {
         let (world, run, task) = try makeWorld()
-        #expect(run.taskSettings == nil)
         let baseline = try git.run(["rev-parse", "HEAD"], in: task.worktreePath)
         world.workspace.mutate { $0.updateOperated(task.id) { $0.diffBaseSHA = baseline } }
         let tip = try commit("own.swift", in: task.worktreePath)

@@ -4,6 +4,15 @@ import AiTermUI
 import AiTermCore
 
 #if DEBUG
+/// A renderer has no live AppController and never enters the product's launch or shutdown paths.
+@MainActor
+final class SnapshotAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        _ = Snapshots.runIfRequested()
+        NSApp.terminate(nil)
+    }
+}
+
 /// Renders the sidebar, every sheet and every Settings tab to PNGs, offscreen, so the
 /// implementation can be checked against the design without a screen recorder.
 /// Only runs when `AITERM_SNAPSHOT_DIR` is set; `scripts/snapshots.sh` is the front door, and it
@@ -90,7 +99,7 @@ enum Snapshots {
     }
 
     /// The PNG `snapshot` draws offscreen — `ImageRenderer`, ×2, dark, the fixed clock, still spinners —
-    /// as `scripts/snapshots.sh` writes it: what the tests hold to drawing the same twice.
+    /// as the fixture render smoke checks use it. Hosted captures use the window path above.
     static func png(of snapshot: Snapshot) -> Data? { png(snapshot.view()) }
 
     private static func png(_ view: some View) -> Data? {

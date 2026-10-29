@@ -14,19 +14,19 @@ extension OperatorToolHandler {
         let key = try call.string("key")
         if let existing = existingTask(key, in: run) { return Self.taskAnswer(existing, created: false) }
         try acceptsPlanChanges(run)
-        let agent = try self.agent(call), project = try self.project(call, in: run)
-        // Every branch name the repository has, local and on origin (F7), and a legacy run's model catalogue.
+        _ = try self.agent(call)
+        let project = try self.project(call, in: run)
+        // Branch names from both the local repository and origin reserve their names in this plan.
         let git = ports.git, path = project.path
         let connected = try await hasCodeHost(project, for: call, in: run)
         let repositoryBranches = await BackgroundWork.run { Repository(path, git: git).branches() }
-        let catalogue = await modelCatalogue(for: agent, in: run)
         let delivery = await deliveryStatus()
         // Another call may have made this key while git was read: this one is its repeat.
         if let existing = existingTask(key, in: run) { return Self.taskAnswer(existing, created: false) }
         // The broadcast as it is now, not as the call began: a pause or an end since is the person's.
         guard let current = state.run(id: run.id), !current.hasEnded else { throw ToolRefusal.ended }
         if current.intent == .paused { throw ToolRefusal("The person paused this broadcast. Wait until they resume it.") }
-        let draft = try self.draft(call, in: current, catalogue: catalogue, connected: connected, delivery: delivery)
+        let draft = try self.draft(call, in: current, connected: connected, delivery: delivery)
         // Past the first plan, the backlog grows by a quarter of it on the Operator's word, then by the Oracle's yes (spec §4.1).
         switch vettedCalls.contains(Self.invocation(call)) ? .free : backlogVerdict(current) {
         case .free: break
@@ -80,12 +80,11 @@ extension OperatorToolHandler {
     /// changes, the agent, its model in the agent's list, the project, the end and the dependencies.
     func vetoPrecheck(_ call: ToolCall, in run: OperatorRun) async throws {
         try acceptsPlanChanges(run)
-        let agent = try self.agent(call)
-        let catalogue = await modelCatalogue(for: agent, in: run)
+        _ = try self.agent(call)
         let project = try self.project(call, in: run)
         let connected = try await hasCodeHost(project, for: call, in: run)
         let delivery = await deliveryStatus()
-        _ = try draft(call, in: state.run(id: run.id) ?? run, catalogue: catalogue, connected: connected, delivery: delivery)
+        _ = try draft(call, in: state.run(id: run.id) ?? run, connected: connected, delivery: delivery)
     }
 
     /// What `create_task` asks for, checked against `run` as it is now: nothing is changed here.
@@ -98,19 +97,14 @@ extension OperatorToolHandler {
         var deliveryWarning: String?
     }
 
-    private func draft(_ call: ToolCall, in run: OperatorRun, catalogue: [AgentModel], connected: Bool,
+    private func draft(_ call: ToolCall, in run: OperatorRun, connected: Bool,
                        delivery: [AgentKind: AgentDelivery]?) throws(ToolRefusal) -> NewTask {
         try acceptsPlanChanges(run)
         let title = try call.string("title"), brief = try call.string("brief")
         let project = try self.project(call, in: run), agent = try self.agent(call)
-        let model = try self.model(call, for: agent, catalogue: catalogue, in: run), modelReason = try call.string("modelReason")
+        let model = try self.model(call, for: agent, in: run), modelReason = try call.string("modelReason")
         try refuseEndChange(call, in: run)
-        let end: TaskEnd
-        if let settings = run.taskSettings {
-            end = settings.end
-        } else {
-            end = try self.end(call) ?? ((OperatorCommand.said(run.done) == nil && !connected) ? .commit : Self.defaultEnd(for: run))
-        }
+        let end = run.taskSettings.end
         try validateEnd(end, in: run, project: project, connected: connected)
         let pinned = call.arguments["agentPinned"]?.boolValue ?? false
         let warning = try deliveryWarning(for: agent, pinned: pinned, delivery: delivery, in: run)
@@ -119,26 +113,18 @@ extension OperatorToolHandler {
                        dependencies: try dependencies(call, in: run, project: project), deliveryWarning: warning)
     }
 
-    /// A task whose agent's workers can't be messaged can't be steered or get review fixes: refused while another
-    /// allowed agent's can be (any installed agent for legacy runs), unless the person's words pin this one.
-    /// Planned with a warning otherwise. A paste-only agent is planned with what that means for each message.
-    /// Nothing is said while the helper can't tell.
-    /// `open_tab` checks an extra tab's agent by it too.
+    /// A worker that cannot be messaged is refused while another allowed agent can be, unless explicitly pinned. Otherwise report the delivery limitation; open_tab shares this policy.
     func deliveryWarning(for agent: AgentKind, pinned: Bool, delivery: [AgentKind: AgentDelivery]?,
                          in run: OperatorRun) throws(ToolRefusal) -> String? {
         guard let mine = delivery?[agent], mine.messaging != .auto else { return nil }
         guard mine.messaging == .off else { return mine.note }
         // A new run names the agent as its Agents rows do.
-        let name = run.taskSettings != nil ? agent.displayName : SidebarModel.agentName(agent)
+        let name = agent.displayName
         let why = "\(name)’s workers can’t be messaged: \(mine.note ?? "")"
         let canMessage: (AgentKind) -> Bool = {
             $0 != agent && (delivery?[$0]).map { $0.messaging != .off } == true
         }
-        let other = if run.taskSettings != nil {
-            run.agents.first { canMessage($0.agent) }.map(\.label)
-        } else {
-            ModelChoice.pair.first(where: canMessage).map(SidebarModel.agentName)
-        }
+        let other = run.agents.first { canMessage($0.agent) }.map(\.label)
         if !pinned, let other {
             throw ToolRefusal(why + " A task on it can’t be steered with message_task or get review fixes. "
                               + "Plan it on \(other), which can be messaged, or set agentPinned if the person’s words name \(name).")
@@ -146,20 +132,9 @@ extension OperatorToolHandler {
         return why + " This task can’t be steered with message_task or get review fixes."
     }
 
-    /// A task with no end named ends at a draft MR, or at a commit when the broadcast's Done says a commit
-    /// and names no merge request or merge.
-    static func defaultEnd(for run: OperatorRun) -> TaskEnd {
-        let done = OperatorCommand.said(run.done)?.lowercased() ?? ""
-        let saysRequest = done.contains(/\b(mrs?|prs?|merge|merged|merges|merge requests?|pull requests?)\b/)
-        return done.contains(/\bcommits?\b/) && !saysRequest ? .commit : .draftMR
-    }
-
-    /// `CodeHostCheck`'s answer, read only for an end that needs a code host (`TaskEnd.needsCodeHost`), or a legacy
-    /// default that hangs on the answer (`knownEnd`); any other end is false without a read. An end `call` names that is
-    /// none is refused first, with its own sentence. An origin git can't read is refused with git's own words, not read as
-    /// no origin.
+    /// Read CodeHostCheck only when the chosen end needs a code host. An unreadable origin is a refusal, rather than evidence that no origin exists.
     private func hasCodeHost(_ project: Project, for call: ToolCall, in run: OperatorRun) async throws(ToolRefusal) -> Bool {
-        if let end = try knownEnd(call, in: run), !end.needsCodeHost { return false }
+        if !run.taskSettings.end.needsCodeHost { return false }
         do { return try await ports.codeHost.connects(project) }
         catch { throw ToolRefusal("AiTerm couldn’t read \(project.name)’s origin: \(error.reason)") }
     }
@@ -167,16 +142,15 @@ extension OperatorToolHandler {
     private func validateEnd(_ end: TaskEnd, in run: OperatorRun, project: Project, connected: Bool) throws(ToolRefusal) {
         // A new run's end is the person's alone, so the Operator can't be told to pick another, and with no task created
         // there is no card to change it on: the Operator asks the person for what they can do.
-        func refusal(_ why: String, legacyAdvice: String, ask: String) -> ToolRefusal {
-            ToolRefusal(run.taskSettings == nil ? "\(why): \(legacyAdvice)"
-                        : "\(why), so no task can end at \(end.displayName): ask the person with ask_you, on no task, \(ask)")
+        func refusal(_ why: String, ask: String) -> ToolRefusal {
+            ToolRefusal("\(why), so no task can end at \(end.displayName): ask the person with ask_you, on no task, \(ask)")
         }
         if end.merges, !run.profile.slices.merge {
-            throw refusal("Merge is off for this broadcast", legacyAdvice: "end it at a commit or a draft MR.",
+            throw refusal("Merge is off for this broadcast",
                           ask: "how to go on, since a running broadcast’s slices and the Task step’s end can’t change.")
         }
         if end.needsCodeHost, !connected {
-            throw refusal("\(project.name) has no connected code host", legacyAdvice: "end it at a commit.",
+            throw refusal("\(project.name) has no connected code host",
                           ask: "to connect \(project.name)’s code host in Settings › Integrations, then call it again.")
         }
     }
@@ -184,11 +158,9 @@ extension OperatorToolHandler {
     /// The agents' model lists, as the ports read them; none read is an empty list.
     var agentModels: @Sendable (AgentKind) -> [AgentModel] { ports.agentModels ?? { _ in [] } }
 
-    /// New runs use frozen rows; only legacy runs read the agent's catalogue off the main actor.
-    func modelCatalogue(for agent: AgentKind, in run: OperatorRun) async -> [AgentModel] {
-        guard run.taskSettings == nil else { return [] }
-        let models = agentModels
-        return await BackgroundWork.run { models(agent) }
+    /// Settings defaults remain visible under run_status; task selection uses only the frozen rows.
+    func defaultModel(for agent: AgentKind) -> (model: String, reasoning: String?) {
+        AgentIntegrations.taskModel(agent, remembered: state.lastModelByAgent, defaults: ports.preferences ?? .standard)
     }
 
     /// The installed agents, as the ports say; every agent when nothing says.
@@ -204,23 +176,16 @@ extension OperatorToolHandler {
         }
         try acceptsPlanChanges(run)
         let project = state.project(id: task.projectId)
-        // The origin is read only for an end it checks: a git that can't read it holds up no other change.
-        let connected = if let project, call.optionalString("end") != nil {
-            try await hasCodeHost(project, for: call, in: run)
-        } else {
-            false
-        }
         let brief = call.optionalString("brief")
         let agent = try call.optionalString("agent").map { _ in try self.agent(call) }
-        // Naming an agent without a model takes its first Agents row (its default for legacy runs).
+        // Naming an agent without a model takes its first Agents row.
         // A reasoning-only change keeps the task's model.
         let model: (model: String, reasoning: String?)?
         if (agent != nil && agent != task.agent) || call.optionalString("model") != nil
-            || call.optionalString("reasoning") != nil || (run.taskSettings != nil && agent != nil) {
+            || call.optionalString("reasoning") != nil || agent != nil {
             let target = agent ?? task.agent
-            let catalogue = await modelCatalogue(for: target, in: run)
             let requested = call.optionalString("model") ?? (agent == nil ? task.model : nil)
-            model = try self.model(call, for: target, catalogue: catalogue, in: run, requestedModel: requested)
+            model = try self.model(call, for: target, in: run, requestedModel: requested)
         } else {
             model = nil
         }
@@ -234,8 +199,6 @@ extension OperatorToolHandler {
             throw ToolRefusal("The task’s agent changed while this update was checked: call update_task again.")
         }
         try acceptsPlanChanges(state.run(id: run.id) ?? run)
-        let end = try self.end(call)
-        if let end, let project { try validateEnd(end, in: state.run(id: run.id) ?? run, project: project, connected: connected) }
         let dependencies = try call.arguments["dependsOn"].map {
             _ in try self.dependencies(call, in: state.run(id: run.id) ?? run, project: project)
         }
@@ -249,7 +212,6 @@ extension OperatorToolHandler {
                     state.tasks[i].model = model.model; state.tasks[i].reasoning = model.reasoning
                     record.requestedLaunch = LaunchRequest(model: call.optionalString("model"), reasoning: call.optionalString("reasoning"))
                 }
-                if let end { record.end = end }
                 if let dependencies { record.dependsOn = dependencies; record.stackedOn = dependencies.first { $0.kind == .code }?.task }
                 state.tasks[i].operated = record
                 // Into the open revision, waiting for it again (spec §8).
@@ -318,75 +280,25 @@ extension OperatorToolHandler {
         }
     }
 
-    /// New runs choose an Agents row. Legacy runs use the agent's catalogue or Settings default.
-    /// The agent must be installed either way.
-    func model(_ call: ToolCall, for agent: AgentKind, catalogue: [AgentModel], in run: OperatorRun,
+    /// Resolve only combinations frozen in this broadcast's Agents list.
+    func model(_ call: ToolCall, for agent: AgentKind, in run: OperatorRun,
                requestedModel: String? = nil) throws(ToolRefusal) -> (model: String, reasoning: String?) {
         let requested = requestedModel ?? call.optionalString("model")
-        if run.taskSettings != nil {
-            guard let row = ModelChoice.row(agent: agent, model: requested,
-                                            reasoning: call.optionalString("reasoning"), in: run.agents) else {
-                let rows = run.agents.map(\.label).joined(separator: "; ")
-                throw ToolRefusal("Choose a row from this broadcast’s Agents list: \(rows).")
-            }
-            guard installedAgents.contains(agent) else {
-                throw ToolRefusal("\(agent.harness.displayName) isn’t installed on this Mac. Choose an installed agent from run_status.")
-            }
-            return (row.model, row.reasoning)
+        guard let row = ModelChoice.row(agent: agent, model: requested,
+                                        reasoning: call.optionalString("reasoning"), in: run.agents) else {
+            let rows = run.agents.map(\.label).joined(separator: "; ")
+            throw ToolRefusal("Choose a row from this broadcast’s Agents list: \(rows).")
         }
-        let fallback = defaultModel(for: agent)
-        if requested == nil, fallback.model.isEmpty, installedAgents.contains(agent) {
-            throw ToolRefusal("Pass a model: AiTerm has no default model for \(agent.harness.displayName) yet.")
+        guard installedAgents.contains(agent) else {
+            throw ToolRefusal("\(agent.harness.displayName) isn’t installed on this Mac. Choose an installed agent from run_status.")
         }
-        do {
-            return try ModelChoice.resolve(agent: agent, requested: requested, installed: installedAgents, catalogue: catalogue,
-                                           defaultModel: fallback, requestedReasoning: call.optionalString("reasoning"))
-        } catch {
-            switch error {
-            case .notInstalled(let agent):
-                throw ToolRefusal("\(agent.harness.displayName) isn’t installed on this Mac. Choose an installed agent from run_status.")
-            case .unsupportedReasoning(let reasoning, let model):
-                throw ToolRefusal("\(reasoning) isn’t a reasoning level for \(model). Choose one from Settings › Agents.")
-            case .unknownModel(let model, let agent):
-                let ids = catalogue.map(\.id)
-                throw ToolRefusal("\(model) isn’t in \(agent.harness.displayName)’s model list in Settings › Agents. "
-                                  + (ids.isEmpty ? "AiTerm could read no list for it, so leave model out to take its default."
-                                                 : "Its models are: \(ids.joined(separator: ", "))."))
-            }
-        }
+        return (row.model, row.reasoning)
     }
 
-    /// The model and reasoning Settings › Agents gives `agent`, else the model last picked for it.
-    func defaultModel(for agent: AgentKind) -> (model: String, reasoning: String?) {
-        AgentIntegrations.taskModel(agent, remembered: state.lastModelByAgent, defaults: ports.preferences ?? .standard)
-    }
-
-    /// `defaultModel(for:)` over the models remembered in `state`, for a launch that moves a task to the other agent.
-    static func defaultModel(for agent: AgentKind, remembered: [AgentKind: String]) -> (model: String, reasoning: String?) {
-        AgentIntegrations.taskModels(remembered: remembered)(agent)
-    }
-
-    /// The task's end as far as it is known before its code host is: the broadcast's, the one `call` names, or a legacy
-    /// broadcast's default from its Done; nil for a legacy broadcast with no Done, whose default is a draft MR only with a
-    /// code host.
-    private func knownEnd(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> TaskEnd? {
-        if let settings = run.taskSettings { return settings.end }
-        if let end = try end(call) { return end }
-        return OperatorCommand.said(run.done) == nil ? nil : Self.defaultEnd(for: run)
-    }
-
-    /// A broadcast with the Task step ends every task where its step says, so a call that names an end is refused there;
-    /// a legacy broadcast's calls may name one.
     private func refuseEndChange(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) {
-        if let settings = run.taskSettings, call.optionalString("end") != nil {
-            throw ToolRefusal("Every task ends at \(settings.end.displayName), which only the person changes.")
+        if call.optionalString("end") != nil {
+            throw ToolRefusal("Every task ends at \(run.taskSettings.end.displayName), which only the person changes.")
         }
-    }
-
-    private func end(_ call: ToolCall) throws(ToolRefusal) -> TaskEnd? {
-        guard let raw = call.optionalString("end") else { return nil }
-        guard let end = TaskEnd(rawValue: raw) else { throw ToolRefusal("A task’s end is commit, draftMR, merge or mergeLocal.") }
-        return end
     }
 
     /// `dependsOn`: a task for an order dependency, or `{task, kind}`. At most one code dependency, in
@@ -398,7 +310,7 @@ extension OperatorToolHandler {
                 throw ToolRefusal("Each dependsOn entry is a task, or {\"task\": …, \"kind\": \"order\" or \"code\"}.")
             }
             guard let parent = state.task(inRun: run.id, named: ref) else {
-                if run.taskSettings != nil, let closed = run.finished.first(where: {
+                if let closed = run.finished.first(where: {
                     $0.key == ref || $0.task.uuidString.caseInsensitiveCompare(ref) == .orderedSame
                 }) {
                     throw ToolRefusal("\(closed.key) was closed when the broadcast completed.")

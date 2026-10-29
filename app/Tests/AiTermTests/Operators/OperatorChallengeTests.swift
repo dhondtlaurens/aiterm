@@ -288,7 +288,7 @@ extension OperatorChallengeTests {
             var profile = OperatorServiceFixtures.profile(oracle: oracle, oracleAgent: .claude)
             profile.slices = Slices(merge: true)
             var run = OperatorServiceFixtures.run(profile, projects: [project], state: .active, planRevision: 1)
-            run.done = "Merged once the pipeline is green."
+            run.taskSettings.end = .merge
             var task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .accepted, worktree: fixture.path,
                                                     branch: "feat/a", end: end)
             task.baseBranch = "main"
@@ -425,7 +425,7 @@ extension OperatorChallengeTests {
             #expect(p.prompts.list.count == 1)
             let prompt = try #require(p.prompts.list.first)
             #expect(prompt.contains("sh: npm: command not found"))
-            #expect(prompt.contains("The act: merge the accepted commit \(p.sha) for task A.") && prompt.contains("Merged once the pipeline is green."))
+            #expect(prompt.contains("The act: merge the accepted commit \(p.sha) for task A.") && prompt.contains("The task's review verdicts"))
             #expect(prompt.contains("Answer YES only when the failure is the environment and the merge is permitted"))
             #expect(answer.value?["result"] == "waitingToMerge")
             #expect(try originTip(p) == p.sha)
@@ -469,7 +469,7 @@ extension OperatorChallengeTests {
             var profile = OperatorServiceFixtures.profile(oracle: true, oracleAgent: .claude)
             profile.slices = Slices(merge: true)
             var run = OperatorServiceFixtures.run(profile, projects: [project], state: .active, planRevision: 1)
-            run.done = "Merged once the review is done."
+            run.taskSettings.end = .merge
             var task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .accepted, worktree: fixture.path,
                                                     branch: "feat/a", end: .merge)
             task.baseBranch = "main"

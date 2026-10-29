@@ -315,8 +315,8 @@ class Service:
             log.exception("reading Codex usage failed")
         if not self.iterm.is_connected():
             return
-        windows_before = {s.window_id for s in self.registry.all()}
         positions_before = {s.session_id: (s.window_id, s.tab_index) for s in self.registry.all()}
+        windows_before = {window for window, _ in positions_before.values()}
         diff = self.registry.apply_snapshot(await self.iterm.snapshot())
         # A session.changed from the snapshot diff is deliberately *not* broadcast as it is found:
         # the status pass can change the same session again in this very tick (its state, its
@@ -335,8 +335,11 @@ class Service:
                               positions_before: dict[str, tuple[str, int]], changed: list[str]) -> None:
         """Announces what the snapshot opened and closed, then reads the corroborating signals, each
         step guarded so one that raises costs only its own changes. Appends to `changed` as it goes."""
+        # Tick owns structural registry changes. Keep one ordered view for this pass;
+        # hooks and status updates still mutate the same SessionInfo values.
+        sessions = self.registry.all()
         # A session moved to another tab or window keeps its id but not its tab's title.
-        for s in self.registry.all():
+        for s in sessions:
             if positions_before.get(s.session_id, (s.window_id, s.tab_index)) != (s.window_id, s.tab_index):
                 with _logged(f"forgetting the title of moved session {s.session_id}"):
                     self.windows.forget_title(s.session_id)
@@ -353,14 +356,14 @@ class Service:
             self._forget_session(sid)
             with _logged(f"announcing closed session {sid}"):
                 await self.rpc.broadcast(protocol.SESSION_CLOSED, {"sessionId": sid})
-        windows_after = {s.window_id for s in self.registry.all()}
+        windows_after = {s.window_id for s in sessions}
         for wid in windows_before - windows_after:
             self.windows.forget_window(wid)
             with _logged(f"announcing closed window {wid}"):
                 await self.rpc.broadcast(protocol.WINDOW_CLOSED, {"windowId": wid})
         threads: dict[str, str] = {}
         screens: list[str] = []
-        for s in self.registry.all():
+        for s in sessions:
             # Another process's file must not stop the other tabs.
             with _logged(f"corroborating session {s.session_id}"):
                 self._corroborate(s, threads, screens, changed)

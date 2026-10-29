@@ -3,11 +3,9 @@ import AiTermCore
 
 /// Runs the second opinion and says what came of it. It never blocks the act (spec §4.4): a CLI that is
 /// missing, a run that fails, says nothing or outlasts `timeout` is `unchallenged`, with the reason the
-/// board shows. An agent review (`review`) runs the same way, headless and read-only, in a task's worktree.
+/// board shows. Interactive review tabs are owned separately by TabOpener.
 struct SecondOpinionRunner: Sendable {
     enum Verdict: Equatable, Sendable { case critique(String), unchallenged(String) }
-    /// What an agent review came to: its findings, or why there are none.
-    enum Review: Equatable, Sendable { case findings(String), failed(String) }
     typealias Run = @Sendable (_ executable: String, _ arguments: [String], _ environment: [String: String], _ directory: String,
                                _ timeout: Duration) async throws -> ProcessOutput
 
@@ -33,25 +31,6 @@ struct SecondOpinionRunner: Sendable {
                 return .unchallenged("The second opinion gave no critique (exit \(output.status)).")
             }
             return .critique(critique)
-        }
-    }
-
-    /// An agent review by `agent` on `model`, read-only in `worktree`, its answer file in `folder`, which is made
-    /// if it is missing: the findings, or why there are none.
-    func review(agent: AgentKind, model: String, reasoning: String?, prompt: String, worktree: String, folder: URL,
-                timeout: Duration) async -> Review {
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let answerFile = folder.appendingPathComponent("review-\(UUID().uuidString).txt").path
-        defer { try? FileManager.default.removeItem(atPath: answerFile) }
-        let invocation = AgentReview.invocation(agent: agent, model: model, reasoning: reasoning, prompt: prompt, worktree: worktree,
-                                                answerFile: answerFile)
-        switch await perform(invocation, in: worktree, timeout: timeout) {
-        case .failure(let why): return .failed(why.text(of: "The review"))
-        case .success(let output):
-            guard let findings = AgentReview.findings(agent, output: output, answerFile: invocation.answerFile) else {
-                return .failed("The review gave no findings (exit \(output.status)).")
-            }
-            return .findings(findings)
         }
     }
 

@@ -92,7 +92,24 @@ import Synchronization
         #expect(!cloneExists, "the clone still goes")
     }
 
-    /// Review focus 4: leaving during Look stops it, removes the clone and goes back to offered.
+    @Test func quittingDuringApplyDoesNotStartALanding() async {
+        let proposal = proposal
+        let applying = Mutex(false), landed = Mutex(false)
+        let session = FixSession(request: request, fixer: .ready(.claude),
+                                 pipeline: pipeline(look: { _ in .fix(proposal) }, apply: {
+                                     applying.withLock { $0 = true }
+                                     try? await Task.sleep(for: .seconds(30))
+                                 }, land: { landed.withLock { $0 = true } }), retry: { _ in })
+        session.start(); await session.settled()
+        session.apply()
+        #expect(await eventually(describing: "the apply to start") { applying.withLock { $0 } })
+        session.stop()
+        await session.settled()
+        #expect(!landed.withLock { $0 }, "a completed agent reply cannot start a git landing after quit")
+        #expect(!cloneExists)
+    }
+
+    /// Leaving during Look stops it, removes the clone and goes back to offered.
     @Test func cancellingWhileLookingRemovesTheClone() async {
         let session = FixSession(request: request, fixer: .ready(.claude),
                                  pipeline: pipeline(look: { _ in try? await Task.sleep(for: .seconds(30)); return .none("late") }), retry: { _ in })

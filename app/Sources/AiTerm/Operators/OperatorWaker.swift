@@ -53,6 +53,7 @@ final class OperatorWaker {
     }
     private struct Snapshot { let generation: UUID, count: Int, news: Set<News>, reasons: [Reason: UUID] }
     private var wakes: [UUID: WakeState] = [:]
+    private var isStopped = false
     /// A fixed reason, and what joins it to "call run_status": a comma, or a colon after news about one task.
     struct Reason: Hashable { var text: String, colon: Bool }
     /// The latest delivery, for a test to await.
@@ -79,6 +80,7 @@ final class OperatorWaker {
     /// the `reconnected` line says the rest — and news the operator has not seen or been told since arms a
     /// wake. News undone before its line goes, so that none is left, drops the wake but for a reason said.
     func observe(_ status: RunStatus, of run: UUID) {
+        guard !isStopped else { return }
         let status = Self.content(status), wake = state(for: run)
         guard status != wake.lastSeen else { return }
         wake.lastSeen = status
@@ -95,6 +97,7 @@ final class OperatorWaker {
 
     /// The operator has seen `status`: it called `run_status`, or its own call made the change.
     func acknowledged(_ status: RunStatus, of run: UUID) {
+        guard !isStopped else { return }
         let status = Self.content(status), wake = state(for: run)
         wake.clearPending()
         wake.acknowledgedStatus = status
@@ -108,6 +111,7 @@ final class OperatorWaker {
     /// arrived while a tool was suspended is already in `before` and stays unread; what the call itself
     /// changed is the operator's own, never news to it.
     func ownChange(from before: RunStatus, to after: RunStatus, of run: UUID) {
+        guard !isStopped else { return }
         guard Self.content(before) == wakes[run]?.acknowledgedStatus, wakes[run]?.reasons.isEmpty != false else {
             wakes[run]?.told.formUnion(Self.news(from: Self.content(before), to: Self.content(after)))
             return
@@ -119,6 +123,7 @@ final class OperatorWaker {
     /// and plain (`isPlain`). `colon` joins it to the call with a colon, after news about one task:
     /// `[AiTerm] <reason>: call run_status`.
     func say(_ reason: String, to run: UUID, unlessAcknowledged status: RunStatus? = nil, colon: Bool = false) {
+        guard !isStopped else { return }
         let wake = state(for: run)
         if let status, Self.content(status) == wake.acknowledgedStatus { return }
         wake.reasons[Reason(text: reason, colon: colon)] = UUID()
@@ -144,7 +149,7 @@ final class OperatorWaker {
 
     /// The operator's tab changed: a wake held while it worked, or refused, goes now if it is idle.
     func operatorSessionChanged(_ run: UUID) {
-        guard let wake = wakes[run], !wake.isForgotten, wake.updates > 0, wake.armed == nil else { return }
+        guard !isStopped, let wake = wakes[run], !wake.isForgotten, wake.updates > 0, wake.armed == nil else { return }
         send(run, wake)
     }
 
@@ -160,6 +165,15 @@ final class OperatorWaker {
         wake.isForgotten = true
         if wake.sending == nil { wakes[run] = nil }
         cleared?(run)
+    }
+
+    func start() { isStopped = false }
+
+    /// Timers go immediately. A delivery already sent keeps its sentinel until its reply, so a
+    /// restart cannot overlap another delivery into the same tab.
+    func stop() {
+        isStopped = true
+        for run in Array(wakes.keys) { forget(run) }
     }
 
     private func state(for run: UUID) -> WakeState {
@@ -285,9 +299,8 @@ final class OperatorWaker {
         /// The broadcast changed: its state, its plan, its summary falling due. Never its snags and finds, which the
         /// Operator records itself.
         case run(RunNews)
-        /// A task's state, why it is blocked or can't merge, whether you hold it, and its agent review, as they are now.
+        /// A task's state, why it is blocked or can't merge, and whether you hold it, as they are now.
         case state(UUID, OperatedState), blocked(UUID, String?), mergeRefusal(UUID, String?), takenOver(UUID, Bool)
-        case agentReview(UUID, AgentKind?, String?)
         /// A flag newly on a task, but `possiblyStalled` and `uncertain`, whose lists say them.
         case flagged(UUID, OperatedFlag)
         /// One of its workers stopped short of finishing its turn (`TaskLine.stoppedOn`).
@@ -344,7 +357,6 @@ final class OperatorWaker {
             if old?.blockedReason != task.blockedReason { news.insert(.blocked(id, task.blockedReason)) }
             if old?.mergeRefusal != task.mergeRefusal { news.insert(.mergeRefusal(id, task.mergeRefusal)) }
             if old?.takenOver ?? false != task.takenOver { news.insert(.takenOver(id, task.takenOver)) }
-            if old?.agentReview != task.agentReview { news.insert(.agentReview(id, task.agentReview?.agent, task.agentReview?.state)) }
             for flag in Set(task.flags).subtracting(old?.flags ?? []).subtracting([.possiblyStalled, .uncertain]) {
                 news.insert(.flagged(id, flag))
             }
@@ -464,7 +476,7 @@ final class OperatorWaker {
 
     private func send(_ run: UUID, _ wake: WakeState) {
         let count = wake.updates
-        guard count > 0, wake.sending == nil, awake(run), let daemon = daemon(), let tab = session(run), tab.state != .working
+        guard !isStopped, count > 0, wake.sending == nil, awake(run), let daemon = daemon(), let tab = session(run), tab.state != .working
         else { return }
         // News counted and since undone wakes nobody: the run reads as the Operator saw it, or was told it.
         let news = unsent(wake)

@@ -25,7 +25,8 @@ let package = Package(
         .testTarget(name: "AiTermCoreTests", dependencies: ["AiTermCore", "AiTermTestSupport"], path: "Tests/AiTermCoreTests",
                     exclude: ["Operators/Fixtures"]),
         .testTarget(name: "AiTermUITests", dependencies: ["AiTermUI", "AiTermTestSupport"], path: "Tests/AiTermUITests"),
-        .testTarget(name: "AiTermTests", dependencies: ["AiTerm", "AiTermTestSupport"], path: "Tests/AiTermTests"),
+        .testTarget(name: "AiTermTests", dependencies: ["AiTerm", "AiTermTestSupport"], path: "Tests/AiTermTests",
+                    exclude: ["Fixtures"]),
     ],
     swiftLanguageModes: [.v6]
 )

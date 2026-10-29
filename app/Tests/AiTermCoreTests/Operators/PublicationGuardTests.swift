@@ -198,7 +198,7 @@ import Testing
         for end in [TaskEnd.merge, .mergeLocal] {
             var (w, task, run) = world(end: end)
             w.state.runs[0].profile.oracle.isOn = true
-            let unconfirmed = "The Oracle hasn’t said that the conditions written in the Review and the Done hold for PLUTO-231, so AiTerm doesn’t merge it: call finish_task again."
+            let unconfirmed = "The Oracle hasn’t said that the task’s review conditions hold for PLUTO-231, so AiTerm doesn’t merge it: call finish_task again."
             #expect(refusal(w, task, run) == unconfirmed, "\(end)")
             w.state.updateOperated(task) { $0.publication = TaskPublication(conditionsHeld: "0123456789abcdef") }
             #expect(refusal(w, task, run) == unconfirmed, "a yes for another commit, \(end)")
@@ -209,7 +209,7 @@ import Testing
         }
         var (w, task, run) = world(end: .merge, slices: Slices(review: true, merge: true))
         w.state.runs[0].profile.oracle.isOn = true
-        w.state.runs[0].review = "Assign Jan."
+        w.state.runs[0].taskSettings.review = "Assign Jan."
         #expect(refusal(w, task, run) == nil, "it goes into review first")
         let (d, draft, drun) = world(end: .draftMR)
         #expect(refusal(d, draft, drun) == nil)

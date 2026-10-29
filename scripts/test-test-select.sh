@@ -105,6 +105,7 @@ unaccounted_readers() {
 check "docs only runs nothing" -- docs/architecture.md README.md
 check "daemon code runs the daemon" daemon -- daemon/aitermd/service.py
 check "wire fixtures add the wire contract" daemon suite:AiTermCoreTests.WireContractTests -- daemon/tests/wire/manifest.json
+check "Operator tools select both language contracts" daemon suite:AiTermCoreTests.OperatorToolTests suite:AiTermTests.OperatorCurrentContractTests -- daemon/aitermd/operator_mcp.py
 check "core runs every swift target" target:AiTermCoreTests target:AiTermTests target:AiTermUITests -- app/Sources/AiTermCore/Models.swift
 check "app code adds the design rules" suite:AiTermUITests.DesignRulesTests target:AiTermTests -- app/Sources/AiTerm/AppController.swift
 check "a suite inside a selected target is dropped" target:AiTermTests target:AiTermUITests -- app/Sources/AiTerm/AppController.swift app/Tests/AiTermUITests/SelectTests.swift

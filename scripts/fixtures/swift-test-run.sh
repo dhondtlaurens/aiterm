@@ -13,6 +13,7 @@ case "$1" in
         esac ;;
     test)
         [[ -z "${AITERM_FIXTURE_CALLS:-}" ]] || print -r -- "swift $*" >>"$AITERM_FIXTURE_CALLS"
+        [[ -z "${AITERM_FIXTURE_PARALLELISM:-}" ]] || print -r -- "${SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH:-unset}" >"$AITERM_FIXTURE_PARALLELISM"
         # A real filtered run prints one `Test run` line per test host its filters reach, and a
         # `Suite` line per suite: a filter like ^Target\. reaches that target's host, and one like
         # ^Target\.Suite/ that suite too. Any other filter stands for a single host, and what a

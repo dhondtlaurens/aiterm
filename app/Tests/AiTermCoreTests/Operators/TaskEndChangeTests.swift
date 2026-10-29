@@ -8,11 +8,11 @@ import Testing
 @Suite struct TaskEndChangeTests {
     private let web = OperatorUIFixtures.project("webshop")
 
-    private func run(merge: Bool = true, legacy: Bool = false) -> OperatorRun {
+    private func run(merge: Bool = true) -> OperatorRun {
         var profile = OperatorUIFixtures.profile
         profile.slices = Slices(merge: merge)
-        return OperatorUIFixtures.run(profile: profile, projectIds: [web.id], agents: legacy ? [] : OperatorUIFixtures.agents,
-                                      taskSettings: legacy ? nil : OperatorUIFixtures.taskSettings)
+        return OperatorUIFixtures.run(profile: profile, projectIds: [web.id], agents: OperatorUIFixtures.agents,
+                                      taskSettings: OperatorUIFixtures.taskSettings)
     }
 
     private func task(in run: OperatorRun, _ state: OperatedState, end: TaskEnd = .merge, publication: TaskPublication? = nil) -> TaskItem {
@@ -158,10 +158,6 @@ import Testing
         ended.endedAt = OperatorUIFixtures.epoch
         ended.state = .stopped
         #expect(TaskEndChange.refusal(.commit, for: working, in: ended) == "This broadcast has ended.")
-
-        let legacy = self.run(legacy: true)
-        #expect(TaskEndChange.refusal(.commit, for: task(in: legacy, .working), in: legacy)
-                == "This broadcast started before a task’s end could change.")
 
         let yours = OperatorUIFixtures.task("Mine", project: web.id, operated: nil)
         #expect(TaskEndChange.refusal(.commit, for: yours, in: run) == "That task isn’t the Operator’s.")

@@ -230,7 +230,10 @@ swift_test() {
     log="$TEST_LOGS/$label.log"
 
     set +e
-    (cd "$ROOT/app" && "$ROOT/scripts/swift.sh" test "$@") 2>&1 | tee "$log"
+    # Hundreds of main-actor fixture setups can otherwise queue ahead of a test's awaited work.
+    # Swift 6.4's Testing runtime owns case concurrency; SwiftPM's --num-workers is XCTest-only.
+    (cd "$ROOT/app" && SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH="${SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH:-4}" \
+        "$ROOT/scripts/swift.sh" test "$@") 2>&1 | tee "$log"
     rc=${pipestatus[1]}
     set -e
     if [[ "$rc" -ne 0 ]]; then

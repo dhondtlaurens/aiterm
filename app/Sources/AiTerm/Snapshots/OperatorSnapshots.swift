@@ -49,9 +49,11 @@ struct OperatorScene {
              questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [], finds: [OffBriefFind] = [],
              leftForYou: [String] = [], snags: [OperatorSnag] = []) -> OperatorRun {
         OperatorRun(id: runId, name: name, profile: Self.profile, projectIds: projects.map(\.id), jiraProjectKeys: ["PAY"],
-                    prompt: prompt, review: review, done: done, state: state, planRevision: planned == nil ? 0 : 1,
+                    prompt: prompt, state: state, planRevision: planned == nil ? 0 : 1,
                     firstPlanSize: planned, questions: questions, decisions: decisions, finds: finds, snags: snags, leftForYou: leftForYou,
-                    operatorWindowId: "operator-window", createdAt: Snapshots.clock.now)
+                    operatorWindowId: "operator-window", createdAt: Snapshots.clock.now,
+                    taskSettings: TaskSettings(review: review, end: .draftMR, closeWhenDone: false),
+                    goal: done.map { BroadcastGoal(text: $0) })
     }
 
     /// A worker's permission prompt, as `OperatorController.probePrompt` records one.
@@ -734,8 +736,10 @@ enum OperatorSnapshots {
         let analytics = UUID(), builder = UUID(), rss = UUID()
         let run = OperatorRun(id: scene.runId, name: "Personal site cleanup", profile: OperatorScene.profile,
                               projectIds: [scene.webshop.id], prompt: "tidy the blog’s build and drop the old analytics",
-                              done: "merged locally when everything’s resolved", state: .paused, planRevision: 1, firstPlanSize: 3,
-                              operatorWindowId: "operator-window", createdAt: Snapshots.clock.now)
+                              state: .paused, planRevision: 1, firstPlanSize: 3,
+                              operatorWindowId: "operator-window", createdAt: Snapshots.clock.now,
+                    taskSettings: TaskSettings(review: nil, end: .mergeLocal, closeWhenDone: false),
+                              goal: BroadcastGoal(text: "merged locally when everything’s resolved"))
         scene.show(run, [
             scene.task(analytics, "Drop the old analytics", .queued, end: .mergeLocal),
             scene.task(builder, "Upgrade the static site builder", .working, end: .mergeLocal),

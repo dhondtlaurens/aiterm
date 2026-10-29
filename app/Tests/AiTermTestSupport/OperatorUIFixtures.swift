@@ -13,13 +13,12 @@ enum OperatorUIFixtures {
 
     static func run(id: UUID = UUID(), name: String = "Newsletter signup", profile: OperatorProfile = profile,
                     state: OperatorRunState = .active, planRevision: Int = 1,
-                    done: String? = "a commit per item, tests green, I review and push",
                     questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [],
-                    windowId: String? = "operator-window", projectIds: [UUID] = [], agents: [AgentChoice] = [],
-                    taskSettings: TaskSettings? = nil, goal: BroadcastGoal? = nil) -> OperatorRun {
+                    windowId: String? = "operator-window", projectIds: [UUID] = [], agents: [AgentChoice] = OperatorUIFixtures.agents,
+                    taskSettings: TaskSettings = TaskSettings(review: nil, end: .commit, closeWhenDone: false), goal: BroadcastGoal? = nil) -> OperatorRun {
         OperatorRun(id: id, name: name, profile: profile, projectIds: projectIds,
                     prompt: "PLUTO-231 newsletter signup block in Storyblok",
-                    done: taskSettings == nil ? done : nil, state: state, intent: nil, planRevision: planRevision,
+                    state: state, intent: nil, planRevision: planRevision,
                     questions: questions, decisions: decisions,
                     operatorConversation: nil, operatorWindowId: windowId, operatorSessionId: nil, createdAt: epoch,
                     agents: agents, taskSettings: taskSettings, goal: goal)

@@ -98,25 +98,6 @@ def test_preserves_custom_statusline_and_forwards_the_same_payload(home, daemon)
     assert forwarded(daemon)[0][2] == PAYLOAD
 
 
-@pytest.mark.parametrize("mode", ["quiet", "aiterm", "original", "nonsense"])
-def test_legacy_display_modes_do_not_add_a_statusline(home, daemon, mode):
-    (support_of(home) / "statusline-mode").write_text(mode + "\n")
-    result = run_shim(home)
-    assert result.returncode == 0
-    assert result.stdout == ""
-    assert forwarded(daemon)
-
-
-def test_legacy_aiterm_mode_no_longer_replaces_custom_statusline(home, daemon):
-    original = home / "mine.sh"
-    original.write_text("#!/bin/sh\nread -r _line\necho 'my own status line'\n")
-    original.chmod(0o755)
-    (support_of(home) / "statusline-original.cmd").write_text(str(original))
-    (support_of(home) / "statusline-mode").write_text("aiterm\n")
-    assert run_shim(home).stdout.strip() == "my own status line"
-    assert forwarded(daemon)
-
-
 def test_posts_to_whatever_port_the_file_names_and_to_no_other(home, daemon):
     # The file is the only place the shim learns the port: one with no port in it posts nowhere,
     # and still shows the user's own status line.

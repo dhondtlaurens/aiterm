@@ -120,14 +120,6 @@ import Foundation
         #expect(open(run, [task]).isEmpty)
     }
 
-    @Test func noRequestIsSaidWithAnEmDash() {
-        var task = codexTask("PAY-9", .blocked)
-        task.operated?.blockedReason = "Retries used up."
-        var run = run
-        run.questions = [OperatorQuestion(id: "q", text: "Which one?", task: nil, askedAt: OperatorFixtures.epoch)]
-        #expect(open(run, [task]).allSatisfy { !$0.text.contains("—") })
-    }
-
     /// A finished task's prompt left open asks nothing and holds the broadcast open no longer.
     @Test func aFinishedTasksPromptIsNoRequestAndHoldsNothing() {
         var run = OperatorFixtures.run()

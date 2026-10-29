@@ -71,7 +71,7 @@ extension AppController {
                                             hasCodeHost: { (try? await codeHost.connects($0)) ?? false }) { [weak self] request in
                 let id = try await controller.startBroadcast(name: request.name, jiraProjectKeys: request.jiraProjectKeys,
                                                              projectIds: request.projectIds, prompt: request.prompt,
-                                                             review: request.review, done: request.done, agents: request.agents,
+                                                             agents: request.agents,
                                                              taskSettings: request.taskSettings, goal: request.goal)
                 self?.focus.browse(.operation(id))
                 return id

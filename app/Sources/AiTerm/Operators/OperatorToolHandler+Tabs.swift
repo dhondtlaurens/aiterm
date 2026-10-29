@@ -13,7 +13,7 @@ extension OperatorToolHandler {
             throw ToolRefusal("The key \(key) names \(task.operated?.key ?? task.title)’s first worker in run_status. Call open_tab with another key.")
         }
         let role: TabRole
-        if run.taskSettings != nil, let raw = call.optionalString("role") {
+        if let raw = call.optionalString("role") {
             guard let requested = TabRole(rawValue: raw) else { throw ToolRefusal("A tab’s role is work or review.") }
             role = requested
         } else {
@@ -27,9 +27,8 @@ extension OperatorToolHandler {
             return recorded
         }
         try tabRefusal(task, in: run)
-        let catalogue = await modelCatalogue(for: agent, in: run)
         let delivery = await deliveryStatus()
-        let model = try self.model(call, for: agent, catalogue: catalogue, in: run)
+        let model = try self.model(call, for: agent, in: run)
         let warning = try deliveryWarning(for: agent, pinned: pinned, delivery: delivery, in: run)
         guard let current = state.task(id: task.id), let fresh = state.run(id: run.id) else {
             throw ToolRefusal("This task is no longer in this broadcast.")

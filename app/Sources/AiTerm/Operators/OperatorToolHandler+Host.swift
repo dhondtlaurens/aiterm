@@ -7,7 +7,7 @@ import AiTermCore
 /// is kept for `hostCache`, and never fails the tool: a host that doesn't answer leaves `mergeRequestNote`.
 extension OperatorToolHandler {
     /// What a read of one request came to.
-    enum HostReading: Equatable {
+    enum HostReading: Equatable, Sendable {
         case state(MergeRequestState), note(String)
     }
 
@@ -39,7 +39,27 @@ extension OperatorToolHandler {
     func hostState(of task: TaskItem) async -> HostReading? {
         guard let publication = task.operated?.publication, let number = publication.mergeRequestNumber,
               let url = publication.mergeRequestURL else { return nil }
-        if let kept = hostStates[url], ports.now().timeIntervalSince(kept.at) < ports.hostCache { return .state(kept.state) }
+        let key = HostReadKey(project: task.projectId, repository: publication.repository, url: url,
+                              number: number, acceptedSHA: task.operated?.acceptance?.resultSHA)
+        if let kept = hostStates[key], ports.now().timeIntervalSince(kept.at) < ports.hostCache { return .state(kept.state) }
+        if let pending = hostReads[key] { return await pending.task.value }
+        let id = UUID()
+        let reading = Task { await self.readHost(task, publication: publication, number: number, url: url) }
+        hostReads[key] = HostRead(id: id, task: reading)
+        let answer = await reading.value
+        // A stop may have discarded this job and a resumed caller started another one for the same request.
+        if hostReads[key]?.id == id {
+            hostReads[key] = nil
+            if case .state(let value) = answer {
+                let now = ports.now()
+                hostStates = hostStates.filter { now.timeIntervalSince($0.value.at) < ports.hostCache }
+                hostStates[key] = (now, value)
+            }
+        }
+        return answer
+    }
+
+    private func readHost(_ task: TaskItem, publication: TaskPublication, number: Int, url: String) async -> HostReading {
         let request = MergeRequest(iid: number, title: task.title, sourceBranch: task.branch, targetBranch: publication.targetBranch ?? "",
                                    author: nil, state: "opened", draft: false, url: url)
         let limit = ports.hostTimeout
@@ -48,14 +68,18 @@ extension OperatorToolHandler {
             return try await host.state(of: request)
         }
         switch answer {
-        case .success(let state):
-            hostStates[url] = (ports.now(), state)
-            return .state(state)
+        case .success(let state): return .state(state)
         case .failure(let error):
             let why = error is NoAnswer ? "the host did not answer in \(Int(limit.components.seconds)) seconds"
                 : (error as? ToolRefusal)?.message ?? error.localizedDescription
             return .note("AiTerm couldn’t read its \(CodeHost(webURL: url).reference(number)) on the host: \(why)")
         }
+    }
+
+    func cancelHostReads() {
+        for reading in hostReads.values { reading.task.cancel() }
+        hostReads.removeAll()
+        hostStates.removeAll()
     }
 
     /// `work`, or `NoAnswer` when it has not ended within `limit`. The race is between two tasks started here, not a task

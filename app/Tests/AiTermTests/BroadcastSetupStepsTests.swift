@@ -291,7 +291,7 @@ struct BroadcastSetupStepsTests {
         await model.loadCodeHosts()
         #expect(model.canAdvance(step: CreationSteps.broadcast.count))
         #expect(await model.start() != nil)
-        let sent = requests.compactMap(\.taskSettings?.end)
+        let sent = requests.compactMap(\.taskSettings.end)
         #expect(sent == [.commit])
         #expect(sent.allSatisfy(model.canPick))
     }
@@ -371,7 +371,6 @@ struct BroadcastSetupStepsTests {
         _ = await model.start()
         let request = try #require(requests.first)
         #expect(request.agents == [Self.opusHigh, Self.astraMedium])
-        #expect(request.review == nil && request.done == nil, "a new broadcast keeps no Review and Done text")
         #expect(request.taskSettings == TaskSettings(review: "An adversarial review with /code-review.", end: .merge,
                                                      closeWhenDone: true, deleteMergedBranch: true))
         #expect(request.goal == BroadcastGoal(text: "Every PAY ticket is merged.", extraRounds: 3))

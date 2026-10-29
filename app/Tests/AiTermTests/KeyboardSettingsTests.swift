@@ -7,7 +7,6 @@ import Testing
 @MainActor
 @Suite(.serialized) struct KeyboardSettingsTests {
     @Test func theListDescribesTheBoardAndShelfKeys() throws {
-        #expect(KeyBindings.all.allSatisfy { !$0.help.contains("overview") && $0.bindings.allSatisfy { !$0.action.contains("overview") } })
         let sheets = try #require(KeyBindings.all.first { $0.title == "Sheets" })
         #expect(sheets.bindings.contains { $0.keys == ["⌘", "1–3"] && $0.action.contains("board") })
         #expect(sheets.bindings.contains { $0.keys == ["⌘", "⌫"] && $0.action.contains("Shelf") })

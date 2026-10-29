@@ -110,7 +110,7 @@ import Testing
         let words: [OperatorAct: String] = [
             .loadingTheConstruct: "loading the construct", .consultingTheOracle: "consulting the Oracle",
             .starting: "starting Codex", .answering: "answering Codex", .checkingTheWork: "checking the work",
-            .reviewingWith: "reviewing with Codex", .openingTheMR: "opening the MR", .assigning: "assigning Jan",
+            .openingTheMR: "opening the MR", .assigning: "assigning Jan",
             .relayingFeedback: "relaying feedback", .merging: "merging", .filingATicket: "filing a ticket",
             .reopeningItsWindow: "reopening its window",
         ]
@@ -121,7 +121,7 @@ import Testing
         // On a task's own row its icon names the agent, so the line names the Operator; a review its reviewer.
         let rowWords: [OperatorAct: String] = [
             .starting: "Operator starting it", .answering: "Operator answering", .checkingTheWork: "Operator checking the work",
-            .reviewingWith: "Codex reviewing", .relayingFeedback: "Operator relaying feedback",
+            .relayingFeedback: "Operator relaying feedback",
         ]
         for act in OperatorAct.allCases {
             #expect(act.rowWords(agent: .codex, names: ["Jan"]) == rowWords[act] ?? words[act], "\(act)")

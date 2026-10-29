@@ -100,19 +100,5 @@ extension ClaudeConfigTests {
 }
 
 extension ClaudeConfigTests {
-    @Test func anAgentReviewHandsOverTheNamedSkillFromTheConfiguredFolder() throws {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: home) }
-        func skill(in folder: String, saying text: String) throws {
-            let url = home.appendingPathComponent(folder).appendingPathComponent("skills/review-skill/SKILL.md")
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try "---\nname: review-skill\n---\n\(text)\n".write(to: url, atomically: true, encoding: .utf8)
-        }
-        try skill(in: ".claude", saying: "Wrong folder.")
-        try skill(in: "profile", saying: "Attack every assumption.")
-        let found = AgentReview.skills(in: "Review it with /review-skill", agents: [.claude], projectPath: nil, home: home,
-                                       claudeConfig: ClaudeConfig("~/profile"))
-        #expect(found.map(\.name) == ["review-skill"])
-        #expect(found.first?.text.contains("Attack every assumption.") == true)
-    }
+
 }

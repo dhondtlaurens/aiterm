@@ -201,7 +201,7 @@ final class TaskAutoCloser {
         } catch {
             return takeBack(task.id, in: run.id)
         }
-        guard run.taskSettings?.deleteMergedBranch == true, let operated = task.operated,
+        guard run.taskSettings.deleteMergedBranch == true, let operated = task.operated,
               let project = workspace.state.project(id: task.projectId) else { return workspace.persistenceError == nil }
         var deleted = record
         deleted.branchDeleted = true

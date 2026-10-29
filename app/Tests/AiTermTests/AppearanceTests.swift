@@ -7,28 +7,7 @@ import AiTermCore
 
 @MainActor
 @Suite(.serialized) struct AppearanceTests {
-    @Test func darkAppearanceDiscardsTheRetiredPreference() throws {
-        let defaults = ScratchDefaults.make()
-        let original = NSApplication.shared.appearance
-        defer { NSApplication.shared.appearance = original }
-        let retired = ["appearance", "fixer", "fixerIsOn", "modelDefaults.grok"]
-        for key in retired { defaults.set("obsolete-choice", forKey: key) }
-        defaults.set(true, forKey: "matchItermBackground")
-        NSApplication.shared.appearance = nil
-
-        Appearance.apply(defaults: defaults)
-
-        #expect(NSApplication.shared.appearance?.name == .darkAqua)
-        for key in retired { #expect(defaults.object(forKey: key) == nil) }
-        #expect(defaults.bool(forKey: "matchItermBackground"))
-
-        // A fresh install and subsequent launches use the same fixed appearance.
-        Appearance.apply(defaults: defaults)
-        #expect(NSApplication.shared.appearance?.name == .darkAqua)
-    }
-
     @Test func windowsAlertsAndHostedContentInheritDarkAppearance() throws {
-        let defaults = ScratchDefaults.make()
         let original = NSApplication.shared.appearance
         defer { NSApplication.shared.appearance = original }
         NSApplication.shared.appearance = nil
@@ -36,7 +15,8 @@ import AiTermCore
 
         defer { window.close() }
 
-        Appearance.apply(defaults: defaults)
+        Appearance.apply()
+        #expect(NSApplication.shared.appearance?.name == .darkAqua)
 
         let host = NSHostingView(rootView: Text("AiTerm"))
         window.contentView = host

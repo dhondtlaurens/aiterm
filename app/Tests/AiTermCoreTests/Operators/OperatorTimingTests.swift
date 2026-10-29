@@ -17,7 +17,6 @@ import Foundation
         #expect(OperatorTiming.launchAdoptAfter == 60)
         #expect(OperatorTiming.mergePoll == 30)
         #expect(OperatorTiming.mergeWait == 3600)
-        #expect(OperatorTiming.agentReviewTimeout == 900)
         #expect(OperatorTiming.liveQuietMinutes == 2)
     }
 

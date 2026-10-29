@@ -40,11 +40,9 @@ public struct TaskPublisher: Sendable {
             reviews(run) && operated.peopleReview?.ended != true && operated.end != .mergeLocal
         }
 
-        /// Whether the broadcast's tasks go into review: it says how each task is reviewed (a new broadcast's per-task
-        /// review prompt, a legacy one's Review), and its Review slice lets people be involved. The board's Review
-        /// column is there while they do.
+        /// A task enters human review when its review prompt is set and the Review slice is enabled.
         public static func reviews(_ run: OperatorRun) -> Bool {
-            let review = if let settings = run.taskSettings { settings.review } else { run.review }
+            let review = run.taskSettings.review
             return OperatorCommand.said(review) != nil && run.profile.slices.review
         }
     }

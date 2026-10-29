@@ -1,0 +1,551 @@
+{
+  "items" : [
+    {
+      "kind" : "project",
+      "project" : {
+        "addedAt" : "2027-01-15T08:00:00Z",
+        "collapsed" : false,
+        "id" : "12345678-0000-4000-8000-000000000001",
+        "jiraProjects" : [
+
+        ],
+        "name" : "Shop",
+        "path" : "\/synthetic\/aiterm\/shop",
+        "provider" : "git"
+      }
+    }
+  ],
+  "lastAgentByProject" : [
+
+  ],
+  "lastModelByAgent" : [
+
+  ],
+  "runs" : [
+    {
+      "agents" : [
+        {
+          "agent" : "claude",
+          "model" : "claude-opus-5-5",
+          "reasoning" : "high"
+        },
+        {
+          "agent" : "codex",
+          "model" : "gpt-6-astra",
+          "reasoning" : "medium"
+        }
+      ],
+      "challenges" : [
+
+      ],
+      "createdAt" : "2027-01-15T08:00:00Z",
+      "decisions" : [
+
+      ],
+      "finds" : [
+
+      ],
+      "firstPlanSize" : 4,
+      "goal" : {
+        "extraRounds" : 2,
+        "text" : "All work is merged and verified."
+      },
+      "goalChecks" : [
+        {
+          "at" : "2027-01-15T08:00:00Z",
+          "evidence" : "Verification was incomplete.",
+          "met" : false,
+          "missing" : [
+            "Verify the release."
+          ],
+          "oracleAgreed" : true,
+          "round" : 0
+        }
+      ],
+      "id" : "12345678-0000-4000-8000-000000000002",
+      "jiraCreated" : {
+
+      },
+      "jiraProjectKeys" : [
+        "SHOP"
+      ],
+      "leftForYou" : [
+
+      ],
+      "name" : "Current workflow",
+      "operatorConversation" : "12345678-0000-4000-8000-000000000003",
+      "operatorWindowId" : "operator-window",
+      "pendingWrites" : [
+
+      ],
+      "planRevision" : 2,
+      "profile" : {
+        "instructions" : "Finish only verified work.",
+        "model" : "claude-opus-5-5",
+        "oracle" : {
+          "agent" : "codex",
+          "isOn" : true,
+          "model" : "gpt-6-astra",
+          "reasoning" : "medium"
+        },
+        "reasoning" : "high",
+        "slices" : {
+          "jira" : true,
+          "merge" : true,
+          "review" : true
+        }
+      },
+      "projectIds" : [
+        "12345678-0000-4000-8000-000000000001"
+      ],
+      "prompt" : "Implement and verify the planned work.",
+      "questions" : [
+
+      ],
+      "revisionAtLastCheck" : 1,
+      "roundsUsed" : 1,
+      "snags" : [
+
+      ],
+      "state" : "active",
+      "taskSettings" : {
+        "closeWhenDone" : false,
+        "deleteMergedBranch" : false,
+        "end" : "merge",
+        "review" : "Review correctness; ask me after three fix rounds."
+      },
+      "threadReplies" : {
+
+      }
+    }
+  ],
+  "tasks" : [
+    {
+      "agent" : "claude",
+      "appendTicket" : false,
+      "baseBranch" : "main",
+      "branch" : "feat\/shop-1",
+      "conversations" : [
+        {
+          "agent" : "claude",
+          "id" : "12345678-0000-4000-8000-000000000020"
+        }
+      ],
+      "createdAt" : "2027-01-15T08:00:00Z",
+      "firstPrompt" : "Do SHOP-1.",
+      "id" : "12345678-0000-4000-8000-000000000010",
+      "model" : "claude-opus-5-5",
+      "operated" : {
+        "agentPinned" : false,
+        "brief" : "Do SHOP-1.",
+        "dependsOn" : [
+
+        ],
+        "end" : "merge",
+        "extraTabs" : [
+          {
+            "agent" : "codex",
+            "agentPinned" : false,
+            "brief" : "Help verify this task.",
+            "conversation" : "12345678-0000-4000-8000-000000000100",
+            "key" : "work",
+            "launch" : {
+              "number" : 1,
+              "openedAt" : "2027-01-15T08:00:00Z",
+              "requestedAt" : "2027-01-15T08:00:00Z"
+            },
+            "model" : "gpt-6-astra",
+            "modelReason" : "Independent help.",
+            "reasoning" : "medium",
+            "sessionId" : "extra-0-0"
+          },
+          {
+            "agent" : "codex",
+            "agentPinned" : false,
+            "brief" : "Review this task.",
+            "conversation" : "12345678-0000-4000-8000-000000000101",
+            "key" : "review",
+            "launch" : {
+              "number" : 1,
+              "openedAt" : "2027-01-15T08:00:00Z",
+              "requestedAt" : "2027-01-15T08:00:00Z"
+            },
+            "model" : "gpt-6-astra",
+            "modelReason" : "Independent help.",
+            "reasoning" : "medium",
+            "role" : "review",
+            "sessionId" : "extra-0-1"
+          }
+        ],
+        "firstRevision" : 1,
+        "flags" : [
+
+        ],
+        "key" : "SHOP-1",
+        "launch" : {
+          "number" : 1,
+          "openedAt" : "2027-01-15T08:00:00Z",
+          "requestedAt" : "2027-01-15T08:00:00Z"
+        },
+        "ownership" : 0,
+        "retriesUsed" : 0,
+        "revision" : 1,
+        "runId" : "12345678-0000-4000-8000-000000000002",
+        "runtimeUsed" : 0,
+        "state" : "working",
+        "takenOver" : false,
+        "totalRuntimeUsed" : 0
+      },
+      "projectId" : "12345678-0000-4000-8000-000000000001",
+      "reasoning" : "high",
+      "title" : "Task SHOP-1",
+      "windowId" : "window-0",
+      "worktreePath" : "\/synthetic\/aiterm\/shop\/.worktrees\/shop-1"
+    },
+    {
+      "agent" : "claude",
+      "appendTicket" : false,
+      "baseBranch" : "main",
+      "branch" : "feat\/shop-2",
+      "conversations" : [
+        {
+          "agent" : "claude",
+          "id" : "12345678-0000-4000-8000-000000000021"
+        }
+      ],
+      "createdAt" : "2027-01-15T08:00:00Z",
+      "firstPrompt" : "Do SHOP-2.",
+      "id" : "12345678-0000-4000-8000-000000000011",
+      "model" : "claude-opus-5-5",
+      "operated" : {
+        "acceptance" : {
+          "at" : "2027-01-15T08:00:00Z",
+          "checkOutput" : "All checks passed.",
+          "prerequisiteSHAs" : [
+
+          ],
+          "resultSHA" : "2222222222222222222222222222222222222222"
+        },
+        "agentPinned" : false,
+        "brief" : "Do SHOP-2.",
+        "dependsOn" : [
+
+        ],
+        "end" : "merge",
+        "extraTabs" : [
+          {
+            "agent" : "codex",
+            "agentPinned" : false,
+            "brief" : "Help verify this task.",
+            "conversation" : "12345678-0000-4000-8000-000000000102",
+            "key" : "work",
+            "launch" : {
+              "number" : 1,
+              "openedAt" : "2027-01-15T08:00:00Z",
+              "requestedAt" : "2027-01-15T08:00:00Z"
+            },
+            "model" : "gpt-6-astra",
+            "modelReason" : "Independent help.",
+            "reasoning" : "medium",
+            "sessionId" : "extra-1-0"
+          },
+          {
+            "agent" : "codex",
+            "agentPinned" : false,
+            "brief" : "Review this task.",
+            "conversation" : "12345678-0000-4000-8000-000000000103",
+            "key" : "review",
+            "launch" : {
+              "number" : 1,
+              "openedAt" : "2027-01-15T08:00:00Z",
+              "requestedAt" : "2027-01-15T08:00:00Z"
+            },
+            "model" : "gpt-6-astra",
+            "modelReason" : "Independent help.",
+            "reasoning" : "medium",
+            "role" : "review",
+            "sessionId" : "extra-1-1"
+          }
+        ],
+        "firstRevision" : 1,
+        "flags" : [
+
+        ],
+        "key" : "SHOP-2",
+        "launch" : {
+          "number" : 1,
+          "openedAt" : "2027-01-15T08:00:00Z",
+          "requestedAt" : "2027-01-15T08:00:00Z"
+        },
+        "ownership" : 0,
+        "peopleReview" : {
+          "approvals" : [
+            "reviewer"
+          ],
+          "ended" : true,
+          "notes" : {
+
+          },
+          "reviewers" : [
+            "reviewer"
+          ],
+          "startedAt" : "2027-01-15T08:00:00Z",
+          "threads" : {
+
+          }
+        },
+        "retriesUsed" : 0,
+        "reviewVerdicts" : [
+          {
+            "at" : "2027-01-15T08:00:00Z",
+            "critical" : 0,
+            "important" : 0,
+            "key" : "verdict-1",
+            "minor" : 1,
+            "passed" : true,
+            "round" : 1,
+            "rounds" : 3,
+            "sha" : "2222222222222222222222222222222222222222",
+            "summary" : "No blocking findings.",
+            "tab" : "review"
+          }
+        ],
+        "revision" : 1,
+        "runId" : "12345678-0000-4000-8000-000000000002",
+        "runtimeUsed" : 0,
+        "state" : "accepted",
+        "takenOver" : false,
+        "totalRuntimeUsed" : 0
+      },
+      "projectId" : "12345678-0000-4000-8000-000000000001",
+      "reasoning" : "high",
+      "title" : "Task SHOP-2",
+      "windowId" : "window-1",
+      "worktreePath" : "\/synthetic\/aiterm\/shop\/.worktrees\/shop-2"
+    },
+    {
+      "agent" : "claude",
+      "appendTicket" : false,
+      "baseBranch" : "main",
+      "branch" : "feat\/shop-3",
+      "conversations" : [
+        {
+          "agent" : "claude",
+          "id" : "12345678-0000-4000-8000-000000000022"
+        }
+      ],
+      "createdAt" : "2027-01-15T08:00:00Z",
+      "firstPrompt" : "Do SHOP-3.",
+      "id" : "12345678-0000-4000-8000-000000000012",
+      "model" : "claude-opus-5-5",
+      "operated" : {
+        "acceptance" : {
+          "at" : "2027-01-15T08:00:00Z",
+          "checkOutput" : "All checks passed.",
+          "prerequisiteSHAs" : [
+
+          ],
+          "resultSHA" : "3333333333333333333333333333333333333333"
+        },
+        "agentPinned" : false,
+        "brief" : "Do SHOP-3.",
+        "dependsOn" : [
+
+        ],
+        "end" : "merge",
+        "extraTabs" : [
+          {
+            "agent" : "codex",
+            "agentPinned" : false,
+            "brief" : "Help verify this task.",
+            "conversation" : "12345678-0000-4000-8000-000000000104",
+            "key" : "work",
+            "launch" : {
+              "number" : 1,
+              "openedAt" : "2027-01-15T08:00:00Z",
+              "requestedAt" : "2027-01-15T08:00:00Z"
+            },
+            "model" : "gpt-6-astra",
+            "modelReason" : "Independent help.",
+            "reasoning" : "medium",
+            "sessionId" : "extra-2-0"
+          },
+          {
+            "agent" : "codex",
+            "agentPinned" : false,
+            "brief" : "Review this task.",
+            "conversation" : "12345678-0000-4000-8000-000000000105",
+            "key" : "review",
+            "launch" : {
+              "number" : 1,
+              "openedAt" : "2027-01-15T08:00:00Z",
+              "requestedAt" : "2027-01-15T08:00:00Z"
+            },
+            "model" : "gpt-6-astra",
+            "modelReason" : "Independent help.",
+            "reasoning" : "medium",
+            "role" : "review",
+            "sessionId" : "extra-2-1"
+          }
+        ],
+        "firstRevision" : 1,
+        "flags" : [
+
+        ],
+        "key" : "SHOP-3",
+        "launch" : {
+          "number" : 1,
+          "openedAt" : "2027-01-15T08:00:00Z",
+          "requestedAt" : "2027-01-15T08:00:00Z"
+        },
+        "ownership" : 0,
+        "peopleReview" : {
+          "approvals" : [
+            "reviewer"
+          ],
+          "ended" : true,
+          "notes" : {
+
+          },
+          "reviewers" : [
+            "reviewer"
+          ],
+          "startedAt" : "2027-01-15T08:00:00Z",
+          "threads" : {
+
+          }
+        },
+        "publication" : {
+          "leftForYou" : false,
+          "merged" : true,
+          "mergedSHA" : "3333333333333333333333333333333333333333",
+          "pushedSHA" : "3333333333333333333333333333333333333333",
+          "targetBranch" : "main"
+        },
+        "retriesUsed" : 0,
+        "reviewVerdicts" : [
+          {
+            "at" : "2027-01-15T08:00:00Z",
+            "critical" : 0,
+            "important" : 0,
+            "key" : "verdict-2",
+            "minor" : 1,
+            "passed" : true,
+            "round" : 1,
+            "rounds" : 3,
+            "sha" : "3333333333333333333333333333333333333333",
+            "summary" : "No blocking findings.",
+            "tab" : "review"
+          }
+        ],
+        "revision" : 1,
+        "runId" : "12345678-0000-4000-8000-000000000002",
+        "runtimeUsed" : 0,
+        "state" : "published",
+        "takenOver" : false,
+        "totalRuntimeUsed" : 0
+      },
+      "projectId" : "12345678-0000-4000-8000-000000000001",
+      "reasoning" : "high",
+      "title" : "Task SHOP-3",
+      "windowId" : "window-2",
+      "worktreePath" : "\/synthetic\/aiterm\/shop\/.worktrees\/shop-3"
+    },
+    {
+      "agent" : "claude",
+      "appendTicket" : false,
+      "baseBranch" : "main",
+      "branch" : "feat\/shop-4",
+      "conversations" : [
+        {
+          "agent" : "claude",
+          "id" : "12345678-0000-4000-8000-000000000023"
+        }
+      ],
+      "createdAt" : "2027-01-15T08:00:00Z",
+      "firstPrompt" : "Do SHOP-4.",
+      "id" : "12345678-0000-4000-8000-000000000013",
+      "model" : "claude-opus-5-5",
+      "operated" : {
+        "acceptance" : {
+          "at" : "2027-01-15T08:00:00Z",
+          "checkOutput" : "All checks passed.",
+          "prerequisiteSHAs" : [
+
+          ],
+          "resultSHA" : "4444444444444444444444444444444444444444"
+        },
+        "agentPinned" : false,
+        "brief" : "Do SHOP-4.",
+        "dependsOn" : [
+
+        ],
+        "end" : "merge",
+        "firstRevision" : 1,
+        "flags" : [
+
+        ],
+        "key" : "SHOP-4",
+        "launch" : {
+          "number" : 1,
+          "openedAt" : "2027-01-15T08:00:00Z",
+          "requestedAt" : "2027-01-15T08:00:00Z"
+        },
+        "ownership" : 0,
+        "peopleReview" : {
+          "approvals" : [
+            "reviewer"
+          ],
+          "ended" : true,
+          "notes" : {
+
+          },
+          "reviewers" : [
+            "reviewer"
+          ],
+          "startedAt" : "2027-01-15T08:00:00Z",
+          "threads" : {
+
+          }
+        },
+        "publication" : {
+          "leftForYou" : false,
+          "merged" : true,
+          "mergedSHA" : "4444444444444444444444444444444444444444",
+          "pushedSHA" : "4444444444444444444444444444444444444444",
+          "targetBranch" : "main"
+        },
+        "retriesUsed" : 0,
+        "reviewVerdicts" : [
+          {
+            "at" : "2027-01-15T08:00:00Z",
+            "critical" : 0,
+            "important" : 0,
+            "key" : "verdict-3",
+            "minor" : 1,
+            "passed" : true,
+            "round" : 1,
+            "rounds" : 3,
+            "sha" : "4444444444444444444444444444444444444444",
+            "summary" : "No blocking findings.",
+            "tab" : "review"
+          }
+        ],
+        "revision" : 1,
+        "runId" : "12345678-0000-4000-8000-000000000002",
+        "runtimeUsed" : 0,
+        "state" : "published",
+        "takenOver" : false,
+        "totalRuntimeUsed" : 0
+      },
+      "projectId" : "12345678-0000-4000-8000-000000000001",
+      "reasoning" : "high",
+      "title" : "Task SHOP-4",
+      "windowId" : "window-3",
+      "worktreePath" : "\/synthetic\/aiterm\/shop\/.worktrees\/shop-4"
+    }
+  ],
+  "terminals" : [
+
+  ]
+}

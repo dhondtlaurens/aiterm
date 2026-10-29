@@ -16,15 +16,6 @@ extension OperatorController {
         workspace.mutate { $0.updateOperated(id) { $0.takenOver = true; $0.ownership = ownership } }
         // A merge waiting is disarmed until the operator's next finish_task, whatever is handed back or resumed.
         finisher.disarm(id, because: TaskFinisher.takenOverProblem)
-        // An agent review of its branch stops: what it would find is about a branch that is yours now.
-        if tools.runningReviews[id] != nil {
-            tools.cancelReviews(of: [id])
-            let at = ports.now()
-            workspace.mutate { $0.updateOperated(id) {
-                $0.agentReview?.failure = "Stopped when the person took over \(operated.key): call review_task again once it is handed back."
-                $0.agentReview?.at = at
-            } }
-        }
         waker.say("the person took over one task", to: operated.runId)
         try await setOwnership(ownership, on: id)
     }
@@ -193,7 +184,6 @@ extension OperatorController {
         }
         finisher.stopWatching(inRun: id)
         for challenge in run.challenges { tools.runningChallenges[challenge.id]?.cancel() }
-        tools.cancelReviews(of: Set(workspace.state.tasks(inRun: id).map(\.id)))
         waker.forget(id)
         // No start pass follows: nothing waited on a slot the ended broadcast held, as there is no cap.
         guard let daemon = daemon() else { return }

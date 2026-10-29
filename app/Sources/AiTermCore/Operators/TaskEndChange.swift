@@ -19,7 +19,6 @@ public enum TaskEndChange {
     /// one, only until the task finishes, never while you hold it, and only to another end.
     public static func refusal(_ end: TaskEnd, for task: TaskItem, in run: OperatorRun) -> String? {
         guard let operated = task.operated, operated.runId == run.id else { return "That task isn’t the Operator’s." }
-        guard run.taskSettings != nil else { return "This broadcast started before a task’s end could change." }
         guard !run.hasEnded else { return "This broadcast has ended." }
         guard !operated.isFinished else { return "\(task.title) has finished, so its end can’t change." }
         guard !operated.takenOver else { return "You took \(task.title) over: hand it back to change its end." }

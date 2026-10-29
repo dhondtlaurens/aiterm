@@ -887,6 +887,21 @@ import Testing
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == (change == "metadata"))
     }
 
+    @Test func stoppingDiscardsAnInFlightPromptReply() async throws {
+        let daemon = RecordingDaemon(holding: "session.prompt")
+        defer { daemon.release() }
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask(daemon)
+        daemon.prompts["worker"] = .menu
+        world.controller.probePrompts(.reconcile)
+        try await daemon.received("session.prompt")
+        let read = world.controller.lastProbe
+        world.controller.stop()
+        daemon.release()
+        await read?.value
+        #expect(world.run(run.id)?.questions.isEmpty == true)
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+    }
+
     @Test func anOpenQuestionDoesNotInventALiveTab() throws {
         let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask()
         world.workspace.mutate { state in

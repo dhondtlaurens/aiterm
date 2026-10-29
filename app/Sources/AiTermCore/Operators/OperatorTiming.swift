@@ -25,8 +25,6 @@ public enum OperatorTiming {
     public static let challengeTimeout: TimeInterval = 180
     /// The Oracle's answer on a shell command takes longer than this and the command runs, unchallenged (spec §A.3).
     public static let gateTimeout: TimeInterval = 200
-    /// App only: an agent review (`review_task`) that takes longer is stopped, and its review failed.
-    public static let agentReviewTimeout: TimeInterval = 900
     /// How long the daemon waits for the app's reply to a forwarded tool call.
     public static let operatorRequestTimeout: TimeInterval = 30
     /// App only: seconds `jira_search` waits for Jira before it answers that Jira didn't, inside `operatorRequestTimeout`. The
@@ -63,7 +61,7 @@ public enum OperatorTiming {
     /// they answer without it, and how long that reading is kept per request.
     public static let hostReadTimeout: TimeInterval = 8
     public static let hostReadCache: TimeInterval = 30
-    /// App only: seconds `read_task diff` and `review_task` let the fetch of a task's base from origin take, well inside
+    /// App only: seconds `read_task diff` lets the fetch of a task's base from origin take, well inside
     /// `operatorRequestTimeout` with the local reads after it; and how long after a fetch of the same base, or a try at
     /// one, they read origin's copy as it is without fetching again.
     public static let diffBaseFetchTimeout: TimeInterval = 10

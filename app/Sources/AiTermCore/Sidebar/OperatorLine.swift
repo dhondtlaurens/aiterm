@@ -3,7 +3,7 @@ import Foundation
 /// One of the Operator's acts while AiTerm carries it out (spec §7, §13): the closed list, each with its
 /// words. Only `loadingTheConstruct` and `consultingTheOracle` use Matrix words.
 public enum OperatorAct: String, CaseIterable, Sendable {
-    case loadingTheConstruct, consultingTheOracle, starting, answering, checkingTheWork, reviewingWith, openingTheMR, assigning,
+    case loadingTheConstruct, consultingTheOracle, starting, answering, checkingTheWork, openingTheMR, assigning,
          relayingFeedback, merging, filingATicket, reopeningItsWindow
 
     /// Its words, as the broadcast's line and the Operator's row say them. `agent` is the agent it starts,
@@ -16,7 +16,6 @@ public enum OperatorAct: String, CaseIterable, Sendable {
         case .starting: return "starting \(agent)"
         case .answering: return "answering \(agent)"
         case .checkingTheWork: return "checking the work"
-        case .reviewingWith: return "reviewing with \(agent)"
         case .openingTheMR: return "opening the MR"
         case .assigning: return "assigning " + (names.isEmpty ? "reviewers" : names.sentenceList)
         case .relayingFeedback: return "relaying feedback"
@@ -34,7 +33,6 @@ public enum OperatorAct: String, CaseIterable, Sendable {
         case .starting: return "Operator starting it"
         case .answering: return "Operator answering"
         case .checkingTheWork: return "Operator checking the work"
-        case .reviewingWith: return SidebarModel.agentName(agent) + " reviewing"
         case .relayingFeedback: return "Operator relaying feedback"
         default: return words(agent: agent, names: names)
         }
@@ -141,9 +139,6 @@ public struct OperatorLine: Equatable, Sendable {
             if operated.flags.contains(.waitingOnYou) { return OperatorLine("waiting on you", look: .needsYou) }
         }
         if let acting, operated.state != .blocked { return act(acting, task: task, onItsRow: true) }
-        if [.working, .inReview].contains(operated.state), let review = operated.agentReview, review.isRunning {
-            return act(.reviewingWith, task: task, onItsRow: true)
-        }
         func quiet(_ text: String) -> OperatorLine { OperatorLine(text) }
         func quiet(_ state: String, _ detail: String) -> OperatorLine { OperatorLine.quiet(state, detail) }
         switch operated.state {
@@ -189,7 +184,6 @@ public struct OperatorLine: Equatable, Sendable {
             if let people = operated.peopleReview, !people.reviewers.isEmpty, !people.ended {
                 return quiet("in review", "waiting on " + people.reviewers.sentenceList)
             }
-            if let review = operated.agentReview { return quiet("in review · " + SidebarModel.agentName(review.agent)) }
             return quiet("in review")
         case .failed:
             return reason(operated.blockedReason).map { quiet("failed", $0) } ?? quiet("failed")
@@ -402,13 +396,7 @@ public struct OperatorLine: Equatable, Sendable {
     /// An act's line: the words in the task's agent (a review's in its reviewer's), on the task's own row with
     /// the Operator named (`OperatorAct.rowWords`), and on the broadcast's line the task it is about after them.
     private static func act(_ act: OperatorAct, task: TaskItem?, named label: String? = nil, onItsRow: Bool = false) -> OperatorLine {
-        let agent: AgentKind
-        if act == .reviewingWith {
-            // The reviewer is the other family unless the review says which (`review_task`).
-            agent = task?.operated?.agentReview?.agent ?? ((task?.agent ?? .claude) == .claude ? .codex : .claude)
-        } else {
-            agent = task?.agent ?? .claude
-        }
+        let agent = task?.agent ?? .claude
         let names = task?.operated?.peopleReview?.reviewers ?? []
         let words = onItsRow ? act.rowWords(agent: agent, names: names) : act.words(agent: agent, names: names)
         let whole = label.map { words + " · " + $0 } ?? words

@@ -38,18 +38,21 @@ enum OperatorEvalGrading {
 
     /// The one broadcast both briefs are rendered for. Two tickets, an agent review then a person's, ending at draft MRs:
     /// the Review slice is on, so the Operator asks Sofie with request_review and needs her username, and Merge is off.
-    /// The Oracle is off because the stub can't play it: a challenged call would answer as if unchallenged.
-    /// The baseline fixture's brief was rendered from this same literal at edf7c43 (feat/operator-sheet, 21 Oct
-    /// 2026); a change here means rendering that brief again.
+    /// Structured settings match current broadcasts. The stub supplies the Oracle/host outcomes;
+    /// it never reaches the live app or a real integration.
     static let evalRun = OperatorRun(
         id: UUID(uuidString: "E7A1C0DE-0000-4000-8000-000000000042")!, name: "Orders export",
-        profile: OperatorProfile(model: "claude-opus-5-5", reasoning: "high", slices: Slices(jira: true, review: true, merge: false),
-                                 oracle: OracleSetting(isOn: false, agent: .codex, model: "gpt-6.1-sol", reasoning: "high")),
+        profile: OperatorProfile(model: "claude-opus-5-5", reasoning: "high", slices: Slices(jira: true, review: true, merge: true),
+                                 oracle: OracleSetting(isOn: true, agent: .codex, model: "gpt-6.1-sol", reasoning: "high")),
         projectIds: [evalProject.id], jiraProjectKeys: ["PAY"],
         prompt: "Add a CSV export of orders to the admin's Orders page (PAY-12), and a button on that page that downloads it (PAY-14).",
-        review: "An agent review of each task, then Sofie from the payments team reviews each merge request.",
-        done: "a draft MR per ticket, reviewed", state: .active, planRevision: 1, firstPlanSize: 2,
-        createdAt: Date(timeIntervalSince1970: 1_792_000_000))
+        state: .active, planRevision: 1, firstPlanSize: 2,
+        createdAt: Date(timeIntervalSince1970: 1_792_000_000),
+        agents: [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high"),
+                 AgentChoice(agent: .codex, model: "gpt-6.1-sol", reasoning: "high")],
+        taskSettings: TaskSettings(review: "An agent review of each task, then Sofie from the payments team reviews each merge request.",
+                                   end: .draftMR, closeWhenDone: false),
+        goal: BroadcastGoal(text: "Each ticket has a reviewed draft MR."))
 
     static let pay12 = UUID(uuidString: "E7A1C0DE-0000-4000-8000-0000000000C2")!
     static let pay14 = UUID(uuidString: "E7A1C0DE-0000-4000-8000-0000000000C4")!
@@ -70,17 +73,20 @@ enum OperatorEvalGrading {
 
     static func line(_ key: String, _ title: String, _ state: OperatedState, live: RunStatus.LiveState?, branch: String,
                      acceptedSHA: String? = nil, flags: [OperatedFlag] = [],
-                     agentReview: RunStatus.AgentReviewLine? = nil, peopleReview: PeopleReview? = nil) -> RunStatus.TaskLine {
+                     peopleReview: PeopleReview? = nil) -> RunStatus.TaskLine {
         RunStatus.TaskLine(id: keys[key]!, key: key, title: title, project: evalProject.name, agent: .claude, model: "claude-opus-5-5",
                            state: state, end: .draftMR, revision: 1, live: live, branch: branch,
-                           acceptedSHA: acceptedSHA, flags: flags, agentReview: agentReview,
+                           acceptedSHA: acceptedSHA, flags: flags,
                            peopleReview: peopleReview.map(RunStatus.PeopleReviewLine.init))
     }
 
-    /// PAY-12 in people's review: its draft MR is open, the agent review done and acted on.
+    /// PAY-12 in people's review: its draft MR is open and its review-tab verdict is accepted.
     static func pay12InReview(reviewers: [String]) -> RunStatus.TaskLine {
-        line("PAY-12", "Export orders as CSV", .inReview, live: .idle, branch: "feat/pay-12-orders-export", acceptedSHA: "3b9e0f1",
-             agentReview: RunStatus.AgentReviewLine(agent: .codex, state: "done"), peopleReview: PeopleReview(reviewers: reviewers))
+        var task = line("PAY-12", "Export orders as CSV", .inReview, live: .idle, branch: "feat/pay-12-orders-export", acceptedSHA: "3b9e0f1",
+                        peopleReview: PeopleReview(reviewers: reviewers))
+        task.reviewVerdicts = [ReviewVerdict(tab: "review", sha: "3b9e0f1", passed: true, round: 1, critical: 0, important: 0,
+                                           minor: 0, summary: "No blocking findings.", at: askedAt)]
+        return task
     }
 
     static func pay14(_ state: OperatedState = .working, live: RunStatus.LiveState?, flags: [OperatedFlag] = []) -> RunStatus.TaskLine {
@@ -91,15 +97,15 @@ enum OperatorEvalGrading {
     static func status(_ tasks: [RunStatus.TaskLine], _ obligations: RunStatus.Obligations = RunStatus.Obligations()) -> JSONValue {
         let delivery = { (version: String) in AgentDelivery(messaging: .auto, installedVersion: version, checkedVersion: version, note: nil) }
         let run = RunStatus.Run(
-            id: evalRun.id, name: evalRun.name, state: .active, prompt: evalRun.prompt, review: evalRun.review, done: evalRun.done,
-            planRevision: 1, openRevision: 2, firstPlanSize: 2, slices: evalRun.profile.slices, oracleIsOn: false,
+            id: evalRun.id, name: evalRun.name, state: .active, prompt: evalRun.prompt,
+            planRevision: 1, openRevision: 2, firstPlanSize: 2, slices: evalRun.profile.slices, oracleIsOn: evalRun.profile.oracle.isOn,
             usage: ["claude": 41, "codex": 18],
             agents: RunStatus.Agents(installed: [
                 "claude": RunStatus.AgentChoice(models: ["claude-opus-5-5", "claude-sonnet-5"], defaultModel: "claude-opus-5-5",
                                                 defaultReasoning: "high", delivery: delivery("2.1.306")),
                 "codex": RunStatus.AgentChoice(models: ["gpt-6.1-sol", "gpt-6-mini"], defaultModel: "gpt-6.1-sol",
-                                               defaultReasoning: "high", delivery: delivery("0.163.0"))]),
-            jiraProjectKeys: evalRun.jiraProjectKeys)
+                                               defaultReasoning: "high", delivery: delivery("0.163.0"))], allowed: evalRun.agents),
+            jiraProjectKeys: evalRun.jiraProjectKeys, taskSettings: evalRun.taskSettings, goal: evalRun.goal)
         return (try? JSONValue(encoding: RunStatus(revision: 7, run: run, tasks: tasks, obligations: obligations))) ?? .null
     }
 
@@ -185,7 +191,7 @@ enum OperatorEvalGrading {
         name: "reviewerUsername", firstMessage: wakeLine,
         replies: replies([
             "run_status": status([pay12InReview(reviewers: []), pay14(live: .working)]),
-            "read_task/review": ["agentReview": ["review": "done", "findings": "No blocking findings."], "reviewers": [],
+            "read_task/review": ["agentReview": .null, "reviewers": [],
                                  "threads": [], "approvals": []],
             "find_user": [["username": "sofie.peeters", "name": "Sofie Peeters"], ["username": "sofie.maes", "name": "Sofie Maes"]],
         ]),
@@ -344,7 +350,7 @@ enum OperatorEvalGrading {
         name: "oneToolKeepsFailing", firstMessage: wakeLine,
         replies: replies([
             "run_status": status([pay12InReview(reviewers: []), pay14(live: .working)]),
-            "read_task/review": ["agentReview": ["review": "done", "findings": "No blocking findings."], "reviewers": [],
+            "read_task/review": ["agentReview": .null, "reviewers": [],
                                  "threads": [], "approvals": []],
             "find_user": ["error": "AiTerm isn't answering"],
         ]),

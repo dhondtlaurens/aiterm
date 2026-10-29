@@ -9,13 +9,13 @@ import Testing
 @MainActor @Suite struct TaskEndControlsTests {
     let project = OperatorServiceFixtures.project()
 
-    func makeWorld(taskState: OperatedState = .accepted, end: TaskEnd = .merge, merge: Bool = true, legacy: Bool = false,
+    func makeWorld(taskState: OperatedState = .accepted, end: TaskEnd = .merge, merge: Bool = true,
                    publication: TaskPublication? = nil, fixRoundsAsked: Bool = false) throws -> (OperatorWorld, OperatorRun, TaskItem) {
         var profile = OperatorServiceFixtures.profile()
         profile.slices = Slices(merge: merge)
         var run = OperatorServiceFixtures.run(profile, projects: [project], state: .active, planRevision: 1,
-                                              agents: legacy ? [] : OperatorServiceFixtures.agents,
-                                              taskSettings: legacy ? nil : OperatorServiceFixtures.taskSettings)
+                                              agents: OperatorServiceFixtures.agents,
+                                              taskSettings: OperatorServiceFixtures.taskSettings)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "cart-drawer", state: taskState, worktree: "/tmp/aiterm-wt",
                                                 end: end)
         task.operated?.publication = publication
@@ -105,9 +105,7 @@ import Testing
         #expect(refusal?.message == "Merge is off for this broadcast, so a task ends at a commit or a draft MR.")
         #expect(world.task(task.id)?.operated?.end == .merge, "nothing changed")
 
-        let (legacy, _, old) = try makeWorld(legacy: true)
-        #expect(throws: ActionUnavailable.self) { try legacy.controller.changeEnd(of: old.id, to: .commit) }
-        #expect(legacy.task(old.id)?.operated?.end == .merge)
+
     }
 
     @Test func answeringFixRoundsWakesTheOperatorWithTheAnswerAndLeavesTheQuestionToIt() async throws {

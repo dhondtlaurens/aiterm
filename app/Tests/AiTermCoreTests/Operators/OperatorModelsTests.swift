@@ -23,15 +23,11 @@ import Foundation
         oracle: OracleSetting(isOn: true, agent: .codex, model: "gpt-6-astra", reasoning: "medium"),
         instructions: "Keep changes small.")
 
-    /// Older saves keep their no-commit time and seed total work from it.
-    @Test func oldSavedRuntimeStillCountsTowardTheStuckLimit() throws {
-        let data = Data("""
-        {"runId":"00000000-0000-0000-0000-000000000001","key":"A","state":"working",
-         "end":"commit","brief":"Work","revision":1,"runtimeUsed":5399}
-        """.utf8)
-        var task = try JSONDecoder().decode(OperatedTask.self, from: data)
-        #expect(task.runtimeUsed == 5399)
-        #expect(task.totalRuntimeUsed == 5399 && task.runtimeHead == nil)
+    /// The no-commit budget counts work until progress is observed.
+    @Test func runtimeCountsTowardTheStuckLimit() throws {
+        var task = OperatorFixtures.operated("A", .working)
+        task.runtimeUsed = 5399
+        task.totalRuntimeUsed = 5399
         #expect(OperatedTransitions.limitReason(for: task) == nil)
         task.runtimeUsed += 1
         #expect(OperatedTransitions.limitReason(for: task) == "Worked 90 minutes without a new commit.")
@@ -53,16 +49,6 @@ import Foundation
                                                     context: OperatedContext(runState: .active, retryLimit: 2))
         #expect(resumed.runtimeUsed == 0 && resumed.totalRuntimeUsed == 0)
         #expect(OperatedTransitions.limitReason(for: resumed) == nil)
-    }
-
-    @Test func oldOracleRefusalsBecomeSeparateNotes() throws {
-        let reason = "The Oracle judged that the conditions to merge don’t hold yet: review missing."
-        let data = try JSONEncoder().encode(["problem": reason])
-        let publication = try JSONDecoder().decode(TaskPublication.self, from: data)
-        #expect(publication.problem == nil && publication.mergeRefusal == reason)
-        #expect(try roundTrip(publication).mergeRefusal == reason)
-        let failure = try JSONDecoder().decode(TaskPublication.self, from: Data(#"{"problem":"Pipeline failed"}"#.utf8))
-        #expect(failure.problem == "Pipeline failed" && failure.mergeRefusal == nil)
     }
 
     /// The raw values are what `state.json` spells: renaming a case would orphan every saved
@@ -110,7 +96,7 @@ import Foundation
         let task = UUID()
         let run = OperatorRun(
             id: UUID(), name: "Sprint 42", profile: profile, projectIds: [UUID(), UUID()], jiraProjectKeys: ["PLUTO", "SHOP"],
-            prompt: "Do the sprint", review: "Jan approves each MR", done: "merged when green",
+            prompt: "Do the sprint",
             state: .paused, intent: .paused, planRevision: 3, firstPlanSize: 5,
             questions: [OperatorQuestion(id: "q1", text: "Which API?", task: task, askedAt: Date(timeIntervalSince1970: 10), resolution: "v2")],
             decisions: [OperatorDecision(key: "d1", text: "Split it", task: nil, at: Date(timeIntervalSince1970: 20), challenge: "Why?",
@@ -127,7 +113,7 @@ import Foundation
         #expect(run.openRevision == 4)
 
         let written = try keys(run)
-        for key in ["profile", "jiraProjectKeys", "prompt", "review", "done", "firstPlanSize", "finds", "leftForYou", "jiraCreated"] {
+        for key in ["profile", "jiraProjectKeys", "prompt", "taskSettings", "firstPlanSize", "finds", "leftForYou", "jiraCreated"] {
             #expect(written.contains(key), "\(key) is not written")
         }
         for key in ["persona", "brief", "doneWhen", "lessons"] { #expect(!written.contains(key), "\(key) is still written") }
@@ -146,7 +132,7 @@ import Foundation
         let run = OperatorRun(id: UUID(), name: "Old", profile: profile, prompt: "b", createdAt: Date(timeIntervalSince1970: 0))
         #expect(run.projectIds.isEmpty && run.jiraProjectKeys.isEmpty && run.challenges.isEmpty && run.finds.isEmpty && run.leftForYou.isEmpty
                 && run.jiraCreated.isEmpty)
-        #expect(run.review == nil && run.done == nil && run.firstPlanSize == nil)
+        #expect(run.taskSettings.review == nil && run.firstPlanSize == nil)
         #expect(try roundTrip(run) == run)
     }
 
@@ -176,28 +162,6 @@ import Foundation
         run.leftForYouRecords = ["l1": "Marking !412 ready is yours."]
         #expect(try keys(run).contains("leftForYouRecords"))
         #expect(try roundTrip(run) == run)
-    }
-
-    /// A run as b29ffc4 saved it, word for word: `leftForYouRecords` and `jiraCreated` filled, no `jiraSprinted` or
-    /// `jiraCommented`, and a key this build does not know. It loads and saves back the same.
-    @Test func aRunSavedByAnEarlierBuildSavesBackTheSame() throws {
-        let json = #"""
-        {"id":"0F3A1C2B-0000-4000-8000-0000000000B2","name":"Sprint 42",
-         "profile":{"model":"claude-opus-5-5","reasoning":"high","slices":{"jira":true,"review":false,"merge":true},
-                    "oracle":{"isOn":true,"agent":"codex","model":"gpt-6-astra","reasoning":"medium"},
-                    "instructions":"Keep changes small."},
-         "projectIds":[],"jiraProjectKeys":["PLUTO"],"prompt":"Do the sprint","state":"active","planRevision":2,
-         "questions":[],"decisions":[],"finds":[],"snags":[],"leftForYou":["Marking !412 ready is yours."],
-         "leftForYouRecords":{"l1":"Marking !412 ready is yours."},"challenges":[],
-         "jiraCreated":{"t1":"PLUTO-241"},"threadReplies":{},"pendingWrites":[],
-         "createdAt":"1970-01-01T00:00:00Z","milestone":3}
-        """#
-        let data = Data(json.utf8)
-        let earlier = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        let loaded = try decoder.decode(OperatorRun.self, from: data)
-        #expect(loaded.leftForYouRecords == ["l1": "Marking !412 ready is yours."] && loaded.jiraCreated == ["t1": "PLUTO-241"])
-        #expect(NSDictionary(dictionary: try saved(loaded)).isEqual(to: earlier))
     }
 
     /// A launch saved before AiTerm recorded its window reads as one still opening.
@@ -261,26 +225,5 @@ import Foundation
         both.flags = [.waitingOnYou, .possiblyStalled]
         let written = String(decoding: try JSONEncoder().encode(both), as: UTF8.self)
         #expect(written.contains(#""flags":["possiblyStalled","waitingOnYou"]"#))
-    }
-}
-
-extension OperatorModelsTests {
-    /// A field a newer build wrote is kept through this one's load and save: on a task, its record, a run, a
-    /// publication and the workspace holding them.
-    @Test func knownRecordsKeepNewerFields() throws {
-        let run = OperatorFixtures.run(), task = OperatorFixtures.task("A", .working)
-        func roundTrip<T: Codable>(_ value: T) throws {
-            var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) as? [String: Any])
-            let extra: [String: Any] = ["nested": [1, true, "future", NSNull()] as [Any]]
-            json["futureField"] = extra
-            let decoded = try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: json))
-            let saved = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(decoded)) as? [String: Any])
-            #expect((saved["futureField"] as? NSDictionary) == (extra as NSDictionary))
-        }
-        try roundTrip(task)
-        try roundTrip(OperatorFixtures.state(run, [task]))
-        try roundTrip(run)
-        try roundTrip(try #require(task.operated))
-        try roundTrip(TaskPublication())
     }
 }

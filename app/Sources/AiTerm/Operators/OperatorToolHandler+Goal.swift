@@ -8,21 +8,6 @@ extension OperatorToolHandler {
     /// What the Operator reads on a check while none is due.
     static let noGoalCheck = "No goal check is due: AiTerm wakes you for it once every task is done."
 
-    /// Whether a goal check is due for `run` in `state`: every task is done (`RunScheduler.isComplete`), it has a goal not
-    /// yet resolved, and either no check yet or a plan revision submitted since the last one.
-    static func goalCheckIsDue(_ run: OperatorRun, in state: AppState) -> Bool {
-        guard run.goal != nil, run.goalOutcome == nil, run.revisionAtLastCheck.map({ run.planRevision > $0 }) ?? true else { return false }
-        return RunScheduler.isComplete(run, in: state)
-    }
-
-    /// The goal `check_goal` checks now: while a check is due, or as the check again once the last answer was planMore and
-    /// no revision has been submitted since, when the Operator found nothing it could plan. Nil while it is refused.
-    static func goalToCheck(_ run: OperatorRun) -> BroadcastGoal? {
-        guard let goal = run.goal else { return nil }
-        let recheck = run.goalOutcome == nil && run.goalChecks.last?.met == false && run.revisionAtLastCheck == run.planRevision
-        return run.goalCheckDue || recheck ? goal : nil
-    }
-
     /// A check_goal's arguments, refused when they can't be one: not met needs what is missing.
     static func goalVerdict(_ call: ToolCall) throws(ToolRefusal) -> (met: Bool, evidence: String, missing: [String]) {
         guard let met = call.optionalBool("met") else { throw ToolRefusal("check_goal needs `met`.") }
@@ -45,25 +30,13 @@ extension OperatorToolHandler {
     func checkGoal(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let verdict = try Self.goalVerdict(call)
         if let last = Self.repeatedGoalCheck(call, in: run) { return Self.goalAnswer(run, last) }
-        guard let goal = Self.goalToCheck(run) else { throw ToolRefusal(Self.noGoalCheck) }
+        guard BroadcastCompletion.goalToCheck(run) != nil else { throw ToolRefusal(Self.noGoalCheck) }
         // The Oracle's yes is this call's (`vettedCalls`); without it the check acts unchallenged, not checked by the Oracle.
         let agreed: Bool? = vettedCalls.contains(Self.invocation(call)) ? true : nil
-        // A round is left only for a check that is due: the check again, finding nothing to plan, takes none.
-        let planMore = !verdict.met && run.goalCheckDue && run.roundsUsed < goal.extraRounds
         let check = GoalCheck(round: run.roundsUsed, met: verdict.met, evidence: verdict.evidence, missing: verdict.missing,
                               oracleAgreed: agreed, at: ports.now())
         mutate(in: run.id) { state in
-            state.updateRun(id: run.id) { run in
-                run.goalChecks.append(check)
-                run.goalCheckDue = false
-                run.revisionAtLastCheck = run.planRevision
-                if planMore {
-                    run.roundsUsed += 1
-                } else {
-                    run.goalOutcome = agreed == nil ? .unchecked : verdict.met ? .met : .notMet
-                    for line in verdict.missing where !run.leftForYou.contains(line) { run.leftForYou.append(line) }
-                }
-            }
+            state.updateRun(id: run.id) { BroadcastCompletion.record(check, in: &$0) }
         }
         return Self.goalAnswer(state.run(id: run.id) ?? run, check)
     }

@@ -98,7 +98,7 @@ extension OperatorToolHandler {
         // A noVerify with nothing to judge goes on to the finisher, which refuses it before it acts.
         if named == nil, call.operatorTool == .finishTask, call.optionalBool("noVerify") == true, skipping == nil { return nil }
         // A check_goal the tool refuses, or the last one again, goes on to the tool: it costs no Oracle run.
-        let goal = call.operatorTool == .checkGoal ? Self.goalToCheck(run) : nil
+        let goal = call.operatorTool == .checkGoal ? BroadcastCompletion.goalToCheck(run) : nil
         if named == nil, call.operatorTool == .checkGoal, goal == nil || Self.repeatedGoalCheck(call, in: run) != nil { return nil }
         if named == nil, !Self.isChallenged(call, oracleIsOn: opinion.isOn, backlog: backlog(of: call, in: run), merges: merging != nil) { return nil }
         if !opinion.isOn, named?.stage != .acted { return nil }
@@ -149,22 +149,13 @@ extension OperatorToolHandler {
         let prompt: String
         var mergeQuestion: String?
         if let merging, let operated = merging.operated, let sha = operated.acceptance?.resultSHA {
-            let conditions: ChallengeLaunch.MergeConditions
-            if let settings = run.taskSettings {
-                // The person's word on the task's fix rounds, "Accept As It Is" among it, stands against the verdicts it answered.
-                let answers = run.questions.filter { $0.task == merging.id && $0.about == OperatorQuestion.fixRounds }.compactMap { question in
-                    question.resolution.map { ["question": .string(question.text), "answer": .string($0)] as JSONValue }
-                }
-                conditions = .reviewed(prompt: OperatorCommand.said(settings.review),
-                                       verdicts: Self.json((try? JSONValue(encoding: operated.reviewVerdicts)) ?? .array([])),
-                                       answers: answers.isEmpty ? nil : Self.json(.array(answers)))
-            } else {
-                // Only a finished review of this very commit is evidence for merging it.
-                let evidence = operated.agentReview.flatMap { review in
-                    review.head == sha && review.findings != nil ? (try? JSONValue(encoding: review)).map(Self.json) : nil
-                }
-                conditions = .written(review: OperatorCommand.said(run.review), done: OperatorCommand.said(run.done), agentReview: evidence)
+            // The person's word on the task's fix rounds, "Accept As It Is" among it, stands against the verdicts it answered.
+            let answers = run.questions.filter { $0.task == merging.id && $0.about == OperatorQuestion.fixRounds }.compactMap { question in
+                question.resolution.map { ["question": .string(question.text), "answer": .string($0)] as JSONValue }
             }
+            let conditions = ChallengeLaunch.MergeConditions(prompt: OperatorCommand.said(run.taskSettings.review),
+                                   verdicts: Self.json((try? JSONValue(encoding: operated.reviewVerdicts)) ?? .array([])),
+                                   answers: answers.isEmpty ? nil : Self.json(.array(answers)))
             mergeQuestion = ChallengeLaunch.mergePrompt(task: operated.key, acceptedSHA: sha, brief: operated.brief, conditions: conditions,
                                                         run: status(), evidence: await mergeEvidence(of: merging))
         }

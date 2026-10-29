@@ -28,6 +28,51 @@ import Testing
         return world.state.task(id: id)!
     }
 
+    /// A whole observation pass over a workspace, with unrelated sessions and extra workers.
+    @Test(arguments: [6, 50]) func workspaceWorkerObservation(taskCount: Int) {
+        let tasks = (0..<taskCount).map { _ in task([extra("tests", sessionId: "extra", opened: true)]) }
+        let sessions = tasks.flatMap { task in
+            [session("shell-\(task.id)", task: task.id, agent: .shell),
+             session("main-\(task.id)", task: task.id, index: 1, state: .done),
+             session("extra-\(task.id)", task: task.id, index: 2, agent: .codex, state: .done, key: "tests")]
+        }
+        let started = ContinuousClock.now
+        var observed = 0
+        for _ in 0..<200 {
+            for task in tasks {
+                let tabs = task.workerTabs(in: sessions)
+                observed += tabs.filter { $0.status == .done }.count
+            }
+        }
+        #expect(observed == taskCount * 2 * 200)
+        let direct = started.duration(to: .now)
+        let indexedStarted = ContinuousClock.now
+        var indexedObserved = 0
+        for _ in 0..<200 {
+            let index = WorkerSessions(sessions)
+            for task in tasks {
+                indexedObserved += task.workerTabs(in: index).filter { $0.status == .done }.count
+            }
+        }
+        #expect(indexedObserved == observed)
+        print("Worker observation: \(taskCount) tasks, \(sessions.count) sessions, 200 passes: direct \(direct), indexed \(indexedStarted.duration(to: .now))")
+    }
+
+    @Test func indexedWorkersPreserveTabOrderAndOpeningState() {
+        let task = task([extra("review", sessionId: "r", opened: true), extra("opening"), extra("closed", opened: true)])
+        let other = UUID()
+        let sessions = [session("unrelated", task: other),
+                        session("review", task: task.id, index: 0, agent: .codex, key: "review"),
+                        session("shell", task: task.id, index: 0, agent: .shell),
+                        session("later", task: task.id, index: 3),
+                        session("main", task: task.id, index: 1)]
+        let index = WorkerSessions(sessions)
+        #expect(task.workerTabs(in: index, now: start) == task.workerTabs(in: sessions, now: start))
+        #expect(task.workerTabs(in: index).map { $0.session?.sessionId } == ["main", "review", nil, nil])
+        #expect(index.sessions(for: other).map(\.sessionId) == ["unrelated"])
+        #expect(index.sessions(for: UUID()).isEmpty)
+    }
+
     /// What its workers left running in the background holds a task that ended its turn: it is not ready, its line
     /// says `Operator watching · in background`, and only an ended turn's background counts.
     @Test func backgroundWorkHoldsATaskThatEndedItsTurn() throws {

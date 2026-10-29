@@ -14,21 +14,21 @@ import Testing
         let saved = profile
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [])) { $0.profile = { saved } }
         let id = try await world.controller.startBroadcast(name: "  ", jiraProjectKeys: ["PLUTO"], projectIds: [project.id],
-                                                           prompt: "Implement PLUTO-1 and PLUTO-2.\nThen tidy.", review: "  ",
-                                                           done: "a commit per ticket")
+                                                           prompt: "Implement PLUTO-1 and PLUTO-2.\nThen tidy.", agents: OperatorServiceFixtures.agents,
+                                                           taskSettings: TaskSettings(review: nil, end: .commit, closeWhenDone: false))
         let run = try #require(world.run(id))
         #expect(run.name == "Implement PLUTO-1 and PLUTO-2.", "no name given: the prompt's first line")
-        #expect(run.state == .planning && run.projectIds == [project.id] && run.done == "a commit per ticket")
+        #expect(run.state == .planning && run.projectIds == [project.id] && run.taskSettings.end == .commit)
         #expect(run.jiraProjectKeys == ["PLUTO"])
         #expect(run.profile == profile, "Settings › Operator's profile, frozen in the run")
-        #expect(run.review == nil, "a blank Review is none")
+        #expect(run.taskSettings.review == nil, "a blank Review is none")
         #expect(run.planRevision == 0)
         let folder = OperatorCommand.runFolder(id, home: world.ports.home)
         let register = try #require(world.daemon.requests("operator.register").first)
         #expect(register.params["runId"] as? String == id.uuidString)
         #expect(register.params["token"] as? String == OperatorCommand.existingToken(in: folder))
         let firstMessage = try String(contentsOf: folder.appendingPathComponent(OperatorCommand.firstMessageFile), encoding: .utf8)
-        #expect(firstMessage == "Your broadcast:\n\nImplement PLUTO-1 and PLUTO-2.\nThen tidy.\n\nDone: a commit per ticket")
+        #expect(firstMessage == "Your broadcast:\n\nImplement PLUTO-1 and PLUTO-2.\nThen tidy.")
         let window = try #require(world.daemon.requests("window.createTask").first)
         #expect(window.params["taskId"] as? String == id.uuidString)
         #expect(window.params["cwd"] as? String == folder.path)
@@ -43,17 +43,17 @@ import Testing
     @Test func aBroadcastNeedsAPromptAndProjectsOfThisWorkspace() async throws {
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []))
         await #expect(throws: ActionUnavailable.self) {
-            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "  ", review: nil, done: nil)
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "  ", agents: OperatorServiceFixtures.agents, taskSettings: TaskSettings(review: nil, end: .commit, closeWhenDone: false))
         }
         await #expect(throws: ActionUnavailable.self) {
-            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [UUID()], prompt: "Go", review: nil, done: nil)
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [UUID()], prompt: "Go", agents: OperatorServiceFixtures.agents, taskSettings: TaskSettings(review: nil, end: .commit, closeWhenDone: false))
         }
         await #expect(throws: ActionUnavailable.self) {
-            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [], prompt: "Go", review: nil, done: nil)
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [], prompt: "Go", agents: OperatorServiceFixtures.agents, taskSettings: TaskSettings(review: nil, end: .commit, closeWhenDone: false))
         }
         world.link.attached = false
         await #expect(throws: ActionUnavailable.self) {
-            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go", review: nil, done: nil)
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go", agents: OperatorServiceFixtures.agents, taskSettings: TaskSettings(review: nil, end: .commit, closeWhenDone: false))
         }
         #expect(world.state.runs.isEmpty)
         #expect(world.daemon.requests.isEmpty)
@@ -331,7 +331,7 @@ import Testing
         world.link.attached = false
         _ = await world.call(run.id, "write_summary", ["text": "It merged."])
         _ = await world.call(run.id, "create_task", ["key": "PLUTO-2", "title": "Fix PLUTO-2", "brief": "Fix it.", "project": "Shop",
-                                                     "agent": "codex", "model": "gpt-6-astra", "modelReason": "Codex.", "end": "commit"])
+                                                     "agent": "codex", "model": "gpt-6-astra", "modelReason": "Codex."])
         #expect(await world.call(run.id, "submit_plan", ["revision": 2]).value?["released"] == 1)
         let reopened = try #require(world.run(run.id))
         #expect(reopened.state == .active && reopened.completedAt == nil && reopened.summary == nil)
@@ -340,7 +340,7 @@ import Testing
     // -- a start that fails leaves nothing behind -----------------------------------------------
     private func startFailing(_ world: OperatorWorld) async {
         await #expect(throws: (any Error).self) {
-            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go", review: nil, done: nil)
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go", agents: OperatorServiceFixtures.agents, taskSettings: TaskSettings(review: nil, end: .commit, closeWhenDone: false))
         }
     }
 
@@ -542,7 +542,7 @@ extension OperatorControllerTests {
     func anUnknownWindowFateKeepsTheRun(_ code: DaemonError.Code) async throws {
         let daemon = RecordingDaemon(failing: ["window.createTask": code])
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []), daemon: daemon)
-        _ = try? await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Work", review: nil, done: nil)
+        _ = try? await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Work", agents: OperatorServiceFixtures.agents, taskSettings: TaskSettings(review: nil, end: .commit, closeWhenDone: false))
         let run = try #require(world.state.runs.first)
         #expect(run.state == .operatorOffline)
         #expect(daemon.requests("operator.revoke").isEmpty)

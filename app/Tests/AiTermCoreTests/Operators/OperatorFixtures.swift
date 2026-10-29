@@ -20,13 +20,12 @@ enum OperatorFixtures {
         Project(id: id, name: "Shop", path: path, provider: .git, remoteUrl: nil, addedAt: epoch, collapsed: false)
     }
 
-    /// A legacy run, with the Done text it was started with, unless given the Agents rows, task settings or a goal: then a
-    /// run set up with those steps, which has no Done text.
+    /// A current structured run with explicit Agents rows, task settings and an optional goal.
     static func run(id: UUID = runId, state: OperatorRunState = .active, oracle: Bool = true, slices: Slices = .none,
-                    planRevision: Int = 1, agents: [AgentChoice] = [], taskSettings: TaskSettings? = nil,
+                    planRevision: Int = 1, agents: [AgentChoice] = OperatorFixtures.agents, taskSettings: TaskSettings = TaskSettings(review: nil, end: .commit, closeWhenDone: false),
                     goal: BroadcastGoal? = nil) -> OperatorRun {
         OperatorRun(id: id, name: "Sprint 42", profile: profile(oracle: oracle, slices: slices), projectIds: [projectId],
-                    prompt: "Implement the sprint.", done: taskSettings == nil ? "a commit per item, tests green" : nil, state: state,
+                    prompt: "Implement the sprint.", state: state,
                     planRevision: planRevision, createdAt: epoch, agents: agents, taskSettings: taskSettings, goal: goal)
     }
 

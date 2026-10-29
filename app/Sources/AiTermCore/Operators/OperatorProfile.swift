@@ -1,9 +1,6 @@
 import Foundation
 
-// The one Operator's settings (spec §5, §8): Settings › Operator keeps one profile, and a broadcast
-// freezes a copy of it when it starts (`OperatorRun.profile`). Beside `OperatorModels.swift`, not in
-// `Operators/`, because the run holds it: the files directly in Core name no folder's types
-// (`CoreFoldersTests`). `OperatorProfileStore` keeps it in UserDefaults.
+// Operator preferences. Each broadcast freezes its own copy; OperatorProfileStore persists defaults.
 
 /// What the Operator may do beyond the base (spec §5), each one switch.
 public struct Slices: Codable, Equatable, Sendable {

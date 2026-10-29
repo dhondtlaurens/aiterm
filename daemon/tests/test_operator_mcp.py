@@ -3,7 +3,7 @@
 the forwarding of tool calls to the app, driven directly rather than over HTTP."""
 import asyncio
 import json
-import re
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -16,6 +16,11 @@ from tests.conftest import write_token
 TOKEN = "ab" * 32
 OTHER = "cd" * 32
 UNKNOWN = "ef" * 32
+
+
+def test_current_tool_schema_matches_the_frozen_operator_contract():
+    fixture = Path(__file__).parent / "fixtures" / "operator-current-tools.json"
+    assert list(TOOLS) == json.loads(fixture.read_text())
 
 
 def test_a_token_opens_its_own_run_only():
@@ -126,17 +131,10 @@ def test_memory_wins_over_a_file(tmp_path):
     assert tokens.run_for(TOKEN) is None and tokens.run_for(OTHER) == "run-1"
 
 
-CONTRACT_TOOLS = {"run_status", "jira_search", "jira_board", "jira_create", "jira_move", "jira_link", "jira_sprint",
-                  "jira_edit", "jira_comment", "create_task", "update_task", "submit_plan", "read_task", "message_task",
-                  "open_tab", "mark_task", "resume_task", "retry_task", "finish_task", "ask_you", "resolve_question",
-                  "report_find", "report_snag", "log_decision", "leave_for_you", "review_task", "request_review",
-                  "reply_thread", "find_user", "write_summary", "record_review", "check_goal"}
-
-
 def test_the_tools_are_the_contracts():
     names = [tool["name"] for tool in TOOLS]
     assert len(names) == len(set(names))
-    assert set(names) == CONTRACT_TOOLS == TOOL_NAMES
+    assert set(names) == TOOL_NAMES
 
 
 @pytest.mark.parametrize("tool", TOOLS, ids=lambda tool: tool["name"])
@@ -151,32 +149,6 @@ def test_every_tool_has_a_description_and_a_closed_object_schema(tool):
     json.dumps(tool)
 
 
-def test_review_task_says_what_its_reviewer_cannot_do():
-    description = {tool["name"]: tool for tool in TOOLS}["review_task"]["description"]
-    assert "reads files only: it runs no commands and dispatches no subagents" in description
-    assert "open_tab with a read-only brief" in description
-    assert "its first line" in description
-    assert "not recorded as this task's agent review" in description
-
-
-def test_finish_task_records_work_already_merged_outside_it():
-    description = {tool["name"]: tool for tool in TOOLS}["finish_task"]["description"]
-    assert "already in its default branch" in description
-    assert "recorded as merged" in description
-    assert "the Oracle isn't asked" in description
-    assert "AiTerm never writes to the host" in description
-    assert "closing a request still open" in description
-
-
-def test_resume_task_explains_both_runtime_limits_and_the_acceptance_exemption():
-    description = {tool["name"]: tool for tool in TOOLS}["resume_task"]["description"]
-    assert "90 minutes of work without a new task-branch commit" in description
-    assert "4 hours of total work" in description
-    assert "Any worker tab's commit resets only the no-commit clock" in description
-    assert "a task ready for acceptance is never blocked on runtime" in description.lower()
-    assert "resume_task resets both clocks" in description
-
-
 def test_only_the_challenged_tools_take_a_challenge_reply():
     assert set(CHALLENGED_TOOLS) == {"submit_plan", "mark_task", "create_task", "finish_task", "check_goal"}
     for tool in TOOLS:
@@ -186,317 +158,6 @@ def test_only_the_challenged_tools_take_a_challenge_reply():
         if tool["name"] in CHALLENGED_TOOLS:
             # Integration decision 3: a pending challenge is called again with its id.
             assert "pending" in properties["challengeId"]["description"]
-
-
-def test_write_summary_takes_its_text_and_asks_for_the_summary():
-    tool = next(tool for tool in TOOLS if tool["name"] == "write_summary")
-    assert tool["inputSchema"]["required"] == ["text"]
-    assert list(tool["inputSchema"]["properties"]) == ["text"]
-    assert "write_summary" not in CHALLENGED_TOOLS
-    assert "Say what was done and how it went, honestly" in tool["description"]
-
-
-def test_no_tool_speaks_of_a_debrief():
-    for tool in TOOLS:
-        assert "debrief" not in json.dumps(tool).lower(), tool["name"]
-
-
-def test_the_values_are_the_apps():
-    properties = {tool["name"]: tool["inputSchema"]["properties"] for tool in TOOLS}
-    assert properties["create_task"]["end"]["enum"] == ["commit", "draftMR", "merge", "mergeLocal"]
-    assert properties["update_task"]["end"]["enum"] == ["commit", "draftMR", "merge", "mergeLocal"]
-    assert properties["create_task"]["agent"]["enum"] == ["claude", "codex"]
-    assert properties["create_task"]["dependsOn"]["items"]["properties"]["kind"]["enum"] == ["order", "code"]
-    assert properties["read_task"]["what"]["enum"] == ["lastMessage", "diff", "prompt", "review"]
-    assert properties["mark_task"]["outcome"]["enum"] == ["accepted", "noChange", "blocked", "failed"]
-    assert properties["submit_plan"]["revision"]["type"] == "integer"
-    assert properties["run_status"] == {}
-    required = {tool["name"]: set(tool["inputSchema"].get("required", [])) for tool in TOOLS}
-    assert required["create_task"] == {"key", "title", "brief", "project", "agent", "modelReason"}
-    assert required["mark_task"] == {"task", "outcome"} and required["ask_you"] == {"key", "question"}
-    assert properties["create_task"]["agentPinned"]["type"] == "boolean"
-    assert {"why", "objection"} <= set(properties["log_decision"]) and required["log_decision"] == {"key", "text"}
-    assert required["jira_create"] == {"key", "project", "type", "summary", "description"} and "parent" in properties["jira_create"]
-    assert required["jira_move"] == {"key", "status"} and required["jira_link"] == {"key", "to", "type"}
-    assert required["jira_sprint"] == {"key", "tickets", "sprint"} and required["jira_board"] == set()
-    assert properties["jira_board"] == {} and properties["jira_sprint"]["tickets"]["type"] == "array"
-    assert required["jira_edit"] == {"ticket"} and required["jira_comment"] == {"key", "ticket", "body"}
-    assert set(properties["jira_edit"]) == {"ticket", "summary", "description", "labelsAdd", "labelsRemove", "priority",
-                                            "fixVersions", "assignee"}
-    for name in ("labelsAdd", "labelsRemove", "fixVersions"):
-        assert properties["jira_edit"][name]["type"] == "array" and properties["jira_edit"][name]["items"] == {"type": "string"}
-    assert set(properties["jira_comment"]) == {"key", "ticket", "body"}
-
-
-def test_open_tab_adds_a_worker_tab_to_a_running_task_by_key():
-    tool = next(tool for tool in TOOLS if tool["name"] == "open_tab")
-    schema = tool["inputSchema"]
-    assert set(schema["properties"]) == {"task", "key", "agent", "model", "reasoning", "modelReason", "agentPinned", "brief", "role"}
-    assert set(schema["required"]) == {"task", "key", "agent", "modelReason"}
-    assert schema["properties"]["agent"]["enum"] == ["claude", "codex"] and schema["properties"]["agentPinned"]["type"] == "boolean"
-    assert "same worktree and branch" in tool["description"] and "same key" in tool["description"]
-
-
-# What a broadcast started before the Agents and Task steps doesn't take, said wherever an argument is theirs alone.
-STEPS_ONLY = "Only in a broadcast started with the Agents and Task steps, whose run_status shows taskSettings"
-NOT_LEGACY = "a broadcast started before them doesn't take it"
-
-
-def test_the_agents_rows_bound_every_worker_tab_and_reviewer():
-    """Broadcast setup v2: create_task, update_task and open_tab take a reasoning level, and with Agents rows only a row.
-    Legacy broadcasts resolve explicit effort and preserve configured default effort."""
-    tools = {tool["name"]: tool for tool in TOOLS}
-    for name in ("create_task", "update_task", "open_tab"):
-        properties = tools[name]["inputSchema"]["properties"]
-        assert "agents.allowed" in properties["model"]["description"], name
-        assert "first row" in properties["model"]["description"], name
-        reasoning = properties["reasoning"]["description"]
-        assert "agents.allowed" in reasoning and "refused" in reasoning, name
-        assert "Explicit reasoning wins" in reasoning, name
-        assert "configured default model keeps its configured reasoning" in reasoning, name
-        assert "catalogue fallback" in reasoning, name
-    assert "reasoning" in tools["update_task"]["description"]
-    assert "Agents and Task steps" in tools["update_task"]["description"]
-
-
-def test_a_new_broadcasts_tasks_end_where_the_person_chose():
-    tools = {tool["name"]: tool for tool in TOOLS}
-    for name in ("create_task", "update_task"):
-        end = tools[name]["inputSchema"]["properties"]["end"]["description"]
-        assert "Every task ends at <end>, which only the person changes." in end, name
-        assert "taskSettings" in end, name
-
-
-def test_open_tab_opens_a_review_tab_by_role():
-    tool = {tool["name"]: tool for tool in TOOLS}["open_tab"]
-    properties = tool["inputSchema"]["properties"]
-    assert properties["role"]["enum"] == ["work", "review"]
-    assert "record_review" in properties["role"]["description"] and "Left out, work" in properties["role"]["description"]
-    assert properties["role"]["description"].startswith(STEPS_ONLY) and NOT_LEGACY in properties["role"]["description"]
-    brief = properties["brief"]["description"]
-    assert "optional" in brief and "review prompt" in brief
-    assert "Needed for a work tab, and for every tab of a broadcast started before the Agents and Task steps" in brief
-
-
-def test_review_task_runs_in_a_tab_in_a_new_broadcast():
-    description = {tool["name"]: tool for tool in TOOLS}["review_task"]["description"]
-    assert "Run the review in a tab: open_tab with role review, then record_review." in description
-
-
-def test_record_review_keeps_a_review_tabs_verdict():
-    tool = {tool["name"]: tool for tool in TOOLS}["record_review"]
-    schema = tool["inputSchema"]
-    assert set(schema["properties"]) == {"task", "tab", "sha", "passed", "critical", "important", "minor", "summary", "round",
-                                         "rounds", "key"}
-    assert set(schema["required"]) == set(schema["properties"]) - {"rounds"}
-    assert schema["properties"]["passed"]["type"] == "boolean"
-    for name in ("critical", "important", "minor", "round", "rounds"):
-        assert schema["properties"][name]["type"] == "integer", name
-    assert "record_review" not in CHALLENGED_TOOLS
-    for words in ("on the task's branch", "review tabs", "same key returns the first answer", "how many failed",
-                  "You decide when to accept: AiTerm doesn't refuse an acceptance"):
-        assert words in tool["description"], words
-    assert "The Operator" not in tool["description"]
-
-
-def test_check_goal_answers_the_goal_once_every_task_is_done():
-    tool = {tool["name"]: tool for tool in TOOLS}["check_goal"]
-    schema = tool["inputSchema"]
-    assert set(schema["properties"]) == {"met", "evidence", "missing", "challengeId", "challengeReply"}
-    assert set(schema["required"]) == {"met", "evidence"}
-    assert schema["properties"]["met"]["type"] == "boolean" and schema["properties"]["missing"]["items"] == {"type": "string"}
-    for words in ("goalCheckDue", "complete", "planMore", "stopped", "leftForYou", "Oracle"):
-        assert words in tool["description"], words
-    assert "check_goal" in schema["properties"]["challengeId"]["description"]
-
-
-def test_ask_you_says_what_a_question_is_about():
-    about = {tool["name"]: tool for tool in TOOLS}["ask_you"]["inputSchema"]["properties"]["about"]
-    assert about["enum"] == ["fixRounds"] and "fix rounds" in about["description"]
-
-
-def test_run_status_says_the_steps_of_a_new_broadcast():
-    description = {tool["name"]: tool for tool in TOOLS}["run_status"]["description"]
-    for words in ("agents.allowed", "taskSettings", "goal", "goalCheckDue", "roundsUsed", "reviewVerdicts", "finished"):
-        assert words in description, words
-
-
-def test_message_task_and_read_task_take_a_tab_key_and_reach_the_first_worker_without_one():
-    tools = {tool["name"]: tool for tool in TOOLS}
-    for name in ("message_task", "read_task"):
-        schema = tools[name]["inputSchema"]
-        assert schema["properties"]["tab"]["type"] == "string" and "tab" not in schema["required"]
-        assert "first worker" in schema["properties"]["tab"]["description"]
-        assert "open_tab" in tools[name]["description"]
-    assert "lastMessage" in tools["read_task"]["inputSchema"]["properties"]["tab"]["description"]
-
-
-def test_run_status_says_what_a_worker_runs_now_and_what_became_of_a_slash_command():
-    tools = {tool["name"]: tool for tool in TOOLS}
-    status = tools["run_status"]["description"]
-    assert "liveModel" in status and "liveReasoning" in status and "slashCommands" in status
-    for state in ("delivered", "queued", "ran", "unknown"):
-        assert state in status, state
-    # Each way a command comes to read unknown, and that it can still run after.
-    for said in ("within a minute", "no transcript to read", "left the queue after it was queued", "an hour passed",
-                 "can still become ran"):
-        assert said in status, said
-    # But not every unknown command can.
-    assert "a remove, popAll or popOne named" in status and "never queued" in status
-    message = tools["message_task"]["description"]
-    assert "slashCommands" in message and "tabs[].slashCommands" in message
-    assert "/model or /effort" in message and "default for new sessions" in message
-
-
-def test_run_status_says_a_running_tool_call_and_a_starting_worker_count_as_at_work():
-    status = {tool["name"]: tool for tool in TOOLS}["run_status"]["description"]
-    assert "no tool call it started is still running" in status and "30 minutes" in status
-    assert "says opening" in status and "still starting" in status
-
-
-def test_message_task_says_messaging_an_accepted_task_reopens_it():
-    description = {tool["name"]: tool for tool in TOOLS}["message_task"]["description"]
-    assert ("Messaging an accepted task that isn't published yet sends it back to working; accept its new commit again."
-            in description)
-
-
-def test_ask_you_lists_a_question_asked_in_chat_and_takes_a_task_only_for_a_stopped_worker():
-    tools = {tool["name"]: tool for tool in TOOLS}
-    ask = tools["ask_you"]
-    assert "asked in your chat" in ask["description"] and "Waiting on you" in ask["description"]
-    assert "stopped on the answer" in ask["inputSchema"]["properties"]["task"]["description"]
-    assert "own next step" in ask["inputSchema"]["properties"]["task"]["description"]
-    assert "at once" in tools["resolve_question"]["description"]
-    assert "you asked" in tools["resolve_question"]["description"]
-    assert "worker's terminal" in tools["run_status"]["description"]
-
-
-def test_resolve_question_closes_a_merge_on_the_host_and_leaves_a_prompt_to_aiterm():
-    resolve = {tool["name"]: tool for tool in TOOLS}["resolve_question"]["description"]
-    assert "merge on the host" in resolve
-    assert "worker's prompt is refused" in resolve and "closes it itself" in resolve
-
-
-def test_resolve_question_allows_a_command_the_oracle_stopped():
-    schema = {tool["name"]: tool for tool in TOOLS}["resolve_question"]["inputSchema"]
-    assert schema["properties"]["allow"] == {
-        "type": "boolean", "description": "For a gate- question only: whether the person allowed the command."}
-    assert "allow" not in schema["required"]
-    description = {tool["name"]: tool for tool in TOOLS}["resolve_question"]["description"]
-    assert "gate- question" in description and "allow true or false" in description and "in this chat" in description
-
-
-def test_resolve_question_accepts_an_optional_withdrawal():
-    tool = next(tool for tool in TOOLS if tool["name"] == "resolve_question")
-    description = tool["description"]
-    assert description.startswith("Closes a question: answered by the person, or withdrawn by you when it became moot.")
-    assert "set withdrawn true with a one-line reason in summary" in description
-    assert "tell the person you withdrew it and why" in description
-    assert "Withdrawal grants nothing" in description
-    schema = tool["inputSchema"]
-    assert schema["properties"]["withdrawn"]["type"] == "boolean"
-    assert set(schema["required"]) == {"key", "summary"}
-
-
-def test_run_status_says_what_a_restarted_operator_needs():
-    status = {tool["name"]: tool for tool in TOOLS}["run_status"]["description"]
-    assert "snags you recorded" in status and "twice" in status
-    assert "delivery" in status
-    assert "mergeRequest" in status and "mergeRequestNote" in status and "approvedBy" in status
-
-
-def test_finish_task_says_what_it_did_to_the_draft():
-    assert "draftNote" in {tool["name"]: tool for tool in TOOLS}["finish_task"]["description"]
-
-
-def test_the_jira_writes_say_what_the_slice_governs_and_comments_are_one_of_them():
-    tools = {tool["name"]: tool for tool in TOOLS}
-    for name in ("jira_create", "jira_move", "jira_link", "jira_sprint", "jira_edit", "jira_comment"):
-        assert "Jira slice" in tools[name]["description"]
-    assert "needs no slice" in tools["jira_board"]["description"]
-    # A comment messages people, so it is a write of the slice like the others, and says so.
-    assert [name for name in tools if "comment" in name] == ["jira_comment"]
-    # A lost reply is retried with the same key; AiTerm finds the comment first, so that is true and says so.
-    assert "same key again posts nothing" in tools["jira_comment"]["description"]
-    assert "looks for the comment on the ticket before it posts anything" in tools["jira_comment"]["description"]
-
-
-def test_the_review_tools_say_what_the_slice_governs():
-    tools = {tool["name"]: tool for tool in TOOLS}
-    for name in ("request_review", "reply_thread"):
-        assert "Review slice" in tools[name]["description"]
-    for name in ("review_task", "find_user"):
-        assert "needs no slice" in tools[name]["description"]
-    required = {name: set(tool["inputSchema"].get("required", [])) for name, tool in tools.items()}
-    assert required["review_task"] == {"task", "instructions"}
-    assert tools["review_task"]["inputSchema"]["properties"]["agent"]["enum"] == ["claude", "codex", "pi"]
-    assert required["request_review"] == {"task", "reviewers"} and required["reply_thread"] == {"task", "key", "thread", "body"}
-    assert tools["request_review"]["inputSchema"]["properties"]["reviewers"]["items"] == {"type": "string"}
-    assert "inReview" in tools["finish_task"]["description"]
-
-
-def test_finish_task_names_what_starts_peoples_review_and_the_merge_check_in_both_kinds_of_broadcast():
-    description = {tool["name"]: tool for tool in TOOLS}["finish_task"]["description"]
-    assert "The task goes into review instead when the Review slice is on and its review is written: the broadcast's Review, " \
-        "or, in a broadcast started with the Agents and Task steps, the task's review prompt." in description
-    assert "the Oracle's yes that the merge conditions hold: those written in the broadcast's Review and Done, or, in a " \
-        "broadcast started with the Agents and Task steps, the task's review prompt, its verdicts and the person's answers to " \
-        "its fix-rounds questions;" in description
-    assert "conditions written in the Review and the Done hold" not in description
-
-
-def test_schema_has_report_find_and_no_propose_lesson():
-    tools = {tool["name"]: tool for tool in TOOLS}
-    assert "propose_lesson" not in tools
-    report = tools["report_find"]["inputSchema"]
-    assert set(report["properties"]) == {"key", "title", "why"} and set(report["required"]) == {"key", "title", "why"}
-    assert "summary" in tools["report_find"]["description"]
-
-
-def test_report_snag_is_about_aiterm_not_the_project():
-    tools = {tool["name"]: tool for tool in TOOLS}
-    snag = tools["report_snag"]
-    assert set(snag["inputSchema"]["required"]) == {"key", "title", "showed", "actual", "workaround"}
-    assert {"evidence", "task"} <= set(snag["inputSchema"]["properties"])
-    assert "report_find" in snag["description"] and "AiTerm itself" in snag["description"]
-
-
-def test_create_task_takes_an_issue_type_that_sets_the_branch_prefix():
-    create = next(tool for tool in TOOLS if tool["name"] == "create_task")["inputSchema"]
-    assert create["properties"]["issueType"]["type"] == "string" and "issueType" not in create["required"]
-    assert "Sets the branch prefix" in create["properties"]["issueType"]["description"]
-    for tool in TOOLS:
-        if "ticket" in tool["inputSchema"]["properties"] and tool["name"].startswith(("create_", "submit_")):
-            assert "issueType" in tool["inputSchema"]["properties"], tool["name"]
-
-
-def test_create_task_end_is_optional():
-    create = next(tool for tool in TOOLS if tool["name"] == "create_task")["inputSchema"]
-    assert "end" in create["properties"] and "end" not in create["required"]
-    assert "draftMR" in create["properties"]["end"]["description"]
-
-
-def test_create_task_says_a_refused_addition_is_noted_for_the_summary():
-    create = next(tool for tool in TOOLS if tool["name"] == "create_task")
-    assert "noted for the summary" in create["description"] and "report_find" not in create["description"]
-    assert "pending" in create["inputSchema"]["properties"]["challengeId"]["description"]
-
-
-def test_the_challenge_is_told_once_in_challenge_id():
-    """The Oracle's call-again exchange lives in the challengeId property (and the Operator's brief), not in
-    each challenged tool's own description."""
-    for tool in TOOLS:
-        assert "challengeId" not in tool["description"], tool["name"]
-
-
-def test_no_tool_says_the_user():
-    """One word for one thing: the person, in every description; a username stays a username."""
-    text = json.dumps(TOOLS)
-    assert not re.search(r"\bthe user\b|\buser's\b", text, re.IGNORECASE), re.findall(r".{40}(?:\bthe user\b|\buser's\b).{20}", text, re.I)
-
-
-def test_no_tool_text_carries_an_em_dash():
-    assert "\u2014" not in json.dumps(TOOLS, ensure_ascii=False)
 
 
 AUTH = {"authorization": f"Bearer {TOKEN}"}
@@ -752,15 +413,6 @@ async def test_restart_drops_old_reply_while_new_call_waits(monkeypatch):
         routes.append(OperatorRoute(broadcast, lambda: 1))
         assert await routes[-1].ask_app("run", "run_status", {}) == {"fresh": True}
     assert ids[0] != ids[1]
-
-
-def test_leave_for_you_is_record_only_and_requires_key_and_text():
-    tool = next(tool for tool in TOOLS if tool["name"] == "leave_for_you")
-    schema = tool["inputSchema"]
-    assert set(schema["required"]) == {"key", "text"}
-    assert set(schema["properties"]) == {"key", "text"}
-    assert "sends nothing" in tool["description"]
-    assert "leave_for_you" not in CHALLENGED_TOOLS
 
 
 def test_failed_token_unlink_does_not_restore_revoked_authority(tmp_path, monkeypatch):

@@ -75,6 +75,7 @@ final class TaskFinisher {
     /// Each task's publication in flight.
     private var inFlight: [UUID: Task<Result, Never>] = [:]
     private var watchers: [UUID: Task<Void, Never>] = [:]
+    private var isStopped = false
     /// How many calls found a publication in flight and waited for it; for a test.
     private(set) var joined = 0
     /// Asks the login shell again (`LoginShellLocator.refresh`), blocking: run off the main actor. A hook that
@@ -108,6 +109,7 @@ final class TaskFinisher {
     /// refused the push of the commit accepted now and showed what it says (`TaskPublication.pushFailure(for:)`).
     /// A task with that commit pushed already, or done, answers from the record as any repeat does.
     func finish(_ id: UUID, noVerify: Bool = false) async -> Result {
+        guard !isStopped else { return Result(result: .refused, reason: Self.closingReason) }
         if noVerify, let operated = store.state.task(id: id)?.operated, Self.stillToPush(operated),
            operated.publication?.pushFailure(for: operated.acceptance?.resultSHA) == nil {
             return Result(operated.publication, result: .refused, reason: Self.noFailedPush)
@@ -144,8 +146,14 @@ final class TaskFinisher {
         _ = store.flush()
     }
 
-    /// When AiTerm quits: every watch.
+    static let closingReason = "AiTerm is closing."
+
+    func start() { isStopped = false }
+
+    /// When AiTerm quits: every watch. Replies to writes already sent are still saved, but cannot
+    /// start a subsequent write or another watch.
     func stopAll() {
+        isStopped = true
         for id in Array(watchers.keys) { stopWatching(id) }
     }
 
@@ -162,6 +170,7 @@ final class TaskFinisher {
     /// A merge end opened and waiting, not stuck, in a broadcast that runs and that you have neither
     /// paused nor ended, and still the operator's.
     private func isWatchable(_ id: UUID) -> Bool {
+        guard !isStopped else { return false }
         guard let operated = store.state.task(id: id)?.operated, operated.end == .merge, operated.state == .accepted,
               !operated.takenOver, !operated.flags.contains(.upstreamReplaced),
               let publication = operated.publication, publication.mergeRequestNumber != nil,
@@ -173,6 +182,7 @@ final class TaskFinisher {
 
     /// The one way a publication runs: joined when one is in flight for the task.
     private func run(_ id: UUID, restart: Bool, noVerify: Bool = false) async -> Result {
+        guard !isStopped else { return Result(result: .refused, reason: Self.closingReason) }
         if let running = inFlight[id] {
             joined += 1
             return await running.value
@@ -458,6 +468,7 @@ final class TaskFinisher {
 
     /// Read fresh before every step that changes something outside this machine.
     private func recheck(_ id: UUID, ownership: Int, sha: String, evidence: String?) -> String? {
+        guard !isStopped else { return Self.closingReason }
         let state = store.state, task = state.task(id: id)
         return PublicationGuard.recheck(task: task, run: task?.operated.flatMap { state.run(id: $0.runId) },
                                         ownership: ownership, acceptedSHA: sha, expectedEvidence: evidence)

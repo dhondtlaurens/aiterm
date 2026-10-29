@@ -16,7 +16,9 @@ import Testing
     func makeWorld(state: OperatedState = .working, daemon: RecordingDaemon = RecordingDaemon(), change: (inout TaskItem) -> Void = { _ in },
                    adjust: @escaping (inout OperatorPorts) -> Void = { _ in }) throws -> (OperatorWorld, OperatorRun, TaskItem) {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-tab-"))
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1,
+            agents: [AgentChoice(agent: .codex, model: "gpt-6-mini", reasoning: nil)] + OperatorServiceFixtures.agents
+                + [AgentChoice(agent: .claude, model: "claude-named", reasoning: nil)])
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: state)
         task = try TaskCreator.checkOutWorker(task, project: project, start: "main", git: git).task
         task.windowId = "w1"
@@ -56,13 +58,16 @@ import Testing
     func tabs(of task: TaskItem, in world: OperatorWorld) -> [ExtraTab] { world.task(task.id)?.operated?.extraTabs ?? [] }
 
     @Test(arguments: [nil, "claude-opus-5-5"] as [String?])
-    func replacementTabsKeepConfiguredEffortUnlessExplicitlyOverridden(model: String?) async throws {
+    func replacementTabsUseFrozenRowsDespiteDifferentSettingsDefaults(model: String?) async throws {
         let (world, run, task) = try makeWorld(adjust: { ports in
-            ModelSettings.save(ModelPreference(model: "claude-opus-5-5", reasoning: "high"), for: .claude,
+            ModelSettings.save(ModelPreference(model: "claude-opus-5-5", reasoning: "medium"), for: .claude,
                                defaults: ports.preferences!)
             ports.agentModels = { _ in [AgentModel(id: "claude-opus-5-5", label: "Opus", detail: nil,
                                                    efforts: ["medium", "high"], defaultEffort: "medium")] }
         })
+        world.workspace.mutate { $0.updateRun(id: run.id) {
+            $0.agents.append(AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "medium"))
+        } }
         let args = Self.arguments(key: "takeover", agent: "claude", model: model)
         let answer = await world.call(run.id, "open_tab", args)
         #expect(answer.value?["reasoning"] == "high")
@@ -212,8 +217,8 @@ import Testing
         #expect(await world.call(run.id, "open_tab", Self.arguments(agent: "pi")).message == "The Operator’s task runs claude or codex.")
         #expect(await world.call(run.id, "open_tab", Self.arguments()).message
                 == "Codex isn’t installed on this Mac. Choose an installed agent from run_status.")
-        #expect(await world.call(run.id, "open_tab", Self.arguments(agent: "claude", model: "claude-9")).message
-                == "claude-9 isn’t in Claude Code’s model list in Settings › Agents. Its models are: claude-opus-5-5, claude-named, claude-other.")
+        #expect(await world.call(run.id, "open_tab", Self.arguments(agent: "claude", model: "claude-9")).message?
+            .hasPrefix("Choose a row from this broadcast’s Agents list:") == true)
         #expect(world.daemon.requests("tab.create").isEmpty && tabs(of: task, in: world).isEmpty)
     }
 
@@ -377,14 +382,7 @@ extension OperatorOpenTabTests {
         #expect(tabs(of: task, in: world).isEmpty && world.daemon.requests("tab.create").isEmpty)
     }
 
-    @Test func legacyTabIgnoresRoleButHonorsReasoning() async throws {
-        let (world, run, task) = try makeWorld()
-        let answer = await world.call(run.id, "open_tab",
-            Self.arguments(model: "gpt-6-astra").adding("role", "review").adding("reasoning", "medium"))
-        #expect(answer.value?["state"] == "opened")
-        let tab = try #require(tabs(of: task, in: world).first)
-        #expect(tab.role == .work && tab.reasoning == "medium")
-    }
+
 
     @Test func newTabDoesNotReadTheCatalogue() async throws {
         let reads = Mutex(0)

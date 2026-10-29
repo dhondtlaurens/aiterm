@@ -14,8 +14,8 @@ import AiTermTestSupport
     private func typedRun() -> OperatorRun {
         var run = F.run()
         run.prompt = TypedText.text("Prompt", longLines: 4, bytes: 110_000)
-        run.review = TypedText.text("Review")
-        run.done = TypedText.text("Done")
+        run.taskSettings.review = TypedText.text("Review")
+        run.goal = BroadcastGoal(text: TypedText.text("Goal"))
         run.profile.instructions = TypedText.text("Instructions", bytes: 20_000)
         return run
     }
@@ -39,8 +39,8 @@ import AiTermTestSupport
         let saved = try #require(try StateStore(url: url).load().runs.first)
 
         #expect(Array(saved.prompt.utf8) == Array(run.prompt.utf8))
-        #expect(saved.review.map { Array($0.utf8) } == run.review.map { Array($0.utf8) })
-        #expect(saved.done.map { Array($0.utf8) } == run.done.map { Array($0.utf8) })
+        #expect(saved.taskSettings.review.map { Array($0.utf8) } == run.taskSettings.review.map { Array($0.utf8) })
+        #expect(saved.goal.map { Array($0.text.utf8) } == run.goal.map { Array($0.text.utf8) })
         #expect(Array(saved.profile.instructions.utf8) == Array(run.profile.instructions.utf8))
     }
 
@@ -48,13 +48,14 @@ import AiTermTestSupport
         let run = typedRun()
         let (home, prepared) = try prepared(run)
         defer { try? FileManager.default.removeItem(at: home) }
-        let review = try #require(run.review), done = try #require(run.done)
+        let review = try #require(run.taskSettings.review), done = try #require(run.goal?.text)
 
         let first = try Data(contentsOf: prepared.folder.appendingPathComponent(OperatorCommand.firstMessageFile))
-        #expect(first == Data(("Your broadcast:\n\n" + run.prompt + "\n\nReview: " + review + "\n\nDone: " + done).utf8))
+        #expect(first == Data(("Your broadcast:\n\n" + run.prompt + "\n\nEach task is reviewed with: " + review + "\n\nGoal: " + done).utf8))
         #expect(first.count > 100_000)
         let brief = try Data(contentsOf: prepared.folder.appendingPathComponent(OperatorCommand.briefFile))
-        #expect(holds(brief, "\nReview: " + review + "\nDone: " + done + "\n"))
+        #expect(holds(brief, "\nReview: " + review + "\n"))
+        #expect(holds(brief, "\nGoal: " + done + "\n"))
         #expect(holds(brief, "\n## Instructions\n\n" + run.profile.instructions + "\n\n## Remember\n"))
     }
 

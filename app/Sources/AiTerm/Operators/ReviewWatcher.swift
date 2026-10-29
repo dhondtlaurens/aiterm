@@ -41,6 +41,8 @@ final class ReviewWatcher {
         pass.run(state.tasks.filter(isWatched).map(\.id)) { [weak self] in await self?.check($0) }
     }
 
+    func stop() { pass.cancel() }
+
     private func check(_ id: UUID) async {
         guard let task = state.task(id: id), isWatched(task), let number = task.operated?.publication?.mergeRequestNumber,
               let project = state.project(id: task.projectId) else { return }
@@ -62,7 +64,7 @@ final class ReviewWatcher {
             return
         }
         // Read fresh: the host was asked meanwhile.
-        guard let current = state.task(id: id), isWatched(current), let operated = current.operated,
+        guard !Task.isCancelled, let current = state.task(id: id), isWatched(current), let operated = current.operated,
               current.projectId == task.projectId, state.project(id: project.id)?.path == project.path,
               operated.runId == task.operated?.runId, operated.ownership == task.operated?.ownership,
               operated.acceptance == task.operated?.acceptance,

@@ -130,15 +130,16 @@ final class OperatorToolHandler {
     struct ReviewRequestKey: Hashable { let repository: String?; let number: Int }
     struct ReviewWaiter { let id: UUID; let continuation: CheckedContinuation<Void, any Error> }
     var reviewAssignments: [ReviewRequestKey: [ReviewWaiter]] = [:]
-    /// What each host last said of a request, by its URL, kept for `OperatorPorts.hostCache` (`hostState(of:)`).
-    var hostStates: [String: (at: Date, state: MergeRequestState)] = [:]
+    /// A request reading belongs to this repository and accepted commit, even when its URL stays the same.
+    struct HostReadKey: Hashable {
+        let project: UUID, repository: String?, url: String, number: Int, acceptedSHA: String?
+    }
+    struct HostRead { let id: UUID; let task: Task<HostReading, Never> }
+    var hostStates: [HostReadKey: (at: Date, state: MergeRequestState)] = [:]
+    var hostReads: [HostReadKey: HostRead] = [:]
     /// When `diffBase` last fetched, or tried to fetch, each task base from origin, by worktree and branch: within
     /// `OperatorTiming.diffBaseFetchInterval` it reads origin's copy as it is.
     var diffBaseFetches: [String: Date] = [:]
-    /// The agent reviews running now, by task: one in a task's record but not here was lost with AiTerm's restart.
-    var runningReviews: [UUID: Task<Void, Never>] = [:]
-    /// The latest agent review, for a test to await. Set by `OperatorToolHandler+Review.swift`.
-    var lastReview: Task<Void, Never>?
     /// The latest challenge's run, for a test to await. Set by `OperatorToolHandler+Challenge.swift`.
     var lastChallenge: Task<Void, Never>?
     /// The latest reply sent, for a test to await.
@@ -181,7 +182,6 @@ final class OperatorToolHandler {
         switch tool {
         case .messageTask: return operated?.state == .inReview ? .relayingFeedback : .answering
         case .markTask: return .checkingTheWork
-        case .reviewTask: return .reviewingWith
         case .requestReview: return .assigning
         case .replyThread: return .relayingFeedback
         case .finishTask:

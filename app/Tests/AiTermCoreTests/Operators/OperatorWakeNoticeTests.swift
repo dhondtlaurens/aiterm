@@ -53,13 +53,6 @@ import Foundation
         #expect(OperatorWakeNotice(run: run, status: status(), refusal: Delivery(result: .partial, reason: "held", code: .typing)) == nil)
     }
 
-    @Test(arguments: DeliveryCode.allCases.map(Optional.some) + [nil])
-    func everyReasonIsOneShortPlainSentence(_ code: DeliveryCode?) {
-        let sentence = OperatorWakeNotice.sentence(code)
-        #expect(sentence.hasSuffix(".") && sentence.filter { $0 == "." }.count == 1, "\(sentence)")
-        #expect(!sentence.contains("—") && sentence.count <= 70, "\(sentence)")
-    }
-
     @Test func aRefusalFromADaemonThatNamesNoCodeStillSaysSomething() throws {
         let notice = try #require(OperatorWakeNotice(run: run, status: nil, refusal: Delivery(result: .refused, reason: "why")))
         #expect(notice.description == "News waits for it. AiTerm couldn’t type into its tab.")

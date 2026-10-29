@@ -5,11 +5,11 @@ import Testing
 
 /// The board of a broadcast set up with the Agents, Task and Done steps (broadcast setup v2, Board): the combination and
 /// end lines, status lines worked out from the current end, the header's Goal and Each task lines, the new stops, cards
-/// drawn from the records of closed tasks, and the goal's outcome. A legacy run's board is as it was.
+/// drawn from the records of closed tasks, and the goal's outcome.
 @Suite struct BroadcastBoardSetupTests {
     private let web = OperatorUIFixtures.project("webshop"), api = OperatorUIFixtures.project("payments-api")
 
-    private func run(_ state: OperatorRunState = .active, review: Bool = true, merge: Bool = true, settings: TaskSettings? = OperatorUIFixtures.taskSettings,
+    private func run(_ state: OperatorRunState = .active, review: Bool = true, merge: Bool = true, settings: TaskSettings = OperatorUIFixtures.taskSettings,
                      goal: BroadcastGoal? = OperatorUIFixtures.goal, questions: [OperatorQuestion] = []) -> OperatorRun {
         var profile = OperatorUIFixtures.profile
         profile.slices = Slices(review: review, merge: merge)
@@ -117,17 +117,7 @@ import Testing
         #expect(card.end?.current == .draftMR, "the end stays on the card's own line")
     }
 
-    @Test func aLegacyRunsCardIsAsItWas() throws {
-        var legacy = run(settings: nil, goal: nil)
-        legacy.agents = []
-        legacy.review = "assign Jan"
-        legacy.done = "merged after Jan's approval"
-        let board = board(legacy, [task("Cart drawer", run: legacy, .working)])
-        let card = try card(board, "Cart drawer")
-        #expect(card.combination == nil && card.end == nil && card.fixRounds == nil)
-        #expect(board.clauses.map(\.label) == ["Asked", "Review", "Done"])
-        #expect(board.eachTask == nil)
-    }
+
 
     // -- status lines from the current end --------------------------------------------------------------------------------
 
@@ -296,7 +286,7 @@ import Testing
         #expect(try self.card(board(run, [failed]), "Flaky").line?.text.hasSuffix("worktree kept") == false)
         // Nor with closing off.
         var open = run
-        open.taskSettings?.closeWhenDone = false
+        open.taskSettings.closeWhenDone = false
         #expect(try self.card(board(open, [shipping]), "Shipping step").line == done)
     }
 
@@ -329,16 +319,12 @@ import Testing
         #expect(column(run, open) == .review)
         // Closed, the review is over: back In progress until the Operator accepts it.
         #expect(column(run, [OperatorUIFixtures.tab("s1", of: drawer, .working)]) == .inProgress)
-        // A legacy run's board is as it was.
-        var legacy = run
-        legacy.taskSettings = nil
-        legacy.review = "assign Jan"
-        #expect(column(legacy, open) == .inProgress)
+
     }
 
     /// The Review column is there while the broadcast's tasks go into people's review (`TaskPublisher.Context.reviews`:
     /// a review prompt written, and the Review slice on), or, set up with the Task step, while its review prompt is
-    /// written: an agent review's tabs need no slice. A legacy broadcast with the slice off has none.
+    /// written: an agent review's tabs need no slice.
     @Test func theReviewColumnFollowsWhetherTasksAreReviewed() {
         func hasColumn(_ run: OperatorRun) -> Bool { board(run, []).columns.contains { $0.column == .review } }
         #expect(hasColumn(run()))
@@ -356,12 +342,7 @@ import Testing
         #expect(board(unpeopled, [drawer], sessions: open).columns.first { $0.column == .review }?.cards.map(\.id) == [drawer.id],
                 "a review tab open, the Review slice off: in Review")
 
-        var legacy = run()
-        legacy.taskSettings = nil
-        legacy.review = "assign Jan"
-        #expect(hasColumn(legacy))
-        legacy.profile.slices.review = false
-        #expect(!hasColumn(legacy))
+
     }
 
     @Test func aMergeHeldForTheOperatorsFinishIsQuietAndAsksYouNothing() throws {

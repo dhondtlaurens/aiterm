@@ -4,6 +4,32 @@ import Testing
 @testable import AiTermTestSupport
 
 @Suite(.blocking) struct TaskWorkflowTests {
+    @Test func manualAndWorkerCreationShareFoldersAndWorkerRetryKeepsItsBaseline() async throws {
+        let (project, initialDraft) = try fixture()
+        var draft = initialDraft
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        draft.setTitle("Shared name")
+        let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
+        var worker = OperatorFixtures.task("worker")
+        worker.projectId = project.id
+        worker.branch = "fix/shared-name"
+        worker.worktreePath = ""
+        let initial = try git.run(["rev-parse", "main"], in: project.path)
+        let manualDraft = draft, plannedWorker = worker
+        async let manual = workflow.create(draft: manualDraft, project: project)
+        async let operated = workflow.checkOutWorker(plannedWorker, project: project, start: "main")
+        let (created, started) = try await (manual, operated)
+        #expect(created.task.worktreePath != started.made.task.worktreePath)
+        #expect(started.baseline == initial)
+        try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "work"],
+                    in: started.made.task.worktreePath)
+        let adopted = try await workflow.checkOutWorker(worker, project: project, start: "main")
+        #expect(URL(fileURLWithPath: adopted.made.task.worktreePath).resolvingSymlinksInPath()
+            == URL(fileURLWithPath: started.made.task.worktreePath).resolvingSymlinksInPath())
+        #expect(adopted.baseline == initial, "Adoption keeps the fork, rather than treating existing work as its baseline")
+        #expect(try git.run(["rev-parse", "HEAD"], in: adopted.made.task.worktreePath) != initial)
+    }
+
     @Test func removalRetainsUnmergedBranchAndRetryOnlyDeletesBranch() async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }

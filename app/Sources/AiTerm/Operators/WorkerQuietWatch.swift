@@ -51,6 +51,11 @@ final class WorkerQuietWatch {
         self.transcripts = transcripts
     }
 
+    func stop() {
+        lastRead?.cancel()
+        isReading = false
+    }
+
     /// Whether `task`'s workers are judged: started, not stopped, and not yours.
     private func isJudged(_ task: TaskItem) -> Bool {
         guard let operated = task.operated else { return false }
@@ -58,7 +63,7 @@ final class WorkerQuietWatch {
     }
 
     /// The first worker of `task`, when its task is judged and its session says working.
-    private func workingWorker(of task: TaskItem, in sessions: [SessionInfo]) -> WorkerTab? {
+    private func workingWorker(of task: TaskItem, in sessions: WorkerSessions) -> WorkerTab? {
         guard isJudged(task) else { return nil }
         let workers = task.workerTabs(in: sessions)
         guard !workers.contains(where: { $0.session?.testActivity?.isActive == true }) else { return nil }
@@ -68,7 +73,7 @@ final class WorkerQuietWatch {
 
     /// The session of each judged task's first worker that says working now, by task.
     private func workingSessions() -> [UUID: String] {
-        let sessions = live.sessions
+        let sessions = WorkerSessions(live.sessions)
         return Dictionary(workspace.state.tasks.compactMap { task in
             workingWorker(of: task, in: sessions)?.session.map { (task.id, $0.sessionId) }
         }, uniquingKeysWith: { first, _ in first })
@@ -90,7 +95,7 @@ final class WorkerQuietWatch {
     func refresh() {
         observe()
         guard !isReading else { return }
-        let sessions = live.sessions, transcripts = self.transcripts, now = ports.now()
+        let sessions = WorkerSessions(live.sessions), transcripts = self.transcripts, now = ports.now()
         let asked: [Ask] = workspace.state.tasks.filter(isJudged).flatMap { task in
             task.workerTabs(in: sessions).compactMap { worker -> Ask? in
                 guard let session = worker.session, session.state == .working, let conversation = worker.conversation else { return nil }
@@ -104,6 +109,7 @@ final class WorkerQuietWatch {
         isReading = true
         let earlier = calls
         lastRead = Task { [weak self] in
+            guard !Task.isCancelled else { return }
             let read = await BackgroundWork.run {
                 asked.map { ask in
                     let file = transcripts.file(agent: ask.agent, conversation: ask.conversation)
@@ -112,7 +118,7 @@ final class WorkerQuietWatch {
                                    calls: file.flatMap { WorkerTranscript.openCalls(in: $0, agent: ask.agent, after: earlier[key], now: now) })
                 }
             }
-            guard let self else { return }
+            guard !Task.isCancelled, let self else { return }
             isReading = false
             for item in read { calls[item.key] = item.calls }
             // Read fresh: a worker may have left working, or been replaced, while the files were read.

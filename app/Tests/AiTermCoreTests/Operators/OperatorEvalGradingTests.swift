@@ -30,7 +30,7 @@ import Foundation
     @Test func runStatusIsShapedLikeRunStatus() throws {
         let answer = try #require(try scenario("promptWithNoPrompt").replies["run_status"])
         let run = try #require(answer["run"])
-        #expect(run["name"] == "Orders export" && run["slices"]?["review"] == true && run["oracleIsOn"] == false)
+        #expect(run["name"] == "Orders export" && run["slices"]?["review"] == true && run["oracleIsOn"] == true)
         #expect(answer["tasks"]?.arrayValue?.compactMap { $0["key"]?.stringValue } == ["PAY-12", "PAY-14"])
         #expect(answer["obligations"]?["promptsWaitingOnYou"] == ["PAY-14"])
         let question = try #require(answer["obligations"]?["questionsWaiting"]?.arrayValue?.first)

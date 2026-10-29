@@ -50,6 +50,8 @@ final class BranchWatch {
         pass.run(state.tasks.filter(isWatched).map(\.id)) { [weak self] in await self?.check($0) }
     }
 
+    func stop() { pass.cancel() }
+
     private func check(_ id: UUID) async {
         guard let task = state.task(id: id), isWatched(task), let operated = task.operated else { return }
         // A tab's last message is its final word only once its turn ended. The first worker's conversation is known
@@ -76,6 +78,7 @@ final class BranchWatch {
             }
             return (head: Self.head(in: worktree, git: git), named: named, read: read)
         }
+        guard !Task.isCancelled else { return }
         lastMessages.merge(reading.read) { _, new in new }
         // Read fresh: git was asked meanwhile.
         guard let current = state.task(id: id), isWatched(current), current.worktreePath == worktree, current.branch == branch,

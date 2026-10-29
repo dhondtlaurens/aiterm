@@ -20,7 +20,7 @@
 # `# opt-in, reads outside its target:` line; a daemon reader by `<test file>=<path it reads>` on the
 # `# daemon readers outside daemon/:` line, where a row above must route that path to daemon.
 # Add the name when a new test only reads its own target's files; add a row when it reads another's.
-# reads only its own target: PaletteDistinctionTests CoreFoldersTests OperatorPlanToolsTests OperatorWakerTests
+# reads only its own target: PaletteDistinctionTests OperatorPlanToolsTests OperatorWakerTests OperatorCommandTests OperatorCurrentContractTests
 # opt-in, reads outside its target: OperatorEvalTests
 # daemon readers outside daemon/: test_statusline_shim.py=hooks/claude-statusline-shim.sh test_pi_extension.py=hooks/pi-aiterm-status.ts
 
@@ -28,7 +28,7 @@
 daemon/*	daemon
 daemon/tests/wire/*	daemon suite:AiTermCoreTests.WireContractTests
 daemon/aitermd/delivery.py	daemon suite:AiTermCoreTests.OperatorTimingTests
-daemon/aitermd/operator_mcp.py	daemon suite:AiTermCoreTests.OperatorToolTests
+daemon/aitermd/operator_mcp.py	daemon suite:AiTermCoreTests.OperatorToolTests suite:AiTermTests.OperatorCurrentContractTests
 hooks/*	daemon suite:AiTermCoreTests.StatusLineShimTests
 
 # Swift sources: each target is built into the ones above it, and the test support is shared.

@@ -22,7 +22,7 @@ enum OperatorServiceFixtures {
 
     /// A legacy run, unless given the Agents rows, task settings or a goal: then a run set up with those steps.
     static func run(_ profile: OperatorProfile = profile(), projects: [Project], state: OperatorRunState = .planning,
-                    planRevision: Int = 0, id: UUID = UUID(), agents: [AgentChoice] = [], taskSettings: TaskSettings? = nil,
+                    planRevision: Int = 0, id: UUID = UUID(), agents: [AgentChoice] = OperatorServiceFixtures.agents, taskSettings: TaskSettings = TaskSettings(review: nil, end: .commit, closeWhenDone: false),
                     goal: BroadcastGoal? = nil) -> OperatorRun {
         OperatorRun(id: id, name: "Sprint 42", profile: profile, projectIds: projects.map(\.id), prompt: "Implement the sprint.",
                     state: state, planRevision: planRevision, createdAt: Date(timeIntervalSince1970: 0), agents: agents,

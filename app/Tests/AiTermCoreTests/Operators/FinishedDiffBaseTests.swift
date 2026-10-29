@@ -24,6 +24,5 @@ import Testing
         #expect(try saved(record)["diffBaseSHA"] == nil)
         record.diffBaseSHA = "parent-commit"
         #expect(try JSONDecoder().decode(FinishedTaskRecord.self, from: JSONEncoder().encode(record)).diffBaseSHA == "parent-commit")
-        #expect(try JSONDecoder().decode(FinishedTaskRecord.self, from: Data("{}".utf8)).diffBaseSHA == nil)
     }
 }

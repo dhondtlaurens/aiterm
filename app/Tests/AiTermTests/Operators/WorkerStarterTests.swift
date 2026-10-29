@@ -22,6 +22,18 @@ import Testing
         try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    @Test func stoppingBeforeALaunchRunsLeavesItsClaimQueuedAndOpensNothing() async throws {
+        let (world, run, project) = try makeWorld()
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .queued)
+        world.workspace.mutate { $0.tasks.append(task) }
+        world.controller.startReadyTasks()
+        let launch = world.controller.lastStart
+        world.controller.stop()
+        await launch?.value
+        #expect(world.daemon.requests("window.createTask").isEmpty)
+        #expect(world.task(task.id)?.operated?.state == .queued)
+    }
+
     @Test func aQueuedTaskStartsWithItsIntentSavedThenItsWorktreeThenItsWorkerBehindYourWork() async throws {
         let daemon = RecordingDaemon(holding: "window.createTask")
         let (world, run, project) = try makeWorld(daemon)
@@ -64,7 +76,7 @@ import Testing
         var state = OperatorServiceFixtures.state(projects: [project], runs: [run])
         state.lastModelByAgent[.codex] = "gpt-6-astra"
         // Codex's default, as create_task finds it: the Settings card on this Mac, else the remembered model.
-        let fallback = AgentIntegrations.taskModels(remembered: state.lastModelByAgent)(.codex)
+        let fallback = try #require(run.agents.first { $0.agent == .codex })
         let world = try OperatorWorld(state) { $0.weeklyUsage = { [.claude: 84, .codex: 12] } }
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-7", state: .queued, agent: .claude)
         world.workspace.mutate { $0.tasks.append(task) }

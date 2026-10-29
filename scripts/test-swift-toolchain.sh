@@ -77,6 +77,18 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
             fi
         done
 
+        # Bound test cases in the Testing runtime, including filtered runs, without overriding an
+        # explicit runtime budget. SwiftPM's XCTest worker count does not bound these cases.
+        for parallelism in '' 2; do
+            env -u SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH \
+                AITERM_FIXTURE_PARALLELISM="$runner_logs/parallelism" \
+                TMPDIR="$runner_logs/" TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER=1 \
+                SWIFT="$ROOT/scripts/fixtures/swift-test-run.sh" \
+                ${parallelism:+SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=$parallelism} \
+                "$ROOT/scripts/test.sh" swift -- --filter fixture >"$bad_output" 2>&1
+            [[ "$(<"$runner_logs/parallelism")" == "${parallelism:-4}" ]] || fail "unexpected Swift Testing case concurrency"
+        done
+
         # A domain naming AiTerm that a passing run leaves in the preferences fails it; one that was
         # there before, and one of another app's, do not.
         preferences="$runner_logs/preferences"

@@ -29,7 +29,7 @@ public struct TaskWorkflow: Sendable {
     }
 
     /// Internal, not private, for the workflow jobs that live in the folder of the feature they serve
-    /// (`TaskWorkflow+FixLanding`): Core's folders may not depend on each other in a loop.
+    /// (`TaskWorkflow+FixLanding`).
     static let queue = DispatchQueue(label: "aiterm.task-workflows", qos: .userInitiated)
     /// Only a removal that reached git, Remove's or Shelve's, may clean up an unlisted folder on retry.
     /// Kept in memory, so after a relaunch an own leftover asks again; and written before `git
@@ -52,6 +52,17 @@ public struct TaskWorkflow: Sendable {
         // details" checkbox.
         let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: nil, appendTicket: false)
         return try await checkOut(draft, prompt: prompt) { try TaskCreator.createReview(draft: draft, project: project, reserved: reserved, git: $0) }
+    }
+
+    /// Creates or adopts a worker checkout on the same mutation queue as manual tasks. Adoption
+    /// records its fork: work already on the branch must not become the worker's starting baseline.
+    public func checkOutWorker(_ task: TaskItem, project: Project, start: String,
+                               reserved: Set<String> = []) async throws -> (made: TaskCreator.Made, baseline: String?) {
+        let git = git
+        return try await BackgroundWork.run(on: Self.queue) {
+            let made = try TaskCreator.checkOutWorker(task, project: project, start: start, reserved: reserved, git: git)
+            return (made, try Repository(made.task.worktreePath, git: git).mergeBase(start, "HEAD"))
+        }
     }
 
     /// The reviewer's command for a review that opens in `task`, which already has the branch

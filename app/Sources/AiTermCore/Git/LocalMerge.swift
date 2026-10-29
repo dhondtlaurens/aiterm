@@ -40,7 +40,7 @@ public enum LocalMerge {
     /// is taken back with `merge --abort`, and a hook is told apart from a conflict by the paths left unmerged.
     /// Never pushes.
     public static func merge(sha: String, into defaultBranch: String, in repo: Repository) async throws -> String {
-        try await BackgroundWork.run { try mergeNow(sha: sha, into: defaultBranch, in: repo) }
+        try await BackgroundWork.run(on: TaskWorkflow.queue) { try mergeNow(sha: sha, into: defaultBranch, in: repo) }
     }
 
     private static func mergeNow(sha: String, into defaultBranch: String, in repo: Repository) throws -> String {

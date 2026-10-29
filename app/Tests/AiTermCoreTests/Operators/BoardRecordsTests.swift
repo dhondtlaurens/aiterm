@@ -54,18 +54,14 @@ import Testing
         #expect(try JSONDecoder().decode(OperatedTask.self, from: JSONEncoder().encode(operated)) == operated)
     }
 
-    /// What the closing waits for is saved as its case, so its words can change, and a case this build doesn't know is
-    /// no wait rather than a failed load.
+    /// Closing waits persist their typed case independently of their display words.
     @Test func whatTheClosingWaitsForIsKeptOnTheTaskByItsCase() throws {
         var operated = OperatorUIFixtures.operated(run: UUID(), key: "PAY-235", state: .published, end: .draftMR)
         #expect(try json(operated)["closingWait"] == nil, "a task the closing never waited on saves as before")
         operated.closingWait = .helper
         #expect(try json(operated)["closingWait"] as? String == "helper")
         #expect(try JSONDecoder().decode(OperatedTask.self, from: JSONEncoder().encode(operated)) == operated)
-        var unknown = try json(operated)
-        unknown["closingWait"] = "somethingNew"
-        let data = try JSONSerialization.data(withJSONObject: unknown)
-        #expect(try JSONDecoder().decode(OperatedTask.self, from: data).closingWait == nil)
+
     }
 
     @Test func theBoardReadsBoth() throws {

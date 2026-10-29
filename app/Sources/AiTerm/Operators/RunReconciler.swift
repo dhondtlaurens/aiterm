@@ -158,11 +158,12 @@ final class RunReconciler {
     /// Count work and apply limits, either on a tick or for the task whose branch read finished.
     private func applyLimits(elapsed: TimeInterval, sessions: [SessionInfo], checkedTask: UUID? = nil) -> Set<UUID> {
         var blocked: [UUID] = []
+        let workersByTask = WorkerSessions(sessions)
         workspace.mutate { state in
             for task in state.tasks where checkedTask == nil || task.id == checkedTask {
                 guard let operated = task.operated, let run = state.run(id: operated.runId), run.state == .active, run.intent == nil
                 else { continue }
-                let workers = task.workerTabs(in: sessions).map(\.status)
+                let workers = task.workerTabs(in: workersByTask).map(\.status)
                 if elapsed > 0, workers.contains(.working), operated.state == .working, !operated.takenOver,
                    !operated.flags.contains(.waitingOnYou) {
                     state.updateOperated(task.id) {

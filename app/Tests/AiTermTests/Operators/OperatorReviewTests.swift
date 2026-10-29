@@ -24,7 +24,7 @@ import Testing
         var profile = OperatorServiceFixtures.profile()
         profile.slices = slices
         var run = OperatorServiceFixtures.run(profile, projects: [project], state: .active, planRevision: 1)
-        run.review = review
+        run.taskSettings.review = review
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: taskState, agent: agent, worktree: fixture.path,
                                                 branch: "feat/a", end: end)
         task.baseBranch = "main"
@@ -80,6 +80,34 @@ import Testing
         #expect(r.host.log.filter { $0.hasPrefix("state") } == ["state 12"])
         // And asking changes nothing the Operator is woken for.
         #expect(await wakes(r.world) == [])
+    }
+
+    @Test func overlappingStatusConsumersShareOneHostRead() async throws {
+        let r = try await reviewed(.inReview)
+        let release = AsyncStream<Void>.makeStream()
+        r.host.update { $0.beforeState = { for await _ in release.stream { break } } }
+        defer { release.continuation.finish() }
+        let first = Task { await r.world.controller.tools.hostState(of: r.task) }
+        await eventually { r.host.log.contains("state 12") }
+        var secondEntered = false
+        let second = Task {
+            secondEntered = true
+            return await r.world.controller.tools.hostState(of: r.task)
+        }
+        await eventually { secondEntered }
+        release.continuation.finish()
+        let answers = await [first.value, second.value]
+        #expect(answers[0] == answers[1])
+        #expect(r.host.log.filter { $0.hasPrefix("state") } == ["state 12"])
+    }
+
+    @Test func acceptingAnotherCommitInvalidatesTheHostReading() async throws {
+        let r = try await reviewed(.inReview)
+        _ = await r.world.controller.tools.hostState(of: r.task)
+        var changed = r.task
+        changed.operated?.acceptance?.resultSHA = "another-commit"
+        _ = await r.world.controller.tools.hostState(of: changed)
+        #expect(r.host.log.filter { $0.hasPrefix("state") }.count == 2)
     }
 
     @Test func aTaskWithNoRequestShowsNoneAndAsksNoHost() async throws {
@@ -266,54 +294,11 @@ import Testing
         #expect(r.world.task(r.task.id)?.operated?.peopleReview?.reviewers.isEmpty == true)
     }
 
-    @Test(arguments: [OperatedState.working, .inReview]) func anAgentReviewNeedsNoSlice(_ state: OperatedState) async throws {
-        let gate = HeldGate()
-        let seen = TaskFinisherTests.Recorded<String>()
-        let runner = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, arguments, _, directory, _ in
-            for word in arguments + ["cwd:" + directory] { seen.append(word) }
-            await gate.wait()
-            let json = String(decoding: try JSONEncoder().encode(["result": "Line 3 leaks the token."]), as: UTF8.self)
-            return ProcessOutput(status: 0, stdout: json, stderr: "", timedOut: false)
-        })
-        let r = try await reviewed(state, review: "Do an adversarial review, fix what it finds.") { $0.agentReviewer = runner }
-        let answer = await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Do an adversarial review."])
-        // Required, so a review that never started cannot leave the gate waiting.
-        try #require(answer.value?["review"] == "started")
-        #expect(answer.value?["agent"] == "claude", "a Codex task is reviewed by Claude")
-        await gate.started()
-        let task = try #require(r.world.task(r.task.id))
-        let run = try #require(r.world.run(r.run.id))
-        #expect(OperatorLine.task(task, run: run, acting: nil, requests: []) == OperatorLine("Claude reviewing", look: .acting))
-        #expect(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Do an adversarial review."]).value?["review"] == "running",
-                "a review running is not started twice")
-        #expect(seen.all.contains("cwd:" + r.task.worktreePath), "it reads the task's worktree")
-        #expect(seen.all.contains("--allowedTools"))
-        await gate.release()
-        await r.world.controller.tools.lastReview?.value
-        #expect(r.world.task(r.task.id)?.operated?.agentReview?.findings == "Line 3 leaks the token.")
-        #expect(r.world.task(r.task.id)?.operated?.state == state, "the review changes nothing of its state")
-        let read = await r.world.call(r.run.id, "read_task", ["task": "A", "what": "review"])
-        #expect(read.value?["agentReview"]?["findings"] == "Line 3 leaks the token.")
-        #expect(await wakes(r.world) == ["[AiTerm] letter-ay review completed by Claude: call run_status"])
-        // A task in review was set up through the host; one at work has never reached it.
-        let notified = state == .working ? !r.host.log.isEmpty
-            : r.host.log.contains { $0.hasPrefix("reviewers") || $0.hasPrefix("ready") || $0.hasPrefix("reply") }
-        #expect(r.world.run(r.run.id)?.leftForYou == [] && !notified, "nobody was notified")
-    }
 
-    @Test func anInReviewAgentReviewRequiresTheAcceptedHead() async throws {
-        let r = try await reviewed(.inReview)
-        r.world.workspace.mutate { $0.updateOperated(r.task.id) { $0.acceptance?.resultSHA = "old-sha" } }
-        let answer = await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review."])
-        #expect(answer.message?.contains("differs from its accepted commit") == true)
-        #expect(r.world.task(r.task.id)?.operated?.agentReview == nil)
-    }
 
-    @Test func anAgentReviewRefusesAnAcceptedTask() async throws {
-        let r = try await reviewed(.accepted)
-        #expect(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review."]).message?.contains("A is accepted: an agent review reads a working task") == true)
-        #expect(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review.", "agent": "pi"]).message != nil)
-    }
+
+
+
 
     @Test func finishWithAReviewEntersInReview() async throws {
         let r = try await reviewed(.accepted, slices: Slices(review: true))
@@ -481,64 +466,11 @@ import Testing
         #expect(!(OperatorToolHandler.threadsAre + OperatorToolHandler.findingsAre).contains("\u{2014}"))
     }
 
-    /// PI reviews with its read tools alone, on the model its own card or last pick gives it, never Claude's.
-    @Test func aPiReviewRunsPisReadOnlyRecipe() async throws {
-        let seen = TaskFinisherTests.Recorded<String>()
-        let runner = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { executable, arguments, _, _, _ in
-            for word in [executable] + arguments { seen.append(word) }
-            return ProcessOutput(status: 0, stdout: "Line 3 leaks the token.\n", stderr: "", timedOut: false)
-        })
-        let r = try await reviewed(.working) { $0.agentReviewer = runner; $0.installedAgents = { [.claude, .codex, .pi] } }
-        r.world.workspace.mutate { $0.lastModelByAgent = [.claude: "opus", .pi: "openai-codex/gpt-5.6-sol"] }
-        let answer = await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review.", "agent": "pi"])
-        #expect(answer.value?["agent"] == "pi")
-        await r.world.controller.tools.lastReview?.value
-        let words = seen.all
-        #expect(words.first == "/opt/bin/pi")
-        let tools = try #require(words.firstIndex(of: "--tools"))
-        #expect(words[tools + 1] == "read,grep,find,ls")
-        let model = try #require(words.firstIndex(of: "--model"))
-        #expect(words[model + 1] == "openai-codex/gpt-5.6-sol")
-        #expect(r.world.task(r.task.id)?.operated?.agentReview?.findings == "Line 3 leaks the token.")
-        #expect(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review.", "agent": "gemini"]).message
-                == "review_task’s agent is claude, codex or pi.")
-    }
 
-    @Test func anEndDuringAReviewStopsItAndRecordsNothing() async throws {
-        let gate = HeldGate()
-        let runner = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, _, _, _, _ in
-            await gate.wait()
-            let json = String(decoding: try JSONEncoder().encode(["result": "Line 3 leaks the token."]), as: UTF8.self)
-            return ProcessOutput(status: 0, stdout: json, stderr: "", timedOut: false)
-        })
-        let r = try await reviewed(.working) { $0.agentReviewer = runner }
-        try #require(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review."]).value?["review"] == "started")
-        await gate.started()
-        let review = r.world.controller.tools.lastReview
-        try await r.world.controller.end(run: r.run.id)
-        #expect(r.world.controller.tools.runningReviews.isEmpty)
-        await gate.release()
-        await review?.value
-        #expect(r.world.task(r.task.id)?.operated?.agentReview?.findings == nil, "a stopped review records nothing")
-        #expect(!(await wakes(r.world)).contains { $0.contains("reviewed") }, "and wakes no one")
-    }
 
-    @Test func aTakeoverStopsTheReviewOfItsTask() async throws {
-        let gate = HeldGate()
-        let runner = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, _, _, _, _ in
-            await gate.wait()
-            return ProcessOutput(status: 0, stdout: #"{"result":"Found it."}"#, stderr: "", timedOut: false)
-        })
-        let r = try await reviewed(.working) { $0.agentReviewer = runner }
-        try #require(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review."]).value?["review"] == "started")
-        await gate.started()
-        let review = r.world.controller.tools.lastReview
-        try await r.world.controller.takeOver(task: r.task.id)
-        await gate.release()
-        await review?.value
-        let kept = r.world.task(r.task.id)?.operated?.agentReview
-        #expect(kept?.findings == nil && kept?.failure?.contains("took over A") == true)
-    }
+
+
+
 
     // MARK: - Gate C: review writes are read fresh, the request is the one opened, and a lost answer is not posted twice
 
@@ -625,69 +557,9 @@ import Testing
 }
 
 extension OperatorReviewTests {
-    /// The skill a review's instructions name is handed over from the folder Claude's configuration is in.
-    @Test func anAgentReviewHandsOverTheNamedSkillFromTheConfiguredClaudeFolder() async throws {
-        let seen = TaskFinisherTests.Recorded<String>()
-        let runner = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, arguments, _, _, _ in
-            for word in arguments { seen.append(word) }
-            let json = String(decoding: try JSONEncoder().encode(["result": "Sound."]), as: UTF8.self)
-            return ProcessOutput(status: 0, stdout: json, stderr: "", timedOut: false)
-        })
-        let r = try await reviewed(.working) { $0.agentReviewer = runner; $0.claudeConfig = ClaudeConfig("~/profile") }
-        for (folder, text) in [(".claude", "Wrong folder."), ("profile", "Attack every assumption.")] {
-            let skill = r.world.ports.home.appendingPathComponent("\(folder)/skills/review-skill/SKILL.md")
-            try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try "---\nname: review-skill\n---\n\(text)\n".write(to: skill, atomically: true, encoding: .utf8)
-        }
-        try #require(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review it with /review-skill."])
-            .value?["review"] == "started")
-        await r.world.controller.tools.lastReview?.value
-        #expect(seen.all.contains { $0.contains("Attack every assumption.") })
-        #expect(!seen.all.contains { $0.contains("Wrong folder.") })
-    }
 
-    /// A PI reviewer is handed a skill only Claude has, as Settings › Operator's `/` lists Claude's and Codex's: PI runs
-    /// with its own skills off, so the text is all it gets.
-    @Test func aPiReviewerIsHandedAClaudeOnlySkill() async throws {
-        let seen = TaskFinisherTests.Recorded<String>()
-        let runner = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, arguments, _, _, _ in
-            for word in arguments { seen.append(word) }
-            return ProcessOutput(status: 0, stdout: "Sound.", stderr: "", timedOut: false)
-        })
-        let r = try await reviewed(.working) { $0.agentReviewer = runner; $0.installedAgents = { [.claude, .codex, .pi] } }
-        let skill = r.world.ports.home.appendingPathComponent(".claude/skills/review-skill/SKILL.md")
-        try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try "---\nname: review-skill\n---\nAttack every assumption.\n".write(to: skill, atomically: true, encoding: .utf8)
-        try #require(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review it with /review-skill.", "agent": "pi"])
-            .value?["review"] == "started")
-        await r.world.controller.tools.lastReview?.value
-        #expect(seen.all.contains { $0.contains("Attack every assumption.") })
-    }
 
-    /// The review reads what `read_task` with `what: diff` does: from where the branch left origin's default branch, not
-    /// from a local `main` that lags it.
-    @Test func theReviewReadsTheSameBase() async throws {
-        let seen = TaskFinisherTests.Recorded<String>()
-        let runner = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, arguments, _, _, _ in
-            for word in arguments { seen.append(word) }
-            return ProcessOutput(status: 0, stdout: #"{"result":"Sound."}"#, stderr: "", timedOut: false)
-        })
-        let r = try await reviewed(.working) { $0.agentReviewer = runner }
-        let git = GitRunner.hermetic(), path = r.task.worktreePath
-        let origin = try git.run(["remote", "get-url", "origin"], in: path), clone = try GitFixture.folder("review-clone-")
-        try git.run(["clone", "-q", origin, clone], in: "/")
-        try "x\n".write(toFile: clone + "/origin-only.swift", atomically: true, encoding: .utf8)
-        try git.run(["add", "origin-only.swift"], in: clone)
-        try git.run(["commit", "-q", "-m", "Add origin-only.swift"], in: clone)
-        try git.run(["push", "-q", "origin", "main"], in: clone)
-        try git.run(["fetch", "-q", "origin"], in: path)
-        try git.run(["switch", "-q", "-c", "feat/b", "origin/main"], in: path)
-        try "y\n".write(toFile: path + "/mine.swift", atomically: true, encoding: .utf8)
-        try git.run(["add", "mine.swift"], in: path)
-        try git.run(["commit", "-q", "-m", "Add mine.swift"], in: path)
-        try #require(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review."]).value?["review"] == "started")
-        await r.world.controller.tools.lastReview?.value
-        let prompt = try #require(seen.all.first { $0.contains("Add mine.swift") })
-        #expect(prompt.contains("mine.swift") && !prompt.contains("origin-only"), "origin's own commit is not the worker's change")
-    }
+
+
+
 }

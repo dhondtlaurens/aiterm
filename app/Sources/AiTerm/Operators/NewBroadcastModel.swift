@@ -48,10 +48,8 @@ final class NewBroadcastModel: Identifiable {
         let jiraProjectKeys: [String]
         let projectIds: [UUID]
         let prompt: String
-        let review: String?
-        let done: String?
         let agents: [AgentChoice]
-        let taskSettings: TaskSettings?
+        let taskSettings: TaskSettings
         let goal: BroadcastGoal?
     }
 
@@ -438,7 +436,7 @@ final class NewBroadcastModel: Identifiable {
                                         deleteMergedBranch: deleteMergedBranch)
         let goal = goalIsAvailable ? Self.said(done).map { BroadcastGoal(text: $0, extraRounds: extraRounds) } : nil
         let request = Request(name: Self.said(name), jiraProjectKeys: jiraProjects.map(\.key), projectIds: projects.map(\.id),
-                              prompt: prompt, review: nil, done: nil, agents: agents, taskSettings: taskSettings, goal: goal)
+                              prompt: prompt, agents: agents, taskSettings: taskSettings, goal: goal)
         do { return try await startBroadcast(request) }
         catch { self.error = CreationFailure(reason: OperationIssue.reason(of: error), detail: nil); return nil }
     }

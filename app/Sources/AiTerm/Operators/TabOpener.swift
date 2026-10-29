@@ -24,6 +24,7 @@ final class TabOpener {
     private let workspace: WorkspaceStore
     private let daemon: @MainActor () -> (any DaemonCommands)?
     private let ports: OperatorPorts
+    private var isStopped = false
     /// The tabs being asked for now: a reconcile pass that meets one leaves it be.
     private(set) var opening: Set<ID> = []
     /// When each tab's last request in this run of AiTerm ended: one that ended with no answer (a timeout) may
@@ -38,15 +39,18 @@ final class TabOpener {
 
     private var state: AppState { workspace.state }
 
+    func start() { isStopped = false }
+    func stop() { isStopped = true }
+
     /// Asks for the tab as `attempt`, its record saved by the caller first. Opening already: it may still open.
     func open(_ id: ID, attempt: LaunchAttempt) async -> Outcome {
-        guard opening.insert(id).inserted else { return .opening }
+        guard !isStopped, opening.insert(id).inserted else { return Self.outcome(of: record(id)?.tab) }
         return await ask(id, attempt: attempt)
     }
 
     /// A tab whose request showed none, asked for again as `attempt`, saved by the caller first.
     func relaunch(_ id: ID, attempt: LaunchAttempt) -> Task<Void, Never>? {
-        guard opening.insert(id).inserted else { return nil }
+        guard !isStopped, opening.insert(id).inserted else { return nil }
         return Task { _ = await ask(id, attempt: attempt) }
     }
 
@@ -58,12 +62,12 @@ final class TabOpener {
             opening.remove(id)
             settledAt[id] = ports.now()
         }
-        guard let found = record(id), found.tab.launch == attempt, found.tab.sessionId == nil, Self.holds(found.task, in: state),
+        guard !isStopped, let found = record(id), found.tab.launch == attempt, found.tab.sessionId == nil, Self.holds(found.task, in: state),
               let window = found.task.windowId, let daemon = daemon() else { return Self.outcome(of: record(id)?.tab) }
         let task = found.task, tab = found.tab
         let worktree = task.worktreePath, git = ports.git
         let run = task.operated.flatMap { state.run(id: $0.runId) }
-        let review = run?.taskSettings?.review
+        let review = run?.taskSettings.review
         // Built here, unused by a review tab: `prompt(branch:brief:)` needs the main actor, the review's SHA the background.
         let reviewing = tab.role == .review, workerPrompt = Self.prompt(branch: task.branch, brief: tab.brief)
         let file = Self.promptFile(for: id.key)
@@ -83,7 +87,7 @@ final class TabOpener {
                                               git: git, operated: true, readOnly: reviewing, promptFile: file)
             }
             // The await has passed: the task may have been taken over or ended, its window closed, or its broadcast paused.
-            guard let now = record(id), now.tab.launch == attempt, now.tab.sessionId == nil, Self.holds(now.task, in: state),
+            guard !isStopped, let now = record(id), now.tab.launch == attempt, now.tab.sessionId == nil, Self.holds(now.task, in: state),
                   now.task.windowId == window else { return Self.outcome(of: record(id)?.tab) }
             let session = try await daemon.createTab(windowId: window, cwd: worktree, agentCommand: command, tabKey: id.key, background: true)
             recordSession(session, of: id)

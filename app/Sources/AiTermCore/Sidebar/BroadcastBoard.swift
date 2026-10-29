@@ -56,7 +56,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         public var status: TaskStatus?
         /// `.tab` while iTerm2 lists it, else `.nothing`.
         public var opens: Opens
-        /// Its model and reasoning, under its key (`claude-opus-5-5 · High`); nil on a legacy broadcast's board.
+        /// Its agent model and reasoning; a task with several workers shows each tab instead.
         public var combination: String?
         public var id: String { key }
         public var isClosed: Bool { status == nil }
@@ -168,11 +168,9 @@ public struct BroadcastBoard: Equatable, Sendable {
         public var tabs: [TabLine] = []
         /// The Oracle’s reason for refusing a merge, separate from the task’s status.
         public var mergeRefusal: String? = nil
-        /// Its first worker's model and reasoning (14A), `Opus 5.5 · High`, while it has one worker tab; nil on a legacy
-        /// broadcast's board, where the tooltip alone says it.
+        /// Its agent model and reasoning; a task with several workers shows each tab instead.
         public var combination: String? = nil
-        /// Its end line while it has not finished and is not yours; nil once it has, on a legacy broadcast's board, and on
-        /// the Shelf's.
+        /// The task's end while it is unfinished and owned by the Operator.
         public var end: EndLine? = nil
         /// Out of its review's fix rounds and asked about them, while it is not yours.
         public var fixRounds: FixRounds? = nil
@@ -216,10 +214,9 @@ public struct BroadcastBoard: Equatable, Sendable {
     public var band: OperatorLine
     /// `2 of 8 done`, after the band's status line; nil until the first plan is in Todo.
     public var progress: String?
-    /// The Asked line's parts: the prompt, then the Review and the Done when a legacy broadcast has them, or the Goal.
+    /// The Asked line contains the broadcast prompt and optional goal.
     public var clauses: [Clause]
-    /// What every task follows, the line under it (15A): the review prompt quoted, its end and its closing; nil for a
-    /// legacy broadcast.
+    /// What every task follows: its review prompt, end and closing settings.
     public var eachTask: Clause? = nil
     /// How the goal went, once checked: the Summary's.
     public var goalOutcome: GoalOutcome? = nil
@@ -293,9 +290,9 @@ public struct BroadcastBoard: Equatable, Sendable {
         let byId = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let projects = run.projectIds.compactMap(state.project(id:))
         let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
-        // People's review, or a set-up broadcast's review prompt: an agent review's tabs need no slice.
+        // People's review or a task review prompt: agent review tabs need no slice.
         let hasReview = TaskPublisher.Context.reviews(run)
-            || run.taskSettings.map { OperatorCommand.said($0.review) != nil } == true
+            || OperatorCommand.said(run.taskSettings.review) != nil
 
         // A task you stopped is no longer the broadcast's work: it is on no column. One End handed you stays In
         // progress on the Shelf's board, taken over, as it was when the broadcast ended.
@@ -306,8 +303,8 @@ public struct BroadcastBoard: Equatable, Sendable {
             let card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId, sessions: sessions,
                                  live: liveModels[task.id], turn: acting.turns[task.id], labels: modelLabels,
                                  project: projects.count > 1 ? names[task.projectId] : nil)
-            // A set-up broadcast's task is in review while one of its review tabs is open.
-            let reviewing = run.taskSettings != nil && OperatorLine.isInReview(operated, tabs: task.workerTabs(in: sessions))
+            // A task is in review while one of its review tabs is open.
+            let reviewing = OperatorLine.isInReview(operated, tabs: task.workerTabs(in: sessions))
             return (handed ? .inProgress : Self.column(of: operated, hasReview: hasReview, reviewing: reviewing), card, task.agent)
         }
         let removed = Self.removed(of: run, tasks: tasks).map { record in
@@ -324,10 +321,10 @@ public struct BroadcastBoard: Equatable, Sendable {
             runId: run.id, title: run.name, band: band,
             progress: progress(of: run, tasks: tasks, band: band, keepsHanded: keepsHanded),
             clauses: [Clause(label: "Asked", text: oneLine(run.prompt))]
-                + [("Review", run.review), ("Done", run.done), ("Goal", run.goal?.text)].compactMap { label, text in
+                + [("Goal", run.goal?.text)].compactMap { label, text in
                     text.map(oneLine).flatMap { $0.isEmpty ? nil : Clause(label: label, text: $0) }
                 },
-            eachTask: run.taskSettings.map(eachTask), goalOutcome: run.goalOutcome,
+            eachTask: eachTask(run.taskSettings), goalOutcome: run.goalOutcome,
             columns: columns,
             isPaused: run.isPaused,
             isComplete: run.state == .complete, summary: RunSummary(run), leftForYou: run.leftForYou, snags: run.snags)
@@ -408,11 +405,11 @@ public struct BroadcastBoard: Equatable, Sendable {
     private static func card(_ task: TaskItem, _ operated: OperatedTask, run: OperatorRun, acting: OperatorAct?,
                              requests: [BroadcastRequest], tasks: [UUID: TaskItem], sessions: [SessionInfo], live: LiveModel?,
                              turn: WorkerTurn.Ending?, labels: ModelLabels, project: String?) -> Card {
-        let setUp = run.taskSettings != nil, takenOver = operated.takenOver
-        let closes = setUp && run.taskSettings?.closeWhenDone == true && operated.reachedItsEnd
+        let takenOver = operated.takenOver
+        let closes = run.taskSettings.closeWhenDone == true && operated.reachedItsEnd
         let kept = closes && closingRan(run)
         // Asked about its fix rounds; a request of its own (a prompt, a block) is said first, as every request is.
-        let fixRounds = setUp && !operated.isFinished && !takenOver ? run.fixRoundsQuestion(on: task.id) : nil
+        let fixRounds = !operated.isFinished && !takenOver ? run.fixRoundsQuestion(on: task.id) : nil
         let asks = requests.contains { $0.runId == run.id && $0.taskId == task.id && $0.kind != .question }
         let line: OperatorLine? = if kept {
             // What it ended at without its detail, `draft MR · worktree kept`, so the line fits; why, under its rule.
@@ -429,7 +426,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                     return (host.reference(number), host, nil)
                 }
             }
-        let tabs = tabs(of: task, sessions: sessions, labels: setUp ? labels : nil)
+        let tabs = tabs(of: task, sessions: sessions, labels: labels)
         return Card(id: task.id, title: task.title, agent: task.agent,
                     ticket: task.jira?.key, ticketSummary: task.jira?.summary,
                     mr: mr?.reference, mrHost: mr?.host, mrTitle: mr?.title, project: project,
@@ -438,9 +435,9 @@ public struct BroadcastBoard: Equatable, Sendable {
                     opens: opens(task, operated, requests: requests),
                     modelTooltip: modelTooltip(task, operated, live: live), result: OperatorLine.ending(of: operated),
                     tabs: tabs,
-                    mergeRefusal: takenOver || operated.isFinished || (setUp && !operated.end.merges) ? nil : operated.publication?.mergeRefusal,
-                    combination: setUp && tabs.isEmpty ? combination(task.agent, task.model, task.reasoning, labels: labels) : nil,
-                    end: setUp && !operated.isFinished && !takenOver
+                    mergeRefusal: takenOver || operated.isFinished || (!operated.end.merges) ? nil : operated.publication?.mergeRefusal,
+                    combination: tabs.isEmpty ? combination(task.agent, task.model, task.reasoning, labels: labels) : nil,
+                    end: !operated.isFinished && !takenOver
                         ? EndLine(current: operated.end, selectable: TaskEnd.allCases.filter { TaskEndChange.isSelectable($0, in: run) }) : nil,
                     fixRounds: fixRounds.map { question in
                         FixRounds(counts: operated.reviewVerdicts.last.map(counts),

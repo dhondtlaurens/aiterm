@@ -4,7 +4,7 @@ import Foundation
 
 @Suite struct ModelsTests {
     @Test func preservedWorkspaceValuesSaveBackByteIdentically() throws {
-        let bytes = Data(#"{"future":{"array":[null,true,9007199254740993,1.25,"text"]},"items":[],"lastAgentByProject":[],"lastModelByAgent":[],"runs":[{"future":true}],"tasks":[],"terminals":[]}"#.utf8)
+        let bytes = Data(#"{"future":{"array":[null,true,9007199254740993,1.25,"text"]},"items":[],"lastAgentByProject":[],"lastModelByAgent":[],"tasks":[],"terminals":[]}"#.utf8)
         let state = try JSONDecoder().decode(AppState.self, from: bytes)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         #expect(try encoder.encode(state) == bytes)

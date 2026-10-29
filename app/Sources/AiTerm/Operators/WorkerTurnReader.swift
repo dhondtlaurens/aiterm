@@ -70,6 +70,15 @@ final class WorkerTurnReader {
         self.transcripts = transcripts
     }
 
+    func stop() {
+        for read in inFlight.values { read.cancel() }
+        inFlight = [:]
+        asked = [:]
+        requestedBasis = [:]
+        seen = [:]
+        lastRead?.cancel()
+    }
+
     /// Whether `task`'s worker turns are read: started and not stopped, still the Operator's, in a broadcast not ended.
     func isRead(_ task: TaskItem) -> Bool {
         guard let operated = task.operated, !operated.takenOver, ![.planned, .queued, .stopped].contains(operated.state),
@@ -82,11 +91,12 @@ final class WorkerTurnReader {
     /// launched, no conversation named yet) is at work whatever its tab says, so its idle is read once its launch is over.
     func observe() {
         let sessions = live.sessions, now = ports.now()
+        let workersByTask = WorkerSessions(sessions)
         var dropped = false, pending: [Task<Void, Never>] = []
         var retained: Set<WorkerID> = []
         for task in workspace.state.tasks {
             let watched = isRead(task)
-            for worker in task.workerTabs(in: sessions, now: now) {
+            for worker in task.workerTabs(in: workersByTask, now: now) {
                 let id = WorkerID(task: task.id, tab: worker.key)
                 if !watched, let tab = worker.session { seen[tab.sessionId] = nil }
                 guard watched, let tab = worker.session, tab.state.turnEnded, !worker.isOpening, let operated = task.operated else {
@@ -148,6 +158,7 @@ final class WorkerTurnReader {
         asked[id] = request
         requestedBasis[id] = basis
         let readingTask = Task { [weak self] in
+            guard !Task.isCancelled else { return }
             let read = await BackgroundWork.run {
                 let reply = conversation.flatMap { transcripts.lastReply(agent: agent, conversation: $0) }
                 if let previous, previous.basis == basis, previous.replyIdentity == reply?.identity { return nil as Reading? }
@@ -172,7 +183,7 @@ final class WorkerTurnReader {
             }
             // Read fresh: the worker may have started its next turn, or ended it again, and the task may have been accepted
             // again or reopened, while git was asked.
-            guard let self, self.asked[id] == request else { return }
+            guard !Task.isCancelled, let self, self.asked[id] == request else { return }
             self.inFlight[id] = nil
             guard var reading = read,
                   self.seen[session] == Seen(state: state, conversation: conversation),

@@ -5,17 +5,13 @@ import AiTermCore
 /// from its conversation file, its branch's diff, the prompt it has open — what it says to it through
 /// the daemon's delivery, and the outcome it records. A task you took over refuses all but reading.
 extension OperatorToolHandler {
-    /// The most of a diff a review's prompt carries; `read_task`'s own answer is a `DiffDigest`, which is smaller.
-    static let diffLimit = 60_000
-
     /// Where the task's own work starts (spec §9): a stacked task's parent's accepted commit, else the latest shared
     /// ancestor of its saved launch baseline and its local and origin base refs. Either ref can lag the other; an older
     /// origin must not make earlier tasks on local main look like this worker's work. A rebase can advance the baseline.
     /// A fetch that fails (offline) is not a refusal: origin's branch is read as it was last fetched.
     ///
     /// The fetch is bounded (`OperatorTiming.diffBaseFetchTimeout`) and done at most once a minute for the same base
-    /// (`diffBaseFetchInterval`), a failed try included, so a slow remote or a VPN down never holds `read_task diff` or
-    /// `review_task` past the daemon's wait for the app's answer.
+    /// (`diffBaseFetchInterval`), a failed try included, so a slow remote or a VPN down never holds `read_task diff` past the daemon's wait for the app's answer.
     ///
     /// Always where that base and HEAD meet, so what `log` and `diff` measure from is the `base` an answer reports,
     /// even when a parent's accepted commit is not in the branch's history (it was rebased).
@@ -317,12 +313,10 @@ extension OperatorToolHandler {
             let prerequisites = RunScheduler.baseCommit(for: task.id, in: state).map { [$0] } ?? []
             let acceptance = TaskAcceptance(resultSHA: sha, prerequisiteSHAs: prerequisites, checkOutput: check,
                                             note: call.optionalString("note"), at: ports.now())
-            if run.taskSettings != nil {
                 // Read now, while the task is live: once its work is merged, its base would be the accepted commit.
                 // Best effort: without one, a closed task's diff is its accepted commit's own patch.
                 acceptedBase = try? await commit(diffBase(of: task, in: run), in: task)
                 try recheck(task)
-            }
             // Refresh evidence for the same verified head without revoking its dependents or publication.
             // A prior Oracle yes/no no longer describes the evidence being judged.
             if [.accepted, .published, .inReview].contains(operated.state), operated.acceptance?.resultSHA == sha {

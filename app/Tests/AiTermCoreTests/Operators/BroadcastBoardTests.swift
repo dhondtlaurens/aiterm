@@ -19,10 +19,11 @@ import Testing
 
     private func run(_ state: OperatorRunState = .active, review: String? = "assign Jan, fix his feedback",
                      projects: [UUID]? = nil, questions: [OperatorQuestion] = []) -> OperatorRun {
-        var run = OperatorUIFixtures.run(name: "Checkout redesign", state: state, done: "merged after Jan's approval",
+        var run = OperatorUIFixtures.run(name: "Checkout redesign", state: state,
                                          questions: questions, projectIds: projects ?? [web.id, api.id])
         run.prompt = "implement PAY-230 to PAY-236, the new checkout"
-        run.review = review
+        run.taskSettings = TaskSettings(review: review, end: .merge, closeWhenDone: false)
+        run.goal = BroadcastGoal(text: "merged after Jan's approval")
         // Its tasks go into people's review only with the Review slice on (`TaskPublisher.Context.reviews`).
         run.profile.slices.review = true
         run.firstPlanSize = 8
@@ -48,7 +49,7 @@ import Testing
 
     @Test func anOracleRefusalKeepsTheReviewStatusAndAddsASeparateNote() throws {
         let run = run()
-        var task = task("Review me", run: run.id, .inReview)
+        var task = task("Review me", run: run.id, .inReview, end: .merge)
         task.operated?.publication = TaskPublication(mergeRefusal: "Jan has not approved it.")
         let board = BroadcastBoard.make(run: run, state: state(run, [task]), acting: .none, requests: [])
         let card = try #require(board.columns.first { $0.column == .review }?.cards.first)
@@ -79,9 +80,8 @@ import Testing
         #expect(board.band == OperatorLine("1 working", look: .acting))
         #expect(board.progress == "1 of 8 done", "the band's progress, and no projects")
         #expect(board.clauses == [BroadcastBoard.Clause(label: "Asked", text: "implement PAY-230 to PAY-236, the new checkout"),
-                                  BroadcastBoard.Clause(label: "Review", text: "assign Jan, fix his feedback"),
-                                  BroadcastBoard.Clause(label: "Done", text: "merged after Jan's approval")])
-        #expect(board.asked == "Asked implement PAY-230 to PAY-236, the new checkout · Review assign Jan, fix his feedback · Done merged after Jan's approval")
+                                  BroadcastBoard.Clause(label: "Goal", text: "merged after Jan's approval")])
+        #expect(board.asked == "Asked implement PAY-230 to PAY-236, the new checkout · Goal merged after Jan's approval")
 
         // No progress until the first plan is in Todo.
         var planning = self.run(.planning, review: nil)
@@ -89,7 +89,7 @@ import Testing
         let early = BroadcastBoard.make(run: planning, state: state(planning), acting: .none, requests: [])
         #expect(early.progress == nil)
         #expect(early.band.text == "loading the construct")
-        #expect(early.clauses.map(\.label) == ["Asked", "Done"], "no Review clause without a review")
+        #expect(early.clauses.map(\.label) == ["Asked", "Goal"], "no Review clause without a review")
     }
 
     @Test func cardsSitInTheirColumns() {
@@ -133,23 +133,7 @@ import Testing
                 == "Nothing planned yet.")
     }
 
-    @Test func reviewColumnOnlyWithAReview() {
-        let reviewed = run()
-        let unreviewed = run(review: nil)
-        #expect(BroadcastBoard.make(run: reviewed, state: state(reviewed), acting: .none, requests: []).columns.map(\.column)
-                == [.todo, .inProgress, .review, .done])
-        let tasks = [task("Shipping step", run: unreviewed.id, .inReview)]
-        let board = BroadcastBoard.make(run: unreviewed, state: state(unreviewed, tasks), acting: .none, requests: [])
-        #expect(board.columns.map(\.column) == [.todo, .inProgress, .done])
-        #expect(column(board, .inProgress) == ["Shipping step"], "with no Review column a task in review is in progress")
-        var blank = run(review: "  ")
-        blank.review = "  "
-        #expect(BroadcastBoard.make(run: blank, state: state(blank), acting: .none, requests: []).columns.count == 3)
-        var agentOnly = reviewed
-        agentOnly.profile.slices.review = false
-        #expect(BroadcastBoard.make(run: agentOnly, state: state(agentOnly), acting: .none, requests: []).columns.count == 3,
-                "an agent review with the Review slice off puts nothing in people's review")
-    }
+
 
     @Test func projectOnlyWhenSeveral() throws {
         let several = run()
@@ -469,11 +453,11 @@ import Testing
         let tabs = try #require(cards.first { $0.title == "Price formatting" }?.tabs)
         typealias Tab = BroadcastBoard.TabLine
         #expect(tabs == [
-            Tab(key: "main", agent: .codex, line: OperatorLine("turn ended"), status: .idle, opens: .tab(task: price.id, sessionId: "s1")),
+            Tab(key: "main", agent: .codex, line: OperatorLine("turn ended"), status: .idle, opens: .tab(task: price.id, sessionId: "s1"), combination: "m"),
             Tab(key: "docs", agent: .claude, line: OperatorLine("waiting on you", look: .needsYou), status: .needsInput,
-                opens: .tab(task: price.id, sessionId: "s2")),
-            Tab(key: "api-mocks", agent: .claude, line: OperatorLine("closed"), status: nil, opens: .nothing),
-            Tab(key: "e2e-tests", agent: .codex, line: OperatorLine("opening"), status: .working, opens: .nothing),
+                opens: .tab(task: price.id, sessionId: "s2"), combination: "m"),
+            Tab(key: "api-mocks", agent: .claude, line: OperatorLine("closed"), status: nil, opens: .nothing, combination: "m"),
+            Tab(key: "e2e-tests", agent: .codex, line: OperatorLine("opening"), status: .working, opens: .nothing, combination: "m"),
         ])
         #expect(tabs.map(\.isClosed) == [false, false, true, false])
         #expect(cards.first { $0.title == "Cart drawer" }?.tabs == [], "one tab: nothing to tell apart")
@@ -500,8 +484,8 @@ import Testing
         #expect(tabs == [
             Tab(key: "main", agent: .codex,
                 line: OperatorLine("in background", tooltip: "Running in the background: scripts/test.sh swift --filter RunStatusTests"),
-                status: .background, opens: .tab(task: price.id, sessionId: "s1")),
-            Tab(key: "review", agent: .claude, line: OperatorLine("at work"), status: .working, opens: .tab(task: price.id, sessionId: "s2")),
+                status: .background, opens: .tab(task: price.id, sessionId: "s1"), combination: "m"),
+            Tab(key: "review", agent: .claude, line: OperatorLine("at work"), status: .working, opens: .tab(task: price.id, sessionId: "s2"), combination: "m"),
         ])
     }
 

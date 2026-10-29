@@ -300,15 +300,8 @@ def _seconds(timestamp: Any) -> float | None:
 
 def _epoch(timestamp: Any) -> int | None:
     """Codex stamps records in RFC 3339 UTC (`2026-09-22T14:31:09.229Z`)."""
-    if not isinstance(timestamp, str):
-        return None
-    try:
-        parsed = datetime.fromisoformat(timestamp)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return int(parsed.timestamp())
+    seconds = _seconds(timestamp)
+    return int(seconds) if seconds is not None else None
 
 
 

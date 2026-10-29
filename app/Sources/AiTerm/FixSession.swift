@@ -81,6 +81,7 @@ final class FixSession {
         work = Task {
             do throws(FixRefusal) {
                 let checked = try await pipeline.apply(fixer, clone, proposal, session)
+                guard !Task.isCancelled else { throw FixRefusal.cancelled }
                 let landing = try await pipeline.land(clone, checked)
                 self.clone = nil; self.session = nil
                 set(.done(landing))

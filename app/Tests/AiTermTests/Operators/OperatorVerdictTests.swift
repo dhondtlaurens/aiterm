@@ -235,8 +235,7 @@ import Testing
     @Test func reviewTabsNeverUseLegacyReviewText() async throws {
         let (world, run, task) = try OperatorVerdictFixtures.make(brief: String(repeating: "Context. ", count: 200))
         world.workspace.mutate { $0.updateRun(id: run.id) {
-            $0.taskSettings?.review = nil
-            $0.review = "Legacy instructions must not reach this tab."
+            $0.taskSettings.review = nil
         } }
         let tab = try #require(world.task(task.id)?.operated?.extraTabs.first)
         #expect(await world.controller.tabs.open(.init(task: task.id, key: tab.key), attempt: tab.launch) == .opened)

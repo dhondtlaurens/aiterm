@@ -100,14 +100,15 @@ class TestActivityReader:
 
     def apply(self, registry: SessionRegistry) -> list[str]:
         readings, assigned, changed = self.read(), set(), []
-        live_keys = {(s.session_id, s.job_pid, s.conversation_id) for s in registry.all()}
+        sessions = registry.all()
+        live_keys = {(s.session_id, s.job_pid, s.conversation_id) for s in sessions}
         self._results = {key: value for key, value in self._results.items() if key in live_keys}
-        live_ids = {s.session_id for s in registry.all()}
+        live_ids = {s.session_id for s in sessions}
         self._identity = {sid: value for sid, value in self._identity.items() if sid in live_ids}
         self._replaced_at = {sid: value for sid, value in self._replaced_at.items() if sid in live_ids}
         # Worktree activity belongs to the task, not each sibling tab. Prefer its main worker and
         # attach once; closed sessions disappear from the registry and leave nothing remembered here.
-        for session in sorted(registry.all(), key=lambda s: (s.tab_key is not None, s.tab_index, s.session_id)):
+        for session in sorted(sessions, key=lambda s: (s.tab_key is not None, s.tab_index, s.session_id)):
             cwd = Path(session.agent_cwd or session.cwd).resolve() if session.cwd or session.agent_cwd else None
             boundary = _worktree_boundary(cwd)
             # A CLI commonly chdirs into app/ or daemon/. Match a real path boundary and the

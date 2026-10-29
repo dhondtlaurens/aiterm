@@ -29,7 +29,7 @@ import Testing
         let (world, run, _) = try makeWorld()
         #expect(world.controller.activeRun?.id == run.id)
         let refusal = await #expect(throws: ActionUnavailable.self) {
-            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go", review: nil, done: nil)
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go", agents: OperatorServiceFixtures.agents, taskSettings: TaskSettings(review: nil, end: .commit, closeWhenDone: false))
         }
         #expect(refusal?.message == "A broadcast is already running.")
         #expect(world.state.runs.map(\.id) == [run.id])
@@ -38,7 +38,7 @@ import Testing
         try await world.controller.end(run: run.id)
         #expect(world.controller.activeRun == nil)
         let next = try await world.controller.startBroadcast(name: "Sprint 43", jiraProjectKeys: ["PLUTO"], projectIds: [project.id],
-                                                             prompt: "Go", review: nil, done: nil)
+                                                             prompt: "Go", agents: OperatorServiceFixtures.agents, taskSettings: TaskSettings(review: nil, end: .commit, closeWhenDone: false))
         #expect(world.controller.activeRun?.id == next)
         #expect(world.run(next)?.name == "Sprint 43" && world.run(next)?.jiraProjectKeys == ["PLUTO"])
     }
@@ -222,6 +222,8 @@ import Testing
 
     @Test func aPauseHoldsWorkAndSurvivesAndResumingAnOperatorStillThereWakesIt() async throws {
         let (world, run, _) = try makeWorld()
+        // Keep this a pause/resume check; an ended worker would independently wake for acceptance.
+        world.live.sessions[1].state = .working
         try world.controller.pause(run: run.id)
         #expect(world.run(run.id)?.state == .paused && world.run(run.id)?.intent == .paused)
         #expect(try world.workspace.file.load().runs.first?.intent == .paused)
@@ -652,7 +654,7 @@ import Testing
         let daemon = RecordingDaemon(holding: "window.createTask")
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []), daemon: daemon)
         let starting = Task {
-            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go", review: nil, done: nil)
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go", agents: OperatorServiceFixtures.agents, taskSettings: TaskSettings(review: nil, end: .commit, closeWhenDone: false))
         }
         try await daemon.received("window.createTask")
         let id = try #require(world.state.runs.first?.id)
@@ -672,7 +674,7 @@ import Testing
         let daemon = RecordingDaemon(holding: "operator.register")
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []), daemon: daemon)
         let starting = Task {
-            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go", review: nil, done: nil)
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go", agents: OperatorServiceFixtures.agents, taskSettings: TaskSettings(review: nil, end: .commit, closeWhenDone: false))
         }
         try await daemon.received("operator.register")
         let id = try #require(world.state.runs.first?.id)

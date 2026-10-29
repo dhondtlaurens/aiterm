@@ -92,7 +92,7 @@ public enum PublicationGuard {
         guard operated.end.merges, run.profile.oracle.isOn, !TaskPublisher.Context.entersReview(operated, run: run),
               operated.publication?.conditionsHeld != operated.acceptance?.resultSHA
                 || operated.publication?.conditionsEvidence != evidence(task: task, run: run) else { return nil }
-        let conditions = run.taskSettings == nil ? "the conditions written in the Review and the Done" : "the task’s review conditions"
+        let conditions = "the task’s review conditions"
         return "The Oracle hasn’t said that \(conditions) hold for \(operated.key), so AiTerm doesn’t merge it: call finish_task again."
     }
 
@@ -101,15 +101,13 @@ public enum PublicationGuard {
     public static func evidence(task: TaskItem, run: OperatorRun) -> String {
         struct Evidence: Encodable {
             var acceptance: TaskAcceptance?
-            var review: String?, done: String?, taskSettings: TaskSettings?
-            var agentReview: AgentReviewResult?
+            var taskSettings: TaskSettings
             var reviewVerdicts: [ReviewVerdict]
             var answers: [OperatorQuestion]
         }
         let operated = task.operated
-        let review = operated?.agentReview.flatMap { $0.head == operated?.acceptance?.resultSHA ? $0 : nil }
-        let value = Evidence(acceptance: operated?.acceptance, review: run.review, done: run.done, taskSettings: run.taskSettings,
-                             agentReview: review, reviewVerdicts: operated?.reviewVerdicts ?? [],
+        let value = Evidence(acceptance: operated?.acceptance, taskSettings: run.taskSettings,
+                             reviewVerdicts: operated?.reviewVerdicts ?? [],
                              answers: run.questions.filter { $0.task == task.id && $0.about == OperatorQuestion.fixRounds && $0.resolution != nil })
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
         return (try? encoder.encode(value)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"

@@ -10,12 +10,11 @@ import Testing
 @MainActor @Suite struct BroadcastContractTests {
     let project = OperatorServiceFixtures.project()
 
-    private func start(_ world: OperatorWorld, review: String? = "Jan reviews.", done: String? = "A draft MR.",
-                       agents: [AgentChoice] = OperatorServiceFixtures.agents,
-                       taskSettings: TaskSettings? = OperatorServiceFixtures.taskSettings,
+    private func start(_ world: OperatorWorld, agents: [AgentChoice] = OperatorServiceFixtures.agents,
+                       taskSettings: TaskSettings = OperatorServiceFixtures.taskSettings,
                        goal: BroadcastGoal? = OperatorServiceFixtures.goal) async throws -> OperatorRun {
         let id = try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go.",
-                                                           review: review, done: done, agents: agents, taskSettings: taskSettings,
+                                                           agents: agents, taskSettings: taskSettings,
                                                            goal: goal)
         return try #require(world.run(id))
     }
@@ -30,7 +29,6 @@ import Testing
         let run = try await start(world, goal: BroadcastGoal(text: "\n  \(goal.text)  \n", extraRounds: goal.extraRounds))
         #expect(run.agents == OperatorServiceFixtures.agents && run.taskSettings == OperatorServiceFixtures.taskSettings)
         #expect(run.goal == goal)
-        #expect(run.review == nil && run.done == nil, "a run with task settings leaves the Review and Done text nil")
         #expect(OperatorProfileStore.lastAgents(try #require(world.ports.preferences)) == OperatorServiceFixtures.agents)
         #expect(try world.workspace.file.load().runs.first?.taskSettings == OperatorServiceFixtures.taskSettings, "frozen on disk")
     }
@@ -45,20 +43,7 @@ import Testing
         #expect(try await start(blank, goal: BroadcastGoal(text: "  ")).goal == nil)
     }
 
-    /// Started without the Task step, the run is a legacy one, with its Review and Done text and no rows and no goal, even
-    /// when given some; the last rows stay as they were.
-    @Test func aStartWithoutTheStepsIsALegacyRunAndKeepsTheLastRows() async throws {
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [])) {
-            $0.profile = { OperatorServiceFixtures.profile(oracle: true) }
-        }
-        let preferences = try #require(world.ports.preferences)
-        let earlier = [AgentChoice(agent: .codex, model: "gpt-6-mini", reasoning: nil)]
-        try OperatorProfileStore.saveLastAgents(earlier, preferences)
-        let run = try await start(world, taskSettings: nil)
-        #expect(run.review == "Jan reviews." && run.done == "A draft MR.")
-        #expect(run.taskSettings == nil && run.agents.isEmpty && run.goal == nil)
-        #expect(OperatorProfileStore.lastAgents(preferences) == earlier)
-    }
+
 
     @Test func theLastRowsAreNoneUntilSaved() throws {
         let preferences = ScratchDefaults.make()

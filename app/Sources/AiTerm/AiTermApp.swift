@@ -9,6 +9,16 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     static func main() {
         let app = NSApplication.shared
         Appearance.apply()
+        #if DEBUG
+        // Select fixture rendering before migration, live preferences, Keychain reads or services.
+        if ProcessInfo.processInfo.environment["AITERM_SNAPSHOT_DIR"] != nil {
+            let delegate = SnapshotAppDelegate()
+            app.delegate = delegate
+            app.setActivationPolicy(.accessory)
+            withExtendedLifetime(delegate) { app.run() }
+            return
+        }
+        #endif
         do { try AiTermPaths.migrateSupportDirectory() }
         catch {
             app.setActivationPolicy(.regular)
@@ -33,10 +43,6 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     var window: NSWindow!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        #if DEBUG
-        // Offscreen render-and-exit, for comparing the views against the design canvas.
-        if Snapshots.runIfRequested() { NSApp.terminate(nil); return }
-        #endif
         DevBuildIcon.apply()
         updates.finishPreviousUpdate()
         guard prepareWorkspace() else { NSApp.terminate(nil); return }

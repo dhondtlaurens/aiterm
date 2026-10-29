@@ -111,24 +111,13 @@ import Testing
         #expect(ChallengeLaunch.verdict("Not really") == nil, "only the word itself counts")
     }
 
-    /// A broadcast started before the Task step judges a merge by the Review and Done the person wrote, with the agent
-    /// review as evidence.
-    @Test func aLegacyMergeIsJudgedByTheReviewAndDone() {
-        let prompt = ChallengeLaunch.mergePrompt(task: "A", acceptedSHA: "abc", brief: "Do A.",
-                                                 conditions: .written(review: "Merge after Jan approves.", done: "Pipeline green.",
-                                                                      agentReview: #"{"findings":[]}"#), run: "{}")
-        #expect(prompt.contains("Judge whether the person's Review and Done conditions permit this act."))
-        #expect(prompt.contains("The Review, as the person wrote it:\nMerge after Jan approves."))
-        #expect(prompt.contains("The Done, as the person wrote it:\nPipeline green."))
-        #expect(prompt.contains(#"{"findings":[]}"#))
-        #expect(!prompt.contains("review verdicts"))
-    }
+
 
     /// A new broadcast's merge is judged by the Task step's review prompt and the task's verdicts, in place of a Review
     /// and Done it no longer has.
     @Test func aNewMergeIsJudgedByTheReviewPromptAndTheVerdicts() {
         let prompt = ChallengeLaunch.mergePrompt(task: "A", acceptedSHA: "abc", brief: "Do A.",
-                                                 conditions: .reviewed(prompt: "Review with /code-review; no critical finding.",
+                                                 conditions: .init(prompt: "Review with /code-review; no critical finding.",
                                                                        verdicts: #"[{"passed":true,"sha":"abc"}]"#, answers: nil), run: "{}")
         #expect(prompt.contains("The act: merge the accepted commit abc for task A."))
         #expect(prompt.contains("The review prompt, as the person wrote it:\nReview with /code-review; no critical finding."))
@@ -137,7 +126,7 @@ import Testing
         #expect(prompt.contains("Answer YES or NO alone on the first line"))
         #expect(prompt.contains("The person's answers when the task ran out of fix rounds:\n(none)"))
         let none = ChallengeLaunch.mergePrompt(task: "A", acceptedSHA: "abc", brief: "Do A.",
-                                               conditions: .reviewed(prompt: nil, verdicts: "[]", answers: nil), run: "{}")
+                                               conditions: .init(prompt: nil, verdicts: "[]", answers: nil), run: "{}")
         #expect(none.contains("(none: a task is accepted without a review)"))
         #expect(!none.contains("\u{2014}") && !prompt.contains("\u{2014}"))
     }
@@ -147,7 +136,7 @@ import Testing
     @Test func aPersonsAcceptOutOfFixRoundsStandsInTheMergeCheck() {
         let answers = #"[{"question":"A is out of fix rounds.","answer":"Accept as it is."}]"#
         let prompt = ChallengeLaunch.mergePrompt(task: "A", acceptedSHA: "abc", brief: "Do A.",
-                                                 conditions: .reviewed(prompt: "Three rounds of fixes, then ask me.",
+                                                 conditions: .init(prompt: "Three rounds of fixes, then ask me.",
                                                                        verdicts: #"[{"passed":false,"sha":"abc"}]"#, answers: answers),
                                                  run: "{}")
         #expect(prompt.contains("The person's answers when the task ran out of fix rounds:\n\(answers)"))

@@ -139,9 +139,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         }
     }
 
-    /// `run.agents`: each installed agent's models and default by the agent's raw value, as before the Agents step, and
-    /// under `allowed` the broadcast's Agents rows, the only combinations it may start. `allowed` is left out for a
-    /// broadcast started before the rows.
+    /// `run.agents`: installed models/defaults by agent raw value, and the broadcast's permitted
+    /// combinations under `allowed`. Only those Agents rows may start workers and review tabs.
     public struct Agents: Encodable, Equatable, Sendable {
         public var installed: [String: AgentChoice]
         public var allowed: [AiTermCore.AgentChoice]
@@ -170,7 +169,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     }
 
     public struct Run: Encodable, Equatable, Sendable {
-        public var id: UUID, name: String, state: OperatorRunState, prompt: String, review: String?, done: String?
+        public var id: UUID, name: String, state: OperatorRunState, prompt: String
         /// The last submitted revision, and the open one `create_task` adds to.
         public var planRevision: Int, openRevision: Int
         /// How many tasks the first submitted plan had, nil before one is submitted: what the backlog's growth is measured against.
@@ -194,19 +193,19 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         /// The run is complete and its summary is not written: the Operator writes it with `write_summary`.
         public var summaryDue: Bool
         /// What every task follows (the Task step); nil for a broadcast started before it.
-        public var taskSettings: TaskSettings?
+        public var taskSettings: TaskSettings
         /// The broadcast's goal; nil for none.
         public var goal: BroadcastGoal?
         /// True while every task is done and the goal is still to check with `check_goal`; nil otherwise.
         public var goalCheckDue: Bool?
         /// The extra rounds the goal checks used; nil for a broadcast with no goal.
         public var roundsUsed: Int?
-        public init(id: UUID, name: String, state: OperatorRunState, prompt: String, review: String? = nil, done: String? = nil,
+        public init(id: UUID, name: String, state: OperatorRunState, prompt: String,
                     planRevision: Int, openRevision: Int, firstPlanSize: Int? = nil, finds: [OffBriefFind] = [], snags: [SnagLine] = [],
                     slices: Slices = .none, oracleIsOn: Bool = false, usage: [String: Int] = [:], agents: Agents = Agents(), jiraProjectKeys: [String] = [],
-                    summaryDue: Bool = false, taskSettings: TaskSettings? = nil, goal: BroadcastGoal? = nil, goalCheckDue: Bool = false,
+                    summaryDue: Bool = false, taskSettings: TaskSettings = TaskSettings(review: nil, end: .draftMR), goal: BroadcastGoal? = nil, goalCheckDue: Bool = false,
                     roundsUsed: Int = 0) {
-            self.id = id; self.name = name; self.state = state; self.prompt = prompt; self.review = review; self.done = done
+            self.id = id; self.name = name; self.state = state; self.prompt = prompt
             self.planRevision = planRevision; self.openRevision = openRevision; self.firstPlanSize = firstPlanSize
             self.jiraProjectKeys = jiraProjectKeys
             self.finds = finds; self.snags = snags; self.slices = slices; self.oracleIsOn = oracleIsOn; self.usage = usage; self.agents = agents
@@ -221,7 +220,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public init(key: String, kind: DependencyKind) { self.key = key; self.kind = kind }
     }
 
-    /// A task's agent review: by whom, and `running`, `done` (its findings read with `read_task`, `what: review`) or `failed`.
+    /// Saved agent-review evidence, reported as data; it never holds a task or starts a review.
     public struct AgentReviewLine: Encodable, Equatable, Sendable {
         public var agent: AgentKind, state: String
         public init(agent: AgentKind, state: String) { self.agent = agent; self.state = state }
@@ -519,7 +518,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         }
         return RunStatus(
             revision: revision,
-            run: Run(id: run.id, name: run.name, state: run.state, prompt: run.prompt, review: run.review, done: run.done,
+            run: Run(id: run.id, name: run.name, state: run.state, prompt: run.prompt,
                      planRevision: run.planRevision, openRevision: run.openRevision, firstPlanSize: run.firstPlanSize,
                      finds: run.finds, snags: run.snags.map { SnagLine(key: $0.key, title: $0.title) }, slices: run.profile.slices, oracleIsOn: run.profile.oracle.isOn,
                      usage: Dictionary(runLive.weeklyUsage.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
@@ -549,7 +548,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
               let began = review.startedAt else { return false }
         let busy: (SessionState?) -> Bool = { $0 == .working || $0 == .needsInput }
         let waiting = busy(facts.counted) || facts.tabs.contains { busy($0.counted) || $0.waitingPrompt != nil || $0.turnUnread } || facts.waitingPrompt != nil
-            || !facts.background.isEmpty || facts.turnUnread || task.agentReview?.isRunning == true || task.flags.contains(.waitingOnYou)
+            || !facts.background.isEmpty || facts.turnUnread || task.flags.contains(.waitingOnYou)
         return !waiting && !review.threads.values.contains(false)
             && now.timeIntervalSince(began) >= TimeInterval(OperatorTiming.reviewQuietMinutes) * 60
     }

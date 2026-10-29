@@ -257,7 +257,7 @@ The model a Claude session reports is the session's own, as Claude Code holds it
 `model.id`, the one it runs now. A `/model` moves them only once it has run, never when it is typed, and
 one that asks the person to confirm ("Switch model?") changes none of them until it is answered. A post
 from inside a subagent, which carries `agent_id`, sets nothing, and neither does one placed by its
-directory alone: another agent in the same worktree, a headless review there, is not the tab's. Its
+directory alone: another agent in the same worktree is not the tab's. Its
 effort comes from the status line's `effort.level` alone, which Claude Code redraws once an `/effort`
 has run, and leaves out for a model that takes none: a status line that names a model and no effort
 clears the last one's. Its hooks carry an `effort` too, but a Stop's is its turn's: an `/effort` typed
@@ -325,23 +325,3 @@ all reported the repository root while their processes were inside `.worktrees/*
   is the case where the next command lands somewhere you did not mean.
 - **No window open** — e.g. `main`. A task falls back to its own branch, a terminal to the
   project's checkout. The row still says something true rather than going blank.
-
-## What this shape fixed
-
-**The frozen spinner** — SwiftUI installs a `.animation(_:value:)` only when the value changes,
-and the spin flag outlives the branch of the switch that owns it. It latched true the first time a
-row worked, so every later working spell rendered a static arc at 360°. Measured with an
-interpolation probe: 172 on first appearance, 0 on the second, 181 with the reset on disappear.
-
-**Every row on the same branch** — Before `agentCwd`, every task in a repository reported the
-repository's own branch, because that is where the shells were. The rows looked plausible and were
-uniformly wrong — the worst kind of bug in a status display.
-
-**A turn that ended too early** — A foreground `Stop` arrives while background subagents are still
-running. Marking the row done there made it go quiet mid-work; the turn's deferred done holds the
-change until the last child reports back.
-
-**A child that ran on after its stop** — Claude Code fires a child's `SubagentStop` when its turn
-ends, even one it then runs on to hand back its report. Taking that first stop as the child's end
-landed the deferred done early: the Operator found the task ready for acceptance while its review
-still ran. The child's transcript now says which stop ended it.

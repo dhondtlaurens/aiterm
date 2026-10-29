@@ -424,7 +424,7 @@ import Testing
         #expect(act(.messageTask, .inReview) == .relayingFeedback)
         #expect(act(.replyThread, .inReview) == .relayingFeedback)
         #expect(act(.markTask) == .checkingTheWork)
-        #expect(act(.reviewTask) == .reviewingWith)
+        #expect(act(.reviewTask) == nil, "a refused tool starts no review activity")
         #expect(act(.requestReview) == .assigning)
         #expect(act(.finishTask) == .checkingTheWork)
         #expect(act(.finishTask, end: .draftMR) == .openingTheMR)

@@ -2,9 +2,7 @@ import Testing
 import Foundation
 @testable import AiTermCore
 
-/// What a broadcast set up with Agents, Task and Done keeps (broadcast setup v2, Data): each new type and field saved
-/// and read back, read with nothing in it, keeping a newer build's fields, and left out of a run that has none, so a
-/// broadcast started before them saves as it did.
+/// Current configuration values, persisted review evidence and status payloads.
 @Suite struct BroadcastSettingsTests {
     private static let at = Date(timeIntervalSince1970: 1_700_000_000)
 
@@ -19,16 +17,7 @@ import Foundation
         return try #require(try JSONSerialization.jsonObject(with: encoder.encode(value)) as? [String: Any])
     }
 
-    private func empty<T: Decodable>(_ type: T.Type) throws -> T { try JSONDecoder().decode(T.self, from: Data("{}".utf8)) }
 
-    /// A field a newer build wrote goes back out with the save.
-    private func keepsNewerFields<T: Codable>(_ value: T) throws {
-        var json = try saved(value)
-        json["futureField"] = ["nested": [1, "future"]]
-        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        let decoded = try decoder.decode(T.self, from: JSONSerialization.data(withJSONObject: json))
-        #expect((try saved(decoded)["futureField"] as? NSDictionary) == (["nested": [1, "future"]] as NSDictionary), "\(T.self)")
-    }
 
     static let verdict = ReviewVerdict(tab: "review-1", sha: "4f2a91c", passed: false, round: 2, rounds: 3, critical: 1, important: 2,
                                        minor: 4, summary: "One race in the cart.", at: at)
@@ -46,9 +35,7 @@ import Foundation
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         let verdict = try decoder.decode(ReviewVerdict.self, from: JSONSerialization.data(withJSONObject: json))
         #expect(try roundTrip(verdict).key == "review-attempt-1")
-        #expect(try empty(ReviewVerdict.self).key == nil)
         #expect(try saved(roundTrip(verdict))["key"] as? String == "review-attempt-1")
-        #expect(try saved(empty(ReviewVerdict.self))["key"] == nil)
         #expect(try saved(Self.verdict)["key"] == nil)
     }
 
@@ -73,30 +60,7 @@ import Foundation
         #expect(NSDictionary(dictionary: row).isEqual(to: ["agent": "claude", "model": "claude-opus-5-5", "reasoning": "high"]))
     }
 
-    /// Every field may be missing: each reads as its default, the Task step's own (a draft MR, closed once done, its
-    /// branch kept) and the Done step's two extra rounds.
-    @Test func eachNewTypeReadsWithNothingInIt() throws {
-        let settings = try empty(TaskSettings.self)
-        #expect(settings == TaskSettings(review: nil, end: .draftMR, closeWhenDone: true, deleteMergedBranch: false))
-        #expect(try empty(BroadcastGoal.self) == BroadcastGoal(text: "", extraRounds: 2))
-        let row = try empty(AgentChoice.self)
-        #expect(row.model == "" && row.reasoning == nil)
-        let check = try empty(GoalCheck.self)
-        #expect(check.round == 0 && !check.met && check.missing.isEmpty && check.oracleAgreed == nil)
-        let verdict = try empty(ReviewVerdict.self)
-        #expect(!verdict.passed && verdict.rounds == nil && verdict.critical == 0 && verdict.summary == "")
-        let record = try empty(FinishedTaskRecord.self)
-        #expect(record.key == "" && record.acceptedSHA == nil && !record.branchDeleted)
-    }
 
-    @Test func eachNewTypeKeepsANewerBuildsFields() throws {
-        try keepsNewerFields(AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: nil))
-        try keepsNewerFields(TaskSettings(review: nil, end: .commit, closeWhenDone: true, deleteMergedBranch: false))
-        try keepsNewerFields(BroadcastGoal(text: "Ship it.", extraRounds: 2))
-        try keepsNewerFields(Self.check)
-        try keepsNewerFields(Self.verdict)
-        try keepsNewerFields(Self.record)
-    }
 
     /// A row is its combination: the same agent, model and reasoning twice is one row.
     @Test func identicalRowsAreOne() {
@@ -124,40 +88,8 @@ import Foundation
         }
     }
 
-    /// A run with none of them saves without their keys, as one started before them did.
-    @Test func eachNewRunFieldIsLeftOutWhileEmptyOrNil() throws {
-        let written = try saved(OperatorFixtures.run()).keys
-        for key in ["agents", "taskSettings", "goal", "goalCheckDue", "roundsUsed", "goalChecks", "goalOutcome",
-                    "revisionAtLastCheck", "finished", "closedAt"] {
-            #expect(!written.contains(key), "\(key) is written")
-        }
-    }
 
-    /// A run as the build before this change saved it, word for word: it reads as a legacy run, with no Agents rows, no
-    /// task settings and no goal, and saves back the same.
-    @Test func aLegacyRunDecodesAndSavesBackUnchanged() throws {
-        let json = #"""
-        {"id":"0F3A1C2B-0000-4000-8000-0000000000B2","name":"Sprint 42",
-         "profile":{"model":"claude-opus-5-5","reasoning":"high","slices":{"jira":false,"review":true,"merge":true},
-                    "oracle":{"isOn":true,"agent":"codex","model":"gpt-6-astra","reasoning":"medium"},
-                    "instructions":"Keep changes small."},
-         "projectIds":["0A1B2C3D-4E5F-4071-8293-A4B5C6D7E8F9"],"jiraProjectKeys":["PLUTO"],"prompt":"Do the sprint",
-         "review":"An adversarial review with /code-review","done":"A draft MR per ticket","state":"complete","planRevision":2,
-         "firstPlanSize":3,"questions":[{"id":"q1","text":"Which API?","askedAt":"1970-01-01T00:00:10Z"}],"decisions":[],
-         "finds":[],"snags":[],"leftForYou":[],"challenges":[],"jiraCreated":{},"threadReplies":{},"pendingWrites":[],
-         "createdAt":"1970-01-01T00:00:00Z","completedAt":"1970-01-01T01:00:00Z"}
-        """#
-        let data = Data(json.utf8)
-        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        let run = try decoder.decode(OperatorRun.self, from: data)
-        #expect(run.taskSettings == nil && run.agents.isEmpty && run.goal == nil)
-        #expect(!run.goalCheckDue && run.roundsUsed == 0 && run.goalChecks.isEmpty && run.goalOutcome == nil)
-        #expect(run.revisionAtLastCheck == nil && run.finished.isEmpty && run.closedAt == nil)
-        #expect(run.review == "An adversarial review with /code-review" && run.done == "A draft MR per ticket")
-        #expect(run.questions.first?.about == nil)
-        let earlier = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(NSDictionary(dictionary: try saved(run)).isEqual(to: earlier))
-    }
+
 
     @Test func aTasksVerdictsAreKeptAndLeftOutWhileThereAreNone() throws {
         var task = OperatorFixtures.operated("A", .working)
@@ -189,13 +121,6 @@ import Foundation
             return try #require(try JSONSerialization.jsonObject(with: built.json()) as? [String: Any])
         }
         let added = ["taskSettings", "goal", "goalCheckDue", "roundsUsed"]
-        let legacy = try status(OperatorFixtures.run(), OperatorFixtures.task("A", .working))
-        let legacyRun = try #require(legacy["run"] as? [String: Any])
-        for key in added { #expect(legacyRun[key] == nil, "\(key) is said") }
-        #expect((legacyRun["agents"] as? [String: Any]).map { Set($0.keys) } == ["claude"])
-        #expect(legacy["finished"] == nil)
-        #expect((legacy["tasks"] as? [[String: Any]])?.first?["reviewVerdicts"] == nil)
-
         var run = OperatorFixtures.run(agents: OperatorFixtures.agents, taskSettings: OperatorFixtures.taskSettings, goal: OperatorFixtures.goal)
         run.goalCheckDue = true
         run.roundsUsed = 1

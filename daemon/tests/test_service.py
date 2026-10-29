@@ -104,6 +104,27 @@ def gated_snapshots(it, fail_on: int | None = None):
     return gate, count
 
 
+@pytest.mark.parametrize("session_count", [0, 18, 150])
+async def test_tick_registry_read_budget(make_service, monkeypatch, session_count):
+    """One tick must not sort the same session set for every observation consumer."""
+    svc = make_service()
+    for index in range(session_count):
+        await svc.iterm.create_window("/wt", str(index), {"aiterm_task": f"t{index // 3}"}, Frame(0, 0, 10, 10))
+    await svc.tick()
+    reads = 0
+    read = svc.registry.all
+
+    def counted():
+        nonlocal reads
+        reads += 1
+        return read()
+
+    monkeypatch.setattr(svc.registry, "all", counted)
+    await svc.tick()
+    assert len(read()) == session_count
+    assert reads <= 6, f"one tick sorted {session_count} sessions {reads} times"
+
+
 async def test_ticks_queued_behind_one_are_served_by_a_single_next_tick(stack):
     svc, it, files, r, w = stack
     gate, snapshots = gated_snapshots(it)

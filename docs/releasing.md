@@ -11,6 +11,9 @@ One-time setup:
 - **Python 3.11 or newer**, which `scripts/make-dmg.sh` uses for `dmgbuild` (installed into
   `build/.dmg-venv` on first use).
 
+Complete `scripts/test.sh all` once before merging and `scripts/test-app-bundle.sh build/AiTerm.app`
+on the release candidate. These automated checks do not replace the manual checks below.
+
 Then, from a clean, pushed `main`: `scripts/release.sh <version>`. It builds and signs the app,
 wraps it in `AiTerm-<version>.dmg`, pushes the tag `v<version>` and publishes the GitHub release.
 
@@ -64,8 +67,7 @@ Jira-to-agent workflow. Run through this list by hand:
    unraised, terminals as fresh shells. Quit AiTerm, close a task window, start AiTerm: the window comes
    back. With iTerm2's window restoration on (Settings › General › Startup, and macOS "Close windows
    when quitting an app" off), quit and relaunch iTerm2: nothing is duplicated; every task window is
-   adopted, not reopened. Terminals created before this release carry no `aiterm_terminal` tag, so
-   the first iTerm2 restart with restoration on can leave one duplicate shell per terminal, once.
+   adopted, not reopened.
    Drag a task window's only tab into another window: nothing is asked, and clicking the row
    raises that window. Close a task window and stay in iTerm2: if AiTerm cannot come forward, its Dock
    icon bounces until you switch to it.
@@ -77,10 +79,24 @@ Jira-to-agent workflow. Run through this list by hand:
     comes back at the same path and the window reopens, raised, its conversation resumed. Close a
     task's window with ⇧⌘W and answer **Shelve**: it lands on the shelf, nothing reopens. Remove
     a project that has shelved rows: the question counts them, and they are gone from the sheet.
-    Downgrading to a build without the Shelf drops it on that build's next save.
 12. Open the release DMG: AiTerm on the left, Applications on the right. Drag AiTerm to
     Applications, replacing the previous release, and open it.
 13. On a Mac still running the previous release, **AiTerm › Check for Updates…** offers this
     release and installs it in place.
 14. **New Review…** on a GitHub repo: open pull requests list as `#n`; a fork's pull request is
     refused with its fork named.
+
+15. Exercise a structured broadcast in an isolated project: permitted Agents rows, review tab/verdict,
+    one additional worker tab, pause/resume and takeover/hand-back, a goal/additional round, accepted
+    commit publication and its final summary/closing. Use explicit test accounts for Jira/host writes.
+    Do not replace an app with an active successful run merely to perform a release smoke check.
+
+The supported broadcast format is structured Agents/Task/Done. The automated frozen-save and
+model-facing contract tests protect current restart behavior; historical broadcast formats are not
+a release compatibility requirement. Personal workspace and credential recovery remain protected.
+
+Before switching from a build with unstructured historical broadcasts, end and remove those
+broadcasts from its Shelf using that installed build. Confirm its saved workspace and recovery copy
+no longer contain unsupported runs before replacing it. The new decoder does not migrate or silently
+set such entries aside: an unsupported run blocks loading the workspace, and an equally unsupported
+backup cannot repair it. Do not edit or discard projects/tasks to work around this precondition.

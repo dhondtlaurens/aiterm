@@ -4,8 +4,8 @@ import Foundation
 @testable import AiTermTestSupport
 
 /// The Operator's brief, live (spec §5): each scenario of `OperatorEvalGrading` run through `claude -p` three times on
-/// each brief, the baseline brief as of edf7c43, 21 Oct 2026 (`Fixtures/operator-eval-baseline`, with the tools as
-/// they were served then) and the brief now (`OperatorCommand.brief`, with the daemon's tools now), against the stub MCP server
+/// each brief, the current structured baseline captured at f152f6e9 and the brief now
+/// (`OperatorCommand.brief`, with the daemon's tools now), against the stub MCP server
 /// (`daemon/tools/operator_stub.py`), and graded on the calls and the final reply. Uses quota, so it runs only with
 /// `AITERM_LIVE_OPERATOR=1`.
 ///
@@ -14,7 +14,7 @@ import Foundation
 /// in `AITERM_EVAL_OUT`, or a folder in the temporary directory, whose path it prints.
 ///
 /// It prints a table, scenario by scenario, and fails for each scenario the new brief misses on any of its three runs; the
-/// old brief is only reported, since it has no report_snag. A miss is a finding about the brief, as in `FixLiveTests`:
+/// baseline is reported separately. A miss is a finding about the brief, as in `FixLiveTests`:
 /// change the brief, not the scenario.
 ///
 /// Beyond the Operator's own command, each run passes `--max-turns` and a timeout, so a run that loops can't hang the
@@ -44,8 +44,9 @@ struct OperatorEvalTests {
         let out = environment["AITERM_EVAL_OUT"].map { URL(fileURLWithPath: $0) }
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-operator-eval-\(Int(Date().timeIntervalSince1970))")
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-        let fixtures = Self.root.appendingPathComponent("app/Tests/AiTermCoreTests/Operators/Fixtures/operator-eval-baseline")
-        let old = Brief(name: "old", brief: fixtures.appendingPathComponent("brief.md"), tools: fixtures.appendingPathComponent("tools.json"))
+        let fixtures = Self.root.appendingPathComponent("app/Tests/AiTermCoreTests/Operators/Fixtures/operator-current")
+        let baseline = Brief(name: "baseline", brief: fixtures.appendingPathComponent("eval-brief.md"),
+                             tools: Self.daemon.appendingPathComponent("tests/fixtures/operator-current-tools.json"))
         let new = Brief(name: "new", brief: out.appendingPathComponent("new-brief.md"), tools: out.appendingPathComponent("new-tools.json"))
         try Data(OperatorCommand.brief(run: OperatorEvalGrading.evalRun, projects: [OperatorEvalGrading.evalProject]).utf8).write(to: new.brief)
         try Self.dumpTools(to: new.tools)
@@ -53,7 +54,7 @@ struct OperatorEvalTests {
         print("LIVE Operator evals: \(model)\(effort.map { " at \($0)" } ?? ""), runs kept in \(out.path)")
 
         let jobs = OperatorEvalGrading.scenarios.flatMap { scenario in
-            [old, new].flatMap { brief in (1...Self.runsPerBrief).map { Job(scenario: scenario, brief: brief, number: $0) } }
+            [baseline, new].flatMap { brief in (1...Self.runsPerBrief).map { Job(scenario: scenario, brief: brief, number: $0) } }
         }
         let words = Array(AgentKind.claude.harness.launchWords(model: model, reasoning: effort).dropFirst())
         let outcomes = await withTaskGroup(of: Outcome.self) { group in
@@ -184,8 +185,8 @@ struct OperatorEvalTests {
             "\(outcomes.filter { $0.scenario == scenario && $0.brief == brief && $0.failures.isEmpty }.count)/\(runsPerBrief)"
         }
         let pad = { (text: String) in text.padding(toLength: width, withPad: " ", startingAt: 0) }
-        return ([pad("scenario") + "  old  new"] + OperatorEvalGrading.scenarios.map {
-            pad($0.name) + "  " + passed($0.name, "old") + "  " + passed($0.name, "new")
+        return ([pad("scenario") + "  baseline  new"] + OperatorEvalGrading.scenarios.map {
+            pad($0.name) + "  " + passed($0.name, "baseline") + "  " + passed($0.name, "new")
         }).joined(separator: "\n")
     }
 }

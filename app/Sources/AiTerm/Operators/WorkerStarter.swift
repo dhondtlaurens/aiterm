@@ -12,6 +12,8 @@ final class WorkerStarter {
     private let daemon: @MainActor () -> (any DaemonCommands)?
     private let taskFrame: @MainActor () -> Frame
     private let ports: OperatorPorts
+    private let workflow: TaskWorkflow
+    private var isStopped = false
     /// The tasks being started now: a pass that meets one again leaves it be.
     private(set) var starting: Set<UUID> = []
     /// When each task's last launch task in this run of AiTerm ended: a launch that ended without a
@@ -49,9 +51,13 @@ final class WorkerStarter {
         self.daemon = daemon
         self.taskFrame = taskFrame
         self.ports = ports
+        self.workflow = TaskWorkflow(git: ports.git)
     }
 
     private var state: AppState { workspace.state }
+
+    func start() { isStopped = false }
+    func stop() { isStopped = true }
 
     /// Why a task cannot start now whatever the helper does: it stacks on a code parent that is accepted
     /// but kept no commit to build on. The scheduler counts such a parent satisfied; branching its child from
@@ -65,6 +71,7 @@ final class WorkerStarter {
     /// code parent kept no commit is blocked first. The caller saves the claims before launching any
     /// (spec §11), and releases them if it cannot.
     func claimReady() -> [UUID] {
+        guard !isStopped else { return [] }
         let busy = busy()
         blockUnbased(excluding: busy)
         let before = state, now = ports.now()
@@ -147,7 +154,7 @@ final class WorkerStarter {
     /// `before` is the task as it stood before `attempt` claimed it: what a claim that no longer holds
     /// goes back to. The reconciler's relaunch passes none: its claim was made before, and stays.
     func launch(_ id: UUID, attempt: LaunchAttempt, before: OperatedTask? = nil) async {
-        guard let task = state.task(id: id), let operated = task.operated, state.run(id: operated.runId) != nil,
+        guard !isStopped, let task = state.task(id: id), let operated = task.operated, state.run(id: operated.runId) != nil,
               let project = state.project(id: task.projectId), let daemon = daemon() else { return }
         let activity = OperatorActivity(run: operated.runId, task: id, act: .starting)
         onActing(activity, true)
@@ -156,12 +163,7 @@ final class WorkerStarter {
         do {
             let start = try await startPoint(of: id, in: project)
             let reserved = state.reservedWorktreeSlugs(projectId: project.id)
-            let (made, baseline) = try await BackgroundWork.run {
-                let made = try TaskCreator.checkOutWorker(task, project: project, start: start, reserved: reserved, git: git)
-                // Adoption may find a branch with work already on it: record its fork, never its head.
-                let baseline = try Repository(made.task.worktreePath, git: git).mergeBase(start, "HEAD")
-                return (made, baseline)
-            }
+            let (made, baseline) = try await workflow.checkOutWorker(task, project: project, start: start, reserved: reserved)
             workspace.mutate { state in
                 guard let i = state.tasks.firstIndex(where: { $0.id == id }) else { return }
                 state.tasks[i].worktreePath = made.task.worktreePath
@@ -201,24 +203,18 @@ final class WorkerStarter {
 
     /// What a task launches with. Its planned agent and model, unless this is its first launch, it is not
     /// pinned and its agent's weekly use is near the limit (`ModelChoice.launchAgent`): then the other agent
-    /// and its first allowed row (its default model for legacy runs). `switchedFrom` names the planned agent.
+    /// and its first allowed row. `switchedFrom` names the planned agent.
     /// A relaunch or a retry keeps the agent it started on.
     private func launchChoice(for task: TaskItem, operated: OperatedTask, attempt: LaunchAttempt) -> LaunchChoice {
         let keep = LaunchChoice(agent: task.agent, model: task.model, reasoning: task.reasoning, switchedFrom: nil, percent: 0)
         guard attempt.number == 1, operated.retriesUsed == 0 else { return keep }
         let weekly = ports.weeklyUsage?() ?? [:], installed = ports.installedAgents?() ?? Set(AgentKind.allCases)
-        if let run = state.run(id: operated.runId), run.taskSettings != nil {
-            let planned = AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)
-            let row = ModelChoice.launchChoice(planned: planned, pinned: operated.agentPinned, weekly: weekly,
-                                               installed: installed, rows: run.agents)
-            guard row.agent != task.agent else { return keep }
-            return LaunchChoice(agent: row.agent, model: row.model, reasoning: row.reasoning, switchedFrom: task.agent,
-                                percent: weekly[task.agent] ?? 0)
-        }
-        let agent = ModelChoice.launchAgent(planned: task.agent, pinned: operated.agentPinned, weekly: weekly, installed: installed)
-        guard agent != task.agent else { return keep }
-        let model = OperatorToolHandler.defaultModel(for: agent, remembered: state.lastModelByAgent)
-        return LaunchChoice(agent: agent, model: model.model, reasoning: model.reasoning, switchedFrom: task.agent,
+        guard let run = state.run(id: operated.runId) else { return keep }
+        let planned = AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)
+        let row = ModelChoice.launchChoice(planned: planned, pinned: operated.agentPinned, weekly: weekly,
+                                           installed: installed, rows: run.agents)
+        guard row.agent != task.agent else { return keep }
+        return LaunchChoice(agent: row.agent, model: row.model, reasoning: row.reasoning, switchedFrom: task.agent,
                             percent: weekly[task.agent] ?? 0)
     }
 
@@ -252,7 +248,7 @@ final class WorkerStarter {
 
     /// A launch that showed no tab, tried again as `attempt` — saved by the caller first.
     func relaunch(_ id: UUID, attempt: LaunchAttempt) -> Task<Void, Never>? {
-        guard !starting.contains(id) else { return nil }
+        guard !isStopped, !starting.contains(id) else { return nil }
         starting.insert(id)
         return Task {
             defer { settle(id) }
@@ -266,6 +262,7 @@ final class WorkerStarter {
     /// or no conversation to resume, or no helper is there. Only the first worker's conversation resumes
     /// (`TaskItem.firstWorkerConversation`): an extra tab the Operator added (`open_tab`) is never opened again.
     func reopen(_ id: UUID) -> Task<Void, Never>? {
+        guard !isStopped else { return nil }
         if let at = reopenedAt[id], ports.now().timeIntervalSince(at) < OperatorTiming.launchAdoptAfter { return nil }
         guard !starting.contains(id), !live.sessions.contains(where: { $0.taskUUID == id }), let task = state.task(id: id),
               task.hasCheckout, let operated = task.operated, state.run(id: operated.runId) != nil, let conversation = task.firstWorkerConversation,
@@ -402,7 +399,7 @@ final class WorkerStarter {
     /// Whether the claim `attempt` made still holds: the task is working on it, not taken over, and its
     /// run is active.
     private func claimHolds(_ id: UUID, _ attempt: LaunchAttempt) -> Bool {
-        guard let operated = state.task(id: id)?.operated, operated.state == .working, operated.launch == attempt,
+        guard !isStopped, let operated = state.task(id: id)?.operated, operated.state == .working, operated.launch == attempt,
               !operated.takenOver else { return false }
         return state.run(id: operated.runId)?.state == .active
     }

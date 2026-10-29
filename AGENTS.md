@@ -35,3 +35,12 @@ Swift is written.
   `~/.claude/settings.json` as the person's default for every new session. Probe with launch flags
   (`--model`, `--effort`) or a scratch `CLAUDE_CONFIG_DIR`, as `daemon/tools/delivery_check.py` does.
 - The app is dark-only.
+
+## Architecture and verification references
+
+- `docs/architecture.md` maps decision/effect ownership; `docs/operators.md` describes the current
+  structured broadcast workflow. Preserve the frozen current Operator contracts during refactors.
+- `docs/testing.md` defines meaningful coverage, isolation and fixture ownership. Do not regenerate
+  contract goldens to accommodate an incidental refactor.
+- Debug snapshot entry precedes live controller construction. `scripts/run-dev.sh` is a deliberate
+  live switch and must not be used while a running session needs to remain undisturbed.

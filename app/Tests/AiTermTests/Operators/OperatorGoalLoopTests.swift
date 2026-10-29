@@ -54,9 +54,9 @@ import Synchronization
     }
 
     /// A broadcast started before the Task step has no goal: it completes as it always did.
-    @Test func aLegacyBroadcastCompletesAsBefore() throws {
+    @Test func aBroadcastWithoutAGoalCompletesWhenItsTasksEnd() throws {
         var run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
-        run.review = "Merge after Jan approves."
+        run.taskSettings.review = "Merge after Jan approves."
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .noChange)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         world.controller.runChanged(run.id)
@@ -230,7 +230,6 @@ import Synchronization
         let m = try OperatorMergeTests().merging(answer: nil, runner: .answering("YES", receivePrompt: { prompts.append($0) }))
         m.world.workspace.mutate { state in
             state.updateRun(id: m.run.id) {
-                $0.review = nil; $0.done = nil
                 $0.taskSettings = OperatorServiceFixtures.taskSettings
                 $0.questions = [OperatorQuestion(id: "rounds-A", text: "A is out of fix rounds.", task: m.task.id, askedAt: Date(timeIntervalSince1970: 0),
                                                  resolution: "The person accepted it as it is.", about: OperatorQuestion.fixRounds),

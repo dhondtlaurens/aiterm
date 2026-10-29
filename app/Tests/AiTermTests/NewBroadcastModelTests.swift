@@ -193,7 +193,7 @@ struct NewBroadcastModelTests {
 
         let request = try #require(requests.first)
         #expect(Array(request.prompt.utf8) == Array(sheet.prompt.utf8))
-        #expect(request.taskSettings?.review.map { Array($0.utf8) } == Array(sheet.review.utf8))
+        #expect(request.taskSettings.review.map { Array($0.utf8) } == Array(sheet.review.utf8))
         #expect(request.goal.map { Array($0.text.utf8) } == Array(sheet.done.utf8))
     }
 

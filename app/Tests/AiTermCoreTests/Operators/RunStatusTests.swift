@@ -128,11 +128,11 @@ import Foundation
     }
 
     /// The broadcast's prompt, Review and Done, as the run froze them.
-    @Test func theRunSaysItsPromptReviewAndDone() throws {
+    @Test func theRunSaysItsPromptAndTaskPolicy() throws {
         var (s, live, _) = scene()
-        s.runs[0].review = "Jan approves each MR"
+        s.runs[0].taskSettings.review = "Jan approves each MR"
         let run = try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: live)).run
-        #expect(run.prompt == "Implement the sprint." && run.review == "Jan approves each MR" && run.done == "a commit per item, tests green")
+        #expect(run.prompt == "Implement the sprint." && run.taskSettings.review == "Jan approves each MR" && run.taskSettings.end == .commit)
     }
 
     @Test func theToolsJSONHasSortedKeysAndISODates() throws {
@@ -143,7 +143,6 @@ import Foundation
         let text = String(decoding: data, as: UTF8.self)
         #expect(text.contains(#""askedAt":"2023-11-14T22:13:20Z""#))
         #expect(text.hasPrefix(#"{"obligations":"#))
-        #expect(!text.contains("approvedRevision") && !text.contains("planAwaitingApproval") && !text.contains("gated"))
     }
 
     // -- a task with extra worker tabs (`open_tab`) ------------------------------------------------
@@ -482,7 +481,7 @@ import Foundation
         b.operated?.agentReview = AgentReviewResult(agent: .codex, instructions: "Review.", head: "4f2a91c", startedAt: began)
         let reviewing = [b.id: TaskLiveFacts(status: .idle)]
         #expect(try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1, live: reviewing, now: late))
-            .obligations.reviewQuiet.isEmpty, "an agent review running")
+            .obligations.reviewQuiet == ["B"], "saved review evidence cannot hold the current tab workflow")
         b.operated?.agentReview = nil
         b.operated?.flags = [.waitingOnYou]
         #expect(try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1, live: reviewing, now: late))

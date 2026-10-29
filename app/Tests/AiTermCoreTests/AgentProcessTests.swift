@@ -128,19 +128,35 @@ import Darwin
     }
 
     @Test func manyLongRunsHoldNoPoolThread() async throws {
-        // Eight children of one second each, all driven from one thread. A run that parked it until
-        // its child ended would make them take eight seconds one after the other; with none parked
-        // they overlap and take one. Not the shared pool: the whole-suite run keeps that busy with
-        // other tests' work for seconds at a time, which no bound here could tell from parking.
+        // Every child must start before any may exit. This proves overlap without confusing a
+        // busy machine's elapsed time with a parked executor thread.
         let executor = OneThread()
-        let start = ContinuousClock.now
-        try await withTaskExecutorPreference(executor) {
-            try await withThrowingTaskGroup(of: ProcessOutput.self) { group in
-                for _ in 0..<8 { group.addTask { try await AgentProcess.run("/bin/sleep", ["1"], environment: [:], in: "/", timeout: .seconds(60)) } }
-                for try await out in group { #expect(out.status == 0) }
+        let folder = try ScratchFolder.make("agent-process-overlap-")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let release = folder.appendingPathComponent("release")
+        let script = #"""
+        : > "$1/started-$2"
+        while [ ! -e "$1/release" ]; do /bin/sleep 0.02; done
+        """#
+        let running = Task {
+            try await withTaskExecutorPreference(executor) {
+                try await withThrowingTaskGroup(of: ProcessOutput.self) { group in
+                    for index in 0..<8 {
+                        group.addTask {
+                            try await AgentProcess.run("/bin/sh", ["-c", script, "overlap", folder.path, String(index)],
+                                                       environment: [:], in: folder.path, timeout: .seconds(60))
+                        }
+                    }
+                    for try await output in group { #expect(output.status == 0) }
+                }
             }
         }
-        let took = ContinuousClock.now - start
-        #expect(took < .seconds(4), "eight overlapping one-second runs took \(took): a run holds the thread it is driven from")
+        // Release even on failure, so an intentionally blocking regression can finish and report.
+        defer { try? Data().write(to: release); running.cancel() }
+        await eventually(describing: "all eight children to start before any is released") {
+            ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasPrefix("started-") }.count == 8
+        }
+        try Data().write(to: release)
+        try await running.value
     }
 }

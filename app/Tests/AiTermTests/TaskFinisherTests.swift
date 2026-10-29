@@ -335,6 +335,22 @@ final class MergeClock: Sendable {
         #expect(s.finisher.running.isEmpty)
     }
 
+    @Test func quittingDuringAHostWriteRecordsItsReplyWithoutStartingANewWatch() async throws {
+        let s = try setUp(end: .merge)
+        let gate = Ticker()
+        s.host.update { $0.beforeCreate = { await gate.wait() } }
+        let call = Task { await s.finisher.finish(s.task) }
+        #expect(await eventually(describing: "the request to reach the host") { s.host.log.contains { $0.hasPrefix("create") } })
+        s.finisher.stopAll()
+        await gate.tick()
+        _ = await call.value
+        #expect(operated(s)?.publication?.mergeRequestNumber == 12, "an already completed write is still recorded")
+        let saved = try s.store.file.load()
+        #expect(saved.task(id: s.task)?.operated?.publication?.mergeRequestNumber == 12)
+        #expect(s.finisher.watching.isEmpty)
+        #expect(!s.host.log.contains { $0.hasPrefix("merge") })
+    }
+
     /// A step that cannot be saved is the last: no request is opened for a push the workspace does not know of.
     @Test func aStepThatCannotBeSavedStopsBeforeTheNext() async throws {
         let s = try setUp(end: .draftMR)
@@ -617,7 +633,7 @@ final class MergeClock: Sendable {
     @Test func onlyTheAcceptedCommitInMainIsRecordedAsMerged() async throws {
         let s = try setUp(end: .merge)
         oracleOn(s)
-        let oracleReason = "The Oracle hasn’t said that the conditions written in the Review and the Done hold for PLUTO-231, so AiTerm doesn’t merge it: call finish_task again."
+        let oracleReason = "The Oracle hasn’t said that the task’s review conditions hold for PLUTO-231, so AiTerm doesn’t merge it: call finish_task again."
         let unmerged = await s.finisher.finish(s.task)
         #expect(unmerged.result == .refused && unmerged.reason == oracleReason, "nothing in main: as before")
 

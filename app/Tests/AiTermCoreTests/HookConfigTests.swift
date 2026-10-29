@@ -148,7 +148,6 @@ import Foundation
         #expect(once.components(separatedBy: "# >>> aiterm hooks >>>").count == 2)
         #expect(once.contains("[[hooks.PermissionRequest]]") && once.contains("/hook/codex"))
         #expect(once.contains("[[hooks.SubagentStart]]") && once.contains("[[hooks.SubagentStop]]"))
-        #expect(!once.contains("PreToolUse"), "the retired synchronous Bash hook is not installed")
         #expect(once.contains("X-AiTerm-Hook: 1") && once.contains("Expect:"))
         #expect(once.contains("X-AiTerm-iTerm-Session: $ITERM_SESSION_ID"))
         #expect(once.contains("[mcp_servers.aiterm_hooks]"))

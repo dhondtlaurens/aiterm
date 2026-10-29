@@ -336,7 +336,7 @@ import Testing
         let sha = try fixture.git.run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
         try fixture.git.run(["merge", "--ff-only", task.branch], in: fixture.repo.path)
         app.workspace.mutate { state in
-            state.updateRun(id: run.id) { $0.taskSettings?.deleteMergedBranch = enabled }
+            state.updateRun(id: run.id) { $0.taskSettings.deleteMergedBranch = enabled }
             state.updateOperated(task.id) { $0.end = .mergeLocal; $0.state = .published; $0.acceptance?.resultSHA = sha }
         }
         try await swept(closer(fixture))
@@ -358,14 +358,14 @@ import Testing
         }
         let sha = try fixture.git.run(["rev-parse", "HEAD"], in: original.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
         app.workspace.mutate { state in
-            state.updateRun(id: run.id) { $0.state = .active; $0.summaryGivenUp = false; $0.taskSettings?.closeWhenDone = closeWhenDone }
+            state.updateRun(id: run.id) { $0.state = .active; $0.summaryGivenUp = false; $0.taskSettings.closeWhenDone = closeWhenDone }
             state.updateOperated(original.id) { $0.state = .working; $0.end = .mergeLocal; $0.acceptance = nil }
         }
         let tools = app.operatorController.tools
         _ = try await tools.markTask(ToolCall(tool: "mark_task", arguments: ["task": "A", "outcome": "accepted", "sha": .string(sha), "checkOutput": "passed"]), in: try #require(app.state.run(id: run.id)))
         #expect(app.state.run(id: run.id)?.finished.isEmpty == true)
         #expect(try app.savedWorkspace().task(id: original.id)?.operated?.diffBaseSHA == base)
-        app.workspace.mutate { $0.updateRun(id: run.id) { $0.taskSettings?.closeWhenDone = true } }
+        app.workspace.mutate { $0.updateRun(id: run.id) { $0.taskSettings.closeWhenDone = true } }
         try fixture.git.run(["merge", "--ff-only", original.branch], in: fixture.repo.path)
         app.workspace.mutate { state in
             state.updateOperated(original.id) { $0.state = .published }
@@ -388,7 +388,7 @@ import Testing
         let app = fixture.controller
         app.helper.setDaemonClient(RecordingDaemon())
         app.workspace.mutate { state in
-            state.updateRun(id: run.id) { $0.taskSettings?.deleteMergedBranch = true }
+            state.updateRun(id: run.id) { $0.taskSettings.deleteMergedBranch = true }
             state.updateOperated(task.id) { $0.end = .mergeLocal; $0.state = .published }
         }
         // A locked local ref prevents update-ref after the merge checks succeed.
@@ -419,7 +419,7 @@ import Testing
         try git.run(["push", remote, sha + ":refs/heads/main", sha + ":refs/heads/" + task.branch], in: task.worktreePath)
         #expect(try git.run(["rev-parse", "origin/main"], in: fixture.repo.path) == base)
         app.workspace.mutate { state in
-            state.updateRun(id: run.id) { $0.taskSettings?.deleteMergedBranch = true }
+            state.updateRun(id: run.id) { $0.taskSettings.deleteMergedBranch = true }
             state.updateOperated(task.id) { $0.end = .merge; $0.state = .published; $0.acceptance?.resultSHA = sha }
         }
         app.helper.setDaemonClient(RecordingDaemon())
@@ -522,7 +522,7 @@ import Testing
         let app = fixture.controller
         app.helper.setDaemonClient(RecordingDaemon())
         app.workspace.mutate { state in
-            state.updateRun(id: run.id) { $0.taskSettings?.deleteMergedBranch = true }
+            state.updateRun(id: run.id) { $0.taskSettings.deleteMergedBranch = true }
             state.updateOperated(task.id) { $0.end = .mergeLocal; $0.state = .published }
         }
         // Saving breaks once the row is gone, while the branch is checked: a directory stands where the backup goes.
@@ -631,7 +631,7 @@ import Testing
         #expect(attempts == 1)
     }
 
-    @Test(arguments: ["legacy", "disabled", "summary", "active"])
+    @Test(arguments: ["disabled", "summary", "active"])
     func runsThatMustNotCloseAreUnchanged(_ mode: String) async throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
@@ -639,8 +639,7 @@ import Testing
         fixture.controller.workspace.mutate { state in
             state.updateRun(id: run.id) {
                 switch mode {
-                case "legacy": $0.taskSettings = nil
-                case "disabled": $0.taskSettings?.closeWhenDone = false
+                case "disabled": $0.taskSettings.closeWhenDone = false
                 case "summary": $0.summaryGivenUp = false
                 default: $0.state = .active
                 }

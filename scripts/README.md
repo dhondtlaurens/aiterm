@@ -1,196 +1,113 @@
-# scripts
+# Repository scripts
 
-## `make-app.sh`
+Run commands from the repository root in a Git worktree. All Swift operations use `swift.sh` and
+`.swift-version` (Swift 6.4). The test queue serializes builds/tests across worktrees; start long
+checks in the background and follow their own logs.
 
-Builds `build/AiTerm.app`, the only form of AiTerm that is fully functional (the daemon, Claude
-status-line shim and PI status extension are bundle resources).
+## Build and inspect
 
-    scripts/make-app.sh
+```sh
+scripts/make-app.sh
+scripts/test-app-bundle.sh build/AiTerm.app
+```
 
-It shows only the Swift build's last line; on a failure it prints the last 50 lines of the build's
-log, where the compiler's diagnostics are, and keeps the whole of it in
-`build/swift-build-release.log` (`snapshots.sh` likewise, in `build/swift-build-debug.log`).
+`make-app.sh` produces `build/AiTerm.app` without launching it: release executable, Info.plist,
+icon, license, daemon package and delivery-check tool, pinned Python dependencies, Claude status
+shim and PI extension. Integration code comes from this checkout. Bundled `PYTHONPATH` keeps
+runtime packages out of the user's Python installation.
 
-What it produces:
+`build-app.sh [debug|release]` shares Swift build/log handling; it builds only product AiTerm.
+Full logs stay in `build/swift-build-<configuration>.log`, with diagnostics printed on failure.
+`test-app-bundle.sh` checks resources against source, pinned dependency versions and the strict code
+signature without running the app. Both signing and verification must succeed.
 
-    build/AiTerm.app/Contents/MacOS/AiTerm                     release binary
-    build/AiTerm.app/Contents/Info.plist                       copied from app/Sources/AiTerm/Resources
-    build/AiTerm.app/Contents/Resources/daemon/aitermd/        the daemon package
-    build/AiTerm.app/Contents/Resources/daemon/tools/         delivery check (__init__.py, delivery_check.py)
-    build/AiTerm.app/Contents/Resources/LICENSE               bundled license
-    build/AiTerm.app/Contents/Resources/daemon/<deps>          iterm2, websockets, protobuf (pip --target)
-    build/AiTerm.app/Contents/Resources/hooks/claude-statusline-shim.sh
-    build/AiTerm.app/Contents/Resources/hooks/pi-aiterm-status.ts
+| Override | Meaning |
+| --- | --- |
+| `SWIFT` | Complete Swift 6.4 toolchain executable; default `~/.swiftly/bin/swift`. A different major/minor is refused. |
+| `PYTHON` | Python 3.11+ interpreter for vendoring/test setup, default `python3`. |
+| `SIGN_IDENTITY` | Signing identity: `AiTerm Release` when available, otherwise ad-hoc (`-`). |
+| `AITERM_RELEASE=1` | Release bundle. Otherwise Info.plist marks a DEV build and disables self-update. |
 
-Both hook resources are copied from this repository while the app is built. AiTerm never
-downloads executable integration code during installation or at runtime.
+## Switch the running build
 
-The app launches the daemon with `PYTHONPATH=<Contents/Resources/daemon>`, so both `aitermd` and
-its dependencies resolve from the bundle; nothing is installed into the user's Python.
+```sh
+scripts/run-dev.sh
+```
 
-The bundle uses the `AiTerm Release` certificate when available, with ad-hoc signing as the fallback
-and `SIGN_IDENTITY` as the override. Signing and strict verification must succeed. Developer ID
-signing and notarisation are a later task; `build/` is git-ignored.
+This builds a DEV app, normally quits the current AiTerm, stops its orphaned helper and opens the
+new bundle. Installed/development copies share their identifier, workspace, socket and hook port.
+This is a live switch; do not use it while another run must remain undisturbed. A stable signing
+identity preserves automation/Keychain grants across rebuilds.
 
-Environment overrides:
+## Test
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `SWIFT` | `~/.swiftly/bin/swift` | A Swift toolchain of the version `.swift-version` pins. `scripts/swift.sh` rejects any other. |
-| `PYTHON` | `python3` on `PATH` | Interpreter used for the `pip install --target` vendoring; must be ≥ 3.11. |
-| `SIGN_IDENTITY` | `AiTerm Release` when that certificate is in the keychain, else `-` (ad-hoc) | Code-signing identity. A stable one keeps the iTerm2 automation permission and the Keychain's "Always Allow" across rebuilds; `-` forces ad-hoc. |
-| `AITERM_RELEASE` | unset | `1` builds a release. Otherwise the bundle gets `AiTermDevBuild` in its Info.plist: a DEV pill on the Dock icon, and no self-update. `release.sh` sets it and refuses a bundle that still carries the key. |
+```sh
+scripts/test.sh
+scripts/test.sh all
+scripts/test.sh daemon
+scripts/test.sh swift -- --filter DesignRulesTests -j 2
+```
 
-## `run-dev.sh`
+The default selects affected tests since this branch left `main`, including commits and local/new
+files. `test-select.sh` and `test-routes.tsv` explain the selection. Docs-only changes select none;
+unknown paths or an unavailable base select everything. `AITERM_TEST_PATHS` supplies a
+newline-separated override for routing checks. Arguments after `--` replace the selected Swift
+filter, even when no Swift suite was selected; daemon does not accept Swift arguments.
 
-Builds a dev `build/AiTerm.app` and runs it instead of whichever AiTerm is open:
+`test-queue.py` provides machine-wide FIFO admission (`/tmp/aiterm-test.lock`, override
+`AITERM_TEST_LOCK`). Kernel locks survive a killed supervisor in its live children; crashed waiters
+release tickets. A queued run selects again after admission. Per-run metadata records the run's
+own queue/result state; a missing completion never becomes success. Leave other runs alone.
 
-    scripts/run-dev.sh
+`test-swift-toolchain.sh` proves the pin and runner behavior. `test-test-select.sh` guards fixture
+readers and routing. `test.sh` creates `daemon/.venv` with the `dev` extra when needed, runs pytest,
+then its own venv's mypy/ruff over implementation, tests and tools. `PYTEST` can override the pytest
+executable; lint still uses the repository venv.
 
-The two share a bundle identifier, `state.json`, the daemon socket and the hook port, so they must
-not run together. The script quits the open one through a normal quit (the first run asks to let
-your terminal control AiTerm), stops an orphaned `aitermd` so the new build does not adopt old
-daemon code, then opens the build.
+Swift Testing case parallelism defaults to four, honoring an explicit
+`SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH`. `-j` independently limits compiler jobs. A pass
+requires completed host results and at least one matching test for a filter. Failed logs are kept;
+`AITERM_TEST_LOGS_KEEP=0` discards them. New AiTerm preference domains fail the run; tests use
+`ScratchDefaults`. The test-only window hook makes ordered windows transparent and click-through.
+See [testing](../docs/testing.md) for coverage ownership and opt-in live boundaries.
 
-## `make-dmg.sh`
+## Snapshots and README picture
 
-Wraps a built `AiTerm.app` in the release's drag-to-Applications disk image:
+```sh
+scripts/snapshots.sh                         # build/snapshots
+scripts/snapshots.sh build/my-snapshots
+scripts/readme-picture.sh --check
+scripts/readme-picture.sh                    # update docs/desktop.png, then inspect it
+```
 
-    scripts/make-dmg.sh build/AiTerm.app build/AiTerm-0.2.0.dmg
+Debug snapshot entry precedes live controller/workspace setup. Rendering uses fixtures, a fixed
+clock and stationary working arcs. `snapshots.sh` builds the app product, then replaces only
+PNG files at the output folder's top level; failed builds preserve previous images.
 
-The layout lives in `dmg-settings.py`: the app on the left, a link to `/Applications` on the right,
-no background. `dmgbuild` writes it without driving Finder, from a pinned copy in `build/.dmg-venv`
-created on first use. The script then verifies the image, mounts it read-only and checks that the
-app inside is signed, is the version it was given, and the image has a link to `/Applications`.
+The README renderer draws the actual sidebar beside a fixture terminal. Its hosted capture
+requires a Retina main display. To capture native AppKit/selection materials:
 
-## `release.sh`
+```sh
+AITERM_SNAPSHOT_HOSTED=1 AITERM_SNAPSHOT_NATIVE_CAPTURE=1 scripts/snapshots.sh build/native-dark
+```
 
-Publishes a version that **Check for Updates…** will offer:
+WindowServer capture requires screen-recording permission; view capture is the fallback and can
+render native selection material differently. Neither mode proves VoiceOver or multi-display
+behavior. The app is always dark.
 
-    scripts/release.sh 0.2.0
+## Release
 
-It refuses unless it runs on a clean `main` equal to `origin/main`, `origin` is
-`github.com/dhondtlaurens/aiterm`, the version is newer than every `v*` tag, `gh` is logged in to
-github.com, the "AiTerm Release" certificate is in the keychain, Python is 3.11 or newer and
-`readme-picture.sh --check` finds `docs/desktop.png` up to date. It then builds with that certificate, stamps the version and a build number (19 plus one more than the
-number of `v*` tags — see `docs/releasing.md`) into the built bundle only, wraps it with
-`make-dmg.sh`, pushes the tag `v<version>` and publishes the GitHub release with
-`AiTerm-<version>.dmg` attached.
+```sh
+scripts/make-dmg.sh build/AiTerm.app build/AiTerm-<version>.dmg
+scripts/release.sh <version>
+```
 
-## `readme-picture.sh`
+`make-dmg.sh` uses pinned `dmgbuild` in `build/.dmg-venv`, then verifies the image, mounted app,
+version, signature and Applications link. Layout is in `dmg-settings.py`.
 
-Draws the README's picture, `ReadmeDesktop` — the real sidebar over a fixture of its own, beside a
-drawn iTerm2 window — and writes it to `docs/desktop.png`:
-
-    scripts/readme-picture.sh            redraw docs/desktop.png
-    scripts/readme-picture.sh --check    fail if docs/desktop.png differs from a fresh drawing
-
-It runs `snapshots.sh` hosted, drawing only that image, into `build/readme-picture`. The snapshots
-hold every working mark's arc still and read a fixed clock, so two runs draw the same bytes and any
-difference is a visual change. A real window draws it, so the main display must be Retina; on a 1×
-display the script refuses rather than write a half-size picture. `release.sh` runs the check.
-
-## `build-app.sh`
-
-The shared app build and log handling used by `make-app.sh` and `snapshots.sh`. It accepts
-`debug` (the default) or `release` and builds only `--product AiTerm` through `swift.sh`.
-
-## `swift.sh`
-
-The shared Swift launcher for AiTerm’s build, snapshot, and test commands. It defaults to Swiftly’s
-selected toolchain and, before invoking Swift Package Manager, refuses any compiler whose
-major.minor is not the one the repository’s `.swift-version` pins (6.4.0, so any Swift 6.4): an
-older one cannot build the package, and a newer one could build what the release toolchain cannot.
-Set `SWIFT=/path/to/swift` only for a complete toolchain of that version.
-
-## `test.sh`
-
-Runs the daemon and app suites through the supported toolchain:
-
-    scripts/test.sh                                          # what this branch's changes can affect: what a commit needs
-    scripts/test.sh all                                      # every suite: once before merging to main
-    scripts/test.sh daemon                                   # the daemon's tests and lint only
-    scripts/test.sh swift                                    # the Swift tests only
-    scripts/test.sh swift -- --filter DesignRulesTests       # one suite; anything after -- goes to swift test
-
-The default suite, `changed`, takes the paths the checkout changed since it left `main` (its
-commits, staged and unstaged edits, new files), turns them into suites with `test-select.sh` and
-the table in `test-routes.tsv`, which says why each path goes where, and prints what it picked and
-which paths picked it before it runs them. A change no test reads, such as docs, runs nothing and
-exits at once; a path the table does not know, or a checkout with no `main` to compare with, runs
-everything. `AITERM_TEST_PATHS`, one path per line, names the changed paths in place of git. A run
-that waited for the lock picks again, since files may have changed while it waited, and prints
-the new pick if it moved.
-
-Arguments after `--` go to `swift test`, so `daemon` takes none. With no suite named
-(`scripts/test.sh -- --filter X`) the suite is `changed`: the arguments replace the Swift tests it
-picked, and run even when it picked none, while the daemon and the toolchain guard run only if the
-changes picked them.
-
-Only one run goes at a time on the machine, whichever worktree it starts in. Agents test in parallel,
-and tests with timeouts fail under the load of several builds and test hosts at once, so a run that
-finds another under way prints `Waiting for another test run to finish (pid …, <suite> in
-<worktree> since …)` and starts when that one ends, building included. The lock is
-`/tmp/aiterm-test.lock` (`AITERM_TEST_LOCK` overrides it), held by the script's own shell, so the
-kernel releases it however the run ends, a killed one included. Runs the script starts itself inherit
-it (`AITERM_TEST_LOCK_HELD`) rather than waiting for themselves. A waiting run can outlast a tool's
-command timeout, so an agent should start the suite in the background.
-
-Two guards run before the suites. The toolchain guard, `test-swift-toolchain.sh`, checks the
-toolchain the suites will build with (a `SWIFT` override included) and exercises the runner
-against a fake one, so a toolchain of the wrong version fails fast instead of producing opaque
-compiler errors. `all` and `swift` always run it, `changed` only when it runs everything or the
-changes reach the toolchain, `app/Package.swift` or the runner, and `daemon` never. The reader
-guard, `test-test-select.sh`, pins the table's routes and fails on a test that reads files outside
-its own target with no row to say so; it runs before every run that tests anything, in a few seconds.
-
-On its first run, the script creates `daemon/.venv` and installs the daemon package with its test
-and lint dependencies (the `dev` extra). Set `PYTHON=/path/to/python3` to use a specific Python
-3.11+ interpreter (checked before creating a venv), or `PYTEST=/path/to/pytest` to use an existing test runner.
-
-After pytest it lints the daemon: `mypy aitermd tests tools`, then `ruff check aitermd tests tools`. The tests
-are type-checked too, so `FakeIterm` must keep matching the `ItermPort` it stands in for. The lint
-always runs `daemon/.venv`'s own `mypy` and `ruff`, whatever `PYTEST` names: an override need not
-live in a venv at all (the toolchain guard's own check passes `/usr/bin/true`). A venv made before
-the lint step may lack either tool; the script then stops and prints the `pip` command that
-installs the `dev` extra.
-
-The Swift suites run in one `swift test` pass. No test raises a real modal alert — the app's
-questions go through a `Prompter` that tests script. `swift test` exits 0 on a run that never
-finished, so the pass counts as green only if every test target's host printed swift-testing's
-closing "Test run with N tests … passed" line. A run narrowed with arguments after `--` reaches
-hosts that cannot be known beforehand, so it is green when at least one host finished, at least one test ran, and every
-one that finished passed; a filter that matches nothing fails. On a failure the logs are kept, and the
-script prints where.
-
-The pass also fails when it leaves a new preferences domain naming AiTerm in `~/Library/Preferences`
-(any case; `AITERM_TEST_PREFERENCES` stands in for the folder), and names it. A `UserDefaults` suite
-named like an app lands there and cfprefsd keeps writing it back, so a test's defaults come from
-`ScratchDefaults.make()`, a domain kept in a temporary folder. Domains that were there before the
-pass, and other apps' domains, are left out: the run takes minutes, and other apps make their own.
-
-Test windows are hidden. The test process loads a hook (`app/Tests/AiTermTestWindowHook`, never
-linked into the app) that makes every window it orders in transparent and click-through, so a run
-neither draws over your apps nor takes your clicks; tests type and read pixels without the window
-server. A test that needs a window on screen opts it out with `keepVisible`.
-
-Runtime Python versions are pinned in `daemon/pyproject.toml`; the bundle installs that package
-directly so development and release do not maintain different dependency lists.
-`scripts/test-app-bundle.sh` honors `PYTHON` and checks the executable, icon, both hook resources
-against their source, bundled dependency versions from `daemon/pyproject.toml`,
-and strict code signature. Both signing and signature verification must succeed during a build.
-
-## `snapshots.sh`
-
-Builds only the AiTerm product, then deletes the PNG images at the top of the output folder and
-draws the snapshot suite there. Nothing else in the folder is touched, and the previous images stay
-in place if the build fails. The default folder is `build/snapshots`;
-pass a folder as the first argument to use another.
-
-Snapshots always use the app’s dark appearance. For captures of actual AppKit controls and native selection materials:
-
-    AITERM_SNAPSHOT_HOSTED=1 AITERM_SNAPSHOT_NATIVE_CAPTURE=1 scripts/snapshots.sh build/native-dark
-
-WindowServer capture requires screen-capture permission. Without it, the renderer falls back
-to view capture, which can show native selection materials as black. Neither capture mode
-establishes VoiceOver behavior or multi-monitor placement.
+`release.sh` publishes externally: it requires clean pushed `main`, the expected GitHub origin,
+logged-in `gh`, a newer version, the release certificate, Python 3.11+ and a current README picture.
+It stamps the built bundle, creates/pushes the version tag, uploads the DMG to a draft, then
+publishes. The development bundle marker is refused. Complete the full gate and manual release
+checks first. Signing setup, version numbering and interrupted-release recovery live in
+[releasing](../docs/releasing.md). A build/test command never implies permission to release.

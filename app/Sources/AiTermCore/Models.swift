@@ -263,11 +263,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     /// raw value a newer build saved, which this build reads as `.task`.
     private var savedKind: String?
     /// What an operator adds to the task (spec §5.1); nil for every task you made yourself.
-    /// Assigning one drops `unreadableOperated`, as for `agent`.
-    public var operated: OperatedTask? { didSet { unreadableOperated = nil } }
-    /// `operated` as the file had it when this build cannot read it — a state or an end only a
-    /// newer build knows. The task reads as one you made meanwhile, and a save writes it back.
-    private var unreadableOperated: JSONValue?
+    public var operated: OperatedTask?
     /// A `.task` is made with no `kind` to save, as every task has been: only a review is stamped.
     public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind = .task, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?, conversations: [TaskConversation] = [], operated: OperatedTask? = nil) {
         self.id = id; self.projectId = projectId; self.title = title; self.branch = branch; self.worktreePath = worktreePath; self.baseBranch = baseBranch
@@ -314,11 +310,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         // list it cannot read at all is none, rather than failing the whole workspace load.
         conversations = (try? c.decodeIfPresent([SavedConversation].self, forKey: .conversations))?
             .compactMap(\.conversation) ?? []
-        switch try c.decodeIfPresent(SavedOperated.self, forKey: .operated) {
-        case .known(let task)?: operated = task
-        case .unknown(let raw)?: operated = nil; unreadableOperated = raw
-        case nil: operated = nil
-        }
+        operated = try c.decodeIfPresent(OperatedTask.self, forKey: .operated)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -343,17 +335,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         // Left out while empty, so a workspace with none is written as it always was.
         if !conversations.isEmpty { try c.encode(conversations, forKey: .conversations) }
         // Left out for a task you made yourself, so it is written as it always was.
-        if let operated { try c.encode(operated, forKey: .operated) }
-        else { try c.encodeIfPresent(unreadableOperated, forKey: .operated) }
-    }
-
-    /// `operated` as the file has it: read when this build can, kept whole when it cannot.
-    private enum SavedOperated: Decodable {
-        case known(OperatedTask), unknown(JSONValue)
-        init(from decoder: Decoder) throws {
-            if let task = try? OperatedTask(from: decoder) { self = .known(task) }
-            else { self = .unknown(try JSONValue(from: decoder)) }
-        }
+        try c.encodeIfPresent(operated, forKey: .operated)
     }
 
     /// A conversation as the file has it, its agent's raw value read whether or not this build knows it;
@@ -425,9 +407,6 @@ public struct AppState: Codable, Equatable, Sendable {
     /// The broadcasts whose group in the sidebar is folded to its header (`setFolded(run:_:)`): where a
     /// project's fold is kept, its `collapsed`, the sidebar's and not the run's.
     public var foldedRuns: Set<UUID> = []
-    /// Runs this build cannot read — a state or field only a newer build knows — kept as they came
-    /// and written back after `runs`, so a downgrade and a later upgrade lose none.
-    private var unreadableRuns: [JSONValue] = []
     public static let empty = AppState()
     public init() {}
 
@@ -506,22 +485,8 @@ public struct AppState: Codable, Equatable, Sendable {
         lastAgentByProject = (try c.decodeIfPresent([UUID: SavedAgent].self, forKey: .lastAgentByProject) ?? [:]).compactMapValues(\.agent)
         lastModelByAgent = Dictionary(uniqueKeysWithValues: (try c.decodeIfPresent([SavedAgent: String].self, forKey: .lastModelByAgent) ?? [:])
             .compactMap { saved, model in saved.agent.map { ($0, model) } })
-        for saved in try c.decodeIfPresent([SavedRun].self, forKey: .runs) ?? [] {
-            switch saved {
-            case .known(let run): runs.append(run)
-            case .unknown(let raw): unreadableRuns.append(raw)
-            }
-        }
+        runs = try c.decodeIfPresent([OperatorRun].self, forKey: .runs) ?? []
         foldedRuns = try c.decodeIfPresent(Set<UUID>.self, forKey: .foldedRuns) ?? []
-    }
-
-    /// A run as the file has it: read when this build can, kept whole when it cannot.
-    private enum SavedRun: Decodable {
-        case known(OperatorRun), unknown(JSONValue)
-        init(from decoder: Decoder) throws {
-            if let run = try? OperatorRun(from: decoder) { self = .known(run) }
-            else { self = .unknown(try JSONValue(from: decoder)) }
-        }
     }
 
     /// An agent as it was saved, known to this build or not. Neither a `String` nor
@@ -544,11 +509,7 @@ public struct AppState: Codable, Equatable, Sendable {
         try c.encode(lastAgentByProject, forKey: .lastAgentByProject)
         try c.encode(lastModelByAgent, forKey: .lastModelByAgent)
         // Left out while there are none, so a workspace without operations is written as it always was.
-        if !runs.isEmpty || !unreadableRuns.isEmpty {
-            var list = c.nestedUnkeyedContainer(forKey: .runs)
-            for run in runs { try list.encode(run) }
-            for raw in unreadableRuns { try list.encode(raw) }
-        }
+        if !runs.isEmpty { try c.encode(runs, forKey: .runs) }
         // Left out while nothing is folded, so a workspace without one is written as it always was.
         if !foldedRuns.isEmpty { try c.encode(foldedRuns.sorted { $0.uuidString < $1.uuidString }, forKey: .foldedRuns) }
     }

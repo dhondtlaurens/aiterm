@@ -1,10 +1,6 @@
 import Foundation
 
-// What `state.json` keeps of the Operator's broadcasts and their tasks. These types sit beside
-// `Models.swift`, not in `Operators/`, because `AppState` and `TaskItem` hold them: the files
-// directly in Core are the bottom layer and name no folder's types (`CoreFoldersTests`), while
-// the engines in `Operators/` name these freely. Everything here is plain data; what may change
-// it, and when, is the engines' (`OperatedTransitions`, `PlanRevision`, `RunScheduler`).
+// Persisted Operator facts. Transition, planning and scheduling rules live beside these values.
 
 /// Where a broadcast stands (spec §9). `paused` and `stopped` are only ever yours.
 public enum OperatorRunState: String, Codable, Sendable { case planning, active, paused, operatorOffline, complete, stopped }
@@ -50,7 +46,6 @@ public struct TaskAcceptance: Codable, Equatable, Sendable {
 /// and saved, as it completes, so a repeat — after a lost reply, a crash, a restart — resumes at the
 /// next one and never pushes or opens twice.
 public struct TaskPublication: Codable, Equatable, Sendable {
-    private var preservedFields = PreservedFields()
     /// The commit pushed to the task's own branch on origin: the accepted one.
     public var pushedSHA: String?
     /// Publication permanently left to the person for this broadcast.
@@ -119,67 +114,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         self.lastPushFailure = lastPushFailure; self.lastPushFailureSHA = lastPushFailureSHA; self.landedSHA = landedSHA
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case pushedSHA, mergeRequestURL, mergeRequestNumber, targetBranch, waitingSince, readySince, merged, mergedSHA, mergedHead, problem
-        case conditionsEvidence
-        case conditionsHeld, repository, leftForYou, waitingReason, mergeRefusal, lastPushFailure, lastPushFailureSHA, landedSHA
-    }
 
-    /// Every field may be missing: a publication saved before the merge steps reads as not merged.
-    /// Keys this build does not know are preserved.
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
-        pushedSHA = try c.decodeIfPresent(String.self, forKey: .pushedSHA)
-        mergeRequestURL = try c.decodeIfPresent(String.self, forKey: .mergeRequestURL)
-        mergeRequestNumber = try c.decodeIfPresent(Int.self, forKey: .mergeRequestNumber)
-        targetBranch = try c.decodeIfPresent(String.self, forKey: .targetBranch)
-        waitingSince = try c.decodeIfPresent(Date.self, forKey: .waitingSince)
-        readySince = try c.decodeIfPresent(Date.self, forKey: .readySince)
-        merged = try c.decodeIfPresent(Bool.self, forKey: .merged) ?? false
-        mergedSHA = try c.decodeIfPresent(String.self, forKey: .mergedSHA)
-        landedSHA = try c.decodeIfPresent(String.self, forKey: .landedSHA)
-        mergedHead = try c.decodeIfPresent(String.self, forKey: .mergedHead)
-        problem = try c.decodeIfPresent(String.self, forKey: .problem)
-        mergeRefusal = try c.decodeIfPresent(String.self, forKey: .mergeRefusal)
-        // A refusal saved before it had its own field, in the words `refuseVetoed` wrote then: kept as a literal
-        // so it still matches when the writer's wording changes.
-        if mergeRefusal == nil, problem?.hasPrefix("The Oracle judged that the conditions to merge don’t hold yet:") == true {
-            mergeRefusal = problem
-            problem = nil
-        }
-        conditionsHeld = try c.decodeIfPresent(String.self, forKey: .conditionsHeld)
-        conditionsEvidence = try c.decodeIfPresent(String.self, forKey: .conditionsEvidence)
-        repository = try c.decodeIfPresent(String.self, forKey: .repository)
-        leftForYou = try c.decodeIfPresent(Bool.self, forKey: .leftForYou) ?? false
-        waitingReason = try c.decodeIfPresent(String.self, forKey: .waitingReason)
-        lastPushFailure = try c.decodeIfPresent(String.self, forKey: .lastPushFailure)
-        lastPushFailureSHA = try c.decodeIfPresent(String.self, forKey: .lastPushFailureSHA)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        try preservedFields.encode(to: encoder)
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(pushedSHA, forKey: .pushedSHA)
-        try c.encodeIfPresent(mergeRequestURL, forKey: .mergeRequestURL)
-        try c.encodeIfPresent(mergeRequestNumber, forKey: .mergeRequestNumber)
-        try c.encodeIfPresent(targetBranch, forKey: .targetBranch)
-        try c.encodeIfPresent(waitingSince, forKey: .waitingSince)
-        try c.encodeIfPresent(readySince, forKey: .readySince)
-        try c.encode(merged, forKey: .merged)
-        try c.encodeIfPresent(mergedSHA, forKey: .mergedSHA)
-        try c.encodeIfPresent(landedSHA, forKey: .landedSHA)
-        try c.encodeIfPresent(mergedHead, forKey: .mergedHead)
-        try c.encodeIfPresent(problem, forKey: .problem)
-        try c.encodeIfPresent(mergeRefusal, forKey: .mergeRefusal)
-        try c.encodeIfPresent(conditionsHeld, forKey: .conditionsHeld)
-        try c.encodeIfPresent(conditionsEvidence, forKey: .conditionsEvidence)
-        try c.encodeIfPresent(repository, forKey: .repository)
-        try c.encode(leftForYou, forKey: .leftForYou)
-        try c.encodeIfPresent(waitingReason, forKey: .waitingReason)
-        try c.encodeIfPresent(lastPushFailure, forKey: .lastPushFailure)
-        try c.encodeIfPresent(lastPushFailureSHA, forKey: .lastPushFailureSHA)
-    }
 }
 
 /// A worker launch AiTerm asked for, saved before the daemon is asked for its window (spec §11):
@@ -238,7 +173,7 @@ public struct ExtraTab: Codable, Equatable, Sendable {
         case key, agent, model, reasoning, modelReason, brief, agentPinned, launch, sessionId, failure, conversation, role
     }
 
-    /// Synthesised but for `role`: a tab saved before roles is a work tab.
+    /// Work tabs omit their default role in the current saved format.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         key = try c.decode(String.self, forKey: .key)
@@ -270,7 +205,7 @@ public struct ExtraTab: Codable, Equatable, Sendable {
         try c.encodeIfPresent(sessionId, forKey: .sessionId)
         try c.encodeIfPresent(failure, forKey: .failure)
         try c.encodeIfPresent(conversation, forKey: .conversation)
-        // Left out for a work tab, so one saves as it did before roles.
+        // Work is the omitted default role.
         if role != .work { try c.encode(role, forKey: .role) }
     }
 }
@@ -318,18 +253,7 @@ public struct PeopleReview: Codable, Equatable, Sendable {
         self.startedAt = startedAt
     }
 
-    private enum CodingKeys: String, CodingKey { case reviewers, threads, notes, approvals, ended, startedAt }
 
-    /// Every field may be missing.
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        reviewers = try c.decodeIfPresent([String].self, forKey: .reviewers) ?? []
-        threads = try c.decodeIfPresent([String: Bool].self, forKey: .threads) ?? [:]
-        notes = try c.decodeIfPresent([String: String].self, forKey: .notes) ?? [:]
-        approvals = try c.decodeIfPresent([String].self, forKey: .approvals) ?? []
-        ended = try c.decodeIfPresent(Bool.self, forKey: .ended) ?? false
-        startedAt = try c.decodeIfPresent(Date.self, forKey: .startedAt)
-    }
 }
 
 /// A flag on top of a task's state (spec §8). Advisory, so one a newer build wrote is dropped on
@@ -361,7 +285,6 @@ public struct LaunchRequest: Codable, Equatable, Sendable {
 
 /// Everything an operator adds to a task. `TaskItem.operated` — nil for every task you made yourself.
 public struct OperatedTask: Codable, Equatable, Sendable {
-    private var preservedFields = PreservedFields()
     public var runId: UUID
     /// The operator's idempotency key: `create_task` with a key the run has returns that task.
     public var key: String
@@ -404,7 +327,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     public var agentPinned: Bool
     /// The id of the AiTerm issue blocking it, while one does.
     public var problem: String?
-    /// The latest agent review of its branch (`review_task`).
+    /// Saved review evidence, retained as data. Current reviews run in tabs and record verdicts.
     public var agentReview: AgentReviewResult?
     /// People's review of its request, once the Review slice involved them or it went into review.
     public var peopleReview: PeopleReview?
@@ -441,7 +364,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         self.firstRevision = firstRevision ?? revision
         self.acceptance = acceptance; self.publication = publication; self.takenOver = takenOver
         self.ownership = ownership; self.launch = launch; self.retriesUsed = retriesUsed; self.runtimeUsed = runtimeUsed
-        self.totalRuntimeUsed = totalRuntimeUsed ?? runtimeUsed; self.runtimeHead = runtimeHead
+        self.totalRuntimeUsed = totalRuntimeUsed ?? 0; self.runtimeHead = runtimeHead
         self.blockedReason = blockedReason; self.blockedFrom = blockedFrom; self.flags = flags
         self.lastFailure = lastFailure
         self.modelReason = modelReason; self.agentPinned = agentPinned; self.problem = problem
@@ -465,7 +388,6 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     /// Synthesised but for `flags`: a flag this build does not know is dropped, not a failed load.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
         runId = try c.decode(UUID.self, forKey: .runId)
         key = try c.decode(String.self, forKey: .key)
         state = try c.decode(OperatedState.self, forKey: .state)
@@ -482,7 +404,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         launch = try c.decodeIfPresent(LaunchAttempt.self, forKey: .launch)
         retriesUsed = try c.decodeIfPresent(Int.self, forKey: .retriesUsed) ?? 0
         runtimeUsed = try c.decodeIfPresent(TimeInterval.self, forKey: .runtimeUsed) ?? 0
-        totalRuntimeUsed = try c.decodeIfPresent(TimeInterval.self, forKey: .totalRuntimeUsed) ?? runtimeUsed
+        totalRuntimeUsed = try c.decodeIfPresent(TimeInterval.self, forKey: .totalRuntimeUsed) ?? 0
         runtimeHead = try c.decodeIfPresent(String.self, forKey: .runtimeHead)
         blockedReason = try c.decodeIfPresent(String.self, forKey: .blockedReason)
         blockedFrom = try c.decodeIfPresent(OperatedState.self, forKey: .blockedFrom)
@@ -492,20 +414,19 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         requestedLaunch = try c.decodeIfPresent(LaunchRequest.self, forKey: .requestedLaunch)
         agentPinned = try c.decodeIfPresent(Bool.self, forKey: .agentPinned) ?? false
         problem = try c.decodeIfPresent(String.self, forKey: .problem)
-        // A review an older or newer build wrote that does not read is dropped, not a failed task.
-        agentReview = (try? c.decodeIfPresent(AgentReviewResult.self, forKey: .agentReview)) ?? nil
-        peopleReview = (try? c.decodeIfPresent(PeopleReview.self, forKey: .peopleReview)) ?? nil
-        branchDrift = (try? c.decodeIfPresent(BranchDrift.self, forKey: .branchDrift)) ?? nil
+        // Optional review and branch facts belong to this task.
+        agentReview = try c.decodeIfPresent(AgentReviewResult.self, forKey: .agentReview)
+        peopleReview = try c.decodeIfPresent(PeopleReview.self, forKey: .peopleReview)
+        branchDrift = try c.decodeIfPresent(BranchDrift.self, forKey: .branchDrift)
         extraTabs = try c.decodeIfPresent([ExtraTab].self, forKey: .extraTabs) ?? []
         reopenedFrom = try c.decodeIfPresent(String.self, forKey: .reopenedFrom)
         reviewVerdicts = try c.decodeIfPresent([ReviewVerdict].self, forKey: .reviewVerdicts) ?? []
         keptReason = try c.decodeIfPresent(String.self, forKey: .keptReason)
-        closingWait = try? c.decodeIfPresent(ClosingWait.self, forKey: .closingWait)
+        closingWait = try c.decodeIfPresent(ClosingWait.self, forKey: .closingWait)
         diffBaseSHA = try c.decodeIfPresent(String.self, forKey: .diffBaseSHA)
     }
 
     public func encode(to encoder: Encoder) throws {
-        try preservedFields.encode(to: encoder)
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(runId, forKey: .runId)
         try c.encode(key, forKey: .key)
@@ -537,7 +458,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         try c.encodeIfPresent(agentReview, forKey: .agentReview)
         try c.encodeIfPresent(peopleReview, forKey: .peopleReview)
         try c.encodeIfPresent(branchDrift, forKey: .branchDrift)
-        // Left out while there are none, so a task without one saves as it did before.
+        // Empty tab and verdict lists are omitted in the current saved format.
         if !extraTabs.isEmpty { try c.encode(extraTabs, forKey: .extraTabs) }
         try c.encodeIfPresent(reopenedFrom, forKey: .reopenedFrom)
         if !reviewVerdicts.isEmpty { try c.encode(reviewVerdicts, forKey: .reviewVerdicts) }
@@ -752,7 +673,6 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
 
 /// A broadcast, "run" in code (spec §4, §5). The app is its only writer.
 public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
-    private var preservedFields = PreservedFields()
     public var id: UUID
     public var name: String
     /// Settings › Operator as it was when the broadcast started: a change there applies to the next one.
@@ -762,7 +682,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     /// The Jira projects its tickets are in, by key.
     public var jiraProjectKeys: [String]
     /// What you asked for, how its work is reviewed, and what done looks like.
-    public var prompt: String, review: String?, done: String?
+    public var prompt: String
     public var state: OperatorRunState
     /// `.paused` or `.stopped` when you said so; persisted, and never undone by reconciliation.
     public var intent: OperatorRunState?
@@ -809,11 +729,10 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     /// The commands the person allowed after the Oracle stopped them (`resolve_question` with `allow`): each passes the
     /// gate once, on the exact command and directory, and is used up (spec §A.3).
     public var gateAllowances: [GateRequest] = []
-    /// The Agents step's rows: the only combinations its workers, tabs and reviewers start on. None for a legacy run.
+    /// The only combinations its workers, tabs and reviewers start on.
     public var agents: [AgentChoice]
-    /// The Task step, frozen as the broadcast started. Nil for a run started before it, which keeps its `review` and
-    /// `done` text and today's behaviour in every respect; a run with it leaves `review` and `done` nil.
-    public var taskSettings: TaskSettings?
+    /// The task policy, frozen as the broadcast starts.
+    public var taskSettings: TaskSettings
     /// The Done step's goal; nil for none.
     public var goal: BroadcastGoal?
     /// Every task is finished and the goal is still to check: the run stays `.active` until `check_goal` answers.
@@ -832,16 +751,16 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
 
     /// `projectIds` defaults to none: a run made in a test or a fixture that never reads its scope.
     public init(id: UUID, name: String, profile: OperatorProfile, projectIds: [UUID] = [], jiraProjectKeys: [String] = [],
-                prompt: String, review: String? = nil, done: String? = nil, state: OperatorRunState = .planning,
+                prompt: String, state: OperatorRunState = .planning,
                 intent: OperatorRunState? = nil, planRevision: Int = 0, firstPlanSize: Int? = nil,
                 questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [], finds: [OffBriefFind] = [],
                 snags: [OperatorSnag] = [], leftForYou: [String] = [], operatorConversation: String? = nil, operatorWindowId: String? = nil,
                 operatorSessionId: String? = nil, challenges: [ChallengeRecord] = [], jiraCreated: [String: String] = [:],
                 threadReplies: [String: String] = [:], pendingWrites: [String] = [], createdAt: Date,
                 summary: String? = nil, summaryAt: Date? = nil, completedAt: Date? = nil, summaryGivenUp: Bool = false,
-                endedAt: Date? = nil, agents: [AgentChoice] = [], taskSettings: TaskSettings? = nil, goal: BroadcastGoal? = nil) {
+                endedAt: Date? = nil, agents: [AgentChoice] = [], taskSettings: TaskSettings = TaskSettings(review: nil, end: .draftMR), goal: BroadcastGoal? = nil) {
         self.id = id; self.name = name; self.profile = profile; self.projectIds = projectIds; self.jiraProjectKeys = jiraProjectKeys
-        self.prompt = prompt; self.review = review; self.done = done; self.state = state; self.intent = intent
+        self.prompt = prompt; self.state = state; self.intent = intent
         self.planRevision = planRevision; self.firstPlanSize = firstPlanSize
         self.questions = questions; self.decisions = decisions; self.finds = finds; self.snags = snags; self.leftForYou = leftForYou
         self.operatorConversation = operatorConversation; self.operatorWindowId = operatorWindowId
@@ -854,7 +773,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, profile, projectIds, jiraProjectKeys, prompt, review, done, state, intent, planRevision
+        case id, name, profile, projectIds, jiraProjectKeys, prompt, state, intent, planRevision
         case firstPlanSize, questions, decisions, finds, snags, leftForYou, leftForYouRecords, challenges, operatorConversation, operatorWindowId
         case operatorSessionId, jiraCreated, jiraSprinted, jiraCommented, threadReplies, pendingWrites, createdAt
         case summary, summaryAt, completedAt, summaryGivenUp, endedAt, gateAllowances
@@ -865,15 +784,12 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     /// with its persona) fails, and `AppState` keeps it whole without showing it.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
         profile = try c.decode(OperatorProfile.self, forKey: .profile)
         projectIds = try c.decodeIfPresent([UUID].self, forKey: .projectIds) ?? []
         jiraProjectKeys = try c.decodeIfPresent([String].self, forKey: .jiraProjectKeys) ?? []
         prompt = try c.decode(String.self, forKey: .prompt)
-        review = try c.decodeIfPresent(String.self, forKey: .review)
-        done = try c.decodeIfPresent(String.self, forKey: .done)
         state = try c.decode(OperatorRunState.self, forKey: .state)
         intent = try c.decodeIfPresent(OperatorRunState.self, forKey: .intent)
         planRevision = try c.decode(Int.self, forKey: .planRevision)
@@ -901,7 +817,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         endedAt = try c.decodeIfPresent(Date.self, forKey: .endedAt)
         gateAllowances = try c.decodeIfPresent([GateRequest].self, forKey: .gateAllowances) ?? []
         agents = try c.decodeIfPresent([AgentChoice].self, forKey: .agents) ?? []
-        taskSettings = try c.decodeIfPresent(TaskSettings.self, forKey: .taskSettings)
+        taskSettings = try c.decode(TaskSettings.self, forKey: .taskSettings)
         goal = try c.decodeIfPresent(BroadcastGoal.self, forKey: .goal)
         goalCheckDue = try c.decodeIfPresent(Bool.self, forKey: .goalCheckDue) ?? false
         roundsUsed = try c.decodeIfPresent(Int.self, forKey: .roundsUsed) ?? 0
@@ -922,7 +838,6 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     public var openRevision: Int { planRevision + 1 }
 
     public func encode(to encoder: Encoder) throws {
-        try preservedFields.encode(to: encoder)
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
         try c.encode(name, forKey: .name)
@@ -930,8 +845,6 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         try c.encode(projectIds, forKey: .projectIds)
         try c.encode(jiraProjectKeys, forKey: .jiraProjectKeys)
         try c.encode(prompt, forKey: .prompt)
-        try c.encodeIfPresent(review, forKey: .review)
-        try c.encodeIfPresent(done, forKey: .done)
         try c.encode(state, forKey: .state)
         try c.encodeIfPresent(intent, forKey: .intent)
         try c.encode(planRevision, forKey: .planRevision)
@@ -961,7 +874,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         if !gateAllowances.isEmpty { try c.encode(gateAllowances, forKey: .gateAllowances) }
         // Each left out while empty or nil, as a run started before them saved.
         if !agents.isEmpty { try c.encode(agents, forKey: .agents) }
-        try c.encodeIfPresent(taskSettings, forKey: .taskSettings)
+        try c.encode(taskSettings, forKey: .taskSettings)
         try c.encodeIfPresent(goal, forKey: .goal)
         if goalCheckDue { try c.encode(true, forKey: .goalCheckDue) }
         if roundsUsed != 0 { try c.encode(roundsUsed, forKey: .roundsUsed) }
