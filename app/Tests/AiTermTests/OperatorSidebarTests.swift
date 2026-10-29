@@ -5,9 +5,9 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// The list with the Operator in it: the OPERATOR heading first, always, as its "+" is the only way to
-/// start a broadcast; while one exists the heading carries it, the "+" gone, and its section and the projects fold
-/// into each other, one open at a time; then PROJECTS.
+/// The list with the Operator in it: the OPERATOR heading first, always, with its "+" to
+/// start a broadcast (also File › New Broadcast…, ⌘B). While one exists the heading carries it, the "+" gone,
+/// and its section and the projects fold into each other, one open at a time; then PROJECTS.
 @MainActor
 struct OperatorSidebarTests {
     private func hosted(_ controller: AppController) -> (NSHostingView<SidebarView>, NSWindow) {

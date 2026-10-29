@@ -45,6 +45,22 @@ import Testing
         #expect(Set(listed.bindings.map(Row.init)) == Set(menuRows.map(Row.init)))
     }
 
+    /// Shared keys are safe only when both entries perform the same action, as Settings does.
+    @Test func noMenuShortcutClaimsTwoDifferentActions() throws {
+        let saved = NSApplication.shared.mainMenu
+        defer { NSApplication.shared.mainMenu = saved }
+        AiTermApp(controller: AppController(preferences: .scratch())).buildMenu()
+        let keyed = try #require(NSApplication.shared.mainMenu).items.compactMap(\.submenu)
+            .flatMap(\.items).filter { !$0.keyEquivalent.isEmpty }
+        for (index, item) in keyed.enumerated() {
+            let sameKeys = keyed[..<index].filter { Self.keys(of: $0) == Self.keys(of: item) }
+            #expect(sameKeys.allSatisfy { $0.action == item.action }, "Conflicting shortcut: \(item.title)")
+        }
+        let alias = try #require(keyed.first { $0.keyEquivalent == "=" })
+        #expect(alias.isHidden && alias.allowsKeyEquivalentWhenHidden)
+        #expect(alias.action == keyed.first { $0.keyEquivalent == "+" }?.action)
+    }
+
     /// The File menu and the HIG's app-menu items are there, in order, with the keys the spec gives
     /// them.
     @Test func theFileAndAppMenusCarryTheirKeys() throws {
@@ -61,9 +77,10 @@ import Testing
         #expect(Self.keys(of: try item("New Task…")) == ["⌘", "N"])
         #expect(Self.keys(of: try item("New Review…")) == ["⌘", "R"])
         #expect(Self.keys(of: try item("New Terminal…")) == ["⌘", "T"])
+        #expect(Self.keys(of: try item("New Broadcast…")) == ["⌘", "B"])
         let fileMenu = try #require(menus.first { $0.title == "File" })
         #expect(fileMenu.items.filter { !$0.isSeparatorItem }.map(\.title) == [
-            "Add Project…", "Add Divider…", "New Task…", "New Review…", "New Terminal…",
+            "Add Project…", "Add Divider…", "New Task…", "New Review…", "New Terminal…", "New Broadcast…",
         ])
         #expect(Self.keys(of: try item("Hide AiTerm")) == ["⌘", "H"])
         #expect(Self.keys(of: try item("Hide Others")) == ["⌥", "⌘", "H"])

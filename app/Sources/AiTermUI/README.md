@@ -269,9 +269,9 @@ Its words are `BackpackSheetPresentation`'s, its state `BackpackSheetModel`'s. T
 wear `BackpackController.symbol`, `iphone`.
 
 **The Operator.** The OPERATOR heading leads the list, above PROJECTS (`OperatorHeading`): a
-`SidebarHeading` on PROJECTS' anatomy whose "+", an `AddMenu` with New Broadcast…, is the one way to
-start a broadcast, so with none it is the heading and its "+" and nothing else; there is no File menu
-item. One broadcast at a time: while one exists the "+" is absent and the broadcast's group sits under
+`SidebarHeading` on PROJECTS' anatomy whose "+", an `AddMenu` with New Broadcast…, opens the same
+setup as File › New Broadcast… (⌘B). With none it is the heading and its "+" and nothing else.
+One broadcast at a time: while one exists the "+" is absent and the broadcast's group sits under
 the heading (decided 21 Oct 2026), its own section of the sidebar (`BroadcastSection`,
 `SidebarProjection.broadcast`), drawn by `SidebarView.operatorRows` above the projects (`SidebarView.projectRows`).
 

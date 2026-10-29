@@ -79,7 +79,7 @@ where each one stands.
 - **Terminal**: a plain shell in the project folder, with no worktree (⌘T).
 - **Review**: a merge or pull request checked out in its own worktree, with an agent on it (⌘R).
   Its row counts the resolved review threads.
-- **Broadcast**: one prompt to the [Operator](#operator) across one or more projects, carried
+- **Broadcast** (⌘B): one prompt to the [Operator](#operator) across one or more projects, carried
   through to the end you set. One runs at a time.
 - **The Shelf** (⌘S): puts a task away. Its worktree goes and its branch stays; restoring brings
   back the worktree and its conversations. Ended broadcasts are kept here to read back.
@@ -160,8 +160,8 @@ An open agent harness; its models come from the providers you signed in to with 
 The Operator works a [broadcast](#concepts) through to its end in its own iTerm2 window. In the
 sidebar, the OPERATOR group holds the broadcast, the Operator's own row and the tasks it drives,
 each saying what the Operator is doing (`Operator watching`, `waiting on you`). The **+** on its
-heading starts a broadcast; a click on the broadcast opens its board (**Board**, **Activity**,
-**Summary**).
+heading or **File › New Broadcast…** (⌘B) opens its setup. The heading’s board button opens its
+board (**Board**, **Activity**, **Summary**).
 
 - **Agent**: Claude Code, with its **Model** and **Reasoning**. Its workers run on an agent with
   [Messaging](#agents). In a broadcast set up with the [New Broadcast](#new-broadcast) steps, its
