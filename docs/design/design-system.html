@@ -413,18 +413,6 @@
   .proposal-flag { color: var(--amber); margin-bottom: var(--space-snug); }
   .no-proposals { margin-top: var(--space-block); color: var(--muted); }
 
-  /* --- Proposal · OPERATOR says what it does · 2026-10-29 -------------------------------------
-     The heading decodes into the Operator row's own line (OperatorLine.session) instead of OperatorTitle.words.
-     Each option replays one scripted stretch of a broadcast on a compressed clock (a 6 s rest for 20–60 s); the
-     strip under it is that clock. The heading's words are uppercased in the text, as OperatorTitle does. */
-  .dp .dp-mount { margin-top: var(--space-block); }
-  .dp .hdg .word { white-space: pre; text-transform: none; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .dp .hdg .cnt { flex: none; }
-  .dp .dp-clock { display: flex; gap: var(--space-tight); margin-top: var(--space-base); width: 360px; max-width: 100%; }
-  .dp .dp-clock span { flex: 1; font: 10px/1.4 var(--mono); color: var(--muted); border-top: 2px solid var(--border);
-                       padding-top: var(--space-tight); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .dp .dp-clock span.on { color: var(--text); border-top-color: var(--accent); }
-
   /* Broadcast setup v2: New Broadcast's Agents, Task and Done steps and the board's new card lines. Only what the kit
      above lacks: a checkbox, the Agents rows, a card's combination and end lines and its fix-round links, the end menu.
      The checkbox and the popup chevron approximate native controls (a .checkbox Toggle, an NSPopUpButton), and a
@@ -2670,7 +2658,7 @@
             <tr><td>RowCaption</td><td>A line under a row's title — a removal's or a shelving's progress, why it stopped, what the task is missing — in <code>Typography.help</code> and <code>secondaryInk</code>; <code>warns</code> is <code>Palette.amber</code>, except on the accent, where amber does not read.</td><td>SidebarRows.swift</td></tr>
             <tr><td>TaskRowView</td><td>A task or review in a <code>SelectableRow</code>: <code>AvatarGroupView</code>, the title in <code>Surface</code> ink, then, <code>Space.tight</code> below it and <code>Space.gap</code> apart, in this order, the Jira and merge-request <code>Badge</code>s, the VS Code <code>Badge</code> — all three <code>.quiet</code> — and the <code>BranchLabelView</code>, last because it is the one thing that truncates. Once its merge request has a review thread that can be resolved, the merge-request badge carries a <code>suffix</code> after its reference: <code>bubble.left</code> and the resolved threads of all of them, <code>2/5</code> — <code>6/6</code> stays, the same bubble, no check and no colour — in the quiet badge's ink, white on the accent; the tooltip and VoiceOver add “2 of 5 threads resolved”, and with the number switched off the mark keeps the count. Until a count has been read the badge shows none; a read that fails, or a host that is not connected, keeps the last count read, so a network blip does not make it flicker away, and it goes only with its row or when the task carries another merge request. <code>ReviewThreadsWatcher</code> reads the counts every 60 s and when such a row is selected, each into the row's own <code>PerRow</code> cell. The VS Code badge is the mark alone; when the checkout differs from the branch the task or review started from it extends to a <code>+12 −3</code> diff, with the base it is measured against named in the tooltip rather than on the badge. Clicking it opens the worktree in VS Code either way; with no VS Code there is no badge. A Settings › Interface switch that drops a badge's detail (<code>BadgeDetails</code>) keeps its mark, its click and its tooltip — <code>TaskRowBadges</code> decides them. Below them, a "Worktree missing" or "Couldn’t reopen" (its window could not be reopened) caption in <code>secondaryInk</code> — or why its removal or shelving stopped (<code>TaskRemoval.stopped</code>, "Not removed: branch kept", "Not shelved", "Not shelved: its window did not close", "Not shelved: iTerm2 isn’t connected") in a warning <code>RowCaption</code>, which stays when the banner moves on; trailing, the <code>StatusMark</code>, drawn by <code>TaskRowMarkView</code>: once a driven task's line has ended it is a <code>checkmark</code> at the mark's size in <code>Palette.green</code>, <code>Palette.onAccent</code> on the selection, standing in for the idle ring and an unseen turn's accent ring, while a session at work or waiting on input keeps its own mark and a removal spins (<code>TaskRowMark</code>). While the row is being removed (<code>AppController.removals</code>) the title drops to <code>secondaryInk</code>, the arrow keys step over it, "Removing…" — "Closing…" for a checkout deleted outside AiTerm — stands in for the badge line at its height, the caption is hidden and the mark spins; the row cannot be activated, and Rename and Remove are disabled. Shelving reads "Shelving…" in the same slot. Its context menu ends Shelve Task or Shelve Review — no ellipsis: it asks only when the worktree has uncommitted changes — above Remove Task… or Remove Review…, and VoiceOver offers Shelve Task or Shelve Review before Remove; Shelve is greyed, and not offered, while the workspace cannot change, while the row is being removed or shelved, and while a Remove that stopped after its worktree went waits on its retry. A row whose window could not be reopened is tried again by activating it — a click or ↩, never the arrows; its hint and tooltip say so (<code>TaskRowAccessibility</code>), except while the workspace cannot change. A window still coming back leaves the row drawn as it was. <code>TaskRowCaption</code> decides those lines. A task the Operator drives sits in the broadcast's group, not its project, and adds its status line as its last line, its <code>OperatorBadge</code> — <code>queued · after PAY-232</code>, <code>waiting on you</code>, <code>done · 4f2a91c</code>; while the Operator holds it and nothing on it is yours (<code>TaskRowCaption.folds(under:)</code>) the badge line folds away, so the row is its title over that line, a <code>Size.row</code>, and a request, a publication left for you, a removal’s progress or a caption unfolds it, 0.2 s ease-out, at once under Reduce Motion — and leads its menu with Take Over or Hand Back, and Stop Task… while it is open; chosen with its window closed, it comes back with its conversation resumed. While the Operator holds it, its mark spins with no done ring and is amber only when it needs you; queued (<code>TaskRow.queued</code>), its title is in <code>secondaryInk</code>, its mark the pause sign, and choosing it opens nothing.</td><td>SidebarRows.swift</td></tr>
             <tr><td>OperatorHeading</td><td>"OPERATOR", a <code>SidebarHeading</code> above <code>PROJECTS</code> on its anatomy. With no broadcast, its "+", an <code>AddMenu</code> with New Broadcast…, also available from File › New Broadcast… (⌘B). With one, it carries it: the progress in <code>Typography.monoChip</code> (<code>HeaderProgress</code>), the board button (<code>BoardButton</code>) in the "+" slot, the broadcast’s menu (<code>BroadcastMenu</code>) and tooltip; its click folds the Operator’s section and opens the projects, or back (<code>AppState.foldedRuns</code>), with a <code>SectionFoldChevron</code> and, folded, an amber count.</td><td>Operators/OperatorHeading.swift</td></tr>
-            <tr><td>OperatorTitle</td><td>OPERATOR’s word: while the broadcast runs it now and then decodes into one of eight phrases and back (<code>DecodeWordsView</code>, 0.9 s each way, held 3 s, after 20–60 s), straight back to OPERATOR and held under the pointer; never while paused, done or needing you; still under Reduce Motion.</td><td>Operators/OperatorHeading.swift</td></tr>
+            <tr><td>OperatorTitle</td><td>OPERATOR’s word, saying what the Operator does: while the broadcast runs it decodes into the Operator row’s line, uppercased, and back (<code>DecodeWordsView</code>, 0.9 s each way, held 3 s) — at once when the line turns to a new act (<code>OperatorLine.isAct</code>), and into the line as it stands once it has stood unchanged for 20–60 s; cut with an ellipsis; straight back to OPERATOR and held under the pointer; never while paused, done, needing you or with the Operator’s window closed; still under Reduce Motion.</td><td>Operators/OperatorHeading.swift</td></tr>
             <tr><td>SectionFoldChevron</td><td>A section heading’s disclosure chevron while the Operator’s section and the projects fold into each other: <code>HeaderChevron</code> in a <code>Size.slot</code> before the heading’s "+" or board button, shown folded and, open, under the pointer.</td><td>Operators/OperatorHeading.swift</td></tr>
             <tr><td>BroadcastMenu</td><td>The broadcast’s menu, OPERATOR’s and its lead row’s: Open Board, Rename…, Pause or Resume Broadcast, End Broadcast…, greyed but Open Board while the workspace is locked. It reads the broadcast itself, so the lead row is not redrawn when the progress moves.</td><td>Operators/OperatorHeading.swift</td></tr>
             <tr><td>OperatorRowView</td><td>The Operator’s own row, the broadcast’s lead, first under OPERATOR: a <code>SelectableRow</code>, <code>washed</code> (<code>Palette.operatorRow</code>, <code>badgeHovered</code> hovered), Claude’s <code>VendorMark</code>, the broadcast’s name, its own session’s line (<code>OperatorLine.session</code>) and <code>StatusMark</code>; no project, ticket or branch line; the broadcast’s menu. ↑ ↓ peek at its window; a click or ↩ brings it to front, or reopens it. Its value is <code>OperatorRow</code>, with an id of its own.</td><td>Operators/OperatorRowView.swift</td></tr>
@@ -2792,12 +2780,16 @@
         broadcast’s projects over its whole status line (<code>OperatorLine.broadcast</code>, as the board’s band says
         it), which VoiceOver reads as its value after the broadcast’s name; VoiceOver has the fold as its default action
         and the menu’s items, Open Board first, as named ones.</p>
-      <p class="why"><b>The word decodes</b> (<code>OperatorTitle</code>): while the broadcast runs, now and then (after
-        20–60 s) OPERATOR decodes into one of eight phrases, <i>Jacking in, Tracing the call, Rerouting, Decrypting,
-        Loading the construct, Patching through, Watching for agents, Reading the code</i>, over 0.9 s, holds 3 s, and
-        decodes back. Under the pointer it decodes straight back to OPERATOR and changes no more until the pointer
-        leaves. Never while paused or done, nor while something in it needs you; still under Reduce Motion and in the
-        snapshots; VoiceOver always reads “Operator”. Below it runs every few seconds; hover it to hold it.</p>
+      <p class="why"><b>The word says what the Operator does</b> (<code>OperatorTitle</code>, 29 Oct 2026): while the
+        broadcast runs, OPERATOR decodes into the Operator row’s own line, uppercased, over 0.9 s, holds it 3 s, and
+        decodes back. It does so as soon as the line turns to a new act (<code>ANSWERING CLAUDE · PAY-231</code>,
+        <code>CONSULTING THE ORACLE</code>; <code>OperatorLine.isAct</code>, not <code>working</code>), a newer act
+        during the hold decoding straight into it; and once the line has stood unchanged for 20–60 s, into the line as
+        it stands (<code>WATCHING 3 TASKS</code>), again after every such quiet stretch. A long line is cut with an
+        ellipsis; the progress keeps its width. Under the pointer it decodes straight back to OPERATOR and changes no
+        more until the pointer leaves. Never while paused or done, while something in it needs you or with the
+        Operator’s window closed; still under Reduce Motion and in the snapshots; VoiceOver always reads “Operator”.
+        Below it says its row’s line every few seconds; hover it to hold it.</p>
       <p class="why"><b>The Operator’s row</b> (<code>OperatorRowView</code>, an <code>OperatorRow</code> value), the
         broadcast’s lead, is always first under the heading: a full <code>Size.row</code> <code>SelectableRow</code>, <code>washed</code> at rest in
         <code>Palette.operatorRow</code> and <code>Palette.badgeHovered</code> hovered, in <code>RowPill</code>’s pill,
@@ -3178,48 +3170,7 @@
         tab describes what might.</p>
       <p class="why">Once a proposal is picked and implemented, it is deleted from here and the other
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
-    </div>
-
-    <div class="section op dp" id="p-operator-words">
-      <p class="eyebrow proposal-flag">Proposal · OPERATOR says what it does · 2026-10-29</p>
-      <h2>The heading’s words, from the Operator’s own line</h2>
-      <p class="why">Today OPERATOR decodes into one of eight film phrases (<code>OperatorTitle.words</code>:
-        <i>Jacking in, Tracing the call, …</i>) every 20–60 s, whatever the Operator is doing. The proposal: its
-        words become <b>the Operator row’s own line</b> (<code>OperatorLine.session</code>), uppercased, so the
-        heading says what really happens: <code>ANSWERING CLAUDE · PAY-231</code>, <code>CONSULTING THE ORACLE</code>,
-        <code>WATCHING 3 TASKS</code>. The eight phrases go.</p>
-      <p class="why">Common to every option: it decodes as today (0.9 s each way, the picked glyphs and ink), holds 3 s
-        and decodes back to OPERATOR. Under the pointer it goes straight back to OPERATOR and stays there. It stays
-        still while paused, done, needing you or with the Operator’s window closed, and under Reduce Motion.
-        <b>Quiet</b> means the line has not changed for 20–60 s; then the heading decodes into the line as it stands
-        (<code>watching 3 tasks</code>, <code>working</code>, <code>in background</code>) and back, and again after the
-        next quiet stretch. A long line is cut with an ellipsis; the progress keeps its width. Below, each option replays
-        the same stretch: the Operator watching, consulting the Oracle, answering Claude, then quiet. The quiet rest is
-        6 s here instead of 20–60 s.</p>
-
-      <div class="options">
-        <div class="option pick">
-          <header><span class="letter">A</span><h3>Every act, and the quiet</h3><span class="rec">Recommended</span></header>
-          <p>When the line turns to a new act, OPERATOR decodes into it, holds 3 s and goes back. A newer act during the
-            hold decodes straight into the newer one. In the quiet it alternates with the line as it stands. This is what
-            you described. It also means the heading repeats the row under it while the section is open, but when it is
-            folded the heading is the only place the acts show.</p>
-          <div class="dp-mount" data-mode="acts"></div>
-        </div>
-        <div class="option">
-          <header><span class="letter">B</span><h3>Only the quiet</h3></header>
-          <p>Acts stay on the row under the heading, which already says them; the heading only alternates with the line
-            after a quiet stretch. The calmest, and nothing appears twice, but a folded section shows no acts at
-            all.</p>
-          <div class="dp-mount" data-mode="quiet"></div>
-        </div>
-        <div class="option">
-          <header><span class="letter">C</span><h3>Acts while folded, the quiet always</h3></header>
-          <p>Open, as B: the row says the acts. Folded, as A: the heading takes them, since nothing else shows them.
-            Nothing is ever said twice, at the cost of a heading that behaves differently by fold. Drawn folded here.</p>
-          <div class="dp-mount" data-mode="folded"></div>
-        </div>
-      </div>
+      <p class="no-proposals">No open proposals.</p>
     </div>
 
   </section>
@@ -3268,8 +3219,9 @@
 </script>
 <script>
   /* The Operator's acting words decode once through letters and digits of each character's case, in its ink, then stand still
-     (OperatorBadge.decodeDuration, 0.5 s); replayed every 6 s here. OPERATOR now and then decodes into a phrase and
-     back (OperatorTitle: every 20–60 s, 0.9 s, held 3 s; every 5–9 s here), straight back and held under the pointer.
+     (OperatorBadge.decodeDuration, 0.5 s); replayed every 6 s here. OPERATOR decodes into its Operator row's line and
+     back (OperatorTitle: on a new act and after 20–60 s quiet, 0.9 s, held 3 s; every 5–9 s here), straight back and
+     held under the pointer; a folded heading, with no row drawn, says "watching 3 tasks".
      Still under Reduce Motion. */
   (function () {
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { return; }
@@ -3300,20 +3252,19 @@
     }
     play();
     setInterval(play, 6000);
-    var words = ['Jacking in', 'Tracing the call', 'Rerouting', 'Decrypting', 'Loading the construct', 'Patching through',
-                 'Watching for agents', 'Reading the code'];
-    document.querySelectorAll('.op .op-title').forEach(function (el, n) {
-      var hdg = el.closest('.hdg'), i = n % words.length, timer = null, hovering = false;
+    document.querySelectorAll('.op .op-title').forEach(function (el) {
+      var hdg = el.closest('.hdg'), timer = null, hovering = false,
+          row = el.closest('.mk-sidebar').querySelector('.mk-row.opr .tx'),
+          said = function () { return row ? row.dataset.text || row.textContent : 'watching 3 tasks'; };
       // Never while something in it needs you: the folded heading's amber chip has the heading then.
       if (hdg.querySelector('.sccs')) { return; }
       function next() {
         clearTimeout(timer);
         timer = setTimeout(function () {
           if (hovering) { return; }
-          decode(el, words[i], 900, function () {
+          decode(el, said(), 900, function () {
             timer = setTimeout(function () { if (!hovering) { decode(el, 'Operator', 900, next); } }, 3000);
           });
-          i = (i + 1) % words.length;
         }, 5000 + Math.random() * 4000);
       }
       hdg.addEventListener('mouseenter', function () {
@@ -3322,84 +3273,6 @@
       });
       hdg.addEventListener('mouseleave', function () { hovering = false; next(); });
       next();
-    });
-  })();
-</script>
-<script>
-  /* Proposal · OPERATOR says what it does: one sidebar per option replaying the same 22 s stretch of a broadcast.
-     The Operator row's line changes at the scripted times (an act decodes in, as the row does); the heading follows
-     its option's rule. Rest 6 s for 20–60 s. Glyphs and ink as picked (letters and digits of the character's case,
-     the words' own ink). Under Reduce Motion each shows its heading on the act, still. */
-  (function () {
-    var mounts = document.querySelectorAll('.dp .dp-mount');
-    if (!mounts.length) { return; }
-    var chev = '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
-    var script = [[0, 'watching 3 tasks', false], [2000, 'consulting the Oracle', true], [4000, 'answering Claude · PAY-231', true],
-                  [7000, 'watching 3 tasks', false]], span = 22000, rest = 6000, hold = 3000, dur = 900;
-    var lower = 'abcdefghijklmnopqrstuvwxyz', upper = lower.toUpperCase(), digits = '0123456789';
-    function glyphsFor(c) { return /[0-9]/.test(c) ? digits : c === c.toUpperCase() ? upper + digits : lower + digits; }
-    function esc(c) { return c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '&' ? '&amp;' : c; }
-    function frame(text, progress, step) {
-      var chars = Array.from(text), settled = Math.floor(chars.length * progress);
-      return chars.map(function (c, i) {
-        if (i < settled || !/[0-9a-z]/i.test(c)) { return esc(c); }
-        var g = glyphsFor(c), pick = ((i + 1) * 7919 + (step + 1) * 104729 + i * step * 31) % g.length;
-        return '<span class="g">' + esc(g[pick]) + '</span>';
-      }).join('');
-    }
-    function decode(el, text, ms) {
-      clearInterval(el._decode);
-      var frames = Math.max(6, Math.round(ms / 33)), f = 0;
-      el._decode = setInterval(function () {
-        f += 1;
-        el.innerHTML = f >= frames ? esc(text) : frame(text, f / frames, f);
-        if (f >= frames) { clearInterval(el._decode); }
-      }, ms / frames);
-    }
-    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    mounts.forEach(function (m) {
-      var mode = m.dataset.mode, folded = mode === 'folded';
-      m.innerHTML = '<div class="scroll"><div class="mk-sidebar"><div class="hdg"><span class="word dp-title">OPERATOR</span>' +
-        '<span class="cnt">2 of 8</span><span class="sp"></span><span class="fold' + (folded ? ' closed' : '') + '">' + chev + '</span>' +
-        '<span class="plus board"><svg><use href="#op-board"/></svg></span></div>' +
-        (folded ? '' : '<div class="mk-row opr"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span>' +
-          '<span class="ln"><span class="tt">Checkout redesign</span><span class="ol"><span class="ob quiet"><span class="tx dp-line">watching 3 tasks</span></span></span></span>' +
-          '<span class="slot"><span class="st idle"></span></span></div>') +
-        '<div class="hdg" style="margin-top: var(--space-base)">Projects<span class="sp"></span><span class="fold' + (folded ? '' : ' closed') + '">' + chev + '</span>' +
-        '<span class="plus"><svg width="10" height="10"><use href="#op-plus"/></svg></span></div></div></div>' +
-        '<div class="dp-clock"><span>watching</span><span>Oracle</span><span>answering</span><span>quiet</span></div>';
-      var title = m.querySelector('.dp-title'), line = m.querySelector('.dp-line'), ob = line && line.parentNode,
-          slot = m.querySelector('.mk-row.opr .slot'), marks = m.querySelectorAll('.dp-clock span');
-      var echoes = mode === 'acts' || folded, current = script[0][1], shown = null, back = null, changed = 0, rested = 0;
-      if (reduce) { if (echoes) { title.textContent = 'ANSWERING CLAUDE · PAY-231'; } return; }
-      function show(words, now) {
-        clearTimeout(back);
-        shown = words;
-        decode(title, words.toUpperCase(), dur);
-        back = setTimeout(function () { shown = null; decode(title, 'OPERATOR', dur); rested = Date.now() + dur; }, dur + hold);
-      }
-      function run() {
-        var start = Date.now();
-        script.forEach(function (e, n) {
-          setTimeout(function () {
-            current = e[1]; changed = Date.now();
-            marks.forEach(function (s, i) { s.classList.toggle('on', i === n); });
-            if (line) {
-              ob.className = 'ob ' + (e[2] ? 'acting' : 'quiet');
-              slot.innerHTML = e[2] ? '<svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg>' : '<span class="st idle"></span>';
-              if (e[2]) { decode(line, e[1], 500); } else { clearInterval(line._decode); line.textContent = e[1]; }
-            }
-            if (e[2] && echoes) { show(e[1]); }
-          }, e[0]);
-        });
-      }
-      // The quiet: the line unchanged for the rest, and the heading home for as long.
-      setInterval(function () {
-        var now = Date.now();
-        if (shown === null && now - changed >= rest && now - rested >= rest) { show(current); }
-      }, 200);
-      run();
-      setInterval(function () { clearTimeout(back); shown = null; title.textContent = 'OPERATOR'; rested = 0; run(); }, span);
     });
   })();
 </script>

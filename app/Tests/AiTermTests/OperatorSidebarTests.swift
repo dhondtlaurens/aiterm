@@ -63,6 +63,25 @@ struct OperatorSidebarTests {
                 == "Checkout redesign, 0 of 0, pluto-web and pluto-cms, The Operator asks: retry policy?, folded, 1 needs input")
     }
 
+    /// OPERATOR's word says what the Operator does (29 Oct 2026): it decodes while the broadcast runs and its window is
+    /// open, into the Operator row's line; an act at once, and once, until the line has been something else.
+    @Test func theWordSaysWhatTheOperatorDoes() throws {
+        var state = AppState()
+        state.runs = [OperatorUIFixtures.run()]
+        let running = try #require(SidebarModel.broadcastSection(state: state, sessions: []))
+        #expect(OperatorHeading.decodes(running))
+        state.runs[0].state = .operatorOffline
+        let closed = try #require(SidebarModel.broadcastSection(state: state, sessions: []))
+        #expect(closed.operatorRow.line == .windowClosed && !OperatorHeading.decodes(closed), "nothing to say with no window")
+
+        let answering = OperatorLine("answering Claude · PAY-231", look: .acting)
+        #expect(OperatorTitle.says(answering, said: nil))
+        #expect(!OperatorTitle.says(answering, said: answering), "an act is said once")
+        #expect(OperatorTitle.says(OperatorLine("consulting the Oracle", look: .acting), said: answering), "a newer act at once")
+        #expect(!OperatorTitle.says(.working, said: nil) && !OperatorTitle.says(OperatorLine("watching 3 tasks"), said: nil),
+                "the rest waits for a quiet stretch")
+    }
+
     /// VoiceOver offers the broadcast's menu as the OPERATOR heading's actions beside the fold, as a task's and a terminal's row do:
     /// Open Board first, the items' titles without the menu's ellipsis, and over a locked workspace, where the
     /// menu greys the rest, Open Board alone, which changes nothing.

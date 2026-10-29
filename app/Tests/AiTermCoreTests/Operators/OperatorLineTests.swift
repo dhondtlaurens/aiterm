@@ -438,6 +438,24 @@ import Testing
         for said in [line(), line(asking: true), line(windowClosed: true)] { #expect(said.text.count <= OperatorLine.maxLength) }
     }
 
+    /// What OPERATOR says as it happens: an act and checking the goal; not `working`, which names nothing, nor a
+    /// quiet, ended or asking line.
+    @Test func anActIsWhatTheOperatorDoes() {
+        let run = OperatorUIFixtures.run()
+        let pay = task("Cart drawer", jira: "PAY-231", run: run, key: "pay-231", .working)
+        func line(acting: (OperatorAct, task: String?)? = nil, working: Bool = false, asking: Bool = false,
+                  windowClosed: Bool = false) -> OperatorLine {
+            OperatorLine.session(acting: acting, working: working, asking: asking, windowClosed: windowClosed, tasks: [pay])
+        }
+        #expect(line(acting: (.answering, task: "pay-231"), working: true).isAct)
+        #expect(line(acting: (.consultingTheOracle, task: nil)).isAct)
+        #expect(OperatorLine.checkingTheGoal.isAct)
+        #expect(line(working: true) == .working && !OperatorLine.working.isAct)
+        #expect(!line().isAct, "watching 1 task")
+        #expect(!line(acting: (.answering, task: "pay-231"), asking: true).isAct, "waiting on you")
+        #expect(line(windowClosed: true) == .windowClosed && !OperatorLine.windowClosed.isAct)
+    }
+
     /// A merge the host is not ready for waits quietly, with the host's reason.
     @Test func waitingPublicationUsesTheHostsQuietReason() {
         let run = OperatorFixtures.run()
