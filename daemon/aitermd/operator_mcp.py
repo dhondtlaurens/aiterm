@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from . import delivery, mcp, protocol
+from .models import support_dir
 from .rpc_params import optional_param, param
 from .rpc_server import RpcError
 
@@ -25,7 +26,7 @@ log = logging.getLogger(__name__)
 NOT_OPEN = "AiTerm isn't open"
 NOT_ANSWERING = "AiTerm isn't answering"
 # Where the app keeps each run's folder, named by its id: brief.md, mcp.json and `token` (spec §5.1).
-RUNS_ROOT = Path.home() / "Library" / "Application Support" / "AiTerm" / "operators" / "runs"
+RUNS_ROOT = support_dir() / "operators" / "runs"
 # A run's token: the app's 32 random bytes, as hex.
 _TOKEN = re.compile(r"[0-9a-fA-F]{64}")
 

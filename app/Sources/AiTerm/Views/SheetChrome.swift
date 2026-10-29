@@ -16,10 +16,10 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
     let title: String
     let height: CGFloat
     /// The band's height: `Size.control` for a step bar, a tab bar or a subtitle; nil for a band of lines
-    /// that sizes itself (the board's badge line and Asked line), `Space.base` under the title.
+    /// that sizes itself (the board's status and header lines over its tab bar), `Space.base` under the title.
     let bandHeight: CGFloat?
     /// The axes the content scrolls on, as one, between the rules and from edge to edge, its margins inside the
-    /// scroll: down for a form, down and sideways for the board's row of columns, none for a sheet that fits.
+    /// scroll: down for a form, down and sideways for the board's row of columns.
     let scrolls: Axis.Set
     /// The content's inset from the rules above and below it: a sheet's margin, or less for a list of
     /// rows whose own pills already pad them (the Archive sheet's).
@@ -60,7 +60,7 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
             .padding(.horizontal, Space.margin).padding(.top, Space.section).padding(.bottom, Space.block)
             Hairline()
             Group {
-                if scrolls.isEmpty || isSnapshot {
+                if isSnapshot {
                     // ImageRenderer cannot materialise a ScrollView’s contents: what lies past the edges is cut. A sideways
                     // scroll's content is laid out whole first, so it is cut rather than squeezed; `minWidth: 0`, or the
                     // frame would be as wide as that content and widen the sheet.

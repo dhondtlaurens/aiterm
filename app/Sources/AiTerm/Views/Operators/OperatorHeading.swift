@@ -22,9 +22,6 @@ struct OperatorHeading: View {
     /// The broadcast's glyph, where a broadcast is drawn as a project would be: the Shelf's ended broadcasts.
     static let glyph = "dot.radiowaves.left.and.right"
 
-    /// Whether the heading offers New Broadcast…: only while there is no broadcast.
-    static func offersNewBroadcast(_ broadcast: BroadcastSection?) -> Bool { broadcast == nil }
-
     /// Whether the word decodes: while the broadcast runs, never while it is paused or done, nor while something
     /// in it needs you, which the heading's chip or its rows say then, nor while the Operator's window is closed.
     static func decodes(_ broadcast: BroadcastSection) -> Bool {

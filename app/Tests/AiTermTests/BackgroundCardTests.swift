@@ -65,12 +65,6 @@ struct BackgroundCardTests {
         #expect(size([tests, server, ci]) == CGSize(width: 300, height: Size.row))
     }
 
-    /// The heading and one job lie on the row's two lines: `Size.chip` lines `Space.tight` apart, `Space.base` above
-    /// and below, exactly a row.
-    @Test func theHeadingAndOneJobFillTheRowExactly() {
-        #expect(Space.base + Size.chip + Space.tight + Size.chip + Space.base == Size.row)
-    }
-
     /// Open, the card covers the row and does not grow it, however many jobs it lists.
     @Test(arguments: [1, 3]) func theOpenCardLeavesTheRowItsSize(jobs: Int) async throws {
         let controller = AppController(preferences: .scratch())

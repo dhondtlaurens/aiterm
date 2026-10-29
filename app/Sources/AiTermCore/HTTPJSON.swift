@@ -11,6 +11,13 @@ import Foundation
 /// storage — would hand the token to whatever it names. Every hop off the first request's origin
 /// (scheme, host and port) loses `credentialHeaders`.
 enum HTTPJSON {
+    /// Text as **one** URL path segment: a `/` inside it (a GitLab project's namespace, a branch's) must not split
+    /// the path, which `.urlPathAllowed` would leave alone.
+    static func pathSegment(_ text: String) -> String {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+        return text.addingPercentEncoding(withAllowedCharacters: allowed) ?? text
+    }
+
     enum Failure: Error {
         case transport(Error)
         /// Any status outside 2xx; `0` for a response that is not HTTP at all.

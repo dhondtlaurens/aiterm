@@ -414,7 +414,7 @@ struct OperatorScene {
         return scene.board?.columns.flatMap(\.cards).first
     }
 
-    /// A set-up broadcast while it runs (15A): the Asked line with its goal, the Each task line under it.
+    /// A set-up broadcast while it runs (15A): a line each for Asked, the Goal and Each task.
     static func setUpRunning(_ scene: OperatorScene = OperatorScene()) -> OperatorScene {
         scene.show(scene.setUp(.active), scene.setUpCheckout(), acting: scene.answeringTheDrawer)
         return scene

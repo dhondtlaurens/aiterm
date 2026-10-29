@@ -7,10 +7,10 @@ import signal
 import sys
 import time
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 from . import protocol
+from .models import support_dir
 from .rpc_server import AlreadyRunning
 
 #: Exit status for "another daemon already owns the socket". Kept distinct from the
@@ -52,11 +52,11 @@ class IdleWatchdog:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    support_dir = Path.home() / "Library" / "Application Support" / "AiTerm"
+    socket = str(support_dir() / "aitermd.sock")
     p = argparse.ArgumentParser(prog="aitermd")
     sub = p.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run", help="run the daemon")
-    run.add_argument("--socket", default=str(support_dir / "aitermd.sock"))
+    run.add_argument("--socket", default=socket)
     run.add_argument("--hook-port", type=int, default=47821)
     run.add_argument("--log-level", default="INFO")
     run.add_argument("--idle-exit-seconds", type=float, default=IDLE_EXIT_SECONDS,
@@ -66,17 +66,17 @@ def build_parser() -> argparse.ArgumentParser:
     ctl = sub.add_parser("ctl", help="send one request to a running daemon")
     ctl.add_argument("method")
     ctl.add_argument("params", nargs="?", default="null")
-    ctl.add_argument("--socket", default=str(support_dir / "aitermd.sock"))
+    ctl.add_argument("--socket", default=socket)
     return p
 
 
 async def ctl_request(socket_path: str, method: str, params: Any) -> dict[str, Any]:
     reader, writer = await asyncio.open_unix_connection(socket_path)
-    writer.write((json.dumps({"id": 1, "method": method, "params": params}) + "\n").encode())
+    writer.write(protocol.encode({"id": 1, "method": method, "params": params}))
     await writer.drain()
     try:
         while line := await asyncio.wait_for(reader.readline(), 10):
-            msg: dict[str, Any] = json.loads(line)
+            msg = protocol.decode(line)
             if msg.get("id") == 1:
                 return msg
     finally:

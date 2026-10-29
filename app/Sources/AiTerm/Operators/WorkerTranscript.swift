@@ -137,11 +137,18 @@ extension WorkerTranscript.OpenCalls {
     /// When a record was written, by its own `timestamp`; `now` for one that has none.
     private static func written(_ record: JSONValue, now: Date) -> Date {
         guard let text = record["timestamp"]?.stringValue else { return now }
+        return fractional.date(from: text) ?? whole.date(from: text) ?? now
+    }
+
+    /// Built once: every tick reads a transcript's records, each with its timestamp. `ISO8601DateFormatter` is
+    /// thread-safe, though not marked `Sendable`.
+    nonisolated(unsafe) private static let fractional = isoFormatter([.withInternetDateTime, .withFractionalSeconds])
+    nonisolated(unsafe) private static let whole = isoFormatter([.withInternetDateTime])
+
+    private static func isoFormatter(_ options: ISO8601DateFormatter.Options) -> ISO8601DateFormatter {
         let format = ISO8601DateFormatter()
-        format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = format.date(from: text) { return date }
-        format.formatOptions = [.withInternetDateTime]
-        return format.date(from: text) ?? now
+        format.formatOptions = options
+        return format
     }
 
     /// A Claude record: a main-chain assistant record's `tool_use` blocks open a call, a `tool_result` closes the one it names.

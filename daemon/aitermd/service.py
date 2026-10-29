@@ -427,27 +427,21 @@ class Service:
         stall its read, so it is read on a worker thread: everything that touches the caches runs there."""
         files = self.codex_files
 
+        def attempt(reading: Callable[[str], T], what: str, thread_id: str) -> T | None:
+            # Another process's file: one that cannot be read costs only its own thread, and only
+            # the reading that failed.
+            try:
+                return reading(thread_id)
+            except Exception:  # noqa: BLE001
+                log.exception("reading the Codex %s of thread %s failed", what, thread_id)
+                return None
+
         def read() -> dict[str, tuple[int | None, str | None, tuple[State, float] | None]]:
             readings: dict[str, tuple[int | None, str | None, tuple[State, float] | None]] = {}
             for thread_id in set(threads.values()):
-                # Another process's file: one that cannot be read costs only its own thread, and only
-                # the reading that failed.
-                context: int | None = None
-                version: str | None = None
-                try:
-                    context = files.context_percent(thread_id)
-                except Exception:  # noqa: BLE001
-                    log.exception("reading the Codex context of thread %s failed", thread_id)
-                try:
-                    version = files.cli_version(thread_id)
-                except Exception:  # noqa: BLE001
-                    log.exception("reading the Codex version of thread %s failed", thread_id)
-                turn = None
-                try:
-                    turn = files.turn_state(thread_id)
-                except Exception:  # noqa: BLE001
-                    log.exception("reading the Codex turn boundary of thread %s failed", thread_id)
-                readings[thread_id] = (context, version, turn)
+                readings[thread_id] = (attempt(files.context_percent, "context", thread_id),
+                                       attempt(files.cli_version, "version", thread_id),
+                                       attempt(files.turn_state, "turn boundary", thread_id))
             files.retain(set(threads.values()))
             return readings
 

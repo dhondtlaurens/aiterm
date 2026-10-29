@@ -88,7 +88,7 @@ public enum Size {
     /// A task or terminal row: its two lines (a 16 pt title, `Space.tight`, a 16 pt chip line)
     /// inside `Space.base` above and below. Was 44, with 5 pt around the text and a 2 pt gap
     /// between the lines, which read as cramped (proposal A, 23 Sep 2026).
-    public static let row: CGFloat = 52
+    public static let row: CGFloat = Space.base + chip + Space.tight + chip + Space.base
     /// A vendor mark in an avatar group, and the provider tile beside a project name. Also an
     /// icon-only `Badge`'s width.
     public static let avatar: CGFloat = 18

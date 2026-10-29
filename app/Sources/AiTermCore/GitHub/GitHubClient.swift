@@ -115,13 +115,6 @@ public struct GitHubClient: Sendable {
         return (parts[0], parts[1])
     }
 
-    /// A branch name as **one** path segment: a `/` inside it must not split the path.
-    static func encodedBranch(_ name: String) -> String {
-        var allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-        allowed.insert(charactersIn: "-._~")
-        return name.addingPercentEncoding(withAllowedCharacters: allowed) ?? name
-    }
-
     /// How many pages of 100 a listing reads before it gives up: check runs, statuses, rules.
     static let listedPages = 20
 
@@ -431,7 +424,7 @@ public struct GitHubClient: Sendable {
 
     private func protection(repo: String, branch name: String) async throws -> BranchProtection {
         guard Self.ownerAndName(repo) != nil else { throw GitHubError.repoNotFound(repo) }
-        let segment = Self.encodedBranch(name)
+        let segment = HTTPJSON.pathSegment(name)
         struct Rule: Decodable { var type: String }
         var listedWhole = false
         for page in 1...Self.listedPages {
