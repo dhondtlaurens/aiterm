@@ -413,19 +413,14 @@
   .proposal-flag { color: var(--amber); margin-bottom: var(--space-snug); }
   .no-proposals { margin-top: var(--space-block); color: var(--muted); }
 
-  /* --- Proposal · the decode's ink · 2026-10-29 ----------------------------------------------
-     DecodeWordsView's unsettled glyphs, from today's Palette.green with a glow to the words' own ink. Same glyphs,
-     timing and frames in every option (the Swift's pick formula, so they change in step); only the ink differs.
-     The glow is DecodeWordsView.glowRadius 3 pt at glowOpacity 0.7, drawn as a 6 px text-shadow as on Components. */
+  /* --- Proposal · the decode's glyphs · 2026-10-29 -------------------------------------------
+     The ink is picked (E: the words' own ink, no glow). What is left is what the unsettled characters run through.
+     Same timing and frames in every option (the Swift's pick formula, so they change in step); only the glyphs
+     differ. The heading's words are uppercased in the text, as OperatorTitle does, not by CSS, so a lowercase
+     glyph shows as one. Scoped past Components' .op .g (green, glowing). */
   .dp .dp-mount { margin-top: var(--space-block); }
-  .dp .hdg .word { white-space: pre; }
-  /* Scoped past Components' .op .g (green, glowing), which comes later at the same weight: own ink by default. */
+  .dp .hdg .word { white-space: pre; text-transform: none; }
   .op .dp-mount .g { color: inherit; text-shadow: none; }
-  .op .dp-a .g { color: var(--green); text-shadow: 0 0 6px rgba(48, 209, 88, 0.7); }
-  .op .dp-b .g { color: var(--green); }
-  .op .dp-c .g.h { color: var(--green); text-shadow: 0 0 6px rgba(48, 209, 88, 0.7); }
-  .op .dp-c .mk-row.sel .g.h { color: #FFFFFF; text-shadow: 0 0 6px rgba(255, 255, 255, 0.7); }
-  .op .dp-d .g { text-shadow: 0 0 6px; }
 
   /* Broadcast setup v2: New Broadcast's Agents, Task and Done steps and the board's new card lines. Only what the kit
      above lacks: a checkbox, the Agents rows, a card's combination and end lines and its fix-round links, the end menu.
@@ -3184,53 +3179,39 @@
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
     </div>
 
-    <div class="section op dp" id="p-decode-ink">
-      <p class="eyebrow proposal-flag">Proposal · The decode’s ink · 2026-10-29</p>
-      <h2>Green, own ink, or in between</h2>
-      <p class="why">Today every unsettled glyph of a decode (<code>DecodeWordsView</code>: the OPERATOR heading and
-        every acting Operator line) is <code>Palette.green</code> with a glow, and settles into the words’ own ink.
-        Two things argue for less: on a <b>selected row</b> the green sits on <code>selection</code>
-        (#0059D1), where it is the one ink in the row that is not white and reads poorly; and with several tasks acting at
-        once, the sidebar flashes green in several places together. The glyphs, timing and frames stay as they are
-        (half-width katakana, digits and signs, 0.5 s per line, 0.9 s for the heading); only their ink is the choice.</p>
-      <p class="why">Each option draws the heading, an acting row and the same kind of row selected. They run on one
-        clock with the same glyphs, so they can be compared frame by frame; under Reduce Motion they hold a frame
-        mid-decode.</p>
+    <div class="section op dp" id="p-decode-glyphs">
+      <p class="eyebrow proposal-flag">Proposal · The decode’s glyphs · 2026-10-29</p>
+      <h2>Katakana, or letters and digits</h2>
+      <p class="why"><b>Picked:</b> the unsettled glyphs take the words’ own ink, with no glow (option E of the
+        decode’s ink). Still open is what they run through. Today (<code>DecodeWordsView.glyphs</code>) that is the
+        Matrix’s half-width katakana, digits and signs. In the words’ own ink the katakana no longer read as the
+        Matrix, only as foreign script, so plain letters and digits may suit the line better. Timing and frames stay
+        as they are (0.5 s per line, 0.9 s for the heading, settling from the left); spaces and separators never
+        change.</p>
+      <p class="why">Each option draws the heading, an acting row and the same kind of row selected, on one clock, so
+        they can be compared frame by frame; under Reduce Motion they hold a frame mid-decode.</p>
 
       <div class="options">
         <div class="option">
-          <header><span class="letter">A</span><h3>Green with a glow (today)</h3></header>
-          <p>What ships: every glyph in <code>Palette.green</code>, glowing. The most Matrix of the five, and the
-            loudest; on the selection it stays green.</p>
-          <div class="dp-mount dp-a"></div>
+          <header><span class="letter">A</span><h3>Katakana, digits and signs (today)</h3></header>
+          <p>Today’s glyphs in the words’ ink. Still the film’s alphabet, but without the green, they read as noise in
+            another script, and in the mono face they are a touch narrower than the letters they stand for.</p>
+          <div class="dp-mount" data-glyphs="kana"></div>
         </div>
         <div class="option">
-          <header><span class="letter">B</span><h3>Green, no glow</h3></header>
-          <p>The same green without the shadow. Still clearly the Matrix, a little calmer, and the one
-            untokenised effect is gone. The selection problem stays.</p>
-          <div class="dp-mount dp-b"></div>
+          <header><span class="letter">B</span><h3>Letters and digits, any case</h3></header>
+          <p>Each character runs through <code>a–z A–Z 0–9</code> at random. Plainly “scrambling”, as an
+            airport board or a terminal does. In the heading, lowercase glyphs flicker through OPERATOR’s
+            capitals, so the word briefly reads as mixed case.</p>
+          <div class="dp-mount" data-glyphs="any"></div>
         </div>
         <div class="option pick">
-          <header><span class="letter">C</span><h3>Own ink, a green head</h3><span class="rec">Recommended</span></header>
-          <p>The glyphs in the words’ own ink; only the <b>head</b>, the glyph about to settle, is green and glowing,
-            as the brightest character leads each column in the films. One green point runs left to right through the
-            line, so the nod stays but the line reads as text. On the selection the head is white
-            (<code>Palette.onAccent</code>) with its glow, so no green meets the blue. Costs a third
-            <code>CATextLayer</code> (unglowing glyphs in ink), since the glow is a layer’s shadow.</p>
-          <div class="dp-mount dp-c"></div>
-        </div>
-        <div class="option">
-          <header><span class="letter">D</span><h3>Own ink with a glow</h3></header>
-          <p>No green at all: the glyphs in the words’ ink, glowing in that ink, like phosphor. Works on every
-            surface unchanged; the glow alone tells an unsettled glyph from a letter. A one-line change
-            (<code>glowInk</code> and the shadow’s colour become the ink).</p>
-          <div class="dp-mount dp-d"></div>
-        </div>
-        <div class="option">
-          <header><span class="letter">E</span><h3>Own ink, flat</h3></header>
-          <p>The glyphs in the words’ ink, no glow: only their shapes move. The quietest; at 10 pt mono and 0.5 s
-            the katakana still read as noise rather than words, but nothing says “Matrix” any more.</p>
-          <div class="dp-mount dp-e"></div>
+          <header><span class="letter">C</span><h3>Letters and digits, in the character’s case</h3><span class="rec">Recommended</span></header>
+          <p>The same, but a glyph keeps the case of the character it replaces: a capital runs through
+            <code>A–Z 0–9</code>, a lowercase letter through <code>a–z 0–9</code>, a digit through <code>0–9</code>.
+            The heading stays in capitals while it decodes, a line keeps its shape (<code>PAY-231</code> stays a key
+            and a number), and only the letters change. One set per case replaces <code>glyphs</code>.</p>
+          <div class="dp-mount" data-glyphs="case"></div>
         </div>
       </div>
     </div>
@@ -3336,10 +3317,10 @@
   })();
 </script>
 <script>
-  /* Proposal · the decode's ink: one sidebar per option, all on one clock. Every 8 s the heading decodes into a
-     phrase (0.9 s), the lines decode (0.5 s), the heading decodes back, the lines again. Glyphs are picked by
-     DecodeWordsView.frame's formula, so every option shows the same glyph at the same frame; the head is the
-     glyph at the settle point. Under Reduce Motion each holds a frame 40 % through. */
+  /* Proposal · the decode's glyphs: one sidebar per option, all on one clock, in the words' own ink. Every 8 s the
+     heading decodes into a phrase (0.9 s), the lines decode (0.5 s), the heading decodes back, the lines again.
+     Glyphs are picked by DecodeWordsView.frame's formula from each option's set. Under Reduce Motion each holds a
+     frame 40 % through. */
   (function () {
     var mounts = document.querySelectorAll('.dp .dp-mount');
     if (!mounts.length) { return; }
@@ -3348,29 +3329,34 @@
         '<span class="ln"><span class="tt">' + title + '</span><span class="ol"><span class="ob acting"><span class="tx dp-line">' + line +
         '</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div>';
     };
-    var html = '<div class="scroll"><div class="mk-sidebar"><div class="hdg"><span class="word dp-title">Operator</span><span class="cnt">2 of 8</span>' +
+    var html = '<div class="scroll"><div class="mk-sidebar"><div class="hdg"><span class="word dp-title">OPERATOR</span><span class="cnt">2 of 8</span>' +
       '<span class="sp"></span><span class="plus board"><svg><use href="#op-board"/></svg></span></div>' +
       row('Checkout redesign', 'answering Claude · PAY-231', false) + row('Cart drawer', 'Operator watching · 2 tabs', true) + '</div></div>';
     mounts.forEach(function (m) { m.innerHTML = html; });
 
-    var glyphs = Array.from('ｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ0123456789Z:・.=*+-<>¦');
+    var lower = 'abcdefghijklmnopqrstuvwxyz', upper = lower.toUpperCase(), digits = '0123456789';
+    var sets = {
+      kana: function () { return 'ｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ0123456789Z:・.=*+-<>¦'; },
+      any: function () { return lower + upper + digits; },
+      case: function (c) { return /[0-9]/.test(c) ? digits : c === c.toUpperCase() ? upper + digits : lower + digits; }
+    };
     function esc(c) { return c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '&' ? '&amp;' : c; }
-    function frame(text, progress, step) {
-      var chars = Array.from(text), settled = Math.floor(chars.length * Math.min(Math.max(progress, 0), 1)), head = -1;
+    function frame(text, progress, step, set) {
+      var chars = Array.from(text), settled = Math.floor(chars.length * Math.min(Math.max(progress, 0), 1));
       return chars.map(function (c, i) {
         if (i < settled || !/[0-9a-z]/i.test(c)) { return esc(c); }
-        if (head < 0) { head = i; }
-        var pick = ((i + 1) * 7919 + (step + 1) * 104729 + i * step * 31) % glyphs.length;
-        return '<span class="g' + (i === head ? ' h' : '') + '">' + esc(glyphs[pick]) + '</span>';
+        var glyphs = Array.from(set(c)), pick = ((i + 1) * 7919 + (step + 1) * 104729 + i * step * 31) % glyphs.length;
+        return '<span class="g">' + esc(glyphs[pick]) + '</span>';
       }).join('');
     }
+    function setOf(el) { return sets[el.closest('.dp-mount').dataset.glyphs]; }
     function decode(els, text, ms) {
       var frames = Math.max(6, Math.round(ms / 33)), f = 0;
       var t = setInterval(function () {
         f += 1;
         els.forEach(function (el) {
           var words = typeof text === 'function' ? text(el) : text;
-          el.innerHTML = f >= frames ? esc(words) : frame(words, f / frames, f);
+          el.innerHTML = f >= frames ? esc(words) : frame(words, f / frames, f, setOf(el));
         });
         if (f >= frames) { clearInterval(t); }
       }, ms / frames);
@@ -3380,17 +3366,17 @@
     lines.forEach(function (el) { el.dataset.text = el.textContent; });
     var own = function (el) { return el.dataset.text; };
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      titles.forEach(function (el) { el.innerHTML = frame('TRACING THE CALL', 0.4, 3); });
-      lines.forEach(function (el) { el.innerHTML = frame(el.dataset.text, 0.4, 3); });
+      titles.forEach(function (el) { el.innerHTML = frame('TRACING THE CALL', 0.4, 3, setOf(el)); });
+      lines.forEach(function (el) { el.innerHTML = frame(el.dataset.text, 0.4, 3, setOf(el)); });
       return;
     }
     var phrases = ['Jacking in', 'Tracing the call', 'Rerouting', 'Decrypting', 'Loading the construct', 'Patching through',
                    'Watching for agents', 'Reading the code'], n = 0;
     function cycle() {
-      decode(titles, phrases[n % phrases.length], 900);
+      decode(titles, phrases[n % phrases.length].toUpperCase(), 900);
       n += 1;
       setTimeout(function () { decode(lines, own, 500); }, 1500);
-      setTimeout(function () { decode(titles, 'Operator', 900); }, 3900);
+      setTimeout(function () { decode(titles, 'OPERATOR', 900); }, 3900);
       setTimeout(function () { decode(lines, own, 500); }, 5500);
     }
     cycle();
