@@ -14,7 +14,7 @@ Audit by user journey and state ownership, then deliver small working slices. De
 
 Prefer ordinary concrete types, explicit ownership and a few cohesive services. Use protocols at real I/O or variability boundaries, value types for facts and decisions, exhaustive enums for finite alternatives, and actor isolation for mutable asynchronous ownership. Do not introduce a general reducer framework, event store, plugin architecture, protocol per class, speculative caching or mandatory file-size/line-count targets. Moving blocking work into an actor does not make it nonblocking.
 
-The prior reviews under `docs/superpowers/` are evidence to recheck, not requirements to inherit. In particular, their compatibility, unchanged-pixel and feature-preservation restrictions do not govern this work. Their resolved findings are not new discoveries.
+The prior reviews (formerly under `docs/superpowers/`, now removed; see git history) are evidence to recheck, not requirements to inherit. In particular, their compatibility, unchanged-pixel and feature-preservation restrictions do not govern this work. Their resolved findings are not new discoveries.
 
 ## Product decisions
 
@@ -103,7 +103,7 @@ Paths below are existing anchors to modify unless explicitly marked create/delet
 | `app/Tests/AiTermCoreTests/Operators/OperatorEvalTests.swift`, `OperatorEvalGrading.swift`, `Fixtures/operator-eval-baseline/`; `daemon/tools/operator_stub.py` | Modify; replace the legacy-only eval setup with current structured settings, extra workers, Oracle/merge/goal scenarios and a pre-change current brief/tools baseline. Keep required baseline evidence until the replacement proves the current contract. |
 | `scripts/` including `test.sh`, `test-routes.tsv`, test guards/fixtures, build/snapshot/bundle/release scripts; `.github/`, `.gitignore`, `.swift-version` | Audit all; modify only for concrete simplification/correctness/coverage needs. Keep the pinned toolchain, machine-wide test queue and hidden windows. |
 | `README.md`, `daemon/README.md`, `scripts/README.md`, `app/Sources/AiTermUI/README.md` | Rewrite all four tracked READMEs for the final product and architecture; retain the UI README's normative token and module rules. Discover any newly added README before final sign-off. |
-| `CONTRIBUTING.md`, `AGENTS.md`, `.agents/skills/design-system/SKILL.md`, `docs/architecture.md`, `ai-install.md`, `keyboard.md`, `releasing.md`, `status-model.md`, `windows.md`; `docs/superpowers/` | Reconcile active guidance, repair references and remove or clearly mark obsolete historical material. Edit originals, never the `CLAUDE.md`/skill symlinks. Preserve licence text and test-baseline provenance where still useful. |
+| `CONTRIBUTING.md`, `AGENTS.md`, `.agents/skills/design-system/SKILL.md`, `docs/architecture.md`, `ai-install.md`, `keyboard.md`, `releasing.md`, `status-model.md`, `windows.md`; the removed `docs/superpowers/` (in git history only) | Reconcile active guidance, repair references and remove or clearly mark obsolete historical material. Edit originals, never the `CLAUDE.md`/skill symlinks. Preserve licence text and test-baseline provenance where still useful. |
 
 ## Complete-review ledger
 
