@@ -26,10 +26,11 @@ public extension View {
     /// The one panel anything that hangs off a field is drawn in: the `menu` fill, the hairline and
     /// one elevation. The ticket list and the completion popup used to be 4 px apart in y and 2 px
     /// apart in blur, for no reason anyone could name — and both sat on the sheet's own `surface`,
-    /// so over a field or a line of text they read as having no background at all.
-    func menuChrome() -> some View {
-        background(RoundedRectangle(cornerRadius: Radius.panel).fill(Palette.menu))
-            .overlay(RoundedRectangle(cornerRadius: Radius.panel).strokeBorder(Palette.border, lineWidth: 1))
+    /// so over a field or a line of text they read as having no background at all. At `Radius.panel`, or
+    /// at the radius of what it lies over: a background card takes its row pill's `Radius.control`.
+    func menuChrome(cornerRadius: CGFloat = Radius.panel) -> some View {
+        background(RoundedRectangle(cornerRadius: cornerRadius).fill(Palette.menu))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(Palette.border, lineWidth: 1))
             .shadow(color: .black.opacity(0.45), radius: 16, y: 6)
     }
 

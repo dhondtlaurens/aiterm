@@ -150,7 +150,8 @@ import Testing
             label: "Each task",
             text: "“An adversarial review with /code-review. It passes with no Critical or Important findings. After 3 rounds of "
                 + "fixes, ask me.” · ends at draft MR · closed at the end"))
-        #expect(board.eachTaskWhole.hasPrefix("Each task “An adversarial review"))
+        #expect(board.headerLines.map(\.label) == ["Asked", "Goal", "Each task"], "a line each")
+        #expect(board.eachTask?.whole.hasPrefix("Each task “An adversarial review") == true)
 
         let plain = self.board(run(settings: TaskSettings(review: "  ", end: .commit, closeWhenDone: false), goal: nil), [])
         #expect(plain.clauses.map(\.label) == ["Asked"])

@@ -55,14 +55,20 @@ struct BackgroundCardTests {
         #expect(TaskRowMark(status: .done, line: ended, removing: false) == .ended)
     }
 
-    /// Offered its row's height, the card hugs one job and fills the row with three, which then scroll.
-    @Test func itHugsWhatFitsAndScrollsWhatDoesNot() {
-        func height(_ jobs: [BackgroundJob]) -> CGFloat {
+    /// Offered its row's pill up to the mark, the card fills it however many jobs it lists, the rest scrolling.
+    @Test func itFillsWhatItIsOffered() {
+        func size(_ jobs: [BackgroundJob]) -> CGSize {
             NSHostingController(rootView: BackgroundCardView(card: BackgroundCard(jobs: jobs)))
-                .sizeThatFits(in: CGSize(width: 300, height: Size.row)).height
+                .sizeThatFits(in: CGSize(width: 300, height: Size.row))
         }
-        #expect(height([tests]) < Size.row)
-        #expect(height([tests, server, ci]) == Size.row)
+        #expect(size([tests]) == CGSize(width: 300, height: Size.row))
+        #expect(size([tests, server, ci]) == CGSize(width: 300, height: Size.row))
+    }
+
+    /// The heading and one job lie on the row's two lines: `Size.chip` lines `Space.tight` apart, `Space.base` above
+    /// and below, exactly a row.
+    @Test func theHeadingAndOneJobFillTheRowExactly() {
+        #expect(Space.base + Size.chip + Space.tight + Size.chip + Space.base == Size.row)
     }
 
     /// Open, the card covers the row and does not grow it, however many jobs it lists.
