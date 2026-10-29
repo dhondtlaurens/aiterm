@@ -13,13 +13,13 @@ struct MergeRequestSearchTests {
     }
 
     @Test func aGitHubRemoteSearchesItsRepositoryOnGitHub() throws {
-        let search = try #require(try source("git@github.com:octocat/hello.git", gitLab: gitLab, gitHub: gitHub) as? GitHubPullRequestSearch)
+        let search = try #require(try source("git@github.com:octocat/hello.git", gitLab: gitLab, gitHub: gitHub) as? GitHubPublisher)
         #expect(search.repo == "octocat/hello")
         #expect(MergeRequestSearch.host(for: ProviderDetector.detect(remoteUrl: "git@github.com:octocat/hello.git")) == .gitHub)
     }
 
     @Test func aGitLabRemoteOnTheConfiguredHostSearchesItsProject() throws {
-        let search = try #require(try source("git@gitlab.example.net:web/shop/acme.git", gitLab: gitLab, gitHub: gitHub) as? GitLabMergeRequestSearch)
+        let search = try #require(try source("git@gitlab.example.net:web/shop/acme.git", gitLab: gitLab, gitHub: gitHub) as? GitLabPublisher)
         #expect(search.project == "web/shop/acme")
     }
 
@@ -30,7 +30,7 @@ struct MergeRequestSearchTests {
         #expect(remote.provider == .git)
         #expect(MergeRequestSearch.host(for: remote) == .gitLab)
         let selfHosted = GitLabConfig(hostURL: URL(string: "https://code.example.com")!, token: "t")
-        let search = try #require(try source("https://code.example.com/a/b.git", gitLab: selfHosted, gitHub: gitHub) as? GitLabMergeRequestSearch)
+        let search = try #require(try source("https://code.example.com/a/b.git", gitLab: selfHosted, gitHub: gitHub) as? GitLabPublisher)
         #expect(search.project == "a/b")
     }
 

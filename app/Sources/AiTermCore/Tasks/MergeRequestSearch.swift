@@ -1,7 +1,7 @@
 import Foundation
 
 /// One repository's open merge requests (GitLab) or pull requests (GitHub), searched by text. The
-/// repository is bound when it is made (``MergeRequestSearch/source(for:gitLab:gitHub:)``).
+/// repository is bound when it is made (``MergeRequestSearch/source(for:gitLab:gitHub:session:)``).
 public protocol MergeRequestSearching: Sendable {
     func mergeRequests(search: String) async throws -> [MergeRequest]
 }
@@ -53,22 +53,11 @@ public enum MergeRequestSearch {
     }
 
     /// The search for `remote`'s requests on ``host(for:)``, with that host's connection.
-    public static func source(for remote: RemoteInfo, gitLab: GitLabConfig?, gitHub: GitHubConfig?) throws(Unavailable) -> any MergeRequestSearching {
+    public static func source(for remote: RemoteInfo, gitLab: GitLabConfig?, gitHub: GitHubConfig?,
+                              session: URLSession = .shared) throws(Unavailable) -> any HostRepository {
         switch try connection(for: remote, gitLab: gitLab, gitHub: gitHub) {
-        case .gitHub(let config, let repo): return GitHubPullRequestSearch(client: GitHubClient(config: config), repo: repo)
-        case .gitLab(let config, let project): return GitLabMergeRequestSearch(client: GitLabClient(config: config), project: project)
+        case .gitHub(let config, let repo): return GitHubPublisher(client: GitHubClient(config: config, session: session), repo: repo)
+        case .gitLab(let config, let project): return GitLabPublisher(client: GitLabClient(config: config, session: session), project: project)
         }
     }
-}
-
-/// A GitHub repository's open pull requests.
-struct GitHubPullRequestSearch: MergeRequestSearching {
-    let client: GitHubClient, repo: String
-    func mergeRequests(search: String) async throws -> [MergeRequest] { try await client.pullRequests(repo: repo, search: search) }
-}
-
-/// A GitLab project's open merge requests.
-struct GitLabMergeRequestSearch: MergeRequestSearching {
-    let client: GitLabClient, project: String
-    func mergeRequests(search: String) async throws -> [MergeRequest] { try await client.mergeRequests(project: project, search: search) }
 }
