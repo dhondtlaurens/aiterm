@@ -928,6 +928,82 @@ async def test_tick_publishes_the_claude_session_files_cwd(stack):
     assert svc.registry.get(sid).to_json()["agentCwd"] == "/repo/.worktrees/feat"
 
 
+async def test_a_hook_cwd_change_during_a_claude_file_read_is_not_overwritten(make_service, monkeypatch):
+    svc = make_service()
+    it, files = svc.iterm, svc.claude_files
+    _, sid = await it.create_window("/wt", "x", {"aiterm_task": "t1"}, Frame(0, 0, 10, 10))
+    await it.user_runs(sid, "claude", job_pid=4242)
+    files.root.mkdir(parents=True)
+    (files.root / "4242.json").write_text(json.dumps(
+        {"pid": 4242, "sessionId": "abc", "cwd": "/wt", "status": "busy"}))
+    await svc.tick()
+    hook = {"hook_event_name": "UserPromptSubmit", "session_id": "abc", "cwd": "/wt"}
+    await svc.hook_router.handle_hook("/hook/claude", hook)
+    session = svc.registry.get(sid)
+    identity = session.agent, session.job_pid, session.conversation_id
+    read, reading, release = files.read, asyncio.Event(), threading.Event()
+    loop, loop_thread = asyncio.get_running_loop(), threading.get_ident()
+
+    def held(pid):
+        result = read(pid)
+        # Hook placement also checks the indexed file on the loop; hold only the tick's worker.
+        if threading.get_ident() != loop_thread:
+            loop.call_soon_threadsafe(reading.set)
+            assert release.wait(5), "the hook must release the captured file reading"
+        return result
+
+    monkeypatch.setattr(files, "read", held)
+    tick = asyncio.create_task(svc.tick())
+    try:
+        await asyncio.wait_for(reading.wait(), 5)
+        await svc.hook_router.handle_hook("/hook/claude", {**hook, "cwd": "/wt/.worktrees/new"})
+        assert (session.agent, session.job_pid, session.conversation_id) == identity
+        assert session.agent_cwd == "/wt/.worktrees/new"
+    finally:
+        release.set()
+        await tick
+    assert svc.registry.get(sid).agent_cwd == "/wt/.worktrees/new"
+
+
+async def test_a_codex_permission_hook_during_a_claude_file_read_survives_the_snapshot_title(make_service, monkeypatch):
+    svc = make_service()
+    it, files = svc.iterm, svc.claude_files
+    _, claude = await it.create_window("/wt", "Claude", {"aiterm_task": "t1"}, Frame(0, 0, 10, 10))
+    _, codex = await it.create_window("/wt2", "Codex", {"aiterm_task": "t2"}, Frame(0, 0, 10, 10))
+    await it.user_runs(claude, "claude", job_pid=4242)
+    await it.user_runs(codex, "codex", job_pid=4243, title="⠋ Codex")
+    files.root.mkdir(parents=True)
+    (files.root / "4242.json").write_text(json.dumps(
+        {"pid": 4242, "sessionId": "abc", "cwd": "/wt", "status": "busy"}))
+    await svc.tick()
+    assert svc.registry.get(codex).state == "working"
+    read, reading, release = files.read, asyncio.Event(), threading.Event()
+    loop = asyncio.get_running_loop()
+
+    def held(pid):
+        result = read(pid)
+        loop.call_soon_threadsafe(reading.set)
+        assert release.wait(5), "the permission hook must release the captured file reading"
+        return result
+
+    monkeypatch.setattr(files, "read", held)
+    tick = asyncio.create_task(svc.tick())
+    try:
+        await asyncio.wait_for(reading.wait(), 5)
+        await svc.hook_router.handle_hook("/hook/codex", {
+            "hook_event_name": "PermissionRequest", "session_id": "thread", "cwd": "/wt2",
+            "_aiterm_iterm_session_id": codex,
+        })
+        assert svc.registry.get(codex).state == "needsInput"
+    finally:
+        release.set()
+        await tick
+    assert svc.registry.get(codex).state == "needsInput"
+    await it.user_runs(codex, "codex", job_pid=4243, title="Codex")
+    await svc.tick()
+    assert svc.registry.get(codex).state == "needsInput"
+
+
 async def test_cmd_t_inherits_the_active_tabs_agent_directory(stack):
     svc, it, files, r, w = stack
     wid = (await call(r, w, "window.createTerminal", {"projectId": "p1", "cwd": "/repo", "frame": FRAME}))["result"]["windowId"]
