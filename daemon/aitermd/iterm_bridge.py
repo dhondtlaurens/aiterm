@@ -17,6 +17,7 @@ from websockets.legacy.exceptions import InvalidStatusCode
 
 from .models import PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, TITLE_TAG, Frame, RawSession
 from .offload import run_detached
+from .process_agents import resolve_agents
 
 log = logging.getLogger(__name__)
 # A key pressed in a session (ItermPort.on_keystroke): the session, the key's characters and the
@@ -770,7 +771,8 @@ class ItermBridge:
         if placement is None:
             return None
         try:
-            return self._raw_session(placement, await self._read_variables(placement[0]))
+            raw = self._raw_session(placement, await self._read_variables(placement[0]))
+            return (await run_detached(lambda: resolve_agents([raw])))[0]
         except _SessionGone:
             return None
 
@@ -787,5 +789,6 @@ class ItermBridge:
             raise fatal
         if failed and len(failed) == len(placed):
             raise failed[0]
-        return [self._raw_session(placement, values) for placement, values in zip(placed, results, strict=True)
-                if not isinstance(values, BaseException)]
+        raw = [self._raw_session(placement, values) for placement, values in zip(placed, results, strict=True)
+               if not isinstance(values, BaseException)]
+        return await run_detached(lambda: resolve_agents(raw))

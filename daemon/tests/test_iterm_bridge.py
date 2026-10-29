@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import plistlib
+import signal
 import subprocess
 import sys
 from collections.abc import Awaitable, Set as AbstractSet
@@ -17,11 +19,18 @@ import websockets
 from websockets.datastructures import Headers
 from websockets.http11 import Response
 
-from aitermd import iterm_bridge
+from aitermd import iterm_bridge, process_agents
 from aitermd.iterm_bridge import ItermAuthFailed, ItermBridge, ItermUnavailable, VARIABLES, request_cookie
 from aitermd.models import Frame
+from aitermd.process_agents import read_processes
+from aitermd.sessions import SessionRegistry
 
 T = TypeVar("T")
+
+
+@pytest.fixture(autouse=True)
+def isolated_process_table(monkeypatch):
+    monkeypatch.setattr(process_agents, "read_processes", lambda: [])
 
 
 class _FakeSocket:
@@ -1046,7 +1055,8 @@ async def test_a_refresh_overlapping_another_still_fetches_the_hierarchy(monkeyp
 def _variables_bridge(monkeypatch, windows: dict[str, list[list[str]]], closed: AbstractSet[str] = frozenset(),
                       error: Exception | None = None, refused: dict[str, str] | None = None,
                       multi_get_refusal: str | None = None, unset_omitted: bool = False,
-                      app: iterm2.App | None = None) -> tuple[ItermBridge, list[tuple[str, list[str]]]]:
+                      app: iterm2.App | None = None,
+                      session_values: dict[str, dict] | None = None) -> tuple[ItermBridge, list[tuple[str, list[str]]]]:
     """A bridge over real `iterm2.Session`s, laid out as {window: [[session, ...] per tab]} or as
     `app` has them, with
     only the variable RPC faked. A session in `closed` answers SESSION_NOT_FOUND, as one closed
@@ -1076,6 +1086,7 @@ def _variables_bridge(monkeypatch, windows: dict[str, list[list[str]]], closed: 
             values = {"commandLine": "-zsh", "jobPid": 123, "autoName": session_id, "path": "/x",
                       "user.aiterm_task": "t1", "user.aiterm_project": None, "user.aiterm_terminal": None,
                       "user.aiterm_tab": None}
+            values.update((session_values or {}).get(session_id, {}))
             answered = [name for name in gets if not (unset_omitted and len(gets) > 1 and values[name] is None)]
             reply.variable_response.values.extend(json.dumps(values[name]) for name in answered)
         return reply
@@ -1105,6 +1116,47 @@ def _variables_bridge(monkeypatch, windows: dict[str, list[list[str]]], closed: 
     bridge._app = fetched  # type: ignore[method-assign]
     bridge.max_in_flight = lambda: in_flight[1]  # type: ignore[attr-defined]
     return bridge, requests
+
+
+@pytest.mark.parametrize("agent", ["claude", "codex"])
+async def test_a_piped_review_child_is_the_tabs_agent_until_it_exits(monkeypatch, tmp_path, agent):
+    # A real wrapper with a piped child, as psg's Node review runner launches it. An inert native
+    # executable reads stdin until EOF; this never starts an actual agent. Compile it because
+    # macOS kills a renamed copy of a platform binary whose signature is restricted to its path.
+    executable = tmp_path / "review tools" / agent
+    monkeypatch.setattr(process_agents, "read_processes", read_processes)
+    executable.parent.mkdir()
+    subprocess.run(["/usr/bin/cc", "-x", "c", "-o", str(executable), "-"],
+                   input="#include <unistd.h>\nint main(void) { char c; while (read(0, &c, 1) > 0) {} return 0; }\n",
+                   text=True, capture_output=True, check=True, timeout=30)
+    wrapper = await asyncio.create_subprocess_exec(
+        sys.executable, "-c",
+        "import subprocess,sys; child=subprocess.Popen([sys.argv[1]], stdin=subprocess.PIPE, stdout=subprocess.PIPE); "
+        "print(child.pid, flush=True); sys.stdin.readline(); child.stdin.close(); child.wait(); "
+        "print('exited', flush=True); sys.stdin.readline()",
+        str(executable), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, start_new_session=True)
+    try:
+        child_pid = int(await asyncio.wait_for(wrapper.stdout.readline(), 5))
+        values = {"s1": {"commandLine": sys.executable, "jobPid": wrapper.pid}}
+        bridge, _ = _variables_bridge(monkeypatch, {"w1": [["s1"]]}, session_values=values)
+        registry = SessionRegistry()
+        registry.apply_snapshot(await bridge.snapshot())
+
+        assert (registry.get("s1").agent, registry.get("s1").job_pid) == (agent, child_pid)
+        assert (await bridge.session_info("s1")).job_pid == child_pid
+        registry.set_model("s1", "review-model")
+
+        wrapper.stdin.write(b"exit child\n")
+        await wrapper.stdin.drain()
+        assert await asyncio.wait_for(wrapper.stdout.readline(), 5) == b"exited\n"
+        diff = registry.apply_snapshot(await bridge.snapshot())
+        assert diff.replaced == ["s1"]
+        assert (registry.get("s1").agent, registry.get("s1").job_pid, registry.get("s1").model) == (
+            "shell", wrapper.pid, None)
+    finally:
+        if wrapper.returncode is None:
+            os.killpg(wrapper.pid, signal.SIGKILL)
+        await wrapper.communicate()
 
 
 def _listed_app(tabs: list[dict]) -> iterm2.App:

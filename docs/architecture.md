@@ -129,7 +129,7 @@ as though it belonged to the current app. [Protocol reference](daemon-protocol.m
 | Fact | Source |
 |---|---|
 | status dot | agent hooks, plus Claude's own session file and the tab title's spinner glyph as corroboration |
-| avatars | iTerm2's session list — one mark per tab, in tab order |
+| avatars | iTerm2's session list, plus a native agent child of an unrecognized foreground runner (such as a piped review). A single current-user process-table read per snapshot resolves children in the runner's process group, using the agent's own pid; background jobs and ambiguous parallel agents keep the terminal mark. One mark per tab, in tab order |
 | branch | the *agent's* working directory, never iTerm2's: `session.path` is the shell's and never follows a Claude that entered a worktree |
 | diff badge | `git diff --numstat` from the merge-base with the task's base, plus the untracked files' lines (at most 2,000 files and 20 MB; a file over 1 MB is skipped). Kept 5 s, inside the 2 s checkout pass; the merge-base is kept until a ref it joins moves. While the refs stand still an expiry costs two git processes per task — 40 at 20 tasks, where it was 100 |
 | Claude usage | the `statusLine` shim — Claude Code hands rate limits to that command and to nothing else. It posts with `curl` to the hook port its driver recorded in `hook-port` and starts no `python3` |
