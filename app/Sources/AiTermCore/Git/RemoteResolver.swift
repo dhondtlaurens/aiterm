@@ -18,7 +18,8 @@ public enum RepoRemote: Equatable, Sendable {
 ///
 /// Thread-safe, and meant to be called off the main actor: every miss runs git.
 public final class RemoteResolver: Sendable {
-    private let resolver: RepositoryResolver<String?>
+    private typealias CachedRemote = (url: String?, info: RemoteInfo)
+    private let resolver: RepositoryResolver<CachedRemote>
 
     /// Resolvers given the same `probe` ask git where a directory's files are once between them.
     public init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30,
@@ -34,11 +35,28 @@ public final class RemoteResolver: Sendable {
     /// kept; one after an answer leaves that answer standing until the next lookup.
     public func remote(for repo: String) -> RepoRemote {
         do {
-            switch try resolver.answer(for: repo, locate: { [$0.config, $0.head, $0.reftableList] },
-                                    read: { repo, _, git in try Repository(repo, git: git).remoteUrl() }) {
+            switch try answer(for: repo) {
             case .notARepository: return .notARepository
-            case .found(let remote): return .remote(remote)
+            case .found(let remote): return .remote(remote.url)
             }
         } catch { return .unavailable }
+    }
+
+    /// The remote and its cached host/path, absent when the checkout could not be read. Provider
+    /// classification stays current with the checkout's GitLab markers, which can change without
+    /// a config edit; known hosts need no filesystem checks.
+    public func resolvedRemote(for repo: String) -> (url: String?, info: RemoteInfo)? {
+        do {
+            guard case .found(var remote) = try answer(for: repo) else { return nil }
+            remote.info.provider = ProviderDetector.classify(host: remote.info.host, path: remote.info.path, repoPath: repo)
+            return remote
+        } catch { return nil }
+    }
+
+    private func answer(for repo: String) throws -> WatchedFileCache<CachedRemote>.Answer {
+        try resolver.answer(for: repo, locate: { [$0.config, $0.head, $0.reftableList] }, read: { repo, _, git in
+            let url = try Repository(repo, git: git).remoteUrl()
+            return (url, ProviderDetector.detect(remoteUrl: url))
+        })
     }
 }

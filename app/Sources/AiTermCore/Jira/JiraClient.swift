@@ -262,20 +262,18 @@ public struct JiraClient: Sendable {
     /// All Jira projects visible to the configured account, in Jira's name order.
     public func projects() async throws -> [JiraProjectRef] {
         let pageSize = 100
-        var startAt = 0
-        var projects: [JiraProjectRef] = []
-        for _ in 0..<20 {
+        return try await startAtPages { startAt in
             let page = try await decode(ProjectPage.self, request(path: "/rest/api/3/project/search", queryItems: [
                 URLQueryItem(name: "startAt", value: String(startAt)),
                 URLQueryItem(name: "maxResults", value: String(pageSize)),
                 URLQueryItem(name: "orderBy", value: "name"),
             ]))
-            projects += page.values.compactMap(\.value).map { JiraProjectRef(id: $0.id, key: $0.key, name: $0.name, siteURL: config.siteURL) }
-            startAt += page.values.count
-            if page.isLast == true || page.values.isEmpty || page.total.map({ startAt >= $0 }) == true
-                || (page.isLast == nil && page.total == nil && page.values.count < pageSize) { break }
+            let projects = page.values.compactMap(\.value).map { JiraProjectRef(id: $0.id, key: $0.key, name: $0.name, siteURL: config.siteURL) }
+            let next = startAt + page.values.count
+            let last = page.isLast == true || page.total.map({ next >= $0 }) == true
+                || (page.isLast == nil && page.total == nil && page.values.count < pageSize)
+            return (projects, page.values.count, !last)
         }
-        return projects
     }
 
     public func testConnection() async throws -> String {
@@ -284,10 +282,11 @@ public struct JiraClient: Sendable {
     }
 
     func search(jql: String) async throws -> [JiraTicket] {
-        var req = request(path: "/rest/api/3/search/jql"); req.httpMethod = "POST"
-        req.httpBody = try JSONEncoder().encode(SearchBody(jql: jql, maxResults: Self.maxResults,
-                                                           fields: ["summary", "description", "status", "issuetype"]))
-        return try await decode(SearchResponse.self, req).issues.compactMap(\.value).map { issue in
+        let path = "/rest/api/3/search/jql"
+        let data = try await send(method: "POST", path: path,
+                                  json: JSONEncoder().encode(SearchBody(jql: jql, maxResults: Self.maxResults,
+                                                                       fields: ["summary", "description", "status", "issuetype"])), write: false)
+        return try decode(SearchResponse.self, data: data, reading: path).issues.compactMap(\.value).map { issue in
             let description = ADFText.plain(issue.fields.description?.foundationValue)
             return JiraTicket(key: issue.key, summary: issue.fields.summary, description: description.isEmpty ? nil : description,
                               issueType: issue.fields.issuetype?.value?.name, status: issue.fields.status?.value?.name,
