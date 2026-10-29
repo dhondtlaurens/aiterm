@@ -13,9 +13,9 @@ import AiTermCore
 /// - quiet, and ended: no box, the words in the surface's secondary ink (an ended row's check is its
 ///   trailing mark's, `TaskRowMark`, never the line's);
 /// - acting: no box, the words in the surface's ink. New words decode once (P3, decision 3, 21 Oct 2026):
-///   each character runs through the Matrix's katakana, green and glowing, and they settle from the left into the
-///   ink over `decodeDuration`, then stand still (28 Oct 2026: the OPERATOR heading's decode, everywhere); the
-///   row's spinner carries the ongoing motion (`DecodeWordsView`, its own view, so the row is not redrawn per
+///   each letter and digit runs through letters and digits of its own case in the words' own ink (29 Oct 2026:
+///   no longer katakana, green and glowing), and they settle from the left over `decodeDuration`, then stand still
+///   (28 Oct 2026: the OPERATOR heading's decode, everywhere); the row's spinner carries the ongoing motion (`DecodeWordsView`, its own view, so the row is not redrawn per
 ///   frame). At once under Reduce Motion and in the snapshots;
 /// - needs you: the attention chip's pair (`Palette.statusChipAttentionFill` and `Stroke`) with the words
 ///   in `Palette.text`, never amber; on `Surface.accent` the surface's `badgeWash` and ink, the amber left
@@ -140,26 +140,28 @@ struct DecodeWords: NSViewRepresentable {
     }
 }
 
-/// Words that decode once when they change: each letter and digit runs through `glyphs`, the Matrix's
-/// half-width katakana and its digits and signs, in `Palette.green` with a glow, and the words settle from the left
-/// into their ink over `duration`, a frame every `1 / frameRate` s, then stand still; spaces and separators stay put.
+/// Words that decode once when they change: each letter and digit runs through `glyphs(for:)`, letters and digits
+/// in its own case, so a capital stays a capital and a number a number, in the words' own ink, and the words settle
+/// from the left over `duration`, a frame every `1 / frameRate` s, then stand still; spaces and separators stay put.
 /// The words layer always draws the real characters, clear where a glyph stands, so the words never change their
 /// width, in the mono face or the heading's; each glyph is kerned to stand where its character does (`painted`).
-/// Two `CATextLayer`s, layer-hosting, so AppKit leaves its layer to it: the words, and over
-/// them the unsettled glyphs alone, whose layer's shadow is the glow, so a settled letter never glows. It passes
+/// Two `CATextLayer`s, layer-hosting, so AppKit leaves its layer to it: the words, and over them the unsettled
+/// glyphs alone, so no pair of glyphs ever kerns the words' line wider or narrower than its own letters. It passes
 /// every click through to its row. Its clock is `now`, Core Animation's media time unless a test drives it, each
 /// frame drawn by `tick`.
 final class DecodeWordsView: NSView {
-    /// What a character runs through while it decodes.
-    static let glyphs = Array("ｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ0123456789Z:・.=*+-<>¦")
+    /// What a character runs through while it decodes: a digit, digits; a capital, capitals and digits; any
+    /// other letter, lowercase letters and digits.
+    static func glyphs(for character: Character) -> [Character] {
+        character.isNumber ? digits : character.isUppercase ? capitals : lowercase
+    }
+    private static let digits = Array("0123456789")
+    private static let capitals = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+    private static let lowercase = Array("abcdefghijklmnopqrstuvwxyz0123456789")
     static let frameRate = 30.0
-    /// The glow's blur radius around a green glyph, in points: an optical effect on one element, so a shadow,
-    /// untokenised as every shadow is.
-    static let glowRadius: CGFloat = 3
-    static let glowOpacity: Float = 0.7
     let words = CATextLayer()
-    /// The unsettled glyphs, green, with the glow as the layer's shadow.
-    let glow = CATextLayer()
+    /// The unsettled glyphs, in the words' ink.
+    let glyphs = CATextLayer()
     /// The decode's clock, in seconds.
     var now: () -> CFTimeInterval = CACurrentMediaTime
     /// What it draws now: a frame of the decode, or the words once settled.
@@ -178,18 +180,14 @@ final class DecodeWordsView: NSView {
         super.init(frame: .zero)
         layer = CALayer()
         wantsLayer = true
-        for text in [words, glow] {
+        for text in [words, glyphs] {
             text.isWrapped = false
             text.truncationMode = .end
             text.alignmentMode = .left
             layer?.addSublayer(text)
         }
-        // A glyph a hair past the edge is clipped, never cut with a green ellipsis.
-        glow.truncationMode = .none
-        glow.masksToBounds = false
-        glow.shadowOffset = .zero
-        glow.shadowRadius = Self.glowRadius
-        glow.shadowOpacity = Self.glowOpacity
+        // A glyph a hair past the edge is clipped, never cut with an ellipsis of its own.
+        glyphs.truncationMode = .none
     }
 
     @available(*, unavailable)
@@ -221,12 +219,14 @@ final class DecodeWordsView: NSView {
     }
 
     /// The words `progress` of the way through their decode: settled from the left up to that share, each
-    /// letter or digit after it a glyph picked by its place and the frame's `step`, everything else as it is.
+    /// letter or digit after it a glyph of its case picked by its place and the frame's `step`, everything else as
+    /// it is.
     static func frame(of text: String, progress: Double, step: Int) -> String {
         let settled = Int(Double(text.count) * min(max(progress, 0), 1))
         return String(text.enumerated().map { index, character in
             guard index >= settled, character.isLetter || character.isNumber else { return character }
             let pick = (index + 1) &* 7919 &+ (step + 1) &* 104_729 &+ index &* step &* 31
+            let glyphs = Self.glyphs(for: character)
             return glyphs[abs(pick) % glyphs.count]
         })
     }
@@ -258,7 +258,7 @@ final class DecodeWordsView: NSView {
 
     override func layout() {
         super.layout()
-        unanimated { words.frame = bounds; glow.frame = bounds }
+        unanimated { words.frame = bounds; glyphs.frame = bounds }
     }
 
     override func viewDidMoveToWindow() {
@@ -278,39 +278,37 @@ final class DecodeWordsView: NSView {
 
     private func rescale() {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        unanimated { words.contentsScale = scale; glow.contentsScale = scale }
+        unanimated { words.contentsScale = scale; glyphs.contentsScale = scale }
     }
 
     /// `shown` against its `text`, as the two layers draw it: the words, always the real characters, in `ink` where
     /// settled and clear where a glyph stands, so the line is exactly as wide as its words in every frame; and over
-    /// them the glyphs alone, in `glowInk`, each kerned by the difference between its advance and its character's so
+    /// them the glyphs alone, in `ink` too, each kerned by the difference between its advance and its character's so
     /// it stands where that character does, the settled characters clear.
-    static func painted(_ shown: String, text: String, font: NSFont, kerning: CGFloat = 0, ink: NSColor,
-                        glowInk: NSColor) -> (words: NSAttributedString, glow: NSAttributedString) {
+    static func painted(_ shown: String, text: String, font: NSFont, kerning: CGFloat = 0,
+                        ink: NSColor) -> (words: NSAttributedString, glyphs: NSAttributedString) {
         func advance(_ character: Character) -> CGFloat {
             NSAttributedString(string: String(character), attributes: [.font: font]).size().width
         }
-        let words = NSMutableAttributedString(), glow = NSMutableAttributedString()
+        let words = NSMutableAttributedString(), glyphs = NSMutableAttributedString()
         for (glyph, real) in zip(shown, text) {
             let unsettled = glyph != real
             words.append(NSAttributedString(string: String(real), attributes: [.font: font, .kern: kerning,
                                                                                .foregroundColor: unsettled ? NSColor.clear : ink]))
-            glow.append(NSAttributedString(string: String(glyph), attributes: [
+            glyphs.append(NSAttributedString(string: String(glyph), attributes: [
                 .font: font, .kern: kerning + (unsettled ? advance(real) - advance(glyph) : 0),
-                .foregroundColor: unsettled ? glowInk : NSColor.clear]))
+                .foregroundColor: unsettled ? ink : NSColor.clear]))
         }
-        return (words, glow)
+        return (words, glyphs)
     }
 
     private func paint() {
         guard let font else { return }
         unanimated {
             effectiveAppearance.performAsCurrentDrawingAppearance {
-                let green = NSColor(Palette.green)
-                let painted = Self.painted(shown, text: text, font: font, kerning: kerning, ink: inkColor, glowInk: green)
+                let painted = Self.painted(shown, text: text, font: font, kerning: kerning, ink: inkColor)
                 words.string = painted.words
-                glow.string = painted.glow
-                glow.shadowColor = green.cgColor
+                glyphs.string = painted.glyphs
             }
         }
     }

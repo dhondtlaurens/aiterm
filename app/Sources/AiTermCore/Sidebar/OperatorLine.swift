@@ -108,6 +108,14 @@ public struct OperatorLine: Equatable, Sendable {
     /// The broadcast's line while every task is done and the goal is still to check (`check_goal`): the board's band
     /// adds the round it checks only under it.
     public static let checkingTheGoal = OperatorLine("checking the goal", look: .acting)
+    /// The Operator row's line while its session works and AiTerm carries out no act of its own.
+    public static let working = OperatorLine("working", look: .acting)
+    /// The Operator row's line while its window is closed.
+    public static let windowClosed = OperatorLine("window closed")
+
+    /// Whether the Operator row's line names something the Operator does: an act, or checking the goal; not
+    /// `working`, which names nothing. What OPERATOR decodes into as it happens (`OperatorTitle`).
+    public var isAct: Bool { look == .acting && self != .working }
 
     // MARK: - A driven task's line
 
@@ -367,7 +375,7 @@ public struct OperatorLine: Equatable, Sendable {
                                asks: String? = nil, windowClosed: Bool,
                                paused: Bool = false, summary: RunSummary = .notYet, tasks: [TaskItem] = [],
                                background: [String] = []) -> OperatorLine {
-        if windowClosed { return OperatorLine("window closed") }
+        if windowClosed { return .windowClosed }
         if asking {
             guard let about else { return OperatorLine("waiting on you", look: .needsYou, tooltip: asks) }
             return needsYou("waiting on you", about, tooltip: asks)
@@ -383,7 +391,7 @@ public struct OperatorLine: Equatable, Sendable {
             let task = ref.flatMap { ref in tasks.first { $0.operated?.key == ref || $0.id.uuidString == ref } }
             return self.act(act, task: task, named: act.namesItsTask ? (label(of: task) ?? ref) : nil)
         }
-        if working { return OperatorLine("working", look: .acting) }
+        if working { return .working }
         if !background.isEmpty {
             return OperatorLine("in background", tooltip: "Running in the background: " + background.joined(separator: ", "))
         }

@@ -1199,8 +1199,6 @@
   .op .hdg .fold.closed svg { transform: rotate(-90deg); }
   .op .hdg .plus.board svg { width: 12px; height: 12px; }
   .op .hdg .sccs { margin-left: var(--space-base); letter-spacing: 0; }
-  /* The decode's unsettled glyphs: katakana in Palette.green with a glow (a shadow, untokenised). */
-  .op .g { color: var(--green); text-shadow: 0 0 6px rgba(48, 209, 88, 0.7); }
   /* TaskRowMarkView: the check (checkmark, Palette.green) and the pause sign (pause.fill, Palette.idleRing),
      both Palette.onAccent on the selection. A queued title in the surface's secondary ink. */
   .op .st.check, .op .st.pause { border-radius: 0; }
@@ -2660,11 +2658,11 @@
             <tr><td>RowCaption</td><td>A line under a row's title — a removal's or a shelving's progress, why it stopped, what the task is missing — in <code>Typography.help</code> and <code>secondaryInk</code>; <code>warns</code> is <code>Palette.amber</code>, except on the accent, where amber does not read.</td><td>SidebarRows.swift</td></tr>
             <tr><td>TaskRowView</td><td>A task or review in a <code>SelectableRow</code>: <code>AvatarGroupView</code>, the title in <code>Surface</code> ink, then, <code>Space.tight</code> below it and <code>Space.gap</code> apart, in this order, the Jira and merge-request <code>Badge</code>s, the VS Code <code>Badge</code> — all three <code>.quiet</code> — and the <code>BranchLabelView</code>, last because it is the one thing that truncates. Once its merge request has a review thread that can be resolved, the merge-request badge carries a <code>suffix</code> after its reference: <code>bubble.left</code> and the resolved threads of all of them, <code>2/5</code> — <code>6/6</code> stays, the same bubble, no check and no colour — in the quiet badge's ink, white on the accent; the tooltip and VoiceOver add “2 of 5 threads resolved”, and with the number switched off the mark keeps the count. Until a count has been read the badge shows none; a read that fails, or a host that is not connected, keeps the last count read, so a network blip does not make it flicker away, and it goes only with its row or when the task carries another merge request. <code>ReviewThreadsWatcher</code> reads the counts every 60 s and when such a row is selected, each into the row's own <code>PerRow</code> cell. The VS Code badge is the mark alone; when the checkout differs from the branch the task or review started from it extends to a <code>+12 −3</code> diff, with the base it is measured against named in the tooltip rather than on the badge. Clicking it opens the worktree in VS Code either way; with no VS Code there is no badge. A Settings › Interface switch that drops a badge's detail (<code>BadgeDetails</code>) keeps its mark, its click and its tooltip — <code>TaskRowBadges</code> decides them. Below them, a "Worktree missing" or "Couldn’t reopen" (its window could not be reopened) caption in <code>secondaryInk</code> — or why its removal or shelving stopped (<code>TaskRemoval.stopped</code>, "Not removed: branch kept", "Not shelved", "Not shelved: its window did not close", "Not shelved: iTerm2 isn’t connected") in a warning <code>RowCaption</code>, which stays when the banner moves on; trailing, the <code>StatusMark</code>, drawn by <code>TaskRowMarkView</code>: once a driven task's line has ended it is a <code>checkmark</code> at the mark's size in <code>Palette.green</code>, <code>Palette.onAccent</code> on the selection, standing in for the idle ring and an unseen turn's accent ring, while a session at work or waiting on input keeps its own mark and a removal spins (<code>TaskRowMark</code>). While the row is being removed (<code>AppController.removals</code>) the title drops to <code>secondaryInk</code>, the arrow keys step over it, "Removing…" — "Closing…" for a checkout deleted outside AiTerm — stands in for the badge line at its height, the caption is hidden and the mark spins; the row cannot be activated, and Rename and Remove are disabled. Shelving reads "Shelving…" in the same slot. Its context menu ends Shelve Task or Shelve Review — no ellipsis: it asks only when the worktree has uncommitted changes — above Remove Task… or Remove Review…, and VoiceOver offers Shelve Task or Shelve Review before Remove; Shelve is greyed, and not offered, while the workspace cannot change, while the row is being removed or shelved, and while a Remove that stopped after its worktree went waits on its retry. A row whose window could not be reopened is tried again by activating it — a click or ↩, never the arrows; its hint and tooltip say so (<code>TaskRowAccessibility</code>), except while the workspace cannot change. A window still coming back leaves the row drawn as it was. <code>TaskRowCaption</code> decides those lines. A task the Operator drives sits in the broadcast's group, not its project, and adds its status line as its last line, its <code>OperatorBadge</code> — <code>queued · after PAY-232</code>, <code>waiting on you</code>, <code>done · 4f2a91c</code>; while the Operator holds it and nothing on it is yours (<code>TaskRowCaption.folds(under:)</code>) the badge line folds away, so the row is its title over that line, a <code>Size.row</code>, and a request, a publication left for you, a removal’s progress or a caption unfolds it, 0.2 s ease-out, at once under Reduce Motion — and leads its menu with Take Over or Hand Back, and Stop Task… while it is open; chosen with its window closed, it comes back with its conversation resumed. While the Operator holds it, its mark spins with no done ring and is amber only when it needs you; queued (<code>TaskRow.queued</code>), its title is in <code>secondaryInk</code>, its mark the pause sign, and choosing it opens nothing.</td><td>SidebarRows.swift</td></tr>
             <tr><td>OperatorHeading</td><td>"OPERATOR", a <code>SidebarHeading</code> above <code>PROJECTS</code> on its anatomy. With no broadcast, its "+", an <code>AddMenu</code> with New Broadcast…, also available from File › New Broadcast… (⌘B). With one, it carries it: the progress in <code>Typography.monoChip</code> (<code>HeaderProgress</code>), the board button (<code>BoardButton</code>) in the "+" slot, the broadcast’s menu (<code>BroadcastMenu</code>) and tooltip; its click folds the Operator’s section and opens the projects, or back (<code>AppState.foldedRuns</code>), with a <code>SectionFoldChevron</code> and, folded, an amber count.</td><td>Operators/OperatorHeading.swift</td></tr>
-            <tr><td>OperatorTitle</td><td>OPERATOR’s word: while the broadcast runs it now and then decodes into one of eight phrases and back (<code>DecodeWordsView</code>, 0.9 s each way, held 3 s, after 20–60 s), straight back to OPERATOR and held under the pointer; never while paused, done or needing you; still under Reduce Motion.</td><td>Operators/OperatorHeading.swift</td></tr>
+            <tr><td>OperatorTitle</td><td>OPERATOR’s word, saying what the Operator does: while the broadcast runs it decodes into the Operator row’s line, uppercased, and back (<code>DecodeWordsView</code>, 0.9 s each way, held 3 s) — at once when the line turns to a new act (<code>OperatorLine.isAct</code>), and into the line as it stands once it has stood unchanged for 20–60 s; cut with an ellipsis; straight back to OPERATOR and held under the pointer; never while paused, done, needing you or with the Operator’s window closed; still under Reduce Motion.</td><td>Operators/OperatorHeading.swift</td></tr>
             <tr><td>SectionFoldChevron</td><td>A section heading’s disclosure chevron while the Operator’s section and the projects fold into each other: <code>HeaderChevron</code> in a <code>Size.slot</code> before the heading’s "+" or board button, shown folded and, open, under the pointer.</td><td>Operators/OperatorHeading.swift</td></tr>
             <tr><td>BroadcastMenu</td><td>The broadcast’s menu, OPERATOR’s and its lead row’s: Open Board, Rename…, Pause or Resume Broadcast, End Broadcast…, greyed but Open Board while the workspace is locked. It reads the broadcast itself, so the lead row is not redrawn when the progress moves.</td><td>Operators/OperatorHeading.swift</td></tr>
             <tr><td>OperatorRowView</td><td>The Operator’s own row, the broadcast’s lead, first under OPERATOR: a <code>SelectableRow</code>, <code>washed</code> (<code>Palette.operatorRow</code>, <code>badgeHovered</code> hovered), Claude’s <code>VendorMark</code>, the broadcast’s name, its own session’s line (<code>OperatorLine.session</code>) and <code>StatusMark</code>; no project, ticket or branch line; the broadcast’s menu. ↑ ↓ peek at its window; a click or ↩ brings it to front, or reopens it. Its value is <code>OperatorRow</code>, with an id of its own.</td><td>Operators/OperatorRowView.swift</td></tr>
-            <tr><td>OperatorBadge</td><td>Everything the Operator says on a status line: the words in <code>Typography.monoChip</code>, no mark, always one <code>Size.chip</code> line, the whole in its tooltip. Quiet: no box, the surface's secondary ink. Acting, exactly while the row's <code>StatusMark</code> turns: no box, the surface's ink, new words decoding once over 0.5 s through katakana in <code>Palette.green</code> with a glow (<code>DecodeWordsView</code>, the words’ layer always the real characters), then still; at once under Reduce Motion. Needs you: <code>statusChipAttentionFill</code> and <code>Stroke</code> with <code>Palette.text</code>; on the accent the surface's <code>badgeWash</code>. The words are <code>OperatorLine</code>'s closed list.</td><td>OperatorBadge.swift</td></tr>
+            <tr><td>OperatorBadge</td><td>Everything the Operator says on a status line: the words in <code>Typography.monoChip</code>, no mark, always one <code>Size.chip</code> line, the whole in its tooltip. Quiet: no box, the surface's secondary ink. Acting, exactly while the row's <code>StatusMark</code> turns: no box, the surface's ink, new words decoding once over 0.5 s, each letter and digit running through letters and digits of its own case in the words’ ink (<code>DecodeWordsView</code>, the words’ layer always the real characters), then still; at once under Reduce Motion. Needs you: <code>statusChipAttentionFill</code> and <code>Stroke</code> with <code>Palette.text</code>; on the accent the surface's <code>badgeWash</code>. The words are <code>OperatorLine</code>'s closed list.</td><td>OperatorBadge.swift</td></tr>
             <tr><td>BroadcastStatusLine</td><td>A broadcast's status line as its board's band says it: its <code>OperatorBadge</code>, then <code>· 2 of 8 done</code> in <code>Typography.monoChip</code> and the surface's secondary ink, outside the needs-you box; the badge's words are what is cut.</td><td>OperatorBadge.swift</td></tr>
             <tr><td>OperatorMenuButtons</td><td>The Operator's menu items (<code>OperatorMenuItem</code>, chosen by <code>OperatorMenus</code>) as buttons and dividers: the heading's "+", the broadcast header's menu, and the lead of a driven task's. Stop Task… is drawn destructive; End Broadcast… is not.</td><td>Operators/OperatorMenus.swift</td></tr>
             <tr><td>TerminalRowView</td><td>A terminal in the same <code>SelectableRow</code> and the same two-line layout: its window's agents, its name, then the quiet VS Code <code>Badge</code> — the mark alone, no diff, opening the project folder — and the <code>BranchLabelView</code> with the project's branch, and the <code>StatusMark</code>.</td><td>SidebarRows.swift</td></tr>
@@ -2782,12 +2780,16 @@
         broadcast’s projects over its whole status line (<code>OperatorLine.broadcast</code>, as the board’s band says
         it), which VoiceOver reads as its value after the broadcast’s name; VoiceOver has the fold as its default action
         and the menu’s items, Open Board first, as named ones.</p>
-      <p class="why"><b>The word decodes</b> (<code>OperatorTitle</code>): while the broadcast runs, now and then (after
-        20–60 s) OPERATOR decodes into one of eight phrases, <i>Jacking in, Tracing the call, Rerouting, Decrypting,
-        Loading the construct, Patching through, Watching for agents, Reading the code</i>, over 0.9 s, holds 3 s, and
-        decodes back. Under the pointer it decodes straight back to OPERATOR and changes no more until the pointer
-        leaves. Never while paused or done, nor while something in it needs you; still under Reduce Motion and in the
-        snapshots; VoiceOver always reads “Operator”. Below it runs every few seconds; hover it to hold it.</p>
+      <p class="why"><b>The word says what the Operator does</b> (<code>OperatorTitle</code>, 29 Oct 2026): while the
+        broadcast runs, OPERATOR decodes into the Operator row’s own line, uppercased, over 0.9 s, holds it 3 s, and
+        decodes back. It does so as soon as the line turns to a new act (<code>ANSWERING CLAUDE · PAY-231</code>,
+        <code>CONSULTING THE ORACLE</code>; <code>OperatorLine.isAct</code>, not <code>working</code>), a newer act
+        during the hold decoding straight into it; and once the line has stood unchanged for 20–60 s, into the line as
+        it stands (<code>WATCHING 3 TASKS</code>), again after every such quiet stretch. A long line is cut with an
+        ellipsis; the progress keeps its width. Under the pointer it decodes straight back to OPERATOR and changes no
+        more until the pointer leaves. Never while paused or done, while something in it needs you or with the
+        Operator’s window closed; still under Reduce Motion and in the snapshots; VoiceOver always reads “Operator”.
+        Below it says its row’s line every few seconds; hover it to hold it.</p>
       <p class="why"><b>The Operator’s row</b> (<code>OperatorRowView</code>, an <code>OperatorRow</code> value), the
         broadcast’s lead, is always first under the heading: a full <code>Size.row</code> <code>SelectableRow</code>, <code>washed</code> at rest in
         <code>Palette.operatorRow</code> and <code>Palette.badgeHovered</code> hovered, in <code>RowPill</code>’s pill,
@@ -2824,7 +2826,7 @@
           <div class="rules" style="grid-template-columns: 1fr; margin-top: 0">
             <div class="yes"><span class="h">Quiet, the default</span>No box, the words in the surface's secondary ink: the Operator is watching and nothing moves (<code>queued · after PAY-232</code>, <code>in review · waiting on Jan</code>, <code>paused</code>).</div>
             <div class="yes"><span class="h">Ended</span>Drawn as quiet: the Operator's work on the task is over (<code>done · 4f2a91c</code>, <code>merged · 9b3e07d</code>, <code>draft MR · !412</code>). The row's trailing mark is the green check; no other state has a mark of its own.</div>
-            <div class="yes"><span class="h">Acting</span>No box, the words in the surface’s ink, exactly while the row’s <code>StatusMark</code> turns: the Operator holds the task (<code>Operator watching</code>, <code>ready for the Operator</code>), its session works, or AiTerm handles one of its acts (<code>loading the construct</code>, <code>consulting the Oracle</code>, <code>answering Claude</code>, …). When the words change they decode once: each letter and digit runs through glyphs (<code>0-9a-z</code>, one advance wide, so the line keeps its width) and they settle from the left over <code>OperatorBadge.decodeDuration</code> (0.5 s), then stand still, the spinner carrying the ongoing motion (<code>DecodeWordsView</code>, its own frames, no loop). At once under Reduce Motion and in the snapshots.</div>
+            <div class="yes"><span class="h">Acting</span>No box, the words in the surface’s ink, exactly while the row’s <code>StatusMark</code> turns: the Operator holds the task (<code>Operator watching</code>, <code>ready for the Operator</code>), its session works, or AiTerm handles one of its acts (<code>loading the construct</code>, <code>consulting the Oracle</code>, <code>answering Claude</code>, …). When the words change they decode once: each letter and digit runs through glyphs of its own case in the words’ ink (<code>DecodeWordsView.glyphs(for:)</code>: a capital through <code>A–Z 0–9</code>, a lowercase letter through <code>a–z 0–9</code>, a digit through <code>0–9</code>), each kerned to its character’s width so the line keeps it, and they settle from the left over <code>OperatorBadge.decodeDuration</code> (0.5 s), then stand still, the spinner carrying the ongoing motion (<code>DecodeWordsView</code>, its own frames, no loop). At once under Reduce Motion and in the snapshots.</div>
             <div class="no"><span class="h">Needs you</span><code>Palette.statusChipAttentionFill</code> and <code>Stroke</code>, the attention chip's existing pair, the words in <code>Palette.text</code>, never amber. On the accent, the surface's <code>badgeWash</code> and ink instead. The row's <code>StatusMark</code> turns amber.</div>
             <div><span class="h" style="color: var(--muted)">One line</span>No mark leads the words. Always one <code>Size.chip</code> line, cut with an ellipsis, the whole line in its tooltip and VoiceOver label.</div>
           </div>
@@ -3216,26 +3218,30 @@
   })();
 </script>
 <script>
-  /* The Operator's acting words decode once through katakana, green and glowing, then stand still
-     (OperatorBadge.decodeDuration, 0.5 s); replayed every 6 s here. OPERATOR now and then decodes into a phrase and
-     back (OperatorTitle: every 20–60 s, 0.9 s, held 3 s; every 5–9 s here), straight back and held under the pointer.
+  /* The Operator's acting words decode once through letters and digits of each character's case, in its ink, then stand still
+     (OperatorBadge.decodeDuration, 0.5 s); replayed every 6 s here. OPERATOR decodes into its Operator row's line and
+     back (OperatorTitle: on a new act and after 20–60 s quiet, 0.9 s, held 3 s; every 5–9 s here), straight back and
+     held under the pointer; a folded heading, with no row drawn, says "watching 3 tasks".
      Still under Reduce Motion. */
   (function () {
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { return; }
-    var glyphs = 'ｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ0123456789Z:・.=*+-<>¦';
+    var lower = 'abcdefghijklmnopqrstuvwxyz', upper = lower.toUpperCase(), digits = '0123456789';
+    // DecodeWordsView.glyphs(for:): the case the character shows in, so the uppercased heading takes capitals.
+    function glyphsFor(c, caps) { return /[0-9]/.test(c) ? digits : caps || c === c.toUpperCase() ? upper + digits : lower + digits; }
     function esc(c) { return c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '&' ? '&amp;' : c; }
-    function frame(text, settled) {
+    function frame(text, settled, caps) {
       return text.split('').map(function (c, i) {
         if (i < settled || !/[0-9a-z]/i.test(c)) { return esc(c); }
+        var glyphs = glyphsFor(c, caps);
         return '<span class="g">' + esc(glyphs[Math.floor(Math.random() * glyphs.length)]) + '</span>';
       }).join('');
     }
     function decode(el, text, ms, done) {
       clearInterval(el._decode);
-      var f = 0, frames = Math.max(6, Math.round(ms / 33));
+      var f = 0, frames = Math.max(6, Math.round(ms / 33)), caps = !!el.closest('.hdg');
       el._decode = setInterval(function () {
         f += 1;
-        el.innerHTML = frame(text, Math.floor(text.length * f / frames));
+        el.innerHTML = frame(text, Math.floor(text.length * f / frames), caps);
         if (f >= frames) { clearInterval(el._decode); el._decode = null; el.textContent = text; if (done) { done(); } }
       }, ms / frames);
     }
@@ -3246,20 +3252,19 @@
     }
     play();
     setInterval(play, 6000);
-    var words = ['Jacking in', 'Tracing the call', 'Rerouting', 'Decrypting', 'Loading the construct', 'Patching through',
-                 'Watching for agents', 'Reading the code'];
-    document.querySelectorAll('.op .op-title').forEach(function (el, n) {
-      var hdg = el.closest('.hdg'), i = n % words.length, timer = null, hovering = false;
+    document.querySelectorAll('.op .op-title').forEach(function (el) {
+      var hdg = el.closest('.hdg'), timer = null, hovering = false,
+          row = el.closest('.mk-sidebar').querySelector('.mk-row.opr .tx'),
+          said = function () { return row ? row.dataset.text || row.textContent : 'watching 3 tasks'; };
       // Never while something in it needs you: the folded heading's amber chip has the heading then.
       if (hdg.querySelector('.sccs')) { return; }
       function next() {
         clearTimeout(timer);
         timer = setTimeout(function () {
           if (hovering) { return; }
-          decode(el, words[i], 900, function () {
+          decode(el, said(), 900, function () {
             timer = setTimeout(function () { if (!hovering) { decode(el, 'Operator', 900, next); } }, 3000);
           });
-          i = (i + 1) % words.length;
         }, 5000 + Math.random() * 4000);
       }
       hdg.addEventListener('mouseenter', function () {

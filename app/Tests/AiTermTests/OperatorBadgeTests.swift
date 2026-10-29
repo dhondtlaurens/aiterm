@@ -65,10 +65,10 @@ struct OperatorBadgeTests {
         #expect(fitting(OperatorLine("merging", look: .needsYou)).width == words + 2 * Space.tight)
     }
 
-    /// Each frame of the decode: the words settled from the left up to the frame's share, the rest a katakana glyph
-    /// each, their spaces and separators kept, so the line keeps its length; painted, the words layer draws the real
+    /// Each frame of the decode: the words settled from the left up to the frame's share, the rest a letter or digit
+    /// of the character's case each, their spaces and separators kept, so the line keeps its length; painted, the words layer draws the real
     /// characters, so it keeps its width too, in the mono face and the heading's tracked micro face alike, and the
-    /// glyphs are a layer of their own.
+    /// glyphs are a layer of their own, in the words' ink.
     @Test func aDecodeFrameSettlesFromTheLeftAndKeepsTheLinesWidth() {
         let text = "answering Claude · PAY-231"
         func width(_ string: NSAttributedString) -> CGFloat { string.size().width }
@@ -76,13 +76,18 @@ struct OperatorBadgeTests {
             let words = NSAttributedString(string: text, attributes: [.font: font, .kern: kerning])
             for progress in stride(from: 0.0, through: 1.0, by: 0.1) {
                 let frame = DecodeWordsView.frame(of: text, progress: progress, step: Int(progress * 10))
-                let painted = DecodeWordsView.painted(frame, text: text, font: font, kerning: kerning, ink: .white, glowInk: .green)
+                let painted = DecodeWordsView.painted(frame, text: text, font: font, kerning: kerning, ink: .white)
                 #expect(painted.words.string == text && abs(width(painted.words) - width(words)) < 0.01, "\(frame)")
-                #expect(painted.glow.string == frame)
+                #expect(painted.glyphs.string == frame)
+                painted.glyphs.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: painted.glyphs.length)) { ink, _, _ in
+                    #expect([NSColor.white, .clear].contains(ink as? NSColor), "a glyph in the words' ink, nothing green")
+                }
             }
         }
         let scrambled = DecodeWordsView.frame(of: text, progress: 0, step: 3)
-        #expect(scrambled.contains { DecodeWordsView.glyphs.contains($0) && !$0.isASCII }, "the Matrix's katakana: \(scrambled)")
+        for (shown, real) in zip(scrambled, text) where real.isLetter || real.isNumber {
+            #expect(DecodeWordsView.glyphs(for: real).contains(shown), "\(real) runs through its own case: \(scrambled)")
+        }
         for progress in stride(from: 0.0, through: 1.0, by: 0.1) {
             let frame = DecodeWordsView.frame(of: text, progress: progress, step: Int(progress * 10))
             #expect(frame.count == text.count)
@@ -123,8 +128,8 @@ struct OperatorBadgeTests {
     }
 
     /// The OPERATOR heading's decode: its first words stand as they are, so a heading that appears does not decode
-    /// its own name; the next words decode, the unsettled glyphs green on their own layer, which alone glows.
-    @Test func firstWordsCanStandAndOnlyTheGlyphsGlow() {
+    /// its own name; the next words decode, and nothing glows.
+    @Test func firstWordsCanStandAndNothingGlows() {
         var now: CFTimeInterval = 100
         let view = DecodeWordsView()
         view.now = { now }
@@ -133,7 +138,7 @@ struct OperatorBadgeTests {
         #expect(!view.isDecoding && view.shown == "OPERATOR")
         view.configure(text: "JACKING IN", font: font, ink: .white, duration: 0.9, kerning: SidebarHeading.tracking, decodesFirst: false)
         #expect(view.isDecoding && view.shown != "JACKING IN")
-        #expect(view.glow.shadowOpacity > 0 && view.words.shadowOpacity == 0, "the glow is the glyphs' layer's alone")
+        #expect(view.glyphs.shadowOpacity == 0 && view.words.shadowOpacity == 0, "no glow")
         now += 0.9
         view.tick()
         #expect(!view.isDecoding && view.shown == "JACKING IN")

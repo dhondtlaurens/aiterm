@@ -189,7 +189,7 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 | `CommandPreview` | the command the selected agent will run |
 | `SidebarBannerText` | the sidebar banner’s title and detail |
 | `SidebarFooterHost`, `SelectedRowSidebarFooter` | footer observation scoped to the selected row |
-| `DecodeWordsView` | the Operator’s animated words and OPERATOR’s, in katakana, green, glowing |
+| `DecodeWordsView` | the Operator’s animated words and OPERATOR’s, in letters and digits of each character’s case, in their own ink |
 | `OracleGroup` | Settings › Operator’s Oracle controls |
 | `ModelReasoningFields` | shared model and reasoning controls; callers keep their missing-model policy; `labelled: false` drops the labels for rows whose columns are labelled once (New Broadcast's Agents step) |
 
@@ -297,12 +297,15 @@ else of what it hides; the chip's click switches over and selects that section's
 folded section, by a notification or Focus View, switches over first (`AppController.reveal`, run by
 `SidebarScrollFollower`).
 
-While the broadcast runs, OPERATOR now and then decodes into one of eight phrases (`OperatorTitle.words`, the
-Operator's side of the Matrix, the way Claude Code shows its spinner words) and back: after 20–60 s, over
-`OperatorTitle.decodeDuration` (0.9 s), held 3 s. Under the pointer it decodes straight back to OPERATOR over
-0.35 s and changes no more until the pointer leaves. It never decodes while the broadcast is paused or done, nor
-while something in it needs you; it stands still under Reduce Motion and in the snapshots, and VoiceOver always
-reads "Operator". It is drawn by `DecodeWordsView`, as the Operator's lines are (below), in the heading's micro face,
+While the broadcast runs, OPERATOR says what the Operator does (`OperatorTitle`): it decodes into the Operator
+row's own line, uppercased, over `OperatorTitle.decodeDuration` (0.9 s), holds it 3 s and decodes back — at once
+when the line turns to a new act (`OperatorLine.isAct`: `answering Claude · PAY-231`, `consulting the Oracle`,
+`checking the goal`; not `working`), a newer act during the hold decoding straight into it, and into the line as it
+stands (`watching 3 tasks`) once it has stood unchanged for 20–60 s, again after every such quiet stretch. A long
+line is cut with an ellipsis; the progress keeps its width. Under the pointer it decodes straight back to OPERATOR
+over 0.35 s and changes no more until the pointer leaves. It never decodes while the broadcast is paused or done,
+while something in it needs you, or while the Operator's window is closed; it stands still under Reduce Motion
+and in the snapshots, and VoiceOver always reads "Operator". It is drawn by `DecodeWordsView`, as the Operator's lines are (below), in the heading's micro face,
 tracking (`SidebarHeading.tracking`) and muted ink, its first word shown as it is.
 
 The Operator's row (`OperatorRowView`, an `OperatorRow` value) is always first under it: a full `Size.row`
@@ -341,12 +344,13 @@ task of an ended broadcast is yours, and its menu is any task's. Everything the 
 status line is that badge: its words in `Typography.monoChip` and no mark, since where the line sits
 says whose it is, always one `Size.chip` line cut with an ellipsis, the whole in its tooltip. Quiet, and
 ended, have no box and the surface's secondary ink; acting has no box and the surface's ink, and when its
-words change they decode once, as OPERATOR does: each letter and digit runs through the Matrix's half-width
-katakana, digits and signs (`DecodeWordsView.glyphs`) in `Palette.green` with a glow, and they settle from the left
-into the words' ink over `OperatorBadge.decodeDuration` (0.5 s), then stand still, the row's spinner carrying the
-ongoing motion (`DecodeWordsView`: two `CATextLayer`s with frames of their own at 30 a second, no SwiftUI update per
-frame, and no loop; the words' layer always draws the real characters, clear under a glyph, so the line keeps its
-width, and the glyphs are a layer of their own whose shadow is the glow, so nothing settled glows). The words stand still at once
+words change they decode once, as OPERATOR does: each letter and digit runs through letters and digits of its
+own case (`DecodeWordsView.glyphs(for:)`: a capital through A–Z and 0–9, a lowercase letter through a–z and 0–9, a
+digit through 0–9) in the words' own ink, with no glow, and they settle from the left over
+`OperatorBadge.decodeDuration` (0.5 s), then stand still, the row's spinner carrying the ongoing motion
+(`DecodeWordsView`: two `CATextLayer`s with frames of their own at 30 a second, no SwiftUI update per frame, and no
+loop; the words' layer always draws the real characters, clear under a glyph, so the line keeps its width, and the
+glyphs are a layer of their own). The words stand still at once
 under Reduce Motion and in the snapshots; needs you is `statusChipAttentionFill` and `Stroke` with
 `Palette.text`, and on `Surface.accent` the surface's `badgeWash` and ink. The words are a closed list
 decided by `OperatorLine` (`AiTermCore/Sidebar/OperatorLine.swift`), from the task's state, the

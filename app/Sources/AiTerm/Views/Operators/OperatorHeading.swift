@@ -5,8 +5,8 @@ import AiTermCore
 /// `OPERATOR`, above `PROJECTS` (spec §3, §13; 28 Oct 2026). With no broadcast it is a `SidebarHeading` and its "+",
 /// an `AddMenu` with New Broadcast…, also in File on ⌘B. Once one exists, one at a time, the heading carries
 /// what the broadcast's header row did: its progress `Space.gap` after the word in `Typography.monoChip`
-/// (`paused · 2 of 8` while paused), and the board button in the "+"'s slot. The word now and then decodes into
-/// another (`OperatorTitle`). The broadcast's menu (Open Board, Rename…, Pause or Resume, End Broadcast…) is its
+/// (`paused · 2 of 8` while paused), and the board button in the "+"'s slot. The word decodes into what the
+/// Operator does (`OperatorTitle`). The broadcast's menu (Open Board, Rename…, Pause or Resume, End Broadcast…) is its
 /// context menu, and its lead row's (`OperatorRowView`); its tooltip is the broadcast's projects and status line.
 ///
 /// While a broadcast exists, the Operator's section and the projects fold into each other, one open at a time,
@@ -25,10 +25,11 @@ struct OperatorHeading: View {
     /// Whether the heading offers New Broadcast…: only while there is no broadcast.
     static func offersNewBroadcast(_ broadcast: BroadcastSection?) -> Bool { broadcast == nil }
 
-    /// Whether the word decodes now and then: while the broadcast runs, never while it is paused or done, nor while
-    /// something in it needs you, which the heading's chip or its rows say then.
+    /// Whether the word decodes: while the broadcast runs, never while it is paused or done, nor while something
+    /// in it needs you, which the heading's chip or its rows say then, nor while the Operator's window is closed.
     static func decodes(_ broadcast: BroadcastSection) -> Bool {
         !broadcast.header.isPaused && !broadcast.header.isDone && !broadcast.needsAttention
+            && broadcast.operatorRow.line != .windowClosed
     }
 
     var body: some View {
@@ -55,7 +56,7 @@ struct OperatorHeading: View {
         // Only the label folds; the chip and the board button keep their own clicks.
         HStack(spacing: scale(Space.base)) {
             HStack(spacing: scale(Space.gap)) {
-                OperatorTitle(decodes: Self.decodes(broadcast), hovering: hovering)
+                OperatorTitle(line: broadcast.operatorRow.line, decodes: Self.decodes(broadcast), hovering: hovering)
                 if let progress = header.headerProgress { HeaderProgress(text: progress) }
             }
             Spacer(minLength: scale(Space.tight))
@@ -127,17 +128,23 @@ struct BroadcastMenu: View {
     }
 }
 
-/// OPERATOR's word (28 Oct 2026). While `decodes`, it now and then decodes into one of `words`, the Operator's side
-/// of the Matrix, the way Claude Code shows its spinner words: after 20–60 s, over `decodeDuration`, held `hold`,
-/// then back. Under the pointer (`hovering`, the heading's) it decodes straight back to OPERATOR, over
-/// `hoverDuration`, and changes no more until the pointer leaves. Drawn by `DecodeWordsView` in the heading's micro
-/// face, tracking and muted ink, laid out by the word it decodes into; still under Reduce Motion and in the
-/// snapshots. VoiceOver always reads "Operator".
+/// OPERATOR's word (28 Oct 2026), saying what the Operator does (29 Oct 2026): while `decodes`, it decodes into the
+/// Operator row's `line`, uppercased, over `decodeDuration`, holds it `hold` and decodes back. It does so as soon as
+/// the line turns to a new act (`OperatorLine.isAct`: `answering Claude · PAY-231`, `consulting the Oracle`), a
+/// newer act during the hold decoding straight into it; and once the line has stood unchanged for `rest` (20–60 s),
+/// into the line as it stands (`watching 3 tasks`, `working`), again after every such quiet stretch. Under the
+/// pointer (`hovering`, the heading's) it decodes straight back to OPERATOR, over `hoverDuration`, and changes no
+/// more until the pointer leaves. Drawn by `DecodeWordsView` in the heading's micro face, tracking and muted ink,
+/// laid out by the word it decodes into and cut with an ellipsis; still under Reduce Motion and in the snapshots.
+/// VoiceOver always reads "Operator".
 struct OperatorTitle: View {
+    let line: OperatorLine
     let decodes: Bool
     let hovering: Bool
     @State private var word = Self.home
     @State private var duration = Self.decodeDuration
+    /// The act it last decoded into, so the same act is said once, not again when the pointer leaves.
+    @State private var said: OperatorLine?
     @Environment(\.interfaceScale) private var scale
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     #if DEBUG
@@ -147,9 +154,6 @@ struct OperatorTitle: View {
     #endif
 
     static let home = "Operator"
-    /// What it decodes into, in turn from a random start.
-    static let words = ["Jacking in", "Tracing the call", "Rerouting", "Decrypting", "Loading the construct",
-                        "Patching through", "Watching for agents", "Reading the code"]
     /// How long a decode takes each way, in seconds: slower than a line's (`OperatorBadge.decodeDuration`), since a
     /// whole new word arrives.
     static let decodeDuration = 0.9
@@ -157,12 +161,21 @@ struct OperatorTitle: View {
     static let hoverDuration = 0.35
     /// How long a word stands before it decodes back, in seconds.
     static let hold = 3.0
-    /// How long OPERATOR stands between two words, in seconds: irregular, so it never reads as a loop.
+    /// How long the line stands unchanged, and OPERATOR with it, before the word says it anyway, in seconds:
+    /// irregular, so it never reads as a loop.
     static let rest: ClosedRange<Double> = 20...60
+
+    /// What restarts the cycle: whether it runs, and the line it says.
+    private struct Cycle: Equatable {
+        let running: Bool
+        let line: OperatorLine
+    }
 
     var body: some View {
         let animates = !reduceMotion && !still
-        let text = Text(word).font(Typography.micro).kerning(SidebarHeading.tracking).textCase(.uppercase).lineLimit(1)
+        let running = decodes && animates && !hovering
+        let text = Text(word).font(Typography.micro).kerning(SidebarHeading.tracking).textCase(.uppercase)
+            .lineLimit(1).truncationMode(.tail)
         Group {
             if animates {
                 // Laid out by the word, drawn by the decode's own view: a frame is never a SwiftUI update.
@@ -174,32 +187,47 @@ struct OperatorTitle: View {
                 text.foregroundStyle(Palette.muted)
             }
         }
-        .fixedSize()
         .onChange(of: hovering) { _, hovering in
             if hovering, word != Self.home { duration = Self.hoverDuration; word = Self.home }
         }
-        .task(id: decodes && animates && !hovering) { await cycle(running: decodes && animates && !hovering) }
+        .task(id: Cycle(running: running, line: line)) { await cycle(running: running, line: line) }
         .accessibilityLabel(Self.home)
     }
 
-    /// Words, while it runs, until it is cancelled; OPERATOR again once it stops.
-    private func cycle(running: Bool) async {
+    /// What it says at once when `line` arrives: the line, when it is an act not yet said.
+    static func says(_ line: OperatorLine, said: OperatorLine?) -> Bool { line.isAct && line != said }
+
+    /// The line's act at once, then the line after every quiet stretch, until it is cancelled by a new line or by
+    /// stopping; OPERATOR again once it stops, or once the line is no longer the act it says.
+    private func cycle(running: Bool, line: OperatorLine) async {
         guard running else {
             if word != Self.home { duration = Self.hoverDuration; word = Self.home }
             return
         }
-        var next = Int.random(in: Self.words.indices)
+        // An act said once is said again only after the line has been something else.
+        if !line.isAct { said = nil }
+        if Self.says(line, said: said) {
+            said = line
+            await say(line)
+        } else if word != Self.home {
+            duration = Self.decodeDuration
+            word = Self.home
+        }
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(Double.random(in: Self.rest)))
             guard !Task.isCancelled else { return }
-            duration = Self.decodeDuration
-            word = Self.words[next]
-            next = (next + 1) % Self.words.count
-            try? await Task.sleep(for: .seconds(Self.decodeDuration + Self.hold))
-            guard !Task.isCancelled else { return }
-            word = Self.home
-            try? await Task.sleep(for: .seconds(Self.decodeDuration))
+            await say(line)
         }
+    }
+
+    /// The line, held, then OPERATOR.
+    private func say(_ line: OperatorLine) async {
+        duration = Self.decodeDuration
+        word = line.text
+        try? await Task.sleep(for: .seconds(Self.decodeDuration + Self.hold))
+        guard !Task.isCancelled else { return }
+        word = Self.home
+        try? await Task.sleep(for: .seconds(Self.decodeDuration))
     }
 }
 
