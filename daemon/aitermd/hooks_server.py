@@ -234,31 +234,24 @@ class HookServer:
         directory, even an absolute curl command cannot start. The MCP connection is established
         while the worktree still exists, so its tool call remains available for the final event.
         """
-        request_id = message.get("id")
-        method = message.get("method")
-        if request_id is None:
-            # MCP notifications (notably notifications/initialized) have no response body.
-            await self._reply(writer, 202, "")
-            return
-
         tools = [{
             "name": "post_codex_hook",
             "description": "Deliver a Codex lifecycle event to the local AiTerm daemon.",
             "inputSchema": {"type": "object", "additionalProperties": True},
         }]
-        response = mcp.respond(request_id, method, tools, "aiterm-hooks")
-        if response is None:
-            params = message.get("params")
+
+        async def call(request: dict[str, Any]) -> dict[str, Any]:
+            request_id, params = request.get("id"), request.get("params")
             name = params.get("name") if isinstance(params, dict) else None
             arguments = params.get("arguments") if isinstance(params, dict) else None
             if name != "post_codex_hook" or not isinstance(arguments, dict):
-                response = mcp.error(request_id, -32602, "invalid tool call")
-            else:
-                payload = dict(arguments)
-                self._add_iterm_session(payload, headers)
-                await self._deliver("/hook/codex", payload)
-                response = mcp.answer(request_id, mcp.tool_result({}))
-        await self._reply(writer, 200, json.dumps(response, separators=(",", ":")))
+                return mcp.error(request_id, -32602, "invalid tool call")
+            payload = dict(arguments)
+            self._add_iterm_session(payload, headers)
+            await self._deliver("/hook/codex", payload)
+            return mcp.answer(request_id, mcp.tool_result({}))
+
+        await self._reply(writer, *await mcp.serve(message, tools, "aiterm-hooks", call))
 
     @staticmethod
     async def _reply(writer: asyncio.StreamWriter, status: int, text: str) -> None:

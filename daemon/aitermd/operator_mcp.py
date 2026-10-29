@@ -585,20 +585,10 @@ class OperatorRoute:
         if method != "POST":
             # No stream from the server: each answer is the reply to its own POST.
             return 405, ""
-        try:
-            request = json.loads(body or b"{}")
-        except (ValueError, RecursionError):
-            return 200, json.dumps(mcp.error(None, -32700, "parse error"), separators=(",", ":"))
-        if not isinstance(request, dict):
-            return 200, json.dumps(mcp.error(None, -32600, "a message must be a JSON object"), separators=(",", ":"))
-        request_id, name = request.get("id"), request.get("method")
-        if request_id is None:
-            # A notification -- notifications/initialized among them -- has no answer.
-            return 202, ""
-        response = mcp.respond(request_id, name, TOOLS)
-        if response is None:
-            response = await self._call(run_id, request_id, request.get("params"))
-        return 200, json.dumps(response, separators=(",", ":"))
+        async def call(request: dict[str, Any]) -> dict[str, Any]:
+            return await self._call(run_id, request.get("id"), request.get("params"))
+
+        return await mcp.serve(body, TOOLS, "aiterm", call)
 
     async def _call(self, run_id: str, request_id: Any, params: Any) -> dict[str, Any]:
         tool = params.get("name") if isinstance(params, dict) else None
@@ -690,12 +680,9 @@ class OperatorRoute:
         operator is told. One nobody waits for any more -- timed out, or answered already -- is dropped."""
         request_id = param(p, "requestId", str)
         result, error = p.get("result"), optional_param(p, "error", str)
-        if isinstance(result, list):
-            # List tools (jira_search, find_user) answer arrays. MCP's structuredContent
-            # needs an object, so normalize every list reply at this shared boundary.
-            result = {"items": result}
-        elif result is not None and not isinstance(result, dict):
+        if result is not None and not isinstance(result, (dict, list)):
             raise RpcError(protocol.BAD_PARAMS, "result must be an object or array")
+        result = mcp.normalize_result(result)
         answer = self._pending.get(request_id)
         if answer is None or answer.done():
             log.info("dropped the app's reply to %s: nothing waits for it", request_id)
