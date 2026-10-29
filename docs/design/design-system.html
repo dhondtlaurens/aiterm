@@ -419,11 +419,13 @@
      The glow is DecodeWordsView.glowRadius 3 pt at glowOpacity 0.7, drawn as a 6 px text-shadow as on Components. */
   .dp .dp-mount { margin-top: var(--space-block); }
   .dp .hdg .word { white-space: pre; }
-  .dp-a .g { color: var(--green); text-shadow: 0 0 6px rgba(48, 209, 88, 0.7); }
-  .dp-b .g { color: var(--green); }
-  .dp-c .g.h { color: var(--green); text-shadow: 0 0 6px rgba(48, 209, 88, 0.7); }
-  .dp-c .mk-row.sel .g.h { color: #FFFFFF; text-shadow: 0 0 6px rgba(255, 255, 255, 0.7); }
-  .dp-d .g { text-shadow: 0 0 6px; }
+  /* Scoped past Components' .op .g (green, glowing), which comes later at the same weight: own ink by default. */
+  .op .dp-mount .g { color: inherit; text-shadow: none; }
+  .op .dp-a .g { color: var(--green); text-shadow: 0 0 6px rgba(48, 209, 88, 0.7); }
+  .op .dp-b .g { color: var(--green); }
+  .op .dp-c .g.h { color: var(--green); text-shadow: 0 0 6px rgba(48, 209, 88, 0.7); }
+  .op .dp-c .mk-row.sel .g.h { color: #FFFFFF; text-shadow: 0 0 6px rgba(255, 255, 255, 0.7); }
+  .op .dp-d .g { text-shadow: 0 0 6px; }
 
   /* Broadcast setup v2: New Broadcast's Agents, Task and Done steps and the board's new card lines. Only what the kit
      above lacks: a checkbox, the Agents rows, a card's combination and end lines and its fix-round links, the end menu.
