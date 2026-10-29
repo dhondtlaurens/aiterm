@@ -436,8 +436,6 @@ struct TaskRowView: View {
                         RowCaption(note.text, warns: note.warns).lineLimit(1)
                     } else if let line = row.operatorLine {
                         OperatorBadge(line: line)
-                    } else if let line = row.testLine {
-                        OperatorBadge(line: line)
                     }
                 }
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: folded)
@@ -453,7 +451,7 @@ struct TaskRowView: View {
         .environment(\.rowHovered, hoveredRow == row.id)
         #endif
         .accessibilityLabel(voiceOver.label)
-        .accessibilityValue(caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip ?? row.testLine?.tooltip
+        .accessibilityValue(caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip
                             ?? (jobs.isEmpty ? row.status.label : BackgroundCard(jobs: jobs).spoken))
         .accessibilityActions {
             if let task {

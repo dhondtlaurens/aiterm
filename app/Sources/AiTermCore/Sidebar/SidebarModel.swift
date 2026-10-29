@@ -70,10 +70,9 @@ public struct TaskRow: Equatable, Identifiable, Sendable {
     public var branch: BranchLabel, avatars: AvatarGroup, status: TaskStatus
     public var diff: BaseDiff? = nil
     /// The status line of a task the Operator drives (`OperatorLine.task`), its row's third line; nil for a
-    /// task you made yourself or took over.
+    /// task you made yourself or took over. That line is the Operator's alone: a test run on a task of your own is
+    /// not drawn as one (29 Oct 2026); it shows only as background work, on the row's mark and its card.
     public var operatorLine: OperatorLine? = nil
-    /// The task's own test command, also visible on tasks the Operator does not drive.
-    public var testLine: OperatorLine? = nil
     /// The task is driven by a broadcast that has not ended: its menu leads with the Operator's items.
     /// False for a task you made yourself, and for every task of an ended broadcast, handed to you.
     public var broadcastLive = false
@@ -506,11 +505,6 @@ public enum SidebarModel {
                        avatars: queued && own.isEmpty ? AvatarGroup(marks: [task.agent.session], overflow: 0) : avatars(for: own),
                        status: queued ? status : heldStatus(status, line: line),
                        diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line,
-                       testLine: own.lazy.compactMap { session -> OperatorLine? in
-                           guard session.state != .needsInput, let tests = session.testActivity,
-                                 tests.isActive || session.state.turnEnded else { return nil }
-                           return tests.statusLine
-                       }.first,
                        broadcastLive: run.map { !$0.hasEnded } ?? false, queued: queued, background: backgroundJobs(of: own))
     }
 
