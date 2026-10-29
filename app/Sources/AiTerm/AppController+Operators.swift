@@ -43,13 +43,16 @@ extension AppController {
 }
 
 extension AppController {
-    /// The OPERATOR heading's "+": New Broadcast…, its help following Settings › Operator's slices and Oracle as
+    /// New Broadcast… is off behind a sheet, over a locked workspace, and until the previous broadcast ends.
+    var canPresentNewBroadcast: Bool { canUseFileMenu && state.activeRun == nil }
+
+    /// The OPERATOR heading's "+" or File › New Broadcast… (⌘B), its help following Settings › Operator's slices and Oracle as
     /// they are now, the profile the broadcast freezes as it starts, and its Agents step the installed agents' models,
     /// their defaults and the last broadcast's rows (`NewBroadcastContext`), and its Task step each chosen project's code
     /// host as the Operator's tools check it, an origin git can't read as none. Started, the Operator's row is
     /// selected; its window comes forward by the operator controller's own start.
     func presentNewBroadcast() {
-        guard canChangeWorkspace else { return }
+        guard canPresentNewBroadcast else { return }
         let controller = operatorController
         let profile = controller.ports.profile, models = controller.tools.agentModels, remembered = state.lastModelByAgent
         let codeHost = controller.ports.codeHost
@@ -61,7 +64,7 @@ extension AppController {
                 NewBroadcastContext.read(profile: profile?(),
                                          installed: installed, models: models, remembered: remembered, preferences: preferences)
             }
-            guard let self, self.canChangeWorkspace else { return }
+            guard let self, self.canPresentNewBroadcast else { return }
             self.sheets.presentNewBroadcast(context: context, loadJiraProjects: { [weak self] in try await self?.loadJiraProjects() ?? [] },
                                             readiness: { [weak self] in self?.broadcastReadiness ?? .checking },
                                             checkReadiness: { [weak self] in await self?.checkBroadcastReadiness() },

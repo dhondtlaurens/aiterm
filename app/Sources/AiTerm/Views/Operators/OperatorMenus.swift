@@ -36,7 +36,7 @@ enum OperatorMenuItem: Hashable {
 
 /// Which items each Operator menu holds, in order.
 enum OperatorMenus {
-    /// The OPERATOR heading's "+", shown only while no broadcast exists: the one way to start one.
+    /// The OPERATOR heading's "+", shown only while no broadcast exists: also in File on ⌘B.
     static let headingPlus: [OperatorMenuItem] = [.newBroadcast]
 
     /// The broadcast's menu, OPERATOR's and its lead row's: Open Board, as its board button does; Rename…; Pause Broadcast while it

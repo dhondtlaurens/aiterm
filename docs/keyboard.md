@@ -18,20 +18,22 @@ carries one keyboard shortcut, so a second one hangs on a hidden button in an ov
 | ⌘N | New Task… | File menu, after a separator. Acts on the target project: the selected project header, or the project of the selected task, review or terminal row. Off with no target, for a project with no provider (as its "+" menu has it), while a sheet is up and while the workspace can't change. |
 | ⌘R | New Review… | The same target and the same rules as New Task…. |
 | ⌘T | New Terminal… | The target project; any provider, a plain folder too. |
+| ⌘B | New Broadcast… | File menu; the same sheet as the OPERATOR heading’s "+", across the workspace’s projects, with no selected project needed. Off while a sheet is up, the workspace can’t change, or a broadcast has not ended. |
 | ⌘+ ⌘− ⌘0 | Zoom In, Zoom Out, Actual Size | The sidebar only — sheets keep Apple's sizes. ⌘= is a hidden alias of ⌘+, as in Safari. Off while a sheet is up. |
 | ⌘F | Focus View | View menu; off while a sheet is up. Opens the projects with a row that needs attention, folds the rest, and peeks at the first row waiting on you, showing its window even when it was already selected and leaving the keyboard in the sidebar. The rows waiting on you are those needing input or done and unseen, terminals included, and in the broadcast's group only what is amber, the Operator's row first; the group is opened while one of those is in it and folded otherwise. The Dock badge counts the same rows (`SidebarModel.needingAttention`). |
 | ⌘L | List View | View menu; off while a sheet is up. Opens every project that has rows, folding the broadcast's section into OPERATOR: the two are open one at a time. |
 | ⌘S | Show Shelf | View menu, after the views, in a group of its own with Show Settings. Off while a sheet is up and while the workspace can't change. |
-| ⌘U | Unplugged | View menu, after the views. Unplugged: opens its sheet at the desk, plugs back in when unplugged. Checked while on. ⌘U, not ⌘B: the name's initial, and free in every menu. |
+| ⌘U | Unplugged | View menu, after the views. Unplugged: opens its sheet at the desk, plugs back in when unplugged. Checked while on. ⌘U follows the name’s initial; ⌘B opens New Broadcast…. |
 | ⌘Q | Quit | Flushes a sidebar move made in the last 150 ms, then takes the daemon down — an orphan would block the next launch's socket. |
 | ⌘Z | The standard Edit menu | Undo, Redo, Cut, Copy, Paste, Delete, Select All. Built by hand: without it no text field in any sheet could be edited normally. |
 
-The five create keys are plain ⌘ and the item's initial, and the File menu, the header's "+", a
-project's "+" and its context menu all list them in this order: Add Project…, Add Divider…, then
-New Task…, New Review…, New Terminal…. None clashes with a sheet: ⌘P, ⌘D, ⌘R and ⌘T mean nothing
-to a text field, and the File menu is off while a sheet is up anyway.
+The six create keys are plain ⌘ and the action’s initial. File lists Add Project…, Add Divider…,
+then New Task…, New Review…, New Terminal… and New Broadcast…. The sidebar’s "+" menus offer the
+matching actions: PROJECTS adds projects and dividers, a project creates tasks, reviews and terminals,
+and OPERATOR creates a broadcast. File’s create items are off while a sheet is up, so their keys
+leave the sheet’s text fields alone.
 
-There is no Window menu, so no ⌘M or ⌘W (see Not bound). Row actions — Rename, Open in…, Pull, Shelve Task, Remove — stay in the rows' context menus; a row's window comes back by itself. So do the broadcast's, on OPERATOR and its lead row — Open Board, Rename…, Pause Broadcast (Resume Broadcast while paused) and End Broadcast… — and a driven task's Take Over or Hand Back and Stop Task…; the OPERATOR heading's "+" (New Broadcast…) has no key, and there is no File menu item for it.
+There is no Window menu, so no ⌘M or ⌘W (see Not bound). Row actions — Rename, Open in…, Pull, Shelve Task, Remove — stay in the rows' context menus; a row's window comes back by itself. So do the broadcast's, on OPERATOR and its lead row — Open Board, Rename…, Pause Broadcast (Resume Broadcast while paused) and End Broadcast… — and a driven task's Take Over or Hand Back and Stop Task…. New Broadcast… is also in File on ⌘B.
 
 The Keyboard shortcuts section of Settings › Interface lists every key AiTerm answers to
 (`KeyBindings.all`), a row that mirrors a menu item under that item's exact title, and
@@ -69,9 +71,9 @@ plain ↩; ⌘↩ is the sheets' commit key and does nothing here.
 
 | Keys | Action | Notes |
 |---|---|---|
-| ⌘↩ | Whatever the primary button says | Continue on steps 1 and 2; on step 3 Create Task, Create Review, or Open in Task / Open in Review for a branch a task already has — the promise the keycaps on the button make. Before this it fired *create* from any step: a shortcut nothing on screen mentioned. New Broadcast has four steps: Continue on Broadcast (once it has a project), Prompt (once it says something) and Review, Start Broadcast on Done. |
+| ⌘↩ | Whatever the primary button says | Continue on steps 1 and 2; on step 3 Create Task, Create Review, or Open in Task / Open in Review for a branch a task already has — the promise the keycaps on the button make. Before this it fired *create* from any step: a shortcut nothing on screen mentioned. New Broadcast has five steps: Continue on Broadcast (once it has a project), Prompt (once it says something), Agents (once it lists an agent) and Task, then Start Broadcast on Done once the required agents and iTerm2 are Ready and the projects’ code hosts have been checked. |
 | ↩ | Nothing sheet-wide | It picks the highlighted result in an open dropdown, and inserts a newline in the prompt editor. It does not press the primary button. |
-| ⎋ | Close the open list, then go back | While a list is open, ⎋ belongs to it — in every other app that list is a window of its own, and closing the whole sheet is not what the key means there. New Review closes its merge-request list before its branch list; New Broadcast its Jira projects list before its projects list; on a prompt step (New Broadcast's Prompt, Review and Done), the completion popup is the list. It sits on a hidden button rather than on Cancel, so *clicking* Cancel still cancels. |
+| ⎋ | Close the open list, then go back | While a list is open, ⎋ belongs to it — in every other app that list is a window of its own, and closing the whole sheet is not what the key means there. New Review closes its merge-request list before its branch list; New Broadcast its Jira projects list before its projects list; on a prompt step (New Broadcast’s Prompt, Task’s review and Done’s goal), the completion popup is the list. It sits on a hidden button rather than on Cancel, so *clicking* Cancel still cancels. |
 
 ## A picker's list
 

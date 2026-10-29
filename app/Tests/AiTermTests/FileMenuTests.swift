@@ -2,6 +2,7 @@ import AppKit
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// File › New Task, New Review and New Terminal act on the target project — the selected header's,
 /// or the selected row's — and every File item is off behind a sheet or over a locked workspace.
@@ -34,20 +35,43 @@ import Testing
         return Dictionary(uniqueKeysWithValues: file.items.filter { !$0.isSeparatorItem }.map { ($0.title, app.validateMenuItem($0)) })
     }
 
-    @Test func withNothingSelectedOnlyAddProjectAndAddDividerAreOn() throws {
+    @Test func withNothingSelectedProjectDividerAndBroadcastAreOn() throws {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = try controller()
         #expect(controller.targetProject == nil)
         #expect(try enabled(controller) == ["New Task…": false, "New Review…": false, "New Terminal…": false,
-                                            "Add Project…": true, "Add Divider…": true])
+                                            "Add Project…": true, "Add Divider…": true, "New Broadcast…": true])
     }
 
-    /// The OPERATOR heading's "+" is the only way to start a broadcast (spec §13): File has no item for one,
-    /// with a broadcast or without.
-    @Test func thereIsNoBroadcastItem() throws {
+    @Test func commandBOpensNewBroadcastWithoutASelectedProject() async throws {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = try controller()
-        #expect(try enabled(controller).keys.filter { $0.localizedCaseInsensitiveContains("broadcast") || $0.contains("Operat") }.isEmpty)
+        let saved = NSApplication.shared.mainMenu
+        defer { NSApplication.shared.mainMenu = saved }
+        let app = AiTermApp(controller: controller)
+        app.buildMenu()
+        let menu = try #require(NSApplication.shared.mainMenu)
+        let item = try #require(menu.items.compactMap(\.submenu).flatMap(\.items).first { $0.title == "New Broadcast…" })
+        item.target = app
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+                                                timestamp: 0, windowNumber: 0, context: nil,
+                                                characters: "b", charactersIgnoringModifiers: "b", isARepeat: false, keyCode: 11))
+        #expect(menu.performKeyEquivalent(with: event))
+        #expect(await eventually(describing: "⌘B opens New Broadcast") { controller.sheet != nil })
+        guard case .newBroadcast(let sheet)? = controller.sheet else { Issue.record("no New Broadcast sheet"); return }
+        #expect(sheet.offeredProjects == [git, folder])
+    }
+
+    @Test func newBroadcastIsOffUntilThePreviousBroadcastEnds() throws {
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let controller = try controller()
+        let run = OperatorUIFixtures.run()
+        controller.workspace.mutate { $0.runs = [run] }
+        #expect(try enabled(controller)["New Broadcast…"] == false)
+        controller.presentNewBroadcast()
+        #expect(controller.sheet == nil)
+        controller.workspace.mutate { $0.runs[0].state = .stopped }
+        #expect(try enabled(controller)["New Broadcast…"] == true)
     }
 
     @Test func aSelectedRowTargetsItsProject() throws {

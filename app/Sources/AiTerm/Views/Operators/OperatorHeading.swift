@@ -3,7 +3,7 @@ import AiTermUI
 import AiTermCore
 
 /// `OPERATOR`, above `PROJECTS` (spec §3, §13; 28 Oct 2026). With no broadcast it is a `SidebarHeading` and its "+",
-/// an `AddMenu` with New Broadcast…, the one way to start one. Once one exists, one at a time, the heading carries
+/// an `AddMenu` with New Broadcast…, also in File on ⌘B. Once one exists, one at a time, the heading carries
 /// what the broadcast's header row did: its progress `Space.gap` after the word in `Typography.monoChip`
 /// (`paused · 2 of 8` while paused), and the board button in the "+"'s slot. The word now and then decodes into
 /// another (`OperatorTitle`). The broadcast's menu (Open Board, Rename…, Pause or Resume, End Broadcast…) is its
@@ -39,7 +39,7 @@ struct OperatorHeading: View {
             } else {
                 SidebarHeading("Operator")
                 Spacer()
-                AddMenu(help: "New broadcast", enabled: controller.canChangeWorkspace) {
+                AddMenu(help: "New broadcast", enabled: controller.canPresentNewBroadcast) {
                     OperatorMenuButtons(items: OperatorMenus.headingPlus) { _ in controller.presentNewBroadcast() }
                 }
             }

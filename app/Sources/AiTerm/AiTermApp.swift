@@ -126,7 +126,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit AiTerm", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
-        // What the "+" menus create, in their order: the header's, then a project's. The three New
+        // What the "+" menus create, in their order: PROJECTS, a project, then OPERATOR. The first three New
         // items act on the target project — the selected header's, or the selected row's. Each key
         // is plain ⌘ and the item's initial. No Window menu: the sidebar is the app's one window,
         // and ⌘W on a task would close it without a word (docs/keyboard.md).
@@ -138,6 +138,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         fileMenu.addItem(withTitle: "New Task…", action: #selector(newTask), keyEquivalent: "n")
         fileMenu.addItem(withTitle: "New Review…", action: #selector(newReview), keyEquivalent: "r")
         fileMenu.addItem(withTitle: "New Terminal…", action: #selector(newTerminal), keyEquivalent: "t")
+        fileMenu.addItem(withTitle: "New Broadcast…", action: #selector(newBroadcast), keyEquivalent: "b")
         fileItem.submenu = fileMenu
         // The standard Edit menu: without it the app has no Cut/Copy/Paste/Undo key equivalents,
         // so the text fields in the New Task and Settings sheets could not be edited normally.
@@ -188,6 +189,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     @objc func newTask() { if let project = controller.targetProject { controller.presentNewTask(project: project) } }
     @objc func newReview() { if let project = controller.targetProject { controller.presentNewReview(project: project) } }
     @objc func newTerminal() { if let project = controller.targetProject { controller.presentNewTerminal(project: project) } }
+    @objc func newBroadcast() { controller.presentNewBroadcast() }
     @objc func addProject() { Task { await controller.addProject() } }
     @objc func addDivider() { controller.presentNewDivider() }
     @objc func zoomIn() { changeInterfaceSize(to: controller.preferences.interfaceSize.bigger) }
@@ -214,6 +216,7 @@ extension AiTermApp: NSMenuItemValidation {
         case #selector(openSettings): return controller.canPresentSettings
         case #selector(newTask), #selector(newReview): return controller.canCreateTask
         case #selector(newTerminal): return controller.canCreateTerminal
+        case #selector(newBroadcast): return controller.canPresentNewBroadcast
         case #selector(addProject), #selector(addDivider): return controller.canUseFileMenu
         case #selector(zoomIn): return zoomable && controller.preferences.interfaceSize.bigger != nil
         case #selector(zoomOut): return zoomable && controller.preferences.interfaceSize.smaller != nil
