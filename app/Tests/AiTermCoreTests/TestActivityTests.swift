@@ -36,6 +36,26 @@ import Testing
         #expect(SidebarModel.backgroundJobs(of: [session]).isEmpty)
     }
 
+    /// The row's third line is the Operator's alone (29 Oct 2026): a task of your own running its tests draws no line,
+    /// only background work, on its mark and its card; a driven one's line still says it.
+    @Test func ownTestsDrawNoLineOnATaskOfYourOwn() throws {
+        let project = OperatorUIFixtures.project("web")
+        let task = OperatorUIFixtures.task("Mine", project: project.id, operated: nil)
+        var state = AppState()
+        state.append(project: project)
+        state.tasks = [task]
+        var session = OperatorUIFixtures.tab("main", of: task, .done)
+        session.testActivity = TestActivity(runId: "own", suite: "swift", state: .running)
+        let row = try #require(SidebarModel.sections(state: state, sessions: [session], branchByCwd: [:], projectBranch: [:])
+            .first?.tasks.first)
+        #expect(row.operatorLine == nil, "no line of the Operator's")
+        #expect(row.status == .background, "the run shows as background work")
+        session.testActivity = TestActivity(runId: "own", suite: "swift", state: .completed, exitCode: 0)
+        let ended = try #require(SidebarModel.sections(state: state, sessions: [session], branchByCwd: [:], projectBranch: [:])
+            .first?.tasks.first)
+        #expect(ended.operatorLine == nil && ended.status == .done, "nor a result once it ends")
+    }
+
     @Test func activityRoundTripsWithExitAndUnknownStatesEndSafely() throws {
         let value = TestActivity(runId: "1", suite: "swift", state: .completed, exitCode: 7)
         #expect(try JSONDecoder().decode(TestActivity.self, from: JSONEncoder().encode(value)) == value)
