@@ -80,11 +80,6 @@ final class AgentIntegrations {
                                        defaults: UserDefaults = .standard) -> (model: String, reasoning: String?) {
         ModelSettings.load(for: agent, defaults: defaults).map { ($0.model, $0.reasoning) } ?? (remembered[agent] ?? "", nil)
     }
-
-    /// `taskModel` over the models remembered as a launch asks for it.
-    nonisolated static func taskModels(remembered: [AgentKind: String]) -> @Sendable (AgentKind) -> (model: String, reasoning: String?) {
-        { taskModel($0, remembered: remembered) }
-    }
     private let defaults: UserDefaults
 
     /// The model each agent last ran with, from the workspace. Read live by the Settings model,

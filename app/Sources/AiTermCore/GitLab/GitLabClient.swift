@@ -31,12 +31,11 @@ public struct GitLabClient: Sendable {
     public init(config: GitLabConfig, session: URLSession = .shared) { self.config = config; self.session = session }
 
     /// A GitLab project id is the namespaced path as **one** path segment, so every `/` inside it
-    /// must be escaped. `.urlPathAllowed` leaves `/` alone, which would split `a/b/c` into three
-    /// segments and 404 on every subgroup project.
-    public static func encodedProject(_ path: String) -> String {
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
-        return path.addingPercentEncoding(withAllowedCharacters: allowed) ?? path
-    }
+    /// must be escaped, or `a/b/c` would split into three segments and 404 on every subgroup project.
+    public static func encodedProject(_ path: String) -> String { HTTPJSON.pathSegment(path) }
+
+    /// A project's API path, the base of every per-project request.
+    static func projectPath(_ project: String) -> String { "/api/v4/projects/" + encodedProject(project) }
 
     /// The host as written in Settings, less its trailing slashes.
     static func base(_ host: URL) -> String {
@@ -51,7 +50,7 @@ public struct GitLabClient: Sendable {
     }
 
     public func mergeRequests(project: String, search: String) async throws -> [MergeRequest] {
-        let base = "/api/v4/projects/" + Self.encodedProject(project) + "/merge_requests"
+        let base = Self.requestsPath(project)
         let text = search.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Typing a merge request's number finds that merge request, rather than full-text
@@ -85,7 +84,7 @@ public struct GitLabClient: Sendable {
     /// read, `HTTPJSON` hands back the body and the status only — and at most `discussionPages`.
     /// Read-only.
     public func reviewThreads(project: String, iid: Int) async throws -> ReviewThreads {
-        let path = "/api/v4/projects/" + Self.encodedProject(project) + "/merge_requests/\(iid)/discussions"
+        let path = Self.requestsPath(project) + "/\(iid)/discussions"
         var resolutions: [Bool] = []
         for page in 1...Self.discussionPages {
             let query = [URLQueryItem(name: "per_page", value: String(Self.discussionsPerPage)),
@@ -101,7 +100,7 @@ public struct GitLabClient: Sendable {
     // MARK: Publishing — the only writes this client makes, for an operator's finish_task (spec §6)
 
     static func requestsPath(_ project: String) -> String {
-        "/api/v4/projects/" + encodedProject(project) + "/merge_requests"
+        projectPath(project) + "/merge_requests"
     }
 
     /// The open merge request from `source`, if there is one: what a repeated finish_task finds
@@ -251,7 +250,7 @@ public struct GitLabClient: Sendable {
     public func findUsers(project: String, query: String) async throws -> [HostUser] {
         struct User: Decodable { var username: String, name: String? }
         let items = [URLQueryItem(name: "search", value: query), URLQueryItem(name: "per_page", value: "20")]
-        return try await get([Lenient<User>].self, path: "/api/v4/projects/" + Self.encodedProject(project) + "/users", query: items,
+        return try await get([Lenient<User>].self, path: Self.projectPath(project) + "/users", query: items,
                              notFound: .projectNotFound(project))
             .compactMap { $0.value.map { HostUser(username: $0.username, name: $0.name) } }
     }
@@ -272,7 +271,7 @@ public struct GitLabClient: Sendable {
     /// The branch-name patterns `project` protects itself — exact names and `*` wildcards — every page of
     /// them (see `protectedRules`). Group-level rules are `branchProtection`'s to add.
     public func protectedBranches(project: String) async throws -> [String] {
-        try await protectedRules(path: "/api/v4/projects/" + Self.encodedProject(project) + "/protected_branches",
+        try await protectedRules(path: Self.projectPath(project) + "/protected_branches",
                                  notFound: .projectNotFound(project), noneIfMissing: false)
     }
 
@@ -311,7 +310,7 @@ public struct GitLabClient: Sendable {
             struct Namespace: Decodable { var kind: String?, fullPath: String? }
             var namespace: Namespace?
         }
-        let owner = try await get(Owner.self, path: "/api/v4/projects/" + Self.encodedProject(project), notFound: .projectNotFound(project))
+        let owner = try await get(Owner.self, path: Self.projectPath(project), notFound: .projectNotFound(project))
         switch owner.namespace?.kind {
         case "user": return nil
         case "group":
@@ -347,7 +346,7 @@ public struct GitLabClient: Sendable {
         if let group, let rule = covering(try await groupProtectedBranches(group: group)) { return said(rule, of: "GitLab group \(group)") }
         struct Existing: Decodable { var `protected`: Bool }
         do {
-            let path = "/api/v4/projects/" + Self.encodedProject(project) + "/repository/branches/" + Self.encodedProject(name)
+            let path = Self.projectPath(project) + "/repository/branches/" + Self.encodedProject(name)
             if try await get(Existing.self, path: path, notFound: .projectNotFound(project)).protected { return .protected("GitLab protects it") }
         } catch GitLabError.projectNotFound {}   // the project was just read: this is a branch GitLab does not have yet
         if let unreadable { throw unreadable }

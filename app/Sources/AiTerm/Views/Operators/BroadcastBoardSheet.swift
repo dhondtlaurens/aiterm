@@ -209,7 +209,7 @@ struct BroadcastBoardSheet: View, Equatable {
         Self.choose(opens, dismiss: { dismiss.afterThisEvent() }, actions: actions)
     }
 
-    /// A heading over its cards, `Space.gap` apart.
+    /// A heading `Space.base` over its cards, which are `Space.gap` apart.
     private func column(_ lane: BroadcastBoard.Lane) -> some View {
         VStack(alignment: .leading, spacing: Space.base) {
             BoardHeading(title: lane.title, count: lane.cards.count)

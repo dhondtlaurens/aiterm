@@ -4,9 +4,9 @@ import Foundation
 /// from the app's `BroadcastBoardSheet`, so each moment is tested without drawing it.
 ///
 /// The header restates the brief: the title, a band line with the broadcast's own status line
-/// (`OperatorLine.broadcast`) and `· 2 of 8 done` after it, then the Asked line. A broadcast set up with the Agents, Task
-/// and Done steps (broadcast setup v2) puts its goal on the Asked line and what every task follows on an Each task line
-/// under it; its band counts the goal's rounds while it is checked, and once ended says how the goal went and how much
+/// (`OperatorLine.broadcast`) and `· 2 of 8 done` after it, then a line each for Asked, the Goal and Each task. A
+/// broadcast set up with the Agents, Task and Done steps (broadcast setup v2) has a Goal line, and its Each task line says
+/// what every task follows; its band counts the goal's rounds while it is checked, and once ended says how the goal went and how much
 /// was left for you. The board is the plan: Todo · In progress · Review · Done, Review only while the broadcast's tasks
 /// go into people's review (`TaskPublisher.Context.reviews`) or, set up with the Task step, its review prompt is written,
 /// each task's card in the column its state puts it in, in the plan's order, and once every task is done they all sit
@@ -220,7 +220,7 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// The broadcast prompt, then its goal when it has one.
     public var clauses: [Clause]
     /// What every task follows: its review prompt, end and closing settings.
-    public var eachTask: Clause? = nil
+    public var eachTask: Clause
     /// How the goal went, once checked: the Summary's.
     public var goalOutcome: GoalOutcome? = nil
     /// The board's columns, Review left out unless its tasks go into people's review or, set up with the Task step, it
@@ -239,11 +239,8 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// An ended broadcast read from the Shelf: nothing on it acts, and the footer is Close alone.
     public var isShelved: Bool = false
 
-    /// The prompt and goal on one line, as the Shelf's row says them.
-    public var asked: String { clauses.map(\.whole).joined(separator: " · ") }
-
     /// The header's lines, one each: Asked, Goal, then Each task.
-    public var headerLines: [Clause] { clauses + (eachTask.map { [$0] } ?? []) }
+    public var headerLines: [Clause] { clauses + [eachTask] }
 
     /// What a snag's Copy puts on the clipboard: the AiTerm task that fixes it, naming this broadcast.
     public func fixTask(_ snag: OperatorSnag) -> String { snag.fixTask(broadcast: title, runId: runId) }

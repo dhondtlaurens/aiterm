@@ -24,13 +24,13 @@ struct OperatorSidebarTests {
         let list = try #require(host.firstDescendant(NSTableView.self))
         // OPERATOR, PROJECTS, the empty block.
         #expect(list.numberOfRows == 3)
-        #expect(OperatorHeading.offersNewBroadcast(controller.rows.broadcast))
+        #expect(controller.rows.broadcast == nil, "no broadcast: the heading offers its \"+\"")
 
         let run = OperatorUIFixtures.run()
         controller.workspace.mutate { $0.runs = [run] }
         // OPERATOR, the broadcast's lead row, PROJECTS folded: no empty block.
         settle(host, describing: "the broadcast's group") { list.numberOfRows == 3 && controller.rows.projectsFolded }
-        #expect(!OperatorHeading.offersNewBroadcast(controller.rows.broadcast), "one broadcast at a time: the \"+\" goes")
+        #expect(controller.rows.broadcast != nil, "one broadcast at a time: the \"+\" goes")
         #expect(controller.rows.broadcast?.operatorRow.title == run.name, "the lead row is the broadcast")
 
         // Folded, the Operator's section gives way to the projects: OPERATOR, PROJECTS, the empty block.
@@ -41,7 +41,7 @@ struct OperatorSidebarTests {
 
         controller.workspace.mutate { $0.runs[0].state = .stopped }
         settle(host, describing: "the group gone with the broadcast") { list.numberOfRows == 3 }
-        #expect(OperatorHeading.offersNewBroadcast(controller.rows.broadcast), "and the \"+\" returns")
+        #expect(controller.rows.broadcast == nil, "and the \"+\" returns")
     }
 
     @Test func theRowIsReadOutAsItIsDrawn() throws {

@@ -81,7 +81,6 @@ import Testing
         #expect(board.progress == "1 of 8 done", "the band's progress, and no projects")
         #expect(board.clauses == [BroadcastBoard.Clause(label: "Asked", text: "implement PAY-230 to PAY-236, the new checkout"),
                                   BroadcastBoard.Clause(label: "Goal", text: "merged after Jan's approval")])
-        #expect(board.asked == "Asked implement PAY-230 to PAY-236, the new checkout · Goal merged after Jan's approval")
 
         // No progress until the first plan is in Todo.
         var planning = self.run(.planning, review: nil)
