@@ -413,6 +413,18 @@
   .proposal-flag { color: var(--amber); margin-bottom: var(--space-snug); }
   .no-proposals { margin-top: var(--space-block); color: var(--muted); }
 
+  /* --- Proposal · the decode's ink · 2026-10-29 ----------------------------------------------
+     DecodeWordsView's unsettled glyphs, from today's Palette.green with a glow to the words' own ink. Same glyphs,
+     timing and frames in every option (the Swift's pick formula, so they change in step); only the ink differs.
+     The glow is DecodeWordsView.glowRadius 3 pt at glowOpacity 0.7, drawn as a 6 px text-shadow as on Components. */
+  .dp .dp-mount { margin-top: var(--space-block); }
+  .dp .hdg .word { white-space: pre; }
+  .dp-a .g { color: var(--green); text-shadow: 0 0 6px rgba(48, 209, 88, 0.7); }
+  .dp-b .g { color: var(--green); }
+  .dp-c .g.h { color: var(--green); text-shadow: 0 0 6px rgba(48, 209, 88, 0.7); }
+  .dp-c .mk-row.sel .g.h { color: #FFFFFF; text-shadow: 0 0 6px rgba(255, 255, 255, 0.7); }
+  .dp-d .g { text-shadow: 0 0 6px; }
+
   /* Broadcast setup v2: New Broadcast's Agents, Task and Done steps and the board's new card lines. Only what the kit
      above lacks: a checkbox, the Agents rows, a card's combination and end lines and its fix-round links, the end menu.
      The checkbox and the popup chevron approximate native controls (a .checkbox Toggle, an NSPopUpButton), and a
@@ -3168,7 +3180,57 @@
         tab describes what might.</p>
       <p class="why">Once a proposal is picked and implemented, it is deleted from here and the other
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
-      <p class="no-proposals">No open proposals.</p>
+    </div>
+
+    <div class="section op dp" id="p-decode-ink">
+      <p class="eyebrow proposal-flag">Proposal · The decode’s ink · 2026-10-29</p>
+      <h2>Green, own ink, or in between</h2>
+      <p class="why">Today every unsettled glyph of a decode (<code>DecodeWordsView</code>: the OPERATOR heading and
+        every acting Operator line) is <code>Palette.green</code> with a glow, and settles into the words’ own ink.
+        Two things argue for less: on a <b>selected row</b> the green sits on <code>selection</code>
+        (#0059D1), where it is the one ink in the row that is not white and reads poorly; and with several tasks acting at
+        once, the sidebar flashes green in several places together. The glyphs, timing and frames stay as they are
+        (half-width katakana, digits and signs, 0.5 s per line, 0.9 s for the heading); only their ink is the choice.</p>
+      <p class="why">Each option draws the heading, an acting row and the same kind of row selected. They run on one
+        clock with the same glyphs, so they can be compared frame by frame; under Reduce Motion they hold a frame
+        mid-decode.</p>
+
+      <div class="options">
+        <div class="option">
+          <header><span class="letter">A</span><h3>Green with a glow (today)</h3></header>
+          <p>What ships: every glyph in <code>Palette.green</code>, glowing. The most Matrix of the five, and the
+            loudest; on the selection it stays green.</p>
+          <div class="dp-mount dp-a"></div>
+        </div>
+        <div class="option">
+          <header><span class="letter">B</span><h3>Green, no glow</h3></header>
+          <p>The same green without the shadow. Still clearly the Matrix, a little calmer, and the one
+            untokenised effect is gone. The selection problem stays.</p>
+          <div class="dp-mount dp-b"></div>
+        </div>
+        <div class="option pick">
+          <header><span class="letter">C</span><h3>Own ink, a green head</h3><span class="rec">Recommended</span></header>
+          <p>The glyphs in the words’ own ink; only the <b>head</b>, the glyph about to settle, is green and glowing,
+            as the brightest character leads each column in the films. One green point runs left to right through the
+            line, so the nod stays but the line reads as text. On the selection the head is white
+            (<code>Palette.onAccent</code>) with its glow, so no green meets the blue. Costs a third
+            <code>CATextLayer</code> (unglowing glyphs in ink), since the glow is a layer’s shadow.</p>
+          <div class="dp-mount dp-c"></div>
+        </div>
+        <div class="option">
+          <header><span class="letter">D</span><h3>Own ink with a glow</h3></header>
+          <p>No green at all: the glyphs in the words’ ink, glowing in that ink, like phosphor. Works on every
+            surface unchanged; the glow alone tells an unsettled glyph from a letter. A one-line change
+            (<code>glowInk</code> and the shadow’s colour become the ink).</p>
+          <div class="dp-mount dp-d"></div>
+        </div>
+        <div class="option">
+          <header><span class="letter">E</span><h3>Own ink, flat</h3></header>
+          <p>The glyphs in the words’ ink, no glow: only their shapes move. The quietest; at 10 pt mono and 0.5 s
+            the katakana still read as noise rather than words, but nothing says “Matrix” any more.</p>
+          <div class="dp-mount dp-e"></div>
+        </div>
+      </div>
     </div>
 
   </section>
@@ -3269,6 +3331,68 @@
       hdg.addEventListener('mouseleave', function () { hovering = false; next(); });
       next();
     });
+  })();
+</script>
+<script>
+  /* Proposal · the decode's ink: one sidebar per option, all on one clock. Every 8 s the heading decodes into a
+     phrase (0.9 s), the lines decode (0.5 s), the heading decodes back, the lines again. Glyphs are picked by
+     DecodeWordsView.frame's formula, so every option shows the same glyph at the same frame; the head is the
+     glyph at the settle point. Under Reduce Motion each holds a frame 40 % through. */
+  (function () {
+    var mounts = document.querySelectorAll('.dp .dp-mount');
+    if (!mounts.length) { return; }
+    var row = function (title, line, sel) {
+      return '<div class="mk-row opr' + (sel ? ' sel' : '') + '"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span>' +
+        '<span class="ln"><span class="tt">' + title + '</span><span class="ol"><span class="ob acting"><span class="tx dp-line">' + line +
+        '</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div>';
+    };
+    var html = '<div class="scroll"><div class="mk-sidebar"><div class="hdg"><span class="word dp-title">Operator</span><span class="cnt">2 of 8</span>' +
+      '<span class="sp"></span><span class="plus board"><svg><use href="#op-board"/></svg></span></div>' +
+      row('Checkout redesign', 'answering Claude · PAY-231', false) + row('Cart drawer', 'Operator watching · 2 tabs', true) + '</div></div>';
+    mounts.forEach(function (m) { m.innerHTML = html; });
+
+    var glyphs = Array.from('ｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ0123456789Z:・.=*+-<>¦');
+    function esc(c) { return c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '&' ? '&amp;' : c; }
+    function frame(text, progress, step) {
+      var chars = Array.from(text), settled = Math.floor(chars.length * Math.min(Math.max(progress, 0), 1)), head = -1;
+      return chars.map(function (c, i) {
+        if (i < settled || !/[0-9a-z]/i.test(c)) { return esc(c); }
+        if (head < 0) { head = i; }
+        var pick = ((i + 1) * 7919 + (step + 1) * 104729 + i * step * 31) % glyphs.length;
+        return '<span class="g' + (i === head ? ' h' : '') + '">' + esc(glyphs[pick]) + '</span>';
+      }).join('');
+    }
+    function decode(els, text, ms) {
+      var frames = Math.max(6, Math.round(ms / 33)), f = 0;
+      var t = setInterval(function () {
+        f += 1;
+        els.forEach(function (el) {
+          var words = typeof text === 'function' ? text(el) : text;
+          el.innerHTML = f >= frames ? esc(words) : frame(words, f / frames, f);
+        });
+        if (f >= frames) { clearInterval(t); }
+      }, ms / frames);
+    }
+    var titles = Array.prototype.slice.call(document.querySelectorAll('.dp .dp-title'));
+    var lines = Array.prototype.slice.call(document.querySelectorAll('.dp .dp-line'));
+    lines.forEach(function (el) { el.dataset.text = el.textContent; });
+    var own = function (el) { return el.dataset.text; };
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      titles.forEach(function (el) { el.innerHTML = frame('TRACING THE CALL', 0.4, 3); });
+      lines.forEach(function (el) { el.innerHTML = frame(el.dataset.text, 0.4, 3); });
+      return;
+    }
+    var phrases = ['Jacking in', 'Tracing the call', 'Rerouting', 'Decrypting', 'Loading the construct', 'Patching through',
+                   'Watching for agents', 'Reading the code'], n = 0;
+    function cycle() {
+      decode(titles, phrases[n % phrases.length], 900);
+      n += 1;
+      setTimeout(function () { decode(lines, own, 500); }, 1500);
+      setTimeout(function () { decode(titles, 'Operator', 900); }, 3900);
+      setTimeout(function () { decode(lines, own, 500); }, 5500);
+    }
+    cycle();
+    setInterval(cycle, 8000);
   })();
 </script>
 
