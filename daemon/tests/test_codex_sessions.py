@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from aitermd import jsonl
 from aitermd.codex_sessions import LIST_SECONDS, CodexSessionFiles
 
 
@@ -110,8 +111,8 @@ def test_rate_limits_are_not_reread_until_a_rollout_changes(tmp_path, monkeypatc
     path = write_rollout(root, "t", [rate_limited({"used_percent": 52.0, "window_minutes": 10080, "resets_at": 1})])
     files = CodexSessionFiles(root)
     reads = []
-    real = CodexSessionFiles._lines_reverse
-    monkeypatch.setattr(CodexSessionFiles, "_lines_reverse", staticmethod(lambda p, *a: reads.append(p) or real(p, *a)))
+    real = jsonl._lines_reverse
+    monkeypatch.setattr(jsonl, "_lines_reverse", lambda p, *a: reads.append(p) or real(p, *a))
 
     first = files.rate_limits()
     assert files.rate_limits() == first and reads == [path]
@@ -169,8 +170,8 @@ def test_context_is_not_reparsed_until_its_rollout_changes(tmp_path, monkeypatch
     path = write_rollout(root, "t", [token_count(10, 100)])
     files = CodexSessionFiles(root)
     reads = []
-    real = CodexSessionFiles._lines_reverse
-    monkeypatch.setattr(CodexSessionFiles, "_lines_reverse", staticmethod(lambda p, *a: reads.append(p) or real(p, *a)))
+    real = jsonl._lines_reverse
+    monkeypatch.setattr(jsonl, "_lines_reverse", lambda p, *a: reads.append(p) or real(p, *a))
 
     assert files.context_percent("t") == 10
     assert files.context_percent("t") == 10 and reads == [path]
@@ -200,8 +201,6 @@ def test_a_rollout_is_scanned_for_token_counts_without_parsing_every_line(tmp_pa
     """Most of a rollout is messages and tool output, and one with no `token_count` at all is read
     in full on every poll while Codex writes to it: its lines are looked for as bytes, and only a
     candidate is parsed."""
-    from aitermd import codex_sessions
-
     root = tmp_path / "sessions"
     chatter = {"type": "response_item", "payload": {"type": "message", "content": "hello"}}
     write_rollout(root, "thread-1", [token_count(42, 100), *[chatter] * 50])
@@ -212,7 +211,7 @@ def test_a_rollout_is_scanned_for_token_counts_without_parsing_every_line(tmp_pa
         return json.loads(line, *args, **kwargs)
 
     # The module's own name for json, not the json module every other caller shares.
-    monkeypatch.setattr(codex_sessions, "json", SimpleNamespace(loads=counting_loads))
+    monkeypatch.setattr(jsonl, "json", SimpleNamespace(loads=counting_loads))
 
     assert CodexSessionFiles(root).context_percent("thread-1") == 42
     assert len(parsed) == 1
@@ -233,7 +232,7 @@ def test_matching_lines_are_found_whichever_block_they_straddle(tmp_path, block_
         path = tmp_path / f"rollout-{block_size}-{len(ending)}.jsonl"
         path.write_bytes(b"\n".join(lines) + ending)
 
-        found = list(CodexSessionFiles._lines_reverse(path, b'"token_count"', block_size))
+        found = list(jsonl._lines_reverse(path, b'"token_count"', block_size))
 
         assert found == [lines[6], lines[4], lines[1]]
 

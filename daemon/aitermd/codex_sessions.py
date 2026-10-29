@@ -10,7 +10,7 @@ from typing import Any
 
 from .models import State
 from .text import nonempty_string
-from .jsonl import JsonlCursor
+from .jsonl import JsonlCursor, records_newest_first
 from .usage import clamped_percent, finite_number
 
 # How often the whole sessions tree is listed again. In between, only the rollouts last seen to be
@@ -238,42 +238,12 @@ class CodexSessionFiles:
         """Every `token_count` event of a rollout, newest first, with the record that carries it."""
         # Most of a rollout is messages and tool output: parsing them to find that they are not
         # token counts made a rollout with none cost tens of milliseconds a megabyte.
-        for line in cls._lines_reverse(path, _TOKEN_COUNT):
-            try:
-                record = json.loads(line)
-            except (UnicodeDecodeError, ValueError):
-                continue
+        for record in records_newest_first(path, None, containing=_TOKEN_COUNT):
             if not isinstance(record, dict) or record.get("type") != "event_msg":
                 continue
             payload = record.get("payload")
             if isinstance(payload, dict) and payload.get("type") == "token_count":
                 yield record, payload
-
-    @staticmethod
-    def _lines_reverse(path: Path, containing: bytes = b"", block_size: int = 64 * 1024) -> Iterator[bytes]:
-        """The lines of `path` that contain `containing`, last first. A block holding none is not
-        even split into lines."""
-        with path.open("rb") as stream:
-            stream.seek(0, 2)
-            position = stream.tell()
-            remainder = b""
-            while position > 0:
-                size = min(block_size, position)
-                position -= size
-                stream.seek(position)
-                block = stream.read(size) + remainder
-                start = block.find(b"\n") + 1  # the first line may continue into the block before
-                if start == 0:
-                    remainder = block
-                    continue
-                remainder = block[:start - 1]
-                if containing not in block[start:]:
-                    continue
-                for line in reversed(block[start:].split(b"\n")):
-                    if line and containing in line:
-                        yield line
-            if remainder and containing in remainder:
-                yield remainder
 
 
 def _mtime(path: Path) -> int | None:
