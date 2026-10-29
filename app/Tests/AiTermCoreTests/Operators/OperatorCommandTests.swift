@@ -45,6 +45,137 @@ import Foundation
                 == "/Users/someone/Library/Application Support/AiTerm/operators/runs/1EB4C0DE-0000-0000-0000-0000000000AA")
     }
 
+    @Test(arguments: [nil, "~/profiles/claude", "~/.claude", "absolute"] as [String?])
+    func preparationTrustsOnlyItsOwnRunFolder(configPath: String?) throws {
+        let home = home()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let config = ClaudeConfig(configPath == "absolute" ? home.appendingPathComponent("external-profile").path : configPath)
+        let prepared = try OperatorCommand.prepare(run: F.run(), projects: [F.project()], home: home, claudeConfig: config, token: token)
+        let file = config.globalJSON(home: home)
+        #expect(file.path.hasPrefix(home.path + "/"), "every profile in this test stays inside its temporary home")
+        let state = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        let projects = try #require(state["projects"] as? [String: [String: Any]])
+        #expect(Set(projects.keys) == [VerifySandbox.realPath(prepared.folder.path)])
+        #expect(projects.values.first?["hasTrustDialogAccepted"] as? Bool == true)
+        #expect(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int == 0o600)
+        if configPath != nil { #expect(!FileManager.default.fileExists(atPath: ClaudeConfig().globalJSON(home: home).path)) }
+    }
+
+    @Test func trustingTheRunPreservesTheRestOfClaudeStateAndItsSymlink() throws {
+        let home = home(), fm = FileManager.default
+        defer { try? fm.removeItem(at: home) }
+        try fm.createDirectory(at: home, withIntermediateDirectories: true)
+        let runFolder = OperatorCommand.runFolder(F.runId, home: home)
+        try fm.createDirectory(at: runFolder, withIntermediateDirectories: true)
+        let folder = VerifySandbox.realPath(runFolder.path)
+        let original: JSONValue = ["theme": "light", "future": ["keep": [1, true, nil]], "projects": .object([
+            "/other": ["hasTrustDialogAccepted": false, "allowedTools": ["Read"]],
+            folder: ["hasTrustDialogAccepted": false, "allowedTools": ["Grep"], "future": 42],
+        ])]
+        let bytes = try JSONEncoder().encode(original)
+        let target = home.appendingPathComponent("dotfile.json"), file = ClaudeConfig().globalJSON(home: home)
+        try bytes.write(to: target)
+        try fm.createSymbolicLink(at: file, withDestinationURL: target)
+        for resuming in [nil, "conv-1"] as [String?] {
+            _ = try OperatorCommand.prepare(run: F.run(), projects: [], home: home, token: token, resuming: resuming)
+            let state = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file))
+            var expectedProjects = try #require(original["projects"]?.objectValue)
+            expectedProjects[folder] = ["hasTrustDialogAccepted": true, "allowedTools": ["Grep"], "future": 42]
+            var expected = try #require(original.objectValue)
+            expected["projects"] = .object(expectedProjects)
+            #expect(state == .object(expected))
+            #expect(try fm.destinationOfSymbolicLink(atPath: file.path) == target.path)
+            #expect(try fm.attributesOfItem(atPath: target.path)[.posixPermissions] as? Int == 0o600)
+            #expect(try Data(contentsOf: file.appendingPathExtension("aiterm-backup")) == bytes)
+            #expect(!fm.fileExists(atPath: file.path + ".lock"))
+        }
+    }
+
+    @Test(arguments: ["broken", "[]", #"{"projects":null}"#, #"{"projects":[]}"#, "bad-record"])
+    func malformedClaudeStateIsLeftIntactAndStopsPreparation(value: String) throws {
+        let home = home(), fm = FileManager.default
+        defer { try? fm.removeItem(at: home) }
+        try fm.createDirectory(at: home, withIntermediateDirectories: true)
+        let folder = OperatorCommand.runFolder(F.runId, home: home), file = ClaudeConfig().globalJSON(home: home)
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let bytes = value == "bad-record"
+            ? try JSONEncoder().encode(JSONValue.object(["projects": .object([VerifySandbox.realPath(folder.path): []])]))
+            : Data(value.utf8)
+        try bytes.write(to: file)
+        #expect(throws: HarnessDriverError.self) {
+            try OperatorCommand.prepare(run: F.run(), projects: [], home: home, token: token)
+        }
+        #expect(try Data(contentsOf: file) == bytes)
+        #expect(!fm.fileExists(atPath: file.path + ".lock"))
+        #expect(!fm.fileExists(atPath: file.appendingPathExtension("aiterm-backup").path))
+        #expect(!fm.fileExists(atPath: folder.appendingPathComponent(OperatorCommand.launchFile).path))
+    }
+
+    @Test func aBusyClaudeConfigIsNeverWrittenOrUnlocked() throws {
+        let home = home(), fm = FileManager.default
+        defer { try? fm.removeItem(at: home) }
+        let file = ClaudeConfig().globalJSON(home: home), lock = file.appendingPathExtension("lock")
+        try fm.createDirectory(at: lock, withIntermediateDirectories: true)
+        #expect(throws: HarnessDriverError.self) {
+            try OperatorCommand.prepare(run: F.run(), projects: [], home: home, token: token)
+        }
+        #expect(fm.fileExists(atPath: lock.path))
+        #expect(!fm.fileExists(atPath: file.path))
+    }
+
+    @Test func aDanglingClaudeStateLinkIsNotReplaced() throws {
+        let home = home(), fm = FileManager.default
+        defer { try? fm.removeItem(at: home) }
+        try fm.createDirectory(at: home, withIntermediateDirectories: true)
+        let file = ClaudeConfig().globalJSON(home: home), missing = home.appendingPathComponent("missing.json")
+        try fm.createSymbolicLink(at: file, withDestinationURL: missing)
+        #expect(throws: HarnessDriverError.self) {
+            try OperatorCommand.prepare(run: F.run(), projects: [], home: home, token: token)
+        }
+        #expect(try fm.destinationOfSymbolicLink(atPath: file.path) == missing.path)
+        #expect(!fm.fileExists(atPath: missing.path))
+        #expect(!fm.fileExists(atPath: file.path + ".lock"))
+    }
+
+    @Test func anAlreadyTrustedRunReopensWithoutTakingTheConfigLockOrWriting() throws {
+        let home = home(), fm = FileManager.default
+        defer { try? fm.removeItem(at: home) }
+        _ = try OperatorCommand.prepare(run: F.run(), projects: [], home: home, token: token)
+        let file = ClaudeConfig().globalJSON(home: home), lock = file.appendingPathExtension("lock")
+        let before = try Data(contentsOf: file)
+        let modified = try fm.attributesOfItem(atPath: file.path)[.modificationDate] as? Date
+        try fm.createDirectory(at: lock, withIntermediateDirectories: false)
+        _ = try OperatorCommand.prepare(run: F.run(), projects: [], home: home, token: token, resuming: "conv-1")
+        #expect(try Data(contentsOf: file) == before)
+        #expect(try fm.attributesOfItem(atPath: file.path)[.modificationDate] as? Date == modified)
+        #expect(fm.fileExists(atPath: lock.path))
+    }
+
+    @Test func concurrentPreparationsKeepEveryRunsTrust() async throws {
+        let home = home(), runToken = token
+        defer { try? FileManager.default.removeItem(at: home) }
+        let folders = try await withThrowingTaskGroup(of: URL.self) { group in
+            for _ in 0..<4 {
+                var run = F.run()
+                run.id = UUID()
+                let fresh = run
+                group.addTask {
+                    try await BackgroundWork.run {
+                        try OperatorCommand.prepare(run: fresh, projects: [], home: home, token: runToken).folder
+                    }
+                }
+            }
+            var result: [URL] = []
+            for try await folder in group { result.append(folder) }
+            return result
+        }
+        let state = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: ClaudeConfig().globalJSON(home: home)))
+        #expect(state["projects"]?.objectValue?.count == folders.count)
+        for folder in folders {
+            #expect(state["projects"]?[VerifySandbox.realPath(folder.path)]?["hasTrustDialogAccepted"] == true)
+        }
+    }
+
     /// Spec §5's command, word for word, with the effort as the Claude harness passes it: Bash behind the
     /// gate hook (`--settings`), the hard denials, and `Bash` allowed so a failed hook never prompts.
     @Test func theOperatorLaunchesWithAGatedShellAndOnlyAiTermsServer() {

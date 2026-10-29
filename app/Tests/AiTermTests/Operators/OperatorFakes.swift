@@ -180,7 +180,7 @@ final class OperatorWorld {
 
     /// A Claude conversation the Operator can resume: its file under the scratch home's `~/.claude/projects`.
     func saveConversation(_ id: String) throws {
-        let folder = ports.home.appendingPathComponent(".claude/projects/-operator")
+        let folder = ports.claudeConfig.directory(home: ports.home).appendingPathComponent("projects/-operator")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try Data("{}\n".utf8).write(to: folder.appendingPathComponent(id + ".jsonl"))
     }

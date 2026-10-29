@@ -271,13 +271,17 @@ import Testing
 
     /// C14: a fresh operator is briefed again by its first message; a resumed one is not, and keeps its token.
     @Test func reopeningKeepsTheRegisteredTokenAndBriefsOnlyAnOperatorWithNoConversation() async throws {
-        let (world, run, _) = try makeWorld(runState: .operatorOffline)
+        let (world, run, _) = try makeWorld(runState: .operatorOffline) { $0.claudeConfig = ClaudeConfig("~/profiles/operator") }
         let folder = OperatorCommand.runFolder(run.id, home: world.ports.home)
         let token = OperatorCommand.makeToken()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try Data(token.utf8).write(to: folder.appendingPathComponent(OperatorCommand.tokenFile))
         world.show([])
         try await world.controller.reopenOperatorWindow(run.id)
+        let config = world.ports.claudeConfig.globalJSON(home: world.ports.home)
+        let trust = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: config))
+        #expect(trust["projects"]?[VerifySandbox.realPath(folder.path)]?["hasTrustDialogAccepted"] == true)
+        #expect(!FileManager.default.fileExists(atPath: ClaudeConfig().globalJSON(home: world.ports.home).path))
         #expect(world.daemon.requests("window.createTask").first?.params["agentCommand"] as? String == "eval \"$(command cat launch.sh)\"")
         let fresh = try launchLine(world, run.id)
         #expect(fresh.contains(OperatorCommand.firstMessageFile), "no conversation: the brief is its first message")
@@ -286,7 +290,10 @@ import Testing
         world.show([])
         world.controller.mutateRun(run.id) { $0.operatorConversation = "c-3" }
         try world.saveConversation("c-3")
+        try FileManager.default.removeItem(at: config)
         try await world.controller.reopenOperatorWindow(run.id)
+        let resumedTrust = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: config))
+        #expect(resumedTrust["projects"]?[VerifySandbox.realPath(folder.path)]?["hasTrustDialogAccepted"] == true)
         let resumed = try launchLine(world, run.id)
         #expect(resumed.contains("c-3") && !resumed.contains(OperatorCommand.firstMessageFile))
         #expect(world.daemon.requests("operator.register").last?.params["token"] as? String == token)

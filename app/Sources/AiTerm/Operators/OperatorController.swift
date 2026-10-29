@@ -584,10 +584,10 @@ final class OperatorController {
                               projectIds: projectIds, jiraProjectKeys: jiraProjectKeys, prompt: prompt,
                               createdAt: ports.now(), agents: agents, taskSettings: taskSettings,
                               goal: !profile.oracle.isOn ? nil : goal)
-        let home = ports.home
+        let home = ports.home, claudeConfig = ports.claudeConfig
         // A fresh start: `prepare` makes the token and writes the first message the command reads.
         let prepared = try await BackgroundWork.run {
-            try OperatorCommand.prepare(run: run, projects: projects, home: home)
+            try OperatorCommand.prepare(run: run, projects: projects, home: home, claudeConfig: claudeConfig)
         }
         // The workspace may have been locked while the folder was written, or another start got there first.
         guard workspace.canChangeWorkspace, activeRun == nil else {

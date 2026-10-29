@@ -12,7 +12,10 @@ import Testing
         var profile = OperatorServiceFixtures.profile(oracle: true)
         profile.slices.jira = true
         let saved = profile
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [])) { $0.profile = { saved } }
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [])) {
+            $0.profile = { saved }
+            $0.claudeConfig = ClaudeConfig("~/profiles/operator")
+        }
         let id = try await world.controller.startBroadcast(name: "  ", jiraProjectKeys: ["PLUTO"], projectIds: [project.id],
                                                            prompt: "Implement PLUTO-1 and PLUTO-2.\nThen tidy.", agents: OperatorServiceFixtures.agents,
                                                            taskSettings: TaskSettings(review: nil, end: .commit, closeWhenDone: false))
@@ -24,6 +27,9 @@ import Testing
         #expect(run.taskSettings.review == nil, "a blank Review is none")
         #expect(run.planRevision == 0)
         let folder = OperatorCommand.runFolder(id, home: world.ports.home)
+        let trust = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: world.ports.claudeConfig.globalJSON(home: world.ports.home)))
+        #expect(trust["projects"]?[VerifySandbox.realPath(folder.path)]?["hasTrustDialogAccepted"] == true)
+        #expect(!FileManager.default.fileExists(atPath: ClaudeConfig().globalJSON(home: world.ports.home).path))
         let register = try #require(world.daemon.requests("operator.register").first)
         #expect(register.params["runId"] as? String == id.uuidString)
         #expect(register.params["token"] as? String == OperatorCommand.existingToken(in: folder))

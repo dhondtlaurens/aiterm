@@ -381,7 +381,7 @@ extension OperatorController {
         reopeningOperator.insert(id)
         defer { reopeningOperator.remove(id) }
         let projects = run.projectIds.compactMap(workspace.state.project(id:)), home = ports.home, folder = self.folder(of: id)
-        let transcripts = self.transcripts
+        let transcripts = self.transcripts, claudeConfig = ports.claudeConfig
         let conversation = run.operatorConversation, cannotResume = Self.cannotResume
         // A fresh Operator is told where the broadcast stands; a resumed one remembers.
         let fresh = conversation == nil
@@ -392,7 +392,7 @@ extension OperatorController {
                 throw ActionUnavailable(cannotResume)
             }
             let token = OperatorCommand.existingToken(in: folder) ?? OperatorCommand.makeToken()
-            return try OperatorCommand.prepare(run: run, projects: projects, home: home, token: token,
+            return try OperatorCommand.prepare(run: run, projects: projects, home: home, claudeConfig: claudeConfig, token: token,
                                                resuming: conversation, firstMessage: fresh)
         }
         // Ended while the folder was written: prepare made its token file again, and nothing was registered.

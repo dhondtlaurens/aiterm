@@ -122,12 +122,14 @@ public enum OperatorCommand {
     /// `firstMessage` when given (`freshStartMessage`), else `firstMessage(for:)`; `resuming` a
     /// conversation sends none. A command too long to type goes to `launch.sh` (`typed`).
     public static func prepare(run: OperatorRun, projects: [Project], hookPort: Int = AiTermPaths.hookPort,
-                               home: URL = FileManager.default.homeDirectoryForCurrentUser, token: String = makeToken(),
+                               home: URL = FileManager.default.homeDirectoryForCurrentUser, claudeConfig: ClaudeConfig = ClaudeConfig(),
+                               token: String = makeToken(),
                                resuming conversation: String? = nil, firstMessage message: String? = nil) throws -> Prepared {
         let folder = runFolder(run.id, home: home)
         let manager = FileManager.default
         try manager.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        try trustRunFolder(folder, home: home, claudeConfig: claudeConfig)
         try Data(brief(run: run, projects: projects).utf8)
             .write(to: folder.appendingPathComponent(briefFile), options: .atomic)
         try writePrivate(Data(try mcpConfig(hookPort: hookPort, token: token).utf8), to: folder.appendingPathComponent(mcpFile))
@@ -142,6 +144,60 @@ public enum OperatorCommand {
         let words = launchWords(model: run.profile.model, effort: run.profile.reasoning, runFolder: folder,
                                 projectPaths: projects.map(\.path), resuming: conversation)
         return Prepared(folder: folder, command: try typed(command(words: words, firstMessage: first), in: folder), token: token)
+    }
+
+    /// Each broadcast runs in a new directory AiTerm created, outside the person's repositories.
+    /// Record trust for that exact folder before Claude opens, without changing tool permissions.
+    /// Claude's global-state writer uses a `.lock` directory around its read/merge/atomic write.
+    /// Join that lock briefly; never take it from another writer or replace unreadable state.
+    private static func trustRunFolder(_ folder: URL, home: URL, claudeConfig: ClaudeConfig) throws {
+        let file = UserConfigFile(home: home, url: claudeConfig.globalJSON(home: home))
+        let manager = FileManager.default, lock = file.url.appendingPathExtension("lock")
+        // Foundation strips a leading `/private`; Claude keys trust on the physical working directory.
+        guard let physical = realpath(folder.path, nil) else { throw POSIXError(.ENOENT) }
+        defer { free(physical) }
+        let path = String(cString: physical)
+        func readState() throws -> [String: JSONValue] {
+            switch file.read() {
+            case .missing: return [:]
+            case .refused(let reason): throw file.refusal(reason)
+            case .present(let bytes):
+                guard let object = (try? JSONDecoder().decode(JSONValue.self, from: bytes))?.objectValue else {
+                    throw file.refusal("is not a JSON object")
+                }
+                return object
+            }
+        }
+        if try readState()["projects"]?[path]?["hasTrustDialogAccepted"] == true { return }
+        try manager.createDirectory(at: file.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var acquired = false
+        for _ in 0..<40 {
+            if mkdir(lock.path, 0o700) == 0 { acquired = true; break }
+            let code = errno
+            guard code == EEXIST else { throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO) }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        guard acquired else { throw file.refusal("is busy in another Claude session. Try starting the broadcast again") }
+        defer { rmdir(lock.path) }
+
+        // Re-read under the lock: another session may have saved since the fast-path read.
+        var state = try readState()
+        func object(_ value: JSONValue?, named key: String) throws -> [String: JSONValue] {
+            guard let value else { return [:] }
+            guard let object = value.objectValue else { throw file.refusal("sets \(key) in a form AiTerm cannot merge") }
+            return object
+        }
+        var projects = try object(state["projects"], named: "projects")
+        var project = try object(projects[path], named: "the Operator's project")
+        guard project["hasTrustDialogAccepted"] != true else { return }
+        project["hasTrustDialogAccepted"] = true
+        projects[path] = .object(project)
+        state["projects"] = .object(projects)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        let bytes = try encoder.encode(JSONValue.object(state))
+        try file.backUp()
+        try writePrivate(bytes, to: file.target)
     }
 
     /// What the Operator's window has typed: `line` itself, or, past `AgentCommand.inlineLimit` (many

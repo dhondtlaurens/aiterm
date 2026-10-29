@@ -98,8 +98,12 @@ configuration in tests.
 
 `HarnessDriver` describes agent installation/checks. `UserConfigFile` protects symlinks and foreign
 configuration, writes backups and limits repairs to owned integration entries. Installation and
-credential changes are explicit user actions. `FixSession` owns an isolated clone through proposal,
-apply, landing and cleanup; quit cannot begin a new landing after an awaited agent reply.
+credential changes are explicit user actions.
+Operator startup also records trust for its own generated run folder in the resolved Claude
+profile's global JSON. It preserves unrelated state and a backup, uses Claude's config lock and
+an atomic private write, and skips the write when that exact folder is already trusted.
+`FixSession` owns an isolated clone through proposal, apply, landing and cleanup; quit cannot begin
+a new landing after an awaited agent reply.
 
 `BackpackController` owns Unplugged permissions, network/lid-sleep transitions and cleanup.
 `MachineMonitor` samples in-process platform readings. `UpdateController` owns release lookup,

@@ -19,8 +19,14 @@ New Broadcast (⌘B) has five steps:
 5. **Done:** optional goal and extra rounds (two by default). Both require the Oracle. Without a
    goal the broadcast completes when its tasks do.
 
-Start waits for iTerm2, required agents including Messaging, and code-host checks. Settings ›
-Operator supplies the Operator's own Claude Code model/reasoning, house instructions and defaults.
+Start waits for iTerm2, required agents including Messaging, and code-host checks.
+
+AiTerm records Claude's folder trust for the private Operator run folder it creates, using your
+configured Claude profile, so a new broadcast starts without that folder's trust dialog.
+If the profile cannot be updated safely, startup reports the error before opening its window.
+Workers' project trust questions still wait for you.
+
+Settings › Operator supplies the Operator's own Claude Code model/reasoning, house instructions and defaults.
 The broadcast freezes its slices and task settings. Saved Oracle settings govern subsequent checks.
 When an unpinned task's agent reaches 80% weekly usage, selection can switch to the first permitted
 row for the other agent while that agent remains below the threshold.
