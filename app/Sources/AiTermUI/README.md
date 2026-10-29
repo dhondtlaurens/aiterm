@@ -101,7 +101,7 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 | `Icon` / `IconSource` | SF Symbol, branded glyph or full-colour artwork with a fallback; caller supplies size. |
 | `FormField` | Label/control stack with dropdown overhang above following content. |
 | `FrontToBackStack` | Earlier children draw above later ones, including nested overhangs. |
-| `HelpText` | Secondary or warning caption; choose tone rather than overriding its foreground. |
+| `HelpText` | String or composed Text in surface-aware secondary or warning ink; paragraph or inline sizing. |
 | `Input` | Native plain/secure text field in shared chrome; optional caret-at-end on focus. |
 | `SearchField` | Native single-line field that delegates navigation to an open popup first. |
 | `Select` | Native full-column popup button. |
@@ -111,8 +111,8 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 | `SymbolMark` | SF Symbol on the standard paper/ink disc. |
 | `Hairline` | Shared unscaled border/separator; use instead of a bare Divider. |
 
-Foundations are `Palette`/`Brand`, Metrics and `TypeStyle`, `Surface`, `InterfaceScale`, `IconSource`
-and `ControlChrome` modifiers: `focusRing`, `fieldChrome`, `fieldBox`, `menuChrome`,
+Foundations are `Palette`/`Brand`, Metrics (`Motion.settle` shares the toast/fold ease-out), `TypeStyle`, `Surface`, `InterfaceScale`, `IconSource`
+and `ControlChrome` modifiers: `focusRing`, `fieldChrome`, `chipChrome`, `fieldBox`, `menuChrome`,
 `menuRowHighlight`, `groupChrome`. They are rules/data rather than component cards. `Logos`,
 `LogoGlyph` and text-editing coordinators remain implementation details.
 

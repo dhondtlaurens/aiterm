@@ -19,7 +19,7 @@ struct StatusMarkTests {
     private func drawn(_ status: TaskStatus, on surface: Surface = .sidebar) throws -> NSBitmapImageRep {
         let view = StatusMark(status: status, size: size)
             .surface(surface)
-            .environment(\.stillSpinners, true)
+            .environment(\.motionStill, .snapshot)
             .padding(Space.base)
             .background(Color.black)
         let host = testHost(view, size: CGSize(width: size + 2 * Space.base, height: size + 2 * Space.base))

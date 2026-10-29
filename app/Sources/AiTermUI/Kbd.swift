@@ -34,11 +34,13 @@ public struct Kbd: View {
 
     private func cap(_ glyph: String) -> some View {
         Text(glyph)
-            .font(Typography.mono)
             .foregroundStyle(Self.ink(surface))
             .frame(minWidth: Size.chip)
             .frame(height: Size.chip)
-            .background(RoundedRectangle(cornerRadius: Radius.chip).fill(Self.fill(surface)))
-            .overlay(RoundedRectangle(cornerRadius: Radius.chip).strokeBorder(Self.stroke(surface), lineWidth: 1))
+            .chipChrome(fill: Self.fill(surface), stroke: Self.stroke(surface))
+            // Keep the cap native-sized and its stroke above the glyph. The outer font modifier
+            // still reads the caller's scale, before this cap's geometry resets to standard.
+            .interfaceScale(.standard)
+            .font(Typography.mono)
     }
 }

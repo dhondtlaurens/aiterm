@@ -48,7 +48,7 @@ struct Notice<Actions: View>: View {
                     Text(title).font(Typography.label).foregroundStyle(Palette.text)
                 }
                 if let description {
-                    Text(description).font(Typography.help).foregroundStyle(Palette.muted)
+                    HelpText(description, fixedVerticalSize: false)
                 }
             }
             .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)

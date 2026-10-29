@@ -25,7 +25,7 @@ struct OperatorRowView: View {
         let _ = bodyCounter?.count(row.id)
         #endif
         let selected = controller.focus.isSelected(row.id)
-        SelectableRow(selected: selected, washed: true, activate: { controller.focus.select(.operation(row.runId)) }) {
+        SelectableRow(id: row.id, selected: selected, washed: true, activate: { controller.focus.select(.operation(row.runId)) }) {
             HStack(spacing: scale(Space.inset)) {
                 AvatarGroupView(group: AvatarGroup(marks: [row.agent], overflow: 0))
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {

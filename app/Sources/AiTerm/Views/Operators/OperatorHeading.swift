@@ -143,12 +143,7 @@ struct OperatorTitle: View {
     /// The act it last decoded into, so the same act is said once, not again when the pointer leaves.
     @State private var said: OperatorLine?
     @Environment(\.interfaceScale) private var scale
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    #if DEBUG
-    @Environment(\.stillSpinners) private var still
-    #else
-    private let still = false
-    #endif
+    @Environment(\.motionStill) private var motionStill
 
     static let home = "Operator"
     /// How long a decode takes each way, in seconds: slower than a line's (`OperatorBadge.decodeDuration`), since a
@@ -169,7 +164,7 @@ struct OperatorTitle: View {
     }
 
     var body: some View {
-        let animates = !reduceMotion && !still
+        let animates = motionStill == nil
         let running = decodes && animates && !hovering
         let text = Text(word).font(Typography.micro).kerning(SidebarHeading.tracking).textCase(.uppercase)
             .lineLimit(1).truncationMode(.tail)

@@ -13,9 +13,7 @@ struct StatusMark: View {
     /// Replaces the `onSelection: Bool` this view used to take: a selected row's surface is
     /// `.accent`, and `isOnAccent` is exactly the condition the mark used to be handed directly.
     @Environment(\.surface) private var surface
-    /// The one continuous animation in the app, so the one that has to answer Reduce Motion. The
-    /// design canvas has honoured it since the first artboard; the app never did.
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionStill) private var motionStill
     static let spinDuration = 1.1
     /// A background mark's turn: slow enough to read as waiting rather than working.
     static let backgroundSpinDuration = 6.0
@@ -42,9 +40,8 @@ struct StatusMark: View {
                 // as a gap at four o'clock once the arc turned away from it.
                 Circle().strokeBorder(surface.isOnAccent ? Palette.spinnerTrackOnAccent : Palette.spinnerTrack, lineWidth: size * 0.15)
                 ZStack {
-                    // Reduce Motion keeps the shape and drops the rotation: a still three-quarter arc
-                    // still reads as "not idle, not waiting", which is the whole job of this mark.
-                    if reduceMotion {
+                    // Preserve Reduce Motion's half-circle; the snapshot pose below is a shorter arc.
+                    if motionStill == .reduceMotion {
                         Circle().trim(from: 0, to: 0.5).stroke(surface.isOnAccent ? Palette.onAccent : Palette.spinner, style: StrokeStyle(lineWidth: size * 0.15, lineCap: .round))
                     } else {
                         SpinnerArc(size: size, color: surface.isOnAccent ? Palette.onAccent : Palette.spinner)
@@ -58,7 +55,7 @@ struct StatusMark: View {
             // tasks B): the ring dashed, turning slowly, in the arc's ink. Reduce Motion keeps it still.
             case .background:
                 ZStack {
-                    if reduceMotion {
+                    if motionStill == .reduceMotion {
                         DashedRing(size: size, color: surface.isOnAccent ? Palette.onAccent : Palette.spinner)
                     } else {
                         SpinnerArc(size: size, color: surface.isOnAccent ? Palette.onAccent : Palette.spinner, style: .dashed)
@@ -89,14 +86,10 @@ private struct SpinnerArc: View {
     let size: CGFloat
     let color: Color
     var style = SpinningArcView.Style.arc
-    #if DEBUG
-    @Environment(\.stillSpinners) private var still
-    #else
-    private let still = false
-    #endif
+    @Environment(\.motionStill) private var motionStill
 
     var body: some View {
-        if still {
+        if motionStill == .snapshot {
             switch style {
             case .arc:
                 Circle().trim(from: 0, to: 0.15).stroke(color, style: StrokeStyle(lineWidth: size * 0.15, lineCap: .round))

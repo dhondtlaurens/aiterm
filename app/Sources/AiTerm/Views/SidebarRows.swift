@@ -211,6 +211,7 @@ struct ProjectHeaderRow: View {
 /// pointer redraws that row rather than the whole sidebar. `washed` is the Operator's row: its wash at
 /// rest (`RowPill`).
 struct SelectableRow<Content: View>: View {
+    let id: UUID
     let selected: Bool
     var washed = false
     let activate: () -> Void
@@ -224,17 +225,17 @@ struct SelectableRow<Content: View>: View {
         nonmutating set { _hovered.wrappedValue = newValue }
     }
     #if DEBUG
-    @Environment(\.rowHovered) private var seededHover
+    @Environment(\.seededHover) private var seededHover
     #endif
 
-    init(selected: Bool, washed: Bool = false, activate: @escaping () -> Void, @ViewBuilder content: @escaping () -> Content) {
-        self.selected = selected; self.washed = washed; self.activate = activate; self.content = content
+    init(id: UUID, selected: Bool, washed: Bool = false, activate: @escaping () -> Void, @ViewBuilder content: @escaping () -> Content) {
+        self.id = id; self.selected = selected; self.washed = washed; self.activate = activate; self.content = content
     }
 
     /// The pointer's hover, or in a debug build a test's.
     private var drawsHover: Bool {
         #if DEBUG
-        hovered || seededHover
+        hovered || seededHover?.row == id
         #else
         hovered
         #endif
@@ -242,6 +243,11 @@ struct SelectableRow<Content: View>: View {
 
     var body: some View {
         content()
+            #if DEBUG
+            .transformEnvironment(\.seededHover) { seed in
+                if let row = seed?.row, row != id { seed = nil }
+            }
+            #endif
             .padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
             .padding(.vertical, scale(Space.base))
             .frame(minHeight: scale(Size.row))
@@ -349,21 +355,6 @@ struct RowTitle: View {
     }
 }
 
-/// A line under a sidebar row's title — a removal's progress, why it stopped, what the task is
-/// missing — in its surface's secondary ink. `warns` is amber, except on the accent, where amber
-/// does not read.
-struct RowCaption: View {
-    let text: String
-    var warns = false
-    @Environment(\.surface) private var surface
-
-    init(_ text: String, warns: Bool = false) { self.text = text; self.warns = warns }
-
-    var body: some View {
-        Text(text).font(Typography.help).foregroundStyle(warns && !surface.isOnAccent ? Palette.amber : surface.secondaryInk)
-    }
-}
-
 /// One task or review: its agents, title, badges and branch, and, when there is something to say, why
 /// its window could not come back, or, on a task the Operator drives, its status line as the operator
 /// badge. A driven task’s menu leads with Take Over or Hand Back, and Stop Task… while it is open; a task
@@ -373,13 +364,10 @@ struct TaskRowView: View {
     let task: TaskItem?
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionStill) private var motionStill
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
-    @Environment(\.hoveredRow) private var hoveredRow
     #endif
-    /// A test's, to draw the background mark's card open; the row's own is the card's (`backgroundCard`).
-    var cardHover: BackgroundCardHover? = nil
 
     var body: some View {
         #if DEBUG
@@ -403,7 +391,7 @@ struct TaskRowView: View {
         // The card lists what the background mark waits on; no other mark opens one.
         let jobs = mark == .status(.background) ? row.background : []
         // A row being removed is not activated: its window is closing, or gone.
-        SelectableRow(selected: selected, activate: { if let task, !removing { controller.choose(task: task.id) } }) {
+        SelectableRow(id: row.id, selected: selected, activate: { if let task, !removing { controller.choose(task: task.id) } }) {
             HStack(spacing: scale(Space.inset)) {
                 AvatarGroupView(group: row.avatars)
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
@@ -411,7 +399,7 @@ struct TaskRowView: View {
                     RowTitle(row.title, dimmed: removing || row.queued)
                     if let progress = caption.progress {
                         // In the badge line's place and at its height, so the row keeps its own.
-                        RowCaption(progress).frame(height: scale(Size.chip))
+                        HelpText(progress, fixedVerticalSize: false).frame(height: scale(Size.chip))
                     } else if !folded {
                         // Ticket, merge request, editor, then the branch — the badges in the order they
                         // are reached for, the branch last because it is the one thing that truncates.
@@ -433,23 +421,20 @@ struct TaskRowView: View {
                     // Why a removal stopped, or what the task is missing, comes first; else what the
                     // Operator says of it: `queued · after PAY-232`, `Operator answering`, `done · 4f2a91c`.
                     if let note = caption.note {
-                        RowCaption(note.text, warns: note.warns).lineLimit(1)
+                        HelpText(note.text, tone: note.warns ? .warning : .secondary, fixedVerticalSize: false).lineLimit(1)
                     } else if let line = row.operatorLine {
                         OperatorBadge(line: line)
                     }
                 }
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: folded)
+                .animation(motionStill == nil ? Motion.settle : nil, value: folded)
                 Spacer(minLength: scale(Space.tight))
                 // The status mark's spinner: the row's agents went with its window. An ended driven task's is the
                 // check, a queued one's the pause sign. In the background, its hover opens the card.
                 TaskRowMarkView(mark: mark, size: SidebarRowLayout.trailingGlyph(scale))
                     .opensBackgroundCard(slot: SidebarRowLayout.trailingSlot(scale))
             }
-            .backgroundCard(jobs, hover: cardHover)
+            .backgroundCard(jobs)
         }
-        #if DEBUG
-        .environment(\.rowHovered, hoveredRow == row.id)
-        #endif
         .accessibilityLabel(voiceOver.label)
         .accessibilityValue(caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip
                             ?? (jobs.isEmpty ? row.status.label : BackgroundCard(jobs: jobs).spoken))
@@ -537,7 +522,7 @@ struct TerminalRowView: View {
         let _ = bodyCounter?.count(row.id)
         #endif
         let selected = controller.focus.isSelected(row.id)
-        SelectableRow(selected: selected, activate: { if let terminal { controller.focus.select(.terminal(terminal.id)) } }) {
+        SelectableRow(id: row.id, selected: selected, activate: { if let terminal { controller.focus.select(.terminal(terminal.id)) } }) {
             HStack(spacing: scale(Space.inset)) {
                 AvatarGroupView(group: row.avatars)
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
@@ -605,19 +590,19 @@ extension EnvironmentValues {
     }
 }
 
-/// The task row a test draws hovered with no pointer over it, set on the sidebar
-/// (`SidebarRowGeometryTests`). The row it names hands `rowHovered` to its `SelectableRow`.
-private struct HoveredRowKey: EnvironmentKey { static let defaultValue: UUID? = nil }
-private struct RowHoveredKey: EnvironmentKey { static let defaultValue = false }
+/// A debug fixture can paint a row's hover by identity, or pass the real background-card hover
+/// state to a directly hosted row. Seeding the pill alone never opens the card.
+struct SeededHover {
+    var row: UUID? = nil
+    var backgroundCard: BackgroundCardHover? = nil
+}
+
+private struct SeededHoverKey: EnvironmentKey { static let defaultValue: SeededHover? = nil }
 
 extension EnvironmentValues {
-    var hoveredRow: UUID? {
-        get { self[HoveredRowKey.self] }
-        set { self[HoveredRowKey.self] = newValue }
-    }
-    fileprivate var rowHovered: Bool {
-        get { self[RowHoveredKey.self] }
-        set { self[RowHoveredKey.self] = newValue }
+    var seededHover: SeededHover? {
+        get { self[SeededHoverKey.self] }
+        set { self[SeededHoverKey.self] = newValue }
     }
 }
 #endif
