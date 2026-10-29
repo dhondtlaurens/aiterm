@@ -72,4 +72,3 @@ against the manifest.
 
 The socket is the only channel. If the daemon dies, the supervisor restarts it; from the second
 failure the banner names the log at `~/Library/Application Support/AiTerm/aitermd.log`.
-

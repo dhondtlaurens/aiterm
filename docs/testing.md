@@ -63,6 +63,8 @@ changes. Their provenance files describe the synthetic data. They contain no pri
 Swift fixture paths above are relative to `app/Tests/`. They are checkout-read fixtures, excluded
 from source discovery and registered in routing. Do not regenerate them to make a refactor green.
 A deliberate change to the model-facing contract requires a separate behavior decision and evidence.
+Captured brief whitespace is part of those bytes; the fixture directory’s `.gitattributes` allows
+its original end-of-line spaces without relaxing whitespace checks elsewhere.
 Focused rules and fake-host journeys still own policy; the golden is not a substitute for them.
 
 `OperatorEvalTests` uses current structured setup and deterministic grading preparation. Real-agent

@@ -97,7 +97,7 @@ import Testing
         let controller = AppController(store: StateStore(url: home.appendingPathComponent("state.json")), preferences: .scratch(), harnessHome: home)
         controller.agents.availableAgents = [.claude, .codex, .pi]
         let service = ReadyHarnesses(snapshots: cards)
-        _ = controller.agents.harnessSettingsModel(service: service)
+        let harness = controller.agents.harnessSettingsModel(service: service)
         #expect(controller.broadcastReadiness == .checking)
 
         let policy = AiTermPaths.deliveryPolicyURL(home: home)
@@ -106,7 +106,9 @@ import Testing
         try Data(#"{"claude": {"version": "2.1.9", "pasteSafe": true, "submitSafe": true, "scenarios": {}}}"#.utf8).write(to: policy)
         let checking = Task { await controller.checkBroadcastReadiness() }
         defer { checking.cancel() }
-        #expect(await eventually(describing: "the cards and the file read") { controller.broadcastReadiness != .checking })
+        #expect(await eventually(describing: "both planned cards and the policy file read") {
+            Set(harness.snapshots.keys) == [.claude, .codex] && controller.messaging.file != nil
+        })
         #expect(controller.broadcastReadiness == .notReady(["Codex: Messaging not checked for 0.160", "iTerm2 checks not run"]))
         #expect(await service.probed.sorted { $0.rawValue < $1.rawValue } == [.claude, .codex], "PI is never planned on")
     }
