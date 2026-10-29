@@ -413,14 +413,17 @@
   .proposal-flag { color: var(--amber); margin-bottom: var(--space-snug); }
   .no-proposals { margin-top: var(--space-block); color: var(--muted); }
 
-  /* --- Proposal · the decode's glyphs · 2026-10-29 -------------------------------------------
-     The ink is picked (E: the words' own ink, no glow). What is left is what the unsettled characters run through.
-     Same timing and frames in every option (the Swift's pick formula, so they change in step); only the glyphs
-     differ. The heading's words are uppercased in the text, as OperatorTitle does, not by CSS, so a lowercase
-     glyph shows as one. Scoped past Components' .op .g (green, glowing). */
+  /* --- Proposal · OPERATOR says what it does · 2026-10-29 -------------------------------------
+     The heading decodes into the Operator row's own line (OperatorLine.session) instead of OperatorTitle.words.
+     Each option replays one scripted stretch of a broadcast on a compressed clock (a 6 s rest for 20–60 s); the
+     strip under it is that clock. The heading's words are uppercased in the text, as OperatorTitle does. */
   .dp .dp-mount { margin-top: var(--space-block); }
-  .dp .hdg .word { white-space: pre; text-transform: none; }
-  .op .dp-mount .g { color: inherit; text-shadow: none; }
+  .dp .hdg .word { white-space: pre; text-transform: none; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .dp .hdg .cnt { flex: none; }
+  .dp .dp-clock { display: flex; gap: var(--space-tight); margin-top: var(--space-base); width: 360px; max-width: 100%; }
+  .dp .dp-clock span { flex: 1; font: 10px/1.4 var(--mono); color: var(--muted); border-top: 2px solid var(--border);
+                       padding-top: var(--space-tight); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dp .dp-clock span.on { color: var(--text); border-top-color: var(--accent); }
 
   /* Broadcast setup v2: New Broadcast's Agents, Task and Done steps and the board's new card lines. Only what the kit
      above lacks: a checkbox, the Agents rows, a card's combination and end lines and its fix-round links, the end menu.
@@ -1208,8 +1211,6 @@
   .op .hdg .fold.closed svg { transform: rotate(-90deg); }
   .op .hdg .plus.board svg { width: 12px; height: 12px; }
   .op .hdg .sccs { margin-left: var(--space-base); letter-spacing: 0; }
-  /* The decode's unsettled glyphs: katakana in Palette.green with a glow (a shadow, untokenised). */
-  .op .g { color: var(--green); text-shadow: 0 0 6px rgba(48, 209, 88, 0.7); }
   /* TaskRowMarkView: the check (checkmark, Palette.green) and the pause sign (pause.fill, Palette.idleRing),
      both Palette.onAccent on the selection. A queued title in the surface's secondary ink. */
   .op .st.check, .op .st.pause { border-radius: 0; }
@@ -2673,7 +2674,7 @@
             <tr><td>SectionFoldChevron</td><td>A section heading’s disclosure chevron while the Operator’s section and the projects fold into each other: <code>HeaderChevron</code> in a <code>Size.slot</code> before the heading’s "+" or board button, shown folded and, open, under the pointer.</td><td>Operators/OperatorHeading.swift</td></tr>
             <tr><td>BroadcastMenu</td><td>The broadcast’s menu, OPERATOR’s and its lead row’s: Open Board, Rename…, Pause or Resume Broadcast, End Broadcast…, greyed but Open Board while the workspace is locked. It reads the broadcast itself, so the lead row is not redrawn when the progress moves.</td><td>Operators/OperatorHeading.swift</td></tr>
             <tr><td>OperatorRowView</td><td>The Operator’s own row, the broadcast’s lead, first under OPERATOR: a <code>SelectableRow</code>, <code>washed</code> (<code>Palette.operatorRow</code>, <code>badgeHovered</code> hovered), Claude’s <code>VendorMark</code>, the broadcast’s name, its own session’s line (<code>OperatorLine.session</code>) and <code>StatusMark</code>; no project, ticket or branch line; the broadcast’s menu. ↑ ↓ peek at its window; a click or ↩ brings it to front, or reopens it. Its value is <code>OperatorRow</code>, with an id of its own.</td><td>Operators/OperatorRowView.swift</td></tr>
-            <tr><td>OperatorBadge</td><td>Everything the Operator says on a status line: the words in <code>Typography.monoChip</code>, no mark, always one <code>Size.chip</code> line, the whole in its tooltip. Quiet: no box, the surface's secondary ink. Acting, exactly while the row's <code>StatusMark</code> turns: no box, the surface's ink, new words decoding once over 0.5 s through katakana in <code>Palette.green</code> with a glow (<code>DecodeWordsView</code>, the words’ layer always the real characters), then still; at once under Reduce Motion. Needs you: <code>statusChipAttentionFill</code> and <code>Stroke</code> with <code>Palette.text</code>; on the accent the surface's <code>badgeWash</code>. The words are <code>OperatorLine</code>'s closed list.</td><td>OperatorBadge.swift</td></tr>
+            <tr><td>OperatorBadge</td><td>Everything the Operator says on a status line: the words in <code>Typography.monoChip</code>, no mark, always one <code>Size.chip</code> line, the whole in its tooltip. Quiet: no box, the surface's secondary ink. Acting, exactly while the row's <code>StatusMark</code> turns: no box, the surface's ink, new words decoding once over 0.5 s, each letter and digit running through letters and digits of its own case in the words’ ink (<code>DecodeWordsView</code>, the words’ layer always the real characters), then still; at once under Reduce Motion. Needs you: <code>statusChipAttentionFill</code> and <code>Stroke</code> with <code>Palette.text</code>; on the accent the surface's <code>badgeWash</code>. The words are <code>OperatorLine</code>'s closed list.</td><td>OperatorBadge.swift</td></tr>
             <tr><td>BroadcastStatusLine</td><td>A broadcast's status line as its board's band says it: its <code>OperatorBadge</code>, then <code>· 2 of 8 done</code> in <code>Typography.monoChip</code> and the surface's secondary ink, outside the needs-you box; the badge's words are what is cut.</td><td>OperatorBadge.swift</td></tr>
             <tr><td>OperatorMenuButtons</td><td>The Operator's menu items (<code>OperatorMenuItem</code>, chosen by <code>OperatorMenus</code>) as buttons and dividers: the heading's "+", the broadcast header's menu, and the lead of a driven task's. Stop Task… is drawn destructive; End Broadcast… is not.</td><td>Operators/OperatorMenus.swift</td></tr>
             <tr><td>TerminalRowView</td><td>A terminal in the same <code>SelectableRow</code> and the same two-line layout: its window's agents, its name, then the quiet VS Code <code>Badge</code> — the mark alone, no diff, opening the project folder — and the <code>BranchLabelView</code> with the project's branch, and the <code>StatusMark</code>.</td><td>SidebarRows.swift</td></tr>
@@ -2833,7 +2834,7 @@
           <div class="rules" style="grid-template-columns: 1fr; margin-top: 0">
             <div class="yes"><span class="h">Quiet, the default</span>No box, the words in the surface's secondary ink: the Operator is watching and nothing moves (<code>queued · after PAY-232</code>, <code>in review · waiting on Jan</code>, <code>paused</code>).</div>
             <div class="yes"><span class="h">Ended</span>Drawn as quiet: the Operator's work on the task is over (<code>done · 4f2a91c</code>, <code>merged · 9b3e07d</code>, <code>draft MR · !412</code>). The row's trailing mark is the green check; no other state has a mark of its own.</div>
-            <div class="yes"><span class="h">Acting</span>No box, the words in the surface’s ink, exactly while the row’s <code>StatusMark</code> turns: the Operator holds the task (<code>Operator watching</code>, <code>ready for the Operator</code>), its session works, or AiTerm handles one of its acts (<code>loading the construct</code>, <code>consulting the Oracle</code>, <code>answering Claude</code>, …). When the words change they decode once: each letter and digit runs through glyphs (<code>0-9a-z</code>, one advance wide, so the line keeps its width) and they settle from the left over <code>OperatorBadge.decodeDuration</code> (0.5 s), then stand still, the spinner carrying the ongoing motion (<code>DecodeWordsView</code>, its own frames, no loop). At once under Reduce Motion and in the snapshots.</div>
+            <div class="yes"><span class="h">Acting</span>No box, the words in the surface’s ink, exactly while the row’s <code>StatusMark</code> turns: the Operator holds the task (<code>Operator watching</code>, <code>ready for the Operator</code>), its session works, or AiTerm handles one of its acts (<code>loading the construct</code>, <code>consulting the Oracle</code>, <code>answering Claude</code>, …). When the words change they decode once: each letter and digit runs through glyphs of its own case in the words’ ink (<code>DecodeWordsView.glyphs(for:)</code>: a capital through <code>A–Z 0–9</code>, a lowercase letter through <code>a–z 0–9</code>, a digit through <code>0–9</code>), each kerned to its character’s width so the line keeps it, and they settle from the left over <code>OperatorBadge.decodeDuration</code> (0.5 s), then stand still, the spinner carrying the ongoing motion (<code>DecodeWordsView</code>, its own frames, no loop). At once under Reduce Motion and in the snapshots.</div>
             <div class="no"><span class="h">Needs you</span><code>Palette.statusChipAttentionFill</code> and <code>Stroke</code>, the attention chip's existing pair, the words in <code>Palette.text</code>, never amber. On the accent, the surface's <code>badgeWash</code> and ink instead. The row's <code>StatusMark</code> turns amber.</div>
             <div><span class="h" style="color: var(--muted)">One line</span>No mark leads the words. Always one <code>Size.chip</code> line, cut with an ellipsis, the whole line in its tooltip and VoiceOver label.</div>
           </div>
@@ -3179,39 +3180,44 @@
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
     </div>
 
-    <div class="section op dp" id="p-decode-glyphs">
-      <p class="eyebrow proposal-flag">Proposal · The decode’s glyphs · 2026-10-29</p>
-      <h2>Katakana, or letters and digits</h2>
-      <p class="why"><b>Picked:</b> the unsettled glyphs take the words’ own ink, with no glow (option E of the
-        decode’s ink). Still open is what they run through. Today (<code>DecodeWordsView.glyphs</code>) that is the
-        Matrix’s half-width katakana, digits and signs. In the words’ own ink the katakana no longer read as the
-        Matrix, only as foreign script, so plain letters and digits may suit the line better. Timing and frames stay
-        as they are (0.5 s per line, 0.9 s for the heading, settling from the left); spaces and separators never
-        change.</p>
-      <p class="why">Each option draws the heading, an acting row and the same kind of row selected, on one clock, so
-        they can be compared frame by frame; under Reduce Motion they hold a frame mid-decode.</p>
+    <div class="section op dp" id="p-operator-words">
+      <p class="eyebrow proposal-flag">Proposal · OPERATOR says what it does · 2026-10-29</p>
+      <h2>The heading’s words, from the Operator’s own line</h2>
+      <p class="why">Today OPERATOR decodes into one of eight film phrases (<code>OperatorTitle.words</code>:
+        <i>Jacking in, Tracing the call, …</i>) every 20–60 s, whatever the Operator is doing. The proposal: its
+        words become <b>the Operator row’s own line</b> (<code>OperatorLine.session</code>), uppercased, so the
+        heading says what really happens: <code>ANSWERING CLAUDE · PAY-231</code>, <code>CONSULTING THE ORACLE</code>,
+        <code>WATCHING 3 TASKS</code>. The eight phrases go.</p>
+      <p class="why">Common to every option: it decodes as today (0.9 s each way, the picked glyphs and ink), holds 3 s
+        and decodes back to OPERATOR. Under the pointer it goes straight back to OPERATOR and stays there. It stays
+        still while paused, done, needing you or with the Operator’s window closed, and under Reduce Motion.
+        <b>Quiet</b> means the line has not changed for 20–60 s; then the heading decodes into the line as it stands
+        (<code>watching 3 tasks</code>, <code>working</code>, <code>in background</code>) and back, and again after the
+        next quiet stretch. A long line is cut with an ellipsis; the progress keeps its width. Below, each option replays
+        the same stretch: the Operator watching, consulting the Oracle, answering Claude, then quiet. The quiet rest is
+        6 s here instead of 20–60 s.</p>
 
       <div class="options">
-        <div class="option">
-          <header><span class="letter">A</span><h3>Katakana, digits and signs (today)</h3></header>
-          <p>Today’s glyphs in the words’ ink. Still the film’s alphabet, but without the green, they read as noise in
-            another script, and in the mono face they are a touch narrower than the letters they stand for.</p>
-          <div class="dp-mount" data-glyphs="kana"></div>
-        </div>
-        <div class="option">
-          <header><span class="letter">B</span><h3>Letters and digits, any case</h3></header>
-          <p>Each character runs through <code>a–z A–Z 0–9</code> at random. Plainly “scrambling”, as an
-            airport board or a terminal does. In the heading, lowercase glyphs flicker through OPERATOR’s
-            capitals, so the word briefly reads as mixed case.</p>
-          <div class="dp-mount" data-glyphs="any"></div>
-        </div>
         <div class="option pick">
-          <header><span class="letter">C</span><h3>Letters and digits, in the character’s case</h3><span class="rec">Recommended</span></header>
-          <p>The same, but a glyph keeps the case of the character it replaces: a capital runs through
-            <code>A–Z 0–9</code>, a lowercase letter through <code>a–z 0–9</code>, a digit through <code>0–9</code>.
-            The heading stays in capitals while it decodes, a line keeps its shape (<code>PAY-231</code> stays a key
-            and a number), and only the letters change. One set per case replaces <code>glyphs</code>.</p>
-          <div class="dp-mount" data-glyphs="case"></div>
+          <header><span class="letter">A</span><h3>Every act, and the quiet</h3><span class="rec">Recommended</span></header>
+          <p>When the line turns to a new act, OPERATOR decodes into it, holds 3 s and goes back. A newer act during the
+            hold decodes straight into the newer one. In the quiet it alternates with the line as it stands. This is what
+            you described. It also means the heading repeats the row under it while the section is open, but when it is
+            folded the heading is the only place the acts show.</p>
+          <div class="dp-mount" data-mode="acts"></div>
+        </div>
+        <div class="option">
+          <header><span class="letter">B</span><h3>Only the quiet</h3></header>
+          <p>Acts stay on the row under the heading, which already says them; the heading only alternates with the line
+            after a quiet stretch. The calmest, and nothing appears twice, but a folded section shows no acts at
+            all.</p>
+          <div class="dp-mount" data-mode="quiet"></div>
+        </div>
+        <div class="option">
+          <header><span class="letter">C</span><h3>Acts while folded, the quiet always</h3></header>
+          <p>Open, as B: the row says the acts. Folded, as A: the heading takes them, since nothing else shows them.
+            Nothing is ever said twice, at the cost of a heading that behaves differently by fold. Drawn folded here.</p>
+          <div class="dp-mount" data-mode="folded"></div>
         </div>
       </div>
     </div>
@@ -3261,26 +3267,29 @@
   })();
 </script>
 <script>
-  /* The Operator's acting words decode once through katakana, green and glowing, then stand still
+  /* The Operator's acting words decode once through letters and digits of each character's case, in its ink, then stand still
      (OperatorBadge.decodeDuration, 0.5 s); replayed every 6 s here. OPERATOR now and then decodes into a phrase and
      back (OperatorTitle: every 20–60 s, 0.9 s, held 3 s; every 5–9 s here), straight back and held under the pointer.
      Still under Reduce Motion. */
   (function () {
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { return; }
-    var glyphs = 'ｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ0123456789Z:・.=*+-<>¦';
+    var lower = 'abcdefghijklmnopqrstuvwxyz', upper = lower.toUpperCase(), digits = '0123456789';
+    // DecodeWordsView.glyphs(for:): the case the character shows in, so the uppercased heading takes capitals.
+    function glyphsFor(c, caps) { return /[0-9]/.test(c) ? digits : caps || c === c.toUpperCase() ? upper + digits : lower + digits; }
     function esc(c) { return c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '&' ? '&amp;' : c; }
-    function frame(text, settled) {
+    function frame(text, settled, caps) {
       return text.split('').map(function (c, i) {
         if (i < settled || !/[0-9a-z]/i.test(c)) { return esc(c); }
+        var glyphs = glyphsFor(c, caps);
         return '<span class="g">' + esc(glyphs[Math.floor(Math.random() * glyphs.length)]) + '</span>';
       }).join('');
     }
     function decode(el, text, ms, done) {
       clearInterval(el._decode);
-      var f = 0, frames = Math.max(6, Math.round(ms / 33));
+      var f = 0, frames = Math.max(6, Math.round(ms / 33)), caps = !!el.closest('.hdg');
       el._decode = setInterval(function () {
         f += 1;
-        el.innerHTML = frame(text, Math.floor(text.length * f / frames));
+        el.innerHTML = frame(text, Math.floor(text.length * f / frames), caps);
         if (f >= frames) { clearInterval(el._decode); el._decode = null; el.textContent = text; if (done) { done(); } }
       }, ms / frames);
     }
@@ -3317,70 +3326,81 @@
   })();
 </script>
 <script>
-  /* Proposal · the decode's glyphs: one sidebar per option, all on one clock, in the words' own ink. Every 8 s the
-     heading decodes into a phrase (0.9 s), the lines decode (0.5 s), the heading decodes back, the lines again.
-     Glyphs are picked by DecodeWordsView.frame's formula from each option's set. Under Reduce Motion each holds a
-     frame 40 % through. */
+  /* Proposal · OPERATOR says what it does: one sidebar per option replaying the same 22 s stretch of a broadcast.
+     The Operator row's line changes at the scripted times (an act decodes in, as the row does); the heading follows
+     its option's rule. Rest 6 s for 20–60 s. Glyphs and ink as picked (letters and digits of the character's case,
+     the words' own ink). Under Reduce Motion each shows its heading on the act, still. */
   (function () {
     var mounts = document.querySelectorAll('.dp .dp-mount');
     if (!mounts.length) { return; }
-    var row = function (title, line, sel) {
-      return '<div class="mk-row opr' + (sel ? ' sel' : '') + '"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span>' +
-        '<span class="ln"><span class="tt">' + title + '</span><span class="ol"><span class="ob acting"><span class="tx dp-line">' + line +
-        '</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div>';
-    };
-    var html = '<div class="scroll"><div class="mk-sidebar"><div class="hdg"><span class="word dp-title">OPERATOR</span><span class="cnt">2 of 8</span>' +
-      '<span class="sp"></span><span class="plus board"><svg><use href="#op-board"/></svg></span></div>' +
-      row('Checkout redesign', 'answering Claude · PAY-231', false) + row('Cart drawer', 'Operator watching · 2 tabs', true) + '</div></div>';
-    mounts.forEach(function (m) { m.innerHTML = html; });
-
+    var chev = '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+    var script = [[0, 'watching 3 tasks', false], [2000, 'consulting the Oracle', true], [4000, 'answering Claude · PAY-231', true],
+                  [7000, 'watching 3 tasks', false]], span = 22000, rest = 6000, hold = 3000, dur = 900;
     var lower = 'abcdefghijklmnopqrstuvwxyz', upper = lower.toUpperCase(), digits = '0123456789';
-    var sets = {
-      kana: function () { return 'ｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ0123456789Z:・.=*+-<>¦'; },
-      any: function () { return lower + upper + digits; },
-      case: function (c) { return /[0-9]/.test(c) ? digits : c === c.toUpperCase() ? upper + digits : lower + digits; }
-    };
+    function glyphsFor(c) { return /[0-9]/.test(c) ? digits : c === c.toUpperCase() ? upper + digits : lower + digits; }
     function esc(c) { return c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '&' ? '&amp;' : c; }
-    function frame(text, progress, step, set) {
-      var chars = Array.from(text), settled = Math.floor(chars.length * Math.min(Math.max(progress, 0), 1));
+    function frame(text, progress, step) {
+      var chars = Array.from(text), settled = Math.floor(chars.length * progress);
       return chars.map(function (c, i) {
         if (i < settled || !/[0-9a-z]/i.test(c)) { return esc(c); }
-        var glyphs = Array.from(set(c)), pick = ((i + 1) * 7919 + (step + 1) * 104729 + i * step * 31) % glyphs.length;
-        return '<span class="g">' + esc(glyphs[pick]) + '</span>';
+        var g = glyphsFor(c), pick = ((i + 1) * 7919 + (step + 1) * 104729 + i * step * 31) % g.length;
+        return '<span class="g">' + esc(g[pick]) + '</span>';
       }).join('');
     }
-    function setOf(el) { return sets[el.closest('.dp-mount').dataset.glyphs]; }
-    function decode(els, text, ms) {
+    function decode(el, text, ms) {
+      clearInterval(el._decode);
       var frames = Math.max(6, Math.round(ms / 33)), f = 0;
-      var t = setInterval(function () {
+      el._decode = setInterval(function () {
         f += 1;
-        els.forEach(function (el) {
-          var words = typeof text === 'function' ? text(el) : text;
-          el.innerHTML = f >= frames ? esc(words) : frame(words, f / frames, f, setOf(el));
-        });
-        if (f >= frames) { clearInterval(t); }
+        el.innerHTML = f >= frames ? esc(text) : frame(text, f / frames, f);
+        if (f >= frames) { clearInterval(el._decode); }
       }, ms / frames);
     }
-    var titles = Array.prototype.slice.call(document.querySelectorAll('.dp .dp-title'));
-    var lines = Array.prototype.slice.call(document.querySelectorAll('.dp .dp-line'));
-    lines.forEach(function (el) { el.dataset.text = el.textContent; });
-    var own = function (el) { return el.dataset.text; };
-    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      titles.forEach(function (el) { el.innerHTML = frame('TRACING THE CALL', 0.4, 3, setOf(el)); });
-      lines.forEach(function (el) { el.innerHTML = frame(el.dataset.text, 0.4, 3, setOf(el)); });
-      return;
-    }
-    var phrases = ['Jacking in', 'Tracing the call', 'Rerouting', 'Decrypting', 'Loading the construct', 'Patching through',
-                   'Watching for agents', 'Reading the code'], n = 0;
-    function cycle() {
-      decode(titles, phrases[n % phrases.length].toUpperCase(), 900);
-      n += 1;
-      setTimeout(function () { decode(lines, own, 500); }, 1500);
-      setTimeout(function () { decode(titles, 'OPERATOR', 900); }, 3900);
-      setTimeout(function () { decode(lines, own, 500); }, 5500);
-    }
-    cycle();
-    setInterval(cycle, 8000);
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    mounts.forEach(function (m) {
+      var mode = m.dataset.mode, folded = mode === 'folded';
+      m.innerHTML = '<div class="scroll"><div class="mk-sidebar"><div class="hdg"><span class="word dp-title">OPERATOR</span>' +
+        '<span class="cnt">2 of 8</span><span class="sp"></span><span class="fold' + (folded ? ' closed' : '') + '">' + chev + '</span>' +
+        '<span class="plus board"><svg><use href="#op-board"/></svg></span></div>' +
+        (folded ? '' : '<div class="mk-row opr"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span>' +
+          '<span class="ln"><span class="tt">Checkout redesign</span><span class="ol"><span class="ob quiet"><span class="tx dp-line">watching 3 tasks</span></span></span></span>' +
+          '<span class="slot"><span class="st idle"></span></span></div>') +
+        '<div class="hdg" style="margin-top: var(--space-base)">Projects<span class="sp"></span><span class="fold' + (folded ? '' : ' closed') + '">' + chev + '</span>' +
+        '<span class="plus"><svg width="10" height="10"><use href="#op-plus"/></svg></span></div></div></div>' +
+        '<div class="dp-clock"><span>watching</span><span>Oracle</span><span>answering</span><span>quiet</span></div>';
+      var title = m.querySelector('.dp-title'), line = m.querySelector('.dp-line'), ob = line && line.parentNode,
+          slot = m.querySelector('.mk-row.opr .slot'), marks = m.querySelectorAll('.dp-clock span');
+      var echoes = mode === 'acts' || folded, current = script[0][1], shown = null, back = null, changed = 0, rested = 0;
+      if (reduce) { if (echoes) { title.textContent = 'ANSWERING CLAUDE · PAY-231'; } return; }
+      function show(words, now) {
+        clearTimeout(back);
+        shown = words;
+        decode(title, words.toUpperCase(), dur);
+        back = setTimeout(function () { shown = null; decode(title, 'OPERATOR', dur); rested = Date.now() + dur; }, dur + hold);
+      }
+      function run() {
+        var start = Date.now();
+        script.forEach(function (e, n) {
+          setTimeout(function () {
+            current = e[1]; changed = Date.now();
+            marks.forEach(function (s, i) { s.classList.toggle('on', i === n); });
+            if (line) {
+              ob.className = 'ob ' + (e[2] ? 'acting' : 'quiet');
+              slot.innerHTML = e[2] ? '<svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg>' : '<span class="st idle"></span>';
+              if (e[2]) { decode(line, e[1], 500); } else { clearInterval(line._decode); line.textContent = e[1]; }
+            }
+            if (e[2] && echoes) { show(e[1]); }
+          }, e[0]);
+        });
+      }
+      // The quiet: the line unchanged for the rest, and the heading home for as long.
+      setInterval(function () {
+        var now = Date.now();
+        if (shown === null && now - changed >= rest && now - rested >= rest) { show(current); }
+      }, 200);
+      run();
+      setInterval(function () { clearTimeout(back); shown = null; title.textContent = 'OPERATOR'; rested = 0; run(); }, span);
+    });
   })();
 </script>
 
