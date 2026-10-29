@@ -75,12 +75,14 @@ Do not replace it with a TextEditor that cannot expose the caret/navigation beha
 [Operator guide](../operators.md) defines these choices and permissions.
 
 `BroadcastBoardHost` presents `BroadcastBoardSheet` from the pure `BroadcastBoard` projection.
-The band shows status, Asked plus optional Goal, Each task settings, then Board/Activity/Summary.
+The band shows status, then a line each for Asked, the optional Goal and Each task settings (cut at
+the end, whole in the tooltip), then Board/Activity/Summary `Space.block` below them.
 No historical Review/Done header variant remains. Summary becomes selectable when available.
 
-`BoardScroll`, `BoardHeading` and `BoardCardView` compose Todo/In progress/Review/Done columns at
+`BoardHeading` and `BoardCardView` compose Todo/In progress/Review/Done columns at
 `Sheet.boardColumn` with `Space.gap` between them. Review appears when the task review prompt is
-written or people's review applies. Columns scroll independently inside the horizontal board.
+written or people's review applies. The board scrolls as one, down and sideways, through
+`SheetLayout`'s scroll; no column scrolls on its own.
 Cards use `groupChrome`, quiet `TaskBadges`, the agent mark and the Operator's line; an attention
 edge and badge make the card actionable without nesting a Notice.
 

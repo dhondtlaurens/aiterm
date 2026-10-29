@@ -717,7 +717,7 @@ enum OperatorSnapshots {
     /// The cards at the new stops, one under another at a column's width, on the sheet's ground.
     private static func setUpCards() -> some View {
         let cards = OperatorScene.stops()
-        return VStack(alignment: .leading, spacing: Space.base) {
+        return VStack(alignment: .leading, spacing: Space.gap) {
             ForEach(cards) { card in BoardCardView(card: card, choose: { _ in }, actions: BoardActions()).frame(width: Sheet.boardColumn) }
         }
         .padding(Space.margin)

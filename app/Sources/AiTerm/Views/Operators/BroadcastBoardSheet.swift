@@ -75,15 +75,16 @@ struct BoardFooter: Equatable {
 }
 
 /// The broadcast's sheet (spec §4, §13; the Operator sheet, 21 Oct 2026), `Sheet.width` by `Sheet.height` in
-/// `SheetLayout`'s anatomy: the title; a band line, the broadcast's `BroadcastStatusLine` as its row says it; the
-/// Asked line and, for a broadcast set up with the Task step, the Each task line under it (15A), each two lines at
-/// most, the whole of it in its tooltip; then the tab bar, Settings' `SegmentedControl` in its accent style, Board ·
-/// Activity · Summary, picked by click or ⌘1–⌘3. It opens on `BroadcastBoard.firstTab` and stays where you put it;
-/// Summary is dimmed until the broadcast reached it. Board is the columns, each `Sheet.boardColumn` wide and scrolling
-/// on its own, the row of them scrolling sideways; once every task is done they all sit in Done. A card's click closes
-/// the sheet first, then opens what resolves it (`choose`). Activity is the run's log (`BroadcastActivityView`),
-/// Summary the Operator's summary and what it left for you (`BroadcastSummaryView`); both scroll as one. The footer is
-/// the same on every tab. Equatable by what it draws, its actions left out (they act on the broadcast as it is when
+/// `SheetLayout`'s anatomy: the title; a band line, the broadcast's `BroadcastStatusLine` as its row says it; then a
+/// line each for Asked, the Goal and Each task, `Space.base` apart, each cut at its end with the whole of it in its
+/// tooltip; then, `Space.block` under them, the tab bar, Settings' `SegmentedControl` in its accent style at
+/// `Size.control`, Board · Activity · Summary, picked by click or ⌘1–⌘3 (the broadcast's sheet, 1A, 29 Oct 2026). It
+/// opens on `BroadcastBoard.firstTab` and stays where you put it; Summary is dimmed until the broadcast reached it.
+/// Board is the columns, each `Sheet.boardColumn` wide, and the board scrolls as one, down and sideways, between the
+/// rules and from edge to edge (2B); once every task is done they all sit in Done. A card's click closes the sheet
+/// first, then opens what resolves it (`choose`). Activity is the run's log (`BroadcastActivityView`), Summary the
+/// Operator's summary and what it left for you (`BroadcastSummaryView`); both scroll down. The footer is the same on
+/// every tab. Equatable by what it draws, its actions left out (they act on the broadcast as it is when
 /// pressed), so the host's `.equatable()` skips a body that would draw the same; the feed redraws Activity alone.
 struct BroadcastBoardSheet: View, Equatable {
     let board: BroadcastBoard
@@ -139,13 +140,14 @@ struct BroadcastBoardSheet: View, Equatable {
         #endif
         let footer = BoardFooter(board, reopenFailed: reopenFailed)
         let shown = Self.shownTab(tab, on: board)
-        SheetLayout(title: board.title, height: Sheet.height, bandHeight: nil, scrolls: shown != .board,
-                    contentVerticalPadding: Space.block) {
-            VStack(alignment: .leading, spacing: Space.base) {
-                BroadcastStatusLine(line: board.band, progress: board.progress)
-                Self.clauseLine(board.clauses, whole: board.asked)
-                if let eachTask = board.eachTask { Self.clauseLine([eachTask], whole: board.eachTaskWhole) }
-                tabBar
+        SheetLayout(title: board.title, height: Sheet.height, bandHeight: nil,
+                    scrolls: shown == .board ? [.horizontal, .vertical] : .vertical, contentVerticalPadding: Space.block) {
+            VStack(alignment: .leading, spacing: Space.block) {
+                VStack(alignment: .leading, spacing: Space.base) {
+                    BroadcastStatusLine(line: board.band, progress: board.progress)
+                    ForEach(board.headerLines, id: \.label) { Self.headerLine($0) }
+                }
+                tabBar.frame(height: Size.control)
             }
         } content: {
             switch shown {
@@ -195,53 +197,39 @@ struct BroadcastBoardSheet: View, Equatable {
         Dictionary(board.columns.flatMap(\.cards).map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// The columns, `Space.gap` apart, the first on the content's leading margin; the row of them runs past the
-    /// trailing margin to the sheet's edge and scrolls sideways, the last ending on the margin.
+    /// The columns, `Space.gap` apart, from the content's leading margin to its trailing one: the sheet's scroll
+    /// carries them sideways and down.
     private var columns: some View {
-        BoardScroll(.horizontal) {
-            HStack(alignment: .top, spacing: Space.gap) {
-                ForEach(board.columns) { lane in column(lane).frame(width: Sheet.boardColumn) }
-            }
-            .padding(.trailing, Space.margin)
+        HStack(alignment: .top, spacing: Space.gap) {
+            ForEach(board.columns) { lane in column(lane).frame(width: Sheet.boardColumn) }
         }
-        .padding(.trailing, -Space.margin)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func choose(_ opens: BroadcastBoard.Opens) {
         Self.choose(opens, dismiss: { dismiss.afterThisEvent() }, actions: actions)
     }
 
+    /// A heading over its cards, `Space.gap` apart.
     private func column(_ lane: BroadcastBoard.Lane) -> some View {
         VStack(alignment: .leading, spacing: Space.base) {
             BoardHeading(title: lane.title, count: lane.cards.count)
-            BoardScroll {
-                VStack(alignment: .leading, spacing: Space.base) {
-                    if lane.cards.isEmpty {
-                        // At the card's own inset, so it reads on the line of the cards' titles beside it.
-                        Text(lane.empty).font(Typography.help).foregroundStyle(Palette.muted).padding(.vertical, Space.inset)
-                    }
-                    ForEach(lane.cards) { card in BoardCardView(card: card, choose: choose, actions: actions).equatable() }
+            VStack(alignment: .leading, spacing: Space.gap) {
+                if lane.cards.isEmpty {
+                    // At the card's own inset, so it reads on the line of the cards' titles beside it.
+                    Text(lane.empty).font(Typography.help).foregroundStyle(Palette.muted).padding(.vertical, Space.block)
                 }
+                ForEach(lane.cards) { card in BoardCardView(card: card, choose: choose, actions: actions).equatable() }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    /// A header line in the Asked style, two lines at most, the whole of it, `whole`, in its tooltip.
-    private static func clauseLine(_ clauses: [BroadcastBoard.Clause], whole: String) -> some View {
-        asked(clauses).font(Typography.help).foregroundStyle(Palette.muted)
-            .lineLimit(2).truncationMode(.tail).fixedSize(horizontal: false, vertical: true).help(whole)
+    /// A header line: its label in `Palette.text` at medium weight, the rest muted, in `Typography.help`, one line cut
+    /// at its end, the whole of it in its tooltip.
+    private static func headerLine(_ clause: BroadcastBoard.Clause) -> some View {
+        Text("\(Text(verbatim: clause.label).fontWeight(.medium).foregroundStyle(Palette.text)) \(clause.text)")
+            .font(Typography.help).foregroundStyle(Palette.muted)
+            .lineLimit(1).truncationMode(.tail).help(clause.whole)
             .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// `Asked …  · Review …  · Done …`, each label in `Palette.text` at medium weight, the rest muted.
-    static func asked(_ clauses: [BroadcastBoard.Clause]) -> Text {
-        clauses.enumerated().reduce(Text(verbatim: "")) { text, item in
-            let label = Text(verbatim: item.element.label).fontWeight(.medium).foregroundStyle(Palette.text)
-            let lead = item.offset == 0 ? "" : " · "
-            return Text("\(text)\(lead)\(label) \(item.element.text)")
-        }
     }
 }
 
@@ -285,39 +273,8 @@ struct BoardHeading: View {
     }
 }
 
-/// The board's own scrolls: a column's, vertical, and the row of columns', sideways. A `ScrollView`, or in the
-/// snapshots — whose `ImageRenderer` cannot materialise one — its content clipped at the top and leading edge,
-/// a sideways row laid out whole first, so what lies past the edge is cut rather than squeezed.
-struct BoardScroll<Content: View>: View {
-    let axis: Axis
-    let content: Content
-    #if DEBUG
-    @Environment(\.snapshotRendering) private var isSnapshot
-    #else
-    private let isSnapshot = false
-    #endif
-
-    init(_ axis: Axis = .vertical, @ViewBuilder content: () -> Content) {
-        self.axis = axis; self.content = content()
-    }
-
-    var body: some View {
-        switch (axis, isSnapshot) {
-        case (.vertical, true):
-            content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).clipped()
-        case (.horizontal, true):
-            // `minWidth: 0`: a frame with no minimum is at least as wide as the row it holds, and would widen the sheet.
-            content.fixedSize(horizontal: true, vertical: false)
-                .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).clipped()
-        case (.vertical, false):
-            ScrollView { content.frame(maxWidth: .infinity, alignment: .topLeading) }.scrollIndicators(.automatic)
-        case (.horizontal, false):
-            ScrollView(.horizontal) { content.frame(maxHeight: .infinity, alignment: .topLeading) }.scrollIndicators(.automatic)
-        }
-    }
-}
-
-/// A task on the board (spec §4, §13): a `groupChrome` box, `Space.inset` inside. Its agent's
+/// A task on the board (spec §4, §13): a `groupChrome` box, `Space.block` inside, its lines `Space.base` apart (the
+/// broadcast's sheet, 3B, 29 Oct 2026). Its agent's
 /// `VendorMark` on every card, started or not (spec §15.4), and beside it, on the title's leading edge as
 /// on a task row, the title, two lines at most; then the quiet Jira and merge-request `Badge`s a task row
 /// wears, and the project when the broadcast spans several, never the branch; then its status line, one
@@ -332,7 +289,7 @@ struct BoardScroll<Content: View>: View {
 /// that, whose menu picks another, Merge and Local merge disabled while the Merge slice is off. The badge takes its own
 /// click. A task out of its fix rounds (16) has, under the card's rule, a `Hairline` as over the tabs, the last
 /// verdict's counts in a `HelpText` when one was recorded, then One More Round and Accept As It Is as links, `Space.gap`
-/// apart and `Space.tight` under it; once you answered, what you answered in their place, until the question is
+/// apart and `Space.base` under it; once you answered, what you answered in their place, until the question is
 /// resolved. A worktree the closing kept says why there, in a `HelpText`, once the closing recorded it. Equatable by
 /// its card alone, so a change to another card redraws this one not at all.
 struct BoardCardView: View, Equatable {
@@ -374,22 +331,20 @@ struct BoardCardView: View, Equatable {
         .help(card.modelTooltip ?? "")
     }
 
-    /// The card's own part, its click's: the mark and the lines, `Space.inset` inside, `Space.base` above the
-    /// tabs' hairline when it has them.
+    /// The card's own part, its click's: the mark and the lines, `Space.block` inside, the tabs' hairline included.
     private var head: some View {
         HStack(alignment: .top, spacing: Space.base) {
             if let agent = card.agent { VendorMark(agent: agent.session, size: Size.avatar) }
             lines
         }
-        .padding([.horizontal, .top], Space.inset)
-        .padding(.bottom, card.tabs.isEmpty && !hasFoot ? Space.inset : Space.base)
+        .padding(Space.block)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
     }
 
-    /// The worker tabs under a `Hairline`, `Space.base` below it, `Space.tight` apart.
+    /// The worker tabs under a `Hairline`, `Space.gap` apart.
     private var tabs: some View {
-        VStack(alignment: .leading, spacing: Space.tight) {
+        VStack(alignment: .leading, spacing: Space.gap) {
             ForEach(card.tabs) { tab in BoardTabLine(tab: tab, choose: { choose(tab.opens) }) }
         }
         .ruled()
@@ -400,7 +355,7 @@ struct BoardCardView: View, Equatable {
     /// What a card says under its rule: why its worktree was kept, or a task out of its fix rounds' counts and its
     /// answers, or what you answered.
     private var foot: some View {
-        VStack(alignment: .leading, spacing: Space.tight) {
+        VStack(alignment: .leading, spacing: Space.base) {
             if let notice = card.notice { HelpText(notice) }
             if let fixRounds = card.fixRounds {
                 if let counts = fixRounds.counts { HelpText(counts) }
@@ -422,7 +377,7 @@ struct BoardCardView: View, Equatable {
     static func answered(_ answer: BroadcastBoard.FixRoundsAnswer) -> String { "You answered: \(answer.words)." }
 
     private var lines: some View {
-        VStack(alignment: .leading, spacing: Space.tight) {
+        VStack(alignment: .leading, spacing: Space.base) {
             Text(card.title).font(Typography.body).foregroundStyle(Palette.text)
                 .lineLimit(2).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
             if card.ticket != nil || card.mr != nil || card.project != nil {
@@ -463,12 +418,13 @@ struct BoardCardView: View, Equatable {
 }
 
 private extension View {
-    /// A card's part under its rule: a `Hairline`, `Space.base` below it, `Space.inset` either side and under it.
+    /// A card's part under its rule: a `Hairline`, `Space.block` clear of it, of the card's edges and of what is
+    /// above it.
     func ruled() -> some View {
-        padding(.top, Space.base)
+        padding(.top, Space.block)
             .frame(maxWidth: .infinity, alignment: .leading)
             .overlay(alignment: .top) { Hairline() }
-            .padding([.horizontal, .bottom], Space.inset)
+            .padding([.horizontal, .bottom], Space.block)
     }
 }
 

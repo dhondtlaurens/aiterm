@@ -188,11 +188,14 @@ public struct BroadcastBoard: Equatable, Sendable {
         public var title: String { column.title }
     }
 
-    /// One part of the Asked line: `Asked`, `Review` or `Done`, then what it says.
+    /// One line of the sheet's header: `Asked`, `Goal` or `Each task`, then what it says.
     public struct Clause: Equatable, Sendable {
         public var label: String
         public var text: String
         public init(label: String, text: String) { self.label = label; self.text = text }
+
+        /// The line whole, as its tooltip says it.
+        public var whole: String { "\(label) \(text)" }
     }
 
     /// The sheet's tabs, in the order they are drawn.
@@ -214,7 +217,7 @@ public struct BroadcastBoard: Equatable, Sendable {
     public var band: OperatorLine
     /// `2 of 8 done`, after the band's status line; nil until the first plan is in Todo.
     public var progress: String?
-    /// The Asked line contains the broadcast prompt and optional goal.
+    /// The broadcast prompt, then its goal when it has one.
     public var clauses: [Clause]
     /// What every task follows: its review prompt, end and closing settings.
     public var eachTask: Clause? = nil
@@ -236,11 +239,11 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// An ended broadcast read from the Shelf: nothing on it acts, and the footer is Close alone.
     public var isShelved: Bool = false
 
-    /// The Asked line whole, as its tooltip says it.
-    public var asked: String { clauses.map { "\($0.label) \($0.text)" }.joined(separator: " · ") }
+    /// The prompt and goal on one line, as the Shelf's row says them.
+    public var asked: String { clauses.map(\.whole).joined(separator: " · ") }
 
-    /// The Each task line whole, as its tooltip says it.
-    public var eachTaskWhole: String { eachTask.map { "\($0.label) \($0.text)" } ?? "" }
+    /// The header's lines, one each: Asked, Goal, then Each task.
+    public var headerLines: [Clause] { clauses + (eachTask.map { [$0] } ?? []) }
 
     /// What a snag's Copy puts on the clipboard: the AiTerm task that fixes it, naming this broadcast.
     public func fixTask(_ snag: OperatorSnag) -> String { snag.fixTask(broadcast: title, runId: runId) }

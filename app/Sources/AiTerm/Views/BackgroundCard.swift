@@ -54,47 +54,52 @@ final class BackgroundCardHover {
     }
 }
 
-/// The card: `menuChrome` around the heading in `Typography.help` and secondary ink, then a line per job in the ink,
-/// a shell's command in `Typography.mono`, anything else's description in `Typography.help`, each after its glyph
-/// at `Size.inlineMark` and cut at its end when the row is too narrow. It sizes to what it says but is never taller
-/// than its row (`Size.row`, two lines' row), scrolling inside past that. It floats on the menu's ground, never the row's, so a selected
-/// row's card reads as any other's.
+/// The card: `menuChrome` at the row pill's `Radius.control` around the heading in `Typography.help` and secondary
+/// ink, then a line per job in the ink, a shell's command in `Typography.mono`, anything else's description in
+/// `Typography.help`, each after its glyph at `Size.inlineMark` and cut at its end when the row is too narrow. Every
+/// line is `Size.chip` tall and `Space.tight` from the next, `Space.base` inside above and below and `Space.gap` either
+/// side, so the heading lies on the row's title line and the first job on its second (the background card, A, 29 Oct
+/// 2026). It fills what it is offered, the pill up to the mark, and scrolls inside past that. It floats on the menu's
+/// ground, never the row's, so a selected row's card reads as any other's.
 struct BackgroundCardView: View {
     let card: BackgroundCard
     @Environment(\.interfaceScale) private var scale
 
     var body: some View {
-        // Its row's height is what it is offered (`backgroundCard`): it hugs what it says while that fits, and
-        // scrolls in the whole of it past that.
+        // Offered its row's pill up to the mark (`backgroundCard`), it fills it: its lines from the top while they
+        // fit, the whole of it scrolling past that.
         ViewThatFits(in: .vertical) {
             lines
             ScrollView(.vertical) { lines }
         }
-        .menuChrome()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .menuChrome(cornerRadius: scale(Radius.control))
         .surface(.sheet)
         .accessibilityHidden(true)
     }
 
     private var lines: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: scale(Space.tight)) {
             Text(card.heading).font(Typography.help).foregroundStyle(Palette.muted).lineLimit(1)
+                .frame(height: scale(Size.chip))
             ForEach(Array(card.jobs.enumerated()), id: \.offset) { _, job in
                 HStack(spacing: scale(Space.tight)) {
                     Icon(.symbol(BackgroundCard.glyph(job.kind)), size: scale(Size.inlineMark), tint: Palette.muted)
                     Text(job.text).font(job.kind == .shell ? Typography.mono : Typography.help)
                         .foregroundStyle(Palette.text).lineLimit(1).truncationMode(.tail)
                 }
+                .frame(height: scale(Size.chip))
             }
         }
-        .padding(.vertical, scale(Space.tight)).padding(.horizontal, scale(Space.base))
+        .padding(.vertical, scale(Space.base)).padding(.horizontal, scale(Space.gap))
     }
 }
 
 extension View {
-    /// A row's content with its background mark's card laid over it while open: its top on the row pill's, its
-    /// trailing edge `Space.tight` before the mark's slot, and no wider than the pill up to there, so it covers the
-    /// row and nothing else. Applied inside `SelectableRow`, so it reaches out over the row's `Space.base` padding to
-    /// the pill's edges. No jobs, no card. It holds the card's hover, which the mark inside it reads
+    /// A row's content with its background mark's card laid over it while open: on the row pill's top, bottom and
+    /// leading edges, its trailing edge `Space.tight` before the mark's slot, so it covers the pill's wash or selection
+    /// up to the mark and nothing else. Applied inside `SelectableRow`, so it reaches out over the row's `Space.base`
+    /// padding to the pill's edges. No jobs, no card. It holds the card's hover, which the mark inside it reads
     /// (`opensBackgroundCard`); `hover` is a test's, to draw it open.
     func backgroundCard(_ jobs: [BackgroundJob], hover: BackgroundCardHover? = nil) -> some View {
         modifier(BackgroundCardOverlay(jobs: jobs, injected: hover))
