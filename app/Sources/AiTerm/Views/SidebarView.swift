@@ -11,9 +11,23 @@ struct FooterClock {
     var calendar: Calendar
 }
 
+/// Why continuous motion is held still. Snapshot arcs retain their captured pose; Reduce Motion
+/// retains its existing half-circle. A single value stops decoding and transitions in either case.
+enum MotionStill: Equatable, Sendable {
+    case reduceMotion
+    case snapshot
+}
+
+private struct MotionStillKey: EnvironmentKey { static let defaultValue: MotionStill? = nil }
+
 private struct FooterClockKey: EnvironmentKey { static let defaultValue: FooterClock? = nil }
 
 extension EnvironmentValues {
+    var motionStill: MotionStill? {
+        get { self[MotionStillKey.self] }
+        set { self[MotionStillKey.self] = newValue }
+    }
+
     var footerClock: FooterClock? {
         get { self[FooterClockKey.self] }
         set { self[FooterClockKey.self] = newValue }
@@ -21,6 +35,9 @@ extension EnvironmentValues {
 }
 
 struct SidebarView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionStill) private var motionStill
+
     /// The native titlebar band, outside the scrolling list. AppKit supplies its height: it is
     /// window chrome, so the sidebar's interface scale must not change it.
     private static var titlebarHeight: CGFloat { NSWindow.frameRect(forContentRect: .zero, styleMask: .titled).height }
@@ -145,6 +162,8 @@ struct SidebarView: View {
         // otherwise read `.sheet`, the default for everything away from the sidebar.
         .surface(.sidebar)
         .background { SidebarSheetPresenter(controller: controller) }
+        // A fixture root can already have pinned motion. Do not overwrite its captured pose.
+        .environment(\.motionStill, motionStill ?? (reduceMotion ? .reduceMotion : nil))
     }
 
     /// Written by the list's own arrow keys, so a change peeks at the row's window. A click then
@@ -214,7 +233,7 @@ struct SidebarScrollFollower: View {
 /// this and not the list.
 struct SidebarToast: View {
     let controller: AppController
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionStill) private var motionStill
     @Environment(\.interfaceScale) private var scale
 
     var body: some View {
@@ -228,7 +247,7 @@ struct SidebarToast: View {
                     .allowsHitTesting(false)
             }
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: controller.toastState.toast)
+        .animation(motionStill == nil ? Motion.settle : nil, value: controller.toastState.toast)
     }
 }
 
@@ -292,7 +311,7 @@ struct SidebarConnectionBanner: View {
             let notice = Self.notice(banner.text, status: status)
             SidebarBanner(trailing: Space.block) { Notice(title: notice.title, description: notice.description) }
         case .info:
-            SidebarBanner(trailing: Space.block) { SidebarBannerText(text: banner.text) }
+            SidebarBanner(trailing: Space.block) { HelpText(banner.text, fixedVerticalSize: false).textSelection(.enabled) }
         }
     }
 }
@@ -324,7 +343,6 @@ struct IssueBanner: View {
     let perform: (OperationIssue.Action) -> Void
     let cancelFix: () -> Void
     let dismiss: () -> Void
-    @Environment(\.interfaceScale) private var scale
 
     var body: some View {
         let shown = BannerFixPresentation(issue: issue, state: fix?.state, fixer: fix?.fixer)
@@ -334,11 +352,11 @@ struct IssueBanner: View {
                 Notice(title: title, description: detail, help: help) { links(shown.links) }
             case .busy(let line):
                 Notice(title: issue.title, description: issue.reason, help: issue.detail) {
-                    FixBusyLine(text: line, compact: true)
+                    FixBusyLine(text: line)
                 } actions: { links(shown.links) }
             case .proposal(let agent, let proposal):
                 Notice(title: issue.title, description: issue.reason, help: issue.detail) {
-                    FixProposalBlock(agent: agent, proposal: proposal, compact: true)
+                    FixProposalBlock(agent: agent, proposal: proposal)
                 } actions: { links(shown.links) }
             }
         }
@@ -350,7 +368,7 @@ struct IssueBanner: View {
             switch link {
             case .action(let action): Button(link.title) { perform(action) }
             case .fix(_, let isEnabled, let help):
-                Button { fix?.start() } label: { FixOfferLabel(scale: scale) }.disabled(!isEnabled).help(help)
+                Button { fix?.start() } label: { FixOfferLabel() }.disabled(!isEnabled).help(help)
             case .tryAgain(let help): Button(link.title) { fix?.tryAgain() }.help(help)
             case .apply(let help): Button(link.title) { fix?.apply() }.help(help)
             case .cancel(let isEnabled): Button(link.title, action: cancelFix).disabled(!isEnabled)
@@ -361,10 +379,9 @@ struct IssueBanner: View {
 }
 
 /// Find a Fix, led by the Operator's mark — its agent's, Claude's — at `Size.inlineMark`, where Fix
-/// with AI had `sparkles`: the fix runs as the Operator. `scale` is the surface's: the sidebar's, or
-/// ×1 in a sheet.
+/// with AI had `sparkles`: the fix runs as the Operator. It reads the sidebar's scale, or ×1 in a sheet.
 struct FixOfferLabel: View {
-    var scale: InterfaceScale = .standard
+    @Environment(\.interfaceScale) private var scale
 
     var body: some View {
         HStack(spacing: scale(Space.tight)) {
@@ -397,16 +414,7 @@ struct SidebarBanner<Content: View>: View {
             .padding(.leading, scale(Space.inset) + scale(Space.base))
             .padding(.trailing, scale(trailing))
             .padding(.vertical, scale(vertical))
-    }
-}
-
-/// The grey line while AiTerm connects: in `Typography.help` and `Palette.muted`. Not a `Notice`: it
-/// waits on nothing of yours.
-struct SidebarBannerText: View {
-    let text: String
-
-    var body: some View {
-        Text(text).font(Typography.help).foregroundStyle(Palette.muted).textSelection(.enabled)
+            .surface(.sidebar)
     }
 }
 

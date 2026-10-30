@@ -31,16 +31,26 @@ public struct HelpText: View {
         case warning
     }
 
-    let text: String
+    let text: Text
     let tone: Tone
+    let fixedVerticalSize: Bool
+    @Environment(\.surface) private var surface
 
-    public init(_ text: String, tone: Tone = .secondary) {
+    /// Paragraph help takes its full height; inline captions keep their container's height proposal.
+    public init(_ text: String, tone: Tone = .secondary, fixedVerticalSize: Bool = true) {
+        self.init(Text(text), tone: tone, fixedVerticalSize: fixedVerticalSize)
+    }
+
+    /// Composed text keeps its own emphasis, with the same help face and surface-aware secondary ink.
+    public init(_ text: Text, tone: Tone = .secondary, fixedVerticalSize: Bool = true) {
         self.text = text
         self.tone = tone
+        self.fixedVerticalSize = fixedVerticalSize
     }
 
     public var body: some View {
-        Text(text).font(Typography.help).foregroundStyle(tone == .warning ? Palette.amber : Palette.muted)
-            .fixedSize(horizontal: false, vertical: true)
+        text.font(Typography.help)
+            .foregroundStyle(tone == .warning && !surface.isOnAccent ? Palette.amber : surface.secondaryInk)
+            .fixedSize(horizontal: false, vertical: fixedVerticalSize)
     }
 }

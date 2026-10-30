@@ -216,7 +216,7 @@ struct BroadcastBoardSheet: View, Equatable {
             VStack(alignment: .leading, spacing: Space.gap) {
                 if lane.cards.isEmpty {
                     // At the card's own inset, so it reads on the line of the cards' titles beside it.
-                    Text(lane.empty).font(Typography.help).foregroundStyle(Palette.muted).padding(.vertical, Space.block)
+                    HelpText(lane.empty, fixedVerticalSize: false).padding(.vertical, Space.block)
                 }
                 ForEach(lane.cards) { card in BoardCardView(card: card, choose: choose, actions: actions).equatable() }
             }
@@ -226,8 +226,8 @@ struct BroadcastBoardSheet: View, Equatable {
     /// A header line: its label in `Palette.text` at medium weight, the rest muted, in `Typography.help`, one line cut
     /// at its end, the whole of it in its tooltip.
     private static func headerLine(_ clause: BroadcastBoard.Clause) -> some View {
-        Text("\(Text(verbatim: clause.label).fontWeight(.medium).foregroundStyle(Palette.text)) \(clause.text)")
-            .font(Typography.help).foregroundStyle(Palette.muted)
+        HelpText(Text("\(Text(verbatim: clause.label).fontWeight(.medium).foregroundStyle(Palette.text)) \(clause.text)"),
+                 fixedVerticalSize: false)
             .lineLimit(1).truncationMode(.tail).help(clause.whole)
             .frame(maxWidth: .infinity, alignment: .leading)
     }

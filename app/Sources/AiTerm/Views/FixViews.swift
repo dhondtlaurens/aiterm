@@ -178,18 +178,22 @@ struct BannerFixPresentation: Equatable {
 
 /// The agent's proposal where the failure was (decision 2A): its `VendorMark`, what it found in
 /// `Typography.label`, why in `caption` and `Palette.muted`, and its numbered steps in `help`, each
-/// hanging after its number. `compact` is the banner's sizes: why in `help` too.
+/// hanging after its number. The sidebar surface uses the banner's sizes: why in `help` too.
 struct FixProposalBlock: View {
     let agent: FixerAgent
     let proposal: FixProposal
-    var compact = false
+    @Environment(\.surface) private var surface
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.base) {
             VendorMark(agent: agent.agent.session, size: Size.vendorMark)
             VStack(alignment: .leading, spacing: Space.tight) {
                 Text(proposal.headline).font(Typography.label).foregroundStyle(Palette.text)
-                Text(proposal.why).font(compact ? Typography.help : Typography.caption).foregroundStyle(Palette.muted)
+                if surface == .sheet {
+                    Text(proposal.why).font(Typography.caption).foregroundStyle(Palette.muted)
+                } else {
+                    HelpText(proposal.why, fixedVerticalSize: false)
+                }
                 VStack(alignment: .leading, spacing: Space.hairline) {
                     ForEach(Array(proposal.steps.enumerated()), id: \.offset) { index, step in
                         HStack(alignment: .firstTextBaseline, spacing: 0) {
@@ -209,16 +213,20 @@ struct FixProposalBlock: View {
     }
 }
 
-/// “Looking for a fix…”: a working `StatusMark` and the line. `compact` is the
-/// banner's size: the line in `help`, as the banner's text is.
+/// “Looking for a fix…”: a working `StatusMark` and the line. On the sidebar surface the line uses
+/// `help`, as the banner's text does; a sheet uses `caption`.
 struct FixBusyLine: View {
     let text: String
-    var compact = false
+    @Environment(\.surface) private var surface
 
     var body: some View {
         HStack(spacing: Space.snug) {
             StatusMark(status: .working, size: Size.statusMark)
-            Text(text).font(compact ? Typography.help : Typography.caption).foregroundStyle(Palette.muted)
+            if surface == .sheet {
+                Text(text).font(Typography.caption).foregroundStyle(Palette.muted)
+            } else {
+                HelpText(text, fixedVerticalSize: false)
+            }
         }
     }
 }

@@ -51,7 +51,7 @@ struct SidebarRowGeometryTests {
         controller.focus.browse(.task(tasks[0].id))
         controller.preferences.interfaceSize = size
 
-        let host = testHost(SidebarView(controller: controller).environment(\.hoveredRow, tasks[1].id), size: CGSize(width: size.scale(340), height: 800))
+        let host = testHost(SidebarView(controller: controller).environment(\.seededHover, SeededHover(row: tasks[1].id)), size: CGSize(width: size.scale(340), height: 800))
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host

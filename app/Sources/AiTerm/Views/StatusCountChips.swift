@@ -61,7 +61,6 @@ private struct StatusCountChip: View {
         }
         .padding(.horizontal, scale(Space.tight))
         .frame(height: scale(Size.chip))
-        .background(RoundedRectangle(cornerRadius: scale(Radius.chip)).fill(wash.fill))
-        .overlay(RoundedRectangle(cornerRadius: scale(Radius.chip)).strokeBorder(wash.stroke, lineWidth: 1))
+        .chipChrome(fill: wash.fill, stroke: wash.stroke)
     }
 }
