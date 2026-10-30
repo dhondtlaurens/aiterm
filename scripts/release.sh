@@ -31,7 +31,7 @@ if [[ -n "$latest" ]]; then
     [[ "$newest" == "$VERSION" ]] || die "$VERSION is not newer than $latest"
 fi
 gh auth status --hostname github.com >/dev/null 2>&1 || die "gh is not logged in to github.com (gh auth login)"
-security find-identity -p codesigning | grep -q "\"$IDENTITY\"" || die "no \"$IDENTITY\" code-signing certificate in the keychain (see docs/releasing.md)"
+security find-identity -p codesigning | grep -q "\"$IDENTITY\"" || die "no \"$IDENTITY\" code-signing certificate in the keychain (see docs/workflow/release.md)"
 "$PY" -c 'import sys; assert sys.version_info >= (3, 11)' 2>/dev/null || die "python3 >= 3.11 required"
 # The README's picture is drawn from the sidebar's code: a visual change since it was last drawn
 # shows as a different picture, and the release waits until the new one is committed.
@@ -50,7 +50,7 @@ codesign -d -r- "$APP" 2>/dev/null | grep -q '^designated => .*certificate leaf'
 git tag -a "v$VERSION" -m "AiTerm $VERSION"
 git push --quiet origin "v$VERSION"
 # A draft first, so the release goes public only with its image attached: updaters never see a
-# draft, and a run that stops here is finished by hand (docs/releasing.md).
+# draft, and a run that stops here is finished by hand (docs/workflow/release.md).
 gh release create "v$VERSION" "$DMG" --repo "$REPO" --draft --verify-tag --title "AiTerm $VERSION" --notes "AiTerm $VERSION"
 gh release edit "v$VERSION" --repo "$REPO" --draft=false >/dev/null
 print "released AiTerm $VERSION (build $BUILD): https://github.com/$REPO/releases/tag/v$VERSION"

@@ -1,6 +1,13 @@
-# Releasing
+# Shipping
 
-One-time setup:
+## What ships
+
+A merge to `main` ships nothing. A release is a signed `AiTerm-<version>.dmg` on a published GitHub
+release `v<version>` of `dhondtlaurens/aiterm`, which AiTerm › Check for Updates… reads. There is no
+CI: `scripts/release.sh <version>`, run by hand from a clean, pushed `main`, does it all. A
+build/test command never implies permission to release.
+
+## One-time setup
 
 - **Signing certificate.** Keychain Access → Certificate Assistant → Create a Certificate… → Name
   `AiTerm Release`, Identity Type *Self-Signed Root*, Certificate Type *Code Signing* → Create. No
@@ -11,16 +18,23 @@ One-time setup:
 - **Python 3.11 or newer**, which `scripts/make-dmg.sh` uses for `dmgbuild` (installed into
   `build/.dmg-venv` on first use).
 
-Complete `scripts/test.sh all` once before merging and `scripts/test-app-bundle.sh build/AiTerm.app`
-on the release candidate. These automated checks do not replace the manual checks below.
+## Pipeline
 
-Then, from a clean, pushed `main`: `scripts/release.sh <version>`. It builds and signs the app,
-wraps it in `AiTerm-<version>.dmg`, pushes the tag `v<version>` and publishes the GitHub release.
+1. Complete `scripts/test.sh all` once before merging and `scripts/test-app-bundle.sh build/AiTerm.app`
+   on the release candidate. These automated checks do not replace the manual checks below.
+2. From a clean, pushed `main`: `scripts/release.sh <version>`. It builds and signs the app,
+   wraps it in `AiTerm-<version>.dmg`, pushes the tag `v<version>` and publishes the GitHub release.
 
 Before it builds anything, it redraws the README's picture and refuses to go on while
 `docs/desktop.png` differs from it, so a release never ships a README showing an older sidebar.
 Run `scripts/readme-picture.sh`, look at the new `docs/desktop.png`, commit and push it, and run
 the release again. The picture is drawn by a real window, so the main display must be Retina.
+
+The build number is one more than the number of `v*` tags, plus 19: the releases published before
+AiTerm moved to GitHub, whose tags this repository does not have. It keeps increasing for every
+install that came from them.
+
+### When the run stops
 
 The release is created as a draft with its image attached and only then published, so updaters
 never see a release without its DMG. If the run stops after pushing the tag, finish it by hand.
@@ -36,14 +50,10 @@ If the `git push` itself failed, the tag exists only locally, and a re-run refus
 already exists". Retry `git push origin v<version>` and continue with the steps above, or delete
 the local tag with `git tag -d v<version>` and re-run `scripts/release.sh <version>`.
 
-The build number is one more than the number of `v*` tags, plus 19: the releases published before
-AiTerm moved to GitHub, whose tags this repository does not have. It keeps increasing for every
-install that came from them.
-
-## Before a release: manual checks
+## Checks
 
 The automated suites do not cover VoiceOver navigation, multiple displays or a complete real
-Jira-to-agent workflow. Run through this list by hand:
+Jira-to-agent workflow. Run through this list by hand before a release:
 
 1. Launch: the sidebar shows "Waiting for iTerm2…" until iTerm2's API prompt is allowed, then the
    banner clears.
@@ -85,11 +95,12 @@ Jira-to-agent workflow. Run through this list by hand:
     release and installs it in place.
 14. **New Review…** on a GitHub repo: open pull requests list as `#n`; a fork's pull request is
     refused with its fork named.
-
 15. Exercise a structured broadcast in an isolated project: permitted Agents rows, review tab/verdict,
     one additional worker tab, pause/resume and takeover/hand-back, a goal/additional round, accepted
     commit publication and its final summary/closing. Use explicit test accounts for Jira/host writes.
     Do not replace an app with an active successful run merely to perform a release smoke check.
+
+### Broadcast format
 
 The supported broadcast format is structured Agents/Task/Done. The automated frozen-save and
 model-facing contract tests protect current restart behavior; historical broadcast formats are not
@@ -100,3 +111,8 @@ broadcasts from its Shelf using that installed build. Confirm its saved workspac
 no longer contain unsupported runs before replacing it. The new decoder does not migrate or silently
 set such entries aside: an unsupported run blocks loading the workspace, and an equally unsupported
 backup cannot repair it. Do not edit or discard projects/tasks to work around this precondition.
+
+## Done
+
+Shipped means `v<version>` is published (no longer a draft) on GitHub with its DMG attached, and
+Check for Updates on the previous release offers it.
