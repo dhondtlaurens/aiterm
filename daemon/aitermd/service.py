@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from . import protocol
-from .claude_sessions import ClaudeSessionFiles
+from .claude_sessions import ClaudeSessionFile, ClaudeSessionFiles
 from .claude_subagents import SubagentTranscripts, TranscriptTail
 from .codex_sessions import CodexSessionFiles
 from .connection import ItermSupervisor
@@ -363,10 +363,18 @@ class Service:
                 await self.rpc.broadcast(protocol.WINDOW_CLOSED, {"windowId": wid})
         threads: dict[str, str] = {}
         screens: list[str] = []
+        # Consume snapshot titles and process exits before suspending for file I/O, so hooks
+        # arriving during that read supersede the snapshot rather than being overwritten by it.
         for s in sessions:
+            with _logged(f"corroborating session {s.session_id}"):
+                self._corroborate(s, {}, threads, screens, changed)
+        claude_readings = await self._read_claude_files(sessions)
+        for s in sessions:
+            if s.session_id not in claude_readings:
+                continue
             # Another process's file must not stop the other tabs.
             with _logged(f"corroborating session {s.session_id}"):
-                self._corroborate(s, threads, screens, changed)
+                self._corroborate(s, claude_readings, threads, screens, changed)
         with _logged("reading the screens for trust prompts"):
             changed += await self._apply_trust_prompts(screens)
         with _logged("reading the Codex rollouts"):
@@ -378,9 +386,34 @@ class Service:
         with _logged("reading when the limits that stopped sessions reset"):
             changed += await self._apply_limit_resets()
         with _logged("reading worktree test activity"):
-            changed += self.test_activity.apply(self.registry)
+            captured = [replace(s) for s in sessions]
+            reading = await run_detached(lambda: self.test_activity.read(captured))
+            changed += self.test_activity.apply(self.registry, reading)
 
-    def _corroborate(self, s: SessionInfo, threads: dict[str, str], screens: list[str], changed: list[str]) -> None:
+    async def _read_claude_files(self, sessions: list[SessionInfo]) -> dict[str, ClaudeSessionFile | None]:
+        """Read the pass's Claude files in one worker, then reject replaced sessions or configuration."""
+        files, root = self.claude_files, self.claude_files.root
+        identities = {s.session_id: (s.agent, s.job_pid, s.conversation_id, s.agent_cwd)
+                      for s in sessions if s.agent != "shell" and HARNESS_BY_AGENT[s.agent].corroboration == "claude_file"}
+        if not identities:
+            return {}
+
+        def read() -> dict[str, ClaudeSessionFile | None]:
+            readings: dict[str, ClaudeSessionFile | None] = {}
+            for sid, (_, pid, _, _) in identities.items():
+                with _logged(f"reading the Claude file of session {sid}"):
+                    readings[sid] = files.read(pid) if pid else None
+            return readings
+
+        readings = await run_detached(read)
+        if files.root != root:
+            return {}
+        return {sid: value for sid, value in readings.items()
+                if (s := self.registry.get(sid)) is not None
+                and (s.agent, s.job_pid, s.conversation_id, s.agent_cwd) == identities[sid]}
+
+    def _corroborate(self, s: SessionInfo, claude_readings: dict[str, ClaudeSessionFile | None],
+                    threads: dict[str, str], screens: list[str], changed: list[str]) -> None:
         """Adds to `changed` what the agent's own files and the tab say of `s` that its hooks have
         not, to `threads` the Codex thread it runs, by session, and to `screens` a session whose
         screen may show a folder-trust dialog. A step that raises keeps the changes before it. The
@@ -392,7 +425,9 @@ class Service:
             return
         corroboration = HARNESS_BY_AGENT[s.agent].corroboration
         if corroboration == "claude_file":
-            if s.job_pid and (f := self.claude_files.read(s.job_pid)):
+            if s.session_id not in claude_readings:
+                return
+            if f := claude_readings[s.session_id]:
                 # Claude writes its file only once its folder is trusted.
                 changed += self.status.apply_trust_prompt(s.session_id, False)
                 changed += self.status.apply_claude_file_status(s.session_id, f.status, f.written_at)
