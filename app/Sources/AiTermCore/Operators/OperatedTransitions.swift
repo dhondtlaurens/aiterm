@@ -127,6 +127,7 @@ public enum OperatedTransitions {
             // The head, in full: what a dependent branches from and a publication must push.
             next.acceptance = TaskAcceptance(resultSHA: head, prerequisiteSHAs: acceptance.prerequisiteSHAs,
                                              checkOutput: acceptance.checkOutput, note: acceptance.note, at: acceptance.at)
+            next.acceptanceWorktreeFingerprint = nil
             settle(&next)
 
         case .noChange:
@@ -180,6 +181,7 @@ public enum OperatedTransitions {
             next.state = .working
             next.reopenedFrom = task.acceptance?.resultSHA
             next.acceptance = nil
+            next.acceptanceWorktreeFingerprint = nil
 
         case .stop:
             if task.state == .stopped { return task }

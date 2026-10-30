@@ -71,6 +71,11 @@ your recorded answers. Accepted evidence belongs to a specific commit; a moved b
 acceptance. Retrying publication resumes saved steps and discovers an existing request rather than
 blindly creating another.
 
+An ended worker turn is reported as changed after acceptance when its commit moved or its
+uncommitted content differs from the content recorded at acceptance. An unchanged untracked
+plan stays quiet, including after a local merge and restart. Older saved acceptances have no
+content baseline, so only commit movement proves a later change for them.
+
 On the board, **ends at** changes one task's end. It clears a previous wait/refusal, retains a push
 or request already completed, and wakes the Operator. Changing to Commit after opening a request
 leaves that request for you.

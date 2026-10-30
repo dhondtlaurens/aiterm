@@ -296,6 +296,7 @@ extension OperatorToolHandler {
         let operated = try self.operated(task, in: run)
         let action: OperatedAction
         var acceptedBase: String?
+        var acceptedFingerprint: String?
         switch outcome {
         case "accepted":
             let given = try call.string("sha"), check = try call.string("checkOutput")
@@ -311,6 +312,12 @@ extension OperatorToolHandler {
             try recheck(task)
             if let why { throw ToolRefusal(why) }
             let prerequisites = RunScheduler.baseCommit(for: task.id, in: state).map { [$0] } ?? []
+            if task.hasCheckout {
+                let repository = Repository(task.worktreePath, git: ports.git)
+                do { acceptedFingerprint = try await BackgroundWork.run { try repository.worktreeFingerprint() } }
+                catch { throw ToolRefusal("AiTerm couldn’t read \(operated.key)’s worktree at acceptance. Retry mark_task accepted once it is readable.") }
+                try recheck(task)
+            }
             let acceptance = TaskAcceptance(resultSHA: sha, prerequisiteSHAs: prerequisites, checkOutput: check,
                                             note: call.optionalString("note"), at: ports.now())
                 // Read now, while the task is live: once its work is merged, its base would be the accepted commit.
@@ -323,6 +330,7 @@ extension OperatorToolHandler {
                 mutate(in: run.id) { state in
                     state.updateOperated(task.id) {
                         $0.acceptance = acceptance
+                        $0.acceptanceWorktreeFingerprint = acceptedFingerprint
                         $0.publication?.conditionsHeld = nil
                         $0.publication?.mergeRefusal = nil
                         if let acceptedBase { $0.diffBaseSHA = acceptedBase }
@@ -333,13 +341,13 @@ extension OperatorToolHandler {
             }
             // Accepted again on another commit: its dependents are revoked and flagged.
             if [.accepted, .published, .inReview].contains(operated.state) {
-                return try reaccept(task, as: acceptance, diffBase: acceptedBase)
+                return try reaccept(task, as: acceptance, diffBase: acceptedBase, fingerprint: acceptedFingerprint)
             }
             // Steered back to work after it was accepted (spec §D), and now on another commit: what its children were
             // built on is replaced, as for any task accepted again.
             if operated.state == .working, let earlier = operated.reopenedFrom,
                !OperatedTransitions.sameCommit(earlier, sha) {
-                return try reacceptReopened(task, as: acceptance, branchHead: tip, diffBase: acceptedBase)
+                return try reacceptReopened(task, as: acceptance, branchHead: tip, diffBase: acceptedBase, fingerprint: acceptedFingerprint)
             }
             action = .accept(acceptance, branchHead: tip)
         case "noChange":
@@ -353,6 +361,7 @@ extension OperatorToolHandler {
         try apply(action, to: task) { state in
             guard outcome == "accepted" else { return }
             Self.keepDiffBase(acceptedBase, of: task.id, in: &state)
+            state.updateOperated(task.id) { $0.acceptanceWorktreeFingerprint = acceptedFingerprint }
         }
         // Its result holds each code parent's accepted commit (`upstreamRefusal` said so): the flag is done with.
         if outcome == "accepted" { mutate(in: run.id) { $0.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) } } }
@@ -397,13 +406,14 @@ extension OperatorToolHandler {
     /// replaced (a published draft keeps its request, which `finish_task` pushes the new commit to), its
     /// accepted code dependents back to working and every started one flagged. The answer names them, and
     /// each broadcast holding one is woken once (`finish_task` of one of them refuses meanwhile).
-    private func reaccept(_ task: TaskItem, as acceptance: TaskAcceptance, diffBase: String?) throws -> JSONValue {
+    private func reaccept(_ task: TaskItem, as acceptance: TaskAcceptance, diffBase: String?, fingerprint: String?) throws -> JSONValue {
         try recheck(task)
         return try answerRevoking(task) { state in
             do {
                 let revoked = try UpstreamReplacement.reaccept(task.id, as: acceptance, in: &state)
                 state.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) }
                 Self.keepDiffBase(diffBase, of: task.id, in: &state)
+                state.updateOperated(task.id) { $0.acceptanceWorktreeFingerprint = fingerprint }
                 return revoked
             } catch let refusal as UpstreamReplacement.Refusal {
                 switch refusal {
@@ -415,7 +425,7 @@ extension OperatorToolHandler {
 
     /// A task steered back to work after it was accepted (`reopenedFrom`), accepted now on another commit: the accept and
     /// the replacement of its children in one change, answered as `reaccept` does.
-    private func reacceptReopened(_ task: TaskItem, as acceptance: TaskAcceptance, branchHead: String, diffBase: String?) throws -> JSONValue {
+    private func reacceptReopened(_ task: TaskItem, as acceptance: TaskAcceptance, branchHead: String, diffBase: String?, fingerprint: String?) throws -> JSONValue {
         try recheck(task)
         return try answerRevoking(task) { state in
             do {
@@ -425,6 +435,7 @@ extension OperatorToolHandler {
             }
             state.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) }
             Self.keepDiffBase(diffBase, of: task.id, in: &state)
+            state.updateOperated(task.id) { $0.acceptanceWorktreeFingerprint = fingerprint }
             return UpstreamReplacement.revokeDependents(of: task.id, newSHA: acceptance.resultSHA, in: &state)
         }
     }

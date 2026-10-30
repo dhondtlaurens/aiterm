@@ -25,6 +25,7 @@ public enum UpstreamReplacement {
         }
         if let earlier = operated.acceptance?.resultSHA, OperatedTransitions.sameCommit(earlier, acceptance.resultSHA) { return [] }
         operated.acceptance = acceptance
+        operated.acceptanceWorktreeFingerprint = nil
         operated.state = .accepted
         OperatedTransitions.settle(&operated)
         state.tasks[index].operated = operated
@@ -50,6 +51,7 @@ public enum UpstreamReplacement {
                     case .accepted, .noChange:
                         if let newSHA, operated.acceptance?.prerequisiteSHAs.contains(newSHA) == true { continue }
                         operated.acceptance = nil
+                        operated.acceptanceWorktreeFingerprint = nil
                         operated.state = .working
                     case .working, .inReview, .blocked, .failed, .published:
                         break
