@@ -606,7 +606,7 @@ import Testing
 
     @Test func aClickBeforeTheNewOperatorTabIsListedOpensNothingUntilItIsListedAndClosedOrTheWaitHasPassed() async throws {
         let clock = TestClock.operators()
-        let (world, run, _) = try makeWorld(runState: .operatorOffline, adjust: { $0.now = { clock.now } })
+        let (world, run, _) = try makeWorld(runState: .operatorOffline, adjust: { $0.clock.now = { clock.now } })
         world.show([])
         try await world.controller.reopenOperatorWindow(run.id)
         try await world.controller.reopenOperatorWindow(run.id)

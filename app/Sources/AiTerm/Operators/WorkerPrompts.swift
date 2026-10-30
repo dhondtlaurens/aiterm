@@ -74,7 +74,7 @@ final class WorkerPrompts {
         for attempt in 0..<2 {
             guard !Task.isCancelled else { return }
             if attempt > 0 {
-                do { try await ports.promptSleep(.seconds(OperatorTiming.promptAfterMessageDelay)) } catch { return }
+                do { try await ports.clock.sleep(.prompt, .seconds(OperatorTiming.promptAfterMessageDelay)) } catch { return }
             }
             // A read begun before the delivery cannot say what that message opened.
             await probing[tab.sessionId]?.value

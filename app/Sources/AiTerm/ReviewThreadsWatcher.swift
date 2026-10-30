@@ -29,7 +29,7 @@ final class ReviewThreadsWatcher {
     /// A newer selection or pass owns its rows before any network work starts.
     private var latestReads: [UUID: UUID] = [:]
     private var hook: WorkspaceStore.Hook?
-    private var polling: Task<Void, Never>?
+    private var polling: PollLoop?
     /// The pass under way, if any.
     private var pass: Task<Void, Never>?
     /// The read a selection started, if any; tests await it.
@@ -60,12 +60,10 @@ final class ReviewThreadsWatcher {
         guard polling == nil else { return }
         let interval = self.interval
         // Weak: the loop must not keep the watcher alive, and it ends when the watcher goes.
-        polling = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let pass = self?.refresh() else { return }
-                await pass.value
-                do { try await Task.sleep(for: interval) } catch { return }
-            }
+        polling = PollLoop(interval: interval) { [weak self] in
+            guard let pass = self?.refresh() else { return nil }
+            await pass.value
+            return interval
         }
     }
 
