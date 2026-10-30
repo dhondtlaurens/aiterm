@@ -123,6 +123,35 @@ import Testing
         #expect(sent.params["wake"] as? Bool == true)
     }
 
+    @Test(arguments: [false, true]) func cleanupProgressWakesTheOperator(summaryExpires: Bool) async throws {
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
+        var completed = run
+        completed.state = .complete
+        completed.completedAt = Date(timeIntervalSince1970: 10)
+        completed.summary = summaryExpires ? nil : "Merged."
+        completed.taskSettings.closeWhenDone = true
+        var kept = OperatorServiceFixtures.task(in: completed, project: project, key: "A", state: .published, end: .mergeLocal)
+        kept.operated?.keptReason = "Not closed: untracked plan"
+        func snapshot() throws -> RunStatus {
+            try #require(RunStatus.build(state: OperatorServiceFixtures.state(projects: [project], runs: [completed], tasks: [kept]),
+                                         run: completed.id, revision: 1, live: [:]))
+        }
+        waker.acknowledged(try snapshot(), of: completed.id)
+        if summaryExpires { completed.summaryGivenUp = true }
+        else { completed.closedAt = Date(timeIntervalSince1970: 11) }
+        let settled = try snapshot()
+        waker.observe(settled, of: completed.id)
+        await hand.release(1)
+        try await daemon.received("session.deliver")
+        await waker.lastSend?.value
+        #expect(lines == ["[AiTerm] updates waiting, call run_status"])
+        waker.acknowledged(settled, of: completed.id)
+        waker.observe(settled, of: completed.id)
+        #expect(lines.count == 1)
+        waker.stop()
+        hand.releaseAll()
+    }
+
     @Test func theFirstLookAtARunIsWhatItHasSeen() async throws {
         let waker = makeWaker()
         waker.observe(status(questions: 1), of: run.id)

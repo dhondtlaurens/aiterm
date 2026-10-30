@@ -8,7 +8,7 @@ import AiTermCore
 /// turn until its end, the helper until it is back (`sweep`).
 @MainActor
 final class TaskAutoCloser {
-    nonisolated static let unsavedWork = "Not closed: its worktree has uncommitted changes. Remove it yourself once they are safe."
+    nonisolated static let unsavedWork = "Not closed: its worktree has uncommitted or untracked files. Remove it yourself once they are safe."
 
     private struct Phase: Equatable {
         let completed: Date?, ended: Date?

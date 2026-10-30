@@ -407,7 +407,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                              turn: WorkerTurn.Ending?, labels: ModelLabels, project: String?) -> Card {
         let takenOver = operated.takenOver
         let closes = run.taskSettings.closeWhenDone == true && operated.reachedItsEnd
-        let kept = closes && closingRan(run)
+        let kept = closes && run.closingHasRun
         // Asked about its fix rounds; a request of its own (a prompt, a block) is said first, as every request is.
         let fixRounds = !operated.isFinished && !takenOver ? run.fixRoundsQuestion(on: task.id) : nil
         let asks = requests.contains { $0.runId == run.id && $0.taskId == task.id && $0.kind != .question }
@@ -444,14 +444,6 @@ public struct BroadcastBoard: Equatable, Sendable {
                                   answered: question.answeredOnCard.flatMap(FixRoundsAnswer.init(rawValue:)))
                     },
                     notice: kept ? operated.keptReason : closes && run.closingIsDue ? operated.closingWait?.text : nil)
-    }
-
-    /// Whether the closing has run since the broadcast last completed or ended (`closedAt`): a task that reached its
-    /// end then and still has its row was kept. Once a new plan reopens a complete broadcast, its completion is cleared,
-    /// and what finishes after is the next closing's to look at.
-    private static func closingRan(_ run: OperatorRun) -> Bool {
-        guard let closed = run.closedAt, let settled = [run.completedAt, run.endedAt].compactMap({ $0 }).max() else { return false }
-        return closed >= settled
     }
 
     /// The card of a task closed at the broadcast's end, from its record: the title, agent, ticket and combination it

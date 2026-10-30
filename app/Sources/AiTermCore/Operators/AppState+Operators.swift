@@ -11,6 +11,12 @@ public extension OperatorRun {
     var closingIsDue: Bool {
         taskSettings.closeWhenDone == true && (hasEnded || (state == .complete && (summary != nil || summaryGivenUp)))
     }
+
+    /// The closing pass ran for the latest completion or End. Remaining task rows were retained.
+    var closingHasRun: Bool {
+        guard let closed = closedAt, let settled = [completedAt, endedAt].compactMap({ $0 }).max() else { return false }
+        return closed >= settled
+    }
 }
 
 /// Finding a broadcast and its tasks in the workspace, for the engines and the app alike.
