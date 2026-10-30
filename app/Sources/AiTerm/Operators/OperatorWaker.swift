@@ -8,7 +8,8 @@ import AiTermCore
 /// its tab to be idle, and news undone before its line goes wakes nobody. Wake lines are hints: the
 /// operator's next `run_status` shows everything, whether or not one landed. A line refused for anything
 /// but your typing or a prompt waiting on you is reported (`refused`) for the sidebar's Notice, which
-/// `cleared` takes down.
+/// `cleared` takes down; one refused because its input may hold unsent text only once it has waited
+/// `OperatorTiming.unsentWakeNotice` on that, since a key that typed nothing holds it as long.
 @MainActor
 final class OperatorWaker {
     private let daemon: @MainActor () -> (any DaemonCommands)?
@@ -21,6 +22,8 @@ final class OperatorWaker {
     private let retryAfter: Duration
     /// Waits out `coalesce` and `retryAfter`; a test hands in one it releases by hand.
     private let sleep: @MainActor (Duration) async throws -> Void
+    /// The clock a wake held on unsent input is timed by.
+    private let now: @MainActor () -> Date
     /// Each run owns its news, timers and delivery together. Acknowledgment changes the generation;
     /// a delivery may consume only the snapshot it sent in that same generation.
     @MainActor private final class WakeState {
@@ -38,6 +41,8 @@ final class OperatorWaker {
         var generation = UUID()
         var armed: Task<Void, Never>?, retrying: Task<Void, Never>?
         var sending: Snapshot?
+        /// When the refusals in a row for input that may hold unsent text began.
+        var unsentSince: Date?
         // A forgotten run retains only its outstanding delivery until the reply; a replacement
         // uses the same sentinel so two deliveries to its tab cannot overlap.
         var isForgotten = false
@@ -47,6 +52,7 @@ final class OperatorWaker {
             updates = 0
             reasons = [:]
             unsentNews = []
+            unsentSince = nil
             armed?.cancel(); armed = nil
             retrying?.cancel(); retrying = nil
         }
@@ -58,7 +64,8 @@ final class OperatorWaker {
     struct Reason: Hashable { var text: String, colon: Bool }
     /// The latest delivery, for a test to await.
     private(set) var lastSend: Task<Void, Never>?
-    /// A wake line the daemon refused for anything but a prompt that waits on you (`OperatorWakeNotice`).
+    /// A wake line the daemon refused that the sidebar's Notice shows (`OperatorWakeNotice.shows`): already held long
+    /// enough when it was for input that may hold unsent text.
     var refused: (@MainActor (UUID, Delivery) -> Void)?
     /// The operator is awake, or its run is gone: it called `run_status`, a wake line was delivered, or the run was forgotten.
     var cleared: (@MainActor (UUID) -> Void)?
@@ -67,13 +74,15 @@ final class OperatorWaker {
 
     init(daemon: @escaping @MainActor () -> (any DaemonCommands)?, session: @escaping @MainActor (UUID) -> SessionInfo?,
          awake: @escaping @MainActor (UUID) -> Bool, coalesce: Duration, retryAfter: Duration = .seconds(15),
-         sleep: @escaping @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+         sleep: @escaping @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+         now: @escaping @MainActor () -> Date = { Date() }) {
         self.daemon = daemon
         self.session = session
         self.awake = awake
         self.coalesce = coalesce
         self.retryAfter = retryAfter
         self.sleep = sleep
+        self.now = now
     }
 
     /// What `run_status` would answer now. The first look at a run is taken as seen — after a restart
@@ -506,12 +515,14 @@ final class OperatorWaker {
             }
             // Typed, or left in the input for the person to send: the news is out. Refused — the person
             // typing there, a prompt open — it waits for the next idle moment, or `retryAfter`. Any refusal
-            // but those, which already wait on the person, is theirs to see (`refused`).
+            // but those, which already wait on the person, is theirs to see (`refused`); input that may hold
+            // unsent text once it has held the wake `OperatorTiming.unsentWakeNotice`.
             guard let delivery, delivery.result != .refused else {
-                if let delivery, OperatorWakeNotice.shows(delivery.code) { refused?(run, delivery) }
+                if let delivery, OperatorWakeNotice.shows(delivery.code, held: heldOnUnsentInput(delivery, wake)) { refused?(run, delivery) }
                 retryLater(run, wake)
                 return
             }
+            wake.unsentSince = nil
             if delivery.result == .delivered { cleared?(run) }
             wake.retrying?.cancel(); wake.retrying = nil
             let spells = snapshot.news.filter(\.isSpell)
@@ -523,6 +534,15 @@ final class OperatorWaker {
             // that arrived meanwhile gets its own wake now.
             if wake.updates > 0, wake.armed == nil { send(run, wake) }
         }
+    }
+
+    /// Whether `refusal` is for input that may hold unsent text, and every refusal since the first such in a row was
+    /// too, for `OperatorTiming.unsentWakeNotice` or longer. Any other refusal starts the count again.
+    private func heldOnUnsentInput(_ refusal: Delivery, _ wake: WakeState) -> Bool {
+        guard refusal.code == .unsentInput else { wake.unsentSince = nil; return false }
+        let at = now(), since = wake.unsentSince ?? at
+        wake.unsentSince = since
+        return at.timeIntervalSince(since) >= OperatorTiming.unsentWakeNotice
     }
 
     /// A wake refused while you type, or with unsent text in the input, is kept and tried again after

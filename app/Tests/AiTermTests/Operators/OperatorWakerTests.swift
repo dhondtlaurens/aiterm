@@ -760,6 +760,36 @@ import Testing
         #expect(reports.refused.isEmpty)
     }
 
+    /// The daemon holds a wake on input that may hold unsent text, which a key that typed nothing sets too: the hold is
+    /// reported once it has lasted `OperatorTiming.unsentWakeNotice`, and another refusal between starts it again.
+    @Test func aWakeHeldOnUnsentInputIsReportedOnceItHasWaitedLongEnough() async throws {
+        let unsent = Delivery(result: .refused, reason: "unsent text waits in its input", code: .unsentInput)
+        let typing = Delivery(result: .refused, reason: "you are typing", code: .typing)
+        daemon.deliveries = [unsent, unsent, typing, unsent, unsent, unsent]
+        @MainActor final class Clock { var now = Date(timeIntervalSince1970: 0) }
+        let clock = Clock()
+        let waker = OperatorWaker(daemon: { [daemon] in daemon }, session: { [op] _ in op.tab }, awake: { _ in true },
+                                  coalesce: .zero, retryAfter: .seconds(60), now: { clock.now })
+        waker.acknowledged(status(questions: 0), of: run.id)
+        let reports = reporting(waker)
+        waker.observe(status(questions: 1), of: run.id)
+        func attempt(_ n: Int, after seconds: TimeInterval) async throws {
+            clock.now += seconds
+            if n > 1 { waker.operatorSessionChanged(run.id) }
+            try await daemon.received("session.deliver", count: n)
+            await waker.lastSend?.value
+        }
+        try await attempt(1, after: 0)
+        try await attempt(2, after: OperatorTiming.unsentWakeNotice - 1)
+        #expect(reports.refused.isEmpty, "not held long enough yet")
+        try await attempt(3, after: 1)
+        try await attempt(4, after: 0)
+        try await attempt(5, after: OperatorTiming.unsentWakeNotice - 1)
+        #expect(reports.refused.isEmpty, "your typing in between starts the hold again")
+        try await attempt(6, after: 1)
+        #expect(reports.refused == [unsent] && reports.cleared == 0)
+    }
+
     @Test func aLineLeftUnsentClearsNothing() async throws {
         daemon.deliveries = [Delivery(result: .partial, reason: "before Enter, a permission prompt is open", code: .prompt)]
         let waker = makeWaker()

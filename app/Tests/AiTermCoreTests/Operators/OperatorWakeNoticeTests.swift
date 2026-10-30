@@ -48,9 +48,21 @@ import Foundation
     @Test func aPromptWaitingOnThePersonOrALineThatWentInIsNoNotice() {
         #expect(OperatorWakeNotice(run: run, status: status(), refusal: Delivery(result: .refused, reason: "a menu prompt is open", code: .prompt)) == nil)
         #expect(OperatorWakeNotice(run: run, status: status(), refusal: Delivery(result: .refused, reason: "you are typing", code: .typing)) == nil)
-        #expect(OperatorWakeNotice(run: run, status: status(), refusal: Delivery(result: .refused, reason: "unsent input", code: .unsentInput)) == nil)
+        #expect(OperatorWakeNotice(run: run, status: status(), refusal: Delivery(result: .refused, reason: "unsent input", code: .unsentInput)) == nil, "not held yet")
         #expect(OperatorWakeNotice(run: run, status: status(), refusal: Delivery(result: .delivered, reason: nil)) == nil)
         #expect(OperatorWakeNotice(run: run, status: status(), refusal: Delivery(result: .partial, reason: "held", code: .typing)) == nil)
+    }
+
+    /// The daemon guesses unsent text from your keys, so a wake can wait on an input that is empty: once it has waited long
+    /// enough, the Notice says what waits and how to let the line in, and Settings, which can't, is not offered.
+    @Test func inputThatMayHoldUnsentTextIsShownOnceTheWakeWasHeldOnIt() throws {
+        let unsent = Delivery(result: .refused, reason: "unsent text waits in its input", code: .unsentInput)
+        let notice = try #require(OperatorWakeNotice(run: run, status: status(ready: ["PAY-1", "PAY-2"]), refusal: unsent, held: true))
+        #expect(notice.description == "2 tasks ready to accept in “Payments”. Text may wait unsent in its input: send it there, or clear it with ⌃U.")
+        #expect(!notice.fixInSettings)
+        let unread = Delivery(result: .refused, reason: "unrecognised screen", code: .unrecognisedScreen)
+        #expect(try #require(OperatorWakeNotice(run: run, status: nil, refusal: unread)).fixInSettings)
+        #expect(OperatorWakeNotice(run: run, status: nil, refusal: Delivery(result: .refused, reason: "you are typing", code: .typing), held: true) == nil)
     }
 
     @Test func aRefusalFromADaemonThatNamesNoCodeStillSaysSomething() throws {

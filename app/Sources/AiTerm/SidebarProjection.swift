@@ -171,7 +171,7 @@ final class SidebarProjection {
         return true
     }
 
-    /// The footer's context row, under SYSTEM, for `row`: what runs in the task's or terminal's
+    /// The footer's context row, under SYSTEM, for `row`: what runs in the task's, terminal's or Operator's
     /// active tab and its last-known `ctx`. With nothing selected there is no such row at all.
     /// Read from the rows' tabs and context fills, so a fill redraws the footer alone.
     func usageRow(for row: RowSelection?) -> UsageTaskRow? {
@@ -183,7 +183,10 @@ final class SidebarProjection {
         case .terminal(let id):
             guard let terminal = terminals[id] else { return nil }
             return SidebarModel.usageTerminalRow(windowId: terminal.windowId, sessions: live.rowSessions, contexts: contexts)
-        case .project, .operation, nil: return nil
+        case .operation(let id):
+            guard runs[id] != nil else { return nil }
+            return SidebarModel.usageTaskRow(taskId: id, agent: .claude, sessions: live.rowSessions, contexts: contexts)
+        case .project, nil: return nil
         }
     }
 }

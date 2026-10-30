@@ -211,7 +211,7 @@ final class OperatorController {
                                   guard let state = workspace.state.run(id: run)?.state else { return false }
                                   return state == .planning || state == .active || state == .complete
                               },
-                              coalesce: ports.wakeCoalesce, sleep: { try await clock.sleep(.wake, $0) })
+                              coalesce: ports.wakeCoalesce, sleep: { try await clock.sleep(.wake, $0) }, now: clock.now)
         tabs = TabOpener(workspace: workspace, daemon: daemon, ports: ports)
         let transcripts = TranscriptLocator(home: ports.home, claudeConfig: ports.claudeConfig)
         self.transcripts = transcripts
@@ -249,7 +249,7 @@ final class OperatorController {
         quiet.sign = { [weak self] task, tab, at in self?.stallWatch.noteSign(of: task, tab: tab, at: at) }
         waker.refused = { [weak self] run, delivery in
             guard let self else { return }
-            wakeNotice = OperatorWakeNotice(run: run, status: self.run(id: run).flatMap(status(of:)), refusal: delivery)
+            wakeNotice = OperatorWakeNotice(run: run, status: self.run(id: run).flatMap(status(of:)), refusal: delivery, held: true)
         }
         waker.cleared = { [weak self] run in
             if self?.wakeNotice?.run == run { self?.wakeNotice = nil }

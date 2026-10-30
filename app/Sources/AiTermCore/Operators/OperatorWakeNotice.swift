@@ -2,28 +2,33 @@ import Foundation
 
 /// The sidebar's Notice when the Operator's wake line was refused (`OperatorWaker`): what waits on the Operator,
 /// from its `run_status`, and why AiTerm couldn't type into its tab, in one short sentence. Its links are Open the
-/// Operator and Fix in Settings. Not shown while the person types in its tab, or for a prompt open there, which
-/// already waits on them (`shows`); taken
-/// down once the Operator calls `run_status` or a later wake line is delivered.
+/// Operator and, but for input that may hold unsent text, Fix in Settings. Not shown while the person types in its
+/// tab, or for a prompt open there, which already waits on them (`shows`); for input that may hold unsent text only
+/// once the wake has waited on it `OperatorTiming.unsentWakeNotice`, since a key that typed nothing holds it too and
+/// nothing on screen says so. Taken down once the Operator calls `run_status` or a later wake line is delivered.
 public struct OperatorWakeNotice: Equatable, Sendable {
     public static let title = "The Operator can’t be woken"
 
     /// The broadcast whose Operator it is.
     public var run: UUID
     public var description: String
+    /// Whether Settings can fix the refusal: not the Operator's own input, which only its tab can send or clear.
+    public var fixInSettings: Bool
 
     /// The Notice for `refusal`, with `status` as the Operator's `run_status` would show it now; nil when the refusal
-    /// is not one to show (`shows`), or nothing was refused.
-    public init?(run: UUID, status: RunStatus?, refusal: Delivery) {
-        guard refusal.result == .refused, Self.shows(refusal.code) else { return nil }
+    /// is not one to show (`shows`), or nothing was refused. `held` says the wake has waited out
+    /// `OperatorTiming.unsentWakeNotice` on input that may hold unsent text.
+    public init?(run: UUID, status: RunStatus?, refusal: Delivery, held: Bool = false) {
+        guard refusal.result == .refused, Self.shows(refusal.code, held: held) else { return nil }
         self.run = run
         description = Self.waiting(status) + " " + Self.sentence(refusal.code)
+        fixInSettings = refusal.code != .unsentInput
     }
 
     /// Whether a wake refused for `code` is the Notice's: not a prompt that waits on the person, nor their own typing
-    /// or unsent text in its tab, which the waker tries again after.
-    public static func shows(_ code: DeliveryCode?) -> Bool {
-        ![.prompt, .typing, .unsentInput].contains(code)
+    /// in its tab, which the waker tries again after; input that may hold unsent text only once the wake was `held` on it.
+    public static func shows(_ code: DeliveryCode?, held: Bool = false) -> Bool {
+        code == .unsentInput ? held : ![.prompt, .typing].contains(code)
     }
 
     /// What waits on the Operator in `status`, as a sentence: "2 tasks ready to accept in “Payments”." Every reason the
@@ -54,7 +59,7 @@ public struct OperatorWakeNotice: Equatable, Sendable {
         case .notChecked: "AiTerm hasn’t checked it can type into this Claude Code version."
         case .unsupported: "AiTerm can’t read prompts in its tab."
         case .typing: "You’re typing in its tab."
-        case .unsentInput: "Unsent text waits in its input."
+        case .unsentInput: "Text may wait unsent in its input: send it there, or clear it with ⌃U."
         case .screenUnread: "Its screen couldn’t be read."
         case .prompt: "A prompt in its tab waits on you."
         case .unrecognisedScreen: "Its tab doesn’t show Claude Code’s input box."

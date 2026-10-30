@@ -1,4 +1,6 @@
-import Foundation
+import AppKit
+import SwiftUI
+import AiTermUI
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
@@ -30,6 +32,42 @@ struct OperatorProjectionTests {
         #expect(rows.broadcast?.id == run.id, "a workspace change derives the row again")
         #expect(rows.broadcast?.header.title == run.name)
         #expect(rows.runs[run.id] == run)
+    }
+
+    @Test func selectingTheOperatorShowsItsContextInTheFooter() throws {
+        let controller = try controller()
+        let run = OperatorUIFixtures.run()
+        controller.workspace.mutate { $0.runs = [run] }
+        let footer = SelectedRowSidebarFooter(controller: controller, vendors: [])
+        func height() -> CGFloat {
+            let host = NSHostingView(rootView: footer.frame(width: Size.sidebarMinWidth).environment(\.colorScheme, .dark))
+            return host.fittingSize.height
+        }
+        let unselectedHeight = height()
+        controller.focus.browse(.operation(run.id))
+        #expect(controller.rows.usageRow(for: .operation(run.id))?.agent == .claude)
+        #expect(abs(height() - unselectedHeight - Size.menuRow) < 0.5,
+                "selecting the Operator renders the context row, including before telemetry arrives")
+
+        var session = SessionInfo(sessionId: "operator", windowId: "operator-window", tabIndex: 0,
+                                  taskId: run.id.uuidString, projectId: nil, agent: .claude, model: nil,
+                                  state: .idle, title: "", cwd: "/operator", active: true, contextPercent: 42)
+        controller.live.handle(.sessionOpened(session))
+        #expect(controller.rows.usageRow(for: .operation(run.id))?.context?.percent == 42)
+        let derivations = controller.rows.derivations
+        session.contextPercent = 12
+        #expect(invalidates({ _ = footer.body }) { controller.live.handle(.sessionChanged(session)) })
+        #expect(controller.rows.usageRow(for: .operation(run.id))?.context?.percent == 12)
+        #expect(controller.rows.derivations == derivations, "a fill updates the footer alone")
+
+        controller.live.handle(.windowClosed("operator-window"))
+        controller.workspace.mutate { $0.runs[0].state = .operatorOffline }
+        #expect(controller.rows.usageRow(for: .operation(run.id))?.context?.percent == 12,
+                "the closed Operator keeps its last reported context")
+        controller.focus.browse(.project(UUID()))
+        #expect(abs(height() - unselectedHeight) < 0.5)
+        controller.workspace.mutate { $0.runs = [] }
+        #expect(controller.rows.usageRow(for: .operation(run.id)) == nil)
     }
 
     /// The board is derived only while its sheet shows: no other derivation builds it, and presenting the sheet derives
