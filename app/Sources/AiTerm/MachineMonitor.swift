@@ -17,7 +17,7 @@ final class MachineMonitor {
     @ObservationIgnored private let interval: Duration
     @ObservationIgnored private var previous: MachineSample?
     @ObservationIgnored private var sampleGeneration = UUID()
-    @ObservationIgnored private var sampling: Task<Void, Never>?
+    @ObservationIgnored private var sampling: PollLoop?
 
     init(sensor: any MachineSensor, power: any PowerSource, interval: Duration = .seconds(5)) {
         self.sensor = sensor
@@ -29,12 +29,7 @@ final class MachineMonitor {
     func start() {
         guard sampling == nil else { return }
         // Weak: the loop must not keep the monitor alive, and it ends when the monitor goes.
-        sampling = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let pause = await self?.sample() else { return }
-                do { try await Task.sleep(for: pause) } catch { return }
-            }
-        }
+        sampling = PollLoop(interval: interval) { [weak self] in await self?.sample() }
     }
 
     func stop() {

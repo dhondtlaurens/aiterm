@@ -64,7 +64,7 @@ extension AppControllerTests {
                                        jiraSettings: { onMain.withLock { $0.append(Thread.isMainThread) }; return jira },
                                        gitLabSettings: { onMain.withLock { $0.append(Thread.isMainThread) }; return nil },
                                        gitHubSettings: { nil })
-        controller.presentSettings()
+        controller.sheets.presentSettings()
         await eventually { controller.sheet != nil }
         guard case .settings(let saved, let gitLab, _, _, _)? = controller.sheet else { Issue.record("expected the Settings sheet"); return }
         #expect(saved == jira && gitLab == nil)
@@ -75,7 +75,7 @@ extension AppControllerTests {
     @Test func settingsOpensAtAnAgentsCard() async throws {
         let (controller, dir) = try loadedController()
         defer { try? FileManager.default.removeItem(at: dir) }
-        controller.presentSettings(tab: .integrations, agent: .codex)
+        controller.sheets.presentSettings(tab: .integrations, agent: .codex)
         await eventually { controller.sheet != nil }
         guard case .settings(_, _, _, let tab, let agent)? = controller.sheet else { Issue.record("expected the Settings sheet"); return }
         #expect(tab == .agents && agent == .codex)
@@ -91,10 +91,10 @@ extension AppControllerTests {
     @Test func settingsDoesNotReplaceAnOpenSheet() throws {
         let (controller, dir) = try loadedController()
         defer { try? FileManager.default.removeItem(at: dir) }
-        controller.presentNewDivider()
+        controller.sheets.presentNewDivider()
         #expect(!controller.canPresentSettings)
 
-        controller.presentSettings()
+        controller.sheets.presentSettings()
 
         #expect(controller.sheet?.id == AppController.SheetKind.newDivider.id)
     }

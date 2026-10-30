@@ -39,7 +39,7 @@ struct SidebarRowGeometryTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         // Three identical rows so the pills can only differ by the state that is drawn on them.
         let tasks = ["Selected row", "Hovered row", "Resting row"].map { title in
@@ -51,7 +51,7 @@ struct SidebarRowGeometryTests {
         controller.focus.browse(.task(tasks[0].id))
         controller.preferences.interfaceSize = size
 
-        let host = testHost(SidebarView(controller: controller).environment(\.hoveredRow, tasks[1].id), size: CGSize(width: size.scale(340), height: 800))
+        let host = testHost(SidebarView(controller: controller).environment(\.seededHover, SeededHover(row: tasks[1].id)), size: CGSize(width: size.scale(340), height: 800))
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
@@ -108,7 +108,7 @@ struct SidebarContextMenuHighlightTests {
     private func hostedSidebar() throws -> (host: NSHostingView<SidebarView>, table: NSTableView, window: NSWindow) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         let task = TaskItem(id: UUID(), projectId: project.id, title: "Right-clicked row", branch: "feat/work",
                             worktreePath: "/wt", baseBranch: "main", jira: nil, agent: .claude, model: "sonnet",

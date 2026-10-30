@@ -12,7 +12,7 @@ struct AgentIntegrationsTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(),
                                        harnessHome: root.appendingPathComponent("home"), bundledResourcesURL: nil)
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         return (controller, root)
     }
 

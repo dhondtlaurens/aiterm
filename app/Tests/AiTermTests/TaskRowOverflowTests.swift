@@ -12,7 +12,7 @@ struct TaskRowOverflowTests {
     @Test(arguments: [200, 240, 280] as [CGFloat])
     func theRowKeepsItsWidthWhateverItsBadges(width: CGFloat) throws {
         let controller = AppController(preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let task = TaskItem(id: UUID(), projectId: UUID(), title: "FE-1783 Dependency updates: patch", branch: "feat/fe-1783-dependency-updates",
                             worktreePath: "/wt", baseBranch: "main", jira: nil, agent: .claude, model: "sonnet", reasoning: nil,
                             firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w-1")

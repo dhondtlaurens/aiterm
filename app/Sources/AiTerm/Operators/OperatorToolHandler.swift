@@ -30,7 +30,7 @@ struct ToolCall {
     }
 
     func optionalString(_ key: String) -> String? {
-        arguments[key]?.stringValue.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
+        (arguments[key]?.stringValue).said
     }
 
     func optionalBool(_ key: String) -> Bool? { arguments[key]?.boolValue }

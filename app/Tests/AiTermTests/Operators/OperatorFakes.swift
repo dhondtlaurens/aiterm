@@ -95,8 +95,19 @@ final class RecordingNotifications: OperatorNotifications {
 }
 
 extension TestClock {
-    /// The Operator tests' wall clock, a test moves by hand: `ports.now` and `publishNow` alike.
+    /// The shared Operator wall clock, a test moves by hand.
     static func operators() -> TestClock { TestClock(Date(timeIntervalSince1970: 1_000_000)) }
+}
+
+extension OperatorClock {
+    /// Replaces just the wait the fixture controls; all other purposes keep their previous sleep.
+    @MainActor mutating func overrideSleep(_ wait: Wait, _ replacement: @escaping @MainActor @Sendable (Duration) async throws -> Void) {
+        let previous = sleep
+        sleep = { purpose, duration in
+            if purpose == wait { try await replacement(duration) }
+            else { try await previous(purpose, duration) }
+        }
+    }
 }
 
 extension OperatorPorts {
@@ -109,10 +120,11 @@ extension OperatorPorts {
         var ports = OperatorPorts(home: home, git: git, notifications: notifications, wakeCoalesce: .zero)
         // Nothing is published but through a test's own fake host, and no merge watch waits for real.
         ports.publisher = { _ in throw MergeRequestSearch.Unavailable.notConnected(.gitLab) }
-        ports.mergeSleep = { _ in throw CancellationError() }
         // No wait for a summary ends but a test's own: a test that gives up on one moves the clock or the sleep.
-        ports.summarySleep = { _ in throw CancellationError() }
-        ports.promptSleep = { _ in throw CancellationError() }
+        ports.clock.sleep = { purpose, duration in
+            guard purpose == .wake else { throw CancellationError() }
+            try await Task.sleep(for: duration)
+        }
         // Both agents installed, each with a short model list of its own, so no test reads this Mac's.
         ports.installedAgents = { [.claude, .codex] }
         ports.agentModels = { OperatorServiceFixtures.models[$0] ?? [] }

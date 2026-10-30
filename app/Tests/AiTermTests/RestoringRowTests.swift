@@ -101,7 +101,7 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
         let task = try fixture.addTask(windowId: nil)
-        fixture.controller.seedSnapshotRemoval(.removing, of: task.id)
+        fixture.controller.remover.seedSnapshotRemoval(.removing, of: task.id)
 
         await fixture.controller.focus.select(.task(task.id))?.value
 
@@ -245,7 +245,7 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: nil)
         fixture.controller.helper.handle(.snapshot(Self.emptySnapshot))
         await fixture.controller.windows.lastRestore?.value
-        #expect(fixture.controller.hasFailedRestore(task.id))
+        #expect(fixture.controller.windows.hasFailed(task.id))
         #expect(fixture.controller.issue?.title == "Couldn’t reopen the window.")
         fixture.controller.helper.handle(.snapshot(Self.emptySnapshot))
         await fixture.controller.windows.lastRestore?.value
@@ -254,7 +254,7 @@ extension AppControllerTests {
         server.failing = [:]
         await fixture.controller.focus.select(.task(task.id))?.value
 
-        #expect(!fixture.controller.hasFailedRestore(task.id))
+        #expect(!fixture.controller.windows.hasFailed(task.id))
         #expect(fixture.controller.state.task(id: task.id)?.windowId == "reopened-2")
         #expect(server.requests("window.activate").map { $0.params["windowId"] as? String } == ["reopened-2"])
         #expect(focus.seen.count == 1)
@@ -273,7 +273,7 @@ extension AppControllerTests {
         fixture.controller.helper.handle(.itermDisconnected)
         server.release()
         await fixture.controller.windows.lastRestore?.value
-        #expect(!fixture.controller.hasFailedRestore(task.id))
+        #expect(!fixture.controller.windows.hasFailed(task.id))
 
         server.failing = [:]
         fixture.controller.helper.handle(.snapshot(Self.emptySnapshot))
@@ -292,12 +292,12 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: nil)
         fixture.controller.helper.handle(.snapshot(Self.emptySnapshot))
         await fixture.controller.windows.lastRestore?.value
-        #expect(fixture.controller.hasFailedRestore(task.id))
+        #expect(fixture.controller.windows.hasFailed(task.id))
 
         fixture.controller.helper.handle(.sessionChanged(.stub("a", window: "other", task: task)))
 
         #expect(fixture.controller.state.task(id: task.id)?.windowId == "other")
-        #expect(!fixture.controller.hasFailedRestore(task.id))
+        #expect(!fixture.controller.windows.hasFailed(task.id))
         #expect(server.requests("window.createTask").count == 1, "adopted, not opened again")
     }
 
@@ -312,7 +312,7 @@ extension AppControllerTests {
         fixture.controller.helper.handle(.snapshot(Self.emptySnapshot))
         await fixture.controller.windows.lastRestore?.value
 
-        #expect(!fixture.controller.hasFailedRestore(task.id))
+        #expect(!fixture.controller.windows.hasFailed(task.id))
         #expect(fixture.controller.issue == nil)
 
         server.failing = [:]
@@ -335,7 +335,7 @@ extension AppControllerTests {
 
         #expect(fixture.controller.issue?.title == "Couldn’t reopen “Shell”.")
         #expect(fixture.controller.issue?.subject == terminal.id)
-        #expect(fixture.controller.hasFailedRestore(terminal.id))
+        #expect(fixture.controller.windows.hasFailed(terminal.id))
     }
 
     /// AiTerm starting while iTerm2 is not running starts it, once: an adopted daemon, still running

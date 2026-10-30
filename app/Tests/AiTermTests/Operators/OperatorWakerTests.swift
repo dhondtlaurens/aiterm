@@ -788,7 +788,7 @@ extension OperatorWakerTests {
         daemon.onRequest = { requests.continuation.yield($0) }
         var request = requests.stream.makeAsyncIterator()
         let gate = HeldGate()
-        let (world, run, _) = try OperatorServiceFixtures.oneWorkingTask(daemon) { $0.wakeSleep = { _ in await gate.wait() } }
+        let (world, run, _) = try OperatorServiceFixtures.oneWorkingTask(daemon) { $0.clock.overrideSleep(.wake) { _ in await gate.wait() } }
         world.live.sessions.append(OperatorServiceFixtures.session("operator", tag: run.id, state: .working))
         _ = await world.call(run.id, "run_status")
         let call = Task { await world.call(run.id, "message_task", ["task": "A", "text": "Continue"]) }

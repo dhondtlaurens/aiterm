@@ -69,17 +69,10 @@ class HookRouter:
                 await self.publisher.usage_changed()
             if tick.model or tick.reasoning or tick.context_percent is not None:
                 async with self._in_order:
-                    sid, direct = await self._resolve_post(agent, tick.session_id, tick.cwd, tick.iterm_session_id)
-                    # What it says the session runs, and where it is written, only from the session itself: another
-                    # Claude in the same worktree is placed by the directory alone.
-                    own = sid is not None and sid == direct
-                    ticked = self.status.apply_metadata(sid, model=tick.model if own else None, reasoning=tick.reasoning if own else None,
-                                                        context=tick.context_percent,
-                                                        transcript=tick.transcript if own else None) if sid else []
-                    # It names the effort with the model: a model it names with no effort takes none, whatever the
-                    # last one ran at.
-                    if sid is not None and own and tick.model and tick.reasoning is None and self.status.reg.set_reasoning(sid, None):
-                        ticked.append(sid)
+                    post = HookEvent(agent, None, tick.model, tick.session_id, tick.cwd,
+                                     iterm_session_id=tick.iterm_session_id, reasoning=tick.reasoning,
+                                     context_percent=tick.context_percent, transcript=tick.transcript)
+                    ticked = await self._place_and_apply(post, body, statusline=True)
                 if ticked:
                     await self.publisher.session_changed(ticked)
             return None
@@ -100,7 +93,7 @@ class HookRouter:
         await self.publisher.session_changed(changed)
         return None
 
-    async def _place_and_apply(self, ev: HookEvent, body: dict[str, Any]) -> list[str] | None:
+    async def _place_and_apply(self, ev: HookEvent, body: dict[str, Any], *, statusline: bool = False) -> list[str] | None:
         """The sessions `ev` changed, once placed on its tab; None when it places on none."""
         sid, direct = await self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
         if sid is None:
@@ -114,9 +107,11 @@ class HookRouter:
         # directory alone.
         own = sid == direct
         changed = self.status.apply_metadata(sid, model=ev.model if own else None, reasoning=ev.reasoning if own else None,
-                                             context=ev.context_percent, cwd=ev.cwd,
-                                             conversation=ev.conversation_id if own else None,
-                                             transcript=ev.transcript if own else None)
+                                             context=ev.context_percent, cwd=ev.cwd if not statusline else None,
+                                             conversation=ev.conversation_id if own and not statusline else None,
+                                             transcript=ev.transcript if own else None,
+                                             # A status line naming a model without effort clears the previous one's.
+                                             clear_reasoning=statusline and own and bool(ev.model) and ev.reasoning is None)
         # A new session forgets the tab's subagents and deferred completion — only for a tab the post
         # provably came from. A stale pin or a shared directory could otherwise wipe another tab's turn.
         starts_elsewhere = ev.kind == "sessionStart" and sid != direct

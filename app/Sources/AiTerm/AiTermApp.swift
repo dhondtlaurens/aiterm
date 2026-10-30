@@ -93,7 +93,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
 
     func prepareWorkspace() -> Bool {
         while true {
-            do { try controller.loadWorkspace(); return true }
+            do { try controller.workspace.load(); return true }
             catch {
                 let answer = controller.prompter.askBlocking(AlertPrompt(
                     message: "AiTerm couldn’t open your workspace",
@@ -104,7 +104,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
                 switch answer.button {
                 case 0: continue
                 case 1:
-                    do { try controller.restoreWorkspace(); return true }
+                    do { try controller.workspace.restoreBackup(); return true }
                     catch { controller.prompter.askBlocking(AlertPrompt(message: error.localizedDescription)) }
                 case 2:
                     NSWorkspace.shared.activateFileViewerSelecting([controller.workspace.file.url.deletingLastPathComponent()])
@@ -191,13 +191,13 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = main
     }
 
-    @objc func openSettings() { controller.presentSettings() }
-    @objc func newTask() { if let project = controller.targetProject { controller.presentNewTask(project: project) } }
-    @objc func newReview() { if let project = controller.targetProject { controller.presentNewReview(project: project) } }
-    @objc func newTerminal() { if let project = controller.targetProject { controller.presentNewTerminal(project: project) } }
+    @objc func openSettings() { controller.sheets.presentSettings() }
+    @objc func newTask() { if let project = controller.targetProject { controller.sheets.presentNewTask(project: project) } }
+    @objc func newReview() { if let project = controller.targetProject { controller.sheets.presentNewReview(project: project) } }
+    @objc func newTerminal() { if let project = controller.targetProject { controller.sheets.presentNewTerminal(project: project) } }
     @objc func newBroadcast() { controller.presentNewBroadcast() }
-    @objc func addProject() { Task { await controller.addProject() } }
-    @objc func addDivider() { controller.presentNewDivider() }
+    @objc func addProject() { Task { await controller.projects.addProject() } }
+    @objc func addDivider() { controller.sheets.presentNewDivider() }
     @objc func zoomIn() { changeInterfaceSize(to: controller.preferences.interfaceSize.bigger) }
     @objc func zoomOut() { changeInterfaceSize(to: controller.preferences.interfaceSize.smaller) }
     @objc func actualSize() { changeInterfaceSize(to: .standard) }

@@ -48,7 +48,7 @@ final class BackpackController {
     @ObservationIgnored private let tickInterval: Duration
     /// A thread of its own, not a Dispatch queue: a join blocks for up to a minute (see `SerialThread`).
     @ObservationIgnored private let worker = SerialThread(name: "com.laurensdhondt.aiterm.backpack")
-    @ObservationIgnored private var ticking: Task<Void, Never>?
+    @ObservationIgnored private var ticking: PollLoop?
     @ObservationIgnored private let retryDelays: [Duration]
     /// Whether any session in the workspace is `.working`: the 5 s check's reason to stay on.
     @ObservationIgnored private let agentsWorking: @MainActor () -> Bool
@@ -364,13 +364,11 @@ final class BackpackController {
     private func startTicking() {
         ticking?.cancel()
         let interval = tickInterval
-        ticking = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: interval)
-                // On, or off with a failed restore still to retry.
-                guard !Task.isCancelled, let self, self.isOn || self.mode.settings.engaged else { return }
-                await self.tick()
-            }
+        ticking = PollLoop(interval: interval, sleepFirst: true) { [weak self] in
+            // On, or off with a failed restore still to retry.
+            guard !Task.isCancelled, let self, self.isOn || self.mode.settings.engaged else { return nil }
+            await self.tick()
+            return interval
         }
     }
 }

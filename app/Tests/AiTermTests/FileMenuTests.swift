@@ -14,7 +14,7 @@ import Testing
 
     private func controller() throws -> AppController {
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         controller.workspace.mutate { $0.items = [.project(git), .project(folder)] }
         return controller
     }

@@ -45,6 +45,12 @@ extension MergeRequestPublishing {
     }
 }
 
+/// One connected repository: search, bounded badge reads and complete publication reads share its binding.
+public protocol HostRepository: MergeRequestPublishing, MergeRequestSearching {
+    /// The bounded, lenient thread counts shown on a request's badge.
+    func reviewThreads(of number: Int) async throws -> ReviewThreads
+}
+
 public enum MergeRequestPublisher {
     /// The publisher for `remote`'s requests, with the connection Settings saved for its host.
     ///
@@ -54,16 +60,15 @@ public enum MergeRequestPublisher {
     /// not the configured GitLab or GitHub is `Unavailable`, never guessed at.
     public static func publisher(for remote: RemoteInfo, gitLab: GitLabConfig?, gitHub: GitHubConfig?,
                                  session: URLSession = .shared) throws(MergeRequestSearch.Unavailable) -> any MergeRequestPublishing {
-        switch try MergeRequestSearch.connection(for: remote, gitLab: gitLab, gitHub: gitHub) {
-        case .gitHub(let config, let repo): return GitHubPublisher(client: GitHubClient(config: config, session: session), repo: repo)
-        case .gitLab(let config, let project): return GitLabPublisher(client: GitLabClient(config: config, session: session), project: project)
-        }
+        try MergeRequestSearch.source(for: remote, gitLab: gitLab, gitHub: gitHub, session: session)
     }
 }
 
-struct GitHubPublisher: MergeRequestPublishing {
+struct GitHubPublisher: HostRepository {
     let client: GitHubClient, repo: String
     var repository: String { "github.com/" + repo }
+    func mergeRequests(search: String) async throws -> [MergeRequest] { try await client.pullRequests(repo: repo, search: search) }
+    func reviewThreads(of number: Int) async throws -> ReviewThreads { try await client.reviewThreads(repo: repo, number: number) }
     func protection(of branch: String) async throws -> BranchProtection { try await client.branchProtection(repo: repo, branch: branch) }
     func existingRequest(from source: String) async throws -> MergeRequest? { try await client.openPullRequest(repo: repo, source: source) }
     func createRequest(from source: String, into target: String, title: String, description: String, draft: Bool) async throws -> MergeRequest {
@@ -89,9 +94,11 @@ struct GitHubPublisher: MergeRequestPublishing {
     func currentUser() async throws -> String { try await client.testConnection() }
 }
 
-struct GitLabPublisher: MergeRequestPublishing {
+struct GitLabPublisher: HostRepository {
     let client: GitLabClient, project: String
     var repository: String { (client.config.hostURL.host?.lowercased() ?? "") + "/" + project }
+    func mergeRequests(search: String) async throws -> [MergeRequest] { try await client.mergeRequests(project: project, search: search) }
+    func reviewThreads(of number: Int) async throws -> ReviewThreads { try await client.reviewThreads(project: project, iid: number) }
     func protection(of branch: String) async throws -> BranchProtection { try await client.branchProtection(project: project, branch: branch) }
     func existingRequest(from source: String) async throws -> MergeRequest? { try await client.openMergeRequest(project: project, source: source) }
     func createRequest(from source: String, into target: String, title: String, description: String, draft: Bool) async throws -> MergeRequest {

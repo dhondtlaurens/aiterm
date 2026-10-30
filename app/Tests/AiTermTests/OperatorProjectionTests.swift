@@ -16,7 +16,7 @@ struct OperatorProjectionTests {
 
     private func controller() throws -> AppController {
         let controller = AppController(preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         return controller
     }
 

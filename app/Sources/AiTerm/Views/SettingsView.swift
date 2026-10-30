@@ -98,7 +98,7 @@ struct SettingsView: View {
     let backpack: BackpackController
     /// Claude Code's and Codex's Messaging, read for as long as Settings is open.
     let messaging: MessagingChecks
-    /// The agent card it opened at, scrolled to on Agents (`AppController.presentSettings(tab:agent:)`).
+    /// The agent card it opened at, scrolled to on Agents (`SheetCoordinator.presentSettings(tab:agent:)`).
     let initialAgent: AgentKind?
 
     init(jiraConfig: JiraConfig?, gitLabConfig: GitLabConfig?, gitHubConfig: GitHubConfig? = nil, harnessModel: HarnessSettingsModel,

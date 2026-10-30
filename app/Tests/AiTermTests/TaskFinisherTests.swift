@@ -682,7 +682,7 @@ extension TaskFinisher.Result {
         let task = operated.addTask("PLUTO-231", run: run, state: .accepted, end: end, branch: "feat/pluto-231", acceptedSHA: fixture.sha)
         let world = try OperatorWorld(operated.state, git: git) { ports in
             ports.publisher = { _ in host }
-            ports.mergeSleep = { _ in await ticker.wait() }
+            ports.clock.overrideSleep(.merge) { _ in await ticker.wait() }
         }
         world.show([OperatorServiceFixtures.session("op", tag: run)])
         return (world, run, task, fixture.sha)
@@ -725,8 +725,8 @@ extension TaskFinisher.Result {
         host.update { $0.readiness = [.waiting("its pipeline is running"), .ready(head: fixture.sha)] }
         let world = try OperatorWorld(operated.state, git: git) { ports in
             ports.publisher = { _ in host }
-            ports.mergeSleep = { seconds in await ticker.wait(); clock.slept(seconds) }
-            ports.publishNow = { clock.now }
+            ports.clock.overrideSleep(.merge) { duration in await ticker.wait(); clock.slept(duration / .seconds(1)) }
+            ports.clock.now = { clock.now }
         }
         world.show([OperatorServiceFixtures.session("op", tag: run), OperatorServiceFixtures.session("op2", window: "w2", tag: other)])
         #expect(await world.call(run, "finish_task", ["task": "PLUTO-231"]).value?["result"] == "waitingToMerge")

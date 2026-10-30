@@ -67,16 +67,16 @@ struct SidebarHeader: View {
                 }
             }
             .contentShape(Rectangle())
-            .gesture(TapGesture().onEnded { if let id = rows.broadcast?.id { controller.toggleFolded(run: id) } },
+            .gesture(TapGesture().onEnded { if let id = rows.broadcast?.id { controller.projects.toggleFolded(run: id) } },
                      including: folds ? .all : .subviews)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Projects")
             .accessibilityValue(rows.projectsFolded ? "folded" : "")
             .accessibilityAddTraits(folds ? .isButton : [])
-            .modifier(DefaultAccessibilityAction(enabled: folds) { if let id = rows.broadcast?.id { controller.toggleFolded(run: id) } })
+            .modifier(DefaultAccessibilityAction(enabled: folds) { if let id = rows.broadcast?.id { controller.projects.toggleFolded(run: id) } })
             AddMenu(help: "Add project or divider", enabled: controller.canChangeWorkspace) {
-                Button("Add Project…") { Task { await controller.addProject() } }
-                Button("Add Divider…") { controller.presentNewDivider() }
+                Button("Add Project…") { Task { await controller.projects.addProject() } }
+                Button("Add Divider…") { controller.sheets.presentNewDivider() }
             }
         }
         .frame(height: scale(Size.menuRow)).padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
@@ -91,9 +91,9 @@ extension DividerRow {
         let divider = entry.divider
         self.init(entry: entry,
                   enabled: controller.canChangeWorkspace,
-                  rename: { controller.presentRename(divider: divider) },
-                  move: { controller.move(itemId: divider.id, $0) },
-                  delete: { controller.removeDivider(divider) })
+                  rename: { controller.sheets.presentRename(divider: divider) },
+                  move: { controller.projects.move(itemId: divider.id, $0) },
+                  delete: { controller.projects.removeDivider(divider) })
     }
 }
 
@@ -140,7 +140,7 @@ struct ProjectHeaderRow: View {
                     HeaderTitle(text: project.name)
                     if let badge = ProjectJiraBadge.badge(for: project, showsCount: controller.preferences.badgeDetails.jiraProject) {
                         ProjectJiraBadgeView(badge: badge, canChangeWorkspace: controller.canChangeWorkspace) {
-                            controller.presentJiraProjects(for: project)
+                            controller.sheets.presentJiraProjects(for: project)
                         }
                     }
                 }
@@ -154,12 +154,12 @@ struct ProjectHeaderRow: View {
             .contentShape(Rectangle())
             // A locked workspace turns off the collapse and only that: `.subviews` keeps the Jira
             // badges' links, which change nothing and so have no reason to lock.
-            .gesture(TapGesture().onEnded { controller.toggleCollapsed(project) },
+            .gesture(TapGesture().onEnded { controller.projects.toggleCollapsed(project) },
                      including: collapses ? .all : .subviews)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(collapses ? .isButton : [])
             .accessibilityAddTraits(selected ? .isSelected : [])
-            .modifier(DefaultAccessibilityAction(enabled: collapses) { controller.toggleCollapsed(project) })
+            .modifier(DefaultAccessibilityAction(enabled: collapses) { controller.projects.toggleCollapsed(project) })
             AddMenu(help: "New task, review or terminal", enabled: controller.canChangeWorkspace) { newItems }
         }
         .frame(height: scale(Size.projectRow)).padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
@@ -174,25 +174,25 @@ struct ProjectHeaderRow: View {
             Button("Open in Finder") { ExternalApps.openInFinder(path: project.path) }
             if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: project.path) } }
             Divider()
-            Button("Jira Projects…") { controller.presentJiraProjects(for: project) }
+            Button("Jira Projects…") { controller.sheets.presentJiraProjects(for: project) }
                 .disabled(!controller.canChangeWorkspace)
             Divider()
             // The git operations, a group of their own. The branch is named once a pass has read it.
             if project.provider == .gitlab || project.provider == .github {
                 Button("Pull \(controller.checkouts.defaultBranch[project.id] ?? "Default Branch")") {
-                    controller.pullDefault(project: project)
+                    controller.projects.pullDefault(project: project)
                 }
-                .disabled(controller.isChangingDefaultBranch(project.id))
+                .disabled(controller.projects.isChangingDefaultBranch(project.id))
                 Divider()
             }
             // Disabled at the edges rather than absent: a menu that changes shape with the row's
             // position is worse than a greyed item, and this menu already greys "Remove" when locked.
-            Button("Move Up") { controller.move(itemId: project.id, .up) }
+            Button("Move Up") { controller.projects.move(itemId: project.id, .up) }
                 .disabled(!controller.canChangeWorkspace || !section.canMoveUp)
-            Button("Move Down") { controller.move(itemId: project.id, .down) }
+            Button("Move Down") { controller.projects.move(itemId: project.id, .down) }
                 .disabled(!controller.canChangeWorkspace || !section.canMoveDown)
             Divider()
-            Button("Remove Project…", role: .destructive) { Task { await controller.confirmRemove(project: project) } }
+            Button("Remove Project…", role: .destructive) { Task { await controller.projects.confirmRemove(project: project) } }
                 .disabled(!controller.canChangeWorkspace)
         }
     }
@@ -200,9 +200,9 @@ struct ProjectHeaderRow: View {
     /// What the "+" menu adds, shared with the context menu so the two cannot drift apart. The File
     /// menu's order.
     @ViewBuilder private var newItems: some View {
-        Button("New Task…") { controller.presentNewTask(project: project) }.disabled(project.provider == .none)
-        Button("New Review…") { controller.presentNewReview(project: project) }.disabled(project.provider == .none)
-        Button("New Terminal…") { controller.presentNewTerminal(project: project) }
+        Button("New Task…") { controller.sheets.presentNewTask(project: project) }.disabled(project.provider == .none)
+        Button("New Review…") { controller.sheets.presentNewReview(project: project) }.disabled(project.provider == .none)
+        Button("New Terminal…") { controller.sheets.presentNewTerminal(project: project) }
     }
 }
 
@@ -211,6 +211,7 @@ struct ProjectHeaderRow: View {
 /// pointer redraws that row rather than the whole sidebar. `washed` is the Operator's row: its wash at
 /// rest (`RowPill`).
 struct SelectableRow<Content: View>: View {
+    let id: UUID
     let selected: Bool
     var washed = false
     let activate: () -> Void
@@ -224,17 +225,17 @@ struct SelectableRow<Content: View>: View {
         nonmutating set { _hovered.wrappedValue = newValue }
     }
     #if DEBUG
-    @Environment(\.rowHovered) private var seededHover
+    @Environment(\.seededHover) private var seededHover
     #endif
 
-    init(selected: Bool, washed: Bool = false, activate: @escaping () -> Void, @ViewBuilder content: @escaping () -> Content) {
-        self.selected = selected; self.washed = washed; self.activate = activate; self.content = content
+    init(id: UUID, selected: Bool, washed: Bool = false, activate: @escaping () -> Void, @ViewBuilder content: @escaping () -> Content) {
+        self.id = id; self.selected = selected; self.washed = washed; self.activate = activate; self.content = content
     }
 
     /// The pointer's hover, or in a debug build a test's.
     private var drawsHover: Bool {
         #if DEBUG
-        hovered || seededHover
+        hovered || seededHover?.row == id
         #else
         hovered
         #endif
@@ -242,6 +243,11 @@ struct SelectableRow<Content: View>: View {
 
     var body: some View {
         content()
+            #if DEBUG
+            .transformEnvironment(\.seededHover) { seed in
+                if let row = seed?.row, row != id { seed = nil }
+            }
+            #endif
             .padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
             .padding(.vertical, scale(Space.base))
             .frame(minHeight: scale(Size.row))
@@ -349,21 +355,6 @@ struct RowTitle: View {
     }
 }
 
-/// A line under a sidebar row's title — a removal's progress, why it stopped, what the task is
-/// missing — in its surface's secondary ink. `warns` is amber, except on the accent, where amber
-/// does not read.
-struct RowCaption: View {
-    let text: String
-    var warns = false
-    @Environment(\.surface) private var surface
-
-    init(_ text: String, warns: Bool = false) { self.text = text; self.warns = warns }
-
-    var body: some View {
-        Text(text).font(Typography.help).foregroundStyle(warns && !surface.isOnAccent ? Palette.amber : surface.secondaryInk)
-    }
-}
-
 /// One task or review: its agents, title, badges and branch, and, when there is something to say, why
 /// its window could not come back, or, on a task the Operator drives, its status line as the operator
 /// badge. A driven task’s menu leads with Take Over or Hand Back, and Stop Task… while it is open; a task
@@ -373,13 +364,10 @@ struct TaskRowView: View {
     let task: TaskItem?
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionStill) private var motionStill
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
-    @Environment(\.hoveredRow) private var hoveredRow
     #endif
-    /// A test's, to draw the background mark's card open; the row's own is the card's (`backgroundCard`).
-    var cardHover: BackgroundCardHover? = nil
 
     var body: some View {
         #if DEBUG
@@ -389,10 +377,10 @@ struct TaskRowView: View {
         // redraws that row and not this one.
         let selected = controller.focus.isSelected(row.id)
         let missing = controller.checkouts.isMissing(row.id)
-        let removal = controller.removal(of: row.id), removing = removal?.inProgress == true
+        let removal = controller.remover.removal(of: row.id), removing = removal?.inProgress == true
         // Stopped after its worktree went: it waits on Remove's retry, which archiving would cut short.
         let awaitsRetry = removal?.awaitsRetry == true
-        let failed = controller.hasFailedRestore(row.id)
+        let failed = controller.windows.hasFailed(row.id)
         let caption = TaskRowCaption(removal: removal, missing: missing, failed: failed)
         let folded = caption.folds(under: row.operatorLine)
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
@@ -403,7 +391,7 @@ struct TaskRowView: View {
         // The card lists what the background mark waits on; no other mark opens one.
         let jobs = mark == .status(.background) ? row.background : []
         // A row being removed is not activated: its window is closing, or gone.
-        SelectableRow(selected: selected, activate: { if let task, !removing { controller.choose(task: task.id) } }) {
+        SelectableRow(id: row.id, selected: selected, activate: { if let task, !removing { controller.choose(task: task.id) } }) {
             HStack(spacing: scale(Space.inset)) {
                 AvatarGroupView(group: row.avatars)
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
@@ -411,7 +399,7 @@ struct TaskRowView: View {
                     RowTitle(row.title, dimmed: removing || row.queued)
                     if let progress = caption.progress {
                         // In the badge line's place and at its height, so the row keeps its own.
-                        RowCaption(progress).frame(height: scale(Size.chip))
+                        HelpText(progress, fixedVerticalSize: false).frame(height: scale(Size.chip))
                     } else if !folded {
                         // Ticket, merge request, editor, then the branch — the badges in the order they
                         // are reached for, the branch last because it is the one thing that truncates.
@@ -433,23 +421,20 @@ struct TaskRowView: View {
                     // Why a removal stopped, or what the task is missing, comes first; else what the
                     // Operator says of it: `queued · after PAY-232`, `Operator answering`, `done · 4f2a91c`.
                     if let note = caption.note {
-                        RowCaption(note.text, warns: note.warns).lineLimit(1)
+                        HelpText(note.text, tone: note.warns ? .warning : .secondary, fixedVerticalSize: false).lineLimit(1)
                     } else if let line = row.operatorLine {
                         OperatorBadge(line: line)
                     }
                 }
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: folded)
+                .animation(motionStill == nil ? Motion.settle : nil, value: folded)
                 Spacer(minLength: scale(Space.tight))
                 // The status mark's spinner: the row's agents went with its window. An ended driven task's is the
                 // check, a queued one's the pause sign. In the background, its hover opens the card.
                 TaskRowMarkView(mark: mark, size: SidebarRowLayout.trailingGlyph(scale))
                     .opensBackgroundCard(slot: SidebarRowLayout.trailingSlot(scale))
             }
-            .backgroundCard(jobs, hover: cardHover)
+            .backgroundCard(jobs)
         }
-        #if DEBUG
-        .environment(\.rowHovered, hoveredRow == row.id)
-        #endif
         .accessibilityLabel(voiceOver.label)
         .accessibilityValue(caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip
                             ?? (jobs.isEmpty ? row.status.label : BackgroundCard(jobs: jobs).spoken))
@@ -457,8 +442,8 @@ struct TaskRowView: View {
             if let task {
                 ForEach(voiceOver.actions, id: \.self) { action in
                     switch action {
-                    case .archive: Button(voiceOver.title(of: action)) { Task { await controller.archive(task: task) } }
-                    case .remove: Button(voiceOver.title(of: action)) { Task { await controller.confirmRemove(task: task) } }
+                    case .archive: Button(voiceOver.title(of: action)) { Task { await controller.archiver.archive(task: task) } }
+                    case .remove: Button(voiceOver.title(of: action)) { Task { await controller.remover.confirmRemove(task: task) } }
                     }
                 }
             }
@@ -476,7 +461,7 @@ struct TaskRowView: View {
                     }
                     Divider()
                 }
-                Button("Rename…") { controller.presentRename(task: task) }
+                Button("Rename…") { controller.sheets.presentRename(task: task) }
                     .disabled(!controller.canChangeWorkspace || removing)
                 Divider()
                 Button("Open in Finder") { ExternalApps.openInFinder(path: task.worktreePath) }
@@ -484,9 +469,9 @@ struct TaskRowView: View {
                 if let jira = task.jira { Button("Open in Jira") { ExternalApps.open(link: jira.url) } }
                 Divider()
                 // No ellipsis: it asks nothing unless the worktree has changes to lose.
-                Button("Shelve \(task.kindName)") { Task { await controller.archive(task: task) } }
+                Button("Shelve \(task.kindName)") { Task { await controller.archiver.archive(task: task) } }
                     .disabled(!controller.canChangeWorkspace || removing || awaitsRetry)
-                Button("Remove \(task.kindName)…", role: .destructive) { Task { await controller.confirmRemove(task: task) } }
+                Button("Remove \(task.kindName)…", role: .destructive) { Task { await controller.remover.confirmRemove(task: task) } }
                     .disabled(!controller.canChangeWorkspace || removing)
             }
         }
@@ -537,7 +522,7 @@ struct TerminalRowView: View {
         let _ = bodyCounter?.count(row.id)
         #endif
         let selected = controller.focus.isSelected(row.id)
-        SelectableRow(selected: selected, activate: { if let terminal { controller.focus.select(.terminal(terminal.id)) } }) {
+        SelectableRow(id: row.id, selected: selected, activate: { if let terminal { controller.focus.select(.terminal(terminal.id)) } }) {
             HStack(spacing: scale(Space.inset)) {
                 AvatarGroupView(group: row.avatars)
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
@@ -564,8 +549,8 @@ struct TerminalRowView: View {
                 ForEach(TerminalRowAccessibility(canChangeWorkspace: controller.canChangeWorkspace).actions,
                         id: \.self) { action in
                     switch action {
-                    case .rename: Button(action.rawValue) { controller.presentRename(terminal: terminal) }
-                    case .remove: Button(action.rawValue) { controller.close(terminal: terminal) }
+                    case .rename: Button(action.rawValue) { controller.sheets.presentRename(terminal: terminal) }
+                    case .remove: Button(action.rawValue) { controller.terminals.close(terminal: terminal) }
                     }
                 }
             }
@@ -573,13 +558,13 @@ struct TerminalRowView: View {
         .contextMenu {
             if let terminal {
                 // As a task's menu leads: the same `NameSheet`, on the terminal's name.
-                Button("Rename…") { controller.presentRename(terminal: terminal) }
+                Button("Rename…") { controller.sheets.presentRename(terminal: terminal) }
                     .disabled(!controller.canChangeWorkspace)
                 Divider()
                 Button("Open in Finder") { ExternalApps.openInFinder(path: project.path) }
                 if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: project.path) } }
                 Divider()
-                Button("Remove Terminal", role: .destructive) { controller.close(terminal: terminal) }
+                Button("Remove Terminal", role: .destructive) { controller.terminals.close(terminal: terminal) }
                     .disabled(!controller.canChangeWorkspace)
             }
         }
@@ -605,19 +590,19 @@ extension EnvironmentValues {
     }
 }
 
-/// The task row a test draws hovered with no pointer over it, set on the sidebar
-/// (`SidebarRowGeometryTests`). The row it names hands `rowHovered` to its `SelectableRow`.
-private struct HoveredRowKey: EnvironmentKey { static let defaultValue: UUID? = nil }
-private struct RowHoveredKey: EnvironmentKey { static let defaultValue = false }
+/// A debug fixture can paint a row's hover by identity, or pass the real background-card hover
+/// state to a directly hosted row. Seeding the pill alone never opens the card.
+struct SeededHover {
+    var row: UUID? = nil
+    var backgroundCard: BackgroundCardHover? = nil
+}
+
+private struct SeededHoverKey: EnvironmentKey { static let defaultValue: SeededHover? = nil }
 
 extension EnvironmentValues {
-    var hoveredRow: UUID? {
-        get { self[HoveredRowKey.self] }
-        set { self[HoveredRowKey.self] = newValue }
-    }
-    fileprivate var rowHovered: Bool {
-        get { self[RowHoveredKey.self] }
-        set { self[RowHoveredKey.self] = newValue }
+    var seededHover: SeededHover? {
+        get { self[SeededHoverKey.self] }
+        set { self[SeededHoverKey.self] = newValue }
     }
 }
 #endif

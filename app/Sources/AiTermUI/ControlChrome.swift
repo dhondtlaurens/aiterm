@@ -62,6 +62,12 @@ public extension View {
             .fieldBox(focused: focused)
     }
 
+    /// A chip's fill and optional unscaled hairline at the environment's chip radius. Callers own
+    /// their padding and height; a quiet badge can outset this box without moving its label.
+    func chipChrome(fill: Color, stroke: Color? = nil) -> some View {
+        modifier(ChipChrome(fill: fill, stroke: stroke))
+    }
+
     /// The filled, inset-stroked box every text input sits in, and its focus ring — without
     /// `fieldChrome`'s padding and height, for a field that sizes and insets itself: the prompt
     /// editor.
@@ -69,5 +75,19 @@ public extension View {
         background(RoundedRectangle(cornerRadius: Radius.control).fill(Palette.surface))
             .overlay(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(Palette.border, lineWidth: 1))
             .focusRing(focused)
+    }
+}
+
+private struct ChipChrome: ViewModifier {
+    let fill: Color
+    let stroke: Color?
+    @Environment(\.interfaceScale) private var scale
+
+    func body(content: Content) -> some View {
+        content
+            .background(RoundedRectangle(cornerRadius: scale(Radius.chip)).fill(fill))
+            .overlay {
+                if let stroke { RoundedRectangle(cornerRadius: scale(Radius.chip)).strokeBorder(stroke, lineWidth: 1) }
+            }
     }
 }

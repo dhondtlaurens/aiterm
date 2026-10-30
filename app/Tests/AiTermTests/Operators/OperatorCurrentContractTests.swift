@@ -37,7 +37,7 @@ import Testing
     /// adapters have their own integration tests; here their recorded outcomes drive the same run.
     static func journey(_ state: AppState) async throws -> JSONValue {
         let world = try OperatorWorld(state) { ports in
-            ports.now = { epoch }
+            ports.clock.now = { [epoch] in epoch }
             ports.secondOpinion = .answering("YES\nThe recorded result meets the goal.")
         }
         defer { world.controller.stop() }
@@ -101,7 +101,7 @@ import Testing
         await status("complete")
         #expect(world.workspace.flush())
         let restored = try world.workspace.file.load()
-        let restarted = try OperatorWorld(restored) { $0.now = { epoch } }
+        let restarted = try OperatorWorld(restored) { $0.clock.now = { [epoch] in epoch } }
         defer { restarted.controller.stop() }
         restarted.live.sessions = sessions
         checkpoints["after-restart"] = try restarted.controller.tools.currentStatus(of: #require(restored.runs.first)).map(JSONValue.init(encoding:))

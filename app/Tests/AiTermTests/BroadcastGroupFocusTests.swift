@@ -13,7 +13,7 @@ struct BroadcastGroupFocusTests {
     private func controller(_ run: OperatorRun, failing: [String: DaemonError.Code] = [:],
                             activateIterm: @escaping @MainActor () -> Void = {}) throws -> (AppController, RecordingDaemon) {
         let controller = AppController(preferences: .scratch(), activateIterm: activateIterm)
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         controller.workspace.mutate { $0.runs = [run] }
         let daemon = RecordingDaemon(failing: failing)
         controller.helper.setDaemonClient(daemon)
@@ -109,10 +109,10 @@ struct BroadcastGroupFocusTests {
         let (controller, daemon) = try controller(run)
         defer { controller.shutdown() }
         #expect(controller.rows.broadcast?.folded == false && controller.rows.projectsFolded, "a broadcast opens the Operator")
-        controller.toggleFolded(run: run.id)
+        controller.projects.toggleFolded(run: run.id)
         #expect(controller.state.foldedRuns == [run.id])
         #expect(controller.rows.broadcast?.folded == true && !controller.rows.projectsFolded)
-        controller.toggleFolded(run: run.id)
+        controller.projects.toggleFolded(run: run.id)
         #expect(controller.state.foldedRuns.isEmpty && controller.rows.projectsFolded)
         #expect(controller.sheet == nil)
 
@@ -131,11 +131,11 @@ struct BroadcastGroupFocusTests {
         let run = OperatorUIFixtures.run(questions: [OperatorUIFixtures.question("retry policy?")])
         let (controller, daemon) = try controller(run)
         defer { controller.shutdown() }
-        controller.toggleFolded(run: run.id)
+        controller.projects.toggleFolded(run: run.id)
         #expect(try controller.savedWorkspace().foldedRuns == [run.id])
 
         // ⌘L opens the projects, folding it; ⌘F opens it while the Operator asks, and peeks at the Operator's window.
-        controller.toggleFolded(run: run.id)
+        controller.projects.toggleFolded(run: run.id)
         controller.showListView()
         #expect(controller.state.foldedRuns == [run.id])
         await controller.showFocusView()?.value
@@ -414,7 +414,7 @@ struct BroadcastGroupFocusTests {
         #expect(section.isEmpty && section.collapsed)
         #expect(!ProjectHeaderRow.collapses(section, canChangeWorkspace: true))
         #expect(section.operatorHelp == "The Operator holds 1 worktree in this project.")
-        controller.toggleCollapsed(project)
+        controller.projects.toggleCollapsed(project)
         #expect(controller.state.project(id: project.id)?.collapsed == false, "nothing to fold")
         #expect(ProjectActions.removalDetail(tasks: 3, archived: [], operatorWorktrees: 2)
                 == "Removes the project and its 3 tasks from AiTerm. Files, worktrees and windows are kept. "

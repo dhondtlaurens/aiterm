@@ -29,7 +29,7 @@ import Testing
                                                        at: Date(timeIntervalSince1970: 0))
         }
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])) { ports in
-            if let clock { ports.now = { clock.now } }
+            if let clock { ports.clock.now = { clock.now } }
         }
         world.show(sessions(run, task, worker, conversation: conversation))
         return (world, run, task, worktree)

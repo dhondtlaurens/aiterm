@@ -20,6 +20,7 @@ Swift is written.
 
 ## Working here
 
+- Workflow: docs/workflow/ (read by the psg skills).
 - **Always work in a git worktree.** Other sessions may be editing the main checkout in parallel.
   Check `git status` on `main` before branching.
 - Build and test through `scripts/swift.sh` and `scripts/test.sh`, which pin swiftly's Swift 6.4.

@@ -84,7 +84,7 @@ struct OperatorMenusTests {
     @MainActor @Test func stoppingATaskAsksFirst() async throws {
         let prompter = ScriptedPrompter(answering: "⎋", "↩")
         let controller = AppController(preferences: .scratch(), prompter: prompter)
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let run = OperatorUIFixtures.run()
         let project = OperatorUIFixtures.project("pluto-cms")
         let task = OperatorUIFixtures.task("The signup block schema", project: project.id,

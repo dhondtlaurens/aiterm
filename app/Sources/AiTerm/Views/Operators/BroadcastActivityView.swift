@@ -34,7 +34,7 @@ struct BroadcastActivityView: View {
     var body: some View {
         let calendar = clock?.calendar ?? .current, now = clock?.now ?? Date()
         if entries.isEmpty {
-            Text("Nothing recorded yet.").font(Typography.help).foregroundStyle(Palette.muted)
+            HelpText("Nothing recorded yet.", fixedVerticalSize: false)
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Self.days(entries, calendar: calendar)) { day in
@@ -135,7 +135,7 @@ private struct ActivityRow: View {
                 }
             }
             if let reason = entry.reason {
-                Text(reason).font(Typography.help).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+                HelpText(reason, fixedVerticalSize: false).fixedSize(horizontal: false, vertical: true)
             }
         }
         .contentShape(Rectangle())

@@ -9,7 +9,7 @@ import AiTermCore
 /// last line of a driven task's row and of the Operator's row, a card's last line on the board, the band
 /// under the board's title.
 ///
-/// It reads its ground (`Surface`), as `RowCaption(warns:)` does:
+/// It reads its ground (`Surface`), as `HelpText` does:
 /// - quiet, and ended: no box, the words in the surface's secondary ink (an ended row's check is its
 ///   trailing mark's, `TaskRowMark`, never the line's);
 /// - acting: no box, the words in the surface's ink. New words decode once (P3, decision 3, 21 Oct 2026):
@@ -24,12 +24,7 @@ struct OperatorBadge: View {
     let line: OperatorLine
     @Environment(\.surface) private var surface
     @Environment(\.interfaceScale) private var scale
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    #if DEBUG
-    @Environment(\.stillSpinners) private var still
-    #else
-    private let still = false
-    #endif
+    @Environment(\.motionStill) private var motionStill
 
     /// How long new acting words take to decode, in seconds: calm, once per change, never looped.
     static let decodeDuration = 0.5
@@ -38,8 +33,8 @@ struct OperatorBadge: View {
     struct Box: Equatable { var fill: Color; var stroke: Color? }
 
     /// Whether new words decode: only while acting, never under Reduce Motion, never in a snapshot.
-    static func decodes(_ look: OperatorLine.Look, reduceMotion: Bool, still: Bool) -> Bool {
-        look == .acting && !reduceMotion && !still
+    static func decodes(_ look: OperatorLine.Look, motionStill: MotionStill?) -> Bool {
+        look == .acting && motionStill == nil
     }
 
     /// The words' ink, decoding or standing still.
@@ -59,15 +54,14 @@ struct OperatorBadge: View {
     }
 
     var body: some View {
-        let decoding = Self.decodes(line.look, reduceMotion: reduceMotion, still: still)
+        let decoding = Self.decodes(line.look, motionStill: motionStill)
         let box = Self.box(line.look, surface: surface)
         words(decoding: decoding)
             .padding(.horizontal, box == nil ? 0 : scale(Space.tight))
             .frame(height: scale(Size.chip))
             .background {
                 if let box {
-                    RoundedRectangle(cornerRadius: scale(Radius.chip)).fill(box.fill)
-                        .overlay { if let stroke = box.stroke { RoundedRectangle(cornerRadius: scale(Radius.chip)).strokeBorder(stroke) } }
+                    Color.clear.chipChrome(fill: box.fill, stroke: box.stroke)
                 }
             }
             .help(line.tooltip)

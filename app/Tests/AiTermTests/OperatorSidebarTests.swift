@@ -17,7 +17,7 @@ struct OperatorSidebarTests {
 
     @Test func theListLeadsWithTheOperatorHeadingAndItsBroadcast() throws {
         let controller = AppController(preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let (host, window) = hosted(controller)
         defer { window.orderOut(nil) }
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
@@ -34,9 +34,9 @@ struct OperatorSidebarTests {
         #expect(controller.rows.broadcast?.operatorRow.title == run.name, "the lead row is the broadcast")
 
         // Folded, the Operator's section gives way to the projects: OPERATOR, PROJECTS, the empty block.
-        controller.toggleFolded(run: run.id)
+        controller.projects.toggleFolded(run: run.id)
         settle(host, describing: "the projects open") { list.numberOfRows == 3 && !controller.rows.projectsFolded }
-        controller.toggleFolded(run: run.id)
+        controller.projects.toggleFolded(run: run.id)
         settle(host, describing: "the Operator open again") { list.numberOfRows == 3 && controller.rows.projectsFolded }
 
         controller.workspace.mutate { $0.runs[0].state = .stopped }

@@ -26,7 +26,7 @@ atomically writes the file and maintains recovery copies. Invalid records fail a
 they are never silently discarded and then overwritten with a partial workspace. Recovery keeps
 the unreadable bytes available. A backup must itself decode to be usable; historical unstructured
 broadcasts require cleanup in the installed build before switching, as described in
-[releasing](releasing.md).
+[releasing](workflow/release.md).
 
 `AppState` stores projects, tasks, terminals, the shelf and structured Operator runs. Runtime jobs,
 current sessions and derived attention/readiness are separate. `LiveSessions`, `PerRow` and

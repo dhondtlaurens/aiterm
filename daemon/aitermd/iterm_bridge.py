@@ -9,7 +9,7 @@ import logging
 import os
 import plistlib
 import subprocess
-from collections.abc import Awaitable, Callable, Coroutine, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterable
 from typing import Any, ParamSpec, Protocol, TypeVar
 
 import iterm2
@@ -549,9 +549,27 @@ class ItermBridge:
             raise KeyError(window_id)
         return w
 
+    async def _sessions(self, ids: Iterable[str], *, fresh: bool = False) -> AsyncIterator[tuple[str, iterm2.Session | None]]:
+        """Look up a batch in order, refreshing at most once; a missing session stays None.
+
+        Title batches request a fresh tree because a closed or moved session's cached tab can be stale.
+        Other commands reuse the cached hierarchy until their first miss.
+        """
+        app = await self._app() if fresh else self._tree
+        for session_id in ids:
+            session = app.get_session_by_id(session_id) if app is not None else None
+            if session is None and not fresh:
+                app, fresh = await self._app(), True
+                session = app.get_session_by_id(session_id)
+            yield session_id, session
+
     async def _session(self, session_id: str, app: iterm2.App | None = None) -> iterm2.Session:
         """With `app`, the session in that hierarchy: a batch has fetched it already."""
-        s = app.get_session_by_id(session_id) if app is not None else await self._found(lambda tree: tree.get_session_by_id(session_id))
+        if app is None:
+            self._require()
+            _, s = await anext(self._sessions([session_id]))
+        else:
+            s = app.get_session_by_id(session_id)
         if s is None:
             raise KeyError(session_id)
         return s
@@ -662,16 +680,11 @@ class ItermBridge:
         tab's title as the window title when the window has no separate override. Put the value in
         a variable first because ``async_set_title`` accepts an interpolated string.
         """
-        app = await self._app()
         applied: list[str] = []
-        for session_id, title in titles.items():
-            try:
-                tab = (await self._session(session_id, app)).tab
-            except KeyError:
+        async for session_id, session in self._sessions(titles, fresh=True):
+            if session is None or (tab := session.tab) is None:
                 continue
-            if tab is None:
-                continue
-            await tab.async_set_variable(f"user.{TITLE_TAG}", title)
+            await tab.async_set_variable(f"user.{TITLE_TAG}", titles[session_id])
             await tab.async_set_title(f"\\(user.{TITLE_TAG})")
             applied.append(session_id)
         return applied
@@ -684,15 +697,8 @@ class ItermBridge:
         would also recolour terminals AiTerm does not own, and would persist after the preference
         was switched back off.
         """
-        # Looked up in the cached hierarchy; the first session it lacks fetches a fresh one, which
-        # the rest, found or not, are then looked up in: a tab closed meanwhile is not looked for
-        # again by each.
-        app, fresh = self._tree, False
-        for session_id in session_ids:
+        async for session_id, session in self._sessions(session_ids):
             try:
-                if (session := app.get_session_by_id(session_id) if app is not None else None) is None and not fresh:
-                    app, fresh = await self._app(), True
-                    session = app.get_session_by_id(session_id)
                 if session is None:
                     raise KeyError(session_id)
                 if enabled:
