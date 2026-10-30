@@ -80,7 +80,7 @@ public enum AgentCommand {
     /// launch's model and reasoning; an empty model is none. Every word goes through `shellWord`: the
     /// id comes from the agent's own hooks.
     public static func resume(agent: AgentKind, conversation id: String, model: String?, reasoning: String?) -> String {
-        let model = model.flatMap { $0.isEmpty ? nil : $0 }
+        let model = model.nonEmpty
         return agent.harness.resumeWords(conversation: id, model: model, reasoning: reasoning).map(shellWord).joined(separator: " ")
     }
 

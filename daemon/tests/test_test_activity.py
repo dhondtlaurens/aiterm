@@ -7,6 +7,10 @@ from aitermd.sessions import SessionRegistry
 from aitermd.test_activity import TestActivityReader
 
 
+def apply(reader, registry):
+    return reader.apply(registry, reader.read(registry.all()))
+
+
 def record(folder, run_id, root, state="queued", **fields):
     folder.mkdir(exist_ok=True)
     path = folder / f"{run_id}.json"
@@ -27,13 +31,13 @@ def test_kernel_liveness_overrides_dead_parent_and_stale_state(tmp_path):
     fd = hold(path)
     reader = TestActivityReader(folder, clock=lambda: 20)
     try:
-        assert reader.read()[str(root)].state == "running"  # PID is deliberately absent.
+        assert reader.read().activities[str(root)].state == "running"  # PID is deliberately absent.
     finally:
         os.close(fd)
-    activity = reader.read()[str(root)]
+    activity = reader.read().activities[str(root)]
     assert activity.state == "interrupted" and activity.exit_code is None
     record(folder, "1", root, "completed", finished_at=21, exit_code=7)
-    activity = reader.read()[str(root)]
+    activity = reader.read().activities[str(root)]
     assert activity.state == "completed" and activity.exit_code == 7
 
 
@@ -44,7 +48,7 @@ def test_queue_position_and_holder_include_only_live_tickets(tmp_path):
     queued = record(folder, "3", tmp_path / "own")
     fds = [hold(holder), hold(queued)]
     try:
-        own = TestActivityReader(folder, clock=lambda: 20).read()[str(tmp_path / "own")]
+        own = TestActivityReader(folder, clock=lambda: 20).read().activities[str(tmp_path / "own")]
         assert own.state == "queued" and own.queue_position == 1
         assert own.holder == f"swift in {tmp_path / 'holder'}"
         assert stale.exists()  # reader observes, never deletes another run's files.
@@ -59,10 +63,10 @@ def test_new_active_run_beats_completed_and_results_expire(tmp_path):
     path = record(folder, "2", root, queued_at=11)
     fd = hold(path)
     try:
-        assert TestActivityReader(folder, clock=lambda: 20).read()[str(root)].run_id == "2"
+        assert TestActivityReader(folder, clock=lambda: 20).read().activities[str(root)].run_id == "2"
     finally:
         os.close(fd)
-    assert TestActivityReader(folder, clock=lambda: 1000).read() == {}
+    assert TestActivityReader(folder, clock=lambda: 1000).read().activities == {}
 
 
 def test_exact_worktree_projects_once_and_closed_sessions_are_forgotten(tmp_path):
@@ -75,13 +79,13 @@ def test_exact_worktree_projects_once_and_closed_sessions_are_forgotten(tmp_path
     registry.apply_snapshot(rows)
     reader = TestActivityReader(folder, clock=lambda: 20)
     try:
-        assert reader.apply(registry) == ["main"]
+        assert apply(reader, registry) == ["main"]
         assert registry.get("main").test_activity.run_id == "1"
         assert registry.get("extra").test_activity is None
         assert registry.get("neighbor").test_activity is None
-        assert reader.apply(registry) == []
+        assert apply(reader, registry) == []
         registry.apply_snapshot(rows[1:])
-        assert reader.apply(registry) == ["extra"]
+        assert apply(reader, registry) == ["extra"]
     finally:
         os.close(fd)
 
@@ -95,7 +99,7 @@ def test_nested_cwd_uses_deepest_worktree_at_a_path_boundary(tmp_path):
     registry.apply_snapshot([RawSession("nested", "w", 0, "claude", 12, "", str(root / "task" / "app")),
                              RawSession("neighbor", "w2", 0, "claude", 13, "", str(tmp_path / "project2"))])
     try:
-        TestActivityReader(folder, clock=lambda: 20).apply(registry)
+        apply(TestActivityReader(folder, clock=lambda: 20), registry)
         assert registry.get("nested").test_activity.run_id == "2"
         assert registry.get("neighbor").test_activity is None
     finally:
@@ -115,7 +119,7 @@ def test_parent_checkout_run_cannot_hold_a_nested_distinct_worktree(tmp_path):
     registry = SessionRegistry()
     registry.apply_snapshot([RawSession("inner", "w", 0, "claude", 12, "", str(inner / "app"))])
     try:
-        TestActivityReader(folder, clock=lambda: 20).apply(registry)
+        apply(TestActivityReader(folder, clock=lambda: 20), registry)
         assert registry.get("inner").test_activity is None
     finally:
         os.close(fd)
@@ -129,13 +133,13 @@ def test_observed_exit_survives_disk_retention_until_session_replaced(tmp_path):
     registry.apply_snapshot([row])
     now = [20]
     reader = TestActivityReader(folder, clock=lambda: now[0])
-    assert reader.apply(registry) == ["main"]
+    assert apply(reader, registry) == ["main"]
     now[0] = 1000
-    assert reader.apply(registry) == []
+    assert apply(reader, registry) == []
     assert registry.get("main").test_activity.exit_code == 7
     row.job_pid = 13
     registry.apply_snapshot([row])
-    reader.apply(registry)
+    apply(reader, registry)
     assert registry.get("main").test_activity is None
 
 
@@ -145,9 +149,9 @@ def test_conversation_replacement_drops_previous_exit_even_while_record_retained
     registry = SessionRegistry()
     registry.apply_snapshot([RawSession("main", "w", 0, "claude", 12, "", str(root))])
     reader = TestActivityReader(folder, clock=lambda: 20)
-    reader.apply(registry)
+    apply(reader, registry)
     registry.get("main").conversation_id = "new-conversation"
-    reader.apply(registry)
+    apply(reader, registry)
     assert registry.get("main").test_activity is None
 
 
@@ -159,9 +163,9 @@ def test_observed_long_run_losing_its_lock_has_explicit_unavailable_exit(tmp_pat
     registry.apply_snapshot([RawSession("main", "w", 0, "claude", 12, "", str(root))])
     now = [20]
     reader = TestActivityReader(folder, clock=lambda: now[0])
-    reader.apply(registry)
+    apply(reader, registry)
     os.close(fd)
     now[0] = 1000
-    reader.apply(registry)
+    apply(reader, registry)
     assert registry.get("main").test_activity.state == "interrupted"
     assert registry.get("main").test_activity.exit_code is None

@@ -83,7 +83,7 @@ private struct OperatorAutonomyGroup: View {
     var body: some View {
         SettingsGroup(title: "Autonomy", help: OperatorSettingsPane.autonomyHelp) {
             row(title: "Base", help: OperatorSettingsPane.baseHelp) {
-                Text(OperatorSettingsPane.alwaysOn).font(Typography.help).foregroundStyle(Palette.muted)
+                HelpText(OperatorSettingsPane.alwaysOn, fixedVerticalSize: false)
             }
             ForEach(OperatorSettingsPane.slices) { slice in
                 Hairline()

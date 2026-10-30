@@ -84,15 +84,8 @@ public struct GitLabClient: Sendable {
     /// read, `HTTPJSON` hands back the body and the status only — and at most `discussionPages`.
     /// Read-only.
     public func reviewThreads(project: String, iid: Int) async throws -> ReviewThreads {
-        let path = Self.requestsPath(project) + "/\(iid)/discussions"
-        var resolutions: [Bool] = []
-        for page in 1...Self.discussionPages {
-            let query = [URLQueryItem(name: "per_page", value: String(Self.discussionsPerPage)),
-                         URLQueryItem(name: "page", value: String(page))]
-            let discussions = try await get([Lenient<DiscussionPayload>].self, path: path, query: query,
-                                            notFound: .projectNotFound(project))
-            resolutions += discussions.compactMap { $0.value?.resolution }
-            if discussions.count < Self.discussionsPerPage { break }
+        let resolutions = try await readDiscussions(project: project, iid: iid, complete: false) { discussions in
+            discussions.compactMap { $0.value?.resolution }
         }
         return ReviewThreads(resolutions: resolutions)
     }
@@ -223,12 +216,7 @@ public struct GitLabClient: Sendable {
     /// for protected branches): `threadPagesRead` pages without reaching it, or a discussion that does not decode, or
     /// a thread without an id, throws `IncompleteRead`, so nothing is decided on part of them.
     public func threads(project: String, iid: Int) async throws -> [ReviewThread] {
-        let path = Self.requestsPath(project) + "/\(iid)/discussions"
-        return try await HTTPJSON.pagesUntilEmpty(limit: Self.threadPagesRead, exhausted: IncompleteRead("review threads")) { page in
-            try await get([Lenient<DiscussionPayload>].self, path: path,
-                query: [URLQueryItem(name: "per_page", value: String(Self.discussionsPerPage)), URLQueryItem(name: "page", value: String(page))],
-                notFound: .projectNotFound(project))
-        } items: { discussions in
+        try await readDiscussions(project: project, iid: iid, complete: true) { discussions in
             try discussions.compactMap { entry in
                 guard let discussion = entry.value else { throw IncompleteRead("review threads") }
                 guard discussion.resolution != nil else { return nil }
@@ -236,6 +224,23 @@ public struct GitLabClient: Sendable {
                 return thread
             }
         }
+    }
+
+    /// Badges stop on a short page or at their bound; publication requires the terminal empty page.
+    /// Project binding, requests and per-page validation are shared without making a partial read complete.
+    private func readDiscussions<Item>(project: String, iid: Int, complete: Bool,
+                                       items: ([Lenient<DiscussionPayload>]) throws -> [Item]) async throws -> [Item] {
+        var result: [Item] = []
+        for page in 1...(complete ? Self.threadPagesRead : Self.discussionPages) {
+            let discussions = try await get([Lenient<DiscussionPayload>].self, path: Self.requestsPath(project) + "/\(iid)/discussions",
+                query: [URLQueryItem(name: "per_page", value: String(Self.discussionsPerPage)), URLQueryItem(name: "page", value: String(page))],
+                notFound: .projectNotFound(project))
+            if discussions.isEmpty { return result }
+            result += try items(discussions)
+            if !complete && discussions.count < Self.discussionsPerPage { return result }
+        }
+        if complete { throw IncompleteRead("review threads") }
+        return result
     }
 
     /// A reply in the discussion `discussion`.

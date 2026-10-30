@@ -239,3 +239,8 @@ public enum Sheet {
 public enum Opacity {
     public static let disabled: Double = 0.4
 }
+
+/// Shared motion for a toast arriving or a task's badge line folding away.
+public enum Motion {
+    public static let settle = Animation.easeOut(duration: 0.2)
+}

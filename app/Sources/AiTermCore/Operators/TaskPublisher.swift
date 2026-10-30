@@ -120,9 +120,8 @@ public struct TaskPublisher: Sendable {
             return try await Self.mergeLocally(context, repository: repository, recheck: recheck, record: record)
         }
 
-        let (defaultBranch, tip) = try await BackgroundWork.run { (repository.defaultBranch(), try repository.tip(of: branch)) }
-        if let refusal = PublicationGuard.refusal(task: task, run: context.run, parent: context.parent,
-                                                  defaultBranch: defaultBranch, branchTip: tip) {
+        let (defaultBranch, refusal) = try await Self.guardRefusal(context, repository: repository)
+        if let refusal {
             return .refused(refusal)
         }
         guard let acceptance = operated.acceptance else { return .refused(Self.noAcceptedCommit) }
@@ -297,13 +296,12 @@ public struct TaskPublisher: Sendable {
     public static func mergeLocally(_ context: Context, repository: Repository,
                                     recheck: @escaping @Sendable () async -> String?,
                                     record: @escaping @Sendable (TaskPublication) async throws -> Void) async throws -> Outcome {
-        let task = context.task, branch = task.branch
+        let task = context.task
         guard let operated = task.operated else { return .refused(PublicationGuard.notOperated) }
         let publication = operated.publication ?? TaskPublication()
         if operated.state == .published || publication.merged { return .published(publication) }
-        let (defaultBranch, tip) = try await BackgroundWork.run { (repository.defaultBranch(), try repository.tip(of: branch)) }
-        if let refusal = PublicationGuard.refusal(task: task, run: context.run, parent: context.parent,
-                                                  defaultBranch: defaultBranch, branchTip: tip) {
+        let (defaultBranch, refusal) = try await Self.guardRefusal(context, repository: repository)
+        if let refusal {
             return .refused(refusal)
         }
         guard let sha = operated.acceptance?.resultSHA else { return .refused(Self.noAcceptedCommit) }
@@ -318,6 +316,14 @@ public struct TaskPublisher: Sendable {
         merged.problem = nil
         try await record(merged)
         return .published(merged)
+    }
+
+    /// The branch facts and publication guard are read together for both hosted and local publication.
+    private static func guardRefusal(_ context: Context, repository: Repository) async throws -> (defaultBranch: String, refusal: String?) {
+        let task = context.task
+        let (defaultBranch, tip) = try await BackgroundWork.run { (repository.defaultBranch(), try repository.tip(of: task.branch)) }
+        return (defaultBranch, PublicationGuard.refusal(task: task, run: context.run, parent: context.parent,
+                                                       defaultBranch: defaultBranch, branchTip: tip))
     }
 
     /// What a readiness read that is not ready, or a merge's answer, makes of the publication. Any

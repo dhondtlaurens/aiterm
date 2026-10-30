@@ -38,7 +38,7 @@ extension AppController {
     /// Runs `work` here and now, reports what it threw as `title`, and says whether it went through.
     @discardableResult
     func attemptNow(_ title: String, _ work: @MainActor () async throws -> Void) async -> Bool {
-        do { try await work(); return true } catch { report(OperationIssue(title: title + ".", error: error)); return false }
+        do { try await work(); return true } catch { notices.report(OperationIssue(title: title + ".", error: error)); return false }
     }
 }
 
@@ -65,7 +65,7 @@ extension AppController {
                                          installed: installed, models: models, remembered: remembered, preferences: preferences)
             }
             guard let self, self.canPresentNewBroadcast else { return }
-            self.sheets.presentNewBroadcast(context: context, loadJiraProjects: { [weak self] in try await self?.loadJiraProjects() ?? [] },
+            self.sheets.presentNewBroadcast(context: context, loadJiraProjects: { [weak self] in try await self?.projects.loadJiraProjects() ?? [] },
                                             readiness: { [weak self] in self?.broadcastReadiness ?? .checking },
                                             checkReadiness: { [weak self] in await self?.checkBroadcastReadiness() },
                                             hasCodeHost: { (try? await codeHost.connects($0)) ?? false }) { [weak self] request in
@@ -175,7 +175,7 @@ extension AppController {
     func perform(_ item: OperatorMenuItem, on run: OperatorRun) {
         switch item {
         case .openBoard: openBoard(run.id)
-        case .rename: presentRename(run: run)
+        case .rename: sheets.presentRename(run: run)
         case .pause: pause(run)
         case .resume: resume(run)
         case .endBroadcast: Task { await confirmEnd(run) }
@@ -218,11 +218,8 @@ extension AppController {
         case .task(let id): state.task(id: id)?.operated?.runId == run.id
         case .project, .terminal: false
         }
-        if inBroadcast == folded { toggleFolded(run: run.id) }
+        if inBroadcast == folded { projects.toggleFolded(run: run.id) }
     }
-
-    /// Rename…: the `NameSheet`, on the broadcast's name.
-    func presentRename(run: OperatorRun) { sheets.presentRename(run: run) }
 
     /// The name sheet's answer. An emptied field keeps the name, as a renamed task's does.
     func rename(run: OperatorRun, to name: String) {
@@ -284,7 +281,7 @@ extension AppController {
 
     /// Fix in Settings, from a Notice about an agent AiTerm can't type into: Settings at that agent's card.
     func presentAgentSettings(for agent: AgentKind) {
-        presentSettings(tab: .agents, agent: agent)
+        sheets.presentSettings(tab: .agents, agent: agent)
     }
 
     /// The board's buttons, each on the broadcast as it is when pressed, and nothing once it is no longer

@@ -384,7 +384,7 @@ struct CommandBlock: View {
     let command: String
     var body: some View {
         VStack(alignment: .leading, spacing: Space.tight) {
-            Text(caption).font(Typography.help).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.middle)
+            HelpText(caption, fixedVerticalSize: false).lineLimit(1).truncationMode(.middle)
             HStack(spacing: Space.snug) {
                 Text("$").font(Typography.monoCode).foregroundStyle(Palette.green)
                 Text(String(command.prefix(300))).font(Typography.monoCode).foregroundStyle(Palette.text)

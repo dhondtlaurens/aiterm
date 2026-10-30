@@ -49,7 +49,7 @@ final class CheckoutMonitor {
     /// `refreshTask` of one started after it.
     @ObservationIgnored private var refreshGeneration = 0
     @ObservationIgnored private var sessionGate = WorkspaceScan.SessionGate()
-    @ObservationIgnored private var monitor: Task<Void, Never>?
+    @ObservationIgnored private var monitor: PollLoop?
 
     /// What a pass runs off the main actor: ``WorkspaceScan/run(cwds:projects:tasks:branches:remotes:diffs:defaultBranches:)``,
     /// except in the tests that count passes.
@@ -116,13 +116,10 @@ final class CheckoutMonitor {
     func startMonitoring() {
         guard monitor == nil else { return }
         let interval = pollInterval
-        monitor = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let pass = self?.startPass(owesTrailing: false) else { break }
-                await pass.value
-                do { try await Task.sleep(for: interval) }
-                catch { break }
-            }
+        monitor = PollLoop(interval: interval) { [weak self] in
+            guard let pass = self?.startPass(owesTrailing: false) else { return nil }
+            await pass.value
+            return interval
         }
     }
 

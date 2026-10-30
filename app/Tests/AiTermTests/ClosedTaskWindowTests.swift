@@ -232,7 +232,7 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: "alive")
         controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
 
-        let removal = await controller.confirmRemove(task: task)
+        let removal = await controller.remover.confirmRemove(task: task)
         try await server.received("window.close")
         controller.helper.handle(.windowClosed("alive"))
         #expect(!controller.windows.triage.isHolding, "the removal's close, held as no task's")
@@ -456,7 +456,7 @@ extension AppControllerTests {
             .stub("4", window: "t", terminal: terminal),
         ], usage: .empty)))
         // The removal lets its window go and is held there.
-        let removal = await controller.confirmRemove(task: leaving)
+        let removal = await controller.remover.confirmRemove(task: leaving)
         try await server.received("window.close")
 
         controller.helper.handle(.itermDisconnected)

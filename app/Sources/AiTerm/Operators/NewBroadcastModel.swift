@@ -400,17 +400,12 @@ final class NewBroadcastModel: Identifiable {
 
     // -- moving on and starting -----------------------------------------------------
 
-    private static func said(_ text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
     /// Step 1 needs a project; every later step a prompt too, and from the Agents step on a row. The review and the goal
     /// may be left empty. Start Broadcast also waits for everything the broadcast needs to be ready (`readiness`), and
     /// for the chosen projects' code hosts to be checked; Continue never does.
     func canAdvance(step: Int) -> Bool {
         guard !starting, canChangeWorkspace(), !projects.isEmpty else { return false }
-        guard step == 1 || Self.said(prompt) != nil else { return false }
+        guard step == 1 || Optional(prompt).said != nil else { return false }
         if let agentsStep = CreationSteps.broadcast.agentsListStep, step >= agentsStep, agentRows.isEmpty { return false }
         return step < CreationSteps.broadcast.count || (readiness == .ready && codeHostsKnown)
     }
@@ -428,14 +423,14 @@ final class NewBroadcastModel: Identifiable {
 
     /// Starts the broadcast and returns its id, or nil with why in `error`.
     func start() async -> UUID? {
-        guard canStart, let prompt = Self.said(prompt) else { return nil }
+        guard canStart, let prompt = Optional(prompt).said else { return nil }
         starting = true
         defer { starting = false }
         error = nil
-        let taskSettings = TaskSettings(review: Self.said(review), end: end, closeWhenDone: closeWhenDone,
+        let taskSettings = TaskSettings(review: Optional(review).said, end: end, closeWhenDone: closeWhenDone,
                                         deleteMergedBranch: deleteMergedBranch)
-        let goal = goalIsAvailable ? Self.said(done).map { BroadcastGoal(text: $0, extraRounds: extraRounds) } : nil
-        let request = Request(name: Self.said(name), jiraProjectKeys: jiraProjects.map(\.key), projectIds: projects.map(\.id),
+        let goal = goalIsAvailable ? Optional(done).said.map { BroadcastGoal(text: $0, extraRounds: extraRounds) } : nil
+        let request = Request(name: Optional(name).said, jiraProjectKeys: jiraProjects.map(\.key), projectIds: projects.map(\.id),
                               prompt: prompt, agents: agents, taskSettings: taskSettings, goal: goal)
         do { return try await startBroadcast(request) }
         catch { self.error = CreationFailure(reason: OperationIssue.reason(of: error), detail: nil); return nil }

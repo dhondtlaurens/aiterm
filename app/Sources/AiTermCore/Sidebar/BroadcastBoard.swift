@@ -322,7 +322,7 @@ public struct BroadcastBoard: Equatable, Sendable {
             progress: progress(of: run, tasks: tasks, band: band, keepsHanded: keepsHanded),
             clauses: [Clause(label: "Asked", text: oneLine(run.prompt))]
                 + [("Goal", run.goal?.text)].compactMap { label, text in
-                    text.map(oneLine).flatMap { $0.isEmpty ? nil : Clause(label: label, text: $0) }
+                    text.map(oneLine).nonEmpty.map { Clause(label: label, text: $0) }
                 },
             eachTask: eachTask(run.taskSettings), goalOutcome: run.goalOutcome,
             columns: columns,
@@ -333,7 +333,7 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// The Each task line: the review prompt quoted when there is one, `ends at draft MR`, then `closed at the end`
     /// while finished tasks are closed.
     private static func eachTask(_ settings: TaskSettings) -> Clause {
-        let review = settings.review.map(oneLine).flatMap { $0.isEmpty ? nil : "“\($0)”" }
+        let review = settings.review.map(oneLine).nonEmpty.map { "“\($0)”" }
         let parts = [review, "ends at " + settings.end.displayName, settings.closeWhenDone ? "closed at the end" : nil]
         return Clause(label: "Each task", text: parts.compactMap { $0 }.joined(separator: " · "))
     }
@@ -457,7 +457,7 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// The card of a task closed at the broadcast's end, from its record: the title, agent, ticket and combination it
     /// had, its line as it read with `· removed` after it, and nothing to open.
     private static func card(_ record: FinishedTaskRecord, labels: ModelLabels, project: String?) -> Card {
-        let effort = record.reasoning.flatMap { $0.isEmpty ? nil : $0 }
+        let effort = record.reasoning.nonEmpty
         return Card(id: record.task, title: record.title, agent: record.agent, ticket: record.ticket, ticketSummary: nil,
                     mr: nil, mrHost: nil, mrTitle: nil, project: project,
                     line: OperatorLine(record.result + " · removed", look: .ended), takenOver: false, needsYou: false, opens: .nothing,
@@ -470,7 +470,7 @@ public struct BroadcastBoard: Equatable, Sendable {
     static func combination(_ agent: AgentKind, _ model: String, _ reasoning: String?, labels: ModelLabels) -> String? {
         guard !model.isEmpty else { return nil }
         let name = labels[agent]?[model] ?? model
-        return ([name] + [reasoning.flatMap { $0.isEmpty ? nil : $0.capitalized }].compactMap { $0 }).joined(separator: " · ")
+        return ([name] + [reasoning.nonEmpty.map { $0.capitalized }].compactMap { $0 }).joined(separator: " · ")
     }
 
     /// What a card out of fix rounds says under its rule, from the last verdict: `3 rounds of fixes, and the last review,
@@ -564,7 +564,7 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// model or effort than planned (`live`, `LiveModel.differs`) adds `Now on claude-opus-5-5 · high` under them.
     private static func modelTooltip(_ task: TaskItem, _ operated: OperatedTask, live: LiveModel?) -> String? {
         guard !task.model.isEmpty else { return nil }
-        let effort = task.reasoning.flatMap { $0.isEmpty ? nil : $0 }
+        let effort = task.reasoning.nonEmpty
         var lines = [modelLine(task.agent, task.model, effort)]
         if let reason = operated.modelReason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty { lines.append(reason) }
         if let live, live.differs(fromModel: task.model, reasoning: effort) {

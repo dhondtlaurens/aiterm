@@ -67,7 +67,7 @@ enum Snapshots {
     private static func write(_ view: some View, to url: URL) {
         if hosted {
             let host = NSHostingView(rootView: view.environment(\.colorScheme, .dark).environment(\.footerClock, clock)
-                .environment(\.stillSpinners, true))
+                .environment(\.motionStill, .snapshot))
             let size = host.fittingSize
             host.frame = CGRect(origin: .zero, size: size)
             let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -104,7 +104,7 @@ enum Snapshots {
 
     private static func png(_ view: some View) -> Data? {
         let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark).environment(\.snapshotRendering, true)
-            .environment(\.footerClock, clock).environment(\.stillSpinners, true))
+            .environment(\.footerClock, clock).environment(\.motionStill, .snapshot))
         renderer.scale = 2
         // `colorScheme` reaches SwiftUI; an AppKit colour resolves against the drawing appearance,
         // which is the app's only while `Appearance.apply` has run. Pinned here, the images are
@@ -138,18 +138,10 @@ struct Snapshot {
 /// `SheetLayout` then lays its content out flat and clipped instead.
 private struct SnapshotRenderingKey: EnvironmentKey { static let defaultValue = false }
 
-/// Set for every image: a working mark's arc stands still at one angle rather than turning on the
-/// shared spin, so two runs draw the same pixels.
-private struct StillSpinnersKey: EnvironmentKey { static let defaultValue = false }
-
 extension EnvironmentValues {
     var snapshotRendering: Bool {
         get { self[SnapshotRenderingKey.self] }
         set { self[SnapshotRenderingKey.self] = newValue }
-    }
-    var stillSpinners: Bool {
-        get { self[StillSpinnersKey.self] }
-        set { self[StillSpinnersKey.self] = newValue }
     }
 }
 #endif

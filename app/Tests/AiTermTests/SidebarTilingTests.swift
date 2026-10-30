@@ -116,7 +116,7 @@ struct SidebarTilingTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let window = sidebarWindow()
         controller.tiling.sidebarWindow = window
         controller.tiling.finishPendingMove()

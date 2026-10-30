@@ -163,7 +163,7 @@ struct PickerResultRow: View {
                 .frame(width: keyWidth, alignment: .leading)
             Text(title).font(Typography.caption).foregroundStyle(surface.ink).lineLimit(1)
             Spacer(minLength: Space.snug)
-            if let detail { Text(detail).font(Typography.help).foregroundStyle(surface.secondaryInk) }
+            if let detail { HelpText(detail, fixedVerticalSize: false) }
         }
     }
 

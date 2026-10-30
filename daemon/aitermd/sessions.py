@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 
 from .models import (PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, RawSession, SessionInfo, SlashCommand,
                      State, StoppedOn, classify_agent)
@@ -53,15 +53,9 @@ class SessionRegistry:
             # A tab reused for another agent or another process must not keep the old one's model
             # or context, nor send Cmd+T into the worktree an exited Claude had entered.
             if info.agent == old.agent and info.job_pid == old.job_pid:
-                info.model, info.reasoning, info.agent_cwd = old.model, old.reasoning, old.agent_cwd
-                info.context_percent = old.context_percent
-                info.cli_version = old.cli_version
-                info.conversation_id = old.conversation_id
-                info.background, info.subagents_written_at = old.background, old.subagents_written_at
-                info.your_prompt = old.your_prompt
-                info.transcript, info.slash_commands = old.transcript, old.slash_commands
-                info.stopped_on = old.stopped_on
-                info.test_activity = old.test_activity
+                for process_field in fields(SessionInfo):
+                    if process_field.metadata.get("process"):
+                        setattr(info, process_field.name, getattr(old, process_field.name))
             if info != old:
                 self._sessions[r.session_id] = info
                 diff.changed.append(r.session_id)
@@ -110,94 +104,53 @@ class SessionRegistry:
             s.stopped_on = None
         return True
 
+    def _set(self, session_id: str, name: str, value: object, keep_last_if_empty: bool = False) -> bool:
+        s = self._sessions.get(session_id)
+        if s is None or (keep_last_if_empty and not value) or getattr(s, name) == value:
+            return False
+        setattr(s, name, value)
+        return True
+
     def set_stopped_on(self, session_id: str, stopped: StoppedOn | None) -> bool:
         """What ended the session's last turn short (SessionInfo.stopped_on); None once it works again."""
-        s = self._sessions.get(session_id)
-        if s is None or s.stopped_on == stopped:
-            return False
-        s.stopped_on = stopped
-        return True
+        return self._set(session_id, "stopped_on", stopped)
 
     def set_your_prompt(self, session_id: str, prompt: str | None) -> bool:
-        s = self._sessions.get(session_id)
-        if s is None or s.your_prompt == prompt:
-            return False
-        s.your_prompt = prompt
-        return True
+        return self._set(session_id, "your_prompt", prompt)
 
     def set_agent_cwd(self, session_id: str, cwd: str | None) -> bool:
-        s = self._sessions.get(session_id)
-        if s is None or not cwd or s.agent_cwd == cwd:
-            return False
-        s.agent_cwd = cwd
-        return True
+        return self._set(session_id, "agent_cwd", cwd, keep_last_if_empty=True)
 
     def set_conversation(self, session_id: str, conversation: str | None) -> bool:
-        s = self._sessions.get(session_id)
-        if s is None or not conversation or s.conversation_id == conversation:
-            return False
-        s.conversation_id = conversation
-        return True
+        return self._set(session_id, "conversation_id", conversation, keep_last_if_empty=True)
 
     def set_transcript(self, session_id: str, transcript: str | None) -> bool:
         """Where the tab's Claude writes its conversation (SessionInfo.transcript). None or empty names none, which
         leaves the last one standing. Not a change to announce: it is not sent."""
-        s = self._sessions.get(session_id)
-        if s is None or not transcript or s.transcript == transcript:
-            return False
-        s.transcript = transcript
-        return True
+        return self._set(session_id, "transcript", transcript, keep_last_if_empty=True)
 
     def set_slash_commands(self, session_id: str, commands: tuple[SlashCommand, ...]) -> bool:
-        s = self._sessions.get(session_id)
-        if s is None or s.slash_commands == commands:
-            return False
-        s.slash_commands = commands
-        return True
+        return self._set(session_id, "slash_commands", commands)
 
     def set_background(self, session_id: str, work: tuple[BackgroundJob, ...]) -> bool:
-        s = self._sessions.get(session_id)
-        if s is None or s.background == work:
-            return False
-        s.background = work
-        return True
+        return self._set(session_id, "background", work)
 
     def set_subagents_written_at(self, session_id: str, written_at: float | None) -> bool:
-        s = self._sessions.get(session_id)
-        if s is None or s.subagents_written_at == written_at:
-            return False
-        s.subagents_written_at = written_at
-        return True
+        return self._set(session_id, "subagents_written_at", written_at)
 
     def set_context(self, session_id: str, percent: int | None) -> bool:
-        s = self._sessions.get(session_id)
-        if s is None or s.context_percent == percent:
-            return False
-        s.context_percent = percent
-        return True
+        return self._set(session_id, "context_percent", percent)
 
     def set_cli_version(self, session_id: str, version: str | None) -> bool:
         """The version the tab's agent CLI reports (SessionInfo.cli_version). None or empty is no
         reading, which leaves the last one standing: a process's version does not change."""
-        s = self._sessions.get(session_id)
-        if s is None or not version or s.cli_version == version:
-            return False
-        s.cli_version = version
-        return True
+        return self._set(session_id, "cli_version", version, keep_last_if_empty=True)
 
     def set_model(self, session_id: str, model: str | None) -> bool:
-        s = self._sessions.get(session_id)
-        if s is None or s.model == model:
-            return False
-        s.model = model
-        return True
+        return self._set(session_id, "model", model)
 
     def set_reasoning(self, session_id: str, reasoning: str | None) -> bool:
-        s = self._sessions.get(session_id)
-        if s is None or s.reasoning == reasoning:
-            return False
-        s.reasoning = reasoning
-        return True
+        return self._set(session_id, "reasoning", reasoning)
 
     # -- lookups ---------------------------------------------------------
     def get(self, session_id: str) -> SessionInfo | None:

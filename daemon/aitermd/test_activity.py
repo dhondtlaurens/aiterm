@@ -6,11 +6,12 @@ import json
 import math
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from .models import TestActivity
+from .models import SessionInfo, TestActivity
 from .sessions import SessionRegistry
 
 RESULT_SECONDS = 300
@@ -46,6 +47,14 @@ def _worktree_boundary(cwd: Path | None) -> Path | None:
     return None
 
 
+@dataclass(frozen=True)
+class ActivityRead:
+    activities: dict[str, TestActivity]
+    # The captured session, its resolved directory and its nearest checkout. All filesystem
+    # observation happens in read(); apply() only matches these values against the live registry.
+    locations: dict[str, tuple[SessionInfo, Path | None, Path | None]]
+
+
 class TestActivityReader:
     __test__ = False
 
@@ -56,7 +65,8 @@ class TestActivityReader:
         self._identity: dict[str, tuple[int | None, str | None]] = {}
         self._replaced_at: dict[str, float] = {}
 
-    def read(self) -> dict[str, TestActivity]:
+    def read(self, sessions: Iterable[SessionInfo] = ()) -> ActivityRead:
+        """Blocking observation only. The caller captures session values before leaving the loop."""
         records: list[tuple[dict[str, Any], bool]] = []
         now = self.clock()
         for path in self.directory.glob("*.json"):
@@ -96,11 +106,27 @@ class TestActivityReader:
                 holder=holder if state == "queued" else None,
                 exit_code=exit_code if state == "completed" and type(exit_code) is int else None,
                 finished_at=_number(data.get("finished_at")) or None)
-        return result
+        locations: dict[str, tuple[SessionInfo, Path | None, Path | None]] = {}
+        for session in sessions:
+            cwd = Path(session.agent_cwd or session.cwd).resolve() if session.cwd or session.agent_cwd else None
+            locations[session.session_id] = (session, cwd, _worktree_boundary(cwd))
+        return ActivityRead(result, locations)
 
-    def apply(self, registry: SessionRegistry) -> list[str]:
-        readings, assigned, changed = self.read(), set(), []
+    def apply(self, registry: SessionRegistry, reading: ActivityRead) -> list[str]:
+        """Apply a still-current snapshot on the loop, retaining worktree ownership as one pass."""
+        readings, assigned, changed = reading.activities, set(), []
         sessions = registry.all()
+        # Assignment is one ordered pass. If a hook changed an input during the read, retry the
+        # whole view next tick instead of moving a skipped main worker's activity to a sibling.
+        if len(sessions) != len(reading.locations):
+            return []
+        for session in sessions:
+            if (location := reading.locations.get(session.session_id)) is None:
+                return []
+            captured = location[0]
+            if ((session.agent, session.job_pid, session.conversation_id, session.agent_cwd, session.cwd) !=
+                    (captured.agent, captured.job_pid, captured.conversation_id, captured.agent_cwd, captured.cwd)):
+                return []
         live_keys = {(s.session_id, s.job_pid, s.conversation_id) for s in sessions}
         self._results = {key: value for key, value in self._results.items() if key in live_keys}
         live_ids = {s.session_id for s in sessions}
@@ -109,8 +135,7 @@ class TestActivityReader:
         # Worktree activity belongs to the task, not each sibling tab. Prefer its main worker and
         # attach once; closed sessions disappear from the registry and leave nothing remembered here.
         for session in sorted(sessions, key=lambda s: (s.tab_key is not None, s.tab_index, s.session_id)):
-            cwd = Path(session.agent_cwd or session.cwd).resolve() if session.cwd or session.agent_cwd else None
-            boundary = _worktree_boundary(cwd)
+            _, cwd, boundary = reading.locations[session.session_id]
             # A CLI commonly chdirs into app/ or daemon/. Match a real path boundary and the
             # deepest recorded worktree, so a parent project or a similarly named neighbor cannot win.
             roots = [root for root in readings if cwd is not None and cwd.is_relative_to(Path(root))

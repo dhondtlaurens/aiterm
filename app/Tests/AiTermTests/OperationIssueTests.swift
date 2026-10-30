@@ -61,7 +61,7 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.prompter.checksTheCheckbox = false
 
-        await fixture.controller.confirmRemove(task: task)?.value
+        await fixture.controller.remover.confirmRemove(task: task)?.value
 
         #expect(fixture.controller.state.tasks.isEmpty)
         #expect(fixture.controller.issue == nil)
@@ -74,7 +74,7 @@ extension AppControllerTests {
         let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
 
-        fixture.controller.dismissIssue()
+        fixture.controller.notices.dismissIssue()
 
         #expect(fixture.controller.issue == nil)
         #expect(fixture.controller.remover.removals[task.id]?.awaitsRetry == true)
@@ -85,7 +85,7 @@ extension AppControllerTests {
         let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
 
-        fixture.controller.report("Couldn’t show the window.")
+        fixture.controller.notices.report("Couldn’t show the window.")
         #expect(fixture.controller.remover.removals[task.id] == .stopped(note: "Not removed: branch kept", worktreeRemoved: true))
         await fixture.controller.perform(.keepBranch(task.id))?.value
 
@@ -101,8 +101,8 @@ extension AppControllerTests {
         let question = fixture.controller.issue
         #expect(question?.actions.isEmpty == false)
 
-        fixture.controller.report("Couldn’t show the window.")
-        fixture.controller.report(OperationIssue(title: "Couldn’t reopen the window.", reason: "Nope.", subject: task.id))
+        fixture.controller.notices.report("Couldn’t show the window.")
+        fixture.controller.notices.report(OperationIssue(title: "Couldn’t reopen the window.", reason: "Nope.", subject: task.id))
 
         #expect(fixture.controller.issue == question)
     }
@@ -114,11 +114,11 @@ extension AppControllerTests {
         let controller = fixture.controller
         let rebase = OperationIssue(title: "Couldn’t pull the default branch.", actions: [.rebaseDefault(fixture.project.id)])
 
-        controller.report(rebase)
+        controller.notices.report(rebase)
         #expect(controller.issue == rebase, "a question replaces a question")
-        controller.dismissIssue()
-        controller.report("First.")
-        controller.report("Second.")
+        controller.notices.dismissIssue()
+        controller.notices.report("First.")
+        controller.notices.report("Second.")
         #expect(controller.issue == OperationIssue(title: "Second."), "a message replaces a message")
         #expect(controller.remover.removals[task.id]?.awaitsRetry == true, "the row's retry never rode on the banner")
     }
@@ -130,10 +130,10 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         let task = try fixture.addTask(windowId: nil)
-        controller.seedSnapshotRemoval(.stopped(note: "Not removed", worktreeRemoved: false), of: task.id)
-        controller.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
+        controller.remover.seedSnapshotRemoval(.stopped(note: "Not removed", worktreeRemoved: false), of: task.id)
+        controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
 
-        controller.report("Something else.")
+        controller.notices.report("Something else.")
 
         #expect(controller.issue?.title == "Something else.")
         #expect(controller.remover.removals[task.id] == nil)
@@ -145,11 +145,11 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         let task = try fixture.addTask(windowId: nil)
-        controller.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
+        controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
         let note = TaskRemoval.stopped(note: "Not removed", worktreeRemoved: false)
-        controller.seedSnapshotRemoval(note, of: task.id)
+        controller.remover.seedSnapshotRemoval(note, of: task.id)
 
-        controller.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Still busy.", subject: task.id))
+        controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Still busy.", subject: task.id))
 
         #expect(controller.issue?.reason == "Still busy.")
         #expect(controller.remover.removals[task.id] == note)
@@ -162,10 +162,10 @@ extension AppControllerTests {
         let controller = fixture.controller
         let task = try fixture.addTask(windowId: nil)
         let note = TaskRemoval.stopped(note: "Not removed", worktreeRemoved: false)
-        controller.seedSnapshotRemoval(note, of: task.id)
-        controller.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)]))
+        controller.remover.seedSnapshotRemoval(note, of: task.id)
+        controller.notices.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)]))
 
-        controller.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
+        controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
 
         #expect(controller.remover.removals[task.id] == note)
     }
@@ -177,16 +177,16 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         let task = try fixture.addTask(windowId: nil)
-        controller.seedSnapshotRemoval(.stopped(note: "Not removed", worktreeRemoved: false), of: task.id)
-        controller.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)]))
+        controller.remover.seedSnapshotRemoval(.stopped(note: "Not removed", worktreeRemoved: false), of: task.id)
+        controller.notices.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)]))
         let failure = OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id)
-        controller.report(failure)
+        controller.notices.report(failure)
 
-        controller.dismissIssue()
+        controller.notices.dismissIssue()
         #expect(controller.issue == failure)
         #expect(controller.remover.removals[task.id] != nil, "its note stays while its banner shows")
 
-        controller.dismissIssue()
+        controller.notices.dismissIssue()
         #expect(controller.issue == nil)
         #expect(controller.remover.removals[task.id] == nil)
     }
@@ -195,12 +195,12 @@ extension AppControllerTests {
         let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
 
-        fixture.controller.report("First.")
-        fixture.controller.report("Second.")
+        fixture.controller.notices.report("First.")
+        fixture.controller.notices.report("Second.")
         await fixture.controller.perform(.keepBranch(task.id))?.value
 
         #expect(fixture.controller.issue == OperationIssue(title: "Second."))
-        fixture.controller.dismissIssue()
+        fixture.controller.notices.dismissIssue()
         #expect(fixture.controller.issue == nil, "only the newest was kept")
     }
 
@@ -213,7 +213,7 @@ extension AppControllerTests {
                              model: "model", reasoning: nil, firstPrompt: nil, appendTicket: false,
                              createdAt: Date(timeIntervalSince1970: 0), windowId: "w")
         fixture.controller.workspace.mutate { $0.tasks.append(other) }
-        fixture.controller.report(OperationIssue(title: "Couldn’t reopen the window.", subject: other.id))
+        fixture.controller.notices.report(OperationIssue(title: "Couldn’t reopen the window.", subject: other.id))
 
         fixture.controller.workspace.mutate { state in state.tasks.removeAll { $0.id == other.id } }
         await fixture.controller.perform(.keepBranch(task.id))?.value
@@ -228,7 +228,7 @@ extension AppControllerTests {
         let controller = fixture.controller
         controller.helper.setDaemonClient(RecordingDaemon())
         let task = try fixture.addTask(windowId: nil)
-        controller.report(OperationIssue(title: "Couldn’t remove the task.", subject: task.id))
+        controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", subject: task.id))
 
         controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
         await controller.windows.lastRestore?.value
@@ -244,8 +244,8 @@ extension AppControllerTests {
         let controller = fixture.controller
         controller.helper.setDaemonClient(RecordingDaemon())
         let task = try fixture.addTask(windowId: nil)
-        controller.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)], subject: task.id))
-        controller.report(OperationIssue(title: "Couldn’t reopen the window.", reason: "Busy.", subject: task.id))
+        controller.notices.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)], subject: task.id))
+        controller.notices.report(OperationIssue(title: "Couldn’t reopen the window.", reason: "Busy.", subject: task.id))
 
         controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
         await controller.windows.lastRestore?.value
@@ -271,7 +271,7 @@ extension AppControllerTests {
         let (fixture, _) = try await removedWithUnmergedBranch(answering: "Remove", "Remove")
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
 
-        await fixture.controller.confirmRemove(project: fixture.project)
+        await fixture.controller.projects.confirmRemove(project: fixture.project)
 
         #expect(fixture.controller.state.projects.isEmpty)
         #expect(fixture.controller.issue == nil)
@@ -287,7 +287,7 @@ extension AppControllerTests {
         try fixture.controller.workspace.file.save(without)
         try fixture.controller.workspace.file.save(without)
 
-        try fixture.controller.restoreWorkspace()
+        try fixture.controller.workspace.restoreBackup()
 
         #expect(fixture.controller.state.tasks.isEmpty)
         #expect(fixture.controller.issue == nil)
@@ -313,7 +313,7 @@ extension AppControllerTests {
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [.stub("a", window: "alive")],
                                                           usage: .empty)))
 
-        await controller.confirmRemove(task: task)?.value
+        await controller.remover.confirmRemove(task: task)?.value
         await controller.windows.lastRestore?.value
 
         #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
@@ -332,7 +332,7 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: nil)
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
-        await fixture.controller.confirmRemove(task: task)?.value
+        await fixture.controller.remover.confirmRemove(task: task)?.value
         #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
         return (fixture, task)
     }

@@ -183,7 +183,7 @@ struct PickChip: View {
             .buttonStyle(.plain).help(removeHelp).accessibilityLabel(removeHelp)
         }
         .padding(.horizontal, Space.snug).frame(height: Self.lineHeight)
-        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(Palette.badge))
+        .chipChrome(fill: Palette.badge)
         .fixedSize(horizontal: false, vertical: true)
     }
 }

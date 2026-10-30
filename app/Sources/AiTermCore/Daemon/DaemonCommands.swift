@@ -37,11 +37,6 @@ public protocol DaemonCommands: Sendable {
 }
 
 extension DaemonCommands {
-    /// Compatibility for a helper that cannot return the prompt's visible text.
-    public func promptDetails(sessionId: String) async throws -> PromptDetails {
-        PromptDetails(kind: try await prompt(sessionId: sessionId))
-    }
-
     /// A task window in front, as every window but an operator's worker's opens.
     public func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame) async throws -> String {
         try await createTaskWindow(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand, frame: frame, background: false)

@@ -27,7 +27,7 @@ struct SidebarProjectionTests {
         WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [], removedTasks: [], remotes: [:])
     }) throws -> AppController {
         let controller = AppController(preferences: .scratch(), scan: scan)
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         controller.workspace.mutate { [project, task] state in
             state.append(project: project)
             state.tasks = [task]
@@ -117,7 +117,7 @@ struct SidebarProjectionTests {
     @Test func theBadgeCountsTheDerivedRows() throws {
         var written: [String?] = []
         let controller = AppController(preferences: .scratch(), setBadge: { written.append($0) })
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         controller.workspace.mutate { [project, task] state in
             state.append(project: project)
             state.tasks = [task]
@@ -157,12 +157,12 @@ struct SidebarProjectionTests {
                                        prompter: ScriptedPrompter(answering: "Remove"), setBadge: { written.append($0) }, git: git)
         // The task has the window its tab is in, as the row would have taken it, and a helper to close it with.
         controller.helper.setDaemonClient(RecordingDaemon())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         controller.workspace.mutate { $0.append(project: project); $0.tasks = [task] }
         controller.live.handle(.sessionOpened(tab(.done)))
         #expect(written == ["1"])
 
-        let removal = try #require(await controller.confirmRemove(task: task))
+        let removal = try #require(await controller.remover.confirmRemove(task: task))
         await removal.value
         #expect(controller.state.tasks.isEmpty, "the task is removed")
         #expect(written == ["1", nil])
@@ -172,7 +172,7 @@ struct SidebarProjectionTests {
     /// event that moved only its worker's model or effort derives the board again, and while it does not, nothing.
     @Test func theBoardFollowsWhatItsClaudeWorkerRunsNow() throws {
         let controller = AppController(preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let rows = controller.rows, run = OperatorUIFixtures.run()
         var task = OperatorUIFixtures.task("Pricing page", project: project.id,
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "PAY-1", state: .working))

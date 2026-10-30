@@ -35,19 +35,19 @@ public final class BackpackSettings: @unchecked Sendable {
     /// The chosen network's password. macOS will not hand an iPhone hotspot's saved password to
     /// another app, so the person types it once. An empty one reads as none.
     public var password: String? {
-        get { lock.withLock { _ in secrets.get(Key.password) }.flatMap { $0.isEmpty ? nil : $0 } }
+        get { lock.withLock { _ in secrets.get(Key.password) }.nonEmpty }
         set { setPassword(newValue) }
     }
 
     /// Writes the password, or removes it for nil or empty. False when the store refused.
     @discardableResult
     public func setPassword(_ value: String?) -> Bool {
-        lock.withLock { _ in secrets.set(Key.password, value?.isEmpty == false ? value : nil) }
+        lock.withLock { _ in secrets.set(Key.password, value.nonEmpty) }
     }
 
     /// The network to join. An empty name reads as none.
     public var network: String? {
-        get { (read(Key.network) as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        get { (read(Key.network) as? String).nonEmpty }
         set { write(newValue, Key.network) }
     }
 

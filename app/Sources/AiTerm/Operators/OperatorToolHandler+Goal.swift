@@ -119,8 +119,6 @@ extension OperatorToolHandler {
         let parents = merge.flatMap { try? git.run(["rev-list", "--parents", "-n", "1", $0], in: path, timeout: goalStatTimeout) }
         let range = if let merge, (parents?.split(separator: " ").count ?? 0) > 2 { ["\(merge)^1", merge] }
                     else { ["\(base.isEmpty ? Repository(path, git: git).defaultBranch() : base)...\(sha)"] }
-        let stat = (try? git.run(["diff", "--shortstat"] + range, in: path, timeout: goalStatTimeout))?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return stat?.isEmpty == false ? stat : nil
+        return (try? git.run(["diff", "--shortstat"] + range, in: path, timeout: goalStatTimeout)).said
     }
 }

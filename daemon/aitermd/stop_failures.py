@@ -2,12 +2,12 @@
 Blocking file I/O: the service runs it on a worker thread."""
 from __future__ import annotations
 
-import json
-import os
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 from .claude_subagents import TAIL_BYTES
+from .jsonl import records_newest_first
 
 # The StopFailure errors that are a usage or rate limit, which resets: Claude Code may carry on by itself then.
 LIMIT_ERRORS = frozenset({"rate_limit"})
@@ -38,16 +38,8 @@ def _records_newest_first(path: str) -> Iterator[dict[str, Any]]:
     """The complete records at the end of the transcript, newest first: none of a line still being written, or of one
     the tail begins inside of, nor one that does not parse. Nothing when the file cannot be read."""
     try:
-        with open(path, "rb") as f:
-            start = max(0, os.fstat(f.fileno()).st_size - TAIL_BYTES)
-            f.seek(start)
-            lines = f.read(TAIL_BYTES).split(b"\n")[:-1]
+        for record in records_newest_first(Path(path), TAIL_BYTES):
+            if isinstance(record, dict):
+                yield record
     except OSError:
         return
-    for line in reversed(lines[1:] if start else lines):
-        try:
-            record = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(record, dict):
-            yield record

@@ -173,9 +173,10 @@ public struct Badge: View {
         // The content shape makes a quiet badge's gaps clickable, where its clear wash would not be.
         content
             .contentShape(Rectangle())
-            .background(RoundedRectangle(cornerRadius: scale(Radius.chip))
-                .fill(Self.fill(surface: surface, hovered: hovered, style: style))
-                .padding(.horizontal, style == .quiet ? -scale(Space.tight) : 0))
+            .background {
+                Color.clear.chipChrome(fill: Self.fill(surface: surface, hovered: hovered, style: style))
+                    .padding(.horizontal, style == .quiet ? -scale(Space.tight) : 0)
+            }
     }
 
     /// A diff count's ink, isolated the same way `labelInk` is: green and red off the accent, and

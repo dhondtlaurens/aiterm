@@ -13,9 +13,7 @@ struct TaskStep: View {
 
     var body: some View {
         FrontToBackStack(spacing: Space.block) {
-            Text("\(Text(NewBroadcastModel.taskLeadTitle).fontWeight(.semibold).foregroundStyle(Palette.text)) \(NewBroadcastModel.taskLead)")
-                .font(Typography.help).foregroundStyle(Palette.muted)
-                .fixedSize(horizontal: false, vertical: true)
+            HelpText(Text("\(Text(NewBroadcastModel.taskLeadTitle).fontWeight(.semibold).foregroundStyle(Palette.text)) \(NewBroadcastModel.taskLead)"))
             // Claude's form for what `/` writes, as on the Prompt step.
             PromptStep(text: $model.review, agent: .claude, completions: model.completions, label: NewBroadcastModel.reviewLabel,
                        placeholder: NewBroadcastModel.reviewPlaceholder, help: NewBroadcastModel.reviewHelp)
