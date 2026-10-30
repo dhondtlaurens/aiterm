@@ -262,9 +262,12 @@ import Testing
         #expect(accepted.value?["state"] == "accepted")
         let acceptance = try #require(world.task(task.id)?.operated?.acceptance)
         #expect(acceptance.resultSHA == tip && acceptance.checkOutput == "12 tests passed")
+        let baseline = try #require(world.task(task.id)?.operated?.acceptanceWorktreeFingerprint)
+        try Data("After acceptance.\n".utf8).write(to: URL(fileURLWithPath: task.worktreePath).appendingPathComponent("plan.md"))
         let again = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "12 tests passed"])
         #expect(again == accepted)
         #expect(world.task(task.id)?.operated?.acceptance == acceptance)
+        #expect(world.task(task.id)?.operated?.acceptanceWorktreeFingerprint == baseline, "a repeat cannot swallow later edits")
     }
 
     @Test func aRepeatedAcceptReturnsTheEarlierResultEvenAfterTheBranchMoved() async throws {

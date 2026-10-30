@@ -26,14 +26,14 @@ final class WorkerTurnReader {
         var observedOrder = 0
     }
 
-    /// What a reading holds for beyond its session: the task's state, and the commit `changedAfterAcceptance` is measured
-    /// against while it is accepted, inReview or published. Accepted again on another commit, or reopened, with no turn
-    /// since, what was read no longer holds.
+    /// What a reading holds for beyond its session: the task's state, accepted commit and content baseline.
+    /// Reaccepting, refreshing the baseline or reopening invalidates it even without a new worker turn.
     struct Basis: Equatable, Sendable {
-        var state: OperatedState, accepted: String?
+        var state: OperatedState, accepted: String?, fingerprint: String?
         init(_ task: OperatedTask) {
             state = task.state
             accepted = [.accepted, .inReview, .published].contains(task.state) ? task.acceptance?.resultSHA : nil
+            fingerprint = accepted == nil ? nil : task.acceptanceWorktreeFingerprint
         }
     }
 
@@ -174,8 +174,9 @@ final class WorkerTurnReader {
                     (try? git.run(["rev-parse", "HEAD"], in: worktree)).map { OperatedTransitions.sameCommit($0, earlier) } ?? false
                 } ?? false
                 let changed = accepted.map { sha in
-                    WorkerTurn.changedAfterAcceptance(porcelain: (try? git.run(["status", "--porcelain"], in: worktree)) ?? "",
-                                                      head: try? git.run(["rev-parse", "HEAD"], in: worktree), accepted: sha)
+                    WorkerTurn.changedAfterAcceptance(head: try? git.run(["rev-parse", "HEAD"], in: worktree), accepted: sha,
+                        fingerprint: basis.fingerprint.flatMap { _ in try? Repository(worktree, git: git).worktreeFingerprint() },
+                        acceptedFingerprint: basis.fingerprint)
                 } ?? false
                 return Reading(session: session, state: state, basis: basis, lastMessage: message, commitsAhead: ahead,
                                changedAfterAcceptance: changed, atReopenedCommit: atReopened,

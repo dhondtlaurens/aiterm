@@ -26,11 +26,15 @@ import Testing
     @Test func anAcceptedDependentLosesItsAcceptanceAndWorksAgain() throws {
         let made = family(.accepted)
         var world = made.world
+        world.state.updateOperated(made.parent) { $0.acceptanceWorktreeFingerprint = "parent content" }
+        world.state.updateOperated(made.child) { $0.acceptanceWorktreeFingerprint = "child content" }
         let changed = try UpstreamReplacement.reaccept(made.parent, as: acceptance("new"), in: &world.state)
         #expect(changed == [made.child])
         #expect(world.operated(made.parent)?.acceptance?.resultSHA == "new")
         #expect(world.operated(made.child)?.state == .working)
         #expect(world.operated(made.child)?.acceptance == nil)
+        #expect(world.operated(made.parent)?.acceptanceWorktreeFingerprint == nil)
+        #expect(world.operated(made.child)?.acceptanceWorktreeFingerprint == nil)
         #expect(world.operated(made.child)?.flags.contains(.upstreamReplaced) == true)
     }
 

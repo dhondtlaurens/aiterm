@@ -451,8 +451,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var branchDrift: [String]
         /// Workers that ended their turn asking something, on tasks in any state (spec §J). A working one is not ready.
         public var workerAsks: [WorkerAsk]
-        /// Accepted, inReview or published tasks whose worktree moved on from the accepted commit once their worker's turn
-        /// ended: changes not committed, or another HEAD. Someone worked there after the acceptance.
+        /// Accepted, inReview or published tasks whose ended turn left another HEAD or uncommitted content differing
+        /// from its acceptance baseline. Older acceptances without a baseline can prove only HEAD movement.
         public var changedAfterAcceptance: [String]
         /// Working tasks whose worker ended its turn with no commit past where its work starts (spec §E): not ready; mark it
         /// noChange or steer it. Never a reopened one on its accepted commit, which is ready to accept again.

@@ -435,11 +435,11 @@ import Foundation
         #expect(status.obligations.readyForAcceptance.isEmpty && status.obligations.finishedWithoutCommit.isEmpty)
     }
 
-    /// Work done in an accepted task's worker after its acceptance, a dirty worktree or a HEAD past the accepted commit,
+    /// Work done after acceptance, content differing from its recorded baseline or a HEAD past the accepted commit,
     /// is listed on accepted, inReview and published tasks; never on a working one.
     @Test func workDoneAfterAcceptanceIsListed() throws {
-        let dirty = WorkerTurn.changedAfterAcceptance(porcelain: " M src/app.ts", head: "4f2a91c", accepted: "4f2a91c")
-        let moved = WorkerTurn.changedAfterAcceptance(porcelain: "", head: "b0b0b0b", accepted: "4f2a91c")
+        let dirty = WorkerTurn.changedAfterAcceptance(head: "4f2a91c", accepted: "4f2a91c", fingerprint: "new", acceptedFingerprint: "old")
+        let moved = WorkerTurn.changedAfterAcceptance(head: "b0b0b0b", accepted: "4f2a91c")
         #expect(dirty && moved)
         for state in [OperatedState.accepted, .inReview, .published] {
             #expect(try turn(state, changed: dirty, accepted: true).obligations.changedAfterAcceptance == ["B"], "\(state)")
