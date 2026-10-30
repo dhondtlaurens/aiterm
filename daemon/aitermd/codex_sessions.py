@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import State
-from .text import nonempty_string
+from .text import iso_seconds, nonempty_string
 from .jsonl import JsonlCursor, records_newest_first
 from .usage import clamped_percent, finite_number
 
@@ -140,7 +140,7 @@ class CodexSessionFiles:
                 if kind == "turn_aborted":
                     cursor.latest = None
                 elif kind in ("task_started", "task_complete"):
-                    stamp = _seconds(record.get("timestamp"))
+                    stamp = iso_seconds(record.get("timestamp"))
                     cursor.latest = ("working" if kind == "task_started" else "done", stamp) if stamp is not None else None
             return cursor.latest
         except OSError:
@@ -253,21 +253,9 @@ def _mtime(path: Path) -> int | None:
         return None
 
 
-def _seconds(timestamp: Any) -> float | None:
-    if not isinstance(timestamp, str):
-        return None
-    try:
-        parsed = datetime.fromisoformat(timestamp)
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=UTC)
-        return parsed.timestamp()
-    except (ValueError, OverflowError):
-        return None
-
-
 def _epoch(timestamp: Any) -> int | None:
     """Codex stamps records in RFC 3339 UTC (`2026-09-22T14:31:09.229Z`)."""
-    seconds = _seconds(timestamp)
+    seconds = iso_seconds(timestamp)
     return int(seconds) if seconds is not None else None
 
 

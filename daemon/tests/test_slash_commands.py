@@ -108,6 +108,12 @@ def test_a_command_queued_while_its_session_works_reads_queued_until_it_runs(tmp
     assert settled(queued, records, T0 + 701).state == "ran"
 
 
+def test_a_record_whose_time_has_no_zone_is_read_as_utc(tmp_path, away_from_utc):
+    record = {**queue("enqueue", T0 + 1, "/probe"), "timestamp": iso(T0 + 1).removesuffix("Z")}
+    queued = settled(typed("/probe"), read(tmp_path / "t.jsonl", ASSISTANT, record), T0 + 2)
+    assert (queued.state, queued.seen_at) == ("queued", pytest.approx(T0 + 1))
+
+
 def test_a_command_with_nothing_in_its_transcript_is_delivered_then_unknown(tmp_path):
     # An /effort run mid-turn takes effect and writes nothing, and one waiting on a dialog nothing yet: no record is not
     # a sign it did not run.

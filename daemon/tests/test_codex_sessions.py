@@ -96,6 +96,13 @@ def test_rate_limits_are_none_without_a_usable_record(tmp_path):
     assert CodexSessionFiles(root).rate_limits() is None
 
 
+def test_rate_limits_whose_time_has_no_zone_age_from_utc(tmp_path, away_from_utc):
+    root = tmp_path / "sessions"
+    write_rollout(root, "t", [rate_limited({"used_percent": 3.0, "window_minutes": 300, "resets_at": None},
+                                           timestamp="2026-09-22T14:31:09.229")])
+    assert CodexSessionFiles(root).rate_limits()[1] == 1790087469
+
+
 def test_rate_limits_without_a_timestamp_still_count_and_age_as_unknown(tmp_path):
     root = tmp_path / "sessions"
     record = rate_limited({"used_percent": 3.0, "window_minutes": 300, "resets_at": None})

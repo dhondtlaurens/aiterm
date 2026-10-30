@@ -18,7 +18,6 @@ import os
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -26,7 +25,7 @@ from .delivery import MESSAGE_FILE_THRESHOLD, pasteable
 from .jsonl import JsonlCursor
 from .models import SlashCommand
 from .sessions import SessionRegistry
-from .text import nonempty_string
+from .text import iso_seconds, nonempty_string
 
 # How long a typed command may go with nothing of it in its transcript before it is unknown: one run at once has its
 # record within a second, and one that waits its turn its enqueue.
@@ -68,14 +67,6 @@ def _spaced(text: str) -> str:
     return " ".join(text.split())
 
 
-def _time(value: Any) -> float | None:
-    """A record's `timestamp` (`2026-10-26T08:21:16.304Z`) on the wall clock."""
-    try:
-        return datetime.fromisoformat(value).timestamp() if isinstance(value, str) else None
-    except ValueError:
-        return None
-
-
 def _text(record: dict[str, Any]) -> str | None:
     """A user record's own text, or a local command's system record's: never a tool's result, which is a list."""
     if record.get("type") == "user" and isinstance(message := record.get("message"), dict):
@@ -93,7 +84,7 @@ def _record(line: bytes) -> TranscriptRecord | None:
         r = json.loads(line)
     except ValueError:
         return None
-    if not isinstance(r, dict) or r.get("isSidechain") is True or (at := _time(r.get("timestamp"))) is None:
+    if not isinstance(r, dict) or r.get("isSidechain") is True or (at := iso_seconds(r.get("timestamp"))) is None:
         return None
     prompt = nonempty_string(r.get("promptId"))
     if r.get("type") == "queue-operation":

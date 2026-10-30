@@ -155,7 +155,7 @@ import Testing
             // when nothing else does.
             (Self.pull(draft: true, mergeableState: "draft"), Self.runs([("test", "completed", "failure")]), Self.statuses([]), .blocked("its check test failed")),
             (Self.pull(draft: true, mergeableState: "draft"), Self.runs([("test", "in_progress", nil)]), Self.statuses([]), .waiting("its checks are running")),
-            // Many CIs skip their checks on a draft: skipped is no failure while it is one, so the draft is all that stops it
+            // Many CIs skip their checks on a draft: skipped passes, as GitHub counts it, so the draft is all that stops it
             // and it is marked ready; its checks then run. A conflict a draft already shows still stops it.
             (Self.pull(draft: true, mergeableState: "draft"), Self.runs([("test", "completed", "skipped")]), Self.statuses([]), .blocked("it is a draft")),
             (Self.pull(draft: true, mergeableState: "draft"), Self.runs([("test", "completed", "skipped"), ("lint", "completed", "failure")]), Self.statuses([]),
@@ -196,29 +196,39 @@ import Testing
         #expect(try await state(runs: Self.runs([])).pipeline == nil, "no checks at all is no pipeline")
     }
 
-    /// Neutral, skipped and action-required checks are not passes, and a check or status still pending is
-    /// not done: none of them reads ready, whatever `mergeable_state` says.
-    @Test func aCheckThatIsNotAPassIsNeverGreen() async throws {
-        let blocked: [(String, String)] = [("neutral", "its check lint did not pass (neutral)"), ("skipped", "its check lint did not pass (skipped)"),
-                                           ("stale", "its check lint did not pass (stale)"), ("action_required", "its check lint needs someone to act"),
-                                           ("cancelled", "its check lint was cancelled"), ("timed_out", "its check lint failed"),
-                                           ("startup_failure", "its check lint failed")]
-        for (conclusion, why) in blocked {
-            let (client, _) = makeClient(host(pull: Self.pull(), checkRuns: Self.runs([("test", "completed", "success"), ("lint", "completed", conclusion)])))
-            #expect(try await client.mergeReadiness(repo: "octocat/hello", number: 88) == .blocked(why), "\(conclusion)")
+    /// Both readings of a head's checks come from one table, GitHub's own (neutral and skipped pass, as branch protection
+    /// counts them), so the merge and `run_status` never disagree: a failed check blocks and is `failure`, one still
+    /// running or with a conclusion AiTerm does not know waits and is `pending`, and only green reaches `mergeable_state`
+    /// and is `success`. A failed check is said before a running one.
+    @Test func theMergeAndRunStatusReadEveryCheckTheSameWay() async throws {
+        let running = MergeReadiness.waiting("its checks are running")
+        var cases: [(runs: String, statuses: String, readiness: MergeReadiness, pipeline: String)] = [
+            ("neutral", MergeReadiness.ready(head: Self.head), "success"), ("skipped", .ready(head: Self.head), "success"),
+            ("stale", .blocked("its check lint went stale"), "failure"), ("action_required", .blocked("its check lint needs someone to act"), "failure"),
+            ("cancelled", .blocked("its check lint was cancelled"), "failure"), ("timed_out", .blocked("its check lint failed"), "failure"),
+            ("startup_failure", .blocked("its check lint failed"), "failure"), ("failure", .blocked("its check lint failed"), "failure"),
+            ("a_new_conclusion", running, "pending"),
+        ].map { (Self.runs([("test", "completed", "success"), ("lint", "completed", $0.0)]), Self.statuses([]), $0.1, $0.2) }
+        cases += [
+            (Self.runs([("lint", "completed", nil)]), Self.statuses([]), running, "pending"),
+            (Self.runs([("lint", "in_progress", nil), ("test", "completed", "failure")]), Self.statuses([]), .blocked("its check test failed"), "failure"),
+        ]
+        cases += ["queued", "in_progress", "pending", "waiting", "requested"].map {
+            (Self.runs([("test", "completed", "success"), ("lint", $0, nil)]), Self.statuses([]), running, "pending")
         }
-        for status in ["queued", "in_progress", "pending", "waiting", "requested"] {
-            let (client, _) = makeClient(host(pull: Self.pull(), checkRuns: Self.runs([("test", "completed", "success"), ("lint", status, nil)])))
-            #expect(try await client.mergeReadiness(repo: "octocat/hello", number: 88) == .waiting("its checks are running"), "\(status)")
-        }
-        // A conclusion AiTerm does not know, or none on a run that says it completed, waits.
-        for conclusion in ["a_new_conclusion", nil] {
-            let (client, _) = makeClient(host(pull: Self.pull(), checkRuns: Self.runs([("lint", "completed", conclusion)])))
-            #expect(try await client.mergeReadiness(repo: "octocat/hello", number: 88) == .waiting("its checks are running"), "\(conclusion ?? "nil")")
-        }
-        for state in ["pending", "a_new_state"] {
-            let (client, _) = makeClient(host(pull: Self.pull(), status: Self.statuses([("ci/jenkins", state)])))
-            #expect(try await client.mergeReadiness(repo: "octocat/hello", number: 88) == .waiting("its checks are running"), "\(state)")
+        cases += [("success", MergeReadiness.ready(head: Self.head), "success"), ("pending", running, "pending"), ("a_new_state", running, "pending"),
+                  ("failure", .blocked("its status ci/jenkins failed"), "failure"), ("error", .blocked("its status ci/jenkins failed"), "failure")]
+            .map { (Self.green, Self.statuses([("ci/jenkins", $0.0)]), $0.1, $0.2) }
+        let request = MergeRequest(iid: 88, title: "PLUTO-231", sourceBranch: "feat/pluto-231", targetBranch: "main", author: nil,
+                                   state: "open", draft: false, url: "https://github.com/octocat/hello/pull/88")
+        for item in cases {
+            let answers = host(pull: Self.pull(), checkRuns: item.runs, status: item.statuses)
+            let (client, _) = makeClient { request in
+                request.url?.path.hasSuffix("/reviews") == true ? (200, Data("[]".utf8)) : answers(request)
+            }
+            #expect(try await client.mergeReadiness(repo: "octocat/hello", number: 88) == item.readiness, "\(item.runs) \(item.statuses)")
+            let state = try await GitHubPublisher(client: client, repo: "octocat/hello").state(of: request)
+            #expect(state.pipeline == item.pipeline, "\(item.runs) \(item.statuses)")
         }
     }
 

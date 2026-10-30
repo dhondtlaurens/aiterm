@@ -143,6 +143,11 @@ def test_a_tail_ends_at_the_time_its_ending_record_gives(tmp_path):
     assert tail.ended_at == 1_792_701_295.612 and tail.written_at == 1_900_000_000
 
 
+def test_an_ending_record_whose_time_has_no_zone_is_read_as_utc(tmp_path, away_from_utc):
+    path = write(tmp_path / "agent-c1.jsonl", PROMPT, ASSISTANT, {**STOPPED, "timestamp": "2026-10-22T20:34:55.612"})
+    assert SubagentTranscripts().read(path).ended_at == 1_792_701_295.612
+
+
 def test_a_tail_ending_in_a_record_without_a_time_ends_at_its_write(tmp_path):
     path = write(tmp_path / "agent-c1.jsonl", PROMPT, ASSISTANT, STOPPED)
     os.utime(path, (1_900_000_000, 1_900_000_000))
