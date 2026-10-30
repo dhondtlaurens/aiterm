@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
@@ -49,6 +50,21 @@ def no_real_iterm_launch(monkeypatch):
     monkeypatch.setattr(connection, "_launch_iterm", refuse)
     yield
     assert not reached, "a test reached the real `open -a iTerm`: give its ItermSupervisor a launch_iterm"
+
+
+@pytest.fixture
+def away_from_utc():
+    """The wall clock half an hour off any whole-hour zone, so a timestamp read as local time reads wrong wherever the
+    suite runs."""
+    before = os.environ.get("TZ")
+    os.environ["TZ"] = "Asia/Kolkata"
+    time.tzset()
+    yield
+    if before is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = before
+    time.tzset()
 
 
 @pytest.fixture

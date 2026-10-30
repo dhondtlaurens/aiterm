@@ -3,9 +3,10 @@ import json
 import os
 from collections.abc import Collection, Iterator
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from .text import iso_seconds
 
 # How much of a transcript's end is read. The records that end a child -- an interruption, a
 # SubagentStop hook's attachment -- are a few hundred bytes; a transcript grows to megabytes.
@@ -89,16 +90,6 @@ def _ending(tail: bytes) -> dict[str, Any] | None:
     return None if isinstance(message, dict) and _is_prompt(message) else last
 
 
-def _record_time(record: dict[str, Any]) -> float | None:
-    """The time a record gives (its ISO 8601 `timestamp`), in the wall clock's seconds; None when it gives none."""
-    if not isinstance(stamp := record.get("timestamp"), str):
-        return None
-    try:
-        return datetime.fromisoformat(stamp).timestamp()
-    except ValueError:
-        return None
-
-
 # A transcript as last read, keyed by its stamp: only a file Claude has appended to since is read again.
 _Entry = tuple[tuple[int, int], TranscriptTail]
 
@@ -133,7 +124,7 @@ class SubagentTranscripts:
                 ending = _ending(f.read(TAIL_BYTES))
         except OSError:
             return None
-        tail = TranscriptTail(stamp, stat.st_mtime, None if ending is None else _record_time(ending) or stat.st_mtime)
+        tail = TranscriptTail(stamp, stat.st_mtime, None if ending is None else iso_seconds(ending.get("timestamp")) or stat.st_mtime)
         self._cache[path] = (stamp, tail)
         return tail
 
