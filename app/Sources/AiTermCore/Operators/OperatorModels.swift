@@ -349,6 +349,9 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     /// parent's accepted commit, or else where its branch left its base. Auto-close carries it into the task's
     /// `FinishedTaskRecord`, as a merge makes the accepted commit part of the base it would be worked out from.
     public var diffBaseSHA: String?
+    /// Internal content baseline for changedAfterAcceptance; absent in older saved broadcasts.
+    /// Kept outside TaskAcceptance so it never enters status or Oracle acceptance evidence.
+    public var acceptanceWorktreeFingerprint: String? = nil
 
     public init(runId: UUID, key: String, state: OperatedState = .planned, end: TaskEnd = .commit, brief: String,
                 dependsOn: [TaskDependency] = [], stackedOn: UUID? = nil, revision: Int, firstRevision: Int? = nil,
@@ -382,7 +385,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         case blockedReason, blockedFrom, lastFailure, flags
         case requestedLaunch
         case modelReason, agentPinned, problem, agentReview, peopleReview, branchDrift, extraTabs, reopenedFrom, reviewVerdicts, keptReason
-        case closingWait, diffBaseSHA
+        case closingWait, diffBaseSHA, acceptanceWorktreeFingerprint
     }
 
     /// Synthesised but for `flags`: a flag this build does not know is dropped, not a failed load.
@@ -424,6 +427,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         keptReason = try c.decodeIfPresent(String.self, forKey: .keptReason)
         closingWait = try c.decodeIfPresent(ClosingWait.self, forKey: .closingWait)
         diffBaseSHA = try c.decodeIfPresent(String.self, forKey: .diffBaseSHA)
+        acceptanceWorktreeFingerprint = try c.decodeIfPresent(String.self, forKey: .acceptanceWorktreeFingerprint)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -465,6 +469,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         try c.encodeIfPresent(keptReason, forKey: .keptReason)
         try c.encodeIfPresent(closingWait, forKey: .closingWait)
         try c.encodeIfPresent(diffBaseSHA, forKey: .diffBaseSHA)
+        try c.encodeIfPresent(acceptanceWorktreeFingerprint, forKey: .acceptanceWorktreeFingerprint)
     }
 }
 
@@ -540,13 +545,8 @@ public struct OperatorDecision: Codable, Equatable, Sendable {
 
     /// The decision's reason in one line: why, then the Oracle's objection when there is one.
     public var reason: String? {
-        let parts = [why.flatMap(Self.said), objection.flatMap(Self.said).map { "The Oracle objected: “\($0)”" }].compactMap { $0 }
+        let parts = [why.said, objection.said.map { "The Oracle objected: “\($0)”" }].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " ")
-    }
-
-    private static func said(_ text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

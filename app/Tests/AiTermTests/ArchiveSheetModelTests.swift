@@ -75,7 +75,7 @@ import Testing
 
     @Test func theArchiveOpensOnlyWithNoSheetUpAndAWorkspaceThatCanChange() throws {
         let controller = AppController(preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         #expect(controller.canPresentArchive)
         controller.presentArchive()
         guard case .archive = controller.sheet else { Issue.record("no archive sheet"); return }
@@ -85,7 +85,7 @@ import Testing
     @Test func anEndedBroadcastOpensFromTheShelfInItsPlace() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let ended = OperatorUIFixtures.run(name: "Sprint 41", state: .stopped), live = OperatorUIFixtures.run(name: "Sprint 42")
         controller.workspace.mutate { $0.runs = [ended, live] }
         controller.presentArchive()
@@ -104,7 +104,7 @@ import Testing
         let prompter = ScriptedPrompter(answering: "Cancel", "Remove")
         let controller = AppController(preferences: .scratch(), prompter: prompter)
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let ended = OperatorUIFixtures.run(name: "Sprint 41", state: .stopped)
         controller.workspace.mutate { $0.runs = [ended] }
         #expect(await !controller.confirmRemoveShelved(ended.id))

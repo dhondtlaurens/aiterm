@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// What a worker's ended turn says to the Operator (spec §E, §J): whether its last message asks the Operator something,
 /// and the question it asks; whether work was done in its worktree after its task was accepted. The app reads the last
@@ -91,17 +92,69 @@ public enum WorkerTurn {
         return text.count > questionLimit ? String(text.prefix(questionLimit - 1)) + "…" : text
     }
 
-    /// Whether an accepted task's worktree moved on from what was accepted: it has changes not committed (`git status
-    /// --porcelain` says something), or its HEAD is another commit than `accepted`. A HEAD git couldn't read says nothing.
-    public static func changedAfterAcceptance(porcelain: String, head: String?, accepted: String?) -> Bool {
+    /// Dirt proves a change only against the content recorded at acceptance. Older acceptances have no such
+    /// baseline: only a different HEAD proves they moved. Failed reads supply no evidence of a change.
+    public static func changedAfterAcceptance(head: String?, accepted: String?, fingerprint: String? = nil,
+                                              acceptedFingerprint: String? = nil) -> Bool {
         guard let accepted, !accepted.isEmpty else { return false }
-        if !porcelain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        if let fingerprint, let acceptedFingerprint, fingerprint != acceptedFingerprint { return true }
         guard let head, !head.isEmpty else { return false }
         return !OperatedTransitions.sameCommit(head, accepted)
     }
 }
 
 public extension Repository {
+    /// Uncommitted content, independent of whether it is staged. NUL records preserve unusual filenames;
+    /// status v2 starts with a record type, so GitRunner's whitespace trimming cannot eat a filename.
+    /// Read symlink targets, never the files they point at. Nothing is written to Git's index or objects.
+    func worktreeFingerprint() throws -> String {
+        let status = try git.run(["status", "--porcelain=v2", "-z", "--untracked-files=all", "--no-renames"], in: path)
+        let names = status.split(separator: "\0").compactMap { record -> String? in
+            if record.hasPrefix("? ") { return String(record.dropFirst(2)) }
+            let spaces = record.hasPrefix("1 ") ? 8 : record.hasPrefix("u ") ? 10 : 0
+            guard spaces > 0 else { return nil }
+            return record.split(separator: " ", maxSplits: spaces, omittingEmptySubsequences: false).last.map(String.init)
+        }
+        var fingerprint = SHA256()
+        func append(_ text: String) {
+            fingerprint.update(data: Data(text.utf8))
+            fingerprint.update(data: Data([0]))
+        }
+        for name in Set(names).sorted() {
+            append(name)
+            let file = URL(fileURLWithPath: path).appendingPathComponent(name)
+            let attributes: [FileAttributeKey: Any]
+            do { attributes = try FileManager.default.attributesOfItem(atPath: file.path) }
+            catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+                append("deleted"); append(""); continue
+            }
+            var content = SHA256()
+            switch attributes[.type] as? FileAttributeType {
+            case .typeSymbolicLink:
+                append("symlink")
+                content.update(data: Data(try FileManager.default.destinationOfSymbolicLink(atPath: file.path).utf8))
+            case .typeRegular:
+                let mode = (attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0
+                append(mode & 0o111 == 0 ? "file" : "executable")
+                let handle = try FileHandle(forReadingFrom: file)
+                defer { try? handle.close() }
+                while let data = try handle.read(upToCount: 64 * 1024), !data.isEmpty { content.update(data: data) }
+            case .typeDirectory:
+                // Gitlinks and nested repositories are directories in status. Their own HEAD and content
+                // matter, while an uninitialized submodule has no checkout content to fingerprint.
+                append("repository")
+                if FileManager.default.fileExists(atPath: file.appendingPathComponent(".git").path) {
+                    let nested = Repository(file.path, git: git)
+                    content.update(data: Data(try git.run(["rev-parse", "HEAD"], in: file.path).utf8))
+                    content.update(data: Data(try nested.worktreeFingerprint().utf8))
+                }
+            default: throw CocoaError(.fileReadUnknown)
+            }
+            append(content.finalize().map { String(format: "%02x", $0) }.joined())
+        }
+        return fingerprint.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
     /// One baseline for both a working task's diff and its commit count. Local and origin refs
     /// can each lag; the launch fork also survives a reset or removal of those refs. A stacked
     /// task keeps its parent's accepted boundary, reduced to the actual shared ancestor after rebase.

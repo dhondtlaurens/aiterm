@@ -25,7 +25,7 @@ import Testing
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
         change(&task)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), daemon: daemon) { [clock] ports in
-            ports.now = { clock.now }
+            ports.clock.now = { clock.now }
             adjust(&ports)
         }
         world.show(Self.tabs(run: run, task: task))
@@ -246,7 +246,7 @@ import Testing
         let saved = try #require(try world.workspace.file.load().task(id: task.id)?.operated?.extraTabs.first)
         #expect(saved.key == "review" && saved.sessionId == nil && saved.launch.openedAt == nil)
 
-        let restarted = try OperatorWorld(try world.workspace.file.load()) { [clock] ports in ports.now = { clock.now } }
+        let restarted = try OperatorWorld(try world.workspace.file.load()) { [clock] ports in ports.clock.now = { clock.now } }
         restarted.show(Self.tabs(run: run, task: task, extra: [Self.extraTab("s9", of: task, key: "review")]))
         restarted.controller.reconcileTick()
         let adopted = try #require(tabs(of: task, in: restarted).first)

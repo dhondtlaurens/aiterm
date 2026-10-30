@@ -13,7 +13,7 @@ public struct ClaudeConfig: Sendable {
     public static let loginShell = ClaudeConfig(value: { loginValue })
     private static let loginValue = LoginShellLocator.shared.current()?.claudeConfigDirectory
 
-    private var override: String? { value().flatMap { $0.isEmpty ? nil : $0 } }
+    private var override: String? { value().nonEmpty }
 
     public func directory(home: URL) -> URL {
         guard let path = override else { return home.appendingPathComponent(".claude") }

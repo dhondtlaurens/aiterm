@@ -100,7 +100,7 @@ self-update. Never run a second live copy alongside the installed app.
 
 Read [architecture](docs/architecture.md), [testing](docs/testing.md),
 [script reference](scripts/README.md), [UI rules](app/Sources/AiTermUI/README.md) and
-[release procedure](docs/releasing.md). [AGENTS.md](AGENTS.md) contains the repository's working rules.
+[release procedure](docs/workflow/release.md). [AGENTS.md](AGENTS.md) contains the repository's working rules.
 
 ## Licence
 

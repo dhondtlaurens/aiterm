@@ -38,20 +38,16 @@ public struct CoreWLANWiFi: WiFiControl {
 
     /// One scan for every network in range; a scan straight after another fails with `EBUSY`, so it is tried once more.
     public func networksInRange() -> Set<String> {
-        guard let interface else { return [] }
-        let found = (try? interface.scanForNetworks(withName: nil))
-            ?? { Thread.sleep(forTimeInterval: 1)
-                 return Log.backpack.attempt("Scanning for Wi-Fi networks", level: .info) { try interface.scanForNetworks(withName: nil) } ?? []
-               }()
-        return Set(found.compactMap(\.ssid))
+        Set(scan(nil).compactMap(\.ssid))
     }
 
     /// A scan straight after another fails with `EBUSY`, so a failed one is tried once more.
-    private func scan(_ network: String) -> Set<CWNetwork> {
+    private func scan(_ network: String?) -> Set<CWNetwork> {
         guard let interface else { return [] }
         if let found = try? interface.scanForNetworks(withName: network) { return found }
         Thread.sleep(forTimeInterval: 1)
-        return Log.backpack.attempt("Scanning for \(network)", level: .info) { try interface.scanForNetworks(withName: network) } ?? []
+        let message = network.map { "Scanning for \($0)" } ?? "Scanning for Wi-Fi networks"
+        return Log.backpack.attempt(message, level: .info) { try interface.scanForNetworks(withName: network) } ?? []
     }
 
     /// CoreWLAN first, then `networksetup`, which the spike saw join an iPhone hotspot when given

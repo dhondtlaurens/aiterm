@@ -80,7 +80,7 @@ struct BackgroundCardView: View {
 
     private var lines: some View {
         VStack(alignment: .leading, spacing: scale(Space.tight)) {
-            Text(card.heading).font(Typography.help).foregroundStyle(Palette.muted).lineLimit(1)
+            HelpText(card.heading, fixedVerticalSize: false).lineLimit(1)
                 .frame(height: scale(Size.chip))
             ForEach(Array(card.jobs.enumerated()), id: \.offset) { _, job in
                 HStack(spacing: scale(Space.tight)) {
@@ -100,9 +100,9 @@ extension View {
     /// leading edges, its trailing edge `Space.tight` before the mark's slot, so it covers the pill's wash or selection
     /// up to the mark and nothing else. Applied inside `SelectableRow`, so it reaches out over the row's `Space.base`
     /// padding to the pill's edges. No jobs, no card. It holds the card's hover, which the mark inside it reads
-    /// (`opensBackgroundCard`); `hover` is a test's, to draw it open.
-    func backgroundCard(_ jobs: [BackgroundJob], hover: BackgroundCardHover? = nil) -> some View {
-        modifier(BackgroundCardOverlay(jobs: jobs, injected: hover))
+    /// (`opensBackgroundCard`). Debug fixtures can seed that state through the environment.
+    func backgroundCard(_ jobs: [BackgroundJob]) -> some View {
+        modifier(BackgroundCardOverlay(jobs: jobs))
     }
 
     /// A row's trailing mark as the hover target that opens its card: the whole `Size.slot` square.
@@ -122,14 +122,21 @@ private extension EnvironmentValues {
 /// itself, and every row would redraw for any change to the sidebar.
 private struct BackgroundCardOverlay: ViewModifier {
     let jobs: [BackgroundJob]
-    let injected: BackgroundCardHover?
     @Environment(\.interfaceScale) private var scale
+    #if DEBUG
+    @Environment(\.seededHover) private var seededHover
+    #endif
     // `@State`'s storage, written out as `SelectableRow`'s is.
     private var _own = State(initialValue: BackgroundCardHover())
 
-    init(jobs: [BackgroundJob], injected: BackgroundCardHover?) { self.jobs = jobs; self.injected = injected }
+    init(jobs: [BackgroundJob]) { self.jobs = jobs }
 
-    private var hover: BackgroundCardHover { injected ?? _own.wrappedValue }
+    private var hover: BackgroundCardHover {
+        #if DEBUG
+        if let hover = seededHover?.backgroundCard { return hover }
+        #endif
+        return _own.wrappedValue
+    }
 
     func body(content: Content) -> some View {
         content

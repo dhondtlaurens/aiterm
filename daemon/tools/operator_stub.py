@@ -20,6 +20,7 @@ reaches the app, the daemon or a person."""
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 import threading
@@ -73,16 +74,12 @@ def handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
                 return self._send(404, "")
             if not mcp.bearer(self.headers.get("Authorization") or ""):
                 return self._send(401, json.dumps({"error": "a registered run's token is required"}))
-            try:
-                message = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
-            except ValueError:
-                return self._send(200, json.dumps(mcp.error(None, -32700, "parse error")))
-            if not isinstance(message, dict):
-                return self._send(200, json.dumps(mcp.error(None, -32600, "a message must be a JSON object")))
-            if message.get("id") is None:
-                # A notification, notifications/initialized among them, has no answer.
-                return self._send(202, "")
-            self._send(200, json.dumps(stub.respond(message)))
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+
+            async def call(message: dict[str, Any]) -> dict[str, Any]:
+                return stub.respond(message)
+
+            self._send(*asyncio.run(mcp.serve(body, stub.tools, "aiterm", call, compact=False, parse_errors=(ValueError,))))
 
         def do_GET(self) -> None:
             # No stream from the server: each answer is the reply to its own POST.

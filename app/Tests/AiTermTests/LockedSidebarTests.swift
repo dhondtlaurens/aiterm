@@ -16,7 +16,7 @@ struct LockedSidebarTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         // Never loaded: locked, with no save-error banner to move the rows.
-        if !locked { try controller.loadWorkspace() }
+        if !locked { try controller.workspace.load() }
         let jira = JiraProjectRef(id: "10001", key: "SHOP", name: "Storefront", siteURL: URL(string: "https://example.atlassian.net")!)
         let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil,
                               addedAt: Date(), collapsed: false, jiraProjects: [jira])
@@ -72,7 +72,7 @@ struct LockedSidebarTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        if !locked { try controller.loadWorkspace() }
+        if !locked { try controller.workspace.load() }
         let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         controller.workspace.mutate { state in
             state.items = [.project(project)]

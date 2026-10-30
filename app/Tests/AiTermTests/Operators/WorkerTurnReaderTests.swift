@@ -13,7 +13,8 @@ import Testing
     /// A project and task PLUTO-1 in `state`, in its own worktree on `feat/pluto-1` off `main`, its worker in conversation
     /// `conv-1` and at work.
     func makeWorld(_ state: OperatedState = .working, worker: SessionState = .working, agent: AgentKind = .claude,
-                   launchedAt: Date = Date(timeIntervalSince1970: 0), conversation: String? = "conv-1", clock: TestClock? = nil)
+                   launchedAt: Date = Date(timeIntervalSince1970: 0), conversation: String? = "conv-1", clock: TestClock? = nil,
+                   worldGit: (any GitRunning)? = nil)
         throws -> (OperatorWorld, OperatorRun, TaskItem, worktree: String) {
         let repo = try GitFixture.makeRepo(prefix: "op-turn-")
         let worktree = try GitFixture.folder("op-turn-wt-") + "/wt"
@@ -27,9 +28,10 @@ import Testing
             let head = try git.run(["rev-parse", "HEAD"], in: worktree)
             task.operated?.acceptance = TaskAcceptance(resultSHA: head, prerequisiteSHAs: [], checkOutput: "ok", note: nil,
                                                        at: Date(timeIntervalSince1970: 0))
+            task.operated?.acceptanceWorktreeFingerprint = try Repository(worktree, git: git).worktreeFingerprint()
         }
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])) { ports in
-            if let clock { ports.now = { clock.now } }
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), git: worldGit ?? git) { ports in
+            if let clock { ports.clock.now = { clock.now } }
         }
         world.show(sessions(run, task, worker, conversation: conversation))
         return (world, run, task, worktree)
@@ -182,6 +184,101 @@ import Testing
         let obligations = try status(world, run)
         #expect(obligations.finishedWithoutCommit == ["PLUTO-1"] && obligations.readyForAcceptance.isEmpty)
         #expect(world.controller.acting.turns[task.id] == .noCommit)
+    }
+
+    /// Simplify's case: a plan already present at acceptance remains in the locally merged worktree.
+    @Test func anUnchangedPlanAfterLocalMergeDoesNotWakeAsChanged() async throws {
+        let (world, run, task, worktree) = try makeWorld()
+        defer { world.controller.stop() }
+        let project = try #require(world.state.project(id: task.projectId))
+        world.workspace.mutate { state in
+            state.updateRun(id: run.id) { $0.profile.slices.merge = true }
+            state.updateOperated(task.id) { $0.end = .mergeLocal }
+            // Keep the broadcast active so its published task's ended turns are still observed.
+            state.tasks.append(OperatorServiceFixtures.task(in: run, project: project, key: "NEXT", state: .working))
+        }
+        try git.run(["commit", "--allow-empty", "-q", "-m", "work"], in: worktree)
+        let head = try git.run(["rev-parse", "HEAD"], in: worktree)
+        let plan = URL(fileURLWithPath: worktree).appendingPathComponent("docs/plans/daemon-i-o-helpers.md")
+        try FileManager.default.createDirectory(at: plan.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("The plan written before acceptance.\n".utf8).write(to: plan)
+        let accepted = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted",
+                                                              "sha": .string(head), "checkOutput": "ok"])
+        #expect(accepted.value?["state"] == "accepted")
+        let published = await world.call(run.id, "finish_task", ["task": "PLUTO-1"])
+        #expect(published.message == nil)
+        #expect(published.value?["result"] == "published", "\(published)")
+        #expect(world.task(task.id)?.operated?.state == .published)
+        #expect(try git.run(["rev-parse", task.branch], in: project.path) == head)
+        #expect(try Repository(project.path, git: git).isAncestor(head, of: "main"))
+        try await endTurn(saying: "The accepted work is merged locally.", world, run, task)
+        #expect(try status(world, run).changedAfterAcceptance.isEmpty)
+        await world.controller.waker.lastCoalesce?.value
+        await world.controller.waker.lastSend?.value
+        #expect(!wakeLines(world).contains { $0.contains("changed after acceptance") })
+        #expect(world.workspace.flush())
+        let restored = try world.workspace.file.load()
+        #expect(restored.task(id: task.id)?.operated?.acceptanceWorktreeFingerprint
+                == world.task(task.id)?.operated?.acceptanceWorktreeFingerprint)
+        let restarted = try OperatorWorld(restored)
+        defer { restarted.controller.stop() }
+        try await endTurn(saying: "Still merged, with the original plan.", restarted, run, task)
+        #expect(try status(restarted, run).changedAfterAcceptance.isEmpty)
+
+        restarted.show(sessions(run, task, .working))
+        try Data("The plan now contains an additional change.\n".utf8).write(to: plan)
+        try await endTurn(saying: "Updated the plan.", restarted, run, task)
+        #expect(try status(restarted, run).changedAfterAcceptance == ["PLUTO-1"])
+        #expect(await eventually(describing: "a real edit wakes the Operator") {
+            wakeLines(restarted).contains { $0.contains("changed after acceptance") }
+        })
+        #expect(restarted.task(task.id)?.operated?.state == .published)
+    }
+
+    @Test func legacyAcceptanceDoesNotDateUntrackedFilesButStillDetectsANewHead() async throws {
+        let (world, run, task, worktree) = try makeWorld(.published)
+        defer { world.controller.stop() }
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.acceptanceWorktreeFingerprint = nil } }
+        try Data("An older plan.\n".utf8).write(to: URL(fileURLWithPath: worktree).appendingPathComponent("plan.md"))
+        try await endTurn(saying: "Already published.", world, run, task)
+        #expect(try status(world, run).changedAfterAcceptance.isEmpty)
+        world.show(sessions(run, task, .working))
+        try git.run(["commit", "--allow-empty", "-q", "-m", "new work"], in: worktree)
+        try await endTurn(saying: "New commit.", world, run, task)
+        #expect(try status(world, run).changedAfterAcceptance == ["PLUTO-1"])
+    }
+
+    @Test func refreshingEvidenceOnTheSameHeadReplacesTheContentBaseline() async throws {
+        let (world, run, task, worktree) = try makeWorld(.accepted)
+        defer { world.controller.stop() }
+        // Acceptance alone must not complete this broadcast and stop the reader.
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.end = .draftMR } }
+        try Data("A new plan.\n".utf8).write(to: URL(fileURLWithPath: worktree).appendingPathComponent("plan.md"))
+        try await endTurn(saying: "Wrote the plan.", world, run, task)
+        #expect(try status(world, run).changedAfterAcceptance == ["PLUTO-1"])
+        let head = try #require(world.task(task.id)?.operated?.acceptance?.resultSHA)
+        let refreshed = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(head),
+                                                               "checkOutput": "checks run again"])
+        #expect(refreshed.value?["state"] == "accepted")
+        await world.controller.turns.lastRead?.value
+        #expect(world.run(run.id)?.state == .active)
+        #expect(world.controller.turns.readings[task.id]?.changedAfterAcceptance == false)
+        #expect(try status(world, run).changedAfterAcceptance.isEmpty, "the old reading's baseline no longer holds")
+    }
+
+    @Test(arguments: [OperatedState.working, .accepted])
+    func unreadableAcceptanceContentPreservesThePreviousRecord(_ state: OperatedState) async throws {
+        let unreadable = TimingOutGitRunner(["status", "--porcelain=v2"])
+        let (world, run, task, worktree) = try makeWorld(state, worldGit: unreadable)
+        defer { world.controller.stop() }
+        let previous = try #require(world.task(task.id)?.operated)
+        let head = try git.run(["rev-parse", "HEAD"], in: worktree)
+        let answer = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(head),
+                                                            "checkOutput": "new check evidence"])
+        #expect(answer.message?.contains("couldn’t read PLUTO-1’s worktree at acceptance") == true)
+        #expect(world.task(task.id)?.operated?.acceptance == previous.acceptance)
+        #expect(world.task(task.id)?.operated?.acceptanceWorktreeFingerprint == previous.acceptanceWorktreeFingerprint)
+        #expect(world.task(task.id)?.operated?.state == state)
     }
 
     /// An accepted task whose worker someone worked in after its acceptance, a file changed or a commit on top, is listed;

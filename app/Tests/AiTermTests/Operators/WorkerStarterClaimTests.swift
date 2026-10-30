@@ -12,7 +12,7 @@ import Testing
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-claim-"))
         let run = OperatorServiceFixtures.run(projects: [project], state: .active)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]), daemon: daemon, git: git) { ports in
-            if let clock { ports.now = { clock.now } }
+            if let clock { ports.clock.now = { clock.now } }
         }
         return (world, run, project)
     }

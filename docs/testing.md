@@ -96,4 +96,4 @@ Bundle checks do not launch the app. Debug snapshots enter before live app setup
 The README check requires a Retina main display. Native WindowServer captures require screen
 recording permission; a fallback capture does not establish VoiceOver behavior or multi-display
 placement. `scripts/run-dev.sh` deliberately replaces the live app/helper and is a separate manual
-switch. Schedule real-account, VoiceOver, display and update checks using [releasing](releasing.md).
+switch. Schedule real-account, VoiceOver, display and update checks using [releasing](workflow/release.md).

@@ -1,8 +1,8 @@
 import Foundation
 
-/// The context fill each sidebar row last reported, per provider. Context is shown per row — a task
-/// or a terminal — not per tab: each provider's last value is kept while tabs switch, or while a
-/// snapshot has nothing new to say. Nothing here is saved.
+/// The context fill each sidebar row last reported, per provider. Context is shown per row — a task,
+/// a terminal or the Operator — not per tab: each provider's last value is kept while tabs switch,
+/// or while a snapshot has nothing new to say. Nothing here is saved.
 public struct SessionContexts: Equatable, Sendable {
     private var byRow: [UUID: [AgentKind: Int]] = [:]
 
@@ -13,7 +13,7 @@ public struct SessionContexts: Equatable, Sendable {
 
     /// Drops the values of rows `state` no longer has.
     public mutating func prune(keeping state: AppState) {
-        let live = Set(state.tasks.map(\.id) + state.terminals.map(\.id))
+        let live = Set(state.tasks.map(\.id) + state.terminals.map(\.id) + state.runs.map { OperatorRow.id(of: $0.id) })
         guard byRow.keys.contains(where: { !live.contains($0) }) else { return }
         byRow = byRow.filter { live.contains($0.key) }
     }
@@ -51,11 +51,12 @@ public struct SessionContexts: Equatable, Sendable {
         byRow[row, default: [:]][provider] = context
     }
 
-    /// The sidebar row a tab is drawn under: its task, by the tag the daemon read off it, or else
-    /// the terminal whose window it is in. A terminal's tabs carry no task tag, so the window is the
-    /// only thing that ties an agent started in one back to its row — as it is for the row's avatars.
+    /// The sidebar row a tab is drawn under: its task, the Operator (tagged with its broadcast's id),
+    /// or the terminal whose window it is in. A terminal's tabs carry no task tag, so the window ties
+    /// an agent started in one back to its row — as it does for the row's avatars.
     static func row(for session: SessionInfo, in state: AppState) -> UUID? {
         if session.taskId != nil {
+            if let run = session.taskUUID.flatMap(state.run(id:)) { return OperatorRow.id(of: run.id) }
             return session.taskUUID.flatMap(state.task(id:))?.id
         }
         return state.terminals.first { $0.windowId != nil && $0.windowId == session.windowId }?.id

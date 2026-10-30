@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 /// What a worker's ended turn says (spec §J): whether its last message asks the Operator something, the question it
 /// asks, and whether work was done after its task was accepted.
@@ -24,15 +25,62 @@ import Foundation
         #expect(WorkerTurn.questionLimit == 300)
     }
 
-    /// An accepted task changed once its worktree has edits not committed, or its HEAD moved past the accepted commit.
-    @Test func workAfterAcceptanceIsADirtyWorktreeOrAnotherHead() {
+    /// Content needs a known baseline; a different HEAD is evidence even for older acceptances.
+    @Test func workAfterAcceptanceIsChangedContentOrAnotherHead() {
         let accepted = "4f2a91c0ffee4f2a91c0ffee4f2a91c0ffee4f2a"
-        #expect(!WorkerTurn.changedAfterAcceptance(porcelain: "", head: accepted, accepted: accepted))
-        #expect(!WorkerTurn.changedAfterAcceptance(porcelain: "\n", head: accepted, accepted: "4f2a91c"), "a short SHA is the same commit")
-        #expect(WorkerTurn.changedAfterAcceptance(porcelain: " M src/app.ts", head: accepted, accepted: accepted))
-        #expect(WorkerTurn.changedAfterAcceptance(porcelain: "", head: "b0b0b0b0b0b0", accepted: accepted))
-        #expect(!WorkerTurn.changedAfterAcceptance(porcelain: "", head: nil, accepted: accepted), "a HEAD git couldn't read says nothing")
-        #expect(!WorkerTurn.changedAfterAcceptance(porcelain: "", head: accepted, accepted: nil))
+        #expect(!WorkerTurn.changedAfterAcceptance(head: accepted, accepted: "4f2a91c", fingerprint: "dirty", acceptedFingerprint: "dirty"))
+        #expect(WorkerTurn.changedAfterAcceptance(head: accepted, accepted: accepted, fingerprint: "new", acceptedFingerprint: "old"))
+        #expect(WorkerTurn.changedAfterAcceptance(head: "b0b0b0b0b0b0", accepted: accepted))
+        #expect(!WorkerTurn.changedAfterAcceptance(head: accepted, accepted: accepted, fingerprint: "dirty"), "legacy dirt has no date")
+        #expect(!WorkerTurn.changedAfterAcceptance(head: nil, accepted: accepted, acceptedFingerprint: "old"), "failed reads say nothing")
+        #expect(!WorkerTurn.changedAfterAcceptance(head: accepted, accepted: nil, fingerprint: "new", acceptedFingerprint: "old"))
+    }
+
+    @Test func contentFingerprintSurvivesStagingAndDetectsEditsWithIdenticalStatus() throws {
+        let git = GitRunner.hermetic(), path = try GitFixture.makeRepo(prefix: "acceptance-content-")
+        let repository = Repository(path, git: git), clean = try repository.worktreeFingerprint()
+        let name = " plan\nnotes.bin", file = URL(fileURLWithPath: path).appendingPathComponent(name)
+        try Data([0, 255, 1]).write(to: file)
+        let untracked = try repository.worktreeFingerprint()
+        #expect(untracked != clean)
+        try git.run(["add", "--", name], in: path)
+        #expect(try repository.worktreeFingerprint() == untracked, "git add alone changes no content")
+        try Data([0, 255, 2]).write(to: file)
+        let edited = try repository.worktreeFingerprint()
+        #expect(edited != untracked)
+        let before = try git.run(["status", "--porcelain"], in: path)
+        try Data([0, 255, 3]).write(to: file)
+        #expect(try repository.worktreeFingerprint() != edited)
+        let after = try git.run(["status", "--porcelain"], in: path)
+        #expect(before == after, "the later edit changes content while status stays identical")
+        try git.run(["add", "--", name], in: path)
+        let staged = try repository.worktreeFingerprint()
+        try git.run(["commit", "-q", "-m", "notes"], in: path)
+        #expect(try repository.worktreeFingerprint() == clean)
+        try FileManager.default.removeItem(at: file)
+        #expect(try repository.worktreeFingerprint() != clean, "tracked deletion")
+        #expect(try repository.worktreeFingerprint() != staged)
+    }
+
+    @Test func fingerprintsReadSymlinksWithoutFollowingThemAndNoticeExecutableChanges() throws {
+        let git = GitRunner.hermetic(), path = try GitFixture.makeRepo(prefix: "acceptance-links-")
+        let repository = Repository(path, git: git)
+        let outside = URL(fileURLWithPath: try GitFixture.folder("acceptance-outside-")).appendingPathComponent("secret")
+        let link = URL(fileURLWithPath: path).appendingPathComponent("link")
+        try Data("first".utf8).write(to: outside)
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: outside.path)
+        let initial = try repository.worktreeFingerprint()
+        try Data("later".utf8).write(to: outside)
+        #expect(try repository.worktreeFingerprint() == initial, "outside content is not read")
+        try FileManager.default.removeItem(at: link)
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: outside.path + "-missing")
+        #expect(try repository.worktreeFingerprint() != initial, "a changed, dangling link is still content")
+        let script = URL(fileURLWithPath: path).appendingPathComponent("run.sh")
+        try Data("echo ok\n".utf8).write(to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: script.path)
+        let regular = try repository.worktreeFingerprint()
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        #expect(try repository.worktreeFingerprint() != regular)
     }
     @Test func aQuestionWithAnswerOptionsStillAsksWhenItsFinalLineHasNoQuestionMark() {
         let message = "No files, tests or commits changed.\n\nShould I add runChanged(id), or leave that to P7?\n- Add it here.\n- Leave it to P7."

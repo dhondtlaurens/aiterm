@@ -128,7 +128,7 @@ public final class LoginShellLocator: Sendable {
         return Answers(executables: LoginShell.located(names, in: located.joined(separator: "\n"), isExecutable: isExecutable),
                        pythonOutput: python.joined(separator: "\n"),
                        claudeConfigDirectory: after(claudeMarker),
-                       path: after(pathMarker).flatMap { $0.isEmpty ? nil : $0 })
+                       path: after(pathMarker).nonEmpty)
     }
 }
 

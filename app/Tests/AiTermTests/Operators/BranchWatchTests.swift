@@ -23,7 +23,7 @@ import Testing
         task.baseBranch = "main"
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: Date(timeIntervalSince1970: 0), openedAt: Date(timeIntervalSince1970: 0))
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])) { ports in
-            ports.now = { [clock] in clock.now }
+            ports.clock.now = { [clock] in clock.now }
             adjust(&ports)
         }
         world.show([OperatorServiceFixtures.session("op", window: "wo", tag: run.id),
@@ -192,7 +192,7 @@ import Testing
         } }
         #expect(world.workspace.flush())
         let restarted = try OperatorWorld(world.workspace.file.load()) { ports in
-            ports.now = { [clock] in clock.now }
+            ports.clock.now = { [clock] in clock.now }
         }
         restarted.show(world.live.sessions)
         await tick(restarted)

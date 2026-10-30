@@ -108,7 +108,7 @@ import Testing
         let controller = fixture.controller
         controller.fixPipeline = { _ in .stub(look: .fix(proposal)) }
 
-        await controller.pullDefault(project: fixture.project)?.value
+        await controller.projects.pullDefault(project: fixture.project)?.value
         let session = try #require(controller.notices.fixSession)
         #expect(session.state == .offered)
         #expect(controller.issue?.fix?.retry == .pullDefault(fixture.project.id))
@@ -116,7 +116,7 @@ import Testing
         session.start(); await session.settled()
         #expect(session.state == .proposal(proposal))
         session.apply(); await session.settled()
-        await eventually(describing: "the pull to run again") { !controller.isChangingDefaultBranch(fixture.project.id) && controller.issue != nil }
+        await eventually(describing: "the pull to run again") { !controller.projects.isChangingDefaultBranch(fixture.project.id) && controller.issue != nil }
 
         #expect(controller.notices.fixSession !== session)
         #expect(controller.issue?.reason?.hasSuffix(" The fix is in; your branch as it was is kept as aiterm/backup/main.") == true)
@@ -129,7 +129,7 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.fixPipeline = { _ in .stub(look: .fix(proposal)) }
-        await controller.pullDefault(project: fixture.project)?.value
+        await controller.projects.pullDefault(project: fixture.project)?.value
         let session = try #require(controller.notices.fixSession)
         session.start(); await session.settled()
         // What the fix would have done: main now on origin's.
@@ -150,7 +150,7 @@ import Testing
     @Test func aPullAfterTheFixThatCannotStartNamesTheBackup() async throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let running = fixture.controller.pullDefault(project: fixture.project)
+        let running = fixture.controller.projects.pullDefault(project: fixture.project)
         let landing = FixLanding(branch: "main", old: "a", new: "b")
 
         #expect(fixture.controller.projects.pullDefault(project: fixture.project, after: (landing, .claude)) == nil)
@@ -163,7 +163,7 @@ import Testing
         let fixture = try RaceFixture.diverged()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.agents.helpWithProblems.isOn = false
-        await fixture.controller.pullDefault(project: fixture.project)?.value
+        await fixture.controller.projects.pullDefault(project: fixture.project)?.value
         #expect(fixture.controller.notices.fixSession?.state == .unavailable)
     }
 
@@ -176,13 +176,13 @@ import Testing
         var pipeline = FixPipeline.stub(look: .fix(proposal))
         pipeline.land = { _, _ in FixLanding(branch: "release", old: "a", new: "b") }
         controller.fixPipeline = { [pipeline] _ in pipeline }
-        await controller.pullDefault(project: fixture.project)?.value
+        await controller.projects.pullDefault(project: fixture.project)?.value
         let session = try #require(controller.notices.fixSession)
         session.start(); await session.settled()
         session.apply(); await session.settled()
 
         #expect(controller.toastState.toast?.message == "The fix is in; your branch as it was is kept as aiterm/backup/release.")
-        #expect(!controller.isChangingDefaultBranch(fixture.project.id), "no pull")
+        #expect(!controller.projects.isChangingDefaultBranch(fixture.project.id), "no pull")
         #expect(controller.issue == nil, "a pull would have found main diverged again")
     }
 
@@ -196,20 +196,20 @@ import Testing
         let other = Project(id: UUID(), name: "Other", path: fixture.root.appendingPathComponent("other").path, provider: .git,
                             remoteUrl: nil, addedAt: Date(), collapsed: false)
         controller.workspace.mutate { $0.append(project: other) }
-        await controller.pullDefault(project: fixture.project)?.value
+        await controller.projects.pullDefault(project: fixture.project)?.value
         let session = try #require(controller.notices.fixSession)
         session.start(); await session.settled()
 
         let otherIssue = OperationIssue.pullRefused(WorktreeError.branchDiverged("main", local: 1, remote: 2), in: other.id,
                                                     projectPath: other.path)
-        controller.report(otherIssue)
+        controller.notices.report(otherIssue)
         #expect(controller.issue?.fix?.retry == .pullDefault(fixture.project.id), "held while the proposal is up")
 
         // What the fix would have done: A's main on origin's, so its pull succeeds.
         try fixture.git.run(["fetch", "-q", "origin"], in: fixture.repo.path)
         try fixture.git.run(["reset", "-q", "--hard", "origin/main"], in: fixture.repo.path)
         session.apply(); await session.settled()
-        await eventually(describing: "A's pull to end") { !controller.isChangingDefaultBranch(fixture.project.id) }
+        await eventually(describing: "A's pull to end") { !controller.projects.isChangingDefaultBranch(fixture.project.id) }
 
         #expect(controller.toastState.toast?.message == "main is already up to date. Claude’s fix is in; your branch as it was is kept as aiterm/backup/main.")
         #expect(controller.issue == otherIssue)
@@ -224,7 +224,7 @@ import Testing
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         controller.fixPipeline = { _ in .stub(look: .none("n"), slowLook: true) }
-        await controller.pullDefault(project: fixture.project)?.value
+        await controller.projects.pullDefault(project: fixture.project)?.value
         let session = try #require(controller.notices.fixSession)
         session.start()
         await session.waitForClone()

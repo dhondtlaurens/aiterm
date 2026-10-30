@@ -26,7 +26,7 @@ import Testing
         tab(&extra)
         task.operated?.extraTabs = [extra]
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), daemon: daemon) {
-            [clock] ports in ports.now = { clock.now }
+            [clock] ports in ports.clock.now = { clock.now }
         }
         return (world, run, task)
     }
@@ -479,7 +479,7 @@ import Testing
         #expect(world.daemon.requests("window.createTask").count == 1 && world.daemon.requests("tab.create").isEmpty, "not by a reopen")
 
         #expect(world.workspace.flush())
-        let restarted = try OperatorWorld(try world.workspace.file.load()) { [clock] ports in ports.now = { clock.now } }
+        let restarted = try OperatorWorld(try world.workspace.file.load()) { [clock] ports in ports.clock.now = { clock.now } }
         restarted.show([OperatorServiceFixtures.session("op", window: "wop", tag: run.id),
                         OperatorServiceFixtures.session("s1", window: "reopened", tag: task.id, state: .working)])
         restarted.controller.reconcileTick()

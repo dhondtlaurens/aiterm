@@ -258,7 +258,7 @@ class SessionInfo:
     task_id: str | None
     project_id: str | None
     agent: AgentKind
-    model: str | None
+    model: str | None = field(metadata={"process": True})
     state: State
     # The tab's process title, which only the status engine reads (a Codex spinner). Left out of
     # equality: a spinner turns on almost every poll, and clients do not use it, so a title-only
@@ -266,51 +266,51 @@ class SessionInfo:
     title: str = field(compare=False)
     cwd: str
     job_pid: int | None
-    reasoning: str | None = None
+    reasoning: str | None = field(default=None, metadata={"process": True})
     # The directory the *agent* is in. iTerm2 only ever reports the shell's (`cwd`), and a
     # Claude that has entered a worktree chdirs its own process without moving the shell, so
     # this is filled in from the agent's own session file (Claude) or its hook posts (Codex).
-    agent_cwd: str | None = None
+    agent_cwd: str | None = field(default=None, metadata={"process": True})
     # The tab that was current in its window as of the last snapshot.
     active: bool = False
     # The provider's last-known context fill within this task, 0-100. The status engine shares it
     # across sibling tabs running the same provider; an unassociated session retains its own value.
-    context_percent: int | None = None
+    context_percent: int | None = field(default=None, metadata={"process": True})
     # The conversation the tab's agent runs, as the agent's own hooks name it (HookEvent.conversation_id),
     # and what the app resumes when it reopens the task's window. Another process in the tab is another
     # conversation, so it goes with the agent's process, as the model does (SessionRegistry).
-    conversation_id: str | None = None
+    conversation_id: str | None = field(default=None, metadata={"process": True})
     # The terminal row this tab's window was opened for (TERMINAL_TAG), which the app adopts the
     # window by; None for a task's tab and for a terminal opened by an app too old to send it.
     terminal_id: str | None = None
     # The version of the agent CLI the tab runs, as the CLI's own files report it: Claude's session
     # file, Codex's rollout. What the delivery check's verdict is held against (delivery.Verdict).
     # Neither sent nor compared; it goes with the agent's process.
-    cli_version: str | None = field(default=None, compare=False)
+    cli_version: str | None = field(default=None, compare=False, metadata={"process": True})
     # The key of the Operator's extra worker tab this is (TAB_TAG), None for any other tab.
     tab_key: str | None = None
     # When a transcript of the Claude subagents it counts was last written, the newest, as the tick last read them (the
     # file's mtime): a child still at work, whose parent's own transcript may say nothing for minutes. None while it
     # counts none, or has read none. It goes with the agent's process.
-    subagents_written_at: float | None = None
+    subagents_written_at: float | None = field(default=None, metadata={"process": True})
     # What its agent left running in the background when its last turn ended, which wakes it again (a Claude Stop's
     # `background_tasks`): a turn ended with this is paused, not finished. Empty once a new turn starts. A subagent
     # stays on it while the status engine counts it.
-    background: tuple[BackgroundJob, ...] = ()
+    background: tuple[BackgroundJob, ...] = field(default=(), metadata={"process": True})
     # The first line of the prompt you typed into this tab yourself, for the turn it started: AiTerm neither launched
     # the agent with it nor delivered it (HookRouter). None once that turn ends, and for every other prompt.
-    your_prompt: str | None = None
+    your_prompt: str | None = field(default=None, metadata={"process": True})
     # Where Claude writes this tab's conversation, as its own hooks name it (`transcript_path`): what shows what became
     # of a slash command AiTerm typed here. Neither sent nor compared; it goes with the agent's process.
-    transcript: str | None = field(default=None, compare=False)
+    transcript: str | None = field(default=None, compare=False, metadata={"process": True})
     # The last slash commands AiTerm typed into this Claude tab, oldest first, and what became of each
     # (slash_commands.py). It goes with the agent's process.
-    slash_commands: tuple[SlashCommand, ...] = ()
+    slash_commands: tuple[SlashCommand, ...] = field(default=(), metadata={"process": True})
     # What ended its last turn short (StoppedOn), until it works again: a new turn, a Stop, another conversation. It goes
     # with the agent's process.
-    stopped_on: StoppedOn | None = None
+    stopped_on: StoppedOn | None = field(default=None, metadata={"process": True})
     # Exact-worktree test command metadata. Completed/interrupted records never count as live work.
-    test_activity: TestActivity | None = None
+    test_activity: TestActivity | None = field(default=None, metadata={"process": True})
 
     def to_json(self) -> dict[str, Any]:
         return {

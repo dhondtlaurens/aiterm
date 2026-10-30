@@ -87,21 +87,13 @@ public struct GitHubClient: Sendable {
     /// repository. GraphQL answers a repository or pull request it cannot see with 200, a null and
     /// an error, which is thrown here rather than read as no threads.
     public func reviewThreads(repo: String, number: Int) async throws -> ReviewThreads {
-        let parts = repo.split(separator: "/", maxSplits: 1).map(String.init)
-        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { throw GitHubError.repoNotFound(repo) }
-        var resolutions: [Bool] = [], cursor: String?
-        for _ in 0..<Self.threadPages {
-            let variables = ThreadsRequest.Variables(owner: parts[0], name: parts[1], number: number, after: cursor)
-            let page = try await post(ThreadsPayload.self, path: "/graphql",
-                                      body: ThreadsRequest(query: Self.threadsQuery, variables: variables),
-                                      notFound: .repoNotFound(repo))
-            guard let threads = page.data?.repository?.pullRequest?.reviewThreads else {
-                throw page.errors?.contains { $0.type == "FORBIDDEN" } == true ? GitHubError.forbidden : GitHubError.repoNotFound(repo)
-            }
-            resolutions += threads.nodes.compactMap { $0.value?.isResolved }
-            guard threads.pageInfo.hasNextPage, let next = threads.pageInfo.endCursor else { break }
-            cursor = next
-        }
+        let resolutions = try await readThreads(ThreadResolution.self, repo: repo, number: number, complete: false,
+            answer: { (answer: GraphQLAnswer<ThreadsPayload<ThreadResolution>, ThreadProblem>) in
+                guard let data = answer.data, data.repository?.pullRequest != nil else {
+                    throw answer.errors?.contains { $0.type == "FORBIDDEN" } == true ? GitHubError.forbidden : GitHubError.repoNotFound(repo)
+                }
+                return data
+            }, items: { $0.compactMap { $0.value?.isResolved } })
         return ReviewThreads(resolutions: resolutions)
     }
 
@@ -317,29 +309,32 @@ public struct GitHubClient: Sendable {
     /// `threadPagesRead`, a cursor that does not move on or a thread that does not decode throws `IncompleteRead`, so
     /// nothing is decided on part of them.
     public func threads(repo: String, number: Int) async throws -> [ReviewThread] {
+        try await readThreads(ThreadDetail.self, repo: repo, number: number, complete: true,
+            answer: { (answer: GraphQLAnswer<ThreadsPayload<ThreadDetail>, GraphQLProblem>) in try answer.checked(repo: repo) },
+            items: { nodes in
+                try nodes.map { entry in
+                    guard let node = entry.value else { throw IncompleteRead("review threads") }
+                    let last = node.comments?.nodes?.last
+                    return ReviewThread(id: node.id, resolved: node.isResolved, lastAuthor: last?.author?.login, lastBody: last?.body ?? "")
+                }
+            })
+    }
+
+    /// Both thread projections use the same repository binding and paged query. Only publication
+    /// requires complete, strictly decoded pages; badges retain their bounded, lenient read.
+    private func readThreads<Node: Decodable, Problem: Decodable, Item>(_ type: Node.Type, repo: String, number: Int, complete: Bool,
+        answer: (GraphQLAnswer<ThreadsPayload<Node>, Problem>) throws -> ThreadsPayload<Node>,
+        items: ([Lenient<Node>]) throws -> [Item]) async throws -> [Item] {
         guard let (owner, name) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
-        struct Comment: Decodable { struct Author: Decodable { var login: String? }; var body: String?, author: Author? }
-        struct Comments: Decodable { var nodes: [Comment]? }
-        struct Node: Decodable { var id: String, isResolved: Bool, comments: Comments? }
-        typealias PageInfo = GraphQLPageInfo
-        struct Threads: Decodable { var pageInfo: PageInfo, nodes: [Lenient<Node>] }
-        struct PullRequest: Decodable { var reviewThreads: Threads }
-        struct Repository: Decodable { var pullRequest: PullRequest? }
-        struct Payload: Decodable { var repository: Repository? }
-        var threads: [ReviewThread] = [], cursor: String?
-        for _ in 0..<Self.threadPagesRead {
-            let variables = ThreadsRequest.Variables(owner: owner, name: name, number: number, after: cursor)
-            let page = try await graphQL(Payload.self, query: Self.threadDetailsQuery, variables: variables, repo: repo)
-            guard let found = page.repository?.pullRequest?.reviewThreads else { throw GitHubError.repoNotFound(repo) }
-            for entry in found.nodes {
-                guard let node = entry.value else { throw IncompleteRead("review threads") }
-                let last = node.comments?.nodes?.last
-                threads.append(ReviewThread(id: node.id, resolved: node.isResolved, lastAuthor: last?.author?.login, lastBody: last?.body ?? ""))
-            }
-            guard let next = try found.pageInfo.next(after: cursor, invalid: IncompleteRead("review threads")) else { return threads }
-            cursor = next
-        }
-        throw IncompleteRead("review threads")
+        return try await graphQLPages(ThreadsPayload<Node>.self, query: complete ? Self.threadDetailsQuery : Self.threadsQuery,
+            variables: { ThreadVariables(owner: owner, name: name, number: number, after: $0) }, repo: repo,
+            limit: complete ? Self.threadPagesRead : Self.threadPages,
+            exhausted: complete ? IncompleteRead("review threads") : nil,
+            invalidCursor: complete ? IncompleteRead("review threads") : nil, answer: answer,
+            page: { payload in
+                guard let threads = payload.repository?.pullRequest?.reviewThreads else { throw GitHubError.repoNotFound(repo) }
+                return (try items(threads.nodes), threads.pageInfo)
+            })
     }
 
     static let replyMutation = """
@@ -371,15 +366,11 @@ public struct GitHubClient: Sendable {
     /// `IncompleteRead`, as a later review may take an approval back.
     public func approvals(repo: String, number: Int) async throws -> [String] {
         struct Review: Decodable { struct User: Decodable { var login: String? }; var user: User?, state: String? }
-        var reviews: [Review] = [], read = false
-        for page in 1...Self.threadPagesRead {
-            let batch = try await get([Review].self, path: "/repos/\(repo)/pulls/\(number)/reviews",
-                                      query: [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))],
-                                      notFound: .repoNotFound(repo))
-            if batch.isEmpty { read = true; break }
-            reviews += batch
-        }
-        guard read else { throw IncompleteRead("reviews") }
+        let reviews = try await HTTPJSON.pagesUntilEmpty(limit: Self.threadPagesRead, exhausted: IncompleteRead("reviews")) { page in
+            try await get([Review].self, path: "/repos/\(repo)/pulls/\(number)/reviews",
+                          query: [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))],
+                          notFound: .repoNotFound(repo))
+        } items: { $0 }
         var latest: [String: String] = [:], order: [String] = []
         for review in reviews {
             guard let login = review.user?.login, let state = review.state, state == "APPROVED" || state == "CHANGES_REQUESTED" || state == "DISMISSED" else { continue }
@@ -392,17 +383,33 @@ public struct GitHubClient: Sendable {
     /// One GraphQL request: its data, or the first error beside it as GitHub's refusal.
     private func graphQL<Variables: Encodable, Payload: Decodable>(_ type: Payload.Type, query: String, variables: Variables,
                                                                    repo: String) async throws -> Payload {
-        let answer = try await post(GraphQLAnswer<Payload>.self, path: "/graphql",
-                                    body: GraphQLRequest(query: query, variables: variables), notFound: .repoNotFound(repo))
-        if let problem = answer.errors?.first {
-            switch problem.type {
-            case "FORBIDDEN": throw GitHubError.forbidden
-            case "NOT_FOUND": throw GitHubError.repoNotFound(repo)
-            default: throw GitHubError.refused(problem.message ?? "an error")
-            }
+        try await graphQL(type, query: query, variables: variables, repo: repo,
+                          answer: { (answer: GraphQLAnswer<Payload, GraphQLProblem>) in try answer.checked(repo: repo) })
+    }
+
+    /// The shared request/envelope path; callers retain the error policy of the read they serve.
+    private func graphQL<Variables: Encodable, Payload: Decodable, Problem: Decodable>(_ type: Payload.Type, query: String,
+        variables: Variables, repo: String, answer: (GraphQLAnswer<Payload, Problem>) throws -> Payload) async throws -> Payload {
+        try answer(await post(GraphQLAnswer<Payload, Problem>.self, path: "/graphql",
+                              body: GraphQLRequest(query: query, variables: variables), notFound: .repoNotFound(repo)))
+    }
+
+    /// A cursor listing, validated one page at a time. A nil exhaustion/cursor error preserves a
+    /// badge's bounded, lenient read; complete reads supply their own refusal at either boundary.
+    private func graphQLPages<Variables: Encodable, Payload: Decodable, Problem: Decodable, Item>(_ type: Payload.Type, query: String,
+        variables: (String?) -> Variables, repo: String, limit: Int, exhausted: (any Error)?, invalidCursor: (any Error)?,
+        allowEmptyCursor: Bool = true, answer: (GraphQLAnswer<Payload, Problem>) throws -> Payload,
+        page: (Payload) throws -> ([Item], GraphQLPageInfo)) async throws -> [Item] {
+        var result: [Item] = [], cursor: String?
+        for _ in 0..<limit {
+            let payload = try await graphQL(type, query: query, variables: variables(cursor), repo: repo, answer: answer)
+            let (items, info) = try page(payload)
+            result += items
+            guard let next = try info.next(after: cursor, allowEmpty: allowEmptyCursor, invalid: invalidCursor) else { return result }
+            cursor = next
         }
-        guard let data = answer.data else { throw GitHubError.decoding }
-        return data
+        if let exhausted { throw exhausted }
+        return result
     }
 
     /// The ruleset rule types that do not stop AiTerm pushing its own branch: they forbid force-pushes or
@@ -484,36 +491,30 @@ public struct GitHubClient: Sendable {
     /// decode, or more pages than are read is no answer.
     func protectionPatterns(repo: String) async throws -> [String] {
         guard let (owner, name) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
-        struct Request: Encodable {
-            struct Variables: Encodable { var owner: String, name: String, after: String? }
-            var query: String, variables: Variables
-        }
-        struct Answer: Decodable {
-            struct Problem: Decodable { var message: String? }
-            struct Node: Decodable { var pattern: String }
-            typealias PageInfo = GraphQLPageInfo
-            struct Rules: Decodable { var pageInfo: PageInfo, nodes: [Node] }
-            struct Repository: Decodable { var branchProtectionRules: Rules }
-            struct Payload: Decodable { var repository: Repository? }
-            var data: Payload?, errors: [Problem]?
-        }
-        var patterns: [String] = [], cursor: String?
-        for _ in 0..<Self.listedPages {
-            let answer = try await post(Answer.self, path: "/graphql",
-                                        body: Request(query: Self.protectionRulesQuery, variables: .init(owner: owner, name: name, after: cursor)),
-                                        notFound: .repoNotFound(repo))
-            if let problem = answer.errors?.first {
-                throw ProtectionUnknown.unreadable("GitHub didn’t show \(repo)’s branch protection rules (\(problem.message ?? "an error"))")
-            }
-            guard let rules = answer.data?.repository?.branchProtectionRules else {
-                throw ProtectionUnknown.unreadable("GitHub didn’t show \(repo)’s branch protection rules")
-            }
-            patterns += rules.nodes.map(\.pattern)
-            guard let next = try rules.pageInfo.next(after: cursor, allowEmpty: false,
-                invalid: ProtectionUnknown.unreadable("GitHub didn’t page \(repo)’s branch protection rules")) else { return patterns }
-            cursor = next
-        }
-        throw ProtectionUnknown.tooManyRules(Self.listedPages * 100)
+        struct Variables: Encodable { var owner: String, name: String, after: String? }
+        struct Problem: Decodable { var message: String? }
+        struct Node: Decodable { var pattern: String }
+        struct Rules: Decodable { var pageInfo: GraphQLPageInfo, nodes: [Node] }
+        struct Repository: Decodable { var branchProtectionRules: Rules }
+        struct Payload: Decodable { var repository: Repository? }
+        return try await graphQLPages(Payload.self, query: Self.protectionRulesQuery,
+            variables: { Variables(owner: owner, name: name, after: $0) }, repo: repo, limit: Self.listedPages,
+            exhausted: ProtectionUnknown.tooManyRules(Self.listedPages * 100),
+            invalidCursor: ProtectionUnknown.unreadable("GitHub didn’t page \(repo)’s branch protection rules"), allowEmptyCursor: false,
+            answer: { (answer: GraphQLAnswer<Payload, Problem>) in
+                if let problem = answer.errors?.first {
+                    throw ProtectionUnknown.unreadable("GitHub didn’t show \(repo)’s branch protection rules (\(problem.message ?? "an error"))")
+                }
+                guard let data = answer.data, data.repository != nil else {
+                    throw ProtectionUnknown.unreadable("GitHub didn’t show \(repo)’s branch protection rules")
+                }
+                return data
+            }, page: { payload in
+                guard let rules = payload.repository?.branchProtectionRules else {
+                    throw ProtectionUnknown.unreadable("GitHub didn’t show \(repo)’s branch protection rules")
+                }
+                return (rules.nodes.map(\.pattern), rules.pageInfo)
+            })
     }
 
     /// The token and the API version every request carries.
@@ -577,29 +578,42 @@ private struct PullPayload: Decodable {
 
 /// One GraphQL request, and its answer: the data, or the errors beside it.
 private struct GraphQLRequest<Variables: Encodable>: Encodable { var query: String, variables: Variables }
-private struct GraphQLAnswer<Payload: Decodable>: Decodable {
-    struct Problem: Decodable { var type: String?, message: String? }
+private struct GraphQLAnswer<Payload: Decodable, Problem: Decodable>: Decodable {
     var data: Payload?, errors: [Problem]?
 }
 
-/// A GraphQL request for one page of a pull request's review threads.
-private struct ThreadsRequest: Encodable {
-    struct Variables: Encodable { var owner: String, name: String, number: Int, after: String? }
-    var query: String, variables: Variables
+private struct GraphQLProblem: Decodable { var type: String?, message: String? }
+
+extension GraphQLAnswer where Problem == GraphQLProblem {
+    func checked(repo: String) throws -> Payload {
+        if let problem = errors?.first {
+            switch problem.type {
+            case "FORBIDDEN": throw GitHubError.forbidden
+            case "NOT_FOUND": throw GitHubError.repoNotFound(repo)
+            default: throw GitHubError.refused(problem.message ?? "an error")
+            }
+        }
+        guard let data else { throw GitHubError.decoding }
+        return data
+    }
 }
 
-/// GraphQL's answer for one page of review threads. Its keys are camelCase, which the snake-case
-/// decoder leaves as they are. `repository` or `pullRequest` is null, with an error beside it, when
-/// the token cannot see it or it is not there.
-private struct ThreadsPayload: Decodable {
-    struct Problem: Decodable { var type: String? }
-    struct Node: Decodable { var isResolved: Bool }
-    typealias PageInfo = GraphQLPageInfo
-    struct Threads: Decodable { var pageInfo: PageInfo, nodes: [Lenient<Node>] }
+private struct ThreadVariables: Encodable { var owner: String, name: String, number: Int, after: String? }
+/// Badge reads intentionally ignore error messages and the thread detail fields.
+private struct ThreadProblem: Decodable { var type: String? }
+private struct ThreadResolution: Decodable { var isResolved: Bool }
+private struct ThreadDetail: Decodable {
+    struct Comment: Decodable { struct Author: Decodable { var login: String? }; var body: String?, author: Author? }
+    struct Comments: Decodable { var nodes: [Comment]? }
+    var id: String, isResolved: Bool, comments: Comments?
+}
+
+/// The same GraphQL connection, projected as badge resolutions or publication thread details.
+private struct ThreadsPayload<Node: Decodable>: Decodable {
+    struct Threads: Decodable { var pageInfo: GraphQLPageInfo, nodes: [Lenient<Node>] }
     struct PullRequest: Decodable { var reviewThreads: Threads }
     struct Repository: Decodable { var pullRequest: PullRequest? }
-    struct Answer: Decodable { var repository: Repository? }
-    var data: Answer?, errors: [Problem]?
+    var repository: Repository?
 }
 
 /// A list a page at a time that says how many items it holds in all.
@@ -637,8 +651,10 @@ private struct CombinedStatusPayload: PagedList {
 
 private struct GraphQLPageInfo: Decodable {
     var hasNextPage: Bool, endCursor: String?
-    func next(after previous: String?, allowEmpty: Bool = true, invalid: any Error) throws -> String? {
+    func next(after previous: String?, allowEmpty: Bool = true, invalid: (any Error)?) throws -> String? {
         guard hasNextPage else { return nil }
+        // Badges have always accepted repeated cursors and stopped on a missing one, up to their cap.
+        guard let invalid else { return endCursor }
         guard let next = endCursor, next != previous, allowEmpty || !next.isEmpty else { throw invalid }
         return next
     }

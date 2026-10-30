@@ -16,7 +16,7 @@ struct SidebarScrollTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         var first: UUID?
         for index in 0..<20 {
             let project = OperatorUIFixtures.project("Repo \(index)")
@@ -80,7 +80,7 @@ struct SidebarScrollTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         for index in 0..<20 {
             let project = Project(id: UUID(), name: "Repo \(index)", path: "/repo\(index)", provider: .git, remoteUrl: nil,
                                   addedAt: Date(), collapsed: index == 19)

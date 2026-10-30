@@ -46,6 +46,64 @@ import Testing
         fixture.controller.state.task(id: task.id)?.operated?.closingWait
     }
 
+    @Test func statusDistinguishesCompletionFromLockedUntrackedWorktreeCleanup() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let (run, task) = try prepare(fixture)
+        let app = fixture.controller
+        app.helper.setDaemonClient(RecordingDaemon())
+        app.workspace.mutate { state in
+            state.updateRun(id: run.id) { $0.summaryGivenUp = false; $0.taskSettings.deleteMergedBranch = true }
+            state.updateOperated(task.id) { $0.end = .mergeLocal; $0.state = .published }
+        }
+        let plans = task.worktreePath + "/docs/plans"
+        try fixture.git.run(["worktree", "lock", "--reason", Worktree.taskLockReason, task.worktreePath], in: fixture.repo.path)
+        try FileManager.default.createDirectory(atPath: plans, withIntermediateDirectories: true)
+        try "Plan".write(toFile: plans + "/work.md", atomically: true, encoding: .utf8)
+        let before = try fixture.git.run(["worktree", "list", "--porcelain"], in: fixture.repo.path)
+        #expect(before.contains("locked"))
+        let closer = closer(fixture)
+        #expect(closer.lastClose == nil)
+
+        func status() async throws -> JSONValue {
+            let (answer, _) = await app.operatorController.tools.respond(
+                OperatorRequest(requestId: UUID().uuidString, runId: run.id.uuidString, tool: "run_status", arguments: [:]))
+            return try #require(answer.value)
+        }
+        let completed = try await status()
+        #expect(completed["run"]?["state"]?.stringValue == "complete")
+        #expect(completed["run"]?["cleanup"]?["state"]?.stringValue == "awaitingSummary")
+        #expect(completed["finished"] == nil)
+
+        let (summary, _) = await app.operatorController.tools.respond(
+            OperatorRequest(requestId: "summary", runId: run.id.uuidString, tool: "write_summary", arguments: ["text": "Merged."]))
+        #expect(summary.value?["written"] == true)
+        await closer.close(run.id)
+        let kept = try await status()
+        #expect(kept["run"]?["cleanup"]?["state"]?.stringValue == "settled")
+        #expect(kept["tasks"]?.arrayValue?.first?["keptReason"]?.stringValue == TaskAutoCloser.unsavedWork)
+        #expect(kept["tasks"]?.arrayValue?.first?["branch"]?.stringValue == task.branch)
+        #expect(kept["finished"] == nil)
+        #expect(try fixture.git.run(["worktree", "list", "--porcelain"], in: fixture.repo.path) == before)
+        #expect(FileManager.default.fileExists(atPath: plans + "/work.md"))
+        #expect(try !fixture.git.run(["branch", "--list", task.branch], in: fixture.repo.path).isEmpty)
+        #expect(fixture.prompter.asked.isEmpty)
+
+        // Only the fixture discards its scratch plan. End retries the existing safe removal policy.
+        try FileManager.default.removeItem(atPath: plans + "/work.md")
+        app.workspace.mutate { $0.updateRun(id: run.id) { $0.state = .stopped; $0.endedAt = Date() } }
+        await closer.close(run.id)
+        // End disables the Operator's tools; verify its actual persisted records and Git outcomes.
+        let ended = try #require(app.savedWorkspace().run(id: run.id))
+        let (refused, _) = await app.operatorController.tools.respond(
+            OperatorRequest(requestId: "ended", runId: run.id.uuidString, tool: "run_status", arguments: [:]))
+        #expect(refused.message == ToolRefusal.ended.message)
+        #expect(app.state.tasks(inRun: run.id).isEmpty)
+        #expect(ended.finished.first?.branchDeleted == true)
+        #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
+        #expect(try fixture.git.run(["branch", "--list", task.branch], in: fixture.repo.path).isEmpty)
+    }
+
     @Test(arguments: [false, true]) func appWiringClosesOnCompletionAndEnd(ending: Bool) async throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }

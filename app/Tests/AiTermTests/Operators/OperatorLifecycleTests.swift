@@ -29,7 +29,7 @@ import Testing
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])) {
-            $0.summarySleep = { await gate.wait($0) }
+            $0.clock.overrideSleep(.summary) { await gate.wait($0) }
         }
         try world.controller.stop(task: task.id)
         let wait = world.controller.summaryWait

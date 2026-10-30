@@ -123,6 +123,35 @@ import Testing
         #expect(sent.params["wake"] as? Bool == true)
     }
 
+    @Test(arguments: [false, true]) func cleanupProgressWakesTheOperator(summaryExpires: Bool) async throws {
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
+        var completed = run
+        completed.state = .complete
+        completed.completedAt = Date(timeIntervalSince1970: 10)
+        completed.summary = summaryExpires ? nil : "Merged."
+        completed.taskSettings.closeWhenDone = true
+        var kept = OperatorServiceFixtures.task(in: completed, project: project, key: "A", state: .published, end: .mergeLocal)
+        kept.operated?.keptReason = "Not closed: untracked plan"
+        func snapshot() throws -> RunStatus {
+            try #require(RunStatus.build(state: OperatorServiceFixtures.state(projects: [project], runs: [completed], tasks: [kept]),
+                                         run: completed.id, revision: 1, live: [:]))
+        }
+        waker.acknowledged(try snapshot(), of: completed.id)
+        if summaryExpires { completed.summaryGivenUp = true }
+        else { completed.closedAt = Date(timeIntervalSince1970: 11) }
+        let settled = try snapshot()
+        waker.observe(settled, of: completed.id)
+        await hand.release(1)
+        try await daemon.received("session.deliver")
+        await waker.lastSend?.value
+        #expect(lines == ["[AiTerm] updates waiting, call run_status"])
+        waker.acknowledged(settled, of: completed.id)
+        waker.observe(settled, of: completed.id)
+        #expect(lines.count == 1)
+        waker.stop()
+        hand.releaseAll()
+    }
+
     @Test func theFirstLookAtARunIsWhatItHasSeen() async throws {
         let waker = makeWaker()
         waker.observe(status(questions: 1), of: run.id)
@@ -731,6 +760,36 @@ import Testing
         #expect(reports.refused.isEmpty)
     }
 
+    /// The daemon holds a wake on input that may hold unsent text, which a key that typed nothing sets too: the hold is
+    /// reported once it has lasted `OperatorTiming.unsentWakeNotice`, and another refusal between starts it again.
+    @Test func aWakeHeldOnUnsentInputIsReportedOnceItHasWaitedLongEnough() async throws {
+        let unsent = Delivery(result: .refused, reason: "unsent text waits in its input", code: .unsentInput)
+        let typing = Delivery(result: .refused, reason: "you are typing", code: .typing)
+        daemon.deliveries = [unsent, unsent, typing, unsent, unsent, unsent]
+        @MainActor final class Clock { var now = Date(timeIntervalSince1970: 0) }
+        let clock = Clock()
+        let waker = OperatorWaker(daemon: { [daemon] in daemon }, session: { [op] _ in op.tab }, awake: { _ in true },
+                                  coalesce: .zero, retryAfter: .seconds(60), now: { clock.now })
+        waker.acknowledged(status(questions: 0), of: run.id)
+        let reports = reporting(waker)
+        waker.observe(status(questions: 1), of: run.id)
+        func attempt(_ n: Int, after seconds: TimeInterval) async throws {
+            clock.now += seconds
+            if n > 1 { waker.operatorSessionChanged(run.id) }
+            try await daemon.received("session.deliver", count: n)
+            await waker.lastSend?.value
+        }
+        try await attempt(1, after: 0)
+        try await attempt(2, after: OperatorTiming.unsentWakeNotice - 1)
+        #expect(reports.refused.isEmpty, "not held long enough yet")
+        try await attempt(3, after: 1)
+        try await attempt(4, after: 0)
+        try await attempt(5, after: OperatorTiming.unsentWakeNotice - 1)
+        #expect(reports.refused.isEmpty, "your typing in between starts the hold again")
+        try await attempt(6, after: 1)
+        #expect(reports.refused == [unsent] && reports.cleared == 0)
+    }
+
     @Test func aLineLeftUnsentClearsNothing() async throws {
         daemon.deliveries = [Delivery(result: .partial, reason: "before Enter, a permission prompt is open", code: .prompt)]
         let waker = makeWaker()
@@ -759,7 +818,7 @@ extension OperatorWakerTests {
         daemon.onRequest = { requests.continuation.yield($0) }
         var request = requests.stream.makeAsyncIterator()
         let gate = HeldGate()
-        let (world, run, _) = try OperatorServiceFixtures.oneWorkingTask(daemon) { $0.wakeSleep = { _ in await gate.wait() } }
+        let (world, run, _) = try OperatorServiceFixtures.oneWorkingTask(daemon) { $0.clock.overrideSleep(.wake) { _ in await gate.wait() } }
         world.live.sessions.append(OperatorServiceFixtures.session("operator", tag: run.id, state: .working))
         _ = await world.call(run.id, "run_status")
         let call = Task { await world.call(run.id, "message_task", ["task": "A", "text": "Continue"]) }

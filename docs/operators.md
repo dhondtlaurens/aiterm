@@ -71,6 +71,11 @@ your recorded answers. Accepted evidence belongs to a specific commit; a moved b
 acceptance. Retrying publication resumes saved steps and discovers an existing request rather than
 blindly creating another.
 
+An ended worker turn is reported as changed after acceptance when its commit moved or its
+uncommitted content differs from the content recorded at acceptance. An unchanged untracked
+plan stays quiet, including after a local merge and restart. Older saved acceptances have no
+content baseline, so only commit movement proves a later change for them.
+
 On the board, **ends at** changes one task's end. It clears a previous wait/refusal, retains a push
 or request already completed, and wakes the Operator. Changing to Commit after opening a request
 leaves that request for you.
@@ -96,6 +101,16 @@ requests left for you stay open. Closing waits for active turns and a connected 
 task and says why if there are uncommitted/untracked changes, a different checked-out branch, tabs
 outside its window or a removal failure. Ignored files go with the worktree. Optional branch deletion
 requires a merged end, the branch still at its accepted commit, merge evidence and no worktree on it.
+
+`run_status` reports cleanup separately from broadcast completion. With closing enabled, `run.cleanup`
+is `awaitingSummary` until the summary is written or its wait expires, `pending` while AiTerm's cleanup
+is due, and `settled` once that completion's cleanup pass finishes. Settled can include retained
+worktrees: task lines expose `keptReason`, or `closingWait` while the pass waits for a turn or helper.
+The same reasons appear on their board cards. Closed tasks appear in `finished`; each record's
+`branchDeleted` says whether its local branch was deleted. Cleanup settling wakes the Operator to
+read the outcome; expiry of the summary wait also wakes it when cleanup becomes pending. AiTerm handles automatic cleanup; an untracked plan
+file is unsaved work and remains for you to preserve before removing its worktree. Ended broadcasts
+keep their board records, and their Operator tools remain disabled.
 
 ## Tools
 

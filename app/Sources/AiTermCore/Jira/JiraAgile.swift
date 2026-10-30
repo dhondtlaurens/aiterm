@@ -66,22 +66,16 @@ extension JiraClient {
         }
         let keys = try tickets.map { try Self.validKey($0) }
         try await beforeWrite()
-        var req = request(path: path); req.httpMethod = "POST"
-        req.httpBody = try JSONEncoder().encode(["issues": keys])
-        try await perform(req)
+        _ = try await send(method: "POST", path: path, json: JSONEncoder().encode(["issues": keys]))
     }
 
     /// Every entry of a paged agile list, a page at a time, the ones that do not read dropped alone.
     private func agilePages<Item: Decodable & Sendable>(_ path: String, _ query: [URLQueryItem], as: Item.Type) async throws -> [Item] {
-        var startAt = 0, items: [Item] = []
-        for _ in 0..<20 {
+        try await startAtPages { startAt in
             let page = try await decode(AgilePage<Item>.self, request(path: path, queryItems: query + (startAt == 0 ? [] : [URLQueryItem(name: "startAt", value: String(startAt))])))
-            items += page.values.compactMap(\.value)
-            startAt += page.values.count
             // Jira says when the last page came; a list that does not say is taken as whole.
-            if page.isLast != false || page.values.isEmpty { break }
+            return (page.values.compactMap(\.value), page.values.count, page.isLast == false)
         }
-        return items
     }
 }
 

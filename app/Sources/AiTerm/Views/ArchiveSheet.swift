@@ -115,7 +115,7 @@ struct ArchiveRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: Space.tight) {
                     RowTitle(task.title)
                     Spacer(minLength: Space.tight)
-                    Text(date).font(Typography.help).foregroundStyle(surface.secondaryInk).lineLimit(1).fixedSize()
+                    HelpText(date, fixedVerticalSize: false).lineLimit(1).fixedSize()
                 }
                 // The sidebar's order: ticket, merge request, then the branch, which is what truncates;
                 // the project last, kept whole.
@@ -123,7 +123,7 @@ struct ArchiveRow: View {
                     badges
                     Text(task.branch).font(Typography.mono).foregroundStyle(surface.secondaryInk)
                         .lineLimit(1).truncationMode(.middle)
-                    Text(entry.projectName).font(Typography.help).foregroundStyle(surface.secondaryInk).lineLimit(1).fixedSize()
+                    HelpText(entry.projectName, fixedVerticalSize: false).lineLimit(1).fixedSize()
                 }
                 .frame(height: Size.chip)
             }
@@ -140,7 +140,6 @@ struct ArchiveRow: View {
 struct ShelvedBroadcastRow: View {
     let broadcast: ShelvedBroadcast
     let date: String
-    @Environment(\.surface) private var surface
 
     var body: some View {
         HStack(spacing: Space.inset) {
@@ -148,7 +147,7 @@ struct ShelvedBroadcastRow: View {
             HStack(alignment: .firstTextBaseline, spacing: Space.tight) {
                 RowTitle(broadcast.name)
                 Spacer(minLength: Space.tight)
-                Text(date).font(Typography.help).foregroundStyle(surface.secondaryInk).lineLimit(1).fixedSize()
+                HelpText(date, fixedVerticalSize: false).lineLimit(1).fixedSize()
             }
         }
         .padding(Space.base)

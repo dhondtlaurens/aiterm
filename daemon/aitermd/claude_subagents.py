@@ -1,11 +1,11 @@
 from __future__ import annotations
-import json
 import os
 from collections.abc import Collection, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .jsonl import records_newest_first
 from .text import iso_seconds
 
 # How much of a transcript's end is read. The records that end a child -- an interruption, a
@@ -59,26 +59,12 @@ def _is_subagent_stop(record: dict[str, Any]) -> bool:
         and a.get("hookEvent") == "SubagentStop"
 
 
-def _newest_first(tail: bytes) -> Iterator[Any]:
-    """The complete records `tail` holds, newest first, as parsed; None for one that does not parse. The first line
-    of a full tail can begin before it, so it is none of them."""
-    lines = tail[:-1].split(b"\n")
-    for line in reversed(lines[1:] if len(tail) >= TAIL_BYTES else lines):
-        try:
-            yield json.loads(line)
-        except ValueError:
-            yield None
-
-
-def _ending(tail: bytes) -> dict[str, Any] | None:
-    """The last complete record in `tail` if it ends the child, else None. A record still being
+def _ending(records: Iterator[Any]) -> dict[str, Any] | None:
+    """The last complete record in the tail if it ends the child, else None. A record still being
     written, or one longer than the tail, is neither of the small records that do. A SubagentStop
     does not when the last message before it is a prompt the child has yet to answer: Claude Code
     (2.1.283 to 2.1.308 at least) reminds a background child that ends its turn without handing
     back its report, fires SubagentStop, then runs the child on to answer the reminder."""
-    if not tail.endswith(b"\n"):
-        return None
-    records = _newest_first(tail)
     if not isinstance(last := next(records, None), dict):
         return None
     if _is_interruption(last):
@@ -119,9 +105,7 @@ class SubagentTranscripts:
         if (cached := self._cache.get(path)) is not None and cached[0] == stamp:
             return cached[1]
         try:
-            with open(real, "rb") as f:
-                f.seek(max(0, stat.st_size - TAIL_BYTES))
-                ending = _ending(f.read(TAIL_BYTES))
+            ending = _ending(records_newest_first(Path(real), TAIL_BYTES, discard_boundary=True))
         except OSError:
             return None
         tail = TranscriptTail(stamp, stat.st_mtime, None if ending is None else iso_seconds(ending.get("timestamp")) or stat.st_mtime)

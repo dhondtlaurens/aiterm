@@ -5,9 +5,6 @@ import Foundation
 @Suite struct OperatorTimingTests {
     /// The contract's table, value for value.
     @Test func theTimingsAreTheContractsValues() {
-        #expect(OperatorTiming.submitDelay == 0.4)
-        #expect(OperatorTiming.typingQuiet == 10)
-        #expect(OperatorTiming.messageFileThreshold == 2000)
         #expect(OperatorTiming.wakeCoalesce == 3)
         #expect(OperatorTiming.reconcileInterval == 60)
         #expect(OperatorTiming.stallAfter == 1200)
@@ -28,8 +25,7 @@ import Foundation
             .appendingPathComponent("daemon/aitermd/delivery.py")
         guard let python = try? String(contentsOf: file, encoding: .utf8) else { return }
         let shared: [(String, Double)] = [
-            ("SUBMIT_DELAY", OperatorTiming.submitDelay), ("TYPING_QUIET", OperatorTiming.typingQuiet),
-            ("MESSAGE_FILE_THRESHOLD", Double(OperatorTiming.messageFileThreshold)), ("GATE_TIMEOUT", OperatorTiming.gateTimeout),
+            ("GATE_TIMEOUT", OperatorTiming.gateTimeout),
             ("OPERATOR_REQUEST_TIMEOUT", OperatorTiming.operatorRequestTimeout),
         ]
         for (name, value) in shared {

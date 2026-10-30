@@ -68,6 +68,29 @@ import Testing
         #expect(contexts.percents(forRow: task.id) == [.claude: 30])
     }
 
+    @Test func theOperatorsContextBelongsToItsOwnRow() {
+        let run = OperatorFixtures.run()
+        let row = OperatorRow.id(of: run.id)
+        var state = AppState.empty
+        state.runs = [run]
+        var session = tab("operator", window: "operator-window", agent: .claude, active: true, context: 42)
+        session.taskId = run.id.uuidString
+        var contexts = SessionContexts()
+        contexts.seed(from: [session], in: state)
+        #expect(contexts.percents(forRow: row) == [.claude: 42])
+        #expect(contexts.percents(forRow: run.id).isEmpty, "the heading's id is not the selected row's id")
+
+        var compacted = session
+        compacted.contextPercent = 12
+        contexts.remember(compacted, replacing: session, in: state)
+        contexts.prune(keeping: state)
+        #expect(contexts.percents(forRow: row) == [.claude: 12])
+
+        state.runs = []
+        contexts.prune(keeping: state)
+        #expect(contexts == SessionContexts())
+    }
+
     /// A terminal's tabs carry no task tag, so they are matched on the window; a tab tagged with a
     /// task the workspace does not have counts for no row.
     @Test func aTerminalsContextIsMatchedOnItsWindow() {

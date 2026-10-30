@@ -74,7 +74,7 @@ struct HarnessSettingsPane: View {
     let agents: AgentIntegrations
     /// Each card's Messaging, and its Run check.
     var messaging = MessagingChecks.inert()
-    /// The card Settings was opened at (`AppController.presentSettings(tab:agent:)`), scrolled to once
+    /// The card Settings was opened at (`SheetCoordinator.presentSettings(tab:agent:)`), scrolled to once
     /// its probe has drawn it, through the sheet's scroll view.
     var focus: AgentKind?
     var scroll: ScrollViewProxy?

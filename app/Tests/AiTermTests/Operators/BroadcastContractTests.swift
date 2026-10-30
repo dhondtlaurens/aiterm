@@ -128,7 +128,7 @@ import Testing
         try OperatorProfileStore.saveLastAgents(OperatorServiceFixtures.agents, try #require(ports.preferences))
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
                                        operatorPorts: ports)
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         controller.presentNewBroadcast()
         #expect(await eventually(describing: "New Broadcast opens") { controller.sheet != nil })
         guard case .newBroadcast(let sheet)? = controller.sheet else { Issue.record("no New Broadcast sheet"); return }

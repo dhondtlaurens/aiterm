@@ -114,7 +114,7 @@ import Testing
         let saved = NSApplication.shared.mainMenu
         defer { NSApplication.shared.mainMenu = saved }
         let controller = AppController(preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let app = AiTermApp(controller: controller)
         app.buildMenu()
         let menus = try #require(NSApplication.shared.mainMenu).items.compactMap(\.submenu)
@@ -136,7 +136,7 @@ import Testing
         let saved = NSApplication.shared.mainMenu
         defer { NSApplication.shared.mainMenu = saved }
         let controller = AppController(preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let app = AiTermApp(controller: controller)
         app.buildMenu()
         let view = try #require(NSApplication.shared.mainMenu?.items.compactMap(\.submenu).first { $0.title == "View" })

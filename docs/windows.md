@@ -179,7 +179,7 @@ and you restore the worktree or remove the task.
 - **Terminals don't re-run anything.** A terminal comes back as an empty shell in its folder.
 - **To check before a release:** with iTerm2's window restoration on, quit and relaunch iTerm2 with
   tasks and a terminal open. Nothing should open twice. (It also appears in
-  [releasing.md](releasing.md).)
+  [release.md](workflow/release.md).)
 
 ## Where it lives, for developers
 

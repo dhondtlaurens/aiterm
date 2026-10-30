@@ -14,7 +14,7 @@ import AiTermUI
 struct OperatorBadgeTests {
     private func fitting(_ line: OperatorLine, width: CGFloat? = nil) -> CGSize {
         let host = NSHostingView(rootView: OperatorBadge(line: line).frame(width: width, alignment: .leading)
-            .surface(.sidebar).environment(\.stillSpinners, true))
+            .surface(.sidebar).environment(\.motionStill, .snapshot))
         return host.fittingSize
     }
 
@@ -28,11 +28,11 @@ struct OperatorBadgeTests {
     }
 
     @Test func stillUnderReduceMotion() {
-        #expect(OperatorBadge.decodes(.acting, reduceMotion: false, still: false))
-        #expect(!OperatorBadge.decodes(.acting, reduceMotion: true, still: false))
-        #expect(!OperatorBadge.decodes(.acting, reduceMotion: false, still: true))
-        #expect(!OperatorBadge.decodes(.quiet, reduceMotion: false, still: false))
-        #expect(!OperatorBadge.decodes(.needsYou, reduceMotion: false, still: false))
+        #expect(OperatorBadge.decodes(.acting, motionStill: nil))
+        #expect(!OperatorBadge.decodes(.acting, motionStill: .reduceMotion))
+        #expect(!OperatorBadge.decodes(.acting, motionStill: .snapshot))
+        #expect(!OperatorBadge.decodes(.quiet, motionStill: nil))
+        #expect(!OperatorBadge.decodes(.needsYou, motionStill: nil))
         // Acting stands in the surface's ink, decoding or not; quiet sits back in its secondary ink.
         for surface in [Surface.sidebar, .accent] {
             #expect(OperatorBadge.ink(.acting, surface: surface) == surface.ink)
@@ -172,7 +172,7 @@ struct OperatorBadgeTests {
         #expect(OperatorBadge.decodeUpdates == updates)
 
         // Standing still (a snapshot here; Reduce Motion takes the same path, `decodes` above) there is no view of its own.
-        let (still, stillHost) = hosted(OperatorBadge(line: OperatorLine("merging", look: .acting)).environment(\.stillSpinners, true))
+        let (still, stillHost) = hosted(OperatorBadge(line: OperatorLine("merging", look: .acting)).environment(\.motionStill, .snapshot))
         defer { still.close() }
         settle(stillHost, for: 0.1)
         #expect(stillHost.firstDescendant(DecodeWordsView.self) == nil, "standing still, the words are SwiftUI's text")
