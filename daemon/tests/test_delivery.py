@@ -436,11 +436,11 @@ async def test_an_interrupted_paste_is_partial_and_not_retried(rig):
 
 
 async def test_the_prompt_is_read_from_the_screen(rig):
-    assert await rig.deliverer.prompt(rig.sid) is None
+    assert (await rig.deliverer.prompt_details(rig.sid))["kind"] is None
     rig.iterm.screens[rig.sid] = CLAUDE_PERMISSION
-    assert await rig.deliverer.prompt(rig.sid) == "permission"
+    assert (await rig.deliverer.prompt_details(rig.sid))["kind"] == "permission"
     with pytest.raises(KeyError):
-        await rig.deliverer.prompt("s404")
+        await rig.deliverer.prompt_details("s404")
 
 
 async def test_deliveries_to_one_session_take_turns(rig):
@@ -934,7 +934,7 @@ def test_policy_retries_a_transient_read_failure(tmp_path, monkeypatch):
 async def test_a_blank_prompt_read_is_unknown(rig, screen):
     rig.iterm.screens[rig.sid] = screen
     with pytest.raises(ItermUnavailable, match="screen came back empty"):
-        await rig.deliverer.prompt(rig.sid)
+        await rig.deliverer.prompt_details(rig.sid)
 
 
 async def test_a_sent_numbered_message_above_the_input_does_not_block_delivery(rig):
@@ -954,7 +954,7 @@ async def test_a_numbered_paste_in_the_input_frame_gets_its_enter(rig):
 async def test_a_quoted_permission_above_the_input_is_not_an_unannounced_prompt(rig, state):
     rig.registry.set_state(rig.sid, state)
     rig.iterm.screens[rig.sid] = '⏺ The dialog says "Do you want to proceed?"\n' + IDLE
-    assert await rig.deliverer.prompt(rig.sid) is None
+    assert (await rig.deliverer.prompt_details(rig.sid))["kind"] is None
 
 
 @pytest.mark.parametrize("state", ["idle", "working"])
@@ -962,7 +962,7 @@ async def test_update_words_above_codex_input_never_send_escape(rig, state):
     await _now_codex(rig)
     rig.registry.set_state(rig.sid, state)
     rig.iterm.screens[rig.sid] = '• Read models.py\n  update_prompt=("Update now", "Skip until next version"),\n' + CODEX_WORKING
-    assert await rig.deliverer.prompt(rig.sid) is None
+    assert (await rig.deliverer.prompt_details(rig.sid))["kind"] is None
     assert await rig.deliverer.dismiss_startup(rig.sid) is False
     assert rig.iterm.sent == []
 
@@ -984,7 +984,7 @@ def test_sent_numbered_text_in_claudes_transcript_view_is_not_a_menu():
 async def test_an_announced_prompt_keeps_its_marker_even_with_input_below(rig):
     rig.registry.set_state(rig.sid, "needsInput")
     rig.iterm.screens[rig.sid] = CLAUDE_PERMISSION + IDLE
-    assert await rig.deliverer.prompt(rig.sid) == "permission"
+    assert (await rig.deliverer.prompt_details(rig.sid))["kind"] == "permission"
 
 
 async def test_update_dismissal_rechecks_working_after_reading_the_screen(rig):
@@ -1044,7 +1044,7 @@ QUOTED_PERMISSION = '⏺ Confirmed: "Do you want to proceed?" quoted above reads
 async def test_a_quoted_marker_above_the_input_box_takes_a_message(rig, screen, state):
     rig.registry.set_state(rig.sid, state)
     rig.iterm.screens[rig.sid] = screen
-    assert await rig.deliverer.prompt(rig.sid) is None
+    assert (await rig.deliverer.prompt_details(rig.sid))["kind"] is None
     assert await rig.deliverer.deliver(rig.sid, "hello", 1) == DeliveryResult("delivered", None)
 
 
@@ -1052,7 +1052,7 @@ async def test_a_quoted_marker_above_the_input_box_takes_a_message(rig, screen, 
 async def test_a_real_menu_is_refused_whatever_the_session_says(rig, state):
     rig.registry.set_state(rig.sid, state)
     rig.iterm.screens[rig.sid] = CLAUDE_MENU
-    assert await rig.deliverer.prompt(rig.sid) == "menu"
+    assert (await rig.deliverer.prompt_details(rig.sid))["kind"] == "menu"
     assert await rig.deliverer.deliver(rig.sid, "hello", 1) == DeliveryResult("refused", "a menu prompt is open")
     assert rig.iterm.sent == []
 
