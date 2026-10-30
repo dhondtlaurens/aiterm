@@ -4,13 +4,6 @@ import Foundation
 /// `aitermd/delivery.py`, and the two must agree (`OperatorTimingTests` pins both the values and
 /// their names in the Python file).
 public enum OperatorTiming {
-    /// Between a bracketed paste and the `\r` that submits it (spec §2.2: sent together, the CLI
-    /// takes the Enter as part of the paste).
-    public static let submitDelay: TimeInterval = 0.4
-    /// No wake line is typed within this of your last key in the operator's session (spec §7.4).
-    public static let typingQuiet: TimeInterval = 10
-    /// A message longer than this goes through `.aiterm/messages/<n>.md` (spec §7.1).
-    public static let messageFileThreshold = 2000
     /// Wake lines within this of each other are merged into one.
     public static let wakeCoalesce: TimeInterval = 3
     /// Sessions and branches are reconciled this often, and on every reconnect (spec §7.3).

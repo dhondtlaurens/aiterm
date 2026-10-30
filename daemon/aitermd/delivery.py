@@ -546,10 +546,6 @@ class Deliverer:
             return Refusal("pasteOnly", "before Enter, automatic submission is no longer checked safe")
         return None
 
-    async def prompt(self, session_id: str) -> PromptKind | None:
-        """The prompt open in the session now. KeyError for a session not open."""
-        return (await self.prompt_details(session_id))["kind"]
-
     async def prompt_details(self, session_id: str) -> PromptDetails:
         """Classify and quote one screen read, so the operator sees the question and all its options.
         The full visible screen preserves context that harness-specific menu slicing could lose."""
