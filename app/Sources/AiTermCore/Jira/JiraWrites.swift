@@ -41,9 +41,8 @@ extension JiraClient {
         if !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { fields["description"] = ADFText.document(description) }
         if let parent { fields["parent"] = ["key": parent] }
         if !labels.isEmpty { fields["labels"] = labels }
-        var req = request(path: "/rest/api/3/issue"); req.httpMethod = "POST"
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["fields": fields])
-        return try await writeDecode(Created.self, req).key
+        let data = try await send(method: "POST", path: "/rest/api/3/issue", json: JSONSerialization.data(withJSONObject: ["fields": fields]))
+        return try decode(Created.self, data: data).key
     }
 
     /// Moves `key` to the status named `statusName`: false, with nothing made, when it is in that status already; else
@@ -59,20 +58,16 @@ extension JiraClient {
             throw JiraError.noTransition(key: key, status: statusName, offered: offered.compactMap { $0.to?.value?.name })
         }
         try await beforeWrite()
-        var req = request(path: path); req.httpMethod = "POST"
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["transition": ["id": chosen.id]])
-        try await perform(req)
+        _ = try await send(method: "POST", path: path, json: JSONSerialization.data(withJSONObject: ["transition": ["id": chosen.id]]))
         return true
     }
 
     /// `key` linked to `other` by the link type named `type` (`Blocks`, `Relates`, `Duplicate`), read from `key`'s
     /// side: "`key` blocks `other`".
     public func link(key: String, to other: String, type: String) async throws {
-        var req = request(path: "/rest/api/3/issueLink"); req.httpMethod = "POST"
-        req.httpBody = try JSONSerialization.data(withJSONObject: [
+        _ = try await send(method: "POST", path: "/rest/api/3/issueLink", json: JSONSerialization.data(withJSONObject: [
             "type": ["name": type], "outwardIssue": ["key": try Self.validKey(key)], "inwardIssue": ["key": try Self.validKey(other)],
-        ])
-        try await perform(req)
+        ]))
     }
 
     /// Changes the fields of `key` that `fields` names, with `PUT /rest/api/3/issue/{key}`. The labels go as add and remove
@@ -98,9 +93,8 @@ extension JiraClient {
         case .query(let query): sent["assignee"] = ["accountId": try await assignee(matching: query, forTicket: key).accountId]
         }
         try await beforeWrite()
-        var req = request(path: path); req.httpMethod = "PUT"
-        req.httpBody = try JSONSerialization.data(withJSONObject: update.isEmpty ? ["fields": sent] : ["fields": sent, "update": update])
-        try await perform(req)
+        _ = try await send(method: "PUT", path: path,
+                           json: JSONSerialization.data(withJSONObject: update.isEmpty ? ["fields": sent] : ["fields": sent, "update": update]))
     }
 
     /// The users of `project` a ticket can be assigned to whose name or email matches `query`.
@@ -136,45 +130,24 @@ extension JiraClient {
         try await beforeWrite()
         var sent: [String: Any] = ["body": ADFText.document(body)]
         if let tag { sent["properties"] = [["key": Self.commentPropertyKey, "value": ["call": tag]]] }
-        var req = request(path: path); req.httpMethod = "POST"
-        req.httpBody = try JSONSerialization.data(withJSONObject: sent)
-        return try await writeDecode(CommentCreated.self, req).id
+        let data = try await send(method: "POST", path: path, json: JSONSerialization.data(withJSONObject: sent))
+        return try decode(CommentCreated.self, data: data).id
     }
 
     /// The id of the comment on `key` that carries `tag` (set by `comment`), nil when there is none. A read, a page of
     /// comments at a time.
     public func findComment(key: String, tag: String) async throws -> String? {
         let path = "/rest/api/3/issue/\(try Self.validKey(key))/comment"
-        var startAt = 0
-        for _ in 0..<20 {
+        let matches: [String] = try await startAtPages { startAt in
             let page = try await decode(CommentPage.self, request(path: path, queryItems: [
                 URLQueryItem(name: "expand", value: "properties"), URLQueryItem(name: "startAt", value: String(startAt)),
                 URLQueryItem(name: "maxResults", value: "100"),
             ]))
-            let comments = page.comments.compactMap(\.value)
-            if let found = comments.first(where: { $0.tags.contains(tag) }) { return found.id }
-            startAt += page.comments.count
-            if page.comments.isEmpty || startAt >= (page.total ?? startAt) { break }
+            let found = page.comments.compactMap(\.value).first { $0.tags.contains(tag) }
+            let next = startAt + page.comments.count
+            return (found.map { [$0.id] } ?? [], page.comments.count, found == nil && next < (page.total ?? next))
         }
-        return nil
-    }
-
-    /// A write whose answer is an empty 2xx (a transition and a link answer 204).
-    func perform(_ request: URLRequest) async throws { _ = try await writeSend(request) }
-
-    private func writeDecode<Response: Decodable>(_ type: Response.Type, _ request: URLRequest) async throws -> Response {
-        let data = try await writeSend(request)
-        do { return try JSONDecoder().decode(type, from: data) } catch { throw JiraError.decoding }
-    }
-
-    /// The request's answer body. A refusal keeps Jira's own words: its 400s and 404s say which field or which
-    /// ticket, which is what the Operator needs to correct the call.
-    private func writeSend(_ request: URLRequest) async throws -> Data {
-        do {
-            let (data, response) = try await HTTPJSON.sendUnchecked(request, session: session)
-            guard (200..<300).contains(response.statusCode) else { throw Self.writeError(status: response.statusCode, body: data) }
-            return data
-        } catch let failure as HTTPJSON.Failure { throw Self.error(for: failure) }
+        return matches.first
     }
 
     static func writeError(status: Int, body: Data) -> JiraError {

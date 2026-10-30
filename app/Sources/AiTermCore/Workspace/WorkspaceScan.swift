@@ -54,8 +54,8 @@ public struct WorkspaceScan: Equatable, Sendable {
         for project in projects {
             projectBranch[project.id] = branches.branch(for: project.path)
             defaultBranch[project.id] = defaultBranches.defaultBranch(for: project.path)
-            if case .remote(let url) = remotes.remote(for: project.path) {
-                found[project.id] = Remote(provider: ProviderDetector.detect(remoteUrl: url, repoPath: project.path).provider, url: url)
+            if let remote = remotes.resolvedRemote(for: project.path) {
+                found[project.id] = Remote(provider: remote.info.provider, url: remote.url)
             }
         }
         return WorkspaceScan(
