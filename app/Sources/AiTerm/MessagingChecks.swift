@@ -103,9 +103,9 @@ final class MessagingChecks {
     /// run it for as long as they are open.
     func watch() async {
         await refresh(force: true)
-        while !Task.isCancelled {
-            do { try await Task.sleep(for: interval) } catch { return }
+        await PollLoop.run(interval: interval, sleepFirst: true) {
             await refresh()
+            return interval
         }
     }
 

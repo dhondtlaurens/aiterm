@@ -10,7 +10,7 @@ import Testing
     let clock = TestClock.operators()
 
     func makeWorld(_ state: AppState, daemon: RecordingDaemon = RecordingDaemon()) throws -> OperatorWorld {
-        try OperatorWorld(state, daemon: daemon) { [clock] ports in ports.now = { clock.now } }
+        try OperatorWorld(state, daemon: daemon) { [clock] ports in ports.clock.now = { clock.now } }
     }
 
     @Test func anOperatorsTabGoneTakesItsBroadcastOfflineAndItsReturnBringsItBackButNeverUnpauses() throws {
@@ -636,7 +636,7 @@ import Testing
     }
 
     @Test func enteringNeedsInputAfterADeliveryReadsWithoutATick() async throws {
-        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask { [clock] ports in ports.now = { clock.now } }
+        let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask { [clock] ports in ports.clock.now = { clock.now } }
         _ = await world.call(run.id, "message_task", ["task": "A", "text": "Continue"])
         try await world.daemon.received("session.prompt")
         await world.controller.lastProbe?.value
@@ -692,7 +692,7 @@ import Testing
     }
 
     @Test func aNeedsInputTabWithoutAQuestionHasTheSameReadGap() async throws {
-        let (world, _, task) = try OperatorServiceFixtures.oneWorkingTask { [clock] ports in ports.now = { clock.now } }
+        let (world, _, task) = try OperatorServiceFixtures.oneWorkingTask { [clock] ports in ports.clock.now = { clock.now } }
         world.live.sessions[0].state = .needsInput
         world.daemon.failing["session.prompt"] = .itermUnavailable
         for _ in 0..<5 {
@@ -812,7 +812,7 @@ import Testing
     func aMessageProbesItsWorkerWhenTheResultCallsForIt(result: String) async throws {
         let delay = HeldGate()
         let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask { ports in
-            ports.promptSleep = { duration in
+            ports.clock.overrideSleep(.prompt) { duration in
                 #expect(duration == .seconds(1.5))
                 await delay.wait()
             }
@@ -939,7 +939,7 @@ import Testing
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         let op = OperatorServiceFixtures.session("op", tag: run.id)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { ports in
-            ports.now = { [clock] in clock.now }
+            ports.clock.now = { [clock] in clock.now }
             ports.reconcileInterval = .milliseconds(5)
         }
         world.show([op])

@@ -165,7 +165,7 @@ import Testing
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working, worktree: "/tmp/aiterm-wt")
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])) { ports in
-            ports.now = { clock.now }
+            ports.clock.now = { clock.now }
             adjust(&ports)
         }
         world.show([OperatorServiceFixtures.session("op", tag: run.id)])
@@ -196,7 +196,7 @@ import Testing
     @Test func theWaitEndingWithNoSummaryGivesUpAndNotifies() async throws {
         let clock = TestClock.operators()
         let gate = SleepGate(opened: true)
-        let (world, run, task) = try broadcast(clock) { $0.summarySleep = { await gate.wait($0) } }
+        let (world, run, task) = try broadcast(clock) { $0.clock.overrideSleep(.summary) { await gate.wait($0) } }
         try world.controller.stop(task: task.id)
         await world.controller.summaryWait?.value
         #expect(gate.asked == [.seconds(OperatorTiming.summaryWait)], "one wait per completion")
@@ -209,7 +209,7 @@ import Testing
     /// A summary written before the wait ends: never given up, and the note says it is ready.
     @Test func aSummaryWrittenFirstIsNeverGivenUp() async throws {
         let clock = TestClock.operators(), gate = SleepGate()
-        let (world, run, task) = try broadcast(clock) { $0.summarySleep = { await gate.wait($0) } }
+        let (world, run, task) = try broadcast(clock) { $0.clock.overrideSleep(.summary) { await gate.wait($0) } }
         try world.controller.stop(task: task.id)
         #expect(await world.call(run.id, "write_summary", ["text": "It merged."]).value?["written"] == true)
         #expect(world.notifications.posted.map(\.body) == ["The summary is ready."])
@@ -524,7 +524,7 @@ import Testing
     }
 }
 
-/// A `summarySleep` that ends when the test says, or at once once opened, and keeps what it was asked to wait.
+/// A summary sleep that ends when the test says, or at once once opened, and keeps what it was asked to wait.
 @MainActor final class SleepGate {
     private(set) var asked: [Duration] = []
     private var waiting: [CheckedContinuation<Void, Never>] = []

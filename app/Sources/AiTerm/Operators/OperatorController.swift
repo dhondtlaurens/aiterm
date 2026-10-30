@@ -1,6 +1,17 @@
 import Foundation
 import AiTermCore
 
+/// Operator time, shared by reconciliation and publication. A wait's purpose lets fixtures control
+/// one kind of wait without changing the others; the live clock sleeps identically for all of them.
+struct OperatorClock: Sendable {
+    enum Wait: Sendable, Equatable { case wake, summary, prompt, merge }
+
+    var now: @Sendable () -> Date = { Date() }
+    var sleep: @MainActor @Sendable (Wait, Duration) async throws -> Void = { _, duration in
+        try await Task.sleep(for: duration)
+    }
+}
+
 /// What the operators reach beyond the app's own owners: the home — run folders
 /// (`OperatorCommand.runFolder`) and the agents' conversations (Claude's folder, `~/.codex`) are under it —
 /// git, the notification centre and the clock. The app's are `live`; a test's reach
@@ -20,16 +31,12 @@ struct OperatorPorts {
     /// How long a challenged call waits for its critique before answering that it is still coming: well
     /// inside the daemon's `operatorRequestTimeout`, which the challenge's own limit is not.
     var challengeReplyBudget: Duration = .seconds(20)
-    var now: @MainActor () -> Date = { Date() }
+    var clock = OperatorClock()
+    var now: @Sendable () -> Date { clock.now }
     /// The version of AiTerm that is running, for the snags the Operator reports: "dev" for a build with none.
     var appVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     /// How long a burst of changes is gathered into one wake line.
     var wakeCoalesce: Duration = .seconds(OperatorTiming.wakeCoalesce)
-    var wakeSleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
-    /// The wait for the Operator's summary once a broadcast is complete (`OperatorTiming.summaryWait`).
-    var summarySleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
-    /// The pause before checking again for a dialog drawn after a delivered command.
-    var promptSleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// How often the run reconciler looks at the real tabs.
     var reconcileInterval: Duration = .seconds(OperatorTiming.reconcileInterval)
     /// The code host a project's requests are published on, with the connections Settings saved (G10):
@@ -41,10 +48,6 @@ struct OperatorPorts {
     /// what `run_status` and `read_task` show of each request.
     var hostTimeout: Duration = .seconds(OperatorTiming.hostReadTimeout)
     var hostCache: TimeInterval = OperatorTiming.hostReadCache
-    /// The merge watch's wait between polls.
-    var mergeSleep: @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
-    /// The clock a publication reads — its bounded wait, its two ready reads apart.
-    var publishNow: @Sendable () -> Date = { Date() }
     /// The agents the login shell found, which a task may run (spec §15). Nil is the app's own
     /// `AgentIntegrations.availableAgents`, which `AppController` fills in.
     var installedAgents: (@MainActor () -> Set<AgentKind>)?
@@ -108,7 +111,7 @@ final class OperatorController {
     @ObservationIgnored let prompts: WorkerPrompts
     /// Where the workers' and the Operator's conversations are, shared by every reader of them.
     @ObservationIgnored let transcripts: TranscriptLocator
-    @ObservationIgnored private var loop: Task<Void, Never>?
+    @ObservationIgnored private var loop: PollLoop?
     @ObservationIgnored private var isStopped = false
     /// An attach whose first connected snapshot is still to come: it reconciles and sets ownership again.
     @ObservationIgnored private var reattached = false
@@ -201,13 +204,14 @@ final class OperatorController {
         self.ports = ports
         prompts = WorkerPrompts(workspace: workspace, live: live, ports: ports, daemon: daemon)
         notifier = OperatorNotifier(notifications: ports.notifications, state: { [workspace] in workspace.state })
+        let clock = ports.clock
         waker = OperatorWaker(daemon: daemon,
                               session: { [live] run in Self.operatorTab(of: run, in: live.sessions) },
                               awake: { [workspace] run in
                                   guard let state = workspace.state.run(id: run)?.state else { return false }
                                   return state == .planning || state == .active || state == .complete
                               },
-                              coalesce: ports.wakeCoalesce, sleep: ports.wakeSleep)
+                              coalesce: ports.wakeCoalesce, sleep: { try await clock.sleep(.wake, $0) })
         tabs = TabOpener(workspace: workspace, daemon: daemon, ports: ports)
         let transcripts = TranscriptLocator(home: ports.home, claudeConfig: ports.claudeConfig)
         self.transcripts = transcripts
@@ -218,7 +222,8 @@ final class OperatorController {
         }
         starter = WorkerStarter(workspace: workspace, live: live, daemon: daemon, taskFrame: taskFrame, ports: ports)
         // It captures nothing of `self`: its callbacks are installed once every stored property is set.
-        finisher = TaskFinisher(store: workspace, git: ports.git, connect: ports.publisher, now: ports.publishNow, sleep: ports.mergeSleep)
+        finisher = TaskFinisher(store: workspace, git: ports.git, connect: ports.publisher, now: clock.now,
+                                sleep: { try await clock.sleep(.merge, .seconds($0)) })
         reconciler = RunReconciler(workspace: workspace, live: live, starter: starter, tabs: tabs, waker: waker, ports: ports)
         reviewWatcher = ReviewWatcher(workspace: workspace, ports: ports, waker: waker)
         branchWatch = BranchWatch(workspace: workspace, live: live, ports: ports, waker: waker, transcripts: transcripts)
@@ -511,9 +516,9 @@ final class OperatorController {
     /// if none came. A new completion's wait replaces the one before.
     private func awaitSummary(_ id: UUID, completedAt: Date) {
         summaryWaits[id]?.cancel()
-        let sleep = ports.summarySleep
+        let clock = ports.clock
         let wait = Task { [weak self] in
-            guard (try? await sleep(.seconds(OperatorTiming.summaryWait))) != nil, !Task.isCancelled, let self else { return }
+            guard (try? await clock.sleep(.summary, .seconds(OperatorTiming.summaryWait))) != nil, !Task.isCancelled, let self else { return }
             // Not cancelled, so still this completion's wait: a later one cancels it.
             summaryWaits[id] = nil
             giveUpOnSummary(id, waited: completedAt)
@@ -858,12 +863,11 @@ final class OperatorController {
         tabs.start()
         finisher.start()
         let interval = ports.reconcileInterval
-        loop = Task { [weak self] in
-            while !Task.isCancelled {
-                // A sleep that ended just as `stop()` ran still resumes: it must not tick after it.
-                guard (try? await Task.sleep(for: interval)) != nil, !Task.isCancelled, let self else { return }
-                reconcileTick()
-            }
+        loop = PollLoop(interval: interval, sleepFirst: true) { [weak self] in
+            // A sleep that ended just as stop ran must not tick after it.
+            guard !Task.isCancelled, let self else { return nil }
+            reconcileTick()
+            return interval
         }
         finisher.resumeWatching()
     }

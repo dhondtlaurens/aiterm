@@ -22,7 +22,7 @@ import Testing
                                                  sessionId: "s-review")]
         }
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])) { [clock] ports in
-            ports.now = { clock.now }
+            ports.clock.now = { clock.now }
         }
         world.show(sessions(run, task, worker))
         return (world, run, task)

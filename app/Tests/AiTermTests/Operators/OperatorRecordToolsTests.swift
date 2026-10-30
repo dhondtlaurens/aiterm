@@ -65,7 +65,7 @@ import Testing
     @Test func writeSummaryStoresIt() async throws {
         let run = OperatorServiceFixtures.run(projects: [project], state: .complete)
         let at = Date(timeIntervalSince1970: 1_800_000_000)
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { $0.now = { at } }
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { $0.clock.now = { at } }
         let answer = await world.call(run.id, "write_summary", ["text": "  Two tasks merged; one needed a retry.\n"])
         #expect(answer.value?["written"] == true)
         #expect(world.run(run.id)?.summary == "Two tasks merged; one needed a retry.", "surrounding whitespace is trimmed")

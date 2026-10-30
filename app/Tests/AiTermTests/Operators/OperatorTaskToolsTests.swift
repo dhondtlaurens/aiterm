@@ -107,7 +107,7 @@ import Testing
     /// same base: `read_task diff` and the review after it fetch once (spec §9, the reopen and read_task diff fixes).
     @Test func theBaseIsFetchedWithinTenSecondsAndAtMostOnceAMinute() async throws {
         let recording = RecordingGitRunner(forwardingTo: git), clock = TestClock.operators()
-        let (world, run, _, moved) = try makeWorldBehindOrigin(worldGit: recording) { $0.now = { clock.now } }
+        let (world, run, _, moved) = try makeWorldBehindOrigin(worldGit: recording) { $0.clock.now = { clock.now } }
         func fetches() -> [RecordingGitRunner.Call] { recording.calls.filter { $0.args.contains("fetch") } }
         func diff() async throws -> JSONValue { try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value) }
         #expect(try await diff()["base"] == .string(moved))
@@ -431,7 +431,7 @@ extension OperatorTaskToolsTests {
     @Test func deliveredMessagesReplayForTwiceTheRequestTimeout() async throws {
         let clock = TestClock.operators()
         let window = 2 * OperatorTiming.operatorRequestTimeout
-        let (world, run, _) = try OperatorServiceFixtures.oneWorkingTask { $0.now = { clock.now } }
+        let (world, run, _) = try OperatorServiceFixtures.oneWorkingTask { $0.clock.now = { clock.now } }
         let args: JSONValue = ["task": "A", "text": "Continue"]
         let first = await world.call(run.id, "message_task", args)
         clock.advance(by: window - 1)
