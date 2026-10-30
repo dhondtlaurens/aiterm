@@ -110,4 +110,4 @@ logged-in `gh`, a newer version, the release certificate, Python 3.11+ and a cur
 It stamps the built bundle, creates/pushes the version tag, uploads the DMG to a draft, then
 publishes. The development bundle marker is refused. Complete the full gate and manual release
 checks first. Signing setup, version numbering and interrupted-release recovery live in
-[releasing](../docs/releasing.md). A build/test command never implies permission to release.
+[releasing](../docs/workflow/release.md). A build/test command never implies permission to release.
