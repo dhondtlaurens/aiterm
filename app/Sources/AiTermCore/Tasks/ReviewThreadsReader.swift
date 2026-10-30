@@ -31,10 +31,10 @@ public struct ReviewThreadsReader: ReviewThreadsReading {
         switch Self.target(of: mr.url, gitLabHost: gitLab?.hostURL) {
         case .gitHub(let repo)?:
             guard let gitHub else { return nil }
-            return try await GitHubClient(config: gitHub, session: session).reviewThreads(repo: repo, number: mr.iid)
+            return try await GitHubPublisher(client: GitHubClient(config: gitHub, session: session), repo: repo).reviewThreads(of: mr.iid)
         case .gitLab(let project)?:
             guard let gitLab else { return nil }
-            return try await GitLabClient(config: gitLab, session: session).reviewThreads(project: project, iid: mr.iid)
+            return try await GitLabPublisher(client: GitLabClient(config: gitLab, session: session), project: project).reviewThreads(of: mr.iid)
         case nil:
             return nil
         }
