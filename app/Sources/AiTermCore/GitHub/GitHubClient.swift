@@ -145,9 +145,9 @@ public struct GitHubClient: Sendable {
 
     /// Whether GitHub would merge it now (a head with no check runs or statuses at all follows `mergeable_state`
     /// alone, so a caller debounces a ready answer): merged or closed first, then every check run and
-    /// commit status on its head, then a draft — a merge end waits for green whatever branch protection requires; a
-    /// skipped, neutral or action-required check is not green and a pending one is not yet — then
-    /// `mergeable` and `mergeable_state`. Only `clean` and `has_hooks` with `mergeable` true is ready.
+    /// commit status on its head (`checkSummary`), then a draft — a merge end waits for green whatever branch protection
+    /// requires, and a pending check is not green yet — then `mergeable` and `mergeable_state`. Only `clean` and
+    /// `has_hooks` with `mergeable` true is ready.
     public func mergeReadiness(repo: String, number: Int) async throws -> MergeReadiness {
         let pull = try await get(PullStatusPayload.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
         if pull.merged == true { return .merged(commit: pull.mergeCommitSha ?? pull.head.sha, head: pull.head.sha, target: pull.base?.ref) }
@@ -158,28 +158,11 @@ public struct GitHubClient: Sendable {
         guard let runs = try await readRuns, let statuses = try await readStatuses else {
             return .waiting("GitHub has not listed all its checks")
         }
-        var running = false
-        for run in runs {
-            guard run.status == "completed" else { running = true; continue }
-            switch run.conclusion ?? "" {
-            case "success": continue
-            case "failure", "timed_out", "startup_failure": return .blocked("its check \(run.name) failed")
-            case "cancelled": return .blocked("its check \(run.name) was cancelled")
-            case "action_required": return .blocked("its check \(run.name) needs someone to act")
-            // Many CIs skip their checks while it is a draft: no failure then, so the draft is all that stops it.
-            case "skipped" where pull.draft == true: continue
-            case "neutral", "skipped", "stale": return .blocked("its check \(run.name) did not pass (\(run.conclusion ?? ""))")
-            default: running = true   // a conclusion AiTerm does not know is not green
-            }
+        switch Self.checkSummary(runs: runs, statuses: statuses) {
+        case .failed(let why): return .blocked(why)
+        case .running: return .waiting("its checks are running")
+        case .green: break
         }
-        for status in statuses {
-            switch status.state {
-            case "success": continue
-            case "failure", "error": return .blocked("its status \(status.context) failed")
-            default: running = true
-            }
-        }
-        if running { return .waiting("its checks are running") }
         // A draft is said once its checks and its conflicts have: what else stops it comes first.
         if pull.draft == true { return pull.mergeable == false ? .blocked("it has conflicts") : .blocked(MergeReadiness.draftReason) }
         switch pull.mergeableState ?? "unknown" {
@@ -195,8 +178,8 @@ public struct GitHubClient: Sendable {
     }
 
     /// The pull request as the Operator reads it (`MergeRequestState`). `mergeable` is GitHub's `mergeable_state`
-    /// (`merged` or `closed` once it is); `pipeline` is its checks as one word, nil when a list was not read to its end
-    /// or there are no checks at all: a failed check first, then one still running, else `success`.
+    /// (`merged` or `closed` once it is); `pipeline` is its checks as one word (`checkSummary`: `failure`, `pending` or
+    /// `success`), nil when a list was not read to its end or there are no checks at all.
     public func mergeRequestState(repo: String, number: Int, url: String) async throws -> MergeRequestState {
         async let read = get(PullStatusPayload.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
         async let approved = approvals(repo: repo, number: number)
@@ -206,15 +189,44 @@ public struct GitHubClient: Sendable {
         async let readRuns = listed(CheckRunsPayload.self, path: commit + "/check-runs", repo: repo)
         async let readStatuses = listed(CombinedStatusPayload.self, path: commit + "/status", repo: repo)
         if let runs = try await readRuns, let statuses = try await readStatuses, !runs.isEmpty || !statuses.isEmpty {
-            let failed = runs.contains { $0.status == "completed" && ["failure", "timed_out", "startup_failure", "cancelled", "action_required"].contains($0.conclusion ?? "") }
-                || statuses.contains { $0.state == "failure" || $0.state == "error" }
-            let done = runs.allSatisfy { $0.status == "completed" && $0.conclusion != nil && $0.conclusion != "stale" }
-                && statuses.allSatisfy { $0.state == "success" }
-            pipeline = failed ? "failure" : done ? "success" : "pending"
+            switch Self.checkSummary(runs: runs, statuses: statuses) {
+            case .failed: pipeline = "failure"
+            case .running: pipeline = "pending"
+            case .green: pipeline = "success"
+            }
         }
         let mergeable = pull.merged == true ? "merged" : pull.state == "open" ? pull.mergeableState ?? "unknown" : "closed"
         return MergeRequestState(iid: number, url: url, draft: pull.draft ?? false, pipeline: pipeline, mergeable: mergeable,
                                  approvedBy: by, head: pull.head.sha)
+    }
+
+    /// A head's checks as merging reads them, one table for `mergeReadiness` and `mergeRequestState` alike: GitHub's own,
+    /// where neutral and skipped pass as branch protection counts them. Stale, which only GitHub sets on a run that took too
+    /// long, never finishes, so it has failed. A failed check is said before one still running, and a conclusion AiTerm does
+    /// not know, or none on a completed run, is not green.
+    private enum CheckSummary { case failed(String), running, green }
+
+    private static func checkSummary(runs: [CheckRunsPayload.Run], statuses: [CombinedStatusPayload.Status]) -> CheckSummary {
+        var running = false
+        for run in runs {
+            guard run.status == "completed" else { running = true; continue }
+            switch run.conclusion ?? "" {
+            case "success", "neutral", "skipped": continue
+            case "failure", "timed_out", "startup_failure": return .failed("its check \(run.name) failed")
+            case "cancelled": return .failed("its check \(run.name) was cancelled")
+            case "action_required": return .failed("its check \(run.name) needs someone to act")
+            case "stale": return .failed("its check \(run.name) went stale")
+            default: running = true
+            }
+        }
+        for status in statuses {
+            switch status.state {
+            case "success": continue
+            case "failure", "error": return .failed("its status \(status.context) failed")
+            default: running = true
+            }
+        }
+        return running ? .running : .green
     }
 
     /// Every item of a paged list that reports its own `total`, a page of 100 at a time. HTTPJSON shows no
