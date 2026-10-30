@@ -540,13 +540,8 @@ public struct OperatorDecision: Codable, Equatable, Sendable {
 
     /// The decision's reason in one line: why, then the Oracle's objection when there is one.
     public var reason: String? {
-        let parts = [why.flatMap(Self.said), objection.flatMap(Self.said).map { "The Oracle objected: “\($0)”" }].compactMap { $0 }
+        let parts = [why.said, objection.said.map { "The Oracle objected: “\($0)”" }].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " ")
-    }
-
-    private static func said(_ text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

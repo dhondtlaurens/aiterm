@@ -27,7 +27,7 @@ extension OperatorToolHandler {
         let entry = ActivityEntry(at: ports.now(), tool: request.tool, task: task?.id, taskLabel: task.flatMap { $0.jira?.key ?? $0.operated?.key },
                                   arguments: request.arguments, outcome: outcome, result: result,
                                   line: ActivityLine.line(tool: request.tool, arguments: lineArguments, task: task, outcome: outcome),
-                                  reason: reason.flatMap { $0.isEmpty ? nil : $0 })
+                                  reason: reason.nonEmpty)
         append(entry, to: id)
     }
 
