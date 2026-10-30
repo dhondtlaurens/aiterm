@@ -6,6 +6,9 @@ import Foundation
 public enum OperatorTiming {
     /// Wake lines within this of each other are merged into one.
     public static let wakeCoalesce: TimeInterval = 3
+    /// App only: a wake line held this long because the Operator's input may hold unsent text is the sidebar's Notice
+    /// (`OperatorWakeNotice`). The daemon guesses that from your keys, which a key that typed nothing sets too.
+    public static let unsentWakeNotice: TimeInterval = 60
     /// Sessions and branches are reconciled this often, and on every reconnect (spec §7.3).
     public static let reconcileInterval: TimeInterval = 60
     /// App only: minimum gap between reconcile and event reads, except when a prompt leaves needs-input.
