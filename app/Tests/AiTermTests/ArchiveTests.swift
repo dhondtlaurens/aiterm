@@ -12,7 +12,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         let task = try fixture.addTask(windowId: "alive")
 
-        let archiving = await controller.archive(task: task)
+        let archiving = await controller.archiver.archive(task: task)
         await archiving?.value
 
         #expect(server.requests("window.close").map { $0.params["windowId"] as? String } == ["alive"])
@@ -34,14 +34,14 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: "alive")
         try "wip".write(toFile: task.worktreePath + "/wip.txt", atomically: true, encoding: .utf8)
 
-        await (await fixture.controller.archive(task: task))?.value
+        await (await fixture.controller.archiver.archive(task: task))?.value
 
         let asked = try #require(prompter.asked.first)
         #expect(asked.buttons == ["Keep Task", "Delete Changes and Shelve"])
         #expect(asked.detail == "Shelving deletes its uncommitted changes and untracked files. The branch is kept.")
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"])
         #expect(server.requests("window.close").isEmpty)
-        #expect(fixture.controller.removal(of: task.id) == nil, "kept before anything moved: no note")
+        #expect(fixture.controller.remover.removal(of: task.id) == nil, "kept before anything moved: no note")
     }
 
     @Test func deleteChangesAndArchiveArchivesTheDirtyWorktree() async throws {
@@ -50,7 +50,7 @@ extension AppControllerTests {
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try fixture.addTask(windowId: "alive")
         try "wip".write(toFile: task.worktreePath + "/wip.txt", atomically: true, encoding: .utf8)
-        await (await fixture.controller.archive(task: task))?.value
+        await (await fixture.controller.archiver.archive(task: task))?.value
         #expect(fixture.controller.state.archive.map(\.id) == [task.id])
         #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
     }
@@ -62,7 +62,7 @@ extension AppControllerTests {
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try fixture.addTask(windowId: "alive")
         try fixture.git.run(["checkout", "-q", "--detach"], in: task.worktreePath)
-        await (await fixture.controller.archive(task: task))?.value
+        await (await fixture.controller.archiver.archive(task: task))?.value
         #expect(prompter.asked.first?.message == "“Work” can’t be shelved")
         #expect(fixture.controller.state.tasks.map(\.id) == [task.id])
         #expect(FileManager.default.fileExists(atPath: task.worktreePath))
@@ -82,14 +82,14 @@ extension AppControllerTests {
         let file = URL(fileURLWithPath: task.worktreePath).appendingPathComponent("unknown")
         try Data("keep me".utf8).write(to: file)
 
-        await (await fixture.controller.archive(task: task))?.value
+        await (await fixture.controller.archiver.archive(task: task))?.value
 
         let deleted = answer == "Delete Folder"
         #expect(prompter.asked.map(\.buttons) == [["Keep", "Delete Folder"]])
         #expect(FileManager.default.fileExists(atPath: file.path) == !deleted)
         #expect(fixture.controller.state.tasks.map(\.id) == (deleted ? [] : [task.id]))
         #expect(fixture.controller.state.archive.map(\.id) == (deleted ? [task.id] : []))
-        #expect(fixture.controller.removal(of: task.id) == nil, "kept before anything moved: no note")
+        #expect(fixture.controller.remover.removal(of: task.id) == nil, "kept before anything moved: no note")
     }
 
     @Test func aWorktreeDetachedWhileTheWindowClosesIsNotArchived() async throws {
@@ -103,7 +103,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         let task = try fixture.addTask(windowId: "alive")
 
-        let archiving = await controller.archive(task: task)
+        let archiving = await controller.archiver.archive(task: task)
         try await server.received("window.close")
         try fixture.git.run(["checkout", "-q", "--detach"], in: task.worktreePath)
         server.release()
@@ -125,7 +125,7 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: "alive")
         try fixture.git.run(["branch", "feat/other"], in: fixture.repo.path)
 
-        let archiving = await controller.archive(task: task)
+        let archiving = await controller.archiver.archive(task: task)
         try await server.received("window.close")
         try fixture.git.run(["checkout", "-q", "feat/other"], in: task.worktreePath)
         server.release()
@@ -139,9 +139,9 @@ extension AppControllerTests {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let task = try fixture.addTask(windowId: "alive")
-        await (await fixture.controller.archive(task: task))?.value
+        await (await fixture.controller.archiver.archive(task: task))?.value
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"])
-        #expect(fixture.controller.removal(of: task.id) == .stopped(note: "Not shelved: iTerm2 isn’t connected", worktreeRemoved: false))
+        #expect(fixture.controller.remover.removal(of: task.id) == .stopped(note: "Not shelved: iTerm2 isn’t connected", worktreeRemoved: false))
         #expect(FileManager.default.fileExists(atPath: task.worktreePath))
     }
 
@@ -151,9 +151,9 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
         let task = try fixture.addTask(windowId: "alive")
-        await (await fixture.controller.archive(task: task))?.value
+        await (await fixture.controller.archiver.archive(task: task))?.value
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"])
-        #expect(fixture.controller.removal(of: task.id) == .stopped(note: "Not shelved: its window did not close", worktreeRemoved: false))
+        #expect(fixture.controller.remover.removal(of: task.id) == .stopped(note: "Not shelved: its window did not close", worktreeRemoved: false))
     }
 
     @Test func anUnreadableProjectFolderStopsTheArchiveWithNothingMoved() async throws {
@@ -162,11 +162,11 @@ extension AppControllerTests {
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try fixture.addTask(windowId: "alive")
         try FileManager.default.removeItem(at: fixture.repo.appendingPathComponent(".git"))
-        await (await fixture.controller.archive(task: task))?.value
+        await (await fixture.controller.archiver.archive(task: task))?.value
         #expect(fixture.controller.state.tasks.map(\.id) == [task.id])
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"], "its window too")
         #expect(fixture.controller.state.archive.isEmpty)
-        #expect(fixture.controller.removal(of: task.id) == .stopped(note: "Not shelved", worktreeRemoved: false))
+        #expect(fixture.controller.remover.removal(of: task.id) == .stopped(note: "Not shelved", worktreeRemoved: false))
     }
 
     @Test func anArchiveThatCannotBeSavedLeavesTheWorktreeAndTheTask() async throws {
@@ -177,7 +177,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         let task = try fixture.addTask(windowId: "alive")
 
-        let archiving = await controller.archive(task: task)
+        let archiving = await controller.archiver.archive(task: task)
         try await server.received("window.close")
         // Saving breaks while the window closes: a directory stands where the backup goes.
         let backup = controller.workspace.file.backupURL
@@ -190,7 +190,7 @@ extension AppControllerTests {
         #expect(controller.state.tasks.map(\.id) == [task.id], "a task again, owed its window")
         #expect(controller.state.archive.isEmpty)
         #expect(FileManager.default.fileExists(atPath: task.worktreePath), "nothing deleted")
-        #expect(controller.removal(of: task.id) == .stopped(note: "Not shelved", worktreeRemoved: false))
+        #expect(controller.remover.removal(of: task.id) == .stopped(note: "Not shelved", worktreeRemoved: false))
         #expect(controller.toastState.toast == nil)
     }
 
@@ -200,8 +200,8 @@ extension AppControllerTests {
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
         let task = try fixture.addTask(windowId: "alive")
-        let first = await fixture.controller.archive(task: task)
-        let second = await fixture.controller.archive(task: task)
+        let first = await fixture.controller.archiver.archive(task: task)
+        let second = await fixture.controller.archiver.archive(task: task)
         #expect(first != nil && second == nil)
         server.release()
         await first?.value
@@ -218,10 +218,10 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: nil)
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
-        await controller.confirmRemove(task: task)?.value
+        await controller.remover.confirmRemove(task: task)?.value
         #expect(controller.remover.removals[task.id]?.awaitsRetry == true, "removed up to its unmerged branch")
 
-        #expect(await controller.archive(task: task) == nil)
+        #expect(await controller.archiver.archive(task: task) == nil)
         #expect(controller.remover.removals[task.id] == .stopped(note: "Not removed: branch kept", worktreeRemoved: true), "its retry still held")
     }
 
@@ -235,7 +235,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         let task = try fixture.addTask(windowId: "alive")
 
-        let archiving = await controller.archive(task: task)
+        let archiving = await controller.archiver.archive(task: task)
         try await server.received("window.close")
         try "wip".write(toFile: task.worktreePath + "/wip.txt", atomically: true, encoding: .utf8)
         server.release()
@@ -244,7 +244,7 @@ extension AppControllerTests {
         #expect(prompter.asked.map(\.buttons) == [["Keep Task", "Delete Changes and Shelve"]])
         #expect(controller.state.tasks.map(\.id) == [task.id])
         #expect(controller.state.tasks.map(\.windowId) == [nil], "owed its window")
-        #expect(controller.removal(of: task.id) == .stopped(note: "Not shelved", worktreeRemoved: false))
+        #expect(controller.remover.removal(of: task.id) == .stopped(note: "Not shelved", worktreeRemoved: false))
         #expect(controller.state.archive.isEmpty)
         #expect(FileManager.default.fileExists(atPath: task.worktreePath + "/wip.txt"))
     }
@@ -257,7 +257,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         let task = try fixture.addTask(windowId: "alive")
 
-        let archiving = await controller.archive(task: task)
+        let archiving = await controller.archiver.archive(task: task)
         try await server.received("window.close")
         try "wip".write(toFile: task.worktreePath + "/wip.txt", atomically: true, encoding: .utf8)
         server.release()
@@ -277,13 +277,13 @@ extension AppControllerTests {
         var task = try fixture.addTask(windowId: "alive")
         controller.workspace.mutate { $0.tasks[0].conversations = [TaskConversation(agent: .codex, id: "conv-1")] }
         task = controller.state.tasks[0]
-        await (await controller.archive(task: task))?.value
+        await (await controller.archiver.archive(task: task))?.value
         controller.workspace.mutate { $0.updateProject(id: fixture.project.id) { $0.collapsed = true } }
         // iTerm2's windows read, so a chosen row's owed window can open: with no snapshot yet, AiTerm
         // waits for one instead.
         controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
 
-        await controller.restoreArchived(task.id)?.value
+        await controller.archiver.restore(task.id)?.value
         await controller.windows.lastRestore?.value
 
         #expect(controller.state.archive.isEmpty)
@@ -302,10 +302,10 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try fixture.addTask(windowId: "alive")
-        await (await fixture.controller.archive(task: task))?.value
+        await (await fixture.controller.archiver.archive(task: task))?.value
         try fixture.git.run(["branch", "-D", "feat/work"], in: fixture.repo.path)
 
-        await fixture.controller.restoreArchived(task.id)?.value
+        await fixture.controller.archiver.restore(task.id)?.value
 
         #expect(prompter.asked.last?.message == "“Work” can’t be restored")
         #expect(prompter.asked.last?.detail.contains("no longer exists here or on origin") == true)
@@ -321,10 +321,10 @@ extension AppControllerTests {
         let controller = fixture.controller
         controller.helper.setDaemonClient(RecordingDaemon())
         let task = try fixture.addTask(windowId: "alive")
-        await (await controller.archive(task: task))?.value
-        let restoring = controller.restoreArchived(task.id)
+        await (await controller.archiver.archive(task: task))?.value
+        let restoring = controller.archiver.restore(task.id)
         // The project cannot be removed while its archived row is restoring.
-        await controller.confirmRemove(project: fixture.project)
+        await controller.projects.confirmRemove(project: fixture.project)
         #expect(prompter.asked.map(\.message) == ["“Repo” can’t be removed yet"])
         #expect(controller.state.project(id: fixture.project.id) != nil)
         await restoring?.value
@@ -344,7 +344,7 @@ extension AppControllerTests {
         let token = try #require(begun)
         defer { controller.work.end(token) }
 
-        await controller.confirmRemove(project: fixture.project)
+        await controller.projects.confirmRemove(project: fixture.project)
 
         #expect(prompter.asked.map(\.message) == ["“Repo” can’t be removed yet"])
         #expect(prompter.asked.first?.detail == "One of its shelved tasks is still being shelved, restored or removed. Try again in a moment.")
@@ -357,8 +357,8 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try fixture.addTask(windowId: "alive")
-        await (await fixture.controller.archive(task: task))?.value
-        let first = fixture.controller.restoreArchived(task.id), second = fixture.controller.restoreArchived(task.id)
+        await (await fixture.controller.archiver.archive(task: task))?.value
+        let first = fixture.controller.archiver.restore(task.id), second = fixture.controller.archiver.restore(task.id)
         #expect(first != nil && second == nil)
         await first?.value
         #expect(fixture.controller.state.tasks.count == 1)
@@ -370,9 +370,9 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try fixture.addTask(windowId: nil)
-        await (await fixture.controller.archive(task: task))?.value
+        await (await fixture.controller.archiver.archive(task: task))?.value
 
-        await (await fixture.controller.confirmRemove(archived: task.id))?.value
+        await (await fixture.controller.archiver.confirmRemove(archived: task.id))?.value
 
         let asked = try #require(prompter.asked.last)
         #expect(asked.message == "Remove task “Work”?")
@@ -390,11 +390,11 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try fixture.addTask(windowId: nil)
-        await (await fixture.controller.archive(task: task))?.value
+        await (await fixture.controller.archiver.archive(task: task))?.value
         try FileManager.default.createDirectory(atPath: task.worktreePath, withIntermediateDirectories: true)
         try "someone else's".write(toFile: task.worktreePath + "/f.txt", atomically: true, encoding: .utf8)
 
-        await (await fixture.controller.confirmRemove(archived: task.id))?.value
+        await (await fixture.controller.archiver.confirmRemove(archived: task.id))?.value
 
         #expect(try String(contentsOfFile: task.worktreePath + "/f.txt", encoding: .utf8) == "someone else's")
         #expect(fixture.controller.state.archive.isEmpty)
@@ -409,9 +409,9 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: nil)
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
-        await (await fixture.controller.archive(task: task))?.value
+        await (await fixture.controller.archiver.archive(task: task))?.value
 
-        await (await fixture.controller.confirmRemove(archived: task.id))?.value
+        await (await fixture.controller.archiver.confirmRemove(archived: task.id))?.value
 
         let asked = try #require(prompter.asked.last)
         #expect(asked.message == "Delete branch feat/work?")
@@ -428,9 +428,9 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: nil)
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
-        await (await fixture.controller.archive(task: task))?.value
+        await (await fixture.controller.archiver.archive(task: task))?.value
 
-        await (await fixture.controller.confirmRemove(archived: task.id))?.value
+        await (await fixture.controller.archiver.confirmRemove(archived: task.id))?.value
 
         #expect(fixture.controller.state.archive.isEmpty)
         #expect(!(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path)).isEmpty)
@@ -443,11 +443,11 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try fixture.addTask(windowId: nil)
-        await (await fixture.controller.archive(task: task))?.value
+        await (await fixture.controller.archiver.archive(task: task))?.value
         // Checked out in the project's own folder, the branch cannot be deleted — and not for want of a merge.
         try fixture.git.run(["checkout", "-q", "feat/work"], in: fixture.repo.path)
 
-        await (await fixture.controller.confirmRemove(archived: task.id))?.value
+        await (await fixture.controller.archiver.confirmRemove(archived: task.id))?.value
 
         let issue = try #require(fixture.controller.issue)
         #expect(issue.title == "Branch feat/work kept.")
@@ -465,14 +465,14 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: nil)
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
-        await (await fixture.controller.archive(task: task))?.value
+        await (await fixture.controller.archiver.archive(task: task))?.value
         // While the question is up the branch is checked out in the project's folder, so `-D` fails.
         let git = fixture.git, repo = fixture.repo
         prompter.whileAsking = { prompt in
             if prompt.message == "Delete branch feat/work?" { _ = try? git.run(["checkout", "-q", "feat/work"], in: repo.path) }
         }
 
-        await (await fixture.controller.confirmRemove(archived: task.id))?.value
+        await (await fixture.controller.archiver.confirmRemove(archived: task.id))?.value
 
         #expect(fixture.controller.issue?.title == "Couldn’t remove the task.")
         #expect(fixture.controller.state.archive.map(\.id) == [task.id], "nothing is forgotten when the removal failed")

@@ -411,7 +411,7 @@ import Testing
     @Test func aNotificationsBoardWaitsForTheRenameSheetToDismiss() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let run = OperatorServiceFixtures.run(projects: [project])
         controller.workspace.mutate { $0.runs = [run] }
         controller.sheet = .rename(.broadcast(run))
@@ -430,7 +430,7 @@ import Testing
     @Test func aDeferredBoardForARemovedRunClearsSilently() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let run = OperatorServiceFixtures.run(projects: [project])
         controller.workspace.mutate { $0.runs = [run] }
         controller.sheet = .newDivider

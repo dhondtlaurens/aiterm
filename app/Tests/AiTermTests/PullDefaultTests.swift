@@ -18,13 +18,13 @@ extension AppControllerTests {
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "upstream"], in: other)
         try fixture.git.run(["push", "-q", "origin", "main"], in: other)
 
-        let pull = fixture.controller.pullDefault(project: fixture.project)
-        #expect(fixture.controller.isChangingDefaultBranch(fixture.project.id))
-        #expect(fixture.controller.pullDefault(project: fixture.project) == nil, "one pull at a time")
+        let pull = fixture.controller.projects.pullDefault(project: fixture.project)
+        #expect(fixture.controller.projects.isChangingDefaultBranch(fixture.project.id))
+        #expect(fixture.controller.projects.pullDefault(project: fixture.project) == nil, "one pull at a time")
         await pull?.value
 
         #expect(fixture.controller.toastState.toast?.message == "main updated with 1 new commit.")
-        #expect(!fixture.controller.isChangingDefaultBranch(fixture.project.id))
+        #expect(!fixture.controller.projects.isChangingDefaultBranch(fixture.project.id))
         #expect(fixture.controller.issue == nil)
         #expect(try fixture.git.run(["rev-parse", "main"], in: fixture.repo.path) == fixture.git.run(["rev-parse", "main"], in: other))
     }
@@ -35,28 +35,28 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller, other = UUID()
         let ownHeard = Mutex(false), otherHeard = Mutex(false)
-        withObservationTracking { _ = controller.isChangingDefaultBranch(fixture.project.id) } onChange: { ownHeard.withLock { $0 = true } }
-        withObservationTracking { _ = controller.isChangingDefaultBranch(other) } onChange: { otherHeard.withLock { $0 = true } }
+        withObservationTracking { _ = controller.projects.isChangingDefaultBranch(fixture.project.id) } onChange: { ownHeard.withLock { $0 = true } }
+        withObservationTracking { _ = controller.projects.isChangingDefaultBranch(other) } onChange: { otherHeard.withLock { $0 = true } }
 
-        let pull = controller.pullDefault(project: fixture.project)
-        #expect(controller.isChangingDefaultBranch(fixture.project.id))
+        let pull = controller.projects.pullDefault(project: fixture.project)
+        #expect(controller.projects.isChangingDefaultBranch(fixture.project.id))
         #expect(ownHeard.withLock { $0 })
-        #expect(!controller.isChangingDefaultBranch(other))
+        #expect(!controller.projects.isChangingDefaultBranch(other))
         #expect(!otherHeard.withLock { $0 })
         await pull?.value
-        #expect(!controller.isChangingDefaultBranch(fixture.project.id))
+        #expect(!controller.projects.isChangingDefaultBranch(fixture.project.id))
     }
 
     @Test func pullDefaultReportsWhyItCouldNot() async throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
 
-        await fixture.controller.pullDefault(project: fixture.project)?.value
+        await fixture.controller.projects.pullDefault(project: fixture.project)?.value
 
         #expect(fixture.controller.issue == OperationIssue(title: "Couldn’t pull the default branch.",
                                                            reason: "This project has no origin to pull from."))
         #expect(fixture.controller.toastState.toast == nil)
-        #expect(!fixture.controller.isChangingDefaultBranch(fixture.project.id))
+        #expect(!fixture.controller.projects.isChangingDefaultBranch(fixture.project.id))
     }
 
     /// Diverged, the banner says by how much and offers the rebase; the rebase says what it left.
@@ -76,7 +76,7 @@ extension AppControllerTests {
         try fixture.git.run(["config", "user.name", "t"], in: repo)
         try fixture.git.run(["config", "user.email", "t@t"], in: repo)
 
-        await fixture.controller.pullDefault(project: fixture.project)?.value
+        await fixture.controller.projects.pullDefault(project: fixture.project)?.value
         let reason = "Your local “main” has 1 commit that isn’t on origin, and origin has 1 commit it doesn’t. "
             + "Rebase puts yours on top of origin’s; nothing is pushed."
         #expect(fixture.controller.issue == OperationIssue(
@@ -87,11 +87,11 @@ extension AppControllerTests {
 
         let rebase = await fixture.controller.perform(.rebaseDefault(fixture.project.id))
         #expect(fixture.controller.issue == nil)
-        #expect(fixture.controller.isChangingDefaultBranch(fixture.project.id), "the menu's Pull main waits for it")
+        #expect(fixture.controller.projects.isChangingDefaultBranch(fixture.project.id), "the menu's Pull main waits for it")
         await rebase?.value
 
         #expect(fixture.controller.toastState.toast?.message == "main rebased onto origin: 1 commit ahead, not pushed.")
-        #expect(!fixture.controller.isChangingDefaultBranch(fixture.project.id))
+        #expect(!fixture.controller.projects.isChangingDefaultBranch(fixture.project.id))
         #expect(try fixture.git.run(["rev-parse", "main~1"], in: repo) == fixture.git.run(["rev-parse", "main"], in: other))
     }
 
@@ -100,9 +100,9 @@ extension AppControllerTests {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let banner = OperationIssue(title: "Couldn’t pull the default branch.", actions: [.rebaseDefault(fixture.project.id)])
-        fixture.controller.report(banner)
+        fixture.controller.notices.report(banner)
 
-        let pull = fixture.controller.pullDefault(project: fixture.project)
+        let pull = fixture.controller.projects.pullDefault(project: fixture.project)
         #expect(await fixture.controller.perform(.rebaseDefault(fixture.project.id)) == nil)
         #expect(fixture.controller.issue == banner)
         await pull?.value
@@ -126,7 +126,7 @@ extension AppControllerTests {
         try fixture.git.run(["push", "-q", "origin", "main"], in: other)
         try fixture.git.run(["config", "user.name", "t"], in: repo)
         try fixture.git.run(["config", "user.email", "t@t"], in: repo)
-        await fixture.controller.pullDefault(project: fixture.project)?.value
+        await fixture.controller.projects.pullDefault(project: fixture.project)?.value
         try #require(fixture.controller.issue?.actions == [.rebaseDefault(fixture.project.id)])
 
         await fixture.controller.perform(.rebaseDefault(fixture.project.id))?.value
@@ -138,7 +138,7 @@ extension AppControllerTests {
         #expect(issue.actions.isEmpty)
         #expect(issue.fix?.recreateRebase == true && issue.fix?.retry == .pullDefault(fixture.project.id))
         #expect(issue.detail?.contains("CONFLICT") == true && issue.fix?.detail == issue.detail)
-        #expect(!fixture.controller.isChangingDefaultBranch(fixture.project.id))
+        #expect(!fixture.controller.projects.isChangingDefaultBranch(fixture.project.id))
     }
 
     /// A project removed while its pull runs gets neither a toast nor a banner.
@@ -146,8 +146,8 @@ extension AppControllerTests {
         let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Remove"))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
 
-        let pull = fixture.controller.pullDefault(project: fixture.project)
-        await fixture.controller.confirmRemove(project: fixture.project)
+        let pull = fixture.controller.projects.pullDefault(project: fixture.project)
+        await fixture.controller.projects.confirmRemove(project: fixture.project)
         await pull?.value
 
         #expect(fixture.controller.state.projects.isEmpty)

@@ -91,7 +91,7 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
 
-        await fixture.controller.newTerminal(project: fixture.project, name: "Shell")?.value
+        await fixture.controller.terminals.newTerminal(project: fixture.project, name: "Shell")?.value
 
         let terminal = try #require(fixture.controller.state.terminals.first)
         #expect(fixture.controller.focus.selectedTerminalId == terminal.id)
@@ -109,7 +109,7 @@ extension AppControllerTests {
         fixture.controller.helper.setDaemonClient(server)
         let task = try fixture.addTask(windowId: "work")
 
-        let opening = fixture.controller.newTerminal(project: fixture.project, name: "Shell")
+        let opening = fixture.controller.terminals.newTerminal(project: fixture.project, name: "Shell")
         try await server.received("window.createTerminal")
         fixture.controller.focus.browse(.task(task.id))
         server.release()
@@ -244,7 +244,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         let task = try fixture.addTask(windowId: "work")
         controller.live.sessions = [SessionInfo.stub(window: "work", task: task, state: .done)]
-        controller.seedSnapshotRemoval(.removing, of: task.id)
+        controller.remover.seedSnapshotRemoval(.removing, of: task.id)
 
         #expect(controller.focus.peek(.task(task.id)) == nil)
         #expect(controller.focus.selectedTaskId == task.id)

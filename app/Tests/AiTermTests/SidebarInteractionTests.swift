@@ -11,7 +11,7 @@ struct SidebarInteractionTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         let tasks = ["First task", "Second task"].map { title in
             TaskItem(id: UUID(), projectId: project.id, title: title, branch: "feat/work", worktreePath: "/wt",
@@ -62,7 +62,7 @@ struct SidebarInteractionTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         let tasks = ["First task", "Second task"].map { title in
             TaskItem(id: UUID(), projectId: project.id, title: title, branch: "feat/work", worktreePath: "/wt",
@@ -131,7 +131,7 @@ struct SidebarInteractionTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         func project(_ name: String) -> Project {
             Project(id: UUID(), name: name, path: "/" + name, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         }
@@ -269,7 +269,7 @@ struct SidebarInteractionTests {
             try GitRunner.hermetic().run(["init", "-q", "-b", branch], in: url.path)
         }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let old = Project(id: UUID(), name: "Old", path: first.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         let new = Project(id: UUID(), name: "New", path: second.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         controller.workspace.mutate { $0.items = [.project(old)] }
@@ -283,7 +283,7 @@ struct SidebarInteractionTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         func project(_ name: String) -> Project {
             Project(id: UUID(), name: name, path: "/" + name, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: true)
         }
@@ -308,7 +308,7 @@ struct SidebarInteractionTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         controller.workspace.mutate { $0.append(divider: SidebarDivider(id: UUID(), name: "Work")) }
 
         let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 340, height: 500))

@@ -44,7 +44,7 @@ struct BroadcastBoardSheetTests {
     @Test func aTabLineBringsItsTab() async throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let daemon = RecordingDaemon()
         controller.helper.setDaemonClient(daemon)
         let run = OperatorUIFixtures.run()
@@ -205,7 +205,7 @@ struct BroadcastBoardSheetTests {
     @Test func theBoardOpensInTheSheetSlotForALiveBroadcastOnly() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let run = OperatorUIFixtures.run()
         controller.presentBoard(run: run.id)
         #expect(controller.sheet == nil, "no such broadcast")
@@ -221,7 +221,7 @@ struct BroadcastBoardSheetTests {
     @Test func eachCardOpensItsPlace() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let run = OperatorUIFixtures.run()
         let project = OperatorUIFixtures.project("pluto-web")
         let task = OperatorUIFixtures.task("Footer", project: project.id, windowId: "w1",
@@ -243,7 +243,7 @@ struct BroadcastBoardSheetTests {
     @Test func aCardOfAnEndedBroadcastOpensNothing() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let run = OperatorUIFixtures.run(windowId: nil)
         let project = OperatorUIFixtures.project("pluto-web")
         let task = OperatorUIFixtures.task("Footer", project: project.id, windowId: "w1",
@@ -267,7 +267,7 @@ struct BroadcastBoardSheetTests {
     @Test func theBoardRedrawsForItsRunAlone() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let web = OperatorUIFixtures.project("pluto-web"), other = OperatorUIFixtures.project("other")
         let run = OperatorUIFixtures.run(projectIds: [web.id])
         let moving = OperatorUIFixtures.task("Footer", project: web.id,
@@ -314,7 +314,7 @@ struct BroadcastBoardSheetTests {
         let prompter = ScriptedPrompter(answering: "⎋")
         let controller = AppController(preferences: .scratch(), prompter: prompter)
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let run = OperatorUIFixtures.run()
         controller.workspace.mutate { $0.runs = [run] }
         #expect(await !controller.confirmEnd(run))
@@ -328,7 +328,7 @@ struct BroadcastBoardSheetTests {
         for failing in [false, true] {
             let controller = AppController(preferences: .scratch(), prompter: ScriptedPrompter(answering: "End Broadcast"))
             defer { controller.shutdown() }
-            try controller.loadWorkspace()
+            try controller.workspace.load()
             let run = OperatorUIFixtures.run()
             controller.workspace.mutate { $0.runs = [run] }
             #expect(controller.workspace.flush())
@@ -354,7 +354,7 @@ struct BroadcastBoardSheetTests {
     @Test func aNotificationsClickOpensTheBoard() async throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let run = OperatorUIFixtures.run(state: .complete)
         controller.workspace.mutate { $0.runs = [run] }
         controller.openNote(.board(run.id))
@@ -368,7 +368,7 @@ struct BroadcastBoardSheetTests {
     @Test func aRequestMadeBeforeTheWatchIsPresented() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let run = OperatorUIFixtures.run()
         controller.workspace.mutate { $0.runs = [run] }
         controller.operatorController.presentBoard = run.id
@@ -382,7 +382,7 @@ struct BroadcastBoardSheetTests {
     @Test func renamingABroadcastOpensTheNameSheet() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let run = OperatorUIFixtures.run()
         controller.workspace.mutate { $0.runs = [run] }
         controller.perform(.rename, on: run)
@@ -396,7 +396,7 @@ struct BroadcastBoardSheetTests {
     @Test func whatTheOperatorControllerRefusesLandsInTheBanner() async throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let run = OperatorUIFixtures.run()
         controller.rename(run: run, to: "Other")
         await eventually(describing: "the rename's banner") { controller.notices.issue != nil }

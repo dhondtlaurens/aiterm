@@ -10,8 +10,8 @@ import AiTermCore
 /// the Mac's readings last. What an owner tells one built after it goes out through its `on…` hooks,
 /// which the later owner adds itself to as it is built; the checkout monitor and the task remover,
 /// which each call the other, are the one pair joined after both exist (`CheckoutRemovals`). The
-/// sidebar's rows and the Dock badge are the controller's own. Everything else here forwards to the
-/// owner that does it.
+/// sidebar's rows and the Dock badge are the controller's own. Views and tests reach each owner
+/// directly through this handle; the actions here coordinate owners or decide between them.
 @MainActor
 @Observable
 final class AppController {
@@ -302,11 +302,7 @@ final class AppController {
         watchBoardRequests()
     }
 
-    // -- workspace ------------------------------------------------------------------
-    /// `workspace`'s, forwarded for the app's launch and the tests.
-    func loadWorkspace() throws { try workspace.load() }
-    func restoreWorkspace() throws { try workspace.restoreBackup() }
-
+    // -- lifecycle ------------------------------------------------------------------
     /// Launch: Backpack Mode's crash recovery, the Mac's readings, the review threads, the checkout
     /// monitor, the agent CLI probes, the helper and the sweep of dead fixes' clones, each once.
     func start() {
@@ -316,7 +312,7 @@ final class AppController {
         machine.start()
         reviewThreads.start()
         checkouts.startMonitoring()
-        if agents.shimURL.map({ BundleLocation.isTranslocated($0.path) }) == true { report(BundleLocation.translocationWarning) }
+        if agents.shimURL.map({ BundleLocation.isTranslocated($0.path) }) == true { notices.report(BundleLocation.translocationWarning) }
         let agents = self.agents
         // A login shell costing the better part of a second, as the helper's Python lookup is; neither waits on the other.
         agentProbe = Task { await agents.probe() }
@@ -380,26 +376,6 @@ final class AppController {
         setBadge(label)
     }
 
-    // -- projects -------------------------------------------------------------------
-    /// `projects`', forwarded: the menus, the rows and the tests reach a project's edits here.
-    func addProject() async { await projects.addProject() }
-    func addProject(path: String) async { await projects.addProject(path: path) }
-    func loadJiraProjects() async throws -> [JiraProjectRef] { try await projects.loadJiraProjects() }
-    func setJiraProjects(_ jiraProjects: [JiraProjectRef], on project: Project) { projects.setJiraProjects(jiraProjects, on: project) }
-    func isChangingDefaultBranch(_ projectId: UUID) -> Bool { projects.isChangingDefaultBranch(projectId) }
-    @discardableResult
-    func pullDefault(project: Project) -> Task<Void, Never>? { projects.pullDefault(project: project) }
-    func toggleCollapsed(_ project: Project) { projects.toggleCollapsed(project) }
-    func toggleFolded(run id: UUID) { projects.toggleFolded(run: id) }
-    @discardableResult
-    func move(itemId: UUID, _ step: MoveStep) -> Bool { projects.move(itemId: itemId, step) }
-    func confirmRemove(project: Project) async { await projects.confirmRemove(project: project) }
-    func addDivider(name: String) { projects.addDivider(name: name) }
-    func removeDivider(_ divider: SidebarDivider) { projects.removeDivider(divider) }
-    func rename(divider: SidebarDivider, to name: String) { projects.rename(divider: divider, to: name) }
-    func rename(task: TaskItem, to name: String) { projects.rename(task: task, to: name) }
-    func rename(terminal: TerminalItem, to name: String) { projects.rename(terminal: terminal, to: name) }
-
     // -- Focus View and List View -----------------------------------------------------
     /// Whether Focus View would do anything. Off behind a sheet, whose search fields are where ⌘F
     /// would otherwise land, and with no project that has rows and no broadcast (`SidebarModel.focusView`).
@@ -439,17 +415,15 @@ final class AppController {
     }
 
     // -- sheets ---------------------------------------------------------------------
-    /// `sheets`', forwarded: the menus, the rows and the tests open a sheet here.
+    /// `sheets`', forwarded: the menus grey behind an open sheet.
     var canPresentSettings: Bool { sheets.canPresentSettings }
-    /// `agent` opens Agents at that agent's card: the sidebar's "Fix in Settings" for one that can't be messaged.
-    func presentSettings(tab: SettingsTab? = nil, agent: AgentKind? = nil) { sheets.presentSettings(tab: tab, agent: agent) }
     var canPresentArchive: Bool { sheets.canPresentArchive }
 
     /// The Shelf, reading the archive and the ended broadcasts as they are whenever it draws.
     func presentArchive() {
         sheets.presentArchive(ArchiveSheetModel(
             entries: { [weak self] in self?.state.shelfRows ?? [] },
-            restore: { [weak self] in self?.restoreArchived($0) },
+            restore: { [weak self] in self?.archiver.restore($0) },
             open: { [weak self] in self?.presentShelved(run: $0) },
             // A turn later, never inside the key handler that asked (`Prompter`).
             remove: { [weak self] id in Task { await self?.removeFromShelf(id) } }))
@@ -457,26 +431,13 @@ final class AppController {
 
     /// Remove on the Shelf: an ended broadcast's own question, or a shelved task's or review's.
     func removeFromShelf(_ id: UUID) async {
-        if state.run(id: id) != nil { await confirmRemoveShelved(id) } else { await confirmRemove(archived: id) }
+        if state.run(id: id) != nil { await confirmRemoveShelved(id) } else { await archiver.confirmRemove(archived: id) }
     }
 
-    func presentJiraProjects(for project: Project) { sheets.presentJiraProjects(for: project) }
-    func presentNewDivider() { sheets.presentNewDivider() }
-    func presentRename(divider: SidebarDivider) { sheets.presentRename(divider: divider) }
-    func presentRename(task: TaskItem) { sheets.presentRename(task: task) }
-    func presentRename(terminal: TerminalItem) { sheets.presentRename(terminal: terminal) }
-    func presentNewTask(project: Project) { sheets.presentNewTask(project: project) }
-    func presentNewReview(project: Project) { sheets.presentNewReview(project: project) }
-    func presentNewTerminal(project: Project) { sheets.presentNewTerminal(project: project) }
-
     // -- the banner ------------------------------------------------------------------
-    /// `notices`', forwarded: the views and the tests reach the banner and the toast here. The
-    /// owners above report to `notices` itself.
+    /// `notices`', forwarded: the views and the tests read the banner and the toast here.
     var issue: OperationIssue? { notices.issue }
     var toastState: ToastState { notices.toastState }
-    func report(_ issue: OperationIssue) { notices.report(issue) }
-    func report(_ message: String) { notices.report(message) }
-    func dismissIssue() { notices.dismissIssue() }
 
     /// Answers the banner. Keeping or deleting a branch a removal kept is `remover`'s (see
     /// `TaskRemover.keepBranch(of:)`). Rebasing rewrites only local commits and aborts on a
@@ -514,35 +475,6 @@ final class AppController {
             projects.pullDefault(project: project, after: (landing, agent))
         }
     }
-
-    // -- removing a task ------------------------------------------------------------
-    func removal(of id: UUID) -> TaskRemoval? { remover.removal(of: id) }
-    /// Whether the row's window could not be restored: its caption says so, and choosing it tries again.
-    func hasFailedRestore(_ id: UUID) -> Bool { windows.hasFailed(id) }
-    @discardableResult
-    func confirmRemove(task: TaskItem) async -> Task<Void, Never>? { await remover.confirmRemove(task: task) }
-
-    #if DEBUG
-    /// The snapshot renderer's rows mid-removal, drawn without running one.
-    func seedSnapshotRemoval(_ removal: TaskRemoval?, of id: UUID) { remover.seedSnapshotRemoval(removal, of: id) }
-    #endif
-
-    // -- archiving ------------------------------------------------------------------
-    /// `archiver`'s, forwarded: the row's menu, the window-close question, the archive sheet and the tests
-    /// archive and restore here.
-    @discardableResult
-    func archive(task: TaskItem) async -> Task<Void, Never>? { await archiver.archive(task: task) }
-    @discardableResult
-    func restoreArchived(_ id: UUID) -> Task<Void, Never>? { archiver.restore(id) }
-    @discardableResult
-    func confirmRemove(archived id: UUID) async -> Task<Void, Never>? { await archiver.confirmRemove(archived: id) }
-
-    // -- terminals ------------------------------------------------------------------
-    /// `terminals`', forwarded: the rows' menus, ⌘⌫ and the tests reach a terminal here.
-    @discardableResult
-    func newTerminal(project: Project, name: String) -> Task<Void, Never>? { terminals.newTerminal(project: project, name: name) }
-    @discardableResult
-    func close(terminal: TerminalItem) -> Task<Void, Never>? { terminals.close(terminal: terminal) }
 
     // -- the File menu -----------------------------------------------------------------
     /// The project File › New Task, New Review and New Terminal act on: the selected project header,
@@ -585,7 +517,7 @@ final class AppController {
     func activateSelection() -> Task<Void, Never>? {
         if let project = focus.selectedProjectId.flatMap(state.project(id:)) {
             if projects.hasRows(project) {
-                toggleCollapsed(project)
+                projects.toggleCollapsed(project)
             } else {
                 // Next turn, as an alert comes up (`Prompter`): the menu runs modally, and not
                 // inside SwiftUI's key handler.
@@ -607,7 +539,7 @@ final class AppController {
     @discardableResult
     func choose(task id: UUID) -> Task<Void, Never>? {
         if let task = state.task(id: id), let operated = task.operated, !operated.takenOver, !task.isQueuedByOperator,
-           let run = state.activeRun, run.id == operated.runId, removal(of: id)?.inProgress != true {
+           let run = state.activeRun, run.id == operated.runId, remover.removal(of: id)?.inProgress != true {
             let requests = OperatorRequests.open(run: run, state: state)
             let first = requests.filter { $0.taskId == id }.min { $0.kind.rank < $1.kind.rank }
             if first?.kind == .question, !task.workerTabs(in: live.sessions).contains(where: { $0.status == .needsInput }) {
@@ -624,8 +556,8 @@ final class AppController {
     /// review asks first, a terminal just closes.
     @discardableResult
     func removeSelection() async -> Task<Void, Never>? {
-        if let task = focus.selectedTaskId.flatMap(state.task(id:)) { return await confirmRemove(task: task) }
-        if let terminal = focus.selectedTerminalId.flatMap(state.terminal(id:)) { return close(terminal: terminal) }
+        if let task = focus.selectedTaskId.flatMap(state.task(id:)) { return await remover.confirmRemove(task: task) }
+        if let terminal = focus.selectedTerminalId.flatMap(state.terminal(id:)) { return terminals.close(terminal: terminal) }
         return nil
     }
 }

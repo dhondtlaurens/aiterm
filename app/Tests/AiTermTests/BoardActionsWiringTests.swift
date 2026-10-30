@@ -11,7 +11,7 @@ struct BoardActionsWiringTests {
     @Test func theEndMenuAndTheFixRoundsLinksReachTheController() async throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let web = OperatorUIFixtures.project("pluto-web")
         var run = OperatorUIFixtures.run(projectIds: [web.id], agents: OperatorUIFixtures.agents, taskSettings: OperatorUIFixtures.taskSettings)
         let task = OperatorUIFixtures.task("Footer", project: web.id,

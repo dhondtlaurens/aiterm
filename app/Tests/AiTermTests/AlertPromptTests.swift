@@ -47,7 +47,7 @@ import AiTermCore
                             createdAt: Date(), windowId: nil)
         fixture.controller.workspace.mutate { $0.tasks = [task] }
 
-        #expect(await fixture.controller.confirmRemove(task: task) == nil, "⎋ cancels")
+        #expect(await fixture.controller.remover.confirmRemove(task: task) == nil, "⎋ cancels")
         let asked = try #require(prompter.asked.first)
         #expect(asked.buttons == ["Remove", "Cancel"])
         #expect(asked.defaultDeletes)
@@ -72,7 +72,7 @@ import AiTermCore
         let fixture = try RaceFixture(prompter: prompter)
         defer { fixture.cleanUp() }
 
-        await fixture.controller.confirmRemove(project: fixture.project)
+        await fixture.controller.projects.confirmRemove(project: fixture.project)
 
         let asked = try #require(prompter.asked.first)
         #expect(asked.buttons == ["Remove", "Cancel"])
@@ -92,9 +92,9 @@ import AiTermCore
                      createdAt: Date(), windowId: nil)
         }
         fixture.controller.workspace.mutate { $0.tasks = [task("one")] }
-        await fixture.controller.confirmRemove(project: fixture.project)
+        await fixture.controller.projects.confirmRemove(project: fixture.project)
         fixture.controller.workspace.mutate { $0.tasks = [task("one"), task("two")] }
-        await fixture.controller.confirmRemove(project: fixture.project)
+        await fixture.controller.projects.confirmRemove(project: fixture.project)
 
         #expect(prompter.asked.map(\.detail) == [
             "Removes the project and its task from AiTerm. Files, worktrees and windows are kept.",
@@ -110,7 +110,7 @@ import AiTermCore
         #expect(controller.workspace.flush())
         try fixture.git.run(["worktree", "add", "-q", "-b", "feat/old", fixture.repo.path + "/.worktrees/old"], in: fixture.repo.path)
 
-        await controller.addProject(path: fixture.repo.path)
+        await controller.projects.addProject(path: fixture.repo.path)
 
         #expect(fixture.prompter.asked.map(\.message) == ["Import 1 worktree?"])
         #expect(controller.state.projects.map(\.path) == [fixture.repo.path])

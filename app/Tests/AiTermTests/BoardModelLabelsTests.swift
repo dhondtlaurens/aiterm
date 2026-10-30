@@ -33,7 +33,7 @@ struct BoardModelLabelsTests {
     @Test func theLabelsAreReadAsTheShelfsSheetOpens() async throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let ended = OperatorUIFixtures.run(name: "Sprint 41", state: .stopped), live = OperatorUIFixtures.run(name: "Sprint 42")
         controller.workspace.mutate { $0.runs = [ended, live] }
         controller.rows.modelLabelSource = { [.claude: ["claude-opus-5-5": "Opus 5.5"]] }

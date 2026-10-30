@@ -17,7 +17,7 @@ import Testing
         let original = Data("{broken".utf8)
         try original.write(to: url)
         let controller = AppController(store: StateStore(url: url), preferences: .scratch())
-        #expect(throws: (any Error).self) { try controller.loadWorkspace() }
+        #expect(throws: (any Error).self) { try controller.workspace.load() }
         #expect(!controller.canChangeWorkspace)
         #expect(!controller.workspace.flush())
         controller.start()
@@ -31,7 +31,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
         let controller = AppController(store: store, preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         #expect(controller.workspace.flush())
         try FileManager.default.createDirectory(at: store.backupURL, withIntermediateDirectories: false)
         controller.workspace.mutate { $0.lastModelByAgent[.claude] = "sonnet" }
@@ -57,12 +57,12 @@ import Testing
         try store.save(.empty)
         try Data("{broken".utf8).write(to: store.url)
         let controller = AppController(store: store, preferences: .scratch())
-        try controller.restoreWorkspace()
+        try controller.workspace.restoreBackup()
         #expect(controller.state == saved)
         #expect(controller.workspaceLoaded)
         #expect(controller.canChangeWorkspace)
         controller.workspace.mutate { $0.lastModelByAgent[.claude] = "opus" }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         #expect(controller.state.lastModelByAgent[.claude] == "opus")
     }
 
@@ -71,18 +71,18 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
         let controller = AppController(store: store, preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let project = Project(id: UUID(), name: "Repo", path: dir.path, provider: .git,
                               remoteUrl: nil, addedAt: Date(), collapsed: false)
         controller.workspace.mutate { $0.items = [.project(project)] }
         #expect(controller.workspace.flush())
         try controller.breakSaving()
         let original = controller.state
-        controller.toggleCollapsed(project)
-        controller.presentNewTask(project: project)
-        controller.presentNewTerminal(project: project)
-        #expect(controller.newTerminal(project: project, name: "Shell") == nil)
-        await controller.confirmRemove(project: project)
+        controller.projects.toggleCollapsed(project)
+        controller.sheets.presentNewTask(project: project)
+        controller.sheets.presentNewTerminal(project: project)
+        #expect(controller.terminals.newTerminal(project: project, name: "Shell") == nil)
+        await controller.projects.confirmRemove(project: project)
         #expect(controller.sheet == nil)
         #expect(controller.state == original)
         let draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
@@ -106,8 +106,8 @@ import Testing
             state.terminals = [TerminalItem(id: UUID(), projectId: busy.id, name: "Shell", windowId: nil, createdAt: Date())]
         }
 
-        controller.toggleCollapsed(empty)
-        controller.toggleCollapsed(busy)
+        controller.projects.toggleCollapsed(empty)
+        controller.projects.toggleCollapsed(busy)
         #expect(controller.state.projects.map(\.collapsed) == [false, true])
     }
 
@@ -256,7 +256,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
         let controller = AppController(store: store, preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let first = Project(id: UUID(), name: "First", path: "/first", provider: .git,
                             remoteUrl: nil, addedAt: Date(), collapsed: true)
         let moved = Project(id: UUID(), name: "Moved", path: "/moved", provider: .git,
@@ -275,7 +275,7 @@ import Testing
             state.terminals = [terminal]
         }
 
-        #expect(controller.move(itemId: moved.id, .up))
+        #expect(controller.projects.move(itemId: moved.id, .up))
         #expect(controller.state.projects.map(\.id) == [moved.id, first.id, last.id])
         #expect(controller.state.projects.first?.collapsed == false)
         #expect(controller.state.tasks == [child])
@@ -285,8 +285,8 @@ import Testing
         #expect(saved.tasks.map(\.projectId) == [moved.id])
         #expect(saved.terminals.map(\.projectId) == [moved.id])
 
-        #expect(controller.move(itemId: moved.id, .down))
-        #expect(controller.move(itemId: moved.id, .down))
+        #expect(controller.projects.move(itemId: moved.id, .down))
+        #expect(controller.projects.move(itemId: moved.id, .down))
         #expect(controller.state.projects.map(\.id) == [first.id, last.id, moved.id])
         #expect(try controller.savedWorkspace().projects.map(\.id) == [first.id, last.id, moved.id])
     }
@@ -296,7 +296,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
         let controller = AppController(store: store, preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git,
                               remoteUrl: nil, addedAt: Date(), collapsed: false)
         let jiraSite = URL(string: "https://example.atlassian.net")!
@@ -305,14 +305,14 @@ import Testing
         controller.workspace.mutate { $0.items = [.project(project)] }
         #expect(controller.workspace.flush())
 
-        controller.presentJiraProjects(for: project)
+        controller.sheets.presentJiraProjects(for: project)
         #expect(controller.sheet?.id == "project-jira-\(project.id)")
 
-        controller.setJiraProjects([frontend, portal, frontend], on: project)
+        controller.projects.setJiraProjects([frontend, portal, frontend], on: project)
         #expect(controller.state.projects[0].jiraProjects == [frontend, portal], "a project is linked once")
         #expect(try controller.savedWorkspace().projects[0].jiraProjects == [frontend, portal])
 
-        controller.setJiraProjects([], on: project)
+        controller.projects.setJiraProjects([], on: project)
         #expect(controller.state.projects[0].jiraProjects.isEmpty)
         #expect(try controller.savedWorkspace().projects[0].jiraProjects.isEmpty)
     }
@@ -327,9 +327,9 @@ import Testing
         controller.workspace.mutate { $0.items = [.project(project)] }
         #expect(!controller.canChangeWorkspace)
 
-        controller.presentJiraProjects(for: project)
+        controller.sheets.presentJiraProjects(for: project)
         #expect(controller.sheet == nil)
-        controller.setJiraProjects([JiraProjectRef(id: "1", key: "SHOP", name: "Storefront",
+        controller.projects.setJiraProjects([JiraProjectRef(id: "1", key: "SHOP", name: "Storefront",
                                                    siteURL: URL(string: "https://example.atlassian.net")!)], on: project)
         #expect(controller.state.projects[0].jiraProjects.isEmpty)
     }
@@ -345,7 +345,7 @@ import Testing
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         fixture.prompter.folder = folder
 
-        await controller.addProject()
+        await controller.projects.addProject()
 
         #expect(controller.sheet == nil)
         #expect(fixture.prompter.asked.isEmpty)
@@ -371,7 +371,7 @@ import Testing
         defer { fixture.cleanUp() }
         fixture.prompter.folder = fixture.repo
 
-        await fixture.controller.addProject()
+        await fixture.controller.projects.addProject()
 
         #expect(fixture.prompter.asked.map(\.message) == ["Repo is already in your projects"])
         #expect(fixture.controller.state.projects == [fixture.project])
@@ -382,7 +382,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
         let controller = AppController(store: store, preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let first = Project(id: UUID(), name: "First", path: "/first", provider: .git,
                             remoteUrl: nil, addedAt: Date(), collapsed: false)
         let last = Project(id: UUID(), name: "Last", path: "/last", provider: .git,
@@ -397,13 +397,13 @@ import Testing
         #expect(controller.state.canMove(id: last.id, .up))
         #expect(!controller.state.canMove(id: last.id, .down))
         #expect(!controller.state.canMove(id: stranger.id, .up))
-        #expect(!controller.move(itemId: first.id, .up))
-        #expect(!controller.move(itemId: last.id, .down))
-        #expect(!controller.move(itemId: stranger.id, .down))
+        #expect(!controller.projects.move(itemId: first.id, .up))
+        #expect(!controller.projects.move(itemId: last.id, .down))
+        #expect(!controller.projects.move(itemId: stranger.id, .down))
         #expect(controller.state.projects.map(\.id) == [first.id, last.id])
 
         try controller.breakSaving()
-        #expect(!controller.move(itemId: first.id, .down))
+        #expect(!controller.projects.move(itemId: first.id, .down))
         #expect(controller.state.projects.map(\.id) == [first.id, last.id])
     }
 
@@ -507,7 +507,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
         let controller = AppController(store: store, preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let worktree = dir.appendingPathComponent("repo/.worktrees/work")
         try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
         let project = Project(id: UUID(), name: "Repo", path: dir.appendingPathComponent("repo").path, provider: .git,
@@ -553,7 +553,7 @@ import Testing
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let task = TaskItem(id: UUID(), projectId: UUID(), title: "Ongoing", branch: "feat/ongoing",
                             worktreePath: "/wt", baseBranch: "main", jira: nil, agent: .codex,
                             model: "model", reasoning: nil, firstPrompt: nil, appendTicket: false,
@@ -577,7 +577,7 @@ import Testing
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git,
                               remoteUrl: nil, addedAt: Date(), collapsed: false)
         let task = TaskItem(id: UUID(), projectId: project.id, title: "Work", branch: "feat/work",
@@ -653,7 +653,7 @@ import Testing
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git,
                               remoteUrl: nil, addedAt: Date(), collapsed: false)
         let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Terminal", windowId: "w2",
@@ -706,7 +706,7 @@ import Testing
         try git.run(["init", "-q", "-b", "main"], in: repo.path)
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "init"], in: repo.path)
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         controller.workspace.mutate { $0.items = [.project(project)] }
         #expect(controller.workspace.flush())
@@ -742,7 +742,7 @@ import Testing
         try GitRunner.hermetic().run(["commit", "--allow-empty", "-m", "init"], in: repo.path)
         let recording = RecordingGitRunner(forwardingTo: .hermetic())
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(), git: recording)
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         controller.workspace.mutate { $0.items = [.project(project)] }
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
@@ -767,7 +767,7 @@ import Testing
         try "SECRET=1\n".write(toFile: env, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: env)
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(), git: git)
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         controller.workspace.mutate { $0.items = [.project(project)] }
         #expect(controller.workspace.flush())
@@ -849,12 +849,12 @@ import Testing
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
         let prompter = ScriptedPrompter(answering: "Import")
         let controller = AppController(store: store, preferences: .scratch(), prompter: prompter)
-        try controller.loadWorkspace()
+        try controller.workspace.load()
 
         let repo = try Self.repoWithATaskAndAReviewWorktree(git: controller.git)
         defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo).deletingLastPathComponent()) }
 
-        await controller.addProject(path: repo)
+        await controller.projects.addProject(path: repo)
         #expect(prompter.asked.map(\.message) == ["Import 2 worktrees?"])
 
         #expect(controller.state.projects.count == 1)
@@ -875,11 +875,11 @@ import Testing
         let flaky = DefaultBranchFailingGit()
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
                                         prompter: prompter, git: flaky)
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let repo = try Self.repoWithATaskAndAReviewWorktree(git: controller.git)
         defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo).deletingLastPathComponent()) }
 
-        await controller.addProject(path: repo)
+        await controller.projects.addProject(path: repo)
         #expect(controller.state.projects.count == 1, "the project itself is added")
         #expect(prompter.asked.isEmpty)
         #expect(controller.state.tasks.isEmpty, "no task is saved with a guessed base branch")
@@ -897,11 +897,11 @@ import Testing
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
         let git = GatedDefaultBranchGit()
         let controller = AppController(store: store, preferences: .scratch(), prompter: ScriptedPrompter(), git: git)
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let repo = try Self.repoWithATaskAndAReviewWorktree(git: GitRunner.hermetic())
         defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo).deletingLastPathComponent()) }
 
-        let adding = Task { await controller.addProject(path: repo) }
+        let adding = Task { await controller.projects.addProject(path: repo) }
         await eventually { git.isWaiting }
         try FileManager.default.createDirectory(at: store.backupURL, withIntermediateDirectories: false)
         controller.workspace.mutate { $0.lastModelByAgent[.claude] = "sonnet" }
@@ -923,12 +923,12 @@ import Testing
         let git = FlakyGitRunner()
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
                                         prompter: prompter, git: git)
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let repo = try Self.repoWithATaskAndAReviewWorktree(git: GitRunner.hermetic())
         defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo).deletingLastPathComponent()) }
 
         git.failing = true
-        await controller.addProject(path: repo)
+        await controller.projects.addProject(path: repo)
         #expect(controller.state.projects.isEmpty)
         #expect(prompter.asked.isEmpty)
         #expect(controller.issue == OperationIssue(title: "Couldn’t add the project.",
@@ -957,7 +957,7 @@ import Testing
     func loadedController() throws -> (AppController, URL) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         return (controller, dir)
     }
 
@@ -1045,7 +1045,7 @@ import Testing
                                                                     branches: branches, remotes: remotes, diffs: diffs,
                                                                     defaultBranches: defaultBranches)
                                        })
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let task = UUID(), project = UUID()
         var tab = SessionInfo(sessionId: "s", windowId: "w", tabIndex: 0, taskId: task.uuidString, projectId: project.uuidString,
                               agent: .claude, model: "opus", state: .idle, title: "claude", cwd: dir.path)
@@ -1088,7 +1088,7 @@ import Testing
                                                                 removedTasks: [], remotes: [:])
                                        },
                                        findPython: { pythonLookups.increment(); return nil })
-        try controller.loadWorkspace()
+        try controller.workspace.load()
 
         controller.start()
         controller.shutdown()
@@ -1110,7 +1110,7 @@ import Testing
         var written: [String?] = []
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
                                        setBadge: { written.append($0) })
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let project = fixtureProject("repo")
         let task = TaskItem(id: UUID(), projectId: project.id, title: "a", branch: "feat/a", worktreePath: "/repo/a",
                             baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil,
@@ -1142,7 +1142,7 @@ import Testing
         var written: [String?] = []
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
                                        setBadge: { written.append($0) })
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let project = fixtureProject("repo")
         let task = TaskItem(id: UUID(), projectId: project.id, title: "a", branch: "feat/a", worktreePath: "/repo/a",
                             baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil,
@@ -1165,7 +1165,7 @@ import Testing
         let (controller, dir) = try loadedController()
         defer { try? FileManager.default.removeItem(at: dir) }
         controller.workspace.mutate { $0.append(project: fixtureProject("repo")) }
-        controller.addDivider(name: "  Work  ")
+        controller.projects.addDivider(name: "  Work  ")
         #expect(controller.state.items.last?.divider?.name == "Work")
         #expect(controller.persistenceError == nil)
         #expect(try controller.savedWorkspace().items.count == 2)
@@ -1183,19 +1183,19 @@ import Testing
                             firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w1")
         controller.workspace.mutate { $0.tasks = [task] }
 
-        controller.rename(divider: rule, to: "  Personal ")
+        controller.projects.rename(divider: rule, to: "  Personal ")
         #expect(controller.state.items.last?.divider?.name == "Personal")
 
-        controller.rename(task: task, to: "  New title ")
+        controller.projects.rename(task: task, to: "  New title ")
         #expect(controller.state.tasks[0].title == "New title")
         #expect(controller.state.tasks[0].branch == "feat/x")
         #expect(controller.state.tasks[0].worktreePath == "/wt")
         #expect(controller.state.tasks[0].windowId == "w1")
 
         // An emptied field leaves a task's title alone; a divider may legitimately have no name.
-        controller.rename(task: task, to: "   ")
+        controller.projects.rename(task: task, to: "   ")
         #expect(controller.state.tasks[0].title == "New title")
-        controller.rename(divider: rule, to: "   ")
+        controller.projects.rename(divider: rule, to: "   ")
         #expect(controller.state.items.last?.divider?.name == "")
     }
 
@@ -1209,7 +1209,7 @@ import Testing
             state.append(divider: rule)
             state.terminals = [TerminalItem(id: UUID(), projectId: project.id, name: "Terminal", windowId: "w1", createdAt: Date())]
         }
-        controller.removeDivider(rule)
+        controller.projects.removeDivider(rule)
         #expect(controller.state.items.map(\.id) == [project.id])
         #expect(controller.state.terminals.count == 1)
     }
@@ -1225,7 +1225,7 @@ import Testing
             state.append(project: b)
         }
 
-        let moved = controller.move(itemId: b.id, .up)
+        let moved = controller.projects.move(itemId: b.id, .up)
         #expect(moved)
         #expect(controller.state.items.map(\.id) == [a.id, b.id, rule.id])
         #expect(controller.state.projects.map(\.name) == ["a", "b"])
@@ -1241,10 +1241,10 @@ import Testing
         let url = dir.appendingPathComponent("state.json")
         try Data("{broken".utf8).write(to: url)
         let controller = AppController(store: StateStore(url: url), preferences: .scratch())
-        #expect(throws: (any Error).self) { try controller.loadWorkspace() }
-        controller.addDivider(name: "Work")
+        #expect(throws: (any Error).self) { try controller.workspace.load() }
+        controller.projects.addDivider(name: "Work")
         #expect(controller.state.items.isEmpty)
-        controller.presentNewDivider()
+        controller.sheets.presentNewDivider()
         #expect(controller.sheet == nil)
     }
 
@@ -1258,10 +1258,10 @@ import Testing
                             firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: nil)
         controller.workspace.mutate { $0.tasks = [task] }
 
-        controller.presentNewDivider()
+        controller.sheets.presentNewDivider()
         #expect(controller.sheet?.id == "divider-new")
 
-        controller.presentRename(task: task)
+        controller.sheets.presentRename(task: task)
         #expect(controller.sheet?.id == "rename-\(task.id)")
         guard case .rename(let target)? = controller.sheet else { Issue.record("expected a rename sheet"); return }
         #expect(target.name == "Old")
@@ -1279,20 +1279,20 @@ import Testing
         let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Terminal", windowId: "w1", createdAt: Date())
         controller.workspace.mutate { $0.terminals = [terminal] }
 
-        controller.presentRename(terminal: terminal)
+        controller.sheets.presentRename(terminal: terminal)
         guard case .rename(let target)? = controller.sheet else { Issue.record("expected a rename sheet"); return }
         #expect(target == .terminal(terminal))
         #expect(target.title == "Rename terminal")
         #expect(target.fieldLabel == "Terminal name")
         #expect(target.name == "Terminal")
 
-        controller.rename(terminal: terminal, to: "  Dev server ")
+        controller.projects.rename(terminal: terminal, to: "  Dev server ")
         #expect(controller.state.terminals == [TerminalItem(id: terminal.id, projectId: project.id, name: "Dev server",
                                                             windowId: "w1", createdAt: terminal.createdAt)])
         #expect(try controller.savedWorkspace().terminals.map(\.name) == ["Dev server"])
 
         // An emptied field keeps the name, as a task's does.
-        controller.rename(terminal: terminal, to: "   ")
+        controller.projects.rename(terminal: terminal, to: "   ")
         #expect(controller.state.terminals.map(\.name) == ["Dev server"])
     }
 }

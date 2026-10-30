@@ -10,7 +10,7 @@ struct InterfaceSizeTests {
     private func controller() throws -> AppController {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         return controller
     }
 

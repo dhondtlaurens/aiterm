@@ -209,11 +209,11 @@ enum SidebarSnapshots {
     private static func removal(_ file: String, selecting: KeyPath<Fixture, TaskItem>?) -> Snapshot {
         Snapshot(file) {
             let fixture = Fixture(), controller = fixture.controller()
-            controller.seedSnapshotRemoval(.removing, of: fixture.working.id)
-            controller.seedSnapshotRemoval(.removing, of: fixture.piTask.id)
-            controller.seedSnapshotRemoval(.closing, of: fixture.codexTask.id)
-            controller.seedSnapshotRemoval(.stopped(note: "Not removed: branch kept", worktreeRemoved: true), of: fixture.other.id)
-            controller.report(.branchKept(fixture.other.branch, of: fixture.other.id, because: .notMerged(base: "develop")))
+            controller.remover.seedSnapshotRemoval(.removing, of: fixture.working.id)
+            controller.remover.seedSnapshotRemoval(.removing, of: fixture.piTask.id)
+            controller.remover.seedSnapshotRemoval(.closing, of: fixture.codexTask.id)
+            controller.remover.seedSnapshotRemoval(.stopped(note: "Not removed: branch kept", worktreeRemoved: true), of: fixture.other.id)
+            controller.notices.report(.branchKept(fixture.other.branch, of: fixture.other.id, because: .notMerged(base: "develop")))
             if let selecting { controller.focus.browse(.task(fixture[keyPath: selecting].id)) }
             return taskRows(controller)
         }

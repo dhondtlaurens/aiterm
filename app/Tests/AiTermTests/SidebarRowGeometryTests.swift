@@ -39,7 +39,7 @@ struct SidebarRowGeometryTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         // Three identical rows so the pills can only differ by the state that is drawn on them.
         let tasks = ["Selected row", "Hovered row", "Resting row"].map { title in
@@ -108,7 +108,7 @@ struct SidebarContextMenuHighlightTests {
     private func hostedSidebar() throws -> (host: NSHostingView<SidebarView>, table: NSTableView, window: NSWindow) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         let task = TaskItem(id: UUID(), projectId: project.id, title: "Right-clicked row", branch: "feat/work",
                             worktreePath: "/wt", baseBranch: "main", jira: nil, agent: .claude, model: "sonnet",

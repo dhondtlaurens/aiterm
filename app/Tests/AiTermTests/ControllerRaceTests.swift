@@ -17,22 +17,22 @@ extension AppControllerTests {
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
 
-        let first = controller.newTerminal(project: fixture.project, name: "Shell")
+        let first = controller.terminals.newTerminal(project: fixture.project, name: "Shell")
         try await server.received("window.createTerminal")
-        await controller.confirmRemove(project: fixture.project)
+        await controller.projects.confirmRemove(project: fixture.project)
 
         #expect(fixture.prompter.asked.map(\.message) == ["“Repo” can’t be removed yet"])
         #expect(fixture.prompter.asked.first?.detail.contains("A terminal is still opening in it.") == true)
         #expect(controller.state.projects == [fixture.project])
         // Two can open at once, and the project is busy until both have.
-        let second = controller.newTerminal(project: fixture.project, name: "Shell 2")
+        let second = controller.terminals.newTerminal(project: fixture.project, name: "Shell 2")
         #expect(controller.issue == nil)
         server.release()
         await first?.value
         await second?.value
         #expect(controller.state.terminals.map(\.windowId) == ["terminal-window", "terminal-window-2"])
         #expect(controller.persistenceError == nil)
-        await controller.confirmRemove(project: fixture.project)
+        await controller.projects.confirmRemove(project: fixture.project)
         #expect(fixture.prompter.asked.last?.message == "Remove project “Repo”?", "free once both have opened")
     }
 
@@ -49,7 +49,7 @@ extension AppControllerTests {
         controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
         let reopening = controller.windows.restore(.task(task.id))
         try await server.received("window.createTask")
-        await controller.confirmRemove(project: fixture.project)
+        await controller.projects.confirmRemove(project: fixture.project)
 
         #expect(fixture.prompter.asked.first?.detail.hasPrefix("A window is still opening for one of its tasks.") == true)
         server.release()
@@ -67,9 +67,9 @@ extension AppControllerTests {
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: "alive", createdAt: Date())
         controller.workspace.mutate { $0.terminals = [terminal] }
 
-        let closing = controller.close(terminal: terminal)
+        let closing = controller.terminals.close(terminal: terminal)
         try await server.received("window.close")
-        await controller.confirmRemove(project: fixture.project)
+        await controller.projects.confirmRemove(project: fixture.project)
 
         #expect(fixture.prompter.asked.first?.detail.hasPrefix("One of its terminals is still opening or closing its window.") == true)
         server.release()
@@ -90,10 +90,10 @@ extension AppControllerTests {
         controller.workspace.mutate { $0.append(project: other) }
         let task = try fixture.addTask(windowId: "alive")
 
-        let removal = await controller.confirmRemove(task: task)
+        let removal = await controller.remover.confirmRemove(task: task)
         try await server.received("window.close")
-        await controller.confirmRemove(project: other)
-        await controller.confirmRemove(project: fixture.project)
+        await controller.projects.confirmRemove(project: other)
+        await controller.projects.confirmRemove(project: fixture.project)
 
         #expect(fixture.prompter.asked.map(\.message).suffix(2) == ["Remove project “Other”?", "“Repo” can’t be removed yet"])
         #expect(fixture.prompter.asked.last?.detail.hasPrefix("A task is still being changed.") == true)
@@ -112,7 +112,7 @@ extension AppControllerTests {
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
 
-        let opening = controller.newTerminal(project: fixture.project, name: "Shell")
+        let opening = controller.terminals.newTerminal(project: fixture.project, name: "Shell")
         try await server.received("window.createTerminal")
         controller.workspace.mutate { $0.removeItem(id: fixture.project.id) }
         server.release()
@@ -177,7 +177,7 @@ extension AppControllerTests {
         let clicked = try fixture.addTask(windowId: nil)
         fixture.prompter.whileAsking = { _ in controller.helper.handle(.snapshot(fixture.snapshot(tagging: clicked, in: "alive"))) }
 
-        await controller.confirmRemove(task: clicked)?.value
+        await controller.remover.confirmRemove(task: clicked)?.value
 
         #expect(controller.state.tasks.isEmpty)
         #expect(server.requests("window.close").map { $0.params["windowId"] as? String } == ["alive"])
@@ -197,10 +197,10 @@ extension AppControllerTests {
         fixture.prompter.whileAsking = { _ in
             guard !nested else { return }
             nested = true
-            nestedRemoval = await controller.confirmRemove(task: task)
+            nestedRemoval = await controller.remover.confirmRemove(task: task)
         }
 
-        #expect(await controller.confirmRemove(task: task) == nil, "the nested Remove owns the removal")
+        #expect(await controller.remover.confirmRemove(task: task) == nil, "the nested Remove owns the removal")
         await nestedRemoval?.value
 
         #expect(controller.state.tasks.isEmpty)
@@ -224,7 +224,7 @@ extension AppControllerTests {
             controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
         }
 
-        await controller.confirmRemove(task: task)?.value
+        await controller.remover.confirmRemove(task: task)?.value
 
         #expect(controller.state.tasks.isEmpty)
         #expect(fixture.prompter.asked.map(\.message).last == "The worktree has uncommitted changes")
@@ -244,7 +244,7 @@ extension AppControllerTests {
             if let added = controller.state.projects.first { controller.workspace.mutate { $0.removeItem(id: added.id) } }
         }
 
-        await controller.addProject(path: fixture.repo.path)
+        await controller.projects.addProject(path: fixture.repo.path)
 
         #expect(fixture.prompter.asked.map(\.message) == ["Import 1 worktree?"])
         #expect(controller.state.tasks.isEmpty)
@@ -296,7 +296,7 @@ extension AppControllerTests {
         reopened.windowId = "alive"
         controller.workspace.mutate { $0.terminals = [reopened] }
 
-        await controller.close(terminal: clicked)?.value
+        await controller.terminals.close(terminal: clicked)?.value
 
         #expect(controller.state.terminals.isEmpty)
         #expect(server.requests("window.close").map { $0.params["windowId"] as? String } == ["alive"])
@@ -316,7 +316,7 @@ extension AppControllerTests {
         controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
         let reopening = controller.windows.restore(.terminal(terminal.id))
         try await server.received("window.createTerminal")
-        #expect(controller.close(terminal: terminal) == nil)
+        #expect(controller.terminals.close(terminal: terminal) == nil)
 
         #expect(controller.issue?.title == "“Shell” is still reopening its window. Try Remove Terminal again once it has.")
         server.release()
@@ -335,9 +335,9 @@ extension AppControllerTests {
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: "alive", createdAt: Date())
         controller.workspace.mutate { $0.terminals = [terminal] }
 
-        let closing = controller.close(terminal: terminal)
+        let closing = controller.terminals.close(terminal: terminal)
         try await server.received("window.close")
-        #expect(controller.close(terminal: terminal) == nil)
+        #expect(controller.terminals.close(terminal: terminal) == nil)
         server.release()
         await closing?.value
 
@@ -452,14 +452,14 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         switch slow {
-        case .newTask: controller.presentNewTask(project: fixture.project)
-        case .newReview: controller.presentNewReview(project: fixture.project)
-        case .newTerminal: controller.presentNewTerminal(project: fixture.project)
-        case .settings: controller.presentSettings()
+        case .newTask: controller.sheets.presentNewTask(project: fixture.project)
+        case .newReview: controller.sheets.presentNewReview(project: fixture.project)
+        case .newTerminal: controller.sheets.presentNewTerminal(project: fixture.project)
+        case .settings: controller.sheets.presentSettings()
         }
         let preparing = try #require(controller.sheets.preparingSheet)
 
-        controller.presentNewDivider()
+        controller.sheets.presentNewDivider()
         await preparing.value
 
         #expect(controller.sheet?.id == "divider-new", "⌘N then ⌘D leaves the divider sheet up")
@@ -471,10 +471,10 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         switch slow {
-        case .newTask: controller.presentNewTask(project: fixture.project)
-        case .newReview: controller.presentNewReview(project: fixture.project)
-        case .newTerminal: controller.presentNewTerminal(project: fixture.project)
-        case .settings: controller.presentSettings()
+        case .newTask: controller.sheets.presentNewTask(project: fixture.project)
+        case .newReview: controller.sheets.presentNewReview(project: fixture.project)
+        case .newTerminal: controller.sheets.presentNewTerminal(project: fixture.project)
+        case .settings: controller.sheets.presentSettings()
         }
         let preparing = try #require(controller.sheets.preparingSheet)
 
@@ -496,16 +496,16 @@ extension AppControllerTests {
         await controller.checkouts.refresh().value
         try #require(controller.checkouts.projectBranch[fixture.project.id] != nil)
         let presenters: [(String, () -> Void)] = [
-            ("divider", { controller.presentNewDivider() }),
-            ("new terminal", { controller.presentNewTerminal(project: fixture.project) }),
-            ("rename divider", { controller.presentRename(divider: SidebarDivider(id: UUID(), name: "D")) }),
-            ("rename task", { controller.presentRename(task: task) }),
-            ("rename terminal", { controller.presentRename(terminal: terminal) }),
-            ("jira projects", { controller.presentJiraProjects(for: fixture.project) }),
+            ("divider", { controller.sheets.presentNewDivider() }),
+            ("new terminal", { controller.sheets.presentNewTerminal(project: fixture.project) }),
+            ("rename divider", { controller.sheets.presentRename(divider: SidebarDivider(id: UUID(), name: "D")) }),
+            ("rename task", { controller.sheets.presentRename(task: task) }),
+            ("rename terminal", { controller.sheets.presentRename(terminal: terminal) }),
+            ("jira projects", { controller.sheets.presentJiraProjects(for: fixture.project) }),
         ]
         for (name, present) in presenters {
             controller.sheet = nil
-            controller.presentNewTask(project: fixture.project)
+            controller.sheets.presentNewTask(project: fixture.project)
             let preparing = try #require(controller.sheets.preparingSheet)
             present()
             await preparing.value
@@ -529,10 +529,10 @@ extension AppControllerTests {
         let seen = WorkspaceScan(branchByCwd: [:], projectBranch: [project.id: "feat/seen"], missingCheckouts: [], removedTasks: [], remotes: [:])
         let controller = AppController(preferences: .scratch(), git: git, scan: { _, _, _, _, _, _, _ in seen })
         defer { controller.shutdown() }
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         controller.workspace.mutate { $0.items = [.project(project)] }
 
-        controller.presentNewTerminal(project: project)
+        controller.sheets.presentNewTerminal(project: project)
         await (try #require(controller.sheets.preparingSheet)).value
         guard case .newTerminal(_, let name, let branch)? = controller.sheet else { Issue.record("expected New Terminal"); return }
         #expect(branch == "main", "git's answer, before the monitor has one")
@@ -540,7 +540,7 @@ extension AppControllerTests {
 
         controller.sheet = nil
         await controller.checkouts.refresh().value
-        controller.presentNewTerminal(project: project)
+        controller.sheets.presentNewTerminal(project: project)
         #expect(controller.sheets.preparingSheet == nil)
         guard case .newTerminal(_, let name, let branch)? = controller.sheet else { Issue.record("expected New Terminal at once"); return }
         #expect(branch == "feat/seen")

@@ -15,7 +15,7 @@ struct SidebarSheetScaleTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let host = testHost(SidebarSheet(kind: .newDivider, controller: controller).interfaceScale(scale), size: CGSize(width: Sheet.width, height: Sheet.height))
         host.appearance = NSAppearance(named: .darkAqua)
         host.layoutSubtreeIfNeeded()

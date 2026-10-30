@@ -68,7 +68,7 @@ struct BackgroundCardTests {
     /// Open, the card covers the row and does not grow it, however many jobs it lists.
     @Test(arguments: [1, 3]) func theOpenCardLeavesTheRowItsSize(jobs: Int) async throws {
         let controller = AppController(preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let task = TaskItem(id: UUID(), projectId: UUID(), title: "FE-1783 Dependency updates: patch", branch: "feat/fe-1783",
                             worktreePath: "/wt", baseBranch: "main", jira: nil, agent: .claude, model: "sonnet", reasoning: nil,
                             firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w-1")

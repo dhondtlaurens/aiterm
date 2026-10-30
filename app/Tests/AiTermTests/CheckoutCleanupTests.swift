@@ -17,7 +17,7 @@ extension AppControllerTests {
         try FileManager.default.createDirectory(atPath: fixture.task.worktreePath, withIntermediateDirectories: true)
         let file = URL(fileURLWithPath: fixture.task.worktreePath).appendingPathComponent("unknown")
         try Data("keep me".utf8).write(to: file)
-        await (await fixture.controller.confirmRemove(task: fixture.task))?.value
+        await (await fixture.controller.remover.confirmRemove(task: fixture.task))?.value
         #expect(FileManager.default.fileExists(atPath: file.path) == (answer != "Delete Folder"))
         #expect((fixture.controller.state.task(id: fixture.task.id) != nil) == (answer != "Delete Folder"))
         #expect(prompt.asked.last?.buttons == ["Keep", "Delete Folder"])
@@ -80,7 +80,7 @@ extension AppControllerTests {
         defer { server.release(); controller.shutdown() }
         controller.helper.setDaemonClient(server)
 
-        let removal = await controller.confirmRemove(task: fixture.task)
+        let removal = await controller.remover.confirmRemove(task: fixture.task)
         #expect(prompter.asked.map(\.buttons) == [["Remove", "Cancel"]], "the menu's Remove offers no Shelve")
         try await server.received("window.close")
         try #require(server.closedWindowIds == ["alive"])
@@ -109,7 +109,7 @@ extension AppControllerTests {
         defer { server.release(); controller.shutdown() }
         controller.helper.setDaemonClient(server)
 
-        let removal = await controller.confirmRemove(task: fixture.task)
+        let removal = await controller.remover.confirmRemove(task: fixture.task)
         try await server.received("window.close")
         // Saving breaks while the window closes: a directory stands where the backup goes.
         let backup = controller.workspace.file.backupURL
@@ -132,7 +132,7 @@ extension AppControllerTests {
         defer { controller.shutdown() }
         controller.helper.setDaemonClient(server)
 
-        await controller.confirmRemove(task: fixture.task)?.value
+        await controller.remover.confirmRemove(task: fixture.task)?.value
 
         #expect(server.closedWindowIds == ["alive"])
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath + "/.git"))
@@ -157,7 +157,7 @@ extension AppControllerTests {
             controller.helper.setDaemonClient(server)
             try "draft\n".write(toFile: fixture.task.worktreePath + "/notes.txt", atomically: true, encoding: .utf8)
 
-            await controller.confirmRemove(task: fixture.task)?.value
+            await controller.remover.confirmRemove(task: fixture.task)?.value
 
             let asked = try #require(prompter.asked.last)
             #expect(asked.buttons == ["Keep Task", "Delete Changes and Remove"])
@@ -181,7 +181,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         try "draft\n".write(toFile: fixture.task.worktreePath + "/notes.txt", atomically: true, encoding: .utf8)
 
-        let removal = await controller.confirmRemove(task: fixture.task)
+        let removal = await controller.remover.confirmRemove(task: fixture.task)
         try await server.received("window.close")
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath + "/notes.txt"))
 
@@ -203,7 +203,7 @@ extension AppControllerTests {
         defer { server.release(); controller.shutdown() }
         controller.helper.setDaemonClient(server)
 
-        let removal = await controller.confirmRemove(task: fixture.task)
+        let removal = await controller.remover.confirmRemove(task: fixture.task)
         try await server.received("window.close")
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true,
                                                           sessions: [SessionInfo.stub(window: "alive", task: fixture.task)], usage: .empty)))
@@ -230,7 +230,7 @@ extension AppControllerTests {
                                                           sessions: [SessionInfo.stub(window: "alive", task: fixture.task)],
                                                           usage: .empty)))
 
-        let removal = await controller.confirmRemove(task: fixture.task)
+        let removal = await controller.remover.confirmRemove(task: fixture.task)
         try await server.received("window.close")
         try "late\n".write(toFile: fixture.task.worktreePath + "/late.txt", atomically: true, encoding: .utf8)
         server.release()
@@ -394,12 +394,12 @@ extension AppControllerTests {
         await controller.checkouts.refresh().value
         await eventually { asked.withLock { $0 } == 1 }
         await controller.checkouts.refresh().value
-        controller.rename(task: fixture.task, to: "Still answering")
+        controller.projects.rename(task: fixture.task, to: "Still answering")
         #expect(controller.state.tasks.map(\.title) == ["Still answering"])
         #expect(asked.withLock { $0 } == 1, "one confirmation per task, however many passes")
         #expect(server.closedWindowIds.isEmpty)
 
-        controller.rename(task: fixture.task, to: fixture.task.title)
+        controller.projects.rename(task: fixture.task, to: fixture.task.title)
         answer.signal()
         await controller.remover.waitForRemoval(of: fixture.task.id)
         #expect(server.closedWindowIds == ["alive"])
@@ -425,7 +425,7 @@ extension AppControllerTests {
         // As a pass that saw the checkout away hands it over; the checkout is still there.
         controller.remover.forgetRemovedCheckouts([fixture.task])
         await eventually { asked.withLock { $0 } == 1 }
-        await controller.confirmRemove(task: fixture.task)?.value
+        await controller.remover.confirmRemove(task: fixture.task)?.value
         #expect(controller.state.tasks.isEmpty)
         #expect(server.closedWindowIds == ["alive"])
         #expect(!FileManager.default.fileExists(atPath: fixture.task.worktreePath))
@@ -527,7 +527,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         #expect(controller.remover.removals.isEmpty)
 
-        let removal = await controller.confirmRemove(task: fixture.task)
+        let removal = await controller.remover.confirmRemove(task: fixture.task)
         try await server.received("window.close")
         #expect(controller.remover.removals == [fixture.task.id: .removing])
 
@@ -544,7 +544,7 @@ extension AppControllerTests {
         defer { controller.shutdown() }
         controller.helper.setDaemonClient(RecordingDaemon(failing: ["window.close": "temporary_failure"]))
 
-        await controller.confirmRemove(task: fixture.task)?.value
+        await controller.remover.confirmRemove(task: fixture.task)?.value
 
         #expect(controller.remover.removals == [fixture.task.id: .stopped(note: "Not removed: its window did not close", worktreeRemoved: false)])
         #expect(controller.issue?.subject == fixture.task.id)
@@ -558,7 +558,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(RecordingDaemon())
         try "draft\n".write(toFile: fixture.task.worktreePath + "/notes.txt", atomically: true, encoding: .utf8)
 
-        await controller.confirmRemove(task: fixture.task)?.value
+        await controller.remover.confirmRemove(task: fixture.task)?.value
 
         #expect(controller.state.tasks == [fixture.task])
         #expect(controller.remover.removals.isEmpty)
