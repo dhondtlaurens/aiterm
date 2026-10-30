@@ -298,7 +298,8 @@ struct SidebarConnectionBanner: View {
 }
 
 /// The Operator's wake line refused (`OperatorWakeNotice`): what waits on it and why, with Open the Operator
-/// and Fix in Settings as its links. The Operator runs on Claude Code, whose card Fix in Settings is for.
+/// and, when Settings can fix it, Fix in Settings as its links. The Operator runs on Claude Code, whose card Fix in
+/// Settings is for.
 struct OperatorWakeBanner: View {
     let notice: OperatorWakeNotice
     let open: () -> Void
@@ -308,7 +309,7 @@ struct OperatorWakeBanner: View {
         SidebarBanner(vertical: Space.base) {
             Notice(title: OperatorWakeNotice.title, description: notice.description) {
                 Button("Open the Operator", action: open)
-                Button("Fix in Settings", action: fix)
+                if notice.fixInSettings { Button("Fix in Settings", action: fix) }
             }
         }
     }
