@@ -63,8 +63,8 @@ public struct FixClone: Sendable {
             try clone.run(["fetch", "-q", "--no-tags", "--update-head-ok", project] + refspecs, in: path)
             try clone.run(["config", "core.hooksPath", "/dev/null"], in: path)
             try clone.run(["config", "core.fsmonitor", "false"], in: path)
-            let name = (try? git.run(["config", "user.name"], in: project)).flatMap { $0.isEmpty ? nil : $0 } ?? "AiTerm Fix"
-            let email = (try? git.run(["config", "user.email"], in: project)).flatMap { $0.isEmpty ? nil : $0 } ?? "fix@aiterm.invalid"
+            let name = (try? git.run(["config", "user.name"], in: project)).nonEmpty ?? "AiTerm Fix"
+            let email = (try? git.run(["config", "user.email"], in: project)).nonEmpty ?? "fix@aiterm.invalid"
             try clone.run(["config", "user.name", name], in: path)
             try clone.run(["config", "user.email", email], in: path)
             // A fix's commits are unsigned: no signer works in either agent's sandbox, and one that

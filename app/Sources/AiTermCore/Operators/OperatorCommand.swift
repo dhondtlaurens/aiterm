@@ -239,7 +239,7 @@ public enum OperatorCommand {
 
     /// `text` trimmed, or nil when nothing is said: the one rule for what a person typed.
     public static func said(_ text: String?) -> String? {
-        text.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
+        text.said
     }
 
     /// Writes `data` so it is never readable by anyone else, even for a moment: a file made 0600

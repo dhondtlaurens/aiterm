@@ -44,7 +44,7 @@ public struct DeliveryCheckFile: Equatable, Sendable {
         var entries: [String: Entry] = [:]
         for (name, value) in object {
             guard let entry = value as? [String: Any] else { continue }
-            let version = (entry["version"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let version = (entry["version"] as? String).nonEmpty
             let flags = Set(entry.compactMap { key, value in Self.isTrue(value) ? key : nil })
             let scenarios = entry["scenarios"] as? [String: Any] ?? [:]
             let passed = Set(scenarios.compactMap { key, value in Self.isTrue((value as? [String: Any])?["passed"]) ? key : nil })
