@@ -168,6 +168,27 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public init(key: String, title: String) { self.key = key; self.title = title }
     }
 
+    /// Completion wakes the Operator before cleanup is due. A settled pass may still retain tasks.
+    public struct Cleanup: Encodable, Equatable, Sendable {
+        public enum Phase: String, Encodable, Sendable { case awaitingSummary, pending, settled }
+        public let state: Phase
+        public let note: String
+
+        init?(_ run: OperatorRun) {
+            guard run.taskSettings.closeWhenDone == true, run.state == .complete, !run.hasEnded else { return nil }
+            if !run.closingIsDue {
+                state = .awaitingSummary
+                note = "AiTerm starts automatic cleanup after write_summary or when its summary wait expires. Broadcast completion does not mean task worktrees or local branches have been removed."
+            } else if run.closingHasRun {
+                state = .settled
+                note = "AiTerm finished its cleanup pass. Tasks still listed were retained; keptReason reports any recorded refusal. Stopped tasks and work left for you are outside automatic cleanup. Closed tasks are in finished; branchDeleted records whether each local branch was deleted."
+            } else {
+                state = .pending
+                note = "AiTerm handles automatic cleanup. Remaining task rows have not been removed; closingWait reports any wait for a turn or the helper. Local branch deletion follows worktree removal and merge verification."
+            }
+        }
+    }
+
     public struct Run: Encodable, Equatable, Sendable {
         public var id: UUID, name: String, state: OperatorRunState, prompt: String
         /// The last submitted revision, and the open one `create_task` adds to.
@@ -192,6 +213,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var agents: Agents
         /// The run is complete and its summary is not written: the Operator writes it with `write_summary`.
         public var summaryDue: Bool
+        /// Automatic cleanup for a complete broadcast with closing enabled. Separate from work completion.
+        public var cleanup: Cleanup?
         /// What every task follows (the Task step); nil for a broadcast started before it.
         public var taskSettings: TaskSettings
         /// The broadcast's goal; nil for none.
@@ -204,12 +227,13 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                     planRevision: Int, openRevision: Int, firstPlanSize: Int? = nil, finds: [OffBriefFind] = [], snags: [SnagLine] = [],
                     slices: Slices = .none, oracleIsOn: Bool = false, usage: [String: Int] = [:], agents: Agents = Agents(), jiraProjectKeys: [String] = [],
                     summaryDue: Bool = false, taskSettings: TaskSettings = TaskSettings(review: nil, end: .draftMR), goal: BroadcastGoal? = nil, goalCheckDue: Bool = false,
-                    roundsUsed: Int = 0) {
+                    roundsUsed: Int = 0, cleanup: Cleanup? = nil) {
             self.id = id; self.name = name; self.state = state; self.prompt = prompt
             self.planRevision = planRevision; self.openRevision = openRevision; self.firstPlanSize = firstPlanSize
             self.jiraProjectKeys = jiraProjectKeys
             self.finds = finds; self.snags = snags; self.slices = slices; self.oracleIsOn = oracleIsOn; self.usage = usage; self.agents = agents
             self.summaryDue = summaryDue
+            self.cleanup = cleanup
             self.taskSettings = taskSettings; self.goal = goal; self.goalCheckDue = goalCheckDue ? true : nil
             self.roundsUsed = goal == nil ? nil : roundsUsed
         }
@@ -310,6 +334,9 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var branch: String
         public var dependsOn: [Dependency]
         public var acceptedSHA: String?, blockedReason: String?, mergeRefusal: String?
+        /// The same current-pass refusal or deferred wait shown on the board card.
+        public var keptReason: String?
+        public var closingWait: ClosingWait?
         /// Commit-scoped evidence recorded by mark_task, also supplied to the merge Oracle.
         public var acceptanceEvidence: TaskAcceptance?
         public var reasoning: String?
@@ -362,11 +389,13 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                     yourPrompt: String? = nil, mergeRefusal: String? = nil, reopenedFrom: String? = nil, liveModel: String? = nil,
                     liveReasoning: String? = nil, slashCommands: [SlashCommandLine]? = nil, stoppedOn: String? = nil,
                     opening: Bool = false, reviewVerdicts: [ReviewVerdict] = [], reasoning: String? = nil,
-                    acceptanceEvidence: TaskAcceptance? = nil, diffBaseline: String? = nil, requestedLaunch: LaunchRequest? = nil, testActivities: [TestActivity] = []) {
+                    acceptanceEvidence: TaskAcceptance? = nil, diffBaseline: String? = nil, requestedLaunch: LaunchRequest? = nil, testActivities: [TestActivity] = [],
+                    keptReason: String? = nil, closingWait: ClosingWait? = nil) {
             self.id = id; self.key = key; self.title = title; self.project = project; self.agent = agent; self.model = model
             self.state = state; self.end = end; self.revision = revision; self.live = live; self.branch = branch
             self.dependsOn = dependsOn
             self.acceptedSHA = acceptedSHA; self.blockedReason = blockedReason; self.flags = flags
+            self.keptReason = keptReason; self.closingWait = closingWait
             self.testActivities = testActivities.isEmpty ? nil : testActivities
             self.reasoning = reasoning; self.acceptanceEvidence = acceptanceEvidence; self.diffBaseline = diffBaseline; self.requestedLaunch = requestedLaunch
             self.takenOver = takenOver; self.retriesUsed = retriesUsed
@@ -471,6 +500,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         for item in items {
             guard let o = item.operated else { continue }
             let facts = live[item.id] ?? TaskLiveFacts()
+            let closes = run.taskSettings.closeWhenDone == true && o.reachedItsEnd
             lines.append(TaskLine(
                 id: item.id, key: o.key, title: item.title, project: state.project(id: item.projectId)?.name ?? "",
                 agent: item.agent, model: item.model, state: o.state, end: o.end, revision: o.revision,
@@ -486,7 +516,9 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 reopenedFrom: o.state == .working ? o.reopenedFrom : nil, liveModel: facts.liveModel, liveReasoning: facts.liveReasoning,
                 slashCommands: SlashCommandLine.lines(facts.slashCommands), stoppedOn: facts.stoppedOn, opening: facts.opening,
                 reviewVerdicts: o.reviewVerdicts, reasoning: item.reasoning, acceptanceEvidence: o.acceptance,
-                diffBaseline: o.diffBaseSHA, requestedLaunch: o.requestedLaunch, testActivities: facts.testActivities))
+                diffBaseline: o.diffBaseSHA, requestedLaunch: o.requestedLaunch, testActivities: facts.testActivities,
+                keptReason: closes && run.closingHasRun ? o.keptReason : nil,
+                closingWait: closes && !run.closingHasRun && run.closingIsDue ? o.closingWait : nil))
             // What the first worker's ended turn left, on a task in any state but yours (spec §J): a new turn is at work.
             let turn = !o.takenOver && o.state != .stopped
             let mainAsking = turn && facts.turnEnded && WorkerTurn.endsWithQuestion(facts.lastMessage)
@@ -525,7 +557,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                      agents: Agents(installed: Dictionary(runLive.agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
                                     allowed: run.agents),
                      jiraProjectKeys: run.jiraProjectKeys, summaryDue: run.state == .complete && run.summary == nil,
-                     taskSettings: run.taskSettings, goal: run.goal, goalCheckDue: run.goalCheckDue, roundsUsed: run.roundsUsed),
+                     taskSettings: run.taskSettings, goal: run.goal, goalCheckDue: run.goalCheckDue, roundsUsed: run.roundsUsed,
+                     cleanup: Cleanup(run)),
             tasks: lines,
             finished: run.finished,
             obligations: Obligations(

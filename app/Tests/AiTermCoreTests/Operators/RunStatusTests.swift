@@ -5,6 +5,59 @@ import Foundation
 @Suite struct RunStatusTests {
     typealias F = OperatorFixtures
 
+    @Test(arguments: ["active", "disabled", "summary", "expired", "pending", "settled", "oldPass", "ended"])
+    func cleanupPhaseIsSeparateFromCompletion(_ phase: String) throws {
+        var run = F.run(state: .complete, taskSettings: TaskSettings(review: nil, end: .mergeLocal))
+        run.completedAt = F.epoch
+        run.summary = "Done"
+        switch phase {
+        case "active": run.state = .active
+        case "disabled": run.taskSettings.closeWhenDone = false
+        case "summary": run.summary = nil
+        case "expired": run.summary = nil; run.summaryGivenUp = true
+        case "settled": run.closedAt = F.epoch
+        case "oldPass": run.closedAt = F.epoch.addingTimeInterval(-1)
+        case "ended": run.state = .stopped; run.summary = nil; run.endedAt = F.epoch.addingTimeInterval(1); run.closedAt = F.epoch
+        default: break
+        }
+        let status = try #require(RunStatus.build(state: F.state(run, []), run: run.id, revision: 1, live: [:]))
+        let json = try JSONValue(encoding: status)
+        let expected: String? = switch phase {
+        case "active", "disabled", "ended": nil
+        case "summary": "awaitingSummary"
+        case "settled": "settled"
+        default: "pending"
+        }
+        #expect(json["run"]?["cleanup"]?["state"]?.stringValue == expected)
+        if expected != nil { #expect(json["run"]?["cleanup"]?["note"]?.stringValue?.isEmpty == false) }
+    }
+
+    @Test(arguments: [ClosingWait.turn, .agentTurn, .helper])
+    func cleanupWaitsAndRefusalsReachTheOperator(_ wait: ClosingWait) throws {
+        var run = F.run(state: .complete, taskSettings: TaskSettings(review: nil, end: .mergeLocal))
+        run.completedAt = F.epoch
+        run.summary = "Done"
+        var waiting = F.task("A", .published), kept = F.task("B", .published)
+        waiting.operated?.closingWait = wait
+        kept.operated?.keptReason = "Not closed: untracked files"
+        let status = try #require(RunStatus.build(state: F.state(run, [waiting, kept]), run: run.id, revision: 1, live: [:]))
+        let json = try JSONValue(encoding: status)
+        #expect(json["run"]?["cleanup"]?["state"]?.stringValue == "pending")
+        #expect(json["tasks"]?.arrayValue?.first?["closingWait"]?.stringValue == wait.rawValue)
+        #expect(json["tasks"]?.arrayValue?.last?["keptReason"] == nil, "a previous pass's refusal stays hidden until this pass settles")
+        run.closedAt = F.epoch
+        let settled = try #require(RunStatus.build(state: F.state(run, [kept]), run: run.id, revision: 2, live: [:]))
+        let settledJSON = try JSONValue(encoding: settled)
+        #expect(settledJSON["tasks"]?.arrayValue?.last?["keptReason"]?.stringValue == kept.operated?.keptReason)
+        run.state = .active
+        run.completedAt = nil
+        let reopened = try #require(RunStatus.build(state: F.state(run, [waiting, kept]), run: run.id, revision: 3, live: [:]))
+        let reopenedJSON = try JSONValue(encoding: reopened)
+        #expect(reopenedJSON["run"]?["cleanup"] == nil)
+        #expect(reopenedJSON["tasks"]?.arrayValue?.first?["closingWait"] == nil)
+        #expect(reopenedJSON["tasks"]?.arrayValue?.last?["keptReason"] == nil)
+    }
+
     /// A run with revision 2 submitted, five tasks in every situation the
     /// obligations name, and an open and a resolved question.
     private func scene() -> (AppState, [UUID: TaskLiveFacts], ids: [String: UUID]) {
