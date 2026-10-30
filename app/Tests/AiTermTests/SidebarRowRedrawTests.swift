@@ -35,7 +35,7 @@ import Testing
 
     private func hostedSidebar() throws -> Sidebar {
         let controller = AppController(preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let projects = ["Repo", "Other repo"].map { name in
             Project(id: UUID(), name: name, path: "/\(name)", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         }
@@ -92,7 +92,7 @@ import Testing
 
         for removal: TaskRemoval? in [.removing, .closing, nil] {
             sidebar.counter.reset()
-            sidebar.controller.seedSnapshotRemoval(removal, of: removed)
+            sidebar.controller.remover.seedSnapshotRemoval(removal, of: removed)
             sidebar.settleRows { sidebar.counter.counts[removed] != nil }
             #expect(Set(sidebar.counter.counts.keys) == [removed], "\(String(describing: removal)): redrawn \(sidebar.counter.counts.count) of \(sidebar.allRows.count) rows")
         }

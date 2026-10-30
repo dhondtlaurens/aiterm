@@ -238,7 +238,7 @@ struct NewBroadcastModelTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         let webshop = project("webshop", jira: [pay])
         controller.workspace.mutate { $0.items = [.project(webshop)] }
         controller.presentNewBroadcast()
@@ -280,7 +280,7 @@ extension NewBroadcastModelTests {
             return OperatorProfile(model: "opus", reasoning: nil)
         }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(), operatorPorts: ports)
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         controller.presentNewBroadcast()
         #expect(await eventually(describing: "New Broadcast opens after profile read") { controller.sheet != nil })
         #expect(mainReads.all == [false])
@@ -305,7 +305,7 @@ extension NewBroadcastModelTests {
         }
         let controller = AppController(store: StateStore(url: home.appendingPathComponent("state.json")), preferences: .scratch(),
                                        harnessHome: home, claudeConfig: ClaudeConfig("~/profile"))
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         controller.presentNewBroadcast()
         #expect(await eventually(describing: "New Broadcast opens") { controller.sheet != nil })
         guard case .newBroadcast(let sheet)? = controller.sheet else { Issue.record("no New Broadcast sheet"); return }
@@ -329,7 +329,7 @@ extension NewBroadcastModelTests {
         if connected { ports.publisher = { _ in host } }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
                                        operatorPorts: ports)
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         var shop = project("shop")
         shop.path = fixture.path
         controller.workspace.mutate { [shop] in $0.items = [.project(shop)] }

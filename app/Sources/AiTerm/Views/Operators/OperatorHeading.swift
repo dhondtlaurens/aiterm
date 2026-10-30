@@ -64,12 +64,12 @@ struct OperatorHeading: View {
             SectionFoldChevron(folded: broadcast.folded, hovering: hovering)
         }
         .contentShape(Rectangle())
-        .gesture(TapGesture().onEnded { controller.toggleFolded(run: broadcast.id) }, including: folds ? .all : .subviews)
+        .gesture(TapGesture().onEnded { controller.projects.toggleFolded(run: broadcast.id) }, including: folds ? .all : .subviews)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Operator")
         .accessibilityValue(Self.spoken(broadcast))
         .accessibilityAddTraits(folds ? .isButton : [])
-        .modifier(DefaultAccessibilityAction(enabled: folds) { controller.toggleFolded(run: broadcast.id) })
+        .modifier(DefaultAccessibilityAction(enabled: folds) { controller.projects.toggleFolded(run: broadcast.id) })
         // Open Board, then the menu's other items, as named actions.
         .accessibilityActions {
             ForEach(Self.voiceOverActions(header, canChangeWorkspace: controller.canChangeWorkspace), id: \.self) { item in

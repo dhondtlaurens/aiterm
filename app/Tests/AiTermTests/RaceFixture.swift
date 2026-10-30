@@ -43,7 +43,7 @@ struct RaceFixture {
                                        WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5,
                                                          defaultBranches: $6)
                                    }, confirmsRemoval: confirmsRemoval)
-        try controller.loadWorkspace()
+        try controller.workspace.load()
         controller.workspace.mutate { $0.items = [.project(project)] }
         #expect(controller.workspace.flush())
     }

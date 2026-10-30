@@ -209,7 +209,7 @@ struct SelectedRowSidebarFooter: View {
                                                     hotspot: backpack.network, wifi: backpack.currentNetwork,
                                                     until: backpack.state.until),
                       toggleMac: { controller.toggleBackpack() },
-                      openMacSettings: { controller.presentSettings(tab: .integrations) })
+                      openMacSettings: { controller.sheets.presentSettings(tab: .integrations) })
     }
 }
 
@@ -278,7 +278,7 @@ struct SidebarBanners: View {
         if let issue = controller.issue {
             IssueBanner(issue: issue, fix: controller.notices.fixSession,
                         perform: { action in Task { await controller.perform(action) } },
-                        cancelFix: { controller.notices.cancelFix() }, dismiss: { controller.dismissIssue() })
+                        cancelFix: { controller.notices.cancelFix() }, dismiss: { controller.notices.dismissIssue() })
         }
         if let wake = controller.operatorController.wakeNotice {
             OperatorWakeBanner(notice: wake, open: { controller.openOperatorWindow(of: wake.run) },
@@ -431,19 +431,19 @@ struct SidebarSheet: View {
                 case .jiraProjects(let project):
                     JiraProjectSheet(projectName: project.name, linked: project.jiraProjects,
                                      canSubmit: controller.canChangeWorkspace,
-                                     loadProjects: controller.loadJiraProjects,
-                                     submit: { controller.setJiraProjects($0, on: project) })
+                                     loadProjects: controller.projects.loadJiraProjects,
+                                     submit: { controller.projects.setJiraProjects($0, on: project) })
                 case .newTask(let model): NewTaskSheet(model: model)
                 case .newReview(let model): NewReviewSheet(model: model)
-                case .newTerminal(let project, let name, let branch): NameSheet.newTerminal(project: project, suggestedName: name, branch: branch, canCreate: controller.canChangeWorkspace, createTerminal: { controller.newTerminal(project: project, name: $0) })
+                case .newTerminal(let project, let name, let branch): NameSheet.newTerminal(project: project, suggestedName: name, branch: branch, canCreate: controller.canChangeWorkspace, createTerminal: { controller.terminals.newTerminal(project: project, name: $0) })
                 case .newDivider:
-                    NameSheet.newDivider(canSubmit: controller.canChangeWorkspace, submit: { controller.addDivider(name: $0) })
+                    NameSheet.newDivider(canSubmit: controller.canChangeWorkspace, submit: { controller.projects.addDivider(name: $0) })
                 case .rename(let target):
                     NameSheet.rename(target, canSubmit: controller.canChangeWorkspace, submit: { name in
                         switch target {
-                        case .divider(let divider): controller.rename(divider: divider, to: name)
-                        case .task(let task): controller.rename(task: task, to: name)
-                        case .terminal(let terminal): controller.rename(terminal: terminal, to: name)
+                        case .divider(let divider): controller.projects.rename(divider: divider, to: name)
+                        case .task(let task): controller.projects.rename(task: task, to: name)
+                        case .terminal(let terminal): controller.projects.rename(terminal: terminal, to: name)
                         case .broadcast(let run): controller.rename(run: run, to: name)
                         }
                     })
