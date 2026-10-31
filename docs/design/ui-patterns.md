@@ -2,8 +2,8 @@
 
 Patterns live in `app/Sources/AiTerm/Views/` and compose [AiTermUI primitives](../../app/Sources/AiTermUI/README.md).
 Swift defines their exact geometry and state projection. This guide explains which pattern to
-reuse; user workflows belong in the [README](../../README.md), [Operator](../operators.md),
-[keyboard](../keyboard.md) and [window](../windows.md) guides.
+reuse; user workflows belong in the [README](../../README.md), [configuration](../configuration.md),
+[Operator](../operators.md), [keyboard](../keyboard.md) and [window](../windows.md) guides.
 
 ## Sidebar
 

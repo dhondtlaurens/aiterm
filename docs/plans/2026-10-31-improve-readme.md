@@ -127,14 +127,14 @@ No new automated tests are appropriate for this prose-only change. Verify the fo
 
 ## To-dos
 
-- [ ] Create the configuration reference from the current README's detailed settings information,
+- [x] Create the configuration reference from the current README's detailed settings information,
   check its facts against source/existing guides and add its link to the user-documentation list
   in `docs/design/ui-patterns.md`. The current README remains usable during this additive step.
-- [ ] Rewrite the README's discovery and first-task journey, link the configuration guide and fix
+- [x] Rewrite the README's discovery and first-task journey, link the configuration guide and fix
   CONTRIBUTING's development link. Check all relocated facts have a labelled reference destination.
-- [ ] Verify first-task instructions, feature accuracy, full information coverage, links and
+- [x] Verify first-task instructions, feature accuracy, full information coverage, links and
   Markdown layout; confirm the picture is unchanged and run the required documentation gate.
-- [ ] Obtain independent change review, triage findings, repeat checks affected by fixes and
+- [x] Obtain independent change review, triage findings, repeat checks affected by fixes and
   record final evidence before the documentation commit.
 
 ## Plan review
@@ -155,4 +155,73 @@ ordinary manual reviews from read-only Operator review tabs and note checkout re
 Findings and per-finding triage are retained outside the repository under this worktree's Git
 directory, in `psg/plan-claude.md` and `psg/plan-triage.md`. No findings remain open. The initial
 documentation gate passed with no selected application suites; final plan whitespace/path checks
-also passed. No product documentation has been edited yet.
+also passed. Product documentation had not been edited at plan approval.
+
+## Implementation evidence
+
+The approved plan was committed as `cf6776b4` before implementation. The documentation changes
+were kept uncommitted through implementation and independent review.
+
+The README now presents the benefit, download/navigation links, existing picture with caption,
+six core capabilities, installation, a five-step first-task walkthrough and additional features.
+The contribution boundary is near the end; requirements, self-signing and the exact Codex launch
+disclosure remain with setup. Manual reviews and the Operator's read-only review tabs are
+distinguished using `TaskWorkflow.swift` and `AgentCommand.swift`.
+
+Information coverage was checked against the previous README:
+
+| Previous material | Destination |
+| --- | --- |
+| Projects, tasks, tabs, reviews, broadcasts, Shelf, status, Focus/List View, usage/context | README features and additional capabilities; linked status and keyboard references. |
+| Reconnect adoption, window closing choices, restoration, quitting leaves agents running | Linked window guide; quitting behaviour remains in README features. |
+| Four settings panes, Save/Cancel exceptions, preview sizing, zoom and badges | Configuration guide opening and Interface section. |
+| Claude/Codex/PI support, install/repair backups, Messaging Run check, model defaults | Configuration guide Agents section; primary and additional providers remain discoverable in README. |
+| Operator settings, optional slices, house instructions, Oracle | Configuration guide Operator section and existing linked Operator guide. |
+| Keychain, Jira linkage, GitLab scopes, GitHub permissions | Configuration guide Integrations section; README data summary and project features. |
+| Help with problems and explicit Apply; Unplugged permissions, battery/idle stops, rule removal | README feature links and configuration guide details. |
+| Worktree include files, workspace/log paths, hook telemetry, optional sudoers rule | Configuration guide worktree/data sections and existing architecture reference. |
+| Updates, AI installation prompt, development/live-switch cautions, licence, contribution policy | Retained in README; CONTRIBUTING's development reference is now a working link. |
+
+Verification performed:
+
+- Parsed all four user-facing changed Markdown files with the installed MarkdownIt parser,
+  including HTML and tables. All 41 local links/image references and heading fragments resolve.
+- Rendered the README and configuration guide to temporary HTML and inspected headless Chrome
+  screenshots of the opening/features, install/first-task instructions and configuration/table.
+  These are local layout previews, not a claim of exact GitHub rendering. A blank fragment-based
+  preview was replaced by a successful render of the install/walkthrough excerpt.
+- Compared `docs/desktop.png` by SHA-256 with its committed bytes: unchanged. No application,
+  daemon, script or screenshot edits were made, and no live app switch or agent install was run.
+- Checked menu labels and Task/Agent/Prompt steps against `AiTermApp.swift`, `NewTaskSheet.swift`,
+  `CreationSheet.swift` and `CreationModel.swift`; checked optional Jira against `TaskCreationModel`.
+  Confirmed Git worktree creation uses Git authentication independently of service API tokens.
+- Checked agent installation, model/PI behaviour, configuration effects, token requirements and
+  Unplugged stop conditions against their current settings/harness/backpack implementations.
+- `scripts/test.sh` exited zero: only Markdown documentation paths changed, so no application
+  suites were selected. No new tests were added. `git diff --check` passed.
+
+One independent Claude change-review round returned Ready with fixes, with one Minor finding:
+the multiple-agent feature should explain that the extra tab is opened with ⌘T inside the task's
+iTerm2 window. Verified against the keyboard/window guides and fixed the feature paragraph with
+the exact action and example agent commands. This distinguishes it from AiTerm's ⌘T, which opens
+a project terminal. No Critical or Important findings were raised, and no findings remain open.
+The findings and fixed triage are retained in the worktree's Git directory as
+`psg/change-claude.md` and `psg/change-triage.md`. The changed Markdown was rendered and validated
+again after this fix, and the final documentation gate and whitespace checks passed.
+
+All implementation to-dos are complete. The full suite and live app flow were not run for this
+documentation-only change; the full suite is required if the branch is later merged.
+
+## Review handoff
+
+The user requested the review workflow after implementation. Rechecked the current diff and
+Claude's completed review/triage: the one Minor is fixed, with no open findings or listed Minors.
+The product documentation has not changed since its final validation. The review workflow adopts
+that completed challenge and its rendered previews; no further challenge round is needed for the
+small verified fix. The documentation gate and whitespace/link checks were repeated before commit.
+
+The final change contains the README, configuration guide, CONTRIBUTING link, user-guide index
+link and this plan's completion evidence. The repository uses local merges and no pull requests,
+so this handoff ends with a local documentation commit and verification that its tree matches
+the staged tree. Next integration step: the full pre-merge suite and the maintainer's local merge.
+Nothing has been pushed or published.

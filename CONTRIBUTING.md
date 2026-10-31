@@ -20,4 +20,4 @@ Do not open a public issue. Report it privately through
 ## Changing it yourself
 
 AiTerm is GPL-3.0: you may build, change and share it under that licence. The README's
-*Build from source* section has the commands.
+[Develop section](README.md#develop) has the commands.
