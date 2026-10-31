@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
 
-from .models import (PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, RawSession, SessionInfo, SlashCommand,
-                     State, StoppedOn, classify_agent)
+from .models import (PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, DisplayWork, RawSession,
+                     SessionInfo, SlashCommand, State, StoppedOn, classify_agent)
 
 
 @dataclass(slots=True)
@@ -133,7 +133,18 @@ class SessionRegistry:
         return self._set(session_id, "slash_commands", commands)
 
     def set_background(self, session_id: str, work: tuple[BackgroundJob, ...]) -> bool:
-        return self._set(session_id, "background", work)
+        if (session := self.get(session_id)) is None:
+            return False
+        changed = session.background != work
+        session.background = work  # Retain updated native IDs even when the legacy wire values did not change.
+        return changed
+
+    def set_display_work(self, session_id: str, work: DisplayWork | None) -> bool:
+        if (session := self.get(session_id)) is None:
+            return False
+        changed = session.display_work != work
+        session.display_work = work  # Equal display text can still carry a new provider identity internally.
+        return changed
 
     def set_subagents_written_at(self, session_id: str, written_at: float | None) -> bool:
         return self._set(session_id, "subagents_written_at", written_at)

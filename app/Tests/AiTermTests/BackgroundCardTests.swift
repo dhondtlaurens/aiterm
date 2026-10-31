@@ -13,17 +13,78 @@ struct BackgroundCardTests {
     private let server = BackgroundJob(kind: .shell, text: "npm run dev")
     private let ci = BackgroundJob(kind: .monitor, text: "Watch CI on !45 until the pipeline ends")
 
-    @Test func itSaysTheTurnEndedAndCountsSeveralJobs() {
-        #expect(BackgroundCard(jobs: [tests]).heading == "Turn ended · running in the background")
-        #expect(BackgroundCard(jobs: [tests, server, ci]).heading == "Turn ended · 3 running in the background")
+    @Test func itDescribesWorkWithoutClaimingTheTurnEnded() {
+        #expect(BackgroundCard(jobs: [tests]).heading == "Background work")
+        #expect(BackgroundCard(jobs: [tests, server, ci]).heading == "Background work · 3 jobs")
         #expect(BackgroundCard(jobs: [tests, ci]).spoken
-                == "Turn ended, running in the background: scripts/test.sh all, Watch CI on !45 until the pipeline ends")
+                == "Background work: scripts/test.sh all, Watch CI on !45 until the pipeline ends")
         #expect(BackgroundCard.glyph(.shell) == "apple.terminal")
         #expect(BackgroundCard.glyph(.monitor) == "eye" && BackgroundCard.glyph(.task) == "eye")
     }
 
+    /// The seeded hover drives the production row/overlay. Before the active-status gate is
+    /// removed, hovering changes no pixel of a working or needs-input row.
+    @Test(arguments: [TaskStatus.background, .working, .needsInput], [false, true])
+    func hoveringTheMarkOpensTheExistingCard(status: TaskStatus, queued: Bool) async throws {
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        let task = TaskItem(id: UUID(), projectId: UUID(), title: "A task with background work", branch: "feat/work",
+                            worktreePath: "/wt", baseBranch: "main", jira: nil, agent: .claude, model: "sonnet", reasoning: nil,
+                            firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w")
+        let row = TaskRow(id: task.id, title: task.title, jiraKey: nil, jiraUrl: nil, mr: nil, branch: .none,
+                          avatars: AvatarGroup(marks: [.claude], overflow: 0), status: status, queued: queued, background: [tests, ci])
+        let changed = try await cardSurfaceChange(TaskRowView(row: row, task: task, controller: controller))
+        #expect(queued ? changed == 0 : changed > 1000, "the same card opens except on a queued mark: \(changed) pixels")
+    }
+
+    @Test(arguments: [TaskStatus.background, .working, .needsInput], [false, true])
+    func terminalRowsUseTheSameCardAndEmptyListsOfferNone(status: TaskStatus, empty: Bool) async throws {
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil,
+                              addedAt: Date(), collapsed: false)
+        let row = TerminalRow(id: UUID(), name: "Claude terminal", branch: .none,
+                              avatars: AvatarGroup(marks: [.claude], overflow: 0), status: status, background: empty ? [] : [tests])
+        let changed = try await cardSurfaceChange(TerminalRowView(row: row, terminal: nil, project: project, controller: controller))
+        #expect(empty ? changed == 0 : changed > 1000, "known work opens the existing terminal card: \(changed) pixels")
+    }
+
+    private func cardSurfaceChange(_ content: some View) async throws -> Int {
+        let hover = BackgroundCardHover(sleep: { _ in })
+        func bitmap() throws -> NSBitmapImageRep {
+            let renderer = ImageRenderer(content: content
+                .environment(\.seededHover, SeededHover(backgroundCard: hover))
+                .environment(\.motionStill, .snapshot).frame(width: 320).background(Palette.sidebar))
+            return NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+        }
+        let closed = try bitmap()
+        hover.mark(true)
+        await settle()
+        let opened = try bitmap()
+        var changed = 0
+        for y in 0..<closed.pixelsHigh {
+            for x in 0..<closed.pixelsWide {
+                let a = try #require(closed.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                let b = try #require(opened.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                let difference = abs(a.redComponent - b.redComponent) + abs(a.greenComponent - b.greenComponent)
+                    + abs(a.blueComponent - b.blueComponent)
+                if difference > 0.1 { changed += 1 }
+            }
+        }
+        return changed
+    }
+
     /// Lets every task the hover started run to its end.
     private func settle() async { for _ in 0..<10 { await Task.yield() } }
+
+    @Test func accessibilityKeepsInputStatusAndNamesWorkOnce() {
+        let card = BackgroundCard(jobs: [tests, ci])
+        #expect(card.accessibilityValue(status: .needsInput, detail: "Permission requested")
+                == "Needs input. Permission requested. Background work: scripts/test.sh all, Watch CI on !45 until the pipeline ends")
+        #expect(card.accessibilityValue(status: .working, detail: card.spoken) == "Working. " + card.spoken)
+    }
 
     @Test func itOpensOnTheMarkAndStaysWhileThePointerCrossesToIt() async {
         let hover = BackgroundCardHover(sleep: { _ in })
@@ -66,7 +127,8 @@ struct BackgroundCardTests {
     }
 
     /// Open, the card covers the row and does not grow it, however many jobs it lists.
-    @Test(arguments: [1, 3]) func theOpenCardLeavesTheRowItsSize(jobs: Int) async throws {
+    @Test(arguments: [1, 3], [TaskStatus.background, .working, .needsInput])
+    func theOpenCardLeavesTheRowItsSize(jobs: Int, status: TaskStatus) async throws {
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
         let task = TaskItem(id: UUID(), projectId: UUID(), title: "FE-1783 Dependency updates: patch", branch: "feat/fe-1783",
@@ -74,7 +136,7 @@ struct BackgroundCardTests {
                             firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w-1")
         let row = TaskRow(id: task.id, title: task.title, jiraKey: "FE-1783", jiraUrl: nil, mr: nil,
                           branch: BranchLabel(name: task.branch, extra: 0, drifted: false, detail: ""),
-                          avatars: AvatarGroup(marks: [.claude], overflow: 0), status: .background,
+                          avatars: AvatarGroup(marks: [.claude], overflow: 0), status: status,
                           background: Array([tests, server, ci].prefix(jobs)))
         let closed = NSHostingController(rootView: TaskRowView(row: row, task: task, controller: controller))
             .sizeThatFits(in: CGSize(width: 320, height: 400))

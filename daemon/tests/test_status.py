@@ -1,10 +1,11 @@
 import pytest
 from aitermd import status
 from aitermd.claude_subagents import TranscriptTail
-from aitermd.hook_events import HookEvent
+from aitermd.hook_events import HookEvent, parse_claude_hook
 from aitermd.models import BackgroundJob, RawSession
 from aitermd.sessions import SessionRegistry
 from aitermd.status import StatusEngine
+from aitermd.claude_background import ShellReading, ShellTask
 
 
 class Clock:
@@ -50,6 +51,89 @@ def test_hook_signal_transitions(eng, sequence, expected):
     for kind in sequence:
         engine.apply_event("s1", hook(kind))
     assert reg.get("s1").state == expected
+
+
+@pytest.mark.parametrize("state", ["working", "needsInput"])
+def test_counted_children_publish_display_work_without_changing_the_turn(eng, state):
+    engine, reg = eng
+    engine.apply_event("s1", hook(state))
+    assert engine.apply_event("s1", hook("subagentStart", "child-1")) == ["s1"]
+    assert reg.get("s1").state == state
+    assert reg.get("s1").background == ()
+    assert reg.get("s1").to_json()["displayWork"] == {
+        "subagents": [{"kind": "subagent", "text": "Subagent", "legacyIndex": None}], "shells": None}
+    assert engine.apply_event("s1", hook("subagentStop", "child-1")) == ["s1"]
+    assert reg.get("s1").state == state
+    assert reg.get("s1").to_json()["displayWork"]["subagents"] == []
+
+
+def test_a_new_conversations_display_does_not_republish_old_counted_children(eng):
+    engine, reg = eng
+    engine.apply_metadata("s1", conversation="first")
+    engine.apply_event("s1", hook("subagentStart", "old"))
+    engine.apply_metadata("s1", conversation="second")
+    engine.release_dead_subagents({})
+    assert reg.get("s1").to_json()["displayWork"]["subagents"] == []
+    engine.apply_event("s1", hook("subagentStart", "current", subagent_label="explorer"))
+    assert reg.get("s1").to_json()["displayWork"]["subagents"] == [
+        {"kind": "subagent", "text": "explorer", "legacyIndex": None}]
+    assert reg.get("s1").state == "working"  # Display isolation does not rewrite the status engine's decisions.
+
+
+def test_display_shells_merge_by_id_without_touching_obligations(eng, clock):
+    engine, reg = eng
+    engine.apply_event("s1", hook("sessionStart"))
+    engine.apply_event("s1", hook("working"))
+    shell = BackgroundJob("shell", "npm test", task_id="job1")
+    reading = ShellReading((ShellTask(shell, 101),), frozenset())
+    assert engine.apply_shell_reading("s1", reading) == ["s1"]
+    assert reg.get("s1").background == () and reg.get("s1").state == "working"
+    clock.now = 103
+    engine.apply_event("s1", hook("done", background_work=(shell,), display_shells=(shell,)))
+    assert reg.get("s1").to_json()["displayWork"]["shells"] == [
+        {"kind": "shell", "text": "npm test", "legacyIndex": 0}]
+    engine.apply_shell_reading("s1", ShellReading((), frozenset({"job1"})))
+    assert reg.get("s1").to_json()["displayWork"]["shells"] == []
+    assert reg.get("s1").background == (shell,) and reg.get("s1").state == "done"
+    engine.apply_shell_reading("s1", None)
+    assert reg.get("s1").to_json()["displayWork"]["shells"] is None
+
+
+def test_adopted_or_unmatched_shell_inventory_is_unavailable(eng):
+    engine, reg = eng
+    engine.apply_event("s1", hook("working"))
+    shell = BackgroundJob("shell", "npm test", task_id="job1")
+    reading = ShellReading((ShellTask(shell, 101),), frozenset())
+    engine.apply_shell_reading("s1", reading)
+    assert reg.get("s1").to_json()["displayWork"]["shells"] is None
+    engine.apply_event("s1", hook("sessionStart"))
+    unknown = BackgroundJob("shell", "other job", task_id="unknown")
+    engine.apply_event("s1", hook("done", background_work=(unknown,), display_shells=(unknown,)))
+    engine.apply_shell_reading("s1", reading)
+    assert reg.get("s1").to_json()["displayWork"]["shells"] is None
+
+
+def test_stop_descriptions_and_native_ids_anchor_the_same_interleaved_list(eng, clock):
+    engine, reg = eng
+    engine.apply_event("s1", hook("sessionStart"))
+    engine.apply_event("s1", hook("subagentStart", "c1", subagent_label="explorer"))
+    clock.now = 110
+    stopped = parse_claude_hook({"hook_event_name": "Stop", "session_id": "conversation", "background_tasks": [
+        {"type": "shell", "id": "a", "command": "npm test", "status": "running"},
+        {"type": "subagent", "id": "c1", "description": "Review the fix", "status": "running"},
+        {"type": "monitor", "id": "ci", "description": "Watch CI", "status": "running"},
+        {"type": "shell", "id": "b", "command": "npm test", "status": "running"}]})
+    engine.apply_event("s1", stopped)
+    engine.apply_shell_reading("s1", ShellReading((ShellTask(BackgroundJob("shell", "npm test", task_id="b"), 105),
+                                                  ShellTask(BackgroundJob("shell", "npm test", task_id="a"), 101)), frozenset()))
+    display = reg.get("s1").to_json()["displayWork"]
+    assert display["subagents"] == [{"kind": "subagent", "text": "Review the fix", "legacyIndex": 1}]
+    assert [item["legacyIndex"] for item in display["shells"]] == [3, 0]
+    assert reg.get("s1").state == "working"  # Existing child-deferred completion.
+    engine.apply_event("s1", parse_claude_hook({"hook_event_name": "Stop", "background_tasks": [
+        {"type": "shell", "command": "unknown ID", "status": "running"}]}))
+    engine.apply_shell_reading("s1", ShellReading((), frozenset()))
+    assert reg.get("s1").to_json()["displayWork"]["shells"] is None
 
 
 @pytest.mark.parametrize("field,value", [("model", "claude-opus-5"), ("reasoning", "high")])
@@ -675,7 +759,8 @@ def test_a_child_that_stops_mid_turn_is_gone_before_its_parents_stop(clock):
     eng.apply_event("s1", hook("subagentStart", "c1", subagent_transcript=TRANSCRIPT))
     eng.apply_event("s1", hook("subagentStop", "c1"))
     assert eng.subagent_transcripts() == {TRANSCRIPT}
-    assert eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True)}) == []
+    assert eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True)}) == ["s1"]  # The displayed child leaves; status stays working.
+    assert reg.get("s1").state == "working"
     assert eng.apply_event("s1", hook("done")) == ["s1"]
     assert reg.get("s1").state == "done"
 

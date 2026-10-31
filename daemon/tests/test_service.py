@@ -17,6 +17,7 @@ from aitermd.codex_sessions import CodexSessionFiles
 from aitermd.hooks_server import HookServer
 from aitermd.iterm_bridge import ItermUnavailable
 from aitermd.models import BackgroundJob, Frame
+from aitermd.hook_events import HookEvent
 from tests.conftest import FRAME, call, http, post_hook, task_tab, wait_until
 from tests.fake_iterm import FakeIterm
 
@@ -123,6 +124,63 @@ async def test_tick_registry_read_budget(make_service, monkeypatch, session_coun
     await svc.tick()
     assert len(read()) == session_count
     assert reads <= 6, f"one tick sorted {session_count} sessions {reads} times"
+
+
+async def background_session(make_service, tmp_path):
+    svc = make_service(clock=lambda: 100)
+    _, sid = await svc.iterm.create_window("/wt", "background", {"aiterm_task": "task"}, Frame(0, 0, 10, 10))
+    await svc.iterm.user_runs(sid, "claude", job_pid=400)
+    await svc.tick()
+    path = tmp_path / "parent.jsonl"
+    svc.status.apply_metadata(sid, conversation="conversation", transcript=str(path))
+    svc.status.apply_event(sid, HookEvent("claude", "sessionStart", None, "conversation", "/wt"))
+    svc.status.apply_event(sid, HookEvent("claude", "working", None, "conversation", "/wt"))
+    return svc, sid, path
+
+
+async def test_background_shell_lifecycle_is_published_without_changing_state(make_service, tmp_path, monkeypatch):
+    from tests.test_claude_background import completed, launch, write
+    svc, sid, path = await background_session(make_service, tmp_path)
+    events = []
+
+    async def broadcast(event, payload):
+        events.append((event, payload))
+
+    monkeypatch.setattr(svc.publisher, "broadcast", broadcast)
+    write(path, launch())
+    await svc.tick()
+    assert svc.registry.get(sid).state == "working" and svc.registry.get(sid).background == ()
+    assert events[-1][1]["displayWork"]["shells"] == [{"kind": "shell", "text": "npm run test", "legacyIndex": None}]
+    with path.open("a") as f:
+        f.write(json.dumps(completed()) + "\n")
+    await svc.tick()
+    assert events[-1][1]["displayWork"]["shells"] == []
+    assert svc.registry.get(sid).state == "working"
+
+
+@pytest.mark.parametrize("replacement", ["process", "conversation", "generation", "closed"])
+async def test_background_read_cannot_attach_to_replaced_identity(make_service, tmp_path, monkeypatch, replacement):
+    from aitermd.claude_background import ShellReading, ShellTask
+    svc, sid, path = await background_session(make_service, tmp_path)
+
+    async def replace_during_read(name, work, nothing):
+        owner = svc.status.turn(sid)
+        reading = {f"{sid}:{owner.generation}": ShellReading((ShellTask(BackgroundJob("shell", "old", task_id="old"), 101),), frozenset())}
+        if replacement == "process":
+            await svc.iterm.user_runs(sid, "claude", job_pid=401)
+            svc.registry.apply_snapshot(await svc.iterm.snapshot())
+        elif replacement == "conversation":
+            svc.status.apply_metadata(sid, conversation="other")
+        elif replacement == "generation":
+            svc.status.apply_event(sid, HookEvent("claude", "sessionStart", None, "conversation", "/wt"))
+        else:
+            svc.registry.apply_snapshot([])
+        return reading
+
+    monkeypatch.setattr(svc, "_off_loop", replace_during_read)
+    assert await svc._apply_background_shells(svc.registry.all()) == []
+    session = svc.registry.get(sid)
+    assert session is None or session.display_work is None or session.display_work.shells is None
 
 
 async def test_ticks_queued_behind_one_are_served_by_a_single_next_tick(stack):

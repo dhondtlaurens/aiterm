@@ -45,6 +45,7 @@ enum Snapshots {
     static var regressionSet: [Snapshot] {
         SidebarSnapshots.rows + SheetSnapshots.all + SettingsSnapshots.all + [SidebarSnapshots.marks]
             + SidebarSnapshots.states + OperatorSnapshots.all + BroadcastSetupSnapshots.all + SheetSnapshots.initialization
+            + SidebarSnapshots.backgroundWorkCards
     }
 
     static func runIfRequested() -> Bool {
@@ -74,6 +75,12 @@ enum Snapshots {
             window.isReleasedWhenClosed = false
             window.appearance = NSAppearance(named: .darkAqua)
             window.contentView = host
+            // View captures need layout, not a visible window. Keep fixture rendering from
+            // covering live work; an explicit WindowServer capture retains its native path.
+            if ProcessInfo.processInfo.environment["AITERM_SNAPSHOT_NATIVE_CAPTURE"] != "1" {
+                window.alphaValue = 0
+                window.ignoresMouseEvents = true
+            }
             window.orderFront(nil)
             host.layoutSubtreeIfNeeded()
             RunLoop.main.run(until: Date().addingTimeInterval(0.08))

@@ -160,6 +160,28 @@ Subagent tracking cannot outlive its conversation: a new `SessionStart` (for PI,
 that begins a conversation), or a different process id in the tab, forgets every child still
 counted. One lost `SubagentStop` would otherwise hold the row at working for good.
 
+The sidebar's existing work card can also open while its ordinary working spinner or input
+mark is shown, including for Operator-driven tasks. Its `displayWork` sources describe what
+can be inspected; they do not change these status or Operator readiness rules. Existing counted
+children are shown with the Stop's description when known, otherwise the hook's agent type or
+“Subagent”. Legacy child descriptions remain usable while a deferred Stop keeps the parent
+working. The existing background card/list and its ordering are reused.
+
+For a Claude process whose SessionStart this daemon observed, a bounded off-loop incremental
+reader follows the native parent transcript. A Bash result must confirm `backgroundTaskId`;
+requesting background execution or a test-run lock alone proves no background job. Native task
+completion notifications and verified TaskStop results update the display without a further
+tool poll. Each source stays unavailable during replay catch-up, partial writes, failed reads
+or unsupported terminal outcomes. A valid Stop snapshot is merged by task ID, with unknown IDs
+falling back to legacy evidence. Process/conversation/generation guards reject late readings.
+Adopted sessions without current-generation start evidence retain the legacy fallback.
+
+Shells and monitors from legacy evidence require an ended tab; counted subagents do not. Test
+summaries retain their existing final suffix for ended tabs, including duplicate evidence of
+a shell listed by Stop. Codex active turns currently expose counted children; detailed Codex
+background terminal inventory and general active-turn monitors remain unsupported. A mixed-tab
+row can also show the ended siblings' existing work while another tab works.
+
 Within a conversation, a Claude child can also die without a `SubagentStop`. Claude Code's stream
 watchdog kills a background child that has made no progress for 600 s ("Agent stalled"), and sends
 no `SubagentStop` for it. Two signals find such a child.

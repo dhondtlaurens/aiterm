@@ -134,6 +134,44 @@ enum SidebarSnapshots {
         ]
     }
 
+    /// New images append after the existing regression set, whose rendering order stays fixed.
+    static var backgroundWorkCards: [Snapshot] {
+        [workCards("sidebar-work-cards-closed.png", open: false, scale: .standard),
+         workCards("sidebar-work-cards-open.png", open: true, scale: .standard),
+         workCards("sidebar-work-cards-large.png", open: true, scale: .extraLarge)]
+    }
+
+    /// The same existing card on working, background and needs-input marks, plus a terminal.
+    private static func workCards(_ file: String, open: Bool, scale: InterfaceScale) -> Snapshot {
+        Snapshot(file) {
+            let fixture = Fixture(), controller = fixture.controller()
+            let hover = BackgroundCardHover(isOpen: open)
+            let jobs = [BackgroundJob(kind: .shell, text: "npm run test"),
+                        BackgroundJob(kind: .subagent, text: "Review the checkout changes"),
+                        BackgroundJob(kind: .monitor, text: "Watch the CI pipeline")]
+            controller.focus.browse(.task(fixture.working.id))
+            @MainActor func taskRow(_ status: TaskStatus) -> TaskRow {
+                var row = controller.rows.sections.flatMap(\.tasks).first { $0.id == fixture.working.id }!
+                row.title = status.label; row.status = status; row.background = jobs
+                return row
+            }
+            var terminal = controller.rows.sections.flatMap(\.terminals).first { $0.id == fixture.terminal.id }!
+            terminal.name = "Codex with a reviewer"; terminal.status = .working; terminal.background = [jobs[1]]
+            terminal.avatars = SidebarModel.avatars(for: [Fixture.session("work-codex", "w-work", fixture.codexTask.id,
+                                                                         "codex", "working", 0)].compactMap { $0 })
+            return VStack(alignment: .leading, spacing: Space.base) {
+                ForEach([TaskStatus.working, .background, .needsInput], id: \.self) { status in
+                    TaskRowView(row: taskRow(status), task: fixture.working, controller: controller)
+                }
+                TerminalRowView(row: terminal, terminal: fixture.terminal, project: fixture.project, controller: controller)
+            }
+            .environment(\.seededHover, SeededHover(backgroundCard: hover))
+            .padding(.horizontal, scale(Space.inset)).padding(.vertical, scale(Space.base))
+            .frame(width: scale(Size.sidebarWidth) + 2 * scale(Space.inset))
+            .background(Palette.sidebar).surface(.sidebar).interfaceScale(scale)
+        }
+    }
+
     /// The design's conflicted rebase of `main`, refused from the banner's Rebase.
     private static var mainConflict: OperationIssue {
         .rebaseRefused(WorktreeError.rebaseConflicted("main", detail: "CONFLICT (content): Merge conflict in package.json"),

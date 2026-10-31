@@ -75,7 +75,7 @@ def test_session_info_json_is_camel_case_and_drops_job_pid():
         "slashCommands": [{"text": "/effort high", "state": "ran", "deliveredAt": 1000.0, "seenAt": 1001.5,
                            "output": "Set effort level to high"}],
         "stoppedOn": {"error": "rate_limit", "resetsAt": 1793017200},
-        "testActivity": None,
+        "testActivity": None, "displayWork": None,
     }
 
 
