@@ -61,6 +61,22 @@ enum SheetSnapshots {
         ] + nameSheets + backpackSheets + archiveSheets + fixFooters
     }
 
+    /// Appended after the existing regression set so its images keep their render order.
+    static var initialization: [Snapshot] {
+        [
+            Snapshot("task-unborn-base.png") {
+                footer(CreationFailure(UnbornBranchError(branch: "main"), projectPath: "/Users/sam/Sites/new-project"),
+                       createLabel: "Create Task")
+            },
+            Snapshot("task-initialization-identity.png") {
+                footer(CreationFailure(RepositoryInitializationError.commitFailed(branch: "main", cause:
+                    GitError(args: ["commit", "--only", "--allow-empty", "-m", "Initial commit"], code: 128,
+                             stderr: "Author identity unknown\nfatal: no email was given and auto-detection is disabled")),
+                    projectPath: "/Users/sam/Sites/new-project"), createLabel: "Create Task")
+            },
+        ]
+    }
+
     /// New Review's footer through a Fix, as the picked design draws it (footer states 1–5 and 7–9;
     /// 6 is the toast): offered alone and beside Rebase, looking, the proposal, applying, no fix,
     /// failed, and with Help with problems off or Claude Code missing. Drawn last, after the images before them.
@@ -248,8 +264,8 @@ enum SheetSnapshots {
     }
 
     /// Step 3's footer showing `failure`, as wide as a sheet.
-    private static func footer(_ failure: CreationFailure) -> some View {
-        CreationFooter(step: 3, error: failure, availableAgents: [.claude], createLabel: "Create Review", creating: false,
+    private static func footer(_ failure: CreationFailure, createLabel: String = "Create Review") -> some View {
+        CreationFooter(step: 3, error: failure, availableAgents: [.claude], createLabel: createLabel, creating: false,
                        canAdvance: true, closeList: { false }, back: {}, advance: {}, recover: {})
             .padding(Space.margin).frame(width: Sheet.width).background(Palette.surfaceRaised)
     }

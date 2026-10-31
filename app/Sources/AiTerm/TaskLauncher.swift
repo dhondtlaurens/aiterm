@@ -47,13 +47,21 @@ final class TaskLauncher {
         try await create(draft, kind: .review, in: project) { [workflow] in try await workflow.createReview(draft: draft, project: project, reserved: reserved) }
     }
 
-    /// The fix New Review's footer offered for a refused branch, run before its create is tried
-    /// again: the project's own folder switched off the branch, or the diverged branch rebased onto
-    /// origin's. Either moves a branch the sidebar shows, so the checkouts are read again.
+    /// The recovery a creation footer offered for a refused branch, run before its create is tried
+    /// again: switch the project's folder, rebase a diverged branch, or explicitly initialize an
+    /// unborn base while holding the project's creation slot. Each changes what the sidebar's
+    /// checkout monitor knows, so the checkouts are read again.
     func recover(_ recovery: CreationFailure.Recovery, in project: Project) async throws {
         switch recovery {
         case .switchProjectFolder(let branch, let target): try await workflow.switchProjectFolder(of: project, off: branch, to: target)
         case .rebase(let branch): _ = try await workflow.rebaseOntoOrigin(branch, in: project)
+        case .initializeRepository(let branch):
+            guard canChangeWorkspace else { throw ActionUnavailable("Save or recover the workspace before initializing a repository.") }
+            guard let creating = work.begin(.creatingTask, onProject: project.id) else {
+                throw ActionUnavailable("A task or review is already being created in \(project.name). Try again once it is.")
+            }
+            defer { work.end(creating) }
+            try await workflow.initializeRepository(project, on: branch)
         }
         checkouts.refresh()
     }
