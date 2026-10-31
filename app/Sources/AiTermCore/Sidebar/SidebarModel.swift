@@ -80,8 +80,8 @@ public struct TaskRow: Equatable, Identifiable, Sendable {
     /// broadcast's group, its planned agent as its avatar, its title in secondary ink and the pause sign as its
     /// mark. Selectable, but nothing opens: it has no window yet.
     public var queued = false
-    /// What its tabs left running while its status is `background` (`SidebarModel.backgroundJobs`); the mark's card
-    /// lists them. A driven task's line says it instead (`OperatorLine`), its status held at working.
+    /// The existing mark's work card, also available while working or asking. Display facts do
+    /// not change the row's status or its Operator line (`SidebarModel.displayJobs`).
     public var background: [BackgroundJob] = []
 }
 /// How far a task's checkout has moved from the branch it started at — a task's base, a review's
@@ -100,7 +100,7 @@ public struct BaseDiff: Equatable, Sendable {
 /// window and the status is aggregated over them, so starting Claude in a terminal shows up here.
 public struct TerminalRow: Equatable, Identifiable, Sendable {
     public var id: UUID, name: String, branch: BranchLabel, avatars: AvatarGroup, status: TaskStatus
-    /// What its tabs left running while its status is `background` (`SidebarModel.backgroundJobs`).
+    /// The same work card as a task row's (`SidebarModel.displayJobs`).
     public var background: [BackgroundJob] = []
 }
 /// How many of a project's rows sit in one status — the chips a collapsed project header draws
@@ -270,6 +270,32 @@ public enum SidebarModel {
     public static func backgroundJobs(of tabs: [SessionInfo]) -> [BackgroundJob] {
         let jobs = tabs.filter(\.state.turnEnded).sorted { $0.tabIndex < $1.tabIndex }.flatMap(\.background)
         let tests = tabs.compactMap(\.testActivity).filter(\.isActive)
+        return jobs + tests.map { BackgroundJob(kind: .shell, text: $0.detail) }
+    }
+
+    /// Source replacement preserves the legacy Stop's interleaved order. Only unanchored new
+    /// jobs append after it; test summaries remain the final suffix, as in backgroundJobs.
+    public static func displayJobs(of tabs: [SessionInfo]) -> [BackgroundJob] {
+        let jobs = tabs.sorted { $0.tabIndex < $1.tabIndex }.flatMap { tab -> [BackgroundJob] in
+            var result: [BackgroundJob] = []
+            for (index, job) in tab.background.enumerated() {
+                let source: [DisplayWorkItem]?
+                switch job.kind {
+                case .subagent: source = tab.displayWork?.subagents
+                case .shell: source = tab.displayWork?.shells
+                case .monitor, .task: source = nil
+                }
+                if let source {
+                    result += source.filter { $0.legacyIndex == index }.map(\.job)
+                } else if tab.state.turnEnded || job.kind == .subagent {
+                    result.append(job)
+                }
+            }
+            result += (tab.displayWork?.subagents ?? []).filter { $0.legacyIndex == nil }.map(\.job)
+            result += (tab.displayWork?.shells ?? []).filter { $0.legacyIndex == nil }.map(\.job)
+            return result
+        }
+        let tests = tabs.filter(\.state.turnEnded).compactMap(\.testActivity).filter(\.isActive)
         return jobs + tests.map { BackgroundJob(kind: .shell, text: $0.detail) }
     }
 
@@ -480,7 +506,7 @@ public enum SidebarModel {
             return TerminalRow(id: term.id, name: term.name,
                                branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: nil, fallback: projectBranch[project.id]),
                                avatars: own.isEmpty ? AvatarGroup(marks: [.shell], overflow: 0) : avatars(for: own),
-                               status: aggregate(tabs: own), background: backgroundJobs(of: own))
+                               status: aggregate(tabs: own), background: displayJobs(of: own))
         }
         let held = rows.held[project.id] ?? []
         return ProjectSection(project: project, tasks: tasks, terminals: terminals,
@@ -505,7 +531,7 @@ public enum SidebarModel {
                        avatars: queued && own.isEmpty ? AvatarGroup(marks: [task.agent.session], overflow: 0) : avatars(for: own),
                        status: queued ? status : heldStatus(status, line: line),
                        diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line,
-                       broadcastLive: run.map { !$0.hasEnded } ?? false, queued: queued, background: backgroundJobs(of: own))
+                       broadcastLive: run.map { !$0.hasEnded } ?? false, queued: queued, background: displayJobs(of: own))
     }
 
     /// A driven task's status while the Operator holds it, its line neither gone nor ended (P3 1A, 21 Oct

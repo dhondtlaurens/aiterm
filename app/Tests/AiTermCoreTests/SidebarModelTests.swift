@@ -49,6 +49,41 @@ import Synchronization
         #expect(older == [BackgroundJob(kind: .task, text: "npm run dev")], "an older daemon's bare text")
     }
 
+    @Test func displaySourcesPreserveStopOrderAndNeverDecideStatus() {
+        let shell = BackgroundJob(kind: .shell, text: "npm test")
+        let child = BackgroundJob(kind: .subagent, text: "Review the fix")
+        let monitor = BackgroundJob(kind: .monitor, text: "Watch CI")
+        var tab = session("s", task: "t", agent: .claude, state: .working, tab: 0)
+        tab.background = [shell, child, monitor, shell]
+        #expect(SidebarModel.displayJobs(of: [tab]) == [child], "legacy counted children remain valid during a turn")
+        let status = SidebarModel.aggregate(tabs: [tab])
+        tab.displayWork = DisplayWork(subagents: [.init(kind: .subagent, text: child.text, legacyIndex: 1)],
+                                     shells: [.init(kind: .shell, text: shell.text, legacyIndex: 3),
+                                              .init(kind: .shell, text: shell.text, legacyIndex: 0)])
+        #expect(SidebarModel.displayJobs(of: [tab]) == [shell, child, shell])
+        #expect(SidebarModel.aggregate(tabs: [tab]) == status)
+        #expect(SidebarModel.backgroundJobs(of: [tab]).isEmpty)
+        tab.state = .done
+        #expect(SidebarModel.displayJobs(of: [tab]) == tab.background, "same interleaved list as the background spinner")
+        tab.displayWork = DisplayWork(subagents: [], shells: nil)
+        #expect(SidebarModel.displayJobs(of: [tab]) == [shell, monitor, shell], "empty children replace; unavailable shells fall back")
+        tab.displayWork = DisplayWork(subagents: nil, shells: [])
+        #expect(SidebarModel.displayJobs(of: [tab]) == [child, monitor])
+    }
+
+    @Test func displayTestsRequireEndedTurnsAndKeepTheirExistingSuffix() {
+        var active = session("active", task: "t", agent: .codex, state: .working, tab: 0)
+        active.testActivity = TestActivity(runId: "running", suite: "swift", state: .running)
+        #expect(SidebarModel.displayJobs(of: [active]).isEmpty, "a runner lock does not prove background execution")
+        var ended = session("ended", task: "t", agent: .claude, state: .done, tab: 1)
+        ended.background = [BackgroundJob(kind: .shell, text: "scripts/test.sh")]
+        ended.testActivity = TestActivity(runId: "queued", suite: "daemon", state: .queued)
+        #expect(SidebarModel.displayJobs(of: [active, ended]) == ended.background
+                + [BackgroundJob(kind: .shell, text: ended.testActivity!.detail)])
+        active.state = .done
+        #expect(SidebarModel.displayJobs(of: [active, ended]) == SidebarModel.backgroundJobs(of: [active, ended]))
+    }
+
     /// The agent takes its turn up again by itself: nothing for Focus View or the Dock badge, and a collapsed
     /// header counts it with working.
     @Test func aRowInTheBackgroundIsNotWaitingOnYou() {

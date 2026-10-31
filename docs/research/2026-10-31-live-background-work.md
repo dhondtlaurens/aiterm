@@ -202,3 +202,24 @@ it uses the same list currently opened by hovering the background spinner. The p
 deferred. Counted children can appear during a Codex turn; existing test summaries remain
 available on ended tabs, including an ended sibling in a mixed-tab row. Test-run locks alone
 do not establish background execution during an active turn.
+
+## Additional implementation evidence
+
+The change review exposed delivery forms the first small sample missed. An expanded native
+record check found parent `attachment` records whose `attachment.type` is `queued_command`,
+`commandMode` is `task-notification`, and `prompt` contains the notification. It also found
+`queue-operation` records with `operation: enqueue` and the notification in `content`. Both
+forms carry a root timestamp. These can retire shells while the agent's turn continues,
+without a `user` record or another tool poll.
+
+In 15 parent files selected by a terminal-notification search, notifications matched to native
+`backgroundTaskId` launches included 236 completed, 18 failed, two killed and two stopped
+deliveries. These are recorded delivery counts, not distinct jobs; the same job may occur in
+more than one carrier. The implementation treats these four statuses only as evidence that
+the named shell no longer runs, never as success or an ended agent turn. Tests cover each
+status through user, queued attachment and enqueue forms, alongside unknown-outcome recovery.
+
+The initial recommendation to leave unverified terminal outcomes unavailable still applies
+to unknown formats. It no longer justifies treating the now-verified failed/killed/stopped
+notifications as unknown. This expanded evidence supersedes that part of the initial sample's
+limitations. Codex terminal and general active-monitor limits are unchanged.

@@ -41,6 +41,19 @@ struct SidebarProjectionTests {
         { _ = rows.entries; _ = rows.tasks; _ = rows.terminals }
     }
 
+    @Test func aDisplayOnlyJobInvalidatesItsRowWithoutChangingItsStatus() throws {
+        let controller = try controller()
+        defer { controller.shutdown() }
+        let rows = controller.rows
+        let before = rows.sections.flatMap(\.tasks).first { $0.id == Self.taskId }?.status
+        var event = tab()
+        event.displayWork = DisplayWork(subagents: [.init(kind: .subagent, text: "Review")])
+        #expect(invalidates(readsTheList(rows)) { controller.live.handle(.sessionChanged(event)) })
+        let row = rows.sections.flatMap(\.tasks).first { $0.id == Self.taskId }
+        #expect(row?.status == before)
+        #expect(row?.background == [BackgroundJob(kind: .subagent, text: "Review")])
+    }
+
     /// Before: ten session events that moved only a fill, a model and a title derived the rows ten
     /// times, for the badge; ten sidebar moves or remembered choices twenty, and redrew the list ten
     /// times; and each menu validation of Focus and List View two. Now none of them derives a row.

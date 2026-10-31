@@ -174,6 +174,10 @@ class RawSession:
     active: bool = False
 
 
+# Observed native task-notification outcomes: terminal display evidence, never a success verdict.
+CLAUDE_TERMINAL_TASK_STATUSES = frozenset({"completed", "failed", "killed", "stopped"})
+
+
 @dataclass(frozen=True, slots=True)
 class BackgroundJob:
     """One piece of work a Claude turn left running when it ended (a Stop's `background_tasks`): a `shell` by its
@@ -182,9 +186,31 @@ class BackgroundJob:
     kind: Literal["shell", "monitor", "task", "subagent"]
     text: str
     agent_id: str | None = None
+    # Native provider identity for display-only merging. Never part of the legacy wire contract.
+    task_id: str | None = field(default=None, compare=False)
 
     def to_json(self) -> dict[str, Any]:
         return {"kind": self.kind, "text": self.text}
+
+
+@dataclass(frozen=True, slots=True)
+class DisplayWorkItem:
+    job: BackgroundJob
+    legacy_index: int | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        return {**self.job.to_json(), "legacyIndex": self.legacy_index}
+
+
+@dataclass(frozen=True, slots=True)
+class DisplayWork:
+    """Independent display sources: None is unavailable; an empty tuple is known empty."""
+    subagents: tuple[DisplayWorkItem, ...] | None = None
+    shells: tuple[DisplayWorkItem, ...] | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        return {"subagents": [item.to_json() for item in self.subagents] if self.subagents is not None else None,
+                "shells": [item.to_json() for item in self.shells] if self.shells is not None else None}
 
 
 # What a slash command AiTerm typed into a Claude session became, as the session's own transcript shows it
@@ -297,6 +323,7 @@ class SessionInfo:
     # `background_tasks`): a turn ended with this is paused, not finished. Empty once a new turn starts. A subagent
     # stays on it while the status engine counts it.
     background: tuple[BackgroundJob, ...] = field(default=(), metadata={"process": True})
+    display_work: DisplayWork | None = field(default=None, metadata={"process": True})
     # The first line of the prompt you typed into this tab yourself, for the turn it started: AiTerm neither launched
     # the agent with it nor delivered it (HookRouter). None once that turn ends, and for every other prompt.
     your_prompt: str | None = field(default=None, metadata={"process": True})
@@ -321,6 +348,7 @@ class SessionInfo:
             "conversationId": self.conversation_id, "terminalId": self.terminal_id, "tabKey": self.tab_key,
             "subagentsWrittenAt": self.subagents_written_at,
             "background": [job.to_json() for job in self.background], "yourPrompt": self.your_prompt,
+            "displayWork": self.display_work.to_json() if self.display_work is not None else None,
             "slashCommands": [command.to_json() for command in self.slash_commands],
             "stoppedOn": self.stopped_on.to_json() if self.stopped_on else None,
             "testActivity": self.test_activity.to_json() if self.test_activity else None,

@@ -2,7 +2,7 @@ import Foundation
 
 /// When each working task last showed a sign of life, on a clock of its own (spec §8, *possibly
 /// stalled*). A sign of life is any change the daemon reports for one of the task's sessions —
-/// its status, title, context fill or conversation — or one noted from elsewhere for one of its tabs
+/// its status, title, context fill or conversation, excluding display-only work — or one noted from elsewhere for one of its tabs
 /// (`noteSign(of:tab:at:)`): its transcript grew, or a tool call it started is still running
 /// (`WorkerQuietWatch`). With several tasks at work, one busy worker never keeps a silent
 /// one from being noticed, and a silent one never makes a busy one look stalled.
@@ -49,7 +49,9 @@ public struct StallWatch: Equatable, Sendable {
         // command holds every sibling worker's clock, including an extra tab still at working.
         let testing = Set(sessions.filter { $0.testActivity?.isActive == true }.compactMap(\.taskUUID))
         let wasTesting = Set(listed.filter { $0.testActivity?.isActive == true }.compactMap(\.taskUUID))
-        for session in sessions where Self.runsAgent(session) {
+        for var session in sessions where Self.runsAgent(session) {
+            // Inspectable work and source availability do not establish worker progress.
+            session.displayWork = nil
             seen[session.sessionId] = session
             guard let task = session.taskUUID,
                   lastSeen[session.sessionId] != session || testing.contains(task) || wasTesting.contains(task) else { continue }

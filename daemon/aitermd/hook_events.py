@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Any, NamedTuple
 
 from .text import nonempty_string
-from .models import HARNESSES, ITERM_SESSION_FIELD, AgentKind, BackgroundJob, Transition, Usage
+from .models import CLAUDE_TERMINAL_TASK_STATUSES, HARNESSES, ITERM_SESSION_FIELD, AgentKind, BackgroundJob, Transition, Usage
 from .usage import clamped_percent, parse_claude_rate_limits
 
 NEEDS_INPUT_NOTIFICATIONS = {"permission_prompt", "agent_needs_input", "elicitation_dialog", "elicitation_url_dialog"}
@@ -44,6 +44,8 @@ class HookEvent:
     # The API error that ended a Claude turn in place of its Stop (StopFailure's `error`: `rate_limit`, `billing_error`,
     # `authentication_failed`...); None for every other event.
     stop_error: str | None = None
+    subagent_label: str | None = None
+    display_shells: tuple[BackgroundJob, ...] | None = None
 
     @property
     def conversation_id(self) -> str | None:
@@ -99,11 +101,27 @@ def _claude_background_work(tasks: Any) -> tuple[BackgroundJob, ...] | None:
         if (said := said or nonempty_string(task.get("description"))) is None:
             continue
         if kind != "subagent":
-            work.append(BackgroundJob("shell" if kind == "shell" else "monitor" if kind == "monitor" else "task", said))
+            work.append(BackgroundJob("shell" if kind == "shell" else "monitor" if kind == "monitor" else "task", said,
+                                      task_id=nonempty_string(task.get("id"))))
         # Only a subagent named by its agent_id is a child the status engine can count.
         elif (child := nonempty_string(task.get("id"))) is not None:
             work.append(BackgroundJob("subagent", said, child))
     return tuple(work)
+
+
+def _claude_display_shells(tasks: Any) -> tuple[BackgroundJob, ...] | None:
+    if not isinstance(tasks, list) or any(not isinstance(task, dict) or not nonempty_string(task.get("type")) for task in tasks):
+        return None
+    for task in tasks:
+        if task["type"] != "shell":
+            continue
+        status = nonempty_string(task.get("status"))
+        if status not in CLAUDE_IN_FLIGHT_TASK_STATUSES | CLAUDE_TERMINAL_TASK_STATUSES:
+            return None
+        if status in CLAUDE_IN_FLIGHT_TASK_STATUSES and not (
+                nonempty_string(task.get("id")) and (nonempty_string(task.get("command")) or nonempty_string(task.get("description")))):
+            return None
+    return tuple(job for job in (_claude_background_work(tasks) or ()) if job.kind == "shell")
 
 
 def _claude_artifact_watch(task: dict[str, Any]) -> bool:
@@ -172,11 +190,12 @@ def _claude_event(p: dict[str, Any]) -> HookEvent | None:
         if (child := _subagent(name, p)) is None:
             return None
         transcript = _claude_subagent_transcript(p, child[1]) if name == "SubagentStart" else None
-        return HookEvent("claude", child[0], None, sid, cwd, child[1], subagent_transcript=transcript, event_name=name)
+        return HookEvent("claude", child[0], None, sid, cwd, child[1], subagent_transcript=transcript, event_name=name,
+                         subagent_label=nonempty_string(p.get("agent_type")))
     if name == "Stop":
         tasks = p.get("background_tasks")
         return HookEvent("claude", "done", None, sid, cwd, running_subagents=_claude_running_subagents(tasks),
-                         background_work=_claude_background_work(tasks), event_name=name)
+                         background_work=_claude_background_work(tasks), display_shells=_claude_display_shells(tasks), event_name=name)
     if name == "StopFailure":
         # Fired in place of Stop when an API error ended the turn; Claude Code names one it cannot tell `unknown`.
         return HookEvent("claude", "done", None, sid, cwd, event_name=name, stop_error=nonempty_string(p.get("error")) or "unknown")
@@ -201,7 +220,8 @@ def parse_codex_hook(p: dict[str, Any]) -> HookEvent | None:
         return HookEvent("codex", _session_start(p), model, sid, cwd, iterm_session_id=iterm_session_id, event_name=name)
     if name in {"SubagentStart", "SubagentStop"}:
         child = _subagent(name, p)
-        return HookEvent("codex", child[0], None, sid, cwd, child[1], iterm_session_id, event_name=name) if child else None
+        return HookEvent("codex", child[0], None, sid, cwd, child[1], iterm_session_id, event_name=name,
+                         subagent_label=nonempty_string(p.get("agent_type"))) if child else None
     if name in SIMPLE_EVENTS:
         return HookEvent("codex", SIMPLE_EVENTS[name], model, sid, cwd, iterm_session_id=iterm_session_id, event_name=name,
                          prompt=_submitted(name, p))

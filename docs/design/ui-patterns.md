@@ -15,8 +15,12 @@ but has no collapse action. `RowPill` declares its surface. A row's status owns 
 `TaskRowView` reads selection, checkout, removal and review facts for its own identity. Preserve
 that focused observation when changing it. `TaskRowMarkView`, `StatusMark`, `StatusCountChips`,
 `AvatarGroupView`, `VendorMark` and `BranchLabelView` draw shared status/agent/branch vocabulary.
-`BackgroundCardView` presents the jobs behind a background mark; it does not add another persisted
-status. Reduce Motion changes animation, not the information shown.
+`BackgroundCardView` presents the same work list when hovering a background, working or
+needs-input mark. It opens only when verified work is listed, including on Operator-driven rows;
+removing and queued tasks offer none. It retains the existing overlay, scrolling and hover
+behaviour, and says “Background work” without claiming the turn ended. Display evidence does
+not add a persisted status or change Operator readiness. Reduce Motion changes animation,
+not the information shown.
 
 `SidebarHeading`, `DecodeWordsView` and `OperatorBadge` give the Operator section its existing
 vocabulary. `SidebarBannerText`, `ToastView`, `Notice` and `FixOfferLabel` reuse the same hierarchy

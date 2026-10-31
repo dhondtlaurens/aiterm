@@ -3,20 +3,30 @@ import AiTermUI
 import AiTermCore
 
 /// What a background mark's card says (proposal Background work on your own tasks B, and A of its "several jobs at
-/// once", 22 Oct 2026): that the turn ended, how many jobs still run when there are several, then one job per line in
+/// once", 22 Oct 2026): how many jobs still run when there are several, then one job per line in
 /// the order the tabs list them — a shell by its command after a terminal glyph, a monitor or any other task by its
 /// description after an eye.
 struct BackgroundCard: Equatable {
     let jobs: [BackgroundJob]
 
     var heading: String {
-        jobs.count > 1 ? "Turn ended · \(jobs.count) running in the background" : "Turn ended · running in the background"
+        jobs.count > 1 ? "Background work · \(jobs.count) jobs" : "Background work"
     }
 
     /// The card in words, the row's value for VoiceOver: every job, which the card may scroll or cut short.
     var spoken: String {
         let what = jobs.map(\.text).joined(separator: ", ")
-        return what.isEmpty ? TaskStatus.background.label : "Turn ended, running in the background: " + what
+        return what.isEmpty ? TaskStatus.background.label : "Background work: " + what
+    }
+
+    /// Preserve the turn/input status and the row's other detail, without repeating jobs its
+    /// Operator tooltip already names. The visual card stays accessibility-hidden.
+    func accessibilityValue(status: TaskStatus, detail: String? = nil) -> String {
+        var parts = [status.label]
+        if let detail, !detail.isEmpty, detail != status.label { parts.append(detail) }
+        let remaining = jobs.filter { !(detail?.contains($0.text) ?? false) }
+        if !remaining.isEmpty { parts.append(BackgroundCard(jobs: remaining).spoken) }
+        return parts.joined(separator: ". ")
     }
 
     static func glyph(_ kind: BackgroundJob.Kind) -> String { kind == .shell ? "apple.terminal" : "eye" }
@@ -37,7 +47,9 @@ final class BackgroundCardHover {
     @ObservationIgnored private var pending: Task<Void, Never>?
     @ObservationIgnored private let sleep: @Sendable (Duration) async -> Void
 
-    init(sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }) { self.sleep = sleep }
+    init(isOpen: Bool = false, sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
+        self.isOpen = isOpen; self.sleep = sleep
+    }
 
     func mark(_ hovering: Bool) { onMark = hovering; settle() }
     func card(_ hovering: Bool) { onCard = hovering; settle() }
@@ -145,6 +157,7 @@ private struct BackgroundCardOverlay: ViewModifier {
                 if hover.isOpen, !jobs.isEmpty {
                     BackgroundCardView(card: BackgroundCard(jobs: jobs))
                         .onHover { hover.card($0) }
+                        .onDisappear { hover.card(false) }
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                         .padding(EdgeInsets(top: -scale(Space.base), leading: -scale(Space.base), bottom: -scale(Space.base),
                                             trailing: SidebarRowLayout.trailingSlot(scale) + scale(Space.tight)))

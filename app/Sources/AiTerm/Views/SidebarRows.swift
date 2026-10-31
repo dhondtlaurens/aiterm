@@ -388,8 +388,9 @@ struct TaskRowView: View {
         let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, failed: failed, removing: removing,
                                              awaitsRetry: awaitsRetry, queued: row.queued, canChangeWorkspace: controller.canChangeWorkspace)
         let mark = TaskRowMark(status: row.status, line: row.operatorLine, removing: removing, queued: row.queued)
-        // The card lists what the background mark waits on; no other mark opens one.
-        let jobs = mark == .status(.background) ? row.background : []
+        // The same work card is inspectable while the agent works or asks for input, including
+        // driven rows. A removal spinner and a queued task still offer no card.
+        let jobs = removing || row.queued ? [] : row.background
         // A row being removed is not activated: its window is closing, or gone.
         SelectableRow(id: row.id, selected: selected, activate: { if let task, !removing { controller.choose(task: task.id) } }) {
             HStack(spacing: scale(Space.inset)) {
@@ -429,15 +430,15 @@ struct TaskRowView: View {
                 .animation(motionStill == nil ? Motion.settle : nil, value: folded)
                 Spacer(minLength: scale(Space.tight))
                 // The status mark's spinner: the row's agents went with its window. An ended driven task's is the
-                // check, a queued one's the pause sign. In the background, its hover opens the card.
+                // check, a queued one's the pause sign. Known work opens the same card on hover.
                 TaskRowMarkView(mark: mark, size: SidebarRowLayout.trailingGlyph(scale))
                     .opensBackgroundCard(slot: SidebarRowLayout.trailingSlot(scale))
             }
             .backgroundCard(jobs)
         }
         .accessibilityLabel(voiceOver.label)
-        .accessibilityValue(caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip
-                            ?? (jobs.isEmpty ? row.status.label : BackgroundCard(jobs: jobs).spoken))
+        .accessibilityValue(BackgroundCard(jobs: jobs).accessibilityValue(status: row.status,
+                            detail: caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip))
         .accessibilityActions {
             if let task {
                 ForEach(voiceOver.actions, id: \.self) { action in
@@ -540,10 +541,10 @@ struct TerminalRowView: View {
                 StatusMark(status: row.status, size: SidebarRowLayout.trailingGlyph(scale))
                     .opensBackgroundCard(slot: SidebarRowLayout.trailingSlot(scale))
             }
-            .backgroundCard(row.status == .background ? row.background : [])
+            .backgroundCard(row.background)
         }
         .accessibilityLabel(row.name)
-        .accessibilityValue(row.status == .background ? BackgroundCard(jobs: row.background).spoken : row.status.label)
+        .accessibilityValue(BackgroundCard(jobs: row.background).accessibilityValue(status: row.status))
         .accessibilityActions {
             if let terminal {
                 ForEach(TerminalRowAccessibility(canChangeWorkspace: controller.canChangeWorkspace).actions,

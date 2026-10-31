@@ -12,6 +12,7 @@ from typing import Any, TypeVar
 from . import protocol
 from .claude_sessions import ClaudeSessionFile, ClaudeSessionFiles
 from .claude_subagents import SubagentTranscripts, TranscriptTail
+from .claude_background import BackgroundTranscripts, ShellReading
 from .codex_sessions import CodexSessionFiles
 from .connection import ItermSupervisor
 from .delivery import NOT_CHECKED, Deliverer, Verdict, read_policy
@@ -113,6 +114,7 @@ class Service:
         self._ticks_started = 0
         self._last_good_tick = 0
         self.subagent_transcripts = SubagentTranscripts()
+        self.background_transcripts = BackgroundTranscripts(clock=clock)
         self.test_activity = TestActivityReader(clock=clock)
         # Each off-loop check's latest run, by name, while its worker thread may still be running: a
         # thread stuck on a hung mount cannot be cancelled, so no second one is started beside it.
@@ -381,6 +383,8 @@ class Service:
             changed += await self._apply_codex_rollouts(threads)
         with _logged("releasing dead subagents"):
             changed += self.status.release_dead_subagents(await self._subagent_tails(self.status.subagent_transcripts()))
+        with _logged("reading Claude background shells"):
+            changed += await self._apply_background_shells(sessions)
         with _logged("reading what became of the slash commands"):
             changed += await self._apply_slash_commands()
         with _logged("reading when the limits that stopped sessions reset"):
@@ -503,6 +507,32 @@ class Service:
             return {}
         read = self.subagent_transcripts.read_all
         return await self._off_loop("the subagent transcript read", lambda: read(paths), {})
+
+    async def _apply_background_shells(self, sessions: list[SessionInfo]) -> list[str]:
+        # Capture before I/O; a late reply belongs to this exact process/conversation and turn owner.
+        captured = {s.session_id: (s.agent, s.job_pid, s.conversation_id, s.transcript, self.status.turn(s.session_id))
+                    for s in sessions if s.agent == "claude"}
+        requests = {f"{sid}:{owner.generation}": (path, owner.work_since)
+                    for sid, (_, _, _, path, owner) in captured.items()
+                    if path is not None and owner is not None and owner.work_since is not None}
+        read = self.background_transcripts.read_all
+        recoveries = {f"{sid}:{owner.generation}": owner.shell_snapshot_at
+                      for sid, (_, _, _, _, owner) in captured.items()
+                      if owner is not None and owner.shell_snapshot_valid and owner.shell_snapshot is not None}
+        unavailable: dict[str, ShellReading | None] = {}
+        readings = await self._off_loop("the Claude background read", lambda: read(requests, recoveries), unavailable)
+        changed: list[str] = []
+        for sid, (agent, pid, conversation, path, owner) in captured.items():
+            session = self.registry.get(sid)
+            if (session is None or (session.agent, session.job_pid, session.conversation_id, session.transcript)
+                    != (agent, pid, conversation, path) or self.status.turn(sid) is not owner):
+                continue
+            # Metadata may invalidate provenance on the same Turn object while a read is running.
+            key = f"{sid}:{owner.generation}" if owner is not None else ""
+            if key in requests and owner is not None and owner.work_since != requests[key][1]:
+                continue
+            changed += self.status.apply_shell_reading(sid, readings.get(key))
+        return changed
 
     async def _apply_slash_commands(self) -> list[str]:
         """The sessions whose slash commands their transcripts, or the time, moved on. Each transcript a command is

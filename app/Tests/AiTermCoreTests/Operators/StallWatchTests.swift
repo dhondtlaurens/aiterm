@@ -32,6 +32,29 @@ import Testing
         #expect(watch.stalled(in: world.state, now: minutes(36)) == [busy, quiet])
     }
 
+    @Test(arguments: [false, true])
+    func displayWorkDoesNotRestartAWorkersStallClock(extraTab: Bool) {
+        let (world, task) = twoTabs()
+        var watch = StallWatch(), main = session("a", task: task), reviewer = extra(task)
+        watch.observe([main, reviewer], at: minutes(0))
+        if extraTab { main.title = "Editing" } else { reviewer.title = "Editing" }
+        watch.observe([main, reviewer], at: minutes(15))
+        let observations: [DisplayWork?] = [
+            DisplayWork(subagents: [], shells: [DisplayWorkItem(kind: .shell, text: "npm run test")]),
+            DisplayWork(subagents: [DisplayWorkItem(kind: .subagent, text: "Reviewer")], shells: []),
+            DisplayWork(subagents: [], shells: nil),
+            nil,
+        ]
+        for (index, observation) in observations.enumerated() {
+            if extraTab { reviewer.displayWork = observation } else { main.displayWork = observation }
+            watch.observe([main, reviewer], at: minutes(16 + Double(index)))
+        }
+        #expect(watch.stalled(in: world.state, now: minutes(21)) == [task])
+        if extraTab { reviewer.title = "Thinking" } else { main.title = "Thinking" }
+        watch.observe([main, reviewer], at: minutes(22))
+        #expect(watch.stalled(in: world.state, now: minutes(22)).isEmpty, "legacy signs still restart the clock")
+    }
+
     @Test func aTaskWithNoSignYetCountsFromItsLaunch() {
         let (world, busy, _) = twoWorkers()
         var watch = StallWatch()

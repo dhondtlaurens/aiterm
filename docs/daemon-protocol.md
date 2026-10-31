@@ -58,6 +58,14 @@ effect in the order it was sent.
 | `usage.changed` | a status-line tick landed, or Codex wrote a new rate-limit record |
 | `operator.request` | the Operator's tool call, for the app to answer with `operator.reply` within 30 s; past that the operator is told "AiTerm isn't answering", and with no app attached the daemon answers "AiTerm isn't open" without sending it |
 
+Session payloads also carry optional display-only `displayWork` with independently nullable
+`subagents` and `shells` arrays. Missing/null means a source is unavailable; an empty array means
+known empty. Entries have `kind`, `text` and nullable `legacyIndex`, a position in the same
+payload's legacy `background` array, derived by provider ID in the daemon. This preserves the
+Stop's interleaved order while replacing a known kind without duplicating it. Unavailable kinds
+fall back to eligible legacy evidence. Display changes publish `session.changed` even when the
+turn status stays the same. The field never changes Operator obligations or acceptance.
+
 An event the app does not know is a newer daemon's, and is ignored. One it knows but cannot read
 is logged and drops the connection, so the app reconnects to a fresh snapshot rather than keep a
 row the event would have changed.

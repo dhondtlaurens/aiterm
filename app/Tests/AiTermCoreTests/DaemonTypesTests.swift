@@ -3,6 +3,17 @@ import Testing
 @testable import AiTermCore
 
 @Suite struct DaemonTypesTests {
+    @Test func displayWorkDistinguishesUnavailableAndKnownEmptySources() throws {
+        let session = try JSONDecoder().decode(SessionInfo.self, from: Data("""
+            {"sessionId":"s","windowId":"w","tabIndex":0,"agent":"claude","state":"working","title":"","cwd":"/",
+             "displayWork":{"subagents":[{"kind":"subagent","text":"Review","legacyIndex":1}],"shells":null}}
+            """.utf8))
+        #expect(session.displayWork?.subagents == [.init(kind: .subagent, text: "Review", legacyIndex: 1)])
+        #expect(session.displayWork?.shells == nil)
+        var empty = session
+        empty.displayWork?.shells = []
+        #expect(empty.rowRelevant != session.rowRelevant, "availability changes what the card may show")
+    }
     /// A terminal's tab names its row, which adopts a window iTerm2 renumbered; an older daemon names none.
     @Test func aSessionReadsItsTerminalTag() throws {
         let id = UUID()

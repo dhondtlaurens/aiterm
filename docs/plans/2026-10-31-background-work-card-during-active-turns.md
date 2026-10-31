@@ -112,8 +112,9 @@ not stdout or arbitrary embedded output.
 Consume native task notifications and successful TaskStop results by task ID; reconcile with a
 well-formed Stop task snapshot where available. Preserve missing/malformed evidence as unknown,
 not a successful empty inventory or a completed job. Validate failure/stop notification shapes
-from actual producer evidence before recognising them; the research sample established only
-completed notifications. Unsupported terminal outcomes suppress an unverified display claim
+from actual producer evidence before recognising them. The expanded recorded sample establishes
+completed, failed, killed and stopped notices in user, queued attachment and enqueue records.
+Unsupported terminal outcomes suppress an unverified display claim
 instead of guessing that a task is still running. This does not alter legacy obligations.
 
 Run file I/O through the daemon's existing bounded off-loop mechanism. Use `JsonlCursor`, a
@@ -155,10 +156,14 @@ ended-turn monitor list is preserved.
   an older daemon.
 - Modify `app/Sources/AiTermCore/Sidebar/SidebarModel.swift`: keep display work row-relevant;
   add the display projection used by existing task/terminal row lists, separate from aggregation.
+- Modify `app/Sources/AiTermCore/Operators/StallWatch.swift` and its existing tests: exclude
+  displayWork from sign-of-life comparison, preserving the pre-change stall clock behaviour.
 - Modify `app/Sources/AiTerm/Views/BackgroundCard.swift` and `SidebarRows.swift`: reuse the card
   for populated active rows, neutral wording, and complete row accessibility values.
 - Modify `app/Sources/AiTerm/Snapshots/SidebarSnapshots.swift`: seeded open-card fixtures for
   working/background task and terminal rows, multiple jobs, selected rows and larger scale.
+- Modify `app/Sources/AiTerm/Snapshots/Snapshots.swift`: append the new fixtures after the
+  existing rendering order and keep hosted view captures transparent and click-through.
 - Create `daemon/tests/test_claude_background.py`; modify `test_status.py`, `test_hook_events.py`,
   `test_models.py`, `test_sessions.py`, `test_service.py` and `test_wire_contract.py` as their
   boundaries change. Explicitly update the session-bearing wire fixtures under
@@ -203,15 +208,15 @@ controller construction. Do not use `scripts/run-dev.sh` to prove this while liv
 
 ## To-dos
 
-- [ ] Reproduce the hidden active-row card and open that same card for already-known eligible
+- [x] Reproduce the hidden active-row card and open that same card for already-known eligible
   jobs, without adding a wire field. Exclude unconfirmed active-turn test summaries. Prove
   status, Operator behaviour, layout and accessibility stay correct.
-- [ ] Add the optional per-source display transport together with its counted-child producer
+- [x] Add the optional per-source display transport together with its counted-child producer
   and app projection, so no unfilled field masks legacy data. Prove older-daemon and per-source
   fallbacks, honest labels, display-only publication, child lifecycle and parent placement.
-- [ ] Add the bounded Claude shell reader end to end through the same inventory/card. Prove
+- [x] Add the bounded Claude shell reader end to end through the same inventory/card. Prove
   launch/finish/stop, identity merging, catch-up, unavailable reads and replacement isolation.
-- [ ] Add the seeded visual fixtures and documentation, run the affected gate and inspect the
+- [x] Add the seeded visual fixtures and documentation, run the affected gate and inspect the
   images, then take the finished change through adversarial review.
 
 ## Plan review
@@ -230,4 +235,63 @@ minor ordering clarification was checked against `SidebarModel.backgroundJobs` a
 parser; it was not sent through a fourth review round. The review did not independently probe
 live transcript timing or validate every producer record shape. Those limits remain in the
 research and implementation proof rather than being reported as verified runtime behaviour.
-No product code has been changed.
+No product code had been changed at the plan-review handoff.
+
+## Implementation evidence
+
+The active-card pixel regression failed for working/input marks before the status gate was
+removed, while the existing background case passed. The initial focused Swift checks passed
+81 tests after implementation. Daemon checks include source availability, current-generation
+and replacement isolation, native IDs and display-only updates; the full daemon gate passed
+1,428 tests before the final notification coverage was added.
+
+The implementation review required multi-pass recovery from unknown evidence, rather than
+a permanent reader disable, and handling native queued notifications during active turns.
+Expanded recorded evidence verified completed, failed, killed and stopped shell notices in
+user, queued attachment and enqueue forms. The final reader covers these carriers, recovers
+on later verified completion or an authoritative Stop, and keeps unsupported evidence unknown.
+Unknown-outcome recovery tests also failed under a controlled simulation of the old permanent
+disable behaviour. The existing Operator contract goldens have not been regenerated.
+
+Hidden hosted captures were inspected at standard and extra-large scale. They show the same
+existing card and readable scrolling content beside working, background and input marks.
+Offscreen ImageRenderer alone leaves scroll content blank, so those captures were not used
+as visual proof. Before the fourth review's fixes, daemon verification passed 1,443 tests
+(one skipped), mypy and ruff. Focused Swift checks passed 88 tests across six suites, including the frozen
+Operator contract. A conversation-ownership regression failed before the display-only child
+filter was added, then passed in the daemon gate; counted-child obligations remain unchanged.
+
+The affected full gate passed the daemon, AiTermUI and AiTermCore suites, but the app suite
+failed in two existing picker keyboard tests: Down then Return chooses the first entry instead
+of the second. The same failures reproduce in an isolated detached worktree at the untouched
+starting commit `3eb32d27`, with only those picker suites running. The feature has not changed
+picker product code or tests. On the final affected-gate run the app suite passes all 1,734
+tests, including those two pickers, without changing them. The earlier baseline failures are
+intermittent; the passing rerun does not establish a picker fix.
+
+The third implementation review settled the earlier native-completion findings but found two
+remaining issues, both verified in the implementation:
+
+- Important: unrelated Monitor or artifact-watch task notifications lacking shell status/ID
+  currently mark the entire shell source unavailable until another valid Stop. Such notices
+  should not invalidate verified shells they say nothing about.
+- Minor: StallWatch compares whole SessionInfo values; the new displayWork field therefore
+  restarts an Operator stall clock even when no legacy session fact changed. The display-only
+  contract requires excluding that field from its sign-of-life comparison.
+
+Laurens approved fixing both findings and running a fourth review. The narrow StallWatch
+comparison change above preserves the existing Operator contract; it does not redefine its
+stall policy. Regressions first reproduce the unrelated-notice source blackout and display-only
+clock reset for both first and extra worker tabs.
+
+Both regressions reproduced before the fixes: seven shell-notice cases failed, and the
+stall-clock test failed for each worker-tab position. After the fixes all 33 shell-reader tests
+pass, along with all 22 StallWatch tests and the two frozen Operator contract tests. The fourth
+review returns no findings and confirms both round-three fixes; all earlier findings are settled.
+It did not independently run tests or snapshots, probe live sessions or establish complete
+Codex terminal coverage. The final affected gate (`scripts/test.sh`) exits zero: 1,453 daemon
+tests pass (one skipped), mypy and ruff pass, and the Swift runs pass 1,734 app, 1,984 core,
+92 UI and four separately rendered snapshot tests. Swift's three existing known issues remain
+labelled as such. No live app restart or merge was performed. The implementation remains
+uncommitted for the psg review handoff. The temporary baseline worktree has been removed
+after preserving its failure logs; no picker changes were brought into the feature worktree.

@@ -6,9 +6,10 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from .claude_subagents import TranscriptTail
+from .claude_background import ShellReading
 from .hook_events import HookEvent
 from .text import shows
-from .models import HARNESS_BY_AGENT, AgentKind, State, StoppedOn
+from .models import HARNESS_BY_AGENT, AgentKind, BackgroundJob, DisplayWork, DisplayWorkItem, State, StoppedOn
 from .sessions import SessionRegistry
 
 CLAUDE_FILE_STATUS: dict[str, State | None] = {
@@ -38,6 +39,8 @@ class _Child:
     quiet_since: float = 0.0
     stopped_at: float | None = None
     written_at: float | None = None
+    label: str = "Subagent"
+    conversation: str | None = None
 
 
 @dataclass(slots=True)
@@ -63,6 +66,12 @@ class Turn:
     # prompt over another, so how many are open is counted.
     before_prompt: State | None = None
     prompts_open: int = 0
+    # Display provenance, not turn readiness. A genuine start establishes this process generation.
+    work_since: float | None = None
+    shell_snapshot: tuple[BackgroundJob, ...] | None = None
+    shell_snapshot_at: float = float("-inf")
+    shell_snapshot_valid: bool = True
+    generation: int = 0
 
 
 def shows_trust_prompt(agent: AgentKind, screen: str) -> bool:
@@ -86,6 +95,7 @@ class StatusEngine:
         # not shorten.
         self._clock, self._monotonic = clock, monotonic
         self._turns: dict[str, Turn] = {}
+        self._generation = 0
         # When the subagents' transcripts were last asked for (subagent_transcripts), on the monotonic clock: the read
         # that answers began then, and cannot say a SubagentStop that came after it stands.
         self._asked_at = float("-inf")
@@ -100,14 +110,15 @@ class StatusEngine:
 
     def _turn(self, session_id: str) -> Turn:
         if (turn := self._turns.get(session_id)) is None:
-            turn = self._turns[session_id] = Turn()
+            self._generation += 1
+            turn = self._turns[session_id] = Turn(generation=self._generation)
         return turn
 
     def apply_event(self, session_id: str, ev: HookEvent) -> list[str]:
         if ev.kind is None:
             return []
         # The agent loads its hooks once its folder is trusted, so any hook says the dialog is over.
-        return self.apply_trust_prompt(session_id, False) + self._apply_event(session_id, ev)
+        return list(dict.fromkeys(self.apply_trust_prompt(session_id, False) + self._apply_event(session_id, ev)))
 
     def _apply_event(self, session_id: str, ev: HookEvent) -> list[str]:
         """What a hook says happened to the session's turn (`ev.kind`; its metadata is
@@ -118,6 +129,7 @@ class StatusEngine:
         turn = self._turn(session_id)
         if kind == "sessionStart":
             self.reset_turn(session_id)
+            self._turn(session_id).work_since = self._clock()
             session = self.reg.get(session_id)
             if session is not None and session.agent == "codex":
                 self._turn(session_id).rollout_at = self._clock()
@@ -125,7 +137,7 @@ class StatusEngine:
             cleared = self.reg.set_stopped_on(session_id, None)
             return [session_id] if self._show_children(session_id) or cleared else []
         if kind == "subagentStart":
-            return self.subagent_started(session_id, ev.subagent_id, ev.subagent_transcript)
+            return self.subagent_started(session_id, ev.subagent_id, ev.subagent_transcript, ev.subagent_label)
         if kind == "subagentStop":
             return self.subagent_stopped(session_id, ev.subagent_id)
         if kind == "promptStart":
@@ -148,7 +160,11 @@ class StatusEngine:
             # completion an earlier turn deferred, before this one lands its own.
             for child_id in [c for c in turn.children if c not in running_subagents]:
                 released += self._subagent_ended(session_id, child_id)
-        return released + self._apply_state(session_id, kind, turn.hook_at, source="hook")
+        if ev.event_name == "Stop" or ev.display_shells is not None:
+            turn.shell_snapshot, turn.shell_snapshot_at = ev.display_shells, self._clock()
+            turn.shell_snapshot_valid = ev.display_shells is not None
+        changed = released + self._apply_state(session_id, kind, turn.hook_at, source="hook")
+        return list(dict.fromkeys(changed + ([session_id] if self._show_children(session_id) else [])))
 
     def _apply_state(self, session_id: str, target: State, at: float, *,
                      source: Literal["hook", "claude_file", "codex_title", "rollout"]) -> list[str]:
@@ -207,6 +223,9 @@ class StatusEngine:
         if self.reg.set_agent_cwd(session_id, cwd):
             changed.append(session_id)
         if self.reg.set_conversation(session_id, conversation):
+            if (turn := self._turns.get(session_id)) is not None:
+                turn.work_since, turn.shell_snapshot = None, None
+                self.reg.set_display_work(session_id, None)
             changed.append(session_id)
         if context is not None:
             # Context is presented per provider within a task. Updating sibling tabs for the same
@@ -246,6 +265,7 @@ class StatusEngine:
         session started, or another process took over the tab. A child whose SubagentStop was lost
         would otherwise hold the row at working for good."""
         self._turns.pop(session_id, None)
+        self.reg.set_display_work(session_id, None)
 
     def _prompt_started(self, session_id: str) -> list[str]:
         s = self.reg.get(session_id)
@@ -280,19 +300,22 @@ class StatusEngine:
         if turn.before_prompt is not None:
             turn.before_prompt = state
 
-    def subagent_started(self, session_id: str, subagent_id: str | None, transcript: str | None = None) -> list[str]:
+    def subagent_started(self, session_id: str, subagent_id: str | None, transcript: str | None = None,
+                         label: str | None = None) -> list[str]:
         s = self.reg.get(session_id)
         if s is None or not subagent_id:
             return []
         turn = self._turn(session_id)
         # A resumed child starts again under the same id, and its quiet window with it.
-        turn.children[subagent_id] = _Child(transcript, self._clock(), None, self._monotonic())
+        turn.children[subagent_id] = _Child(transcript, self._clock(), None, self._monotonic(),
+                                          label=label or "Subagent", conversation=s.conversation_id)
+        shown = self._show_children(session_id)
         # An input request must stay visible; every other state means the
         # task is actively progressing while this child is alive.
         if s.state == "needsInput":
             self._behind_input(turn, "working")
-            return []
-        return [session_id] if self.reg.set_state(session_id, "working") else []
+            return [session_id] if shown else []
+        return [session_id] if self.reg.set_state(session_id, "working") or shown else []
 
     def subagent_stopped(self, session_id: str, subagent_id: str | None) -> list[str]:
         """A child's SubagentStop. A Claude child's need not end its run: Claude Code fires it each time the
@@ -336,7 +359,20 @@ class StatusEngine:
         work = tuple(job for job in s.background if job.agent_id is None or job.agent_id in children)
         written_at = max((c.written_at for c in children.values() if c.written_at is not None), default=None)
         shown = self.reg.set_background(session_id, work)
-        return self.reg.set_subagents_written_at(session_id, written_at) or shown
+        shown = self.reg.set_subagents_written_at(session_id, written_at) or shown
+        descriptions = {job.agent_id: job.text for job in work if job.agent_id is not None}
+        for child_id, child in children.items():
+            if child_id in descriptions:
+                child.label = descriptions[child_id]
+        agents = tuple(DisplayWorkItem(BackgroundJob("subagent", child.label, agent_id=child_id),
+                                      next((i for i, job in enumerate(work) if job.agent_id == child_id), None))
+                       for child_id, child in children.items() if child.conversation == s.conversation_id)
+        shells = s.display_work.shells if s.display_work is not None else None
+        if shells is not None:
+            shells = tuple(DisplayWorkItem(item.job, next((i for i, job in enumerate(work)
+                                                          if item.job.task_id is not None and job.task_id == item.job.task_id), None))
+                           for item in shells)
+        return self.reg.set_display_work(session_id, DisplayWork(agents, shells)) or shown
 
     def subagent_transcripts(self) -> set[str]:
         """The transcripts release_dead_subagents needs: those of every child counted, its turn under
@@ -344,6 +380,26 @@ class StatusEngine:
         passes them in; the read begins now."""
         self._asked_at = self._monotonic()
         return {c.transcript for turn in self._turns.values() for c in turn.children.values() if c.transcript}
+
+    def apply_shell_reading(self, session_id: str, reading: ShellReading | None) -> list[str]:
+        """Refresh only display evidence. Legacy Stop obligations and turn state stay untouched."""
+        session, turn = self.reg.get(session_id), self._turns.get(session_id)
+        if session is None or turn is None:
+            return []
+        changed = self._show_children(session_id)
+        shells: tuple[DisplayWorkItem, ...] | None = None
+        if reading is not None and turn.work_since is not None and turn.shell_snapshot_valid:
+            known = reading.ended | {task.job.task_id for task in reading.tasks}
+            expected = {job.task_id for job in turn.shell_snapshot or ()}
+            if expected <= known:
+                shells = tuple(DisplayWorkItem(task.job, next((i for i, job in enumerate(session.background)
+                                                               if job.task_id == task.job.task_id), None))
+                               for task in reading.tasks
+                               if turn.shell_snapshot is None or task.started_at > turn.shell_snapshot_at
+                               or task.job.task_id in expected)
+        agents = session.display_work.subagents if session.display_work is not None else None
+        changed = self.reg.set_display_work(session_id, DisplayWork(agents, shells)) or changed
+        return [session_id] if changed else []
 
     def release_dead_subagents(self, tails: Mapping[str, TranscriptTail | None]) -> list[str]:
         """Notes when each counted child's transcript was last written, and drops each child whose
@@ -424,12 +480,13 @@ class StatusEngine:
         return self._apply_state(session_id, target, self._clock(), source="codex_title")
 
     def agent_exited(self, session_id: str) -> list[str]:
+        displayed = (session := self.reg.get(session_id)) is not None and session.display_work is not None
         self.reset_turn(session_id)
         self._trust_prompts.discard(session_id)
         cleared = self.reg.set_background(session_id, ())
         cleared = self.reg.set_stopped_on(session_id, None) or cleared
         cleared = self.reg.set_subagents_written_at(session_id, None) or cleared
-        return [session_id] if self.reg.set_state(session_id, "idle") or cleared else []
+        return [session_id] if self.reg.set_state(session_id, "idle") or cleared or displayed else []
 
     def mark_seen(self, task_id: str) -> list[str]:
         sessions = self.reg.for_task(task_id)

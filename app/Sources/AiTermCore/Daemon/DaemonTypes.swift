@@ -33,6 +33,8 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// not finished. Empty once a new turn starts, and from a daemon too old to send it. A subagent the daemon still
     /// counts stays on it while it holds the tab at working.
     public var background: [BackgroundJob] = []
+    /// Display-only source observations. Neither this inventory nor its availability decides readiness.
+    public var displayWork: DisplayWork? = nil
     /// When the transcripts of the Claude subagents it counts were last written, the newest, in seconds since 1970: a
     /// child still at work while its parent's own transcript says nothing (`WorkerQuietWatch`). Nil while it counts
     /// none, and from a daemon too old to send it.
@@ -89,6 +91,7 @@ extension SessionInfo {
         terminalId = try c.decodeIfPresent(String.self, forKey: .terminalId)
         tabKey = try c.decodeIfPresent(String.self, forKey: .tabKey)
         background = try c.decodeIfPresent([BackgroundJob].self, forKey: .background) ?? []
+        displayWork = try c.decodeIfPresent(DisplayWork.self, forKey: .displayWork)
         subagentsWrittenAt = try c.decodeIfPresent(Double.self, forKey: .subagentsWrittenAt)
         yourPrompt = try c.decodeIfPresent(String.self, forKey: .yourPrompt)
         slashCommands = try c.decodeIfPresent([SlashCommand].self, forKey: .slashCommands) ?? []
@@ -166,8 +169,26 @@ public struct SlashCommand: Codable, Equatable, Sendable {
     }
 }
 
-/// One piece of work an agent's turn left running when it ended (a Claude Stop's `background_tasks`): a shell by its
-/// command, a monitor, a subagent or any other task by its description.
+/// Display sources are independent of the legacy ended-turn obligations and each other's availability.
+public struct DisplayWork: Codable, Equatable, Sendable {
+    /// nil is unavailable; an empty array establishes that this source has no jobs.
+    public var subagents: [DisplayWorkItem]?, shells: [DisplayWorkItem]?
+    public init(subagents: [DisplayWorkItem]? = nil, shells: [DisplayWorkItem]? = nil) {
+        self.subagents = subagents; self.shells = shells
+    }
+}
+
+public struct DisplayWorkItem: Codable, Equatable, Sendable {
+    public var kind: BackgroundJob.Kind, text: String
+    /// Position in this same session payload's legacy background array, resolved by native ID in the daemon.
+    public var legacyIndex: Int?
+    public init(kind: BackgroundJob.Kind, text: String, legacyIndex: Int? = nil) {
+        self.kind = kind; self.text = text; self.legacyIndex = legacyIndex
+    }
+    public var job: BackgroundJob { BackgroundJob(kind: kind, text: text) }
+}
+
+/// A shell by its command, a monitor, a subagent or any other task by its description.
 public struct BackgroundJob: Codable, Equatable, Hashable, Sendable {
     /// See `SessionAgent`'s decoding note: a kind this app does not know reads as `.task`.
     public enum Kind: String, Codable, LenientRawDecodable, Sendable {
