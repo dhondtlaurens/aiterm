@@ -7,7 +7,7 @@ import AiTermCore
 /// `recovery` the fix the footer offers for it, when there is one, and `fix` the problem an agent
 /// can be asked to fix (`FixSession`), when it is one.
 struct CreationFailure: Equatable {
-    /// A fix for a review's refused branch, offered as a button that then creates again. A case,
+    /// A recovery for a refused create, offered as a button that then creates again. A case,
     /// not a closure, as `OperationIssue.Action` is: the app maps it to its call, and a failure
     /// stays `Equatable`.
     enum Recovery: Equatable {
@@ -15,11 +15,14 @@ struct CreationFailure: Equatable {
         case switchProjectFolder(off: String, to: String)
         /// The review's diverged branch rebased onto origin's.
         case rebase(String)
+        /// Explicit consent to an empty first commit on the task's unborn base.
+        case initializeRepository(on: String)
 
         var title: String {
             switch self {
             case .switchProjectFolder(_, let target): "Switch to \(target)"
             case .rebase: "Rebase"
+            case .initializeRepository: "Create Empty Commit and Retry"
             }
         }
 
@@ -27,6 +30,7 @@ struct CreationFailure: Equatable {
             switch self {
             case .switchProjectFolder(_, let target): "Switches the project’s folder to \(target), then creates the review."
             case .rebase(let branch): "Rebases your \(branch) onto origin’s, then creates the review."
+            case .initializeRepository(let branch): "Creates an empty first commit on \(branch), then retries task creation. Your staged and unstaged files stay uncommitted in the project folder."
             }
         }
     }
@@ -54,7 +58,8 @@ struct CreationFailure: Equatable {
     /// A diverged branch and a conflicted rebase are also problems for a Fix, in `projectPath`; the
     /// conflict's request carries what git said as it stopped.
     init(_ error: Error, projectPath: String) {
-        detail = (error as? GitError).map { "git \($0.args.joined(separator: " ")) failed:\n\($0.stderr)" }
+        let gitError: GitError? = if case .commitFailed(_, let cause) = error as? RepositoryInitializationError { cause } else { error as? GitError }
+        detail = gitError.map { "git \($0.args.joined(separator: " ")) failed:\n\($0.stderr)" }
         var sentence = OperationIssue.reason(of: error), byHand: String?
         func request(_ branch: String, gitWords: String?, recreateRebase: Bool) -> FixRequest {
             FixRequest(title: "Couldn’t create the review.", reason: sentence, detail: gitWords, projectPath: projectPath,
@@ -70,7 +75,14 @@ struct CreationFailure: Equatable {
             if sentence.hasSuffix(ending) { sentence.removeLast(ending.count); byHand = WorktreeError.rebaseByHand }
             recovery = nil; fix = request(branch, gitWords: gitWords, recreateRebase: true)
         default:
-            recovery = nil; fix = nil
+            if let unborn = error as? UnbornBranchError {
+                recovery = .initializeRepository(on: unborn.branch)
+            } else if case .commitFailed(let branch, _) = error as? RepositoryInitializationError {
+                recovery = .initializeRepository(on: branch)
+            } else {
+                recovery = nil
+            }
+            fix = nil
         }
         self.byHand = byHand
         let offer = if case .rebase = recovery { " " + OperationIssue.rebaseOffer } else { "" }
@@ -118,9 +130,9 @@ extension CreationKind {
     func draftChanged(from old: Draft, in model: CreationModel<Self>) {}
     func branchesChanged(in model: CreationModel<Self>) {}
     func confirmBeforeSubmit(_ model: CreationModel<Self>) async -> Bool { true }
-    /// Only a review's failures offer a fix, so New Task is never asked for one.
+    /// Kinds with no recovery effects need no implementation.
     func recover(_ recovery: CreationFailure.Recovery) async throws {}
-    /// Nor for an agent's.
+    /// Kinds with no agent-assisted fixes never apply a Fix request to their draft.
     func fixApplies(_ request: FixRequest, to draft: Draft) -> Bool { false }
 }
 

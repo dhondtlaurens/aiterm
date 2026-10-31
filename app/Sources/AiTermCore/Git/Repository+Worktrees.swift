@@ -50,8 +50,17 @@ extension Repository {
         // cannot say has not said no, and the local base can be far behind origin's.
         if hasOrigin { Log.git.attempt("Fetching \(base) before adding a worktree", level: .default) { try fetchFromOrigin(base) } }
         let start = try hasOrigin && commit("refs/remotes/origin/" + base) != nil ? "origin/\(base)" : base
-        try git.run(["worktree", "add", "--lock", "--reason", Worktree.taskLockReason, "-b", branch, worktreePath, start], in: path,
-                    timeout: GitRunner.checkoutTimeout)
+        do {
+            try git.run(["worktree", "add", "--lock", "--reason", Worktree.taskLockReason, "-b", branch, worktreePath, start], in: path,
+                        timeout: GitRunner.checkoutTimeout)
+        } catch let error as GitError where !error.timedOut && error.code == 128 {
+            // Only diagnose an unresolved base. A valid base, hook failure, missing arbitrary ref
+            // or timeout keeps its normal error; creation itself never initializes a repository.
+            if try commit(start) == nil, let unborn = try unbornBranch(), base == unborn {
+                throw UnbornBranchError(branch: unborn)
+            }
+            throw error
+        }
         return worktreePath
     }
 
