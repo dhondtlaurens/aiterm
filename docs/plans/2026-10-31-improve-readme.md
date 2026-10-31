@@ -209,8 +209,8 @@ The findings and fixed triage are retained in the worktree's Git directory as
 `psg/change-claude.md` and `psg/change-triage.md`. The changed Markdown was rendered and validated
 again after this fix, and the final documentation gate and whitespace checks passed.
 
-All implementation to-dos are complete. The full suite and live app flow were not run for this
-documentation-only change; the full suite is required if the branch is later merged.
+All implementation to-dos are complete. The live app flow was not run for this documentation-only
+change. The full suite was subsequently run for the local merge, as recorded below.
 
 ## Review handoff
 
@@ -223,5 +223,19 @@ small verified fix. The documentation gate and whitespace/link checks were repea
 The final change contains the README, configuration guide, CONTRIBUTING link, user-guide index
 link and this plan's completion evidence. The repository uses local merges and no pull requests,
 so this handoff ends with a local documentation commit and verification that its tree matches
-the staged tree. Next integration step: the full pre-merge suite and the maintainer's local merge.
+the staged tree. The user subsequently requested the full pre-merge checks and local merge.
 Nothing has been pushed or published.
+
+## Pre-merge verification
+
+On the user's request to continue, `scripts/test.sh all` completed with exit zero before the local
+merge. The runner/toolchain guards passed; the daemon reported 1,453 passed and one skipped, with
+type checking across 77 source files and lint checks green. The Swift UI, app and core test runs
+passed, followed by the isolated snapshot pass (four tests). The core run reported 1,993 tests
+passed with two expected known-issue assertions in `EventuallyTests`.
+
+The main checkout was clean and remained at `d1259c8d`, the branch's tested base. Only this
+verification record was added after the full run; application code and the reviewed documentation
+were unchanged. The plain documentation gate and whitespace checks were rerun for the evidence
+commit. Integration uses the repository's local `--no-ff` merge convention. No live app switch,
+push or release is part of this step.
