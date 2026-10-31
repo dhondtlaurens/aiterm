@@ -50,7 +50,7 @@ struct FixFooterPresentation: Equatable {
 
     let lead: Lead?
     let offer: Offer?
-    /// Whether the failure's own recovery (Rebase, Switch to main) is offered: not while a fix is
+    /// Whether the failure's own recovery (rebase, switch branch, empty first commit) is offered: not while a fix is
     /// at work or proposed, since its buttons have the footer then.
     let showsRecovery: Bool
     let buttons: Buttons

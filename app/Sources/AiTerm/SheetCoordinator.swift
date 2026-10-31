@@ -281,7 +281,8 @@ final class SheetCoordinator {
         return TaskCreationModel(project: project, draft: draft,
                                  context: creationContext(project: project, catalogue: catalogue, failure: catalogueFailure),
                                  searchIssues: TaskCreationModel.jiraSearcher(for: project, jira: jira),
-                                 createTask: { try await launcher.createTask(draft: $0, project: project) })
+                                 createTask: { try await launcher.createTask(draft: $0, project: project) },
+                                 recover: { try await launcher.recover($0, in: project) })
     }
 
     private func makeReviewModel(project: Project, draft: ReviewDraft, catalogue: [AgentModel]? = nil, catalogueFailure: String? = nil,

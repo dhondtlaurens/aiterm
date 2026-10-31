@@ -7,6 +7,16 @@ struct TaskCreation: CreationKind {
     typealias Draft = TaskDraft
     typealias Item = JiraTicket
 
+    var recovery: @MainActor (CreationFailure.Recovery) async throws -> Void = { _ in
+        throw ActionUnavailable("Repository initialization is unavailable. Create the first commit in the project folder, then retry.")
+    }
+
+    func recover(_ recovery: CreationFailure.Recovery) async throws { try await self.recovery(recovery) }
+
+    func draftChanged(from old: TaskDraft, in model: TaskCreationModel) {
+        if old.baseBranch != model.draft.baseBranch { model.dropFailure() }
+    }
+
     func slug(for draft: TaskDraft) -> String { draft.worktreeSlug }
 
     /// A task's prompt carries its ticket too, when the person kept "Include Jira ticket details".
@@ -21,8 +31,11 @@ typealias TaskCreationModel = CreationModel<TaskCreation>
 extension CreationModel where Kind == TaskCreation {
     convenience init(project: Project, draft: TaskDraft, context: CreationContext,
                      searchIssues: @escaping @MainActor (String) async throws -> [JiraTicket],
-                     createTask: @escaping @MainActor (TaskDraft) async throws -> Void) {
-        self.init(kind: TaskCreation(), project: project, draft: draft, context: context,
+                     createTask: @escaping @MainActor (TaskDraft) async throws -> Void,
+                     recover: (@MainActor (CreationFailure.Recovery) async throws -> Void)? = nil) {
+        var kind = TaskCreation()
+        if let recover { kind.recovery = recover }
+        self.init(kind: kind, project: project, draft: draft, context: context,
                   search: searchIssues, submit: createTask)
     }
 

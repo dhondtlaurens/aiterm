@@ -41,6 +41,14 @@ public struct TaskWorkflow: Sendable {
     let git: any GitRunning
     public init(git: any GitRunning) { self.git = git }
 
+    /// The person's explicit choice to create an empty first commit, serialized with checkouts.
+    public func initializeRepository(_ project: Project, on branch: String) async throws {
+        let git = git
+        try await BackgroundWork.run(on: Self.queue) {
+            try Repository(project.path, git: git).initializeEmptyRepository(on: branch)
+        }
+    }
+
     /// `reserved` is the worktree folders archived rows come back to, which a new one must not take.
     public func create(draft: TaskDraft, project: Project, reserved: Set<String> = []) async throws -> Created {
         let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: draft.ticket, appendTicket: draft.appendTicket)

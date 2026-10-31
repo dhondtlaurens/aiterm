@@ -35,8 +35,8 @@ public struct Repository: Sendable {
     /// no default branch away.
     public static let fallbackDefaultBranch = "main"
 
-    /// The default branch, or `nil` when the repository does not say: no usable `origin/HEAD` and
-    /// none of the usual names. Throws when git cannot be asked, which says nothing either way.
+    /// The default branch: origin's HEAD, a usual name, then the current unborn branch. `nil`
+    /// when none applies. Throws when git cannot be asked, which says nothing either way.
     public func detectDefaultBranch() throws -> String? {
         // One `for-each-ref` over every ref the answer can come from. It lists only refs that
         // resolve, which is exactly what is wanted: `origin/HEAD` names a branch only while origin
@@ -56,7 +56,10 @@ public struct Repository: Sendable {
         if let originHead { return String(originHead.dropFirst(prefix.count)) }
         // No usable `origin/HEAD` — a clone of an empty repository, a remote added by hand: whichever
         // of the usual names exists, origin's first.
-        return usual.first(where: existing.contains).map { String($0.split(separator: "/").last!) }
+        if let ref = usual.first(where: existing.contains) { return String(ref.split(separator: "/").last!) }
+        // A freshly initialized repository has no refs yet, but HEAD still names the branch
+        // the first commit will create. Offer that name, including a custom init.defaultBranch.
+        return try unbornBranch()
     }
 
     /// ``detectDefaultBranch()``, or ``fallbackDefaultBranch`` when there is none or git cannot be

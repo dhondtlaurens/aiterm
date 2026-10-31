@@ -360,6 +360,9 @@ extension OperatorChallengeTests {
         @Test func withoutAReasonTheOracleReadsTheTasksLastShellCommands() async throws {
             let p = try pushing()
             try await refusedPush(p)
+            // The preceding tool records asynchronously. Finish its write before the fixture
+            // appends directly, or the two file handles can overwrite one another's entries.
+            await p.world.controller.tools.lastRecording?.value
             let folder = OperatorCommand.runFolder(p.run.id, home: p.world.ports.home)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             for (n, task) in [(1, p.task.id), (2, nil), (3, p.task.id), (4, p.task.id), (5, p.task.id), (6, p.task.id), (7, p.task.id)] as [(Int, UUID?)] {
