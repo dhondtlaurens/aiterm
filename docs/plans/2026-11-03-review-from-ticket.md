@@ -69,9 +69,17 @@ Out of scope: GitHub issues; the Operator's Jira tools and broadcasts (still Jir
 - **4C**: a row with a GitLab issue and a GitLab merge request draws **one** GitLab badge: the mark, `#53`, `!29`
   (`Space.snug` apart), then the threads count. Each number opens its own page, the mark the issue's. Each number
   follows its own key switch; with both off, the bare mark opens the merge request and its tooltip names both. A
-  Jira ticket keeps its own badge. `Badge` gets a two-label variant, so `AiTermUI/README.md` gets an inventory line.
+  Jira ticket keeps its own badge. Built from two existing quiet `Badge`s `Space.snug` apart (reuse before new), so
+  `Badge` and `AiTermUI/README.md` are unchanged.
 - **5B**: the row menu says "Open in Jira" for a Jira ticket and "Open in GitLab" for a GitLab issue.
 - Copy: as the proposal's copy table.
+
+## Changed while building
+
+- **No open-issues call.** The GitLab issue source is on whenever the remote is on the connected GitLab host; a
+  repository without open issues answers with none (403/404, issues off, reads as none too), and the placeholder
+  names GitLab issues once the list has shown one. Same result as the agreed rule, one request fewer per sheet.
+- **4C without a `Badge` variant**: see the design picks.
 
 ## Touch points (each one in the proposals)
 
@@ -127,7 +135,7 @@ App (`app/Sources/AiTerm`)
   the copy.
 - `ReviewCreationModel.swift`, `Views/NewReviewSheet.swift` modify: the Ticket field, auto-resolve both ways
   (stale lookups cancelled when a pick changes), the help states, the Prompt step checkbox.
-- `AiTermUI/Badge.swift` + its tests + `AiTermUI/README.md`: the two-label variant (4C).
+- `Views/Operators/BroadcastBoardSheet.swift` (`TaskBadges`, which the Shelf's rows use): the shared GitLab mark (4C).
 - `Views/SidebarRows.swift`, `Views/ArchiveSheet.swift`, `Views/InterfaceSettingsPane.swift`,
   `Views/SettingsCard.swift` (or wherever the GitLab card's copy lives) modify: chip mark, menu, copy.
 - `SheetCoordinator.swift` modify: hand both sheets the GitLab connection and the remote.
@@ -164,10 +172,10 @@ Docs
 
 - [x] Proposals for touch points 1–8, each decision with options and a recommended pick. Publish the design
       system and **stop for picks**. Picked: 1A 2A 3B 4C 5B.
-- [ ] Ticket source in Core: ticket and ref with a source, old saves decoding, the GitLab issues client,
+- [x] Ticket source in Core: ticket and ref with a source, old saves decoding, the GitLab issues client,
       TicketSearch. New Task lists GitLab issues end to end (rows, branch, prompt, chip, archive).
-- [ ] TicketMergeRequests: ticket ↔ open MRs, for Jira keys and GitLab issues.
-- [ ] New Review: the Ticket field after the MR field, auto-resolve both ways, the review keeps its ticket, the
+- [x] TicketMergeRequests: ticket ↔ open MRs, for Jira keys and GitLab issues.
+- [x] New Review: the Ticket field after the MR field, auto-resolve both ways, the review keeps its ticket, the
       prompt checkbox.
-- [ ] `Closes #N` in the prompt block and the publisher; the copy in Settings.
-- [ ] Sync the design system to the shipped Swift and empty the Proposals tab of these.
+- [x] `Closes #N` in the prompt block and the publisher; the copy in Settings.
+- [x] Sync the design system to the shipped Swift and empty the Proposals tab of these (published after the merge).

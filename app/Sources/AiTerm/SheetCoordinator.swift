@@ -217,20 +217,23 @@ final class SheetCoordinator {
         // The monitor reads each project's default branch on every pass: nothing to ask git for.
         nonisolated(unsafe) let defaults = defaults
         let git = self.git, known = checkouts.defaultBranch[project.id]
+        let jira = jiraSettings, gitLab = gitLabSettings
         prepareSheet(for: project, draft: { TaskDraft.initial(project: project, state: $0, git: git, agent: $1, catalog: $2, defaultBranch: known, defaults: defaults) },
-                     search: jiraSettings) { [unowned self] in
-            .newTask(makeCreationModel(project: project, draft: $0, catalogue: $1, catalogueFailure: $2, jira: $3))
+                     search: { (jira: jira(), gitLab: gitLab(),
+                                remote: ProviderDetector.detect(remoteUrl: project.remoteUrl, repoPath: project.path)) }) { [unowned self] in
+            .newTask(makeCreationModel(project: project, draft: $0, catalogue: $1, catalogueFailure: $2,
+                                       jira: $3.jira, gitLab: $3.gitLab, remote: $3.remote))
         }
     }
 
     func presentNewReview(project: Project) {
         nonisolated(unsafe) let defaults = defaults
-        let gitLab = gitLabSettings, gitHub = gitHubSettings
+        let jira = jiraSettings, gitLab = gitLabSettings, gitHub = gitHubSettings
         prepareSheet(for: project, draft: { ReviewDraft.initial(state: $0, agent: $1, catalog: $2, defaults: defaults) },
-                     search: { (gitLab: gitLab(), gitHub: gitHub(),
+                     search: { (jira: jira(), gitLab: gitLab(), gitHub: gitHub(),
                                 remote: ProviderDetector.detect(remoteUrl: project.remoteUrl, repoPath: project.path)) }) { [unowned self] in
             .newReview(makeReviewModel(project: project, draft: $0, catalogue: $1, catalogueFailure: $2,
-                                       gitLab: $3.gitLab, gitHub: $3.gitHub, remote: $3.remote))
+                                       jira: $3.jira, gitLab: $3.gitLab, gitHub: $3.gitHub, remote: $3.remote))
         }
     }
 
@@ -276,17 +279,18 @@ final class SheetCoordinator {
     /// `catalogue` is the one `draft` was built from, if the caller read it, and `catalogueFailure`
     /// why it is empty if reading it failed; `jira` is the connection read when the sheet was prepared.
     func makeCreationModel(project: Project, draft: TaskDraft, catalogue: [AgentModel]? = nil, catalogueFailure: String? = nil,
-                           jira: JiraConfig?) -> TaskCreationModel {
+                           jira: JiraConfig?, gitLab: GitLabConfig? = nil, remote: RemoteInfo? = nil) -> TaskCreationModel {
         let launcher = self.launcher
         return TaskCreationModel(project: project, draft: draft,
                                  context: creationContext(project: project, catalogue: catalogue, failure: catalogueFailure),
-                                 searchIssues: TaskCreationModel.jiraSearcher(for: project, jira: jira),
+                                 searchIssues: TaskCreationModel.ticketSearcher(for: project, jira: jira, gitLab: gitLab, remote: remote),
+                                 jiraConnected: jira != nil,
                                  createTask: { try await launcher.createTask(draft: $0, project: project) },
                                  recover: { try await launcher.recover($0, in: project) })
     }
 
     private func makeReviewModel(project: Project, draft: ReviewDraft, catalogue: [AgentModel]? = nil, catalogueFailure: String? = nil,
-                                 gitLab: GitLabConfig?, gitHub: GitHubConfig?, remote: RemoteInfo) -> ReviewCreationModel {
+                                 jira: JiraConfig?, gitLab: GitLabConfig?, gitHub: GitHubConfig?, remote: RemoteInfo) -> ReviewCreationModel {
         let launcher = self.launcher
         return ReviewCreationModel(project: project, draft: draft,
                                    context: creationContext(project: project, catalogue: catalogue, failure: catalogueFailure),
@@ -294,6 +298,7 @@ final class SheetCoordinator {
                                        workspace?.state.task(checkingOut: branch, in: project.id, worktrees: checkouts)
                                    }, codeHost: MergeRequestSearch.host(for: remote),
                                    searchMergeRequests: ReviewCreationModel.searcher(gitLab: gitLab, gitHub: gitHub, remote: remote),
+                                   tickets: ReviewTicketLookup(project: project, jira: jira, gitLab: gitLab, gitHub: gitHub, remote: remote),
                                    createReview: { try await launcher.createReview(draft: $0, project: project) },
                                    recover: { try await launcher.recover($0, in: project) }, fixer: { [agents] in agents.fixer },
                                    pipeline: fixPipeline(project), fixLanded: { launcher.announceFix($0, by: $1) },

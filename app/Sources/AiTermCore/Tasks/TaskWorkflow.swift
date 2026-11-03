@@ -56,9 +56,8 @@ public struct TaskWorkflow: Sendable {
     }
 
     public func createReview(draft: ReviewDraft, project: Project, reserved: Set<String> = []) async throws -> Created {
-        // No ticket: a review's prompt is whatever was typed, and step 3 offers no "include
-        // details" checkbox.
-        let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: nil, appendTicket: false)
+        // The ticket, when one was picked and step 3's checkbox kept, so the reviewer reads it too.
+        let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: draft.ticket, appendTicket: draft.appendTicket)
         return try await checkOut(draft, prompt: prompt) { try TaskCreator.createReview(draft: draft, project: project, reserved: reserved, git: $0) }
     }
 
@@ -77,7 +76,7 @@ public struct TaskWorkflow: Sendable {
     /// checked out: no checkout is made, so nothing exists that a failure here would have to keep,
     /// and it is thrown rather than turned into a launch warning.
     public func reviewCommand(draft: ReviewDraft, in task: TaskItem) async throws -> String {
-        let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: nil, appendTicket: false)
+        let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: draft.ticket, appendTicket: draft.appendTicket)
         let git = git
         return try await BackgroundWork.run(on: Self.queue) {
             try AgentCommand.build(agent: draft.agent, model: draft.model, reasoning: draft.reasoning,

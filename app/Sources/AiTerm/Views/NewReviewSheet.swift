@@ -5,7 +5,8 @@ import AiTermCore
 
 /// New Review's three steps: Branch, Agent, Prompt. A review checks out a branch that already
 /// exists — optionally the source branch of a merge request — instead of creating one, so step 1
-/// picks rather than derives, and there is no base branch to choose.
+/// picks rather than derives, and there is no base branch to choose. Its merge request and its
+/// ticket fill each other: picking one looks the other up, and the field it filled says so.
 struct NewReviewSheet: View {
     @Bindable var model: ReviewCreationModel
     private var _step = State(initialValue: 1)
@@ -14,6 +15,10 @@ struct NewReviewSheet: View {
     private var mrOpen: Bool { get { _mrOpen.wrappedValue } nonmutating set { _mrOpen.wrappedValue = newValue } }
     private var _branchOpen = State(initialValue: false)
     private var branchOpen: Bool { get { _branchOpen.wrappedValue } nonmutating set { _branchOpen.wrappedValue = newValue } }
+    private var _ticketsOpen = State(initialValue: false)
+    private var ticketsOpen: Bool { get { _ticketsOpen.wrappedValue } nonmutating set { _ticketsOpen.wrappedValue = newValue } }
+    /// As New Task's ticket key column.
+    private static let ticketKeyWidth: CGFloat = 74
 
     /// A result row's `!iid` column: a four-digit merge request number in the mono code face, so
     /// the titles after it start on one line.
@@ -21,24 +26,33 @@ struct NewReviewSheet: View {
 
     init(model: ReviewCreationModel) { self.model = model }
 
-    /// ⎋ closes the merge request list first, then the branch list, and only then steps back.
+    /// ⎋ closes the merge request list first, then the ticket list, then the branch list, and only
+    /// then steps back.
     var body: some View {
         CreationSheet(model: model, step: _step.projectedValue, title: "New review in \(model.project.name)",
                       stepNames: ["Branch", "Agent", "Prompt"],
                       destination: Self.destination(step: step, project: model.project, owner: model.owningTask,
                                                     slug: model.worktreeSlug, branch: model.draft.branch),
                       createLabel: Self.createLabel(owner: model.owningTask), canAdvance: Self.canAdvance(step: step, model: model),
-                      pickers: [_mrOpen.projectedValue, _branchOpen.projectedValue]) {
+                      pickers: [_mrOpen.projectedValue, _ticketsOpen.projectedValue, _branchOpen.projectedValue]) {
             content
         }
         .task { await model.loadCheckouts() }
+        .task { await model.searchTickets(text: "") }
+        // The ticket's lookup found several requests: the list opens on them.
+        .onChange(of: model.requestListOffers) { mrOpen = true }
     }
 
     @ViewBuilder private var content: some View {
         switch step {
         case 1: branchStep
         case 2: AgentStep(model: model)
-        default: PromptStep(text: $model.promptText, agent: model.draft.agent, completions: model.completions)
+        default: PromptStep(text: $model.promptText, agent: model.draft.agent, completions: model.completions) {
+            if model.draft.ticket != nil {
+                Toggle("Include ticket details", isOn: $model.draft.appendTicket)
+                    .toggleStyle(.checkbox).font(Typography.body)
+            }
+        }
         }
     }
 
@@ -56,10 +70,37 @@ struct NewReviewSheet: View {
                              toggleHelp: { $0 ? "Hide \(model.codeHost.reviewNoun)s" : "Show open \(model.codeHost.reviewNoun)s" })
                 if let message = model.pickRefusal ?? model.searchError {
                     HelpText(message, tone: .warning)
+                } else if let key = model.draft.mrFoundFrom {
+                    HelpText("Found from \(key).")
+                } else if let note = model.ticketLookupNote {
+                    HelpText(note)
                 } else if model.draft.mr == nil {
                     // As New Task guards its ticket help line: an instruction to pick one reads
                     // wrong sitting under one already picked.
                     HelpText(model.codeHost.reviewHint)
+                }
+            }
+
+            FormField("Ticket (optional)") {
+                SearchPicker(placeholder: model.ticketPlaceholder,
+                             query: Binding(get: { model.ticketQuery }, set: { model.setTicketQuery($0) }),
+                             open: _ticketsOpen.projectedValue,
+                             items: model.ticketResults, selection: model.draft.ticket,
+                             row: { ticket in
+                                 PickerResultRow(mark: .brand(ticket.brand), key: ticket.key, keyWidth: Self.ticketKeyWidth,
+                                                 title: ticket.summary, detail: ticket.status ?? "")
+                             },
+                             selected: selectedTicket,
+                             onPick: { model.pickTicket($0) },
+                             toggleHelp: { $0 ? "Hide tickets" : "Show open tickets" })
+                if let reference = model.draft.ticketFoundFrom {
+                    HelpText("Found from \(reference).")
+                } else if model.draft.ticket == nil {
+                    if let message = model.ticketSearchError {
+                        HelpText(message, tone: .warning)
+                    } else {
+                        HelpText("Select a ticket to find its \(model.codeHost.reviewNoun).")
+                    }
                 }
             }
 
@@ -118,6 +159,14 @@ struct NewReviewSheet: View {
         }
     }
 
+    private func selectedTicket(_ ticket: JiraTicket) -> some View {
+        PickedItemField(mark: .brand(ticket.brand), key: ticket.key, title: ticket.summary, trailing: {
+            if let status = ticket.status { LaneChip(lane: status, brand: ticket.brand, ink: ticket.laneInk) }
+        }, clearHelp: "Clear ticket") {
+            model.clearTicket(); model.reopenTicketSearch(); ticketsOpen = true
+        }
+    }
+
     private func selectedBranch(_ choice: BranchChoice) -> some View {
         PickedItemField(title: choice.name, monospaced: true, clearHelp: "Change branch") {
             model.draft.setBranch(""); model.branchQuery = ""; branchOpen = true
@@ -165,11 +214,12 @@ struct NewReviewSheet: View {
 extension NewReviewSheet {
     /// The sheet already on `step`, with its lists open or not: what only clicks reach in the app,
     /// for the snapshots and the tests that host the sheet.
-    func seeded(step: Int, mergeRequestsOpen: Bool = false, branchesOpen: Bool = false) -> Self {
+    func seeded(step: Int, mergeRequestsOpen: Bool = false, branchesOpen: Bool = false, ticketsOpen: Bool = false) -> Self {
         var sheet = self
         sheet._step = State(initialValue: step)
         sheet._mrOpen = State(initialValue: mergeRequestsOpen)
         sheet._branchOpen = State(initialValue: branchesOpen)
+        sheet._ticketsOpen = State(initialValue: ticketsOpen)
         return sheet
     }
 }

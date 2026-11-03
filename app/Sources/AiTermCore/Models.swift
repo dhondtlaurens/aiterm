@@ -201,9 +201,37 @@ public enum SidebarItem: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+/// A task's ticket as saved: a Jira issue, or a GitLab issue (`source`). A save from before GitLab
+/// issues has no `source` and reads as Jira, and a Jira ref is written without one, as it always was.
 public struct JiraRef: Codable, Equatable, Sendable {
     public var key: String, summary: String, url: String
-    public init(key: String, summary: String, url: String) { self.key = key; self.summary = summary; self.url = url }
+    public var source: TicketSource
+    public init(key: String, summary: String, url: String, source: TicketSource = .jira) {
+        self.key = key; self.summary = summary; self.url = url; self.source = source
+    }
+
+    public init(_ ticket: JiraTicket) { self.init(key: ticket.key, summary: ticket.summary, url: ticket.url, source: ticket.source) }
+
+    private enum CodingKeys: String, CodingKey { case key, summary, url, source }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decode(String.self, forKey: .key)
+        summary = try c.decode(String.self, forKey: .summary)
+        url = try c.decode(String.self, forKey: .url)
+        source = try c.decodeIfPresent(TicketSource.self, forKey: .source) ?? .jira
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(key, forKey: .key)
+        try c.encode(summary, forKey: .summary)
+        try c.encode(url, forKey: .url)
+        if source != .jira { try c.encode(source, forKey: .source) }
+    }
+
+    /// Whether it is a GitLab issue rather than a Jira ticket.
+    public var isGitLabIssue: Bool { if case .gitLab = source { true } else { false } }
 }
 
 /// Which of the two branch-shaped flows made this item; only `== .review` is ever tested. A task

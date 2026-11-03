@@ -24,7 +24,39 @@ enum SheetSnapshots {
                 return taskSheet(step: 3, draft: draft)
             },
             Snapshot("step3-completions.png") { completions() },
+            Snapshot("step1-gitlab-issues.png") { taskSheet(step: 1, draft: draft(), ticketsOpen: true, results: mixedTickets) },
+            Snapshot("step1-gitlab-picked.png") {
+                var draft = draft()
+                draft.apply(ticket: mixedTickets[0])
+                return taskSheet(step: 1, draft: draft, results: mixedTickets)
+            },
             Snapshot("review-step1.png") { reviewSheet(step: 1, mergeRequestsOpen: true) },
+            Snapshot("review-ticket-found.png") {
+                reviewSheet(step: 1) {
+                    $0.draft.apply(ticket: reviewTicket)
+                    $0.draft.found(mr: mergeRequests[1], from: reviewTicket.key)
+                }
+            },
+            Snapshot("review-request-found-ticket.png") {
+                reviewSheet(step: 1) {
+                    $0.draft.apply(mr: mergeRequests[1])
+                    $0.draft.found(ticket: reviewTicket, from: mergeRequests[1].reference)
+                }
+            },
+            Snapshot("review-ticket-none.png") {
+                reviewSheet(step: 1) {
+                    $0.draft.apply(ticket: reviewTicket)
+                    $0.kind.ticketLookupNote = "No open merge request for \(reviewTicket.key) in acme/storefront."
+                    $0.branchQuery = reviewTicket.key
+                }
+            },
+            Snapshot("review-step3-ticket.png") {
+                reviewSheet(step: 3) {
+                    $0.draft.apply(ticket: reviewTicket)
+                    $0.draft.found(mr: mergeRequests[1], from: reviewTicket.key)
+                    $0.promptText = "/code-review"
+                }
+            },
             Snapshot("review-step2.png") { reviewSheet(step: 2) },
             // Step 3 is reached only with a branch, which its destination line names.
             Snapshot("review-step3.png") { reviewSheet(step: 3) { $0.draft.apply(mr: mergeRequests[0]) } },
@@ -148,6 +180,22 @@ enum SheetSnapshots {
         JiraTicket(key: "SHOP-1640", summary: "Fix the storefront's Lighthouse accessibility score", description: nil, issueType: "Bug", status: "To Do", url: "u"),
     ]
 
+    /// New Task's list on a project that keeps issues on GitLab too: both, by when each last changed.
+    static let mixedTickets = [
+        JiraTicket(key: "#55", summary: "Opt-in Entire (entire.io) integration: attach orchestrated agent sessions", description: nil,
+                   issueType: "enhancement priority::medium", status: "enhancement", url: "u", source: .gitLab(project: "acme/storefront")),
+        JiraTicket(key: "PAY-214", summary: "Add Apple Pay to the checkout flow", description: nil, issueType: "Story", status: "In Progress", url: "u"),
+        JiraTicket(key: "#51", summary: "Scaffold AGENTS.md and its pointers on init", description: nil,
+                   issueType: "enhancement", status: "enhancement", url: "u", source: .gitLab(project: "acme/storefront")),
+        JiraTicket(key: "#44", summary: "Prompt injection through templated ticket bodies", description: nil,
+                   issueType: "bugfix priority::high", status: "bugfix", url: "u", source: .gitLab(project: "acme/storefront")),
+        JiraTicket(key: "SHOP-1088", summary: "Cut product page load time in half", description: nil, issueType: "Task", status: "In Progress", url: "u"),
+    ]
+
+    /// The ticket New Review's states start from: its merge request is `mergeRequests[1]`.
+    static let reviewTicket = JiraTicket(key: "SHOP-1720", summary: "Drop the unused CDN origin", description: nil,
+                                         issueType: "Task", status: "Review", url: "u")
+
     static let mergeRequests = [
         MergeRequest(iid: 4, title: "Add a gift-card field to checkout", sourceBranch: "feat-gift-card",
                      targetBranch: "main", author: "Sam Rivera", state: "opened", draft: false,
@@ -176,8 +224,9 @@ enum SheetSnapshots {
     /// New Task on `step`, its ticket search answered with `tickets`, and `worktreeIncludes` as if
     /// the project's `.worktreeinclude` had selected them.
     private static func taskSheet(step: Int, draft: TaskDraft, ticketsOpen: Bool = false,
-                                  worktreeIncludes: [String] = []) -> NewTaskSheet {
+                                  worktreeIncludes: [String] = [], results: [JiraTicket]? = nil) -> NewTaskSheet {
         let model = taskModel(draft)
+        if let results { model.results = results }
         model.worktreeIncludes = worktreeIncludes
         return NewTaskSheet(model: model).seeded(step: step, ticketsOpen: ticketsOpen)
     }

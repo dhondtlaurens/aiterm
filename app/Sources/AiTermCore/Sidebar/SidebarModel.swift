@@ -69,6 +69,9 @@ public struct TaskRow: Equatable, Identifiable, Sendable {
     public var id: UUID, title: String, jiraKey: String?, jiraUrl: String?, mr: MergeRequestRef?
     public var branch: BranchLabel, avatars: AvatarGroup, status: TaskStatus
     public var diff: BaseDiff? = nil
+    /// Whether the ticket is a GitLab issue (`#53`) rather than a Jira ticket: its mark, and on a
+    /// review whose merge request is GitLab's too, one badge for both.
+    public var ticketIsGitLabIssue = false
     /// The status line of a task the Operator drives (`OperatorLine.task`), its row's third line; nil for a
     /// task you made yourself or took over. That line is the Operator's alone: a test run on a task of your own is
     /// not drawn as one (29 Oct 2026); it shows only as background work, on the row's mark and its card.
@@ -526,12 +529,14 @@ public enum SidebarModel {
         }
         let queued = line != nil && task.isQueuedByOperator
         let status = aggregate(tabs: own)
-        return TaskRow(id: task.id, title: task.title, jiraKey: task.jira?.key, jiraUrl: task.jira?.url, mr: task.mr,
+        var row = TaskRow(id: task.id, title: task.title, jiraKey: task.jira?.key, jiraUrl: task.jira?.url, mr: task.mr,
                        branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: task.branch, fallback: nil),
                        avatars: queued && own.isEmpty ? AvatarGroup(marks: [task.agent.session], overflow: 0) : avatars(for: own),
                        status: queued ? status : heldStatus(status, line: line),
                        diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line,
                        broadcastLive: run.map { !$0.hasEnded } ?? false, queued: queued, background: displayJobs(of: own))
+        row.ticketIsGitLabIssue = task.jira?.isGitLabIssue ?? false
+        return row
     }
 
     /// A driven task's status while the Operator holds it, its line neither gone nor ended (P3 1A, 21 Oct

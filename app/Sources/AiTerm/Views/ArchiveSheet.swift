@@ -104,7 +104,8 @@ struct ArchiveRow: View {
         let task = entry.archived.task
         let host = CodeHost(webURL: task.mr?.url ?? "")
         return TaskBadges(ticket: task.jira?.key, ticketSummary: task.jira?.summary,
-                          mr: task.mr.map { host.reference($0.iid) }, mrHost: host, mrTitle: task.mr?.title)
+                          mr: task.mr.map { host.reference($0.iid) }, mrHost: host, mrTitle: task.mr?.title,
+                          ticketIsGitLabIssue: task.jira?.isGitLabIssue ?? false)
     }
 
     var body: some View {

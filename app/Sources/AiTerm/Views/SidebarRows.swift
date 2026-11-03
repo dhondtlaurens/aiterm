@@ -467,7 +467,7 @@ struct TaskRowView: View {
                 Divider()
                 Button("Open in Finder") { ExternalApps.openInFinder(path: task.worktreePath) }
                 if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: task.worktreePath) } }
-                if let jira = task.jira { Button("Open in Jira") { ExternalApps.open(link: jira.url) } }
+                if let jira = task.jira { Button(jira.isGitLabIssue ? "Open in GitLab" : "Open in Jira") { ExternalApps.open(link: jira.url) } }
                 Divider()
                 // No ellipsis: it asks nothing unless the worktree has changes to lose.
                 Button("Shelve \(task.kindName)") { Task { await controller.archiver.archive(task: task) } }
@@ -482,14 +482,18 @@ struct TaskRowView: View {
     /// and the last of them from the branch.
     private func badgeLine(_ fit: TaskRowBadges.Fit, of badges: TaskRowBadges, beforeBranch: Bool) -> some View {
         HStack(spacing: scale(Space.gap)) {
-            if fit.ticket, let ticket = badges.ticket {
-                Badge(ticket.label, icon: .brand(Palette.jira), help: ticket.help,
-                      style: .quiet, action: ticket.url.map { url in { ExternalApps.open(link: url) } })
-            }
-            if fit.mergeRequest, let mr = badges.mergeRequest {
-                Badge(mr.label, icon: .brand((mr.host ?? .gitLab).brand), help: mr.help, suffix: mr.threads,
-                      style: .quiet, accessibilityLabel: mr.accessibilityLabel,
-                      action: mr.url.map { url in { ExternalApps.open(link: url) } })
+            if fit.ticket, fit.mergeRequest, let ticket = badges.ticket, let mr = badges.mergeRequest, badges.sharesGitLabMark {
+                gitLabPair(issue: ticket, request: mr)
+            } else {
+                if fit.ticket, let ticket = badges.ticket {
+                    Badge(ticket.label, icon: .brand(ticket.host == .gitLab ? Palette.gitlab : Palette.jira), help: ticket.help,
+                          style: .quiet, action: ticket.url.map { url in { ExternalApps.open(link: url) } })
+                }
+                if fit.mergeRequest, let mr = badges.mergeRequest {
+                    Badge(mr.label, icon: .brand((mr.host ?? .gitLab).brand), help: mr.help, suffix: mr.threads,
+                          style: .quiet, accessibilityLabel: mr.accessibilityLabel,
+                          action: mr.url.map { url in { ExternalApps.open(link: url) } })
+                }
             }
             // Off its base it extends to `+12 −3` unless Settings has turned that off or the row is too
             // narrow, the base named only in the tooltip, which keeps the counts; a click opens the worktree.
@@ -501,6 +505,28 @@ struct TaskRowView: View {
             }
         }
         .padding(.trailing, beforeBranch && !fit.wearsNone ? scale(Space.gap) : 0)
+    }
+
+    /// A GitLab issue and a GitLab merge request on one row: one mark, then `#53`, then `!29` and its
+    /// threads, `Space.snug` apart — two quiet badges, so each number opens its own page, the mark
+    /// the issue's. Each number follows its own switch; with both off the bare mark opens the merge
+    /// request, and its tooltip names both.
+    @ViewBuilder
+    private func gitLabPair(issue: TaskRowBadges.Link, request: TaskRowBadges.Link) -> some View {
+        let open = { (link: TaskRowBadges.Link) in link.url.map { url in { ExternalApps.open(link: url) } } }
+        let mark = IconSource.brand(Palette.gitlab)
+        if issue.label == nil, request.label == nil {
+            Badge(icon: mark, help: "\(issue.help) · \(request.help)", suffix: request.threads, style: .quiet,
+                  accessibilityLabel: request.accessibilityLabel, action: open(request))
+        } else {
+            HStack(spacing: scale(Space.snug)) {
+                Badge(issue.label, icon: mark, help: issue.help, style: .quiet, action: open(issue))
+                if request.label != nil || request.threads != nil {
+                    Badge(request.label, help: request.help, suffix: request.threads, style: .quiet,
+                          accessibilityLabel: request.accessibilityLabel, action: open(request))
+                }
+            }
+        }
     }
 }
 
@@ -833,8 +859,12 @@ struct TaskRowBadges: Equatable {
     /// The SF Symbol a merge request's thread count stands behind.
     static let threadsSymbol = "bubble.left"
 
+    /// A ticket's `host` is `.gitLab` for a GitLab issue, nil for a Jira ticket.
     var ticket: Link?
     var mergeRequest: Link?
+
+    /// A GitLab issue beside a GitLab merge request: they share one mark (`gitLabPair`).
+    var sharesGitLabMark: Bool { ticket?.host == .gitLab && (mergeRequest?.host ?? .gitLab) == .gitLab && mergeRequest != nil }
     /// The VS Code badge's `+12 −3`; `nil` draws the plain mark.
     var diff: Badge.Diff?
     /// Always names the counts when there are any, whether or not the badge prints them.
@@ -842,10 +872,11 @@ struct TaskRowBadges: Equatable {
 
     /// `threads` is the row's merge request's, as last read; `nil` while there is no answer.
     init(row: TaskRow, details: BadgeDetails, threads: ReviewThreads? = nil) {
+        let ticketHost: CodeHost? = row.ticketIsGitLabIssue ? .gitLab : nil
         ticket = row.jiraKey.map { key in
             details.jiraTicket
-                ? Link(label: key, help: row.jiraUrl ?? key, url: row.jiraUrl)
-                : Link(label: nil, help: row.jiraUrl.map { "\(key) · \($0)" } ?? key, url: row.jiraUrl)
+                ? Link(label: key, help: row.jiraUrl ?? key, url: row.jiraUrl, host: ticketHost)
+                : Link(label: nil, help: row.jiraUrl.map { "\(key) · \($0)" } ?? key, url: row.jiraUrl, host: ticketHost)
         }
         mergeRequest = row.mr.map { mr in
             var link = details.mergeRequest

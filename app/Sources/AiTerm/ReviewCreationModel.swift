@@ -1,6 +1,60 @@
 import Foundation
 import AiTermCore
 
+/// What New Review's ticket field reads, and how it and the merge request field fill each other:
+/// the ticket search (Jira and the repository's GitLab issues, as New Task's), a ticket's open
+/// merge requests in this repository, and a merge request's ticket. Closures, so a test hands its
+/// own; `init(project:jira:gitLab:gitHub:remote:)` makes the real ones from the connections read
+/// when the sheet was prepared.
+struct ReviewTicketLookup: Sendable {
+    var search: @Sendable (String) async throws -> [JiraTicket]
+    var requests: @Sendable (JiraTicket) async throws -> TicketMergeRequests.Found
+    var ticket: @Sendable (MergeRequest) async throws -> JiraTicket?
+    /// The repository a miss names: `jarvis/jarvis`.
+    var repository: String
+    var jiraConnected: Bool
+    var jiraProjects: [String]
+
+    /// No tickets anywhere: for a sheet that is not about them.
+    static let none = ReviewTicketLookup(search: { _ in [] }, requests: { _ in .init(requests: [], complete: true) },
+                                         ticket: { _ in nil }, repository: "", jiraConnected: false, jiraProjects: [])
+
+    init(search: @escaping @Sendable (String) async throws -> [JiraTicket],
+         requests: @escaping @Sendable (JiraTicket) async throws -> TicketMergeRequests.Found,
+         ticket: @escaping @Sendable (MergeRequest) async throws -> JiraTicket?,
+         repository: String, jiraConnected: Bool, jiraProjects: [String]) {
+        self.search = search; self.requests = requests; self.ticket = ticket
+        self.repository = repository; self.jiraConnected = jiraConnected; self.jiraProjects = jiraProjects
+    }
+
+    init(project: Project, jira: JiraConfig?, gitLab: GitLabConfig?, gitHub: GitHubConfig?, remote: RemoteInfo) {
+        let jiraSource = TaskCreationModel.jiraSource(for: project, jira: jira)
+        let issues = TaskCreationModel.gitLabIssueSource(gitLab: gitLab, remote: remote)
+        let tickets = TicketSearch(jira: jiraSource, jiraUnavailable: TaskCreationModel.connectJira, gitLabIssues: issues)
+        let repository = try? MergeRequestSearch.source(for: remote, gitLab: gitLab, gitHub: gitHub)
+        let linked = project.jiraProjects
+        self.init(
+            search: { try await tickets.tickets(matching: $0) },
+            requests: { ticket in
+                guard let repository else { return .init(requests: [], complete: true) }
+                return try await TicketMergeRequests.requests(for: ticket, in: repository)
+            },
+            ticket: { request in
+                switch TicketMergeRequests.reference(of: request, issues: issues != nil) {
+                case .gitLabIssue(let number)?:
+                    return try await issues?("#\(number)").first
+                case .jira(let key)?:
+                    // A key from another project's prefix is a word that looks like one (`release-2026`).
+                    guard let jiraSource, linked.isEmpty || linked.contains(where: { key.hasPrefix($0.key + "-") }) else { return nil }
+                    return try await jiraSource(key).first { $0.key == key }
+                case nil:
+                    return nil
+                }
+            },
+            repository: remote.path, jiraConnected: jira != nil, jiraProjects: linked.map(\.key))
+    }
+}
+
 /// New Review's part of `CreationModel`: it searches the project's open merge requests, follows
 /// which task already has the branch checked out, and filters the branch list as it is typed. Its
 /// state is read through `ReviewCreationModel`, which keeps it current.
@@ -20,9 +74,29 @@ final class ReviewCreation: CreationKind {
     fileprivate(set) var branchQuery = ""
     fileprivate(set) var branchMatches: [String] = []
 
+    // The ticket field: its own search, as the merge request field's is `CreationModel`'s.
+    fileprivate let tickets: ReviewTicketLookup
+    fileprivate(set) var ticketQuery = ""
+    fileprivate(set) var ticketResults: [JiraTicket] = []
+    fileprivate(set) var ticketSearchError: String?
+    /// What the ticket's lookup said when it filled nothing: several requests, none, or none among
+    /// those it read. Shown under the merge request field.
+    var ticketLookupNote: String?
+    /// Bumped when the lookup found several requests and the merge request list should open on them.
+    fileprivate(set) var requestListOffers = 0
+    @ObservationIgnored fileprivate var ticketSearchTask: Task<Void, Never>?
+    @ObservationIgnored fileprivate var ticketSearchGeneration = 0
+    /// The lookup in flight, if any: a newer pick cancels it, and a test awaits it.
+    @ObservationIgnored var lookupTask: Task<Void, Never>?
+
     init(codeHost: CodeHost, findOwner: @escaping (String, [Worktree]) -> TaskItem?,
-         fix: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void) {
-        self.codeHost = codeHost; self.findOwner = findOwner; self.fix = fix
+         fix: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void, tickets: ReviewTicketLookup = .none) {
+        self.codeHost = codeHost; self.findOwner = findOwner; self.fix = fix; self.tickets = tickets
+    }
+
+    /// The reviewer's prompt carries the ticket too, when step 3's checkbox was kept.
+    func composedPrompt(_ text: String, draft: ReviewDraft) -> String? {
+        AgentCommand.composePrompt(userText: text, ticket: draft.ticket, appendTicket: draft.appendTicket)
     }
 
     func slug(for draft: ReviewDraft) -> String { BranchNaming.reviewSlug(branch: draft.branch) }
@@ -73,12 +147,13 @@ extension CreationModel where Kind == ReviewCreation {
                      owningTask: @escaping (_ branch: String, _ checkouts: [Worktree]) -> TaskItem? = { _, _ in nil },
                      codeHost: CodeHost = .gitLab,
                      searchMergeRequests: @escaping @MainActor (String) async throws -> [MergeRequest],
+                     tickets: ReviewTicketLookup = .none,
                      createReview: @escaping @MainActor (ReviewDraft) async throws -> Void,
                      recover: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void,
                      fixer: @escaping @MainActor () -> FixerResolution = { .off }, pipeline: FixPipeline? = nil,
                      fixLanded: @escaping @MainActor (FixLanding, FixerAgent) -> Void = { _, _ in },
                      backupKept: @escaping @MainActor (FixLanding) -> Void = { _ in }) {
-        self.init(kind: ReviewCreation(codeHost: codeHost, findOwner: owningTask, fix: recover), project: project, draft: draft, context: context,
+        self.init(kind: ReviewCreation(codeHost: codeHost, findOwner: owningTask, fix: recover, tickets: tickets), project: project, draft: draft, context: context,
                   search: searchMergeRequests, submit: createReview,
                   fixer: fixer, pipeline: pipeline, fixLanded: fixLanded, backupKept: backupKept)
         findOwningTask()
@@ -143,13 +218,129 @@ extension CreationModel where Kind == ReviewCreation {
         kind.pickRefusal = nil
         cancelSearch()
         searchError = nil
+        kind.ticketLookupNote = nil
         draft.apply(mr: mr)
+        lookUpTicket(of: mr)
     }
 
     /// The sheet's clear action on a picked request.
     func clearPick() {
         kind.pickRefusal = nil
+        kind.ticketLookupNote = nil
+        kind.lookupTask?.cancel()
         draft.apply(mr: nil)
+    }
+
+    // -- the ticket field ----------------------------------------------------------------------
+
+    var ticketQuery: String { kind.ticketQuery }
+    var ticketResults: [JiraTicket] { kind.ticketResults }
+    var ticketSearchError: String? { kind.ticketSearchError }
+    var ticketLookupNote: String? { kind.ticketLookupNote }
+    var requestListOffers: Int { kind.requestListOffers }
+
+    /// As New Task's ticket field says what it searches.
+    var ticketPlaceholder: String {
+        TaskCreationModel.ticketPlaceholder(jiraProjects: kind.tickets.jiraProjects, jiraConnected: kind.tickets.jiraConnected,
+                                            gitLabIssues: kind.ticketResults.contains { $0.issueNumber != nil })
+    }
+
+    func setTicketQuery(_ text: String) {
+        kind.ticketQuery = text
+        scheduleTicketSearch(text)
+    }
+
+    func reopenTicketSearch() { setTicketQuery("") }
+
+    private func scheduleTicketSearch(_ text: String) {
+        kind.ticketSearchTask?.cancel()
+        kind.ticketSearchTask = Task { await searchTickets(text: text, debounce: true) }
+    }
+
+    /// As `search(text:debounce:)`: a stale answer is dropped, a failure clears the list, and one
+    /// source failing beside another's rows shows both.
+    func searchTickets(text: String, debounce: Bool = false) async {
+        kind.ticketSearchGeneration += 1
+        let generation = kind.ticketSearchGeneration
+        do {
+            if debounce { try await Task.sleep(for: .milliseconds(250)) }
+            try Task.checkCancellation()
+            let found = try await kind.tickets.search(text)
+            guard !Task.isCancelled, generation == kind.ticketSearchGeneration else { return }
+            kind.ticketResults = found; kind.ticketSearchError = nil
+        } catch {
+            guard !Task.isCancelled, generation == kind.ticketSearchGeneration else { return }
+            if let partial = error as? PartialSearch<JiraTicket> {
+                kind.ticketResults = partial.items; kind.ticketSearchError = partial.message
+            } else {
+                kind.ticketResults = []; kind.ticketSearchError = error.localizedDescription
+            }
+        }
+    }
+
+    /// A ticket picked by hand, then its merge requests looked up in this repository: one is picked,
+    /// several open the merge request list on them, none says so and starts the branch search from
+    /// the key. A merge request picked by hand stays.
+    func pickTicket(_ ticket: JiraTicket) {
+        kind.ticketSearchTask?.cancel()
+        kind.ticketSearchError = nil
+        kind.ticketLookupNote = nil
+        draft.apply(ticket: ticket)
+        guard draft.mr == nil || draft.mrFoundFrom != nil else { return }
+        let lookup = kind.tickets
+        startLookup { [weak self] in
+            let found = try await lookup.requests(ticket)
+            guard let self, !Task.isCancelled, self.draft.ticket == ticket else { return }
+            self.apply(found, for: ticket)
+        }
+    }
+
+    func clearTicket() {
+        kind.lookupTask?.cancel()
+        kind.ticketLookupNote = nil
+        draft.apply(ticket: nil)
+    }
+
+    private func apply(_ found: TicketMergeRequests.Found, for ticket: JiraTicket) {
+        let usable = found.requests.filter { $0.forkHead == nil }
+        if usable.count == 1, found.complete, let only = usable.first {
+            draft.found(mr: only, from: ticket.key)
+            return
+        }
+        if !usable.isEmpty {
+            let noun = codeHost.reviewNoun
+            kind.ticketLookupNote = usable.count == 1
+                ? "1 open \(noun) mentions \(ticket.key)."
+                : "\(usable.count) open \(noun)s mention \(ticket.key)."
+            cancelSearch()
+            results = usable
+            kind.requestListOffers += 1
+            return
+        }
+        kind.ticketLookupNote = found.complete
+            ? "No open \(codeHost.reviewNoun) for \(ticket.key) in \(kind.tickets.repository)."
+            : "None of the \(TicketMergeRequests.pages * 100) most recent open \(codeHost.reviewNoun)s in \(kind.tickets.repository) mention \(ticket.key)."
+        if draft.branch.isEmpty { branchQuery = ticket.issueNumber.map { "\($0)-" } ?? ticket.key }
+    }
+
+    /// The merge request's ticket, read off it, unless one was picked by hand.
+    private func lookUpTicket(of mr: MergeRequest) {
+        guard draft.ticket == nil || draft.ticketFoundFrom != nil else { return }
+        let lookup = kind.tickets
+        startLookup { [weak self] in
+            let ticket = try await lookup.ticket(mr)
+            guard let self, !Task.isCancelled, self.draft.mr == mr, let ticket else { return }
+            self.draft.found(ticket: ticket, from: mr.reference)
+        }
+    }
+
+    /// One lookup at a time: a newer pick cancels the one before. A lookup that fails says nothing
+    /// worse than not filling the field, which stays the person's to pick.
+    private func startLookup(_ work: @escaping @MainActor () async throws -> Void) {
+        kind.lookupTask?.cancel()
+        kind.lookupTask = Task { @MainActor in
+            await Log.network.attempt("Looking up the review’s ticket or merge request", level: .info) { try await work() }
+        }
     }
 
     /// What the branch field has typed, and the branches it matches. Filtered when either changes

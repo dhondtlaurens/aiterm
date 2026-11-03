@@ -58,6 +58,21 @@ public struct GitHubClient: Sendable {
         return Array(matching.prefix(Self.shownLimit))
     }
 
+    /// Up to `pages` pages of the repository's open pull requests, `perPage` at a time, the most
+    /// recently updated first, and whether that was all of them: a short page is the last.
+    public func openPullRequests(repo: String, perPage: Int = 100, pages: Int = 5) async throws -> (requests: [MergeRequest], complete: Bool) {
+        var all: [MergeRequest] = []
+        for page in 1...max(1, pages) {
+            let query = [URLQueryItem(name: "state", value: "open"), URLQueryItem(name: "sort", value: "updated"),
+                         URLQueryItem(name: "direction", value: "desc"), URLQueryItem(name: "per_page", value: String(perPage)),
+                         URLQueryItem(name: "page", value: String(page))]
+            let read = try await get([Lenient<PullPayload>].self, path: "/repos/\(repo)/pulls", query: query, notFound: .repoNotFound(repo))
+            all += read.compactMap { $0.value?.mergeRequest }
+            if read.count < perPage { return (all, true) }
+        }
+        return (all, false)
+    }
+
     /// `87`, `#87`, or GitLab's `!87` from habit.
     static func number(_ text: String) -> Int? {
         guard text.range(of: #"^[#!]?\d+$"#, options: .regularExpression) != nil else { return nil }
@@ -564,6 +579,8 @@ private struct PullPayload: Decodable {
     /// A pull request fetched by number can be closed or merged; the list holds open ones only,
     /// and omits `merged`.
     var state: String?, merged: Bool?
+    /// Its description, where a ticket key may be.
+    var body: String?
 
     /// A head in another repository — or in none, once its fork was deleted — is a fork's.
     var mergeRequest: MergeRequest {
@@ -572,7 +589,7 @@ private struct PullPayload: Decodable {
         return MergeRequest(iid: number, title: title, sourceBranch: head.ref, targetBranch: base.ref,
                             author: user?.login, state: merged == true ? "merged" : (state ?? "open"),
                             draft: draft ?? false, url: htmlUrl,
-                            forkHead: fork ? (head.label ?? "ghost:\(head.ref)") : nil)
+                            forkHead: fork ? (head.label ?? "ghost:\(head.ref)") : nil, description: body)
     }
 }
 

@@ -50,7 +50,7 @@ import Testing
                                                           description: "Opened by AiTerm", draft: true)
         #expect(request == MergeRequest(iid: 12, title: "Draft: PLUTO-231 Add gift card", sourceBranch: "feat/pluto-231-add-gift-card",
                                         targetBranch: "main", author: "Laurens", state: "opened", draft: true,
-                                        url: "https://git.example.net/web/acme-web/-/merge_requests/12"))
+                                        url: "https://git.example.net/web/acme-web/-/merge_requests/12", description: "Opened by AiTerm"))
         let sent = try #require(stub.lastRequest)
         #expect(sent.httpMethod == "POST")
         #expect(sent.url?.absoluteString == Self.base)

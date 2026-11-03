@@ -34,6 +34,25 @@ extension AppControllerTests {
         #expect(fixture.controller.state.lastAgentByProject[fixture.project.id] == .claude)
     }
 
+    /// A review picked with a ticket gives it to a task that has none, and the reviewer reads it.
+    @Test func aReviewWithATicketInATaskGivesTheTaskItsTicket() async throws {
+        let fixture = try TaskFixture(windowOpen: true, provider: .gitlab)
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(server)
+        var draft = fixture.draft
+        draft.apply(ticket: JiraTicket(key: "#53", summary: "Constraints file", description: nil, issueType: nil, status: nil,
+                                       url: "https://gitlab/x/-/issues/53", source: .gitLab(project: "x")))
+
+        try await fixture.controller.launcher.createReview(draft: draft, project: fixture.project)
+
+        let tab = try #require(server.requests.first { $0.method == "tab.create" })
+        #expect((tab.params["agentCommand"] as? String)?.contains("GitLab issue #53: Constraints file") == true)
+        let saved = try #require(try fixture.controller.savedWorkspace().tasks.first)
+        #expect(saved.jira == JiraRef(key: "#53", summary: "Constraints file", url: "https://gitlab/x/-/issues/53",
+                                      source: .gitLab(project: "x")))
+    }
+
     /// A task whose window is closed gets it back, with the reviewer as its first tab.
     @Test func aReviewOfATaskWithoutAWindowReopensItWithTheReviewer() async throws {
         let fixture = try TaskFixture(windowOpen: false, provider: .gitlab)

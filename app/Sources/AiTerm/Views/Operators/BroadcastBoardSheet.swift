@@ -511,16 +511,28 @@ struct BoardTabLine: View {
     }
 }
 
-/// A task's quiet Jira and merge-request `Badge`s, as a task row wears them.
+/// A task's quiet ticket and merge-request `Badge`s, as a task row wears them: a GitLab issue beside
+/// a GitLab merge request shares one mark, `#53` then `!29` `Space.snug` apart.
 struct TaskBadges: View {
     let ticket: String?
     let ticketSummary: String?
     let mr: String?
     let mrHost: CodeHost?
     let mrTitle: String?
+    var ticketIsGitLabIssue = false
 
     var body: some View {
-        if let ticket { Badge(ticket, icon: .brand(Palette.jira), help: ticketSummary, style: .quiet).fixedSize() }
-        if let mr { Badge(mr, icon: .brand((mrHost ?? .gitLab).brand), help: mrTitle, style: .quiet).fixedSize() }
+        let host = mrHost ?? .gitLab
+        if ticketIsGitLabIssue, let ticket, let mr, host == .gitLab {
+            HStack(spacing: Space.snug) {
+                Badge(ticket, icon: .brand(Palette.gitlab), help: ticketSummary, style: .quiet).fixedSize()
+                Badge(mr, help: mrTitle, style: .quiet).fixedSize()
+            }
+        } else {
+            if let ticket {
+                Badge(ticket, icon: .brand(ticketIsGitLabIssue ? Palette.gitlab : Palette.jira), help: ticketSummary, style: .quiet).fixedSize()
+            }
+            if let mr { Badge(mr, icon: .brand(host.brand), help: mrTitle, style: .quiet).fixedSize() }
+        }
     }
 }

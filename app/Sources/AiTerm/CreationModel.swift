@@ -101,7 +101,7 @@ struct CreationFailure: Equatable {
 @MainActor
 protocol CreationKind {
     associatedtype Draft: AgentDraft & Equatable
-    associatedtype Item: Equatable
+    associatedtype Item: Equatable & Sendable
     /// The worktree directory `draft` would get, before `BranchNaming.unused` makes it one not taken.
     func slug(for draft: Draft) -> String
     /// The first prompt the command carries, from `text`, the prompt as typed.
@@ -446,6 +446,11 @@ final class CreationModel<Kind: CreationKind> {
             results = found; searchError = nil
         } catch {
             guard !Task.isCancelled, generation == searchGeneration else { return }
+            // One source failed and another answered: its rows, and the line saying which failed.
+            if let partial = error as? PartialSearch<Item> {
+                results = partial.items; searchError = partial.message
+                return
+            }
             results = []
             searchError = error.localizedDescription
         }

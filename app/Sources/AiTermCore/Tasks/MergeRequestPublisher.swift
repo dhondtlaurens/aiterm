@@ -49,6 +49,12 @@ extension MergeRequestPublishing {
 public protocol HostRepository: MergeRequestPublishing, MergeRequestSearching {
     /// The bounded, lenient thread counts shown on a request's badge.
     func reviewThreads(of number: Int) async throws -> ReviewThreads
+    /// The repository's open requests, most recently updated first, up to `pages` pages of 100,
+    /// and whether that was all of them: what a ticket's requests are looked for in.
+    func openRequests(pages: Int) async throws -> (requests: [MergeRequest], complete: Bool)
+    /// The open requests that close or mention issue `number` of this repository; none where the
+    /// host's issues are not tickets (GitHub).
+    func openRequests(closingIssue number: Int) async throws -> [MergeRequest]
 }
 
 public enum MergeRequestPublisher {
@@ -68,6 +74,8 @@ struct GitHubPublisher: HostRepository {
     let client: GitHubClient, repo: String
     var repository: String { "github.com/" + repo }
     func mergeRequests(search: String) async throws -> [MergeRequest] { try await client.pullRequests(repo: repo, search: search) }
+    func openRequests(pages: Int) async throws -> (requests: [MergeRequest], complete: Bool) { try await client.openPullRequests(repo: repo, pages: pages) }
+    func openRequests(closingIssue number: Int) async throws -> [MergeRequest] { [] }
     func reviewThreads(of number: Int) async throws -> ReviewThreads { try await client.reviewThreads(repo: repo, number: number) }
     func protection(of branch: String) async throws -> BranchProtection { try await client.branchProtection(repo: repo, branch: branch) }
     func existingRequest(from source: String) async throws -> MergeRequest? { try await client.openPullRequest(repo: repo, source: source) }
@@ -98,6 +106,8 @@ struct GitLabPublisher: HostRepository {
     let client: GitLabClient, project: String
     var repository: String { (client.config.hostURL.host?.lowercased() ?? "") + "/" + project }
     func mergeRequests(search: String) async throws -> [MergeRequest] { try await client.mergeRequests(project: project, search: search) }
+    func openRequests(pages: Int) async throws -> (requests: [MergeRequest], complete: Bool) { try await client.openMergeRequests(project: project, pages: pages) }
+    func openRequests(closingIssue number: Int) async throws -> [MergeRequest] { try await client.openMergeRequests(project: project, closingIssue: number) }
     func reviewThreads(of number: Int) async throws -> ReviewThreads { try await client.reviewThreads(project: project, iid: number) }
     func protection(of branch: String) async throws -> BranchProtection { try await client.branchProtection(project: project, branch: branch) }
     func existingRequest(from source: String) async throws -> MergeRequest? { try await client.openMergeRequest(project: project, source: source) }
