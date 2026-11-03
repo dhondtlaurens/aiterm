@@ -59,6 +59,20 @@ Glenn asked for two things in AiTerm:
 
 Out of scope: GitHub issues; the Operator's Jira tools and broadcasts (still Jira-only); MRs in other repositories.
 
+## Design picks (3 Nov 2026, design system Proposals tab)
+
+- **1A**: a GitLab issue's result row and picked chip show its first label (`enhancement`, `bugfix`) in the lane
+  column, on GitLab's wash; no labels leaves it empty.
+- **2A**: a field New Review filled from the other says so in a help line: "Found from JVS-5793." / "Found from
+  !545."; it goes when you change that field yourself.
+- **3B**: the miss line ("No open merge request for JVS-5744 in jarvis/jarvis.") is plain help, not amber.
+- **4C**: a row with a GitLab issue and a GitLab merge request draws **one** GitLab badge: the mark, `#53`, `!29`
+  (`Space.snug` apart), then the threads count. Each number opens its own page, the mark the issue's. Each number
+  follows its own key switch; with both off, the bare mark opens the merge request and its tooltip names both. A
+  Jira ticket keeps its own badge. `Badge` gets a two-label variant, so `AiTermUI/README.md` gets an inventory line.
+- **5B**: the row menu says "Open in Jira" for a Jira ticket and "Open in GitLab" for a GitLab issue.
+- Copy: as the proposal's copy table.
+
 ## Touch points (each one in the proposals)
 
 1. New Task step 1: the Ticket field and placeholder, mixed result rows (Jira status vs GitLab state and labels
@@ -113,6 +127,7 @@ App (`app/Sources/AiTerm`)
   the copy.
 - `ReviewCreationModel.swift`, `Views/NewReviewSheet.swift` modify: the Ticket field, auto-resolve both ways
   (stale lookups cancelled when a pick changes), the help states, the Prompt step checkbox.
+- `AiTermUI/Badge.swift` + its tests + `AiTermUI/README.md`: the two-label variant (4C).
 - `Views/SidebarRows.swift`, `Views/ArchiveSheet.swift`, `Views/InterfaceSettingsPane.swift`,
   `Views/SettingsCard.swift` (or wherever the GitLab card's copy lives) modify: chip mark, menu, copy.
 - `SheetCoordinator.swift` modify: hand both sheets the GitLab connection and the remote.
@@ -147,8 +162,8 @@ Docs
 
 ## To-dos
 
-- [ ] Proposals for touch points 1–8, each decision with options and a recommended pick. Publish the design
-      system and **stop for picks**.
+- [x] Proposals for touch points 1–8, each decision with options and a recommended pick. Publish the design
+      system and **stop for picks**. Picked: 1A 2A 3B 4C 5B.
 - [ ] Ticket source in Core: ticket and ref with a source, old saves decoding, the GitLab issues client,
       TicketSearch. New Task lists GitLab issues end to end (rows, branch, prompt, chip, archive).
 - [ ] TicketMergeRequests: ticket ↔ open MRs, for Jira keys and GitLab issues.
