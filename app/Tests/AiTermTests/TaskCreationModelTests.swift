@@ -158,10 +158,31 @@ struct TaskCreationModelTests {
     /// The Jira connection is read once, when the sheet is prepared, and every query uses it.
     @Test func withoutAJiraConnectionASearchSaysSo() async {
         let project = Project(id: UUID(), name: "Repo", path: "/tmp/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let search = TaskCreationModel.jiraSearcher(for: project, jira: nil)
+        let search = TaskCreationModel.ticketSearcher(for: project, jira: nil)
         await #expect { try await search("login") } throws: {
-            ($0 as? ActionUnavailable)?.message == "Connect Jira in Settings › Integrations, or continue without a ticket."
+            $0.localizedDescription == "Connect Jira in Settings › Integrations, or continue without a ticket."
         }
+    }
+
+    /// GitLab issues join the field when the list has shown one; Jira not connected names them alone.
+    @Test func theTicketFieldNamesGitLabIssuesOnceThereAreSome() {
+        #expect(TaskCreationModel.ticketPlaceholder(jiraProjects: ["FE"], jiraConnected: true, gitLabIssues: false) == "Search FE by key or title")
+        #expect(TaskCreationModel.ticketPlaceholder(jiraProjects: ["FE"], jiraConnected: true, gitLabIssues: true)
+                == "Search FE and GitLab issues by key, #number or title")
+        #expect(TaskCreationModel.ticketPlaceholder(jiraProjects: [], jiraConnected: true, gitLabIssues: true)
+                == "Search Jira and GitLab issues by key, #number or title")
+        #expect(TaskCreationModel.ticketPlaceholder(jiraProjects: [], jiraConnected: false, gitLabIssues: true)
+                == "Search GitLab issues by #number or title")
+    }
+
+    /// A project's GitLab issues are searched only when its remote is on the connected GitLab host.
+    @Test func gitLabIssuesNeedTheRemoteOnTheConnectedHost() {
+        let gitLab = GitLabConfig(hostURL: URL(string: "https://git.pauwelsconsulting.net")!, token: "t")
+        let here = ProviderDetector.detect(remoteUrl: "git@git.pauwelsconsulting.net:ai/agentflow.git", repoPath: "/tmp/none")
+        let github = ProviderDetector.detect(remoteUrl: "git@github.com:dhondtlaurens/aiterm.git", repoPath: "/tmp/none")
+        #expect(TaskCreationModel.gitLabIssueSource(gitLab: gitLab, remote: here) != nil)
+        #expect(TaskCreationModel.gitLabIssueSource(gitLab: nil, remote: here) == nil)
+        #expect(TaskCreationModel.gitLabIssueSource(gitLab: gitLab, remote: github) == nil)
     }
 
     /// The ticket field says what it searches: every linked Jira project, or every project there is.

@@ -241,7 +241,7 @@ struct SettingsView: View {
                         FormField("Access token") { Input(placeholder: "Personal access token", text: fields.token, secure: true) }
                             .frame(maxWidth: .infinity)
                     }
-                    HelpText("Reading needs read_api. An operator that opens or merges merge requests needs api.")
+                    HelpText("Reading merge requests and issues needs read_api. An operator that opens or merges merge requests needs api.")
                     if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
                 }
                 ServiceCard(title: "GitHub", service: .github, connection: integrations.gitHub) { fields in

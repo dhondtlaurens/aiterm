@@ -119,6 +119,7 @@ enum SidebarSnapshots {
             // Reviews and their merge requests' threads: none yet, some resolved, all resolved, and a
             // GitHub pull request selected, where the count turns white with the badge.
             reviewThreads("sidebar-review-threads.png"),
+            gitLabIssues("sidebar-gitlab-issues.png"),
             // Pull main's Find a Fix in the banner, in the states the Operator's images leave out (offered,
             // looking, the proposal and a failed fix are `OperatorSnapshots`'): offered beside Rebase for a
             // diverged branch, applying, and no fix.
@@ -282,6 +283,33 @@ enum SidebarSnapshots {
             controller.workspace.mutate { $0.tasks = reviews }
             for (review, threads) in zip(reviews, counts) { controller.reviewThreads.seedSnapshotThreads(threads, of: review.id) }
             controller.focus.browse(.task(reviews[3].id))
+            return taskRows(controller)
+        }
+    }
+
+    /// A task from GitLab issue #55, a review of issue #53's merge request — one mark, `#53 !29`,
+    /// then its threads — and a Jira ticket's review, which keeps two badges.
+    private static func gitLabIssues(_ file: String) -> Snapshot {
+        Snapshot(file) {
+            let fixture = Fixture(), controller = fixture.controller(), project = fixture.project
+            let created = Snapshots.clock.now
+            let gitLab = "https://gitlab.example/acme/storefront/-/"
+            func item(_ title: String, branch: String, ticket: JiraRef, mr: Int?) -> TaskItem {
+                TaskItem(id: UUID(), projectId: project.id, title: title, branch: branch,
+                         worktreePath: "/r/.worktrees/\(branch)", baseBranch: "main", jira: ticket, kind: mr == nil ? .task : .review,
+                         mr: mr.map { MergeRequestRef(iid: $0, title: title, url: gitLab + "merge_requests/\($0)") },
+                         agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: true, createdAt: created,
+                         windowId: branch)
+            }
+            func issue(_ number: Int, _ title: String) -> JiraRef {
+                JiraRef(key: "#\(number)", summary: title, url: gitLab + "issues/\(number)", source: .gitLab(project: "acme/storefront"))
+            }
+            let rows = [item("Opt-in Entire integration", branch: "feat/55-opt-in-entire", ticket: issue(55, "Opt-in Entire integration"), mr: nil),
+                        item("Human-editable constraints file", branch: "53-add-constraints", ticket: issue(53, "Constraints"), mr: 29),
+                        item("Drop the unused CDN origin", branch: "agent/SHOP-1720",
+                             ticket: JiraRef(key: "SHOP-1720", summary: "Drop the unused CDN origin", url: "https://example/SHOP-1720"), mr: 7)]
+            controller.workspace.mutate { $0.tasks = rows }
+            controller.reviewThreads.seedSnapshotThreads(.init(resolved: 1, total: 2), of: rows[1].id)
             return taskRows(controller)
         }
     }

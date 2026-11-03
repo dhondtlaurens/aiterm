@@ -73,6 +73,88 @@ public struct GitLabClient: Sendable {
             .compactMap { $0.value?.mergeRequest }
     }
 
+    // MARK: Issues — the tickets of a project that keeps them on GitLab
+
+    /// The project's open issues, the most recently updated first, as tickets; `#55` or `55` is
+    /// that issue, whatever its state. A project whose issues are off, or that the token cannot
+    /// see, has none: GitLab answers those with 403 or 404, and a project without issues is the
+    /// common case, not an error. A token GitLab no longer accepts (401) is one, and is thrown.
+    public func issues(project: String, search: String) async throws -> [JiraTicket] {
+        let base = Self.projectPath(project) + "/issues"
+        let text = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let none = GitLabError.projectNotFound(project)
+        let api = HostAPI(base: Self.base(config.hostURL), headers: ["PRIVATE-TOKEN": config.token, "Accept": "application/json"],
+                          session: session, malformed: GitLabError.decoding,
+                          mapping: { failure in
+                              if case .status(403) = failure { return none }
+                              return Self.error(for: failure, notFound: none)
+                          })
+        do {
+            if let iid = Self.issueNumber(text) {
+                return [try await api.get(IssuePayload.self, path: base + "/\(iid)", query: []).ticket(in: project)]
+            }
+            var query = [URLQueryItem(name: "state", value: "opened"),
+                         URLQueryItem(name: "order_by", value: "updated_at"),
+                         URLQueryItem(name: "per_page", value: "25")]
+            if !text.isEmpty {
+                query.append(URLQueryItem(name: "search", value: text))
+                query.append(URLQueryItem(name: "in", value: "title,description"))
+            }
+            return try await api.get([Lenient<IssuePayload>].self, path: base, query: query)
+                .compactMap { $0.value?.ticket(in: project) }
+        } catch GitLabError.projectNotFound {
+            return []
+        }
+    }
+
+    /// The open merge requests in `project` that close issue `iid` or mention it, each once.
+    public func openMergeRequests(project: String, closingIssue iid: Int) async throws -> [MergeRequest] {
+        let base = Self.projectPath(project) + "/issues/\(iid)"
+        var seen = Set<Int>(), found: [MergeRequest] = []
+        for path in [base + "/closed_by", base + "/related_merge_requests"] {
+            let page = try await get([Lenient<MergeRequestPayload>].self, path: path, notFound: .projectNotFound(project))
+            for request in page.compactMap({ $0.value?.mergeRequest })
+            where request.state == "opened" && Self.isIn(project, request) && seen.insert(request.iid).inserted {
+                found.append(request)
+            }
+        }
+        return found
+    }
+
+    /// Up to `pages` pages of the project's open merge requests, `perPage` at a time, the most
+    /// recently updated first, and whether that was all of them: a page that came back short is
+    /// the last one.
+    public func openMergeRequests(project: String, perPage: Int = 100, pages: Int = 5) async throws -> (requests: [MergeRequest], complete: Bool) {
+        var all: [MergeRequest] = []
+        for page in 1...max(1, pages) {
+            let query = [URLQueryItem(name: "state", value: "opened"), URLQueryItem(name: "order_by", value: "updated_at"),
+                         URLQueryItem(name: "per_page", value: String(perPage)), URLQueryItem(name: "page", value: String(page))]
+            let read = try await get([Lenient<MergeRequestPayload>].self, path: Self.requestsPath(project), query: query,
+                                     notFound: .projectNotFound(project))
+            all += read.compactMap { $0.value?.mergeRequest }
+            if read.count < perPage { return (all, true) }
+        }
+        return (all, false)
+    }
+
+    /// `55` or `#55`.
+    static func issueNumber(_ text: String) -> Int? {
+        guard text.range(of: #"^#?\d+$"#, options: .regularExpression) != nil else { return nil }
+        return Int(text.drop { $0 == "#" })
+    }
+
+    /// Whether `request` is one of `project`'s: an issue's related list can name another project's.
+    static func isIn(_ project: String, _ request: MergeRequest) -> Bool {
+        request.url.range(of: "/\(project)/-/merge_requests/", options: .caseInsensitive) != nil
+    }
+
+    /// GitLab's ISO 8601 times, with or without fractional seconds.
+    static func date(_ text: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+    }
+
     /// How many discussions one page of `reviewThreads` asks for, and how many pages it reads at
     /// most: a thousand threads, past which a merge request is not being reviewed by hand.
     static let discussionsPerPage = 100, discussionPages = 10
@@ -394,7 +476,7 @@ public struct GitLabClient: Sendable {
 private struct MergeRequestPayload: Decodable {
     struct Author: Decodable { var name: String? }
     var iid: Int, title: String, sourceBranch: String, targetBranch: String, webUrl: String
-    var author: Author?, state: String?, draft: Bool?
+    var author: Author?, state: String?, draft: Bool?, description: String?
     /// Where the branch lives and where the request goes; they differ for a request from a fork.
     var sourceProjectId: Int?, targetProjectId: Int?
 
@@ -402,7 +484,26 @@ private struct MergeRequestPayload: Decodable {
         MergeRequest(iid: iid, title: title, sourceBranch: sourceBranch, targetBranch: targetBranch,
                      author: author?.name, state: state ?? "opened", draft: draft ?? false, url: webUrl,
                      forkHead: sourceProjectId != nil && targetProjectId != nil && sourceProjectId != targetProjectId
-                         ? "project \(sourceProjectId!):\(sourceBranch)" : nil)
+                         ? "project \(sourceProjectId!):\(sourceBranch)" : nil,
+                     description: description)
+    }
+}
+
+/// The fields of an issue the ticket picker shows and a task's prompt carries.
+private struct IssuePayload: Decodable {
+    /// The picker's lane column: the first label that says what kind of work it is — GitLab sorts
+    /// labels by name, so `priority::medium` comes before `refactor` — else the first scoped one.
+    static func lane(of labels: [String]) -> String? { labels.first { !$0.contains("::") } ?? labels.first }
+
+    var iid: Int, title: String, webUrl: String
+    var description: String?, labels: [String]?, updatedAt: String?
+
+    func ticket(in project: String) -> JiraTicket {
+        let labels = labels ?? []
+        let text = description?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return JiraTicket(key: "#\(iid)", summary: title, description: text?.isEmpty == false ? text : nil,
+                          issueType: labels.isEmpty ? nil : labels.joined(separator: " "), status: Self.lane(of: labels), url: webUrl,
+                          source: .gitLab(project: project), updated: updatedAt.flatMap(GitLabClient.date))
     }
 }
 

@@ -18,7 +18,7 @@ struct BadgeDetailSwitch: Identifiable, Sendable {
     static let all = [
         BadgeDetailSwitch(detail: \.jiraProject, title: "Jira project count", help: "On the project header",
                           brand: Palette.jira, label: "2"),
-        BadgeDetailSwitch(detail: \.jiraTicket, title: "Jira ticket key", help: "On each task linked to a ticket",
+        BadgeDetailSwitch(detail: \.jiraTicket, title: "Ticket key", help: "On each task or review linked to a ticket",
                           brand: Palette.jira, label: "SHOP-412"),
         BadgeDetailSwitch(detail: \.mergeRequest, title: "Merge request number",
                           help: "On each review of a merge or pull request", brand: Palette.gitlab, label: "!87"),

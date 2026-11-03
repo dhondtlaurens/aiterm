@@ -24,11 +24,14 @@ public struct MergeRequest: Equatable, Sendable, Identifiable {
     /// The source owner/project and branch when it lives in a fork rather than on origin,
     /// which is where a review checks out from. Both GitHub and GitLab report it.
     public var forkHead: String?
+    /// Its description (GitLab) or body (GitHub): where a ticket key or `Closes #53` may be.
+    public var description: String?
     public var id: Int { iid }
     public init(iid: Int, title: String, sourceBranch: String, targetBranch: String,
-                author: String?, state: String, draft: Bool, url: String, forkHead: String? = nil) {
+                author: String?, state: String, draft: Bool, url: String, forkHead: String? = nil, description: String? = nil) {
         self.iid = iid; self.title = title; self.sourceBranch = sourceBranch; self.targetBranch = targetBranch
         self.author = author; self.state = state; self.draft = draft; self.url = url; self.forkHead = forkHead
+        self.description = description
     }
 
     /// The lane a picked merge or pull request shows beside its title.

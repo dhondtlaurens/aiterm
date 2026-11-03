@@ -62,6 +62,26 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: created.task.worktreePath + "/.aiterm/first-prompt.md"))
     }
 
+    /// A review created in a worktree of its own hands the reviewer its ticket, and keeps it on the row.
+    @Test func aReviewWithATicketPromptsTheReviewerWithIt() async throws {
+        let (project, _) = try fixture()
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        try GitRunner.hermetic().run(["branch", "agent/JVS-5793"], in: project.path)
+        var draft = ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil)
+        let ticket = JiraTicket(key: "JVS-5793", summary: "invoice_to_exact flags unchanged invoices", description: "## Acceptance",
+                                issueType: "Bug", status: "Review", url: "https://example.atlassian.net/browse/JVS-5793")
+        draft.apply(ticket: ticket)
+        draft.found(mr: MergeRequest(iid: 545, title: "Draft: JVS-5793: invoice", sourceBranch: "agent/JVS-5793", targetBranch: "main",
+                                     author: nil, state: "opened", draft: true, url: "https://gitlab/x/-/merge_requests/545"),
+                    from: "JVS-5793")
+        draft.promptText = "/code-review\tTabbed, so it is read from a file"
+        let created = try await TaskWorkflow(git: .hermetic()).createReview(draft: draft, project: project)
+        let prompt = try String(contentsOfFile: created.task.worktreePath + "/.aiterm/first-prompt.md", encoding: .utf8)
+        #expect(prompt.contains("a file\n\nJVS-5793: invoice_to_exact flags unchanged invoices\n\n## Acceptance"))
+        #expect(created.task.jira == JiraRef(ticket))
+        #expect(created.task.kind == .review)
+    }
+
     /// Every git command of a creation and a removal goes through the runner the workflow was given:
     /// the checkout, the agent command's `.aiterm/` exclusion, the unlock and the branch deletion.
     @Test func aWorkflowRunsTheGitItWasGiven() async throws {

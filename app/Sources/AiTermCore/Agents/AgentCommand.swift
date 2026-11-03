@@ -146,8 +146,11 @@ public enum AgentCommand {
         var blocks: [String] = []
         if let t = userText?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty { blocks.append(t) }
         if appendTicket, let ticket {
-            var block = "\(ticket.key): \(ticket.summary)"
+            let number = ticket.issueNumber
+            var block = (number == nil ? "" : "GitLab issue ") + "\(ticket.key): \(ticket.summary)"
             if let d = ticket.description?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty { block += "\n\n" + d }
+            // GitLab links and closes the issue from its merge request's description.
+            if let number { block += "\n\nPut `Closes #\(number)` in the merge request’s description." }
             blocks.append(block)
         }
         return blocks.isEmpty ? nil : blocks.joined(separator: "\n\n")

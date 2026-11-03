@@ -111,8 +111,11 @@ final class TaskLauncher {
         }
         if !opened { try await openWindow(for: current, command: command, with: daemon) }
         workspace.mutate { state in
-            if let mr = draft.mr, let i = state.tasks.firstIndex(where: { $0.id == owner.id }) {
-                state.tasks[i].mr = MergeRequestRef(iid: mr.iid, title: mr.title, url: mr.url)
+            if let i = state.tasks.firstIndex(where: { $0.id == owner.id }) {
+                if let mr = draft.mr { state.tasks[i].mr = MergeRequestRef(iid: mr.iid, title: mr.title, url: mr.url) }
+                // The picked ticket goes on a row that has none; one with its own keeps it, the task's
+                // own ticket, and the review tab's prompt still carries the picked one.
+                if state.tasks[i].jira == nil, let ticket = draft.ticket { state.tasks[i].jira = JiraRef(ticket) }
             }
             state.rememberChoice(draft, projectId: owner.projectId)
         }

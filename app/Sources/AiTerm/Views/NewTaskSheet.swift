@@ -36,7 +36,7 @@ struct NewTaskSheet: View {
         case 2: AgentStep(model: model)
         default: PromptStep(text: $model.promptText, agent: model.draft.agent, completions: model.completions) {
             if model.draft.ticket != nil {
-                Toggle("Include Jira ticket details", isOn: $model.draft.appendTicket)
+                Toggle("Include ticket details", isOn: $model.draft.appendTicket)
                     .toggleStyle(.checkbox).font(Typography.body)
             }
         }
@@ -47,7 +47,7 @@ struct NewTaskSheet: View {
 
     private var ticketStep: some View {
         FrontToBackStack(spacing: Space.block) {
-            FormField("Jira ticket (optional)") {
+            FormField("Ticket (optional)") {
                 SearchPicker(placeholder: model.ticketPlaceholder,
                              query: Binding(get: { model.query }, set: { model.setQuery($0) }),
                              open: _ticketsOpen.projectedValue,
@@ -55,7 +55,7 @@ struct NewTaskSheet: View {
                              row: { ticket in
                                  // The lane column stays for a ticket without one, so every summary
                                  // is cut at the same place.
-                                 PickerResultRow(mark: .brand(Palette.jira), key: ticket.key, keyWidth: Self.ticketKeyWidth,
+                                 PickerResultRow(mark: .brand(ticket.brand), key: ticket.key, keyWidth: Self.ticketKeyWidth,
                                                  title: ticket.summary, detail: ticket.status ?? "")
                              },
                              selected: { selectedTicket($0) },
@@ -63,7 +63,7 @@ struct NewTaskSheet: View {
                                  model.cancelSearch()
                                  model.draft.apply(ticket: ticket)
                              },
-                             toggleHelp: { $0 ? "Hide tickets" : "Show my open tickets" })
+                             toggleHelp: { $0 ? "Hide tickets" : "Show open tickets" })
                 if model.draft.ticket == nil {
                     if let message = model.searchError {
                         HelpText(message, tone: .warning)
@@ -105,8 +105,8 @@ struct NewTaskSheet: View {
     }
 
     private func selectedTicket(_ ticket: JiraTicket) -> some View {
-        PickedItemField(mark: .brand(Palette.jira), key: ticket.key, title: ticket.summary, trailing: {
-            if let status = ticket.status { LaneChip(lane: status, brand: Palette.jira, ink: Palette.link) }
+        PickedItemField(mark: .brand(ticket.brand), key: ticket.key, title: ticket.summary, trailing: {
+            if let status = ticket.status { LaneChip(lane: status, brand: ticket.brand, ink: ticket.laneInk) }
         }, clearHelp: "Clear ticket") {
             model.draft.apply(ticket: nil); model.reopenSearch(); ticketsOpen = true
         }

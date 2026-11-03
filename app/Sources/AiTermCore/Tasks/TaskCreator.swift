@@ -43,7 +43,7 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
         self.ticket = ticket
         if !titleEdited { title = ticket?.summary ?? title }
         if !typeEdited, let ticket { branchType = BranchType(issueType: ticket.issueType) }
-        if !branchEdited { branchName = BranchNaming.branchSlug(key: ticket?.key, summary: ticket?.summary ?? title) }
+        if !branchEdited { branchName = BranchNaming.branchSlug(key: ticket?.branchKey, summary: ticket?.summary ?? title) }
     }
 
     /// Both guard against being handed what they already hold: SwiftUI writes a `TextField`'s value
@@ -53,7 +53,7 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
     public mutating func setTitle(_ t: String) {
         guard t != title else { return }
         title = t; titleEdited = true
-        if !branchEdited { branchName = BranchNaming.branchSlug(key: ticket?.key, summary: t) }
+        if !branchEdited { branchName = BranchNaming.branchSlug(key: ticket?.branchKey, summary: t) }
     }
 
     /// The branch field's text: a name, or a whole branch whose known type prefix moves into the
@@ -104,7 +104,7 @@ public enum TaskCreator {
         let repository = Repository(project.path, git: git)
         let path = try repository.addTaskWorktree(slug: slug, branch: draft.branch, base: draft.baseBranch)
         let task = TaskItem(id: UUID(), projectId: project.id, title: draft.title, branch: draft.branch, worktreePath: path, baseBranch: draft.baseBranch,
-                            jira: draft.ticket.map { JiraRef(key: $0.key, summary: $0.summary, url: $0.url) }, agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
+                            jira: draft.ticket.map(JiraRef.init), agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
                             firstPrompt: draft.promptText.isEmpty ? nil : draft.promptText, appendTicket: draft.appendTicket, createdAt: Date(), windowId: nil)
         return Made(task: task, worktreeInclude: copyIncludes(draft.copiesWorktreeInclude, from: repository, into: path))
     }
@@ -118,10 +118,10 @@ public enum TaskCreator {
         let repository = Repository(project.path, git: git)
         let path = try repository.addReviewWorktree(slug: slug, branch: draft.branch)
         let task = TaskItem(id: UUID(), projectId: project.id, title: draft.title, branch: draft.branch, worktreePath: path,
-                            baseBranch: draft.mr?.targetBranch ?? "", jira: nil, kind: .review,
+                            baseBranch: draft.mr?.targetBranch ?? "", jira: draft.ticket.map(JiraRef.init), kind: .review,
                             mr: draft.mr.map { MergeRequestRef(iid: $0.iid, title: $0.title, url: $0.url) },
                             agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
-                            firstPrompt: draft.promptText.isEmpty ? nil : draft.promptText, appendTicket: false,
+                            firstPrompt: draft.promptText.isEmpty ? nil : draft.promptText, appendTicket: draft.appendTicket,
                             createdAt: Date(), windowId: nil)
         return Made(task: task, worktreeInclude: copyIncludes(draft.copiesWorktreeInclude, from: repository, into: path))
     }

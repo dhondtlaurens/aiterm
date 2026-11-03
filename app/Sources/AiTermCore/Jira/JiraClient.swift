@@ -66,6 +66,14 @@ public struct JiraClient: Sendable {
     }()
     public var siteURL: URL { config.siteURL }
 
+    /// Jira's times, `2026-11-03T08:47:32.776+0100`.
+    static func date(_ text: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+        return formatter.date(from: text)
+    }
+
     public static let openIssuesJQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
 
     public func myOpenIssues(projects: [JiraProjectRef] = []) async throws -> [JiraTicket] {
@@ -285,12 +293,13 @@ public struct JiraClient: Sendable {
         let path = "/rest/api/3/search/jql"
         let data = try await send(method: "POST", path: path,
                                   json: JSONEncoder().encode(SearchBody(jql: jql, maxResults: Self.maxResults,
-                                                                       fields: ["summary", "description", "status", "issuetype"])), write: false)
+                                                                       fields: ["summary", "description", "status", "issuetype", "updated"])), write: false)
         return try decode(SearchResponse.self, data: data, reading: path).issues.compactMap(\.value).map { issue in
             let description = ADFText.plain(issue.fields.description?.foundationValue)
             return JiraTicket(key: issue.key, summary: issue.fields.summary, description: description.isEmpty ? nil : description,
                               issueType: issue.fields.issuetype?.value?.name, status: issue.fields.status?.value?.name,
-                              url: config.siteURL.appendingPathComponent("browse/\(issue.key)").absoluteString)
+                              url: config.siteURL.appendingPathComponent("browse/\(issue.key)").absoluteString,
+                              updated: issue.fields.updated?.value.flatMap(Self.date))
         }
     }
 
@@ -350,6 +359,8 @@ private struct SearchResponse: Decodable {
         /// Atlassian Document Format, or plain text; `ADFText` reads either.
         var description: JSONValue?
         var issuetype: Lenient<Named>?, status: Lenient<Named>?
+        /// `2026-11-03T08:47:32.776+0100`: when it last changed, for the list it shares with GitLab issues.
+        var updated: Lenient<String>?
     }
     struct Named: Decodable { var name: String? }
     var issues: [Lenient<Issue>]

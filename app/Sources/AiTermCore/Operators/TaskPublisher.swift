@@ -395,15 +395,19 @@ public struct TaskPublisher: Sendable {
         return "\(key) was merged on the host at \(head), not the accepted \(publication.pushedSHA.map { String($0.prefix(7)) } ?? "commit"): it holds commits that weren't accepted."
     }
 
-    /// The request's title: the task's, after its ticket key unless it already starts with it.
+    /// The request's title: the task's, after its Jira key unless it already starts with it. A GitLab
+    /// issue is linked from the description instead, as GitLab's own merge requests do.
     static func title(of task: TaskItem) -> String {
-        guard let key = task.jira?.key, !task.title.hasPrefix(key) else { return task.title }
+        guard let ref = task.jira, !ref.isGitLabIssue, !task.title.hasPrefix(ref.key) else { return task.title }
+        let key = ref.key
         return "\(key) \(task.title)"
     }
 
     /// The request's description: the task's brief, who opened it, and the worker's check output.
     static func description(of task: TaskItem, run: OperatorRun, acceptance: TaskAcceptance) -> String {
         var lines = [task.operated?.brief ?? task.title, "", "Opened by AiTerm for the Operator's broadcast “\(run.name)”."]
+        // GitLab links the issue from here, and closes it when the request merges.
+        if let ref = task.jira, ref.isGitLabIssue { lines += ["", "Closes \(ref.key)"] }
         if let note = acceptance.note, !note.isEmpty { lines += ["", note] }
         if !acceptance.checkOutput.isEmpty {
             lines += ["", "Checks run by the agent:", "```", String(acceptance.checkOutput.suffix(4000)), "```"]

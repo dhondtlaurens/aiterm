@@ -19,6 +19,12 @@ import Foundation
         #expect(ArchiveSearch.rank([old, new], query: "   ") == [new, old])
     }
 
+    /// A GitLab issue's key is `#53`, and searching for it finds the task that carries it.
+    @Test func aGitLabIssueKeyFindsItsTask() {
+        let task = entry("Constraints file", jira: "#53", summary: "Add a human-editable constraints file"), other = entry("Other", at: 9)
+        #expect(ArchiveSearch.rank([other, task], query: "#53").first == task)
+    }
+
     @Test func aMergeRequestNumberMatchesInEveryForm() {
         let review = entry("Header refactor", mr: 482), other = entry("Login 482 retry", at: 9)
         for query in ["482", "!482", "#482"] {
