@@ -525,6 +525,9 @@ enum OperatorSnapshots {
             Snapshot("broadcast-folded.png") { folded() },
             // Right after Start Broadcast: everything queued under its planned agent and the pause sign, one selected.
             Snapshot("broadcast-queued.png") { queued() },
+            // Paused by you: Save the basket's worker still finishing (`pausing`), the shipping step's stopped with the
+            // pause sign, and the Operator's row `pausing · 1 task` until the basket stops; then all stopped, the pause sign.
+            Snapshot("broadcast-paused.png") { paused() },
             // Summary with what the Operator worked around in AiTerm: two snags under the summary, with Copy All; and on
             // the Shelf one snag after Left for you, with no Copy All.
             Snapshot("board-summary-worked-around.png") {
@@ -603,7 +606,9 @@ enum OperatorSnapshots {
                                                           review.retry: .published]))
 
         let paused = OperatorScene()
-        paused.show(paused.run(.paused), watching(paused))
+        // Its tasks' workers stopped: `paused`, with the pause sign.
+        let stopped = watching(paused)
+        paused.show(paused.run(.paused), stopped, turnEnded: Set(stopped.filter { $0.operated?.state == .working }.map(\.id)))
 
         let closed = OperatorScene()
         closed.show(closed.run(.operatorOffline), watching(closed))
@@ -710,6 +715,25 @@ enum OperatorSnapshots {
                    operatorTab: "working", others: [scene.footerTask()])
         scene.controller.focus.browse(.task(scene.autocomplete))
         return sidebar(scene)
+    }
+
+    /// A broadcast you paused, twice: while one task's worker still finishes its step, and once every task stopped.
+    private static func paused() -> some View {
+        func scene(stopped: Bool) -> OperatorScene {
+            let scene = OperatorScene(projects: [OperatorScene.project("webshop")])
+            let basket = UUID()
+            let tasks = scene.checkout([scene.shipping: .working, scene.price: .accepted, scene.layout: .queued], oneProject: true)
+                .filter { [scene.shipping, scene.price, scene.layout].contains($0.id) }
+                + [scene.task(basket, "Save the basket", .working)]
+            var run = scene.run(.paused)
+            run.intent = .paused
+            scene.show(run, tasks, operatorTab: "idle", turnEnded: stopped ? [scene.shipping, basket] : [scene.shipping])
+            return scene
+        }
+        return HStack(alignment: .top, spacing: Space.margin) {
+            sidebar(scene(stopped: false))
+            sidebar(scene(stopped: true))
+        }
     }
 
     // -- the board --------------------------------------------------------------------

@@ -75,6 +75,8 @@ public struct OperatorRow: Equatable, Identifiable, Sendable {
     public var title: String
     public var line: OperatorLine
     public var status: TaskStatus
+    /// You paused the broadcast and every task's workers stopped: its mark is the pause sign.
+    public var paused = false
 
     /// The row's id for the broadcast `run`: stable, and never the run's own.
     public static func id(of run: UUID) -> UUID {
@@ -164,11 +166,15 @@ public extension SidebarModel {
         }
         let summary = OperatorLine.summary(of: run)
         let background = tab.map { backgroundJobs(of: [$0]).map(\.text) } ?? []
+        // Paused by you: the tasks whose line says `pausing`, a worker still at work.
+        let pausing = run.isPausedByYou ? tasks.filter { task in
+            OperatorLine.task(task, run: run, acting: nil, requests: requests, sessions: sessions) == .pausing
+        }.count : 0
         let line = OperatorLine.session(acting: acting.broadcast(run.id), working: tab?.state == .working,
                                         asking: !questions.isEmpty || tab?.state == .needsInput, about: about,
                                         asks: questions.isEmpty ? nil : questions.map(\.text).joined(separator: "\n"),
                                         windowClosed: run.state == .operatorOffline,
-                                        paused: run.isPaused,
+                                        paused: run.isPaused, pausing: pausing,
                                         summary: summary ?? .notYet, tasks: tasks, background: background)
         let status: TaskStatus = switch line.look {
         case .needsYou: .needsInput
@@ -177,7 +183,7 @@ public extension SidebarModel {
         case .quiet: !background.isEmpty && !run.isPaused && run.state != .operatorOffline ? .background : .idle
         }
         return OperatorRow(id: OperatorRow.id(of: run.id), runId: run.id, agent: AgentKind.claude.session, title: run.name,
-                           line: line, status: status)
+                           line: line, status: status, paused: run.isPausedByYou && line == .paused)
     }
 
     /// The Operator's tab: the first tab tagged with the run, by its place in the window.

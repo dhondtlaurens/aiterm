@@ -387,7 +387,7 @@ struct TaskRowView: View {
                                    threads: controller.reviewThreads.threads(of: row.id))
         let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, failed: failed, removing: removing,
                                              awaitsRetry: awaitsRetry, queued: row.queued, canChangeWorkspace: controller.canChangeWorkspace)
-        let mark = TaskRowMark(status: row.status, line: row.operatorLine, removing: removing, queued: row.queued)
+        let mark = TaskRowMark(status: row.status, line: row.operatorLine, removing: removing, queued: row.queued, paused: row.paused)
         // The same work card is inspectable while the agent works or asks for input, including
         // driven rows. A removal spinner and a queued task still offer no card.
         let jobs = removing || row.queued ? [] : row.background
@@ -430,7 +430,7 @@ struct TaskRowView: View {
                 .animation(motionStill == nil ? Motion.settle : nil, value: folded)
                 Spacer(minLength: scale(Space.tight))
                 // The status mark's spinner: the row's agents went with its window. An ended driven task's is the
-                // check, a queued one's the pause sign. Known work opens the same card on hover.
+                // check, a queued or paused one's the pause sign. Known work opens the same card on hover.
                 TaskRowMarkView(mark: mark, size: SidebarRowLayout.trailingGlyph(scale))
                     .opensBackgroundCard(slot: SidebarRowLayout.trailingSlot(scale))
             }
@@ -734,16 +734,17 @@ struct TaskRowAccessibility: Equatable {
 
 /// A task row's trailing mark: its status's `StatusMark` (while the Operator holds the task, the spinner
 /// unless it needs you: `SidebarModel.heldStatus`), or once the Operator's work on the task is over (its
-/// line's look `ended`) the check (1A, 21 Oct 2026), or while the Operator has it queued the pause sign. The
+/// line's look `ended`) the check (1A, 21 Oct 2026), or the pause sign while the Operator has it queued and once its
+/// workers stopped for a pause of yours (`TaskRow.paused`; the Operator's row too, once every task's did). The
 /// check stands in for an idle session and for an unseen turn, whose last words are the Operator's to read;
 /// a session at work, waiting on input or on its background work is yours again and keeps its own mark, and a
 /// removal or shelving in progress spins.
 enum TaskRowMark: Equatable {
-    case status(TaskStatus), ended, queued
+    case status(TaskStatus), ended, pauseSign
 
-    init(status: TaskStatus, line: OperatorLine?, removing: Bool, queued: Bool = false) {
+    init(status: TaskStatus, line: OperatorLine?, removing: Bool, queued: Bool = false, paused: Bool = false) {
         if removing { self = .status(.working) }
-        else if queued { self = .queued }
+        else if queued || paused { self = .pauseSign }
         else if line?.look == .ended, ![.working, .needsInput, .background].contains(status) { self = .ended }
         else { self = .status(status) }
     }
@@ -763,7 +764,7 @@ struct TaskRowMarkView: View {
         case .ended:
             Icon(.symbol("checkmark"), size: size, tint: surface.isOnAccent ? Palette.onAccent : Palette.green)
                 .frame(width: size, height: size).accessibilityHidden(true)
-        case .queued:
+        case .pauseSign:
             Icon(.symbol("pause.fill"), size: size, tint: surface.isOnAccent ? Palette.onAccent : Palette.idleRing)
                 .frame(width: size, height: size).accessibilityHidden(true)
         }

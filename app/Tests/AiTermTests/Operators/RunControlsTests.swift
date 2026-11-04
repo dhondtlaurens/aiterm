@@ -230,8 +230,187 @@ import Testing
         try await world.controller.resume(run: run.id)
         #expect(world.run(run.id)?.state == .active && world.run(run.id)?.intent == nil)
         #expect(world.daemon.requests("window.createTask").isEmpty)
+        // Its worker was told to stop, then to carry on; the Operator's wake comes after.
+        #expect(notes(world) == ["w1: pause", "w1: carry on"])
+        await eventually(describing: "the resume wake") { wakes(world).contains("[AiTerm] resumed, call run_status") }
+    }
+
+    // -- the notes Pause and Resume type (pause-broadcast plan) ------------------------------------------
+    /// A world of three working tasks: PLUTO-1's worker ended its turn with nothing running (`w1`), PLUTO-2's works
+    /// (`w2`), PLUTO-3's ended its turn with a test run going that will wake it (`w3`).
+    func pausingWorld(daemon: RecordingDaemon = RecordingDaemon()) throws -> (OperatorWorld, OperatorRun, [TaskItem]) {
+        let (world, run, first) = try makeWorld(daemon: daemon)
+        let second = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-2", state: .working, worktree: "/tmp/aiterm-wt2")
+        let third = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-3", state: .working, worktree: "/tmp/aiterm-wt3")
+        world.workspace.mutate { $0.tasks += [second, third] }
+        var background = OperatorServiceFixtures.session("w3", window: "w11", tag: third.id, state: .done)
+        background.background = [BackgroundJob(kind: .shell, text: "scripts/test.sh all")]
+        world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: first.id, state: .done),
+                    OperatorServiceFixtures.session("w2", window: "w10", tag: second.id, state: .working), background])
+        return (world, run, [first, second, third])
+    }
+
+    /// What was typed into the Operator's tab: its wake lines.
+    func wakes(_ world: OperatorWorld) -> [String] {
+        world.daemon.requests("session.deliver").filter { $0.params["sessionId"] as? String == "op" }.compactMap { $0.params["text"] as? String }
+    }
+
+    /// What was typed into the workers' tabs, in order, as `session: note`.
+    func notes(_ world: OperatorWorld) -> [String] {
+        world.daemon.requests("session.deliver").compactMap { request in
+            guard let session = request.params["sessionId"] as? String, session != "op", let text = request.params["text"] as? String else { return nil }
+            let note = text == OperatorController.pauseNote ? "pause" : text == OperatorController.carryOnNote ? "carry on" : text
+            return session + ": " + note
+        }
+    }
+
+    @Test func pauseTellsWorkersAtWorkOrWithWorkRunningToStopAndKeepsThemForResume() async throws {
+        let (world, run, tasks) = try pausingWorld()
+        try world.controller.pause(run: run.id)
+        await world.controller.signalling[run.id]?.value
+        #expect(notes(world) == ["w2: pause", "w3: pause"], "PLUTO-1's worker has stopped already")
+        let expected = [PausedWorker(task: tasks[1].id, tab: nil, ownership: 0), PausedWorker(task: tasks[2].id, tab: nil, ownership: 0)]
+        #expect(world.run(run.id)?.pausedWorkers == expected)
+        #expect(try world.workspace.file.load().runs.first?.pausedWorkers == expected)
+    }
+
+    /// A first worker whose launch is under way reads idle until its first hook, its first prompt on its way: Pause tells
+    /// it to stop too.
+    @Test func pauseTellsAWorkerStillLaunchingToStop() async throws {
+        let (world, run, tasks) = try pausingWorld()
+        let now = world.ports.now()
+        world.workspace.mutate { $0.updateOperated(tasks[0].id) { $0.launch = LaunchAttempt(number: 1, requestedAt: now, openedAt: now) } }
+        try world.controller.pause(run: run.id)
+        await world.controller.signalling[run.id]?.value
+        #expect(notes(world) == ["w1: pause", "w2: pause", "w3: pause"])
+    }
+
+    @Test func aPauseNoteThatDoesNotLandIsNotKept() async throws {
+        let daemon = RecordingDaemon()
+        daemon.deliveries = [Delivery(result: .refused, reason: "a permission prompt is open", code: .prompt),
+                             Delivery(result: .delivered, reason: nil)]
+        let (world, run, tasks) = try pausingWorld(daemon: daemon)
+        try world.controller.pause(run: run.id)
+        await world.controller.signalling[run.id]?.value
+        #expect(world.run(run.id)?.pausedWorkers == [PausedWorker(task: tasks[2].id, tab: nil, ownership: 0)])
+    }
+
+    @Test func resumeTellsEachPausedWorkerToCarryOnThenWakesTheOperator() async throws {
+        let (world, run, _) = try pausingWorld()
+        try world.controller.pause(run: run.id)
+        await world.controller.signalling[run.id]?.value
+        try await world.controller.resume(run: run.id)
+        #expect(notes(world) == ["w2: pause", "w3: pause", "w2: carry on", "w3: carry on"])
+        #expect(world.run(run.id)?.pausedWorkers == [])
+        // After the carry-ons; PLUTO-1's ended turn may share the line (`… needs acceptance; resumed, call run_status`).
+        await eventually(describing: "the resume wake") {
+            wakes(world).contains { $0.hasPrefix("[AiTerm] ") && $0.contains("resumed") && !$0.contains("missed") }
+        }
+    }
+
+    /// Take Over and Stop Task stay yours while the broadcast is paused: Resume steers neither task's worker.
+    @Test func resumeLetsGoOfWorkersTheBroadcastNoLongerDrives() async throws {
+        let (world, run, tasks) = try pausingWorld()
+        try world.controller.pause(run: run.id)
+        await world.controller.signalling[run.id]?.value
+        try await world.controller.takeOver(task: tasks[1].id)
+        try world.controller.stop(task: tasks[2].id)
+        try await world.controller.resume(run: run.id)
+        #expect(notes(world) == ["w2: pause", "w3: pause"])
+        #expect(world.run(run.id)?.pausedWorkers == [])
+    }
+
+    @Test func aCarryOnThatDoesNotLandIsSaidInTheResumeWake() async throws {
+        let (world, run, _) = try pausingWorld()
+        try world.controller.pause(run: run.id)
+        await world.controller.signalling[run.id]?.value
+        // Every delivery refused from here, so which line comes first does not matter: no carry-on lands.
+        world.daemon.deliveries = [Delivery(result: .refused, reason: "a permission prompt is open", code: .prompt)]
+        try await world.controller.resume(run: run.id)
+        // PLUTO-1's ended turn may share the line; the reason is in it whole.
+        await eventually(describing: "the resume wake") { wakes(world).contains { $0.contains(OperatorController.resumedMissingCarryOn) } }
+        #expect(!wakes(world).contains { $0.contains("resumed,") || $0.hasSuffix("; resumed, call run_status") })
+    }
+
+    /// Resume pressed while the pause notes are still being typed waits for them: no pause note follows a carry-on.
+    @Test func resumeWaitsForThePauseNotesStillBeingTyped() async throws {
+        let (world, run, _) = try pausingWorld(daemon: RecordingDaemon(holding: "session.deliver"))
+        try world.controller.pause(run: run.id)
         try await world.daemon.received("session.deliver")
-        #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String == "[AiTerm] resumed, call run_status")
+        let pausing = world.controller.signalling[run.id]
+        let resuming = Task { try await world.controller.resume(run: run.id) }
+        // Resume has queued its carry-ons behind the held pause note.
+        await eventually(describing: "the carry-ons queued") { world.controller.signalling[run.id] != pausing }
+        world.daemon.release()
+        try await resuming.value
+        #expect(notes(world) == ["w2: pause", "w3: pause", "w2: carry on", "w3: carry on"])
+    }
+
+    /// Resume types every carry-on while the broadcast still reads paused: the Operator is neither woken nor able to act
+    /// on a turn the pause cut short before its worker has its note, and no Pause comes in between.
+    @Test func theBroadcastReadsPausedUntilEveryCarryOnIsTyped() async throws {
+        let (world, run, _) = try pausingWorld()
+        try world.controller.pause(run: run.id)
+        await world.controller.signalling[run.id]?.value
+        let wakesBefore = wakes(world).count
+        var whileTyping: [OperatorRunState?] = [], pauseRefused = false
+        world.daemon.onRequest = { method in
+            guard method == "session.deliver", let last = world.daemon.requests("session.deliver").last,
+                  last.params["text"] as? String == OperatorController.carryOnNote else { return }
+            whileTyping.append(world.run(run.id)?.state)
+            pauseRefused = (try? world.controller.pause(run: run.id)) == nil
+        }
+        try await world.controller.resume(run: run.id)
+        #expect(whileTyping == [.paused, .paused])
+        #expect(pauseRefused, "paused, it offers Resume, not Pause")
+        #expect(wakes(world).count == wakesBefore, "no line reached the Operator while the carry-ons were typed")
+        #expect(world.run(run.id)?.state == .active)
+    }
+
+    /// A task you stop while the pause notes are typed gets none: the broadcast no longer steers it.
+    @Test func aTaskStoppedWhileThePauseNotesAreTypedGetsNone() async throws {
+        let (world, run, tasks) = try pausingWorld()
+        var stopped = false
+        world.daemon.onRequest = { method in
+            guard method == "session.deliver", !stopped else { return }
+            stopped = true
+            try? world.controller.stop(task: tasks[2].id)
+        }
+        try world.controller.pause(run: run.id)
+        await world.controller.signalling[run.id]?.value
+        #expect(notes(world) == ["w2: pause"])
+        #expect(world.run(run.id)?.pausedWorkers == [PausedWorker(task: tasks[1].id, tab: nil, ownership: 0)])
+    }
+
+    /// End while a pause note is being typed sets the tasks' new ownership before it waits for the note, so the helper
+    /// holds back its Enter: nothing the broadcast typed is sent once the tasks are yours.
+    @Test func endSetsTheNewOwnershipBeforeWaitingForANoteBeingTyped() async throws {
+        let (world, run, _) = try pausingWorld(daemon: RecordingDaemon(holding: "session.deliver"))
+        try world.controller.pause(run: run.id)
+        try await world.daemon.received("session.deliver")
+        let ending = Task { try await world.controller.end(run: run.id) }
+        try await world.daemon.received("session.setOwnership", count: 3)
+        #expect(world.daemon.requests("session.deliver").count == 1, "the note is still being typed")
+        world.daemon.release()
+        try await ending.value
+        #expect(notes(world) == ["w2: pause"], "ended: the rest are never typed")
+    }
+
+    @Test func endingAPausedBroadcastForgetsItsPausedWorkers() async throws {
+        let (world, run, _) = try pausingWorld()
+        try world.controller.pause(run: run.id)
+        await world.controller.signalling[run.id]?.value
+        try await world.controller.end(run: run.id)
+        #expect(world.run(run.id)?.pausedWorkers == [])
+    }
+
+    /// End pressed before the pause notes went: none goes, the tasks are yours as they are.
+    @Test func anEndBeforeThePauseNotesWentTypesNone() async throws {
+        let (world, run, _) = try pausingWorld()
+        try world.controller.pause(run: run.id)
+        try await world.controller.end(run: run.id)
+        #expect(notes(world) == [])
+        #expect(world.run(run.id)?.pausedWorkers == [])
     }
 
     @Test func aPauseThatCannotBeSavedIsTakenBackSoMemoryNeverClaimsWhatDiskDoesNot() throws {

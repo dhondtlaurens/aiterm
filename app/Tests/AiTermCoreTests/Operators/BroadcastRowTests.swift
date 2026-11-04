@@ -128,6 +128,22 @@ import Testing
         return [tab("\(task.id)-1", first, index: 0, key: nil)] + (extra.map { [tab("\(task.id)-2", $0, index: 1, key: "tests")] } ?? [])
     }
 
+    /// Paused by you, the Operator's row spins with `pausing · n tasks` while a task's worker still works, then wears the
+    /// pause sign once none does. A task's own row wears it once its workers stopped.
+    @Test func theOperatorRowWearsThePauseSignOnceEveryTaskStopped() throws {
+        var paused = run(.paused)
+        paused.intent = .paused
+        let a = task("a", run: paused.id, .working), b = task("b", run: paused.id, .working)
+        let stopping = SidebarModel.operatorRow(paused, tasks: [a, b], acting: .none, requests: [],
+                                                sessions: tabs(of: a, first: .working) + tabs(of: b, first: .done))
+        #expect(stopping.line == OperatorLine("pausing · 1 task", look: .acting) && stopping.status == .working && !stopping.paused)
+        let stopped = SidebarModel.operatorRow(paused, tasks: [a, b], acting: .none, requests: [],
+                                               sessions: tabs(of: a, first: .idle) + tabs(of: b, first: .done))
+        #expect(stopped.line == .paused && stopped.paused)
+        let offline = SidebarModel.operatorRow(run(.operatorOffline), tasks: [a, b], acting: .none, requests: [], sessions: [])
+        #expect(!offline.paused, "its window closed: nothing was paused")
+    }
+
     /// The header's line reads which tasks wait to be accepted from their workers' tabs: every worker ended its
     /// turn. With none at work the line is quiet, as while it waits on people: the Operator checks the work next.
     @Test func aTaskWhoseWorkersAreDoneIsReadyToAccept() throws {

@@ -127,6 +127,9 @@ final class OperatorController {
     @ObservationIgnored private(set) var summaryWaits: [UUID: Task<Void, Never>] = [:]
     /// The latest wait for a summary, for a test to await.
     @ObservationIgnored private(set) var summaryWait: Task<Void, Never>?
+    /// The notes Pause and Resume type into a broadcast's workers, by run: each new batch waits for the one before it,
+    /// so the workers read them in the order you pressed the controls (`queueSignalling`). A test awaits it too.
+    @ObservationIgnored var signalling: [UUID: Task<Void, Never>] = [:]
     /// The broadcast whose board a notification's click asked for (spec §10.3): the sidebar presents
     /// it and sets this back to nil. Observed, so the click reaches a sidebar already on screen.
     var presentBoard: UUID?

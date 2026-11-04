@@ -298,6 +298,39 @@ import Testing
                                   sessions: [OperatorUIFixtures.tab("s1", of: codex, .idle)]) == OperatorLine("Operator checking the work", look: .acting))
     }
 
+    /// Paused by you, a working task is `pausing` while a worker still works or its ended turn left work running, then
+    /// `paused`. What waits on you still says so, a task in another state keeps its line, and an Operator window that
+    /// closed pauses nothing.
+    @Test func aWorkingTaskOfABroadcastYouPausedIsPausingThenPaused() {
+        var run = OperatorUIFixtures.run(state: .paused)
+        run.intent = .paused
+        let pay = task(run: run, .working)
+        func line(_ state: SessionState, background: Bool = false, in run: OperatorRun) -> OperatorLine? {
+            var tab = OperatorUIFixtures.tab("s1", of: pay, state)
+            if background { tab.background = [BackgroundJob(kind: .shell, text: "npm run build")] }
+            return OperatorLine.task(pay, run: run, acting: nil, requests: [], sessions: [tab])
+        }
+        #expect(line(.working, in: run) == OperatorLine("pausing", look: .acting))
+        #expect(line(.done, background: true, in: run) == OperatorLine("pausing", look: .acting), "its background work wakes it again")
+        #expect(line(.idle, in: run) == .paused)
+        #expect(line(.done, in: run) == .paused, "not ready for the Operator: the pause ended its turn")
+        #expect(line(.needsInput, in: run)?.look != .quiet, "a prompt waiting on you is not paused")
+        #expect(OperatorLine.task(task(run: run, .inReview), run: run, acting: nil, requests: []) == OperatorLine("in review"))
+        var offline = run
+        offline.state = .operatorOffline; offline.intent = nil
+        #expect(line(.idle, in: offline) == OperatorLine("ready for the Operator", look: .acting), "no note was sent: nothing paused it")
+    }
+
+    /// Paused, the Operator's row says how many tasks are still stopping, then `paused`.
+    @Test func theOperatorRowIsPausingUntilEveryTaskStopped() {
+        #expect(OperatorLine.session(acting: nil, working: false, asking: false, windowClosed: false, paused: true, pausing: 2)
+                == OperatorLine("pausing · 2 tasks", look: .acting))
+        #expect(OperatorLine.session(acting: nil, working: false, asking: false, windowClosed: false, paused: true, pausing: 1)
+                == OperatorLine("pausing · 1 task", look: .acting))
+        #expect(OperatorLine.session(acting: nil, working: true, asking: false, windowClosed: false, paused: true) == .paused)
+        #expect(OperatorLine.session(acting: nil, working: false, asking: true, windowClosed: false, paused: true, pausing: 2).look == .needsYou)
+    }
+
     /// A working task whose worker ended its turn asking something is the Operator's to answer, and one that ended with no
     /// commit is not ready either: the line says which (spec §E). A finished task keeps its ending whatever its worker did.
     @Test func aTurnThatAsksOrCommittedNothingSaysSo() {

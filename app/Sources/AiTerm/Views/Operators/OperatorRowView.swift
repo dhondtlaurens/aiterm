@@ -6,7 +6,7 @@ import AiTermCore
 /// 2026 titled with the broadcast): a full task row (`SelectableRow`) washed at rest (`Palette.operatorRow`), which
 /// alone tells it from its tasks, Claude's `VendorMark` as its avatar, the broadcast's name as its title, then its
 /// own session's line, `OperatorBadge(line:)`, and the shared task mark trailing, a completed check once the
-/// broadcast succeeds. No project, ticket or branch line: the board has all of that. ↑ ↓ peek at its window, as on
+/// broadcast succeeds, the pause sign once every task stopped for a pause of yours. No project, ticket or branch line: the board has all of that. ↑ ↓ peek at its window, as on
 /// a task; a click or ↩ brings it to front with iTerm2, or reopens it in front when it is closed
 /// (`RowFocus.select(.operation)`). Its context menu is the broadcast's (`BroadcastMenu`), which the heading has too.
 struct OperatorRowView: View {
@@ -35,7 +35,7 @@ struct OperatorRowView: View {
                 // Laid out before the spacer, so the line takes the row's width before it is cut.
                 .layoutPriority(1)
                 Spacer(minLength: scale(Space.tight))
-                TaskRowMarkView(mark: TaskRowMark(status: row.status, line: row.line, removing: false),
+                TaskRowMarkView(mark: TaskRowMark(status: row.status, line: row.line, removing: false, paused: row.paused),
                                 size: SidebarRowLayout.trailingGlyph(scale))
                     .frame(width: SidebarRowLayout.trailingSlot(scale))
             }

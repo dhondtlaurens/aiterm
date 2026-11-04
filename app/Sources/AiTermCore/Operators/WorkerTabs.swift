@@ -39,6 +39,10 @@ public struct WorkerTab: Equatable, Sendable {
         return result
     }
 
+    /// At work, or its ended turn left work running that wakes it again: not stopped. What a pause tells to stop, and
+    /// what keeps its task `pausing`.
+    public var isStillAtWork: Bool { status == .working || !background.isEmpty }
+
     /// An extra tab that opened and is listed no more: closed, and never opened again. A first worker is never closed
     /// here; its window comes back on your click.
     public var isClosed: Bool { key != nil && session == nil && !isOpening }
