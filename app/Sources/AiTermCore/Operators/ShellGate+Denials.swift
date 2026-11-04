@@ -24,12 +24,14 @@ extension ShellGate {
     }
 
     static func hostDenial(_ what: String) -> String {
-        "AiTerm refuses `\(what)` from the Operator's shell: merges and changes to a merge request are AiTerm's, through finish_task."
+        "AiTerm refuses `\(what)` from the Operator's shell: merges and changes to a merge request are AiTerm's. "
+            + "Change a task's request's title, description or assignee with update_request; merge through finish_task."
     }
 
     static func apiDenial(_ tool: String) -> String {
         "AiTerm refuses a `\(tool) api` call other than a GET from the Operator's shell: changes on the host, merges and merge "
-            + "requests among them, are AiTerm's, through finish_task."
+            + "requests among them, are AiTerm's: update_request changes a task's request's title, description or assignee, and "
+            + "finish_task merges."
     }
 
     // MARK: Reading the words

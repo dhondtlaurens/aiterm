@@ -319,6 +319,15 @@ import Testing
         #expect(ShellGate.hostDenial("gh pr merge").contains("finish_task"))
     }
 
+    /// Snag !62 ("Aikido findings 2026-11"): the Operator's correction of a request was refused with nowhere to turn, since
+    /// finish_task takes no title, description or assignee. It stays refused, and the refusal names the tool that does it.
+    @Test func aRefusedChangeToARequestNamesUpdateRequest() {
+        for command in ["glab mr update 62 --title 'PLUTO-231: Add gift card'", "glab mr update 62 --assignee nathan", "gh pr edit 12 --body x"] {
+            #expect(ShellGate.hardDenial(command)?.contains("update_request") == true, "\(command)")
+        }
+        #expect(ShellGate.apiDenial("glab").contains("update_request"))
+    }
+
     @Test func anAPICallThatIsNoGetIsRefused() {
         for command in ["gh api -X PUT repos/a/b/pulls/1/merge", "gh api repos/a/b/pulls/1/merge -XPUT", "gh api --method=PATCH repos/a/b/pulls/1",
                         "gh api --method POST repos/a/b/issues", "gh api -iXPOST repos/a/b/issues", "gh api repos/a/b/issues -f title=x",

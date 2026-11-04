@@ -163,10 +163,14 @@ final class OperatorToolHandler {
     var onMessaged: @MainActor (UUID, String?) -> Void = { _, _ in }
     /// Reads the addressed worker's screen after delivery or a refusal that suggests a prompt.
     var onMessageResult: @MainActor (UUID, String?) -> Void = { _, _ in }
-    /// Carries out a task's recorded end (G10), past the push hooks when told (`noVerify`): the controller's `TaskFinisher`.
-    var finish: @MainActor (UUID, Bool) async -> TaskFinisher.Result = { _, _ in
+    /// Carries out a task's recorded end (G10), past the push hooks when told (`noVerify`), opening its request with the
+    /// Operator's content when given: the controller's `TaskFinisher`.
+    var finish: @MainActor (UUID, Bool, RequestContent?) async -> TaskFinisher.Result = { _, _, _ in
         TaskFinisher.Result(result: .refused, reason: "AiTerm isn’t ready to publish yet.")
     }
+
+    /// Whether a publication of the task is in flight (`TaskFinisher.running`): finish_task, a retry or a merge watch's poll.
+    var publishing: @MainActor (UUID) -> Bool = { _ in false }
 
     /// The tools that act on one task while they run: its line says the act meanwhile (`act(for:on:)`).
     static let actsOnTask: Set<OperatorTool> = [.messageTask, .markTask, .finishTask, .reviewTask, .requestReview, .replyThread]
@@ -211,7 +215,7 @@ final class OperatorToolHandler {
     static let mutating: Set<OperatorTool> = [.createTask, .updateTask, .submitPlan, .messageTask, .openTab, .markTask, .resumeTask,
                                               .retryTask, .finishTask, .askYou, .resolveQuestion, .logDecision, .leaveForYou, .reportFind,
                                               .reportSnag, .writeSummary, .jiraCreate, .jiraMove, .jiraLink, .jiraSprint, .jiraEdit,
-                                              .jiraComment, .reviewTask, .requestReview, .replyThread, .recordReview, .checkGoal]
+                                              .jiraComment, .reviewTask, .requestReview, .replyThread, .updateRequest, .recordReview, .checkGoal]
 
     /// Whether `call` is one of the tools that change the run (`mutating`).
     static func isMutating(_ call: ToolCall) -> Bool { call.operatorTool.map(mutating.contains) ?? false }
@@ -354,10 +358,13 @@ final class OperatorToolHandler {
         case .reviewTask: return try await reviewTask(call, in: run)
         case .requestReview: return try await requestReview(call, in: run)
         case .replyThread: return try await replyThread(call, in: run)
+        case .updateRequest: return try await updateRequest(call, in: run)
         case .findUser: return try await findUser(call, in: run)
         case .finishTask:
             let task = try self.task(call, in: run)
-            let result = await finish(task.id, call.optionalBool("noVerify") ?? false)
+            let content = RequestContent(title: call.optionalString("title"), description: call.optionalString("description"),
+                                         assignee: call.optionalString("assignee"))
+            let result = await finish(task.id, call.optionalBool("noVerify") ?? false, content.isEmpty ? nil : content)
             return try JSONValue(encoding: result)
         }
     }

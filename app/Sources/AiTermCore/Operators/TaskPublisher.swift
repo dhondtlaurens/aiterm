@@ -83,6 +83,8 @@ public struct TaskPublisher: Sendable {
     /// taken out of draft to merge it. Each comes from what the host said, never from the plan.
     public enum DraftEvent: Equatable, Sendable {
         case opened(draft: Bool), leftDraft, leftReady, markedReady
+        /// The request is open but `name` couldn't be assigned to it, and why: the next advance tries again.
+        case notAssigned(name: String?, why: String)
     }
 
     public init(repository: Repository, host: any MergeRequestPublishing, now: @escaping @Sendable () -> Date = Date.init,
@@ -92,6 +94,35 @@ public struct TaskPublisher: Sendable {
 
     /// A recheck that refused inside a host call, right before its write.
     struct Refused: Error { let reason: String }
+
+    /// Step 2b: assigns a request that is still to be assigned (`TaskPublication.assigning`) to whom the Operator asked, else
+    /// to the user AiTerm acts as on the host. `recheck` is read before the host is asked and again right before the write;
+    /// what it says is returned, and nothing is written. A host that fails is said through `noted` and leaves the request to
+    /// assign for the next call: it never stops the publication. Once assigned, `record` saves it, and an error saving it is
+    /// thrown, so nothing more is done unsaved. Called by `finish_task` again for a draft published before it was assigned.
+    public func assign(_ publication: inout TaskPublication, recheck: @escaping @Sendable () async -> String?,
+                       record: @escaping @Sendable (TaskPublication) async throws -> Void) async throws -> String? {
+        guard publication.assigning == true, !publication.merged, let number = publication.mergeRequestNumber else { return nil }
+        if let why = await recheck() { return why }
+        var name = Self.said(publication.requested?.assignee)
+        do {
+            if name == nil { name = try await host.currentUser() }
+            try await host.updateRequest(number, RequestContent(assignee: name), beforeWrite: { _ in
+                if let why = await recheck() { throw Refused(reason: why) }
+            })
+        } catch let refused as Refused {
+            return refused.reason
+        } catch let cancelled as CancellationError {
+            throw cancelled
+        } catch {
+            noted(.notAssigned(name: name, why: error.localizedDescription))
+            return nil
+        }
+        publication.assigning = nil
+        publication.assignee = name
+        try await record(publication)
+        return nil
+    }
 
     /// `noVerify`: the push skips the repository's push hooks (spec §B), as the Oracle let it.
     public func advance(_ context: Context, restart: Bool, noVerify: Bool = false,
@@ -187,10 +218,10 @@ public struct TaskPublisher: Sendable {
                 request = open
                 noted(open.draft ? .leftDraft : .leftReady)
             } else {
-                let draft = operated.end == .draftMR || context.forReview
+                let draft = operated.end == .draftMR || context.forReview, asked = publication.requested
                 request = try await host.createRequest(from: branch, into: target,
-                                                       title: Self.title(of: task),
-                                                       description: Self.description(of: task, run: context.run, acceptance: acceptance),
+                                                       title: Self.said(asked?.title) ?? Self.title(of: task),
+                                                       description: Self.said(asked?.description) ?? Self.description(of: task, acceptance: acceptance),
                                                        draft: draft)
                 noted(.opened(draft: draft))
             }
@@ -200,8 +231,12 @@ public struct TaskPublisher: Sendable {
             publication.targetBranch = request.targetBranch
             publication.repository = host.repository
             publication.readySince = nil
+            publication.assigning = true
             try await record(publication)
         }
+
+        // 2b · Assign it.
+        if let why = try await assign(&publication, recheck: recheck, record: record) { return .refused(why) }
         guard operated.end == .merge, !context.forReview else { return .published(publication) }
 
         // 3 · Merge: after a stacked parent's merge, onto the default branch, once the host can.
@@ -395,23 +430,29 @@ public struct TaskPublisher: Sendable {
         return "\(key) was merged on the host at \(head), not the accepted \(publication.pushedSHA.map { String($0.prefix(7)) } ?? "commit"): it holds commits that weren't accepted."
     }
 
-    /// The request's title: the task's, after its Jira key unless it already starts with it. A GitLab
+    /// The request's title: the task's, after its Jira key and a colon unless it already starts with the key. A GitLab
     /// issue is linked from the description instead, as GitLab's own merge requests do.
     static func title(of task: TaskItem) -> String {
         guard let ref = task.jira, !ref.isGitLabIssue, !task.title.hasPrefix(ref.key) else { return task.title }
-        let key = ref.key
-        return "\(key) \(task.title)"
+        return "\(ref.key): \(task.title)"
     }
 
-    /// The request's description: the task's brief, who opened it, and the worker's check output.
-    static func description(of task: TaskItem, run: OperatorRun, acceptance: TaskAcceptance) -> String {
-        var lines = [task.operated?.brief ?? task.title, "", "Opened by AiTerm for the Operator's broadcast “\(run.name)”."]
+    /// The request's description when the Operator gives none: the GitLab issue it closes and the checks the worker ran.
+    /// Never the worker's brief or the Operator's acceptance note: they are AiTerm's own, written for agents, and name
+    /// paths on this Mac.
+    static func description(of task: TaskItem, acceptance: TaskAcceptance) -> String {
+        var lines: [String] = []
         // GitLab links the issue from here, and closes it when the request merges.
-        if let ref = task.jira, ref.isGitLabIssue { lines += ["", "Closes \(ref.key)"] }
-        if let note = acceptance.note, !note.isEmpty { lines += ["", note] }
+        if let ref = task.jira, ref.isGitLabIssue { lines += ["Closes \(ref.key)", ""] }
         if !acceptance.checkOutput.isEmpty {
-            lines += ["", "Checks run by the agent:", "```", String(acceptance.checkOutput.suffix(4000)), "```"]
+            lines += ["Checks run by the agent:", "```", String(acceptance.checkOutput.suffix(4000)), "```", ""]
         }
-        return lines.joined(separator: "\n")
+        return (lines + ["Opened by AiTerm."]).joined(separator: "\n")
+    }
+
+    /// `text` when it says something; nil for none, or only whitespace.
+    static func said(_ text: String?) -> String? {
+        guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return text
     }
 }

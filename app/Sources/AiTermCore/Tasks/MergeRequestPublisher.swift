@@ -19,6 +19,10 @@ public protocol MergeRequestPublishing: Sendable {
     /// `.merged` when it merged, `.blocked` when the host refused; throws only when it could not be asked.
     func merge(_ number: Int, at sha: String) async throws -> MergeReadiness
     func retarget(_ number: Int, to target: String) async throws
+    /// Changes its title, description and assignee as `edit` gives them, each nil one left as it is; the assignee replaces
+    /// any it has. `beforeWrite` runs after the reads, with the request as the host has it now, right before the write, and
+    /// its error stops it. A GitLab draft stays one whatever title is given. Safe to repeat.
+    func updateRequest(_ number: Int, _ edit: RequestContent, beforeWrite: @Sendable (MergeRequest) async throws -> Void) async throws
 
     // The Review slice (spec §5): involving people on the request. Each is safe to repeat.
     /// Takes the request out of draft; one that is not a draft is left as it is. `beforeWrite` runs after the reads
@@ -36,6 +40,19 @@ public protocol MergeRequestPublishing: Sendable {
     func approvals(of number: Int) async throws -> [String]
     /// The username the token acts as: whose notes are AiTerm's own.
     func currentUser() async throws -> String
+}
+
+/// What a request says and who it is assigned to, as the Operator gives them (`finish_task` for the request it opens,
+/// `update_request` after): each nil one is AiTerm's own on opening, and left as it is on an edit.
+public struct RequestContent: Codable, Equatable, Sendable {
+    public var title: String?
+    public var description: String?
+    /// A username on the request's host.
+    public var assignee: String?
+    public init(title: String? = nil, description: String? = nil, assignee: String? = nil) {
+        self.title = title; self.description = description; self.assignee = assignee
+    }
+    public var isEmpty: Bool { title == nil && description == nil && assignee == nil }
 }
 
 extension MergeRequestPublishing {
@@ -88,6 +105,10 @@ struct GitHubPublisher: HostRepository {
     }
     func merge(_ number: Int, at sha: String) async throws -> MergeReadiness { try await client.merge(repo: repo, number: number, sha: sha) }
     func retarget(_ number: Int, to target: String) async throws { try await client.retarget(repo: repo, number: number, to: target) }
+    func updateRequest(_ number: Int, _ edit: RequestContent, beforeWrite: @Sendable (MergeRequest) async throws -> Void) async throws {
+        try await client.updatePullRequest(repo: repo, number: number, title: edit.title, body: edit.description,
+                                           assignee: edit.assignee, beforeWrite: beforeWrite)
+    }
     func markReady(_ number: Int, beforeWrite: @Sendable () async throws -> Void) async throws {
         try await client.markReady(repo: repo, number: number, beforeWrite: beforeWrite)
     }
@@ -120,6 +141,10 @@ struct GitLabPublisher: HostRepository {
     }
     func merge(_ number: Int, at sha: String) async throws -> MergeReadiness { try await client.merge(project: project, iid: number, sha: sha) }
     func retarget(_ number: Int, to target: String) async throws { try await client.retarget(project: project, iid: number, to: target) }
+    func updateRequest(_ number: Int, _ edit: RequestContent, beforeWrite: @Sendable (MergeRequest) async throws -> Void) async throws {
+        try await client.updateMergeRequest(project: project, iid: number, title: edit.title, description: edit.description,
+                                            assignee: edit.assignee, beforeWrite: beforeWrite)
+    }
     func markReady(_ number: Int, beforeWrite: @Sendable () async throws -> Void) async throws {
         try await client.markReady(project: project, iid: number, beforeWrite: beforeWrite)
     }

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Synchronization
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
@@ -144,6 +145,56 @@ import Testing
         await #expect(throws: GitLabError.unauthorized) {
             _ = try await self.makeClient { _ in (401, Data()) }.client.merge(project: "web/acme-web", iid: 12, sha: Self.head)
         }
+    }
+
+    /// Snag !62 ("Aikido findings 2026-11"): the Operator can correct a request AiTerm opened. A draft stays one: a title
+    /// without GitLab's prefix would mark it ready, and a prefix the Operator wrote is not doubled.
+    @Test func anOpenDraftIsRetitledRedescribedAndReassignedAndStaysADraft() async throws {
+        let (client, stub) = makeClient { request in
+            if request.url?.path.hasSuffix("/users") == true { return (200, Data(#"[{"id":31,"username":"nathan"}]"#.utf8)) }
+            return (200, Data(Self.created.utf8))
+        }
+        let seen = Mutex<MergeRequest?>(nil)
+        try await client.updateMergeRequest(project: "web/acme-web", iid: 12, title: "draft: PLUTO-231: Add gift card",
+                                            description: "Adds the gift card.", assignee: "nathan",
+                                            beforeWrite: { request in seen.withLock { $0 = request } })
+        #expect(seen.withLock { $0 }?.draft == true, "the request as read is handed over before the write")
+        let sent = try #require(stub.lastRequest)
+        #expect(sent.httpMethod == "PUT")
+        #expect(sent.url?.absoluteString == Self.base + "/12")
+        let fields = try body(sent)
+        #expect(fields["title"] as? String == "Draft: PLUTO-231: Add gift card")
+        #expect(fields["description"] as? String == "Adds the gift card.")
+        #expect(fields["assignee_ids"] as? [Int] == [31])
+    }
+
+    @Test func anEditChangesOnlyWhatItGives() async throws {
+        let (client, stub) = makeClient { request in
+            if request.url?.path.hasSuffix("/users") == true { return (200, Data(#"[{"id":7,"username":"laurens"}]"#.utf8)) }
+            return (200, Data(Self.status(detailed: "mergeable", pipeline: "success").utf8))
+        }
+        try await client.updateMergeRequest(project: "web/acme-web", iid: 12, title: nil, description: nil, assignee: "laurens")
+        #expect(try fieldNames(stub.lastRequest) == ["assignee_ids"])
+        try await client.updateMergeRequest(project: "web/acme-web", iid: 12, title: "PLUTO-231: Add gift card", description: nil, assignee: nil)
+        #expect(try body(stub.lastRequest)["title"] as? String == "PLUTO-231: Add gift card", "a request that is no draft gets no prefix")
+    }
+
+    @Test func anAssigneeGitLabDoesNotKnowWritesNothing() async throws {
+        let (client, stub) = makeClient { request in
+            if request.url?.path.hasSuffix("/users") == true { return (200, Data("[]".utf8)) }
+            return (200, Data(Self.created.utf8))
+        }
+        await #expect(throws: GitLabError.noUser("ghost")) {
+            try await client.updateMergeRequest(project: "web/acme-web", iid: 12, title: "T", description: nil, assignee: "ghost")
+        }
+        #expect(!stub.requests.contains { $0.httpMethod == "PUT" })
+    }
+
+    @Test func anOperatorsTitleWithADraftPrefixIsNotDoubled() async throws {
+        let (client, stub) = makeClient { _ in (201, Data(Self.created.utf8)) }
+        _ = try await client.createMergeRequest(project: "web/acme-web", source: "feat/x", target: "main",
+                                                title: "Draft: PLUTO-231: Add gift card", description: "", draft: true)
+        #expect(try body(stub.lastRequest)["title"] as? String == "Draft: PLUTO-231: Add gift card")
     }
 
     @Test func aRequestIsRetargeted() async throws {

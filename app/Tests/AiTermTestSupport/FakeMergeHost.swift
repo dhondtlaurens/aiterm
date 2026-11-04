@@ -49,6 +49,12 @@ final class FakeMergeHost: MergeRequestPublishing {
         var loseReply = false
         /// A response delayed after the host committed its reviewer replacement.
         var afterAssignment: (@Sendable () async -> Void)?
+        /// Thrown by `updateRequest` after it is logged, before the host changes anything, until cleared.
+        var editError: (any Error)?
+        /// Who the request is assigned to, as `updateRequest` last set it.
+        var assignee: String?
+        /// Awaited at the start of `updateRequest`, before its reads: a test holds an edit in flight with it.
+        var beforeEdit: (@Sendable () async -> Void)?
     }
 
     private let script: Mutex<Script>
@@ -58,6 +64,9 @@ final class FakeMergeHost: MergeRequestPublishing {
 
     var log: [String] { calls.withLock { $0 } }
     var reviewers: [String] { script.withLock { $0.reviewers } }
+    /// The request it keeps, as opened and edited.
+    var request: MergeRequest? { script.withLock { $0.existing } }
+    var assignee: String? { script.withLock { $0.assignee } }
     func update(_ change: (inout Script) -> Void) { script.withLock { change(&$0) } }
 
     static let url = "https://git.example.net/web/acme-web/-/merge_requests/12"
@@ -82,7 +91,7 @@ final class FakeMergeHost: MergeRequestPublishing {
         calls.withLock { $0.append("create \(source) → \(target)\(draft ? " draft" : "")") }
         if let hold = script.withLock({ $0.beforeCreate }) { await hold() }
         let request = MergeRequest(iid: 12, title: title, sourceBranch: source, targetBranch: target, author: "aiterm",
-                                   state: "opened", draft: draft, url: Self.url)
+                                   state: "opened", draft: draft, url: Self.url, description: description)
         let (fails, loses) = script.withLock { ($0.createFails, $0.loseCreateReply) }
         if fails { throw URLError(.timedOut) }
         script.withLock { $0.existing = request; $0.loseCreateReply = false }
@@ -116,6 +125,23 @@ final class FakeMergeHost: MergeRequestPublishing {
     func retarget(_ number: Int, to target: String) async throws {
         calls.withLock { $0.append("retarget \(number) → \(target)") }
         script.withLock { $0.existing?.targetBranch = target }
+    }
+
+    /// Logged as `edit 12 title …; description …; assignee …`, naming only what it changes. The request is the open one it
+    /// keeps, or one that is still open when it keeps none.
+    func updateRequest(_ number: Int, _ edit: RequestContent, beforeWrite: @Sendable (MergeRequest) async throws -> Void) async throws {
+        if let hold = script.withLock({ $0.beforeEdit }) { await hold() }
+        let live = script.withLock { $0.existing } ?? MergeRequest(iid: number, title: "", sourceBranch: "", targetBranch: "",
+                                                                   author: "aiterm", state: "opened", draft: false, url: Self.url)
+        try await beforeWrite(live)
+        let parts = [edit.title.map { "title \($0)" }, edit.description.map { "description \($0)" }, edit.assignee.map { "assignee \($0)" }]
+        calls.withLock { $0.append("edit \(number) " + parts.compactMap { $0 }.joined(separator: "; ")) }
+        if let error = script.withLock({ $0.editError }) { throw error }
+        script.withLock { s in
+            if let title = edit.title { s.existing?.title = title }
+            if let description = edit.description { s.existing?.description = description }
+            if let assignee = edit.assignee { s.assignee = assignee }
+        }
     }
 
     // The Review slice's calls, logged as the others are.

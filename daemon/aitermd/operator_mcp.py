@@ -479,7 +479,11 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "It answers result: published, inReview, waitingToMerge, blocked, refused or failed, with reason, mergeRequest, "
           "pushedSHA, merged and mergedSHA as far as they are known; refused and failed also say what was already "
           "done. draftNote says what this call did to the request's draft state (opened as a draft, opened ready, "
-          "left as a draft, marked ready), and is left out when it did nothing. "
+          "left as a draft, marked ready), or that the request couldn't be assigned, and is left out when it did nothing. "
+          "A request AiTerm opens takes your title, description and assignee; without them its title is the ticket key, a "
+          "colon and the task's title, its description the checks the worker ran (never the worker's brief), and it is "
+          "assigned to the person AiTerm acts as on the host. A request already open keeps what it says: change it with "
+          "update_request. "
           "Each step is recorded and calling again resumes at the next step: it never pushes or opens a request "
           "twice, and on a task that is done it answers what was done. A push that timed out may have landed: call "
           "finish_task again. A takeover stops a merge's waiting: call finish_task again once the task is handed "
@@ -493,7 +497,19 @@ TOOLS: tuple[dict[str, Any], ...] = (
            "noVerify": {"type": "boolean", "description": "Skip the repository's push hooks: only when the hook failed on the "
                         "environment and your repair didn't work. The Oracle judges it."},
            "reason": _text("With noVerify: what you tried to repair the environment, for the Oracle. Left out, it reads your "
-                           "last shell commands in the task's worktree.")},
+                           "last shell commands in the task's worktree."),
+           "title": _text("The request's title, as the project's workflow asks for it."),
+           "description": _text("The request's description, from the project's merge request template when it has one: for "
+                                "its reviewers, without your instructions to the worker or paths on this Mac."),
+           "assignee": _text("The username on the code host to assign the request to, as find_user gives it.")},
+          ("task",)),
+    _tool("update_request",
+          "Changes the title, description or assignee of the merge request finish_task opened for a task; what you leave out "
+          "stays as it is, and an assignee replaces the one it has. A draft stays a draft. It needs no slice and the Oracle "
+          "isn't asked; the same change again changes nothing. Refused while the task has no request, once the request is "
+          "merged or closed, when the task was taken over, or while the broadcast is paused or ended.",
+          {"task": _TASK, "title": _text("The new title."), "description": _text("The new description."),
+           "assignee": _text("The username on the code host to assign it to, as find_user gives it.")},
           ("task",)),
     _tool("ask_you", "Lists a question you asked in your chat under Waiting on you, with the same text, and notifies the person. "
           "They answer in this window; close it with resolve_question. The same key returns the open question.",

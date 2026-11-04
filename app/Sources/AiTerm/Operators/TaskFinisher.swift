@@ -46,11 +46,16 @@ final class TaskFinisher {
         }
     }
 
-    /// The last thing an advance did to the request's draft state, written from the publisher's task and read after it.
+    /// The last thing an advance did to the request's draft state, and whether it couldn't assign it, written from the
+    /// publisher's task and read after it.
     private final class DraftNews: Sendable {
         private let event = Mutex<TaskPublisher.DraftEvent?>(nil)
-        func record(_ new: TaskPublisher.DraftEvent) { event.withLock { $0 = new } }
+        private let unassigned = Mutex<TaskPublisher.DraftEvent?>(nil)
+        func record(_ new: TaskPublisher.DraftEvent) {
+            if case .notAssigned = new { unassigned.withLock { $0 = new } } else { event.withLock { $0 = new } }
+        }
         var last: TaskPublisher.DraftEvent? { event.withLock { $0 } }
+        var notAssigned: TaskPublisher.DraftEvent? { unassigned.withLock { $0 } }
     }
 
     /// A step done but not saved: nothing more is done outside this machine.
@@ -108,11 +113,27 @@ final class TaskFinisher {
     /// pushes past the repository's push hooks (spec §B), the Oracle having judged the call: only once the hook
     /// refused the push of the commit accepted now and showed what it says (`TaskPublication.pushFailure(for:)`).
     /// A task with that commit pushed already, or done, answers from the record as any repeat does.
-    func finish(_ id: UUID, noVerify: Bool = false) async -> Result {
+    /// `content`, the Operator's title, description and assignee for the request, is saved before anything is done, so every
+    /// later advance opens the request with it; only while no request is recorded, since one open is changed through
+    /// `update_request`.
+    func finish(_ id: UUID, noVerify: Bool = false, content: RequestContent? = nil) async -> Result {
         guard !isStopped else { return Result(result: .refused, reason: Self.closingReason) }
         if noVerify, let operated = store.state.task(id: id)?.operated, Self.stillToPush(operated),
            operated.publication?.pushFailure(for: operated.acceptance?.resultSHA) == nil {
             return Result(operated.publication, result: .refused, reason: Self.noFailedPush)
+        }
+        if let content, !content.isEmpty, store.state.task(id: id)?.operated?.publication?.mergeRequestNumber == nil {
+            store.mutate { state in
+                state.updateOperated(id) {
+                    var publication = $0.publication ?? TaskPublication()
+                    publication.requested = content
+                    $0.publication = publication
+                }
+            }
+            // Unsaved, a restart would open the request without them: nothing is done.
+            guard store.flush() else {
+                return Result(store.state.task(id: id)?.operated?.publication, result: .failed, reason: Self.notSavedReason)
+            }
         }
         return await run(id, restart: watchers[id] == nil, noVerify: noVerify)
     }
@@ -244,6 +265,8 @@ final class TaskFinisher {
         // What is done is answered from the record, whatever the host's connection is now.
         if operated.publication?.leftForYou == true { return Result(operated.publication, result: .leftForYou, reason: nil) }
         if operated.state == .published || operated.publication?.merged == true {
+            // A draft published before its request could be assigned: this call tries again.
+            if operated.publication?.assigning == true, operated.publication?.merged != true { return await assignAgain(first) }
             return apply(.published(operated.publication ?? TaskPublication()), to: id)
         }
         let repository = Repository(project.path, git: git), branch = task.branch
@@ -300,10 +323,52 @@ final class TaskFinisher {
         }
     }
 
+    /// A published draft whose request couldn't be assigned when it opened (`TaskPublisher.assign`), tried again. Only the
+    /// broadcast running and the task still the operator's under the same ownership are read again before the write: the
+    /// task is past accepted, and its request open and recorded. It answers published as before, saying if it still couldn't.
+    private func assignAgain(_ current: Context) async -> Result {
+        let id = current.task.id, ownership = current.operated.ownership
+        var publication = current.operated.publication ?? TaskPublication()
+        let host: any MergeRequestPublishing
+        do { host = try await codeHost.host(of: current.project) }
+        catch {
+            var result = apply(.published(publication), to: id)
+            result.draftNote = Self.draftNote(.notAssigned(name: publication.requested?.assignee, why: Self.unavailable(error)),
+                                              request: publication.mergeRequestURL, number: publication.mergeRequestNumber)
+            return result
+        }
+        if let why = PublicationGuard.otherRepository(publication, repository: host.repository) {
+            return Result(publication, result: .refused, reason: why)
+        }
+        let drafted = DraftNews()
+        let publisher = TaskPublisher(repository: Repository(current.project.path, git: git), host: host, now: now,
+                                      noted: { drafted.record($0) })
+        let recheck: @Sendable () async -> String? = { @MainActor [weak self] in
+            guard let self, !self.isStopped else { return Self.closingReason }
+            let state = store.state
+            guard let operated = state.task(id: id)?.operated, let run = state.run(id: operated.runId) else { return PublicationGuard.gone }
+            if let why = PublicationGuard.runRefusal(run) { return why }
+            return operated.takenOver || operated.ownership != ownership ? PublicationGuard.changedMidway : nil
+        }
+        do {
+            if let why = try await publisher.assign(&publication, recheck: recheck, record: steps(of: id, ownership: ownership, sha: "").record) {
+                return Result(publication, result: .refused, reason: why)
+            }
+        } catch {
+            return Result(store.state.task(id: id)?.operated?.publication, result: .failed, reason: Self.notSavedReason)
+        }
+        var result = apply(.published(store.state.task(id: id)?.operated?.publication ?? publication), to: id)
+        result.draftNote = draftNote(drafted, of: id)
+        return result
+    }
+
     /// What this call did to the task's request, if anything: even one that failed afterwards opened or marked it ready first.
     private func draftNote(_ news: DraftNews, of id: UUID) -> String? {
         let publication = store.state.task(id: id)?.operated?.publication
-        return Self.draftNote(news.last, request: publication?.mergeRequestURL, number: publication?.mergeRequestNumber)
+        let notes = [news.last, news.notAssigned].compactMap {
+            Self.draftNote($0, request: publication?.mergeRequestURL, number: publication?.mergeRequestNumber)
+        }
+        return notes.isEmpty ? nil : notes.joined(separator: "; ")
     }
 
     /// `event` in the words `Result.draftNote` says: `MR !12 opened as a draft`, with `#12` on GitHub. Nil without a request.
@@ -316,6 +381,8 @@ final class TaskFinisher {
         case .leftDraft: return "MR \(reference) left as a draft"
         case .markedReady: return "MR \(reference) marked ready"
         case .leftReady: return nil
+        case .notAssigned(let name, let why):
+            return "MR \(reference) couldn’t be assigned\(name.map { " to \($0)" } ?? ""): \(why). finish_task tries again, or set one with update_request"
         }
     }
 
@@ -481,7 +548,7 @@ final class TaskFinisher {
         guard store.state.task(id: id)?.operated != nil else { throw NotSaved() }
         store.mutate { state in
             guard let index = state.tasks.firstIndex(where: { $0.id == id }), let operated = state.tasks[index].operated else { return }
-            var publication = publication
+            var publication = Self.keepingNewerRequest(publication, over: operated.publication)
             // Progress from an awaited step must not restore authority invalidated by newer settings/evidence.
             publication.conditionsHeld = operated.publication?.conditionsHeld
             publication.conditionsEvidence = operated.publication?.conditionsEvidence
@@ -493,6 +560,20 @@ final class TaskFinisher {
             }
         }
         guard store.flush() else { throw NotSaved() }
+    }
+
+    /// `publication`, a step's, saved over `saved` without undoing what `update_request` changed while the step awaited the
+    /// host: the Operator's content is always the saved one, and a request saved as assigned stays assigned, so a stale step
+    /// never assigns it again to an older choice.
+    static func keepingNewerRequest(_ publication: TaskPublication, over saved: TaskPublication?) -> TaskPublication {
+        guard let saved else { return publication }
+        var kept = publication
+        kept.requested = saved.requested
+        if saved.assigning != true, let assignee = saved.assignee {
+            kept.assigning = nil
+            kept.assignee = assignee
+        }
+        return kept
     }
 
     /// The task's broadcast does not run now — paused, ended, its operator offline, its plan not submitted:

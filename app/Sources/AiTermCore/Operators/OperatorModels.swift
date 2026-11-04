@@ -93,6 +93,15 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     /// the commit it refused, `lastPushFailureSHA`, only (`pushFailure(for:)`).
     public var lastPushFailure: String?
     public var lastPushFailureSHA: String?
+    /// What the Operator asked the request to say and who to assign it to, through `finish_task`, saved before the
+    /// request is opened so every later advance opens it so; nil: AiTerm's own title and description, assigned to the
+    /// user its host connection acts as.
+    public var requested: RequestContent?
+    /// The request is still to be assigned (`TaskPublisher`'s step after opening it): set with its number, cleared once
+    /// `assignee` is. Nil for a request recorded before AiTerm assigned any.
+    public var assigning: Bool?
+    /// Who AiTerm assigned the request to.
+    public var assignee: String?
 
     /// What the hook said refusing the push of `sha`: nil when the last refusal was of another commit, or none was.
     /// A commit accepted since was never run through the hook, so nothing is known yet to push it past.

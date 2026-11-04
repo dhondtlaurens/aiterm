@@ -351,6 +351,42 @@ final class MergeClock: Sendable {
         #expect(!s.host.log.contains { $0.hasPrefix("merge") })
     }
 
+    /// The Operator's title, description and assignee that cannot be saved: nothing is pushed or opened, since a restart
+    /// would open the request without them.
+    @Test func contentThatCannotBeSavedPublishesNothing() async throws {
+        let s = try setUp(end: .draftMR)
+        #expect(s.store.flush(), "the workspace saves at first")
+        try FileManager.default.createDirectory(at: s.store.file.backupURL, withIntermediateDirectories: true)
+        let result = await s.finisher.finish(s.task, content: RequestContent(title: "PLUTO-231: Add gift card", assignee: "nathan"))
+        #expect(result.result == .failed)
+        #expect(result.reason == TaskFinisher.notSavedReason)
+        #expect(s.host.log.isEmpty, "nothing asked of the host")
+    }
+
+    /// A merge watch's step saved after update_request reassigned the request while it awaited the host: the step's older
+    /// copy neither brings back the assignment still to do nor the Operator's older choice.
+    @Test func aStaleStepKeepsTheAssignmentUpdateRequestMade() {
+        var stale = TaskPublication(mergeRequestNumber: 12)
+        stale.requested = RequestContent(assignee: "nathan")
+        stale.assigning = true
+        stale.readySince = Date(timeIntervalSince1970: 1)
+        var saved = TaskPublication(mergeRequestNumber: 12)
+        saved.requested = RequestContent(assignee: "laurens")
+        saved.assignee = "laurens"
+        let kept = TaskFinisher.keepingNewerRequest(stale, over: saved)
+        #expect(kept.requested?.assignee == "laurens")
+        #expect(kept.assigning == nil && kept.assignee == "laurens")
+        #expect(kept.readySince == stale.readySince, "the step's own progress is kept")
+        // A request still to assign stays so: the step's own assignment is what records it.
+        var pending = saved
+        pending.assigning = true
+        pending.assignee = nil
+        var assigned = stale
+        assigned.assigning = nil
+        assigned.assignee = "laurens"
+        #expect(TaskFinisher.keepingNewerRequest(assigned, over: pending).assignee == "laurens")
+    }
+
     /// A step that cannot be saved is the last: no request is opened for a push the workspace does not know of.
     @Test func aStepThatCannotBeSavedStopsBeforeTheNext() async throws {
         let s = try setUp(end: .draftMR)

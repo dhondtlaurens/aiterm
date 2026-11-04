@@ -194,7 +194,8 @@ public struct GitLabClient: Sendable {
     public func createMergeRequest(project: String, source: String, target: String, title: String,
                                    description: String, draft: Bool) async throws -> MergeRequest {
         struct Create: Encodable { var sourceBranch, targetBranch, title, description: String; var removeSourceBranch = false }
-        let body = Create(sourceBranch: source, targetBranch: target, title: (draft ? "Draft: " : "") + title, description: description)
+        let body = Create(sourceBranch: source, targetBranch: target, title: (draft ? "Draft: " : "") + Self.readyTitle(title),
+                          description: description)
         return try await send(MergeRequestPayload.self, method: "POST", path: Self.requestsPath(project), body: body,
                               notFound: .projectNotFound(project)).mergeRequest
     }
@@ -272,17 +273,37 @@ public struct GitLabClient: Sendable {
         _ = try await send(MergeRequestPayload.self, method: "PUT", path: path, body: Ready(title: ready), notFound: .projectNotFound(project))
     }
 
+    /// Changes its title, description and assignee, each nil one left as it is; the assignee, looked up by its exact
+    /// username, replaces any it has. A draft keeps its `Draft: ` prefix whatever title is given, since a title without it
+    /// takes the request out of draft, and a draft prefix in `title` is dropped. `beforeWrite` gets the request as read
+    /// before the write.
+    public func updateMergeRequest(project: String, iid: Int, title: String?, description: String?, assignee: String?,
+                                   beforeWrite: @Sendable (MergeRequest) async throws -> Void = { _ in }) async throws {
+        let path = Self.requestsPath(project) + "/\(iid)"
+        let request = try await get(MergeRequestPayload.self, path: path, notFound: .projectNotFound(project))
+        var assigneeIds: [Int]?
+        if let assignee { assigneeIds = [try await userId(assignee)] }
+        try await beforeWrite(request.mergeRequest)
+        struct Edit: Encodable { var title, description: String?; var assigneeIds: [Int]? }
+        let draft = request.draft == true || Self.readyTitle(request.title) != request.title
+        let edit = Edit(title: title.map { (draft ? "Draft: " : "") + Self.readyTitle($0) }, description: description, assigneeIds: assigneeIds)
+        _ = try await send(MergeRequestPayload.self, method: "PUT", path: path, body: edit, notFound: .projectNotFound(project))
+    }
+
+    /// The id of the user with exactly `username`; `noUser` when there is none.
+    private func userId(_ username: String) async throws -> Int {
+        struct User: Decodable { var id: Int, username: String }
+        let found = try await get([User].self, path: "/api/v4/users", query: [URLQueryItem(name: "username", value: username)],
+                                  notFound: .noAPI(Self.base(config.hostURL)))
+        guard let user = found.first(where: { $0.username.lowercased() == username.lowercased() }) else { throw GitLabError.noUser(username) }
+        return user.id
+    }
+
     /// Adds `usernames` to its reviewers, each looked up by its exact username; the reviewers it has stay.
     /// Nothing is written when every one of them reviews it already.
     public func assignReviewers(project: String, iid: Int, usernames: [String],
                                 beforeWrite: @Sendable () async throws -> Void = {}) async throws {
-        struct User: Decodable { var id: Int, username: String }
-        let ids = try await JiraClient.inOrder(usernames) { username in
-            let found = try await get([User].self, path: "/api/v4/users", query: [URLQueryItem(name: "username", value: username)],
-                                      notFound: .noAPI(Self.base(config.hostURL)))
-            guard let user = found.first(where: { $0.username.lowercased() == username.lowercased() }) else { throw GitLabError.noUser(username) }
-            return user.id
-        }
+        let ids = try await JiraClient.inOrder(usernames) { try await userId($0) }
         struct Reviewers: Decodable { struct Reviewer: Decodable { var id: Int }; var reviewers: [Reviewer]? }
         let path = Self.requestsPath(project) + "/\(iid)"
         let current = (try await get(Reviewers.self, path: path, notFound: .projectNotFound(project)).reviewers ?? []).map(\.id)
