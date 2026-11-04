@@ -2,8 +2,8 @@
 # scripts/readme-picture.sh [--check] — draws the README's picture (ReadmeDesktop: the real sidebar
 # over its own fixture, beside a drawn iTerm2 window) and writes it to docs/desktop.png.
 # With --check it writes nothing to docs/: it draws into build/readme-picture and fails when the
-# committed picture differs, which is how scripts/release.sh refuses a release whose README shows
-# an older sidebar. The picture is drawn by a real window, so it needs a Retina main display.
+# committed picture differs. scripts/release.sh redraws and commits it itself, so a release's README
+# never shows an older sidebar. The picture is drawn by a real window, so it needs a Retina main display.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PICTURE="$ROOT/docs/desktop.png"
@@ -27,7 +27,7 @@ AITERM_SNAPSHOT_HOSTED=1 AITERM_SNAPSHOT_ONLY=readme-desktop.png "$ROOT/scripts/
     || die "drawn at 1×: make a Retina display the main display and run again"
 
 if $check; then
-    cmp -s "$DRAWN" "$PICTURE" || die "docs/desktop.png is out of date (the new one is $DRAWN): run scripts/readme-picture.sh, look at it, commit it and push"
+    cmp -s "$DRAWN" "$PICTURE" || die "docs/desktop.png is out of date (the new one is $DRAWN): run scripts/readme-picture.sh"
     print "docs/desktop.png is up to date"
 else
     cp "$DRAWN" "$PICTURE"

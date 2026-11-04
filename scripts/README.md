@@ -77,7 +77,7 @@ See [testing](../docs/testing.md) for coverage ownership and opt-in live boundar
 scripts/snapshots.sh                         # build/snapshots
 scripts/snapshots.sh build/my-snapshots
 scripts/readme-picture.sh --check
-scripts/readme-picture.sh                    # update docs/desktop.png, then inspect it
+scripts/readme-picture.sh                    # update docs/desktop.png (release.sh does this)
 ```
 
 Debug snapshot entry precedes live controller/workspace setup. Rendering uses fixtures, a fixed
@@ -106,8 +106,8 @@ scripts/release.sh <version>
 version, signature and Applications link. Layout is in `dmg-settings.py`.
 
 `release.sh` publishes externally: it requires clean pushed `main`, the expected GitHub origin,
-logged-in `gh`, a newer version, the release certificate, Python 3.11+ and a current README picture.
+logged-in `gh`, a newer version, the release certificate and Python 3.11+. It redraws the README
+picture and commits and pushes it to `main` when it changed.
 It stamps the built bundle, creates/pushes the version tag, uploads the DMG to a draft, then
-publishes. The development bundle marker is refused. Complete the full gate and manual release
-checks first. Signing setup, version numbering and interrupted-release recovery live in
+publishes. The development bundle marker is refused. Complete the full gate first. Signing setup, version numbering and interrupted-release recovery live in
 [releasing](../docs/workflow/release.md). A build/test command never implies permission to release.

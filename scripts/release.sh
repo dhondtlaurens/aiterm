@@ -34,8 +34,12 @@ gh auth status --hostname github.com >/dev/null 2>&1 || die "gh is not logged in
 security find-identity -p codesigning | grep -q "\"$IDENTITY\"" || die "no \"$IDENTITY\" code-signing certificate in the keychain (see docs/workflow/release.md)"
 "$PY" -c 'import sys; assert sys.version_info >= (3, 11)' 2>/dev/null || die "python3 >= 3.11 required"
 # The README's picture is drawn from the sidebar's code: a visual change since it was last drawn
-# shows as a different picture, and the release waits until the new one is committed.
-"$ROOT/scripts/readme-picture.sh" --check || die "redraw the README picture first (scripts/readme-picture.sh)"
+# shows as a different picture, which is committed and pushed here so the release's README shows it.
+"$ROOT/scripts/readme-picture.sh"
+if [[ -n "$(git status --porcelain -- docs/desktop.png)" ]]; then
+    git commit --quiet -m "Redraw the README picture for $VERSION" -- docs/desktop.png
+    git push --quiet origin main || die "committed the redrawn README picture but could not push it: git push origin main, then run again"
+fi
 
 AITERM_RELEASE=1 SIGN_IDENTITY="$IDENTITY" "$ROOT/scripts/make-app.sh"
 BUILD=$(( PRIOR_RELEASES + $(git tag -l 'v*' | wc -l) + 1 ))
