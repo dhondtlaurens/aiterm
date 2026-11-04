@@ -160,7 +160,20 @@ extension OperatorController {
             state.updateRun(id: id) { $0.intent = .paused; $0.state = .paused }
         }
         finisher.stopWatching(inRun: id)
+        pauseAttempted[id] = []
         queueSignalling(id) { [weak self] in await self?.signalPause(id) }
+    }
+
+    /// A worker of a broadcast you paused that is at work and was neither told nor tried yet — its window listed only
+    /// after Pause, its launch having passed its last check before it — is told to stop now, behind the notes queued.
+    func pauseLateWorkers() {
+        for run in workspace.state.runs where run.intent == .paused && !run.hasEnded {
+            let tried = pauseAttempted[run.id] ?? [], now = ports.now()
+            let late = Self.pauseTargets(of: run.id, in: workspace.state, sessions: live.sessions, now: now)
+                .filter { !tried.contains($0) && !run.pausedWorkers.contains($0) }
+            guard !late.isEmpty else { continue }
+            queueSignalling(run.id) { [weak self] in await self?.signalPause(run.id) }
+        }
     }
 
     /// `work`, once every note queued before it for broadcast `id` is typed.
@@ -176,17 +189,18 @@ extension OperatorController {
     }
 
     /// The pause note to every worker of the broadcast's driven working tasks that is at work, or whose ended turn left
-    /// work running: each recorded on the run, with its task's ownership, before anything is typed, so a Resume after a
-    /// restart still tells it to carry on. Each is looked at again right before its note (`steerable`): one you stopped
-    /// or took over meanwhile, or the note did not reach, is dropped again. A worker whose turn ended with nothing running
-    /// has stopped already and is told nothing.
+    /// work running, and that this pause has not tried yet (`pauseAttempted`) nor told already: each recorded on the run,
+    /// with its task's ownership, before anything is typed, so a Resume after a restart still tells it to carry on. Each
+    /// is looked at again right before its note (`steerable`): one you stopped or took over meanwhile, or the note did not
+    /// reach, is dropped again. A worker whose turn ended with nothing running has stopped already and is told nothing.
     func signalPause(_ id: UUID) async {
         guard let run = self.run(id: id), run.intent == .paused, !run.hasEnded, let daemon = daemon() else { return }
+        let tried = pauseAttempted[id] ?? []
         let workers = Self.pauseTargets(of: id, in: workspace.state, sessions: live.sessions, now: ports.now())
+            .filter { !tried.contains($0) && !run.pausedWorkers.contains($0) }
         guard !workers.isEmpty else { return }
-        mutateRun(id) { run in
-            for worker in workers where !run.pausedWorkers.contains(worker) { run.pausedWorkers.append(worker) }
-        }
+        pauseAttempted[id, default: []].formUnion(workers)
+        mutateRun(id) { $0.pausedWorkers += workers }
         // On disk before the first note goes: a restart mid-way still tells each to carry on. A save that fails is
         // logged by the store and tried again with the next change; the notes still go.
         _ = workspace.flush()
@@ -202,18 +216,25 @@ extension OperatorController {
             if delivery?.result != .delivered {
                 Log.daemon.info("The pause note did not reach a worker of task \(worker.task.uuidString, privacy: .public): \(delivery?.reason ?? "no helper", privacy: .public)")
                 mutateRun(id) { $0.pausedWorkers.removeAll { $0 == worker } }
+                // Not ready yet — its screen shows no input box, could not be read, or iTerm2 is away: tried again as its
+                // tabs change (`pauseLateWorkers`). A prompt open waits on you, and is not asked again.
+                if let code = delivery?.code, Self.notReadyYet.contains(code) { pauseAttempted[id]?.remove(worker) }
             }
         }
     }
 
+    /// Why a note could not be typed that passes as the tab settles: its agent still drawing its screen, or iTerm2 away.
+    static let notReadyYet: Set<DeliveryCode> = [.unrecognisedScreen, .screenUnread, .itermDisconnected]
+
     /// The workers a pause tells to stop: those of the broadcast's driven working tasks at work, or whose ended turn
     /// left work running (`WorkerTab.isStillAtWork`), the ones that keep their task `pausing`. As of `now`, a first worker
     /// whose launch is under way counts as at work: its first prompt is on its way, though Codex reads idle until its first
-    /// hook. One whose window iTerm2 does not list yet has nothing to type into, and its task reads `pausing`.
+    /// hook. One whose window iTerm2 does not list yet is told once it is (`pauseLateWorkers`).
     static func pauseTargets(of id: UUID, in state: AppState, sessions: [SessionInfo], now: Date) -> [PausedWorker] {
         state.tasks(inRun: id).flatMap { task -> [PausedWorker] in
             guard let operated = task.operated, !operated.takenOver, operated.state == .working else { return [] }
-            return task.workerTabs(in: sessions, now: now).filter { $0.session != nil && $0.isStillAtWork }.map { tab in
+            // An agent to type into: an extra tab still listed as the shell its command is typed into waits for its agent.
+            return task.workerTabs(in: sessions, now: now).filter { $0.session?.agent.agentKind != nil && $0.isStillAtWork }.map { tab in
                 PausedWorker(task: task.id, tab: tab.key, ownership: operated.ownership)
             }
         }
@@ -262,6 +283,7 @@ extension OperatorController {
         // held and its tools refuse, so the Operator neither hears of nor accepts a turn the pause cut short before that
         // worker has its note. Paused, the broadcast offers no Pause, so none comes in between.
         let missed = await queueSignalling(id) { [weak self] in await self?.signalCarryOn(id) ?? 0 }.value
+        pauseAttempted[id] = nil
         guard let current = self.run(id: id), !current.hasEnded else { return }
         if current.state == .paused || current.state == .operatorOffline {
             mutateRun(id) { $0.intent = nil; $0.state = RunReconciler.resumedState(of: $0) }
@@ -299,6 +321,7 @@ extension OperatorController {
         // The notes being typed stop at the end, and their new ownership is set first, so the helper holds back the
         // Enter of one mid-paste: none is sent once the tasks are yours.
         await signalling[id]?.value
+        pauseAttempted[id] = nil
         await closeOperatorWindowIfOnlyItsOperator(id, daemon: daemon)
     }
 

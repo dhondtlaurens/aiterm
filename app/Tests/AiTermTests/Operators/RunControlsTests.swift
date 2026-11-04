@@ -285,6 +285,56 @@ import Testing
         #expect(notes(world) == ["w1: pause", "w2: pause", "w3: pause"])
     }
 
+    /// A worker whose window iTerm2 lists only after Pause — its launch past its last check — is told once it is, and
+    /// no worker is told twice as the tabs change.
+    @Test func aWorkerListedAfterPauseIsToldOnceItIs() async throws {
+        let (world, run, _) = try pausingWorld()
+        try world.controller.pause(run: run.id)
+        await world.controller.signalling[run.id]?.value
+        let late = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-4", state: .working, worktree: "/tmp/aiterm-wt4")
+        world.workspace.mutate { $0.tasks.append(late) }
+        world.show(world.live.sessions + [OperatorServiceFixtures.session("w4", window: "w12", tag: late.id, state: .working)])
+        await world.controller.signalling[run.id]?.value
+        #expect(notes(world) == ["w2: pause", "w3: pause", "w4: pause"])
+        world.show(world.live.sessions)
+        await world.controller.signalling[run.id]?.value
+        #expect(notes(world).count == 3, "each told once")
+        #expect(world.run(run.id)?.pausedWorkers.map(\.task).last == late.id)
+    }
+
+    /// A worker whose screen did not show its input box yet is told once it does; an extra tab still listed as a shell
+    /// is not tried before its agent shows.
+    @Test func aWorkerNotReadyForThePauseNoteIsToldOnceItIs() async throws {
+        let daemon = RecordingDaemon()
+        daemon.deliveries = [Delivery(result: .refused, reason: "unrecognised screen", code: .unrecognisedScreen),
+                             Delivery(result: .delivered, reason: nil)]
+        let (world, run, tasks) = try pausingWorld(daemon: daemon)
+        world.show(world.live.sessions.filter { $0.sessionId != "w3" })
+        try world.controller.pause(run: run.id)
+        await world.controller.signalling[run.id]?.value
+        #expect(notes(world) == ["w2: pause"], "its agent still drawing its screen")
+        var shell = OperatorServiceFixtures.session("w3", window: "w11", tag: tasks[2].id, agent: .shell, state: .working)
+        world.show(world.live.sessions + [shell])
+        await world.controller.signalling[run.id]?.value
+        #expect(notes(world) == ["w2: pause", "w2: pause"], "w2 tried again as the tabs changed; a shell has no agent to type into")
+        shell.agent = .claude
+        world.show(world.live.sessions.filter { $0.sessionId != "w3" } + [shell])
+        await world.controller.signalling[run.id]?.value
+        #expect(notes(world) == ["w2: pause", "w2: pause", "w3: pause"], "both told once they can take it")
+    }
+
+    /// A worker the pause note did not reach is not asked again on every change of the tabs.
+    @Test func aRefusedPauseNoteIsNotRetriedAsTheTabsChange() async throws {
+        let daemon = RecordingDaemon()
+        daemon.deliveries = [Delivery(result: .refused, reason: "a permission prompt is open", code: .prompt)]
+        let (world, run, _) = try pausingWorld(daemon: daemon)
+        try world.controller.pause(run: run.id)
+        await world.controller.signalling[run.id]?.value
+        world.show(world.live.sessions)
+        await world.controller.signalling[run.id]?.value
+        #expect(notes(world) == ["w2: pause", "w3: pause"])
+    }
+
     @Test func aPauseNoteThatDoesNotLandIsNotKept() async throws {
         let daemon = RecordingDaemon()
         daemon.deliveries = [Delivery(result: .refused, reason: "a permission prompt is open", code: .prompt),

@@ -84,19 +84,21 @@ leaves that request for you.
 
 Pause/Resume and End are on the broadcast's menus. A paused broadcast starts no new publication;
 resume reconciles tagged windows and saved work. Pause also types a note into each worker of a
-working task that is still at work, or whose ended turn left background work running: finish the
-current step, end the turn and wait. Such a task reads `pausing` until its workers stop, then
-`paused` with the pause sign; the Operator's row reads `pausing · n tasks` until every task stopped,
-then `paused` with the same sign. Resume types a carry-on note into each worker that got the pause
-note and is still the broadcast's to steer (not taken over or stopped, same ownership) while the
-broadcast still reads paused, so the Operator neither hears of nor accepts a turn the pause cut
-short first; then it resumes and wakes the Operator. A carry-on that does not land turns the wake
-line into `resumed; paused workers missed the carry-on note, steer them with message_task` (a wake
-line names no task). Notes are typed in the order Pause and Resume were pressed; End hands the tasks
-to you on the helper first, so a note being typed keeps its Enter back, and types nothing more. Take
-Over removes the Operator's authority over a task, and Hand Back restores it. Stop Task ends that
-task's participation. Questions remain on the board for your answer; the Operator cannot answer
-permission prompts on your behalf.
+working task that is still at work, still starting, or whose ended turn left background work
+running: finish the current step, end the turn and wait. A worker whose window appears only after
+Pause gets its note once iTerm2 lists its agent; one whose screen is not ready for it is tried again
+as its tab changes, and one with a prompt open is not asked again. Such a task reads `pausing` until
+its workers stop, then `paused` with the pause sign; the Operator's row reads `pausing · n tasks`
+until every task stopped, then `paused` with the same sign. Resume types a carry-on note into each
+worker that got the pause note and is still the broadcast's to steer (not taken over or stopped,
+same ownership) while the broadcast still reads paused, so the Operator neither hears of nor accepts
+a turn the pause cut short first; then it resumes and wakes the Operator. A carry-on that does not
+land turns the wake line into `resumed; paused workers missed the carry-on note, steer them with
+message_task` (a wake line names no task). Notes are typed in the order Pause and Resume were
+pressed; End hands the tasks to you on the helper first, so a note being typed keeps its Enter back,
+and types nothing more. Take Over removes the Operator's authority over a task, and Hand Back
+restores it. Stop Task ends that task's participation. Questions remain on the board for your
+answer; the Operator cannot answer permission prompts on your behalf.
 
 ## Goal and completion
 

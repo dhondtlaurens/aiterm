@@ -15,7 +15,11 @@ Decided while grilling:
   (`WorkerTab.background`, which wakes it again): finish the step you are on, end your turn, and when
   background work wakes you, do not go on; wait to be told to carry on. Delivery goes through the daemon's
   normal rules (`daemon.deliver`, the task's ownership), which the delivery check already covers mid-turn
-  (`busy_queue`). Workers whose turn ended with nothing running get nothing.
+  (`busy_queue`). Workers whose turn ended with nothing running get nothing. A first worker still launching
+  counts as at work (the tabs read as of now); one whose window iTerm2 lists only after Pause gets its note
+  when its agent appears (`pauseLateWorkers`, on every change of the tabs); a shell tab waits for its agent.
+  A worker is tried once per pause, except when the refusal only means not ready yet (no input box, screen
+  unread, iTerm2 away): it is tried again as its tabs change.
 - **Resume = AiTerm types "carry on".** The workers that got the pause note are persisted on the run, so a
   restart keeps them. Resume, after the Operator is back and while the broadcast still reads paused (its news
   held, its tools refusing), delivers a carry-on
