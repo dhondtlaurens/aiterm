@@ -6,6 +6,9 @@ import Testing
 import AiTermTestSupport
 @testable import AiTerm
 
+/// A sheet model's prompt, as the sheets bind it: an `@Observable` property, whose setter compares.
+@Observable private final class PromptModel { var prompt = "" }
+
 @MainActor
 @Suite struct PromptEditorTests {
     @Test func longPromptScrollsToTheInsertionPoint() throws {
@@ -304,6 +307,38 @@ import AiTermTestSupport
 
         #expect(Array(textView.string.utf8) == Array(typed.utf8))
         #expect(Array(text.value.utf8) == Array(typed.utf8))
+    }
+
+    /// Typing after a long pasted prompt stays instant. Each keystroke used to walk the whole text
+    /// three times through the bridged `NSString`: twice looking for a `/` or `@` token at the caret,
+    /// once more in the model's check for an unchanged value. At 200,000 characters that was 400 ms
+    /// a key. Only the word before the caret is read now, and the binding gets a native string. The
+    /// popup still opens and accepts after emoji, whose UTF-16 offsets differ from their characters'.
+    @Test func typingAfterALongPasteStaysInstant() throws {
+        let model = PromptModel()
+        let completions = PromptCompletions()
+        completions.all = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .user)]
+        let editor = PromptEditor(text: Binding(get: { model.prompt }, set: { model.prompt = $0 }),
+                                  agent: .claude, completions: completions)
+            .frame(width: 420, height: 150)
+        let host = testHost(editor, size: CGSize(width: 420, height: 150))
+        host.layoutSubtreeIfNeeded()
+        let textView = try #require(host.firstDescendant(NSScrollView.self)?.documentView as? NSTextView)
+        let pasted = (1...3000).map { "Line \($0): café 👍🏽 the quick brown fox jumps over the lazy dog" }
+            .joined(separator: "\n")
+        textView.insertText(pasted, replacementRange: textView.selectedRange())
+
+        let elapsed = ContinuousClock().measure {
+            for _ in 0..<20 { textView.insertText("a", replacementRange: textView.selectedRange()) }
+        }
+        #expect(elapsed < .milliseconds(500), "20 keys took \(elapsed); a few milliseconds is normal, seconds was the bug")
+        #expect(model.prompt == pasted + String(repeating: "a", count: 20))
+
+        textView.insertText(" 👍🏽 /rev", replacementRange: textView.selectedRange())
+        #expect(completions.visible.map(\.name) == ["review"])
+        #expect(textView.delegate?.textView?(textView, doCommandBy: #selector(NSResponder.insertNewline(_:))) == true)
+        #expect(model.prompt.hasSuffix("aaaa 👍🏽 /review "))
+        #expect(textView.string == model.prompt)
     }
 
     @Test func droppedPathsAreEscapedLikeATerminalDrop() {

@@ -103,6 +103,7 @@ struct PromptEditor: NSViewRepresentable {
         scroll.drawsBackground = false
         scroll.borderType = .noBorder
         context.coordinator.textView = textView
+        context.coordinator.written = text
         completions.accept = { [weak coordinator = context.coordinator] item in coordinator?.accept(item) }
         return scroll
     }
@@ -110,10 +111,17 @@ struct PromptEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let textView = scroll.documentView as? NSTextView else { return }
-        if textView.string != text {
-            let selected = textView.selectedRange()
-            textView.string = text
-            textView.setSelectedRange(NSRange(location: min(selected.location, (text as NSString).length), length: 0))
+        // Nearly every update carries back the text the view itself just wrote, and that is the very
+        // same string, which compares at once. Comparing a long pasted prompt with the text view's
+        // own fresh copy instead walks every character, tens of milliseconds a keystroke.
+        let coordinator = context.coordinator
+        if text != coordinator.written {
+            if textView.string != text {
+                let selected = textView.selectedRange()
+                textView.string = text
+                textView.setSelectedRange(NSRange(location: min(selected.location, (text as NSString).length), length: 0))
+            }
+            coordinator.written = text
         }
         Self.enable(textView, context.environment.isEnabled)
     }
@@ -128,12 +136,37 @@ struct PromptEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: PromptEditor
         weak var textView: NSTextView?
+        /// The text last handed to or taken from the binding, so `updateNSView` can tell its own
+        /// write coming back without comparing it with the text view's.
+        var written: String?
         init(_ parent: PromptEditor) { self.parent = parent }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            parent.text = textView.string
+            write(textView.string)
             refresh()
+        }
+
+        /// Hands the text to the binding as a native Swift string. The text view's own is a bridged
+        /// `NSString`, and Swift compares two of those slowly — the model's check for an unchanged
+        /// value took tens of milliseconds a keystroke on a long pasted prompt. A native copy is one
+        /// quick pass, and every comparison after it is fast.
+        private func write(_ text: String) {
+            let text = Self.native(text)
+            written = text
+            parent.text = text
+        }
+
+        /// The string copied out of its `NSString` in one call and decoded as Swift's own.
+        /// `makeContiguousUTF8()` does the same, but a character at a time, and as slowly.
+        static func native(_ text: String) -> String {
+            let source = text as NSString
+            let length = source.length
+            return withUnsafeTemporaryAllocation(of: unichar.self, capacity: length) { buffer in
+                guard let base = buffer.baseAddress else { return "" }
+                source.getCharacters(base, range: NSRange(location: 0, length: length))
+                return String(decoding: UnsafeBufferPointer(start: base, count: length), as: UTF16.self)
+            }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) { refresh() }
@@ -155,39 +188,46 @@ struct PromptEditor: NSViewRepresentable {
         /// becomes `@README.md`. A folder is written without the space after it, and the popup
         /// stays open on what is inside it.
         func accept(_ item: AgentCompletion) {
-            guard let textView, let trigger = currentTrigger() else { return }
-            let text = textView.string
-            let start = text.index(text.startIndex, offsetBy: trigger.range.lowerBound)
-            let end = text.index(text.startIndex, offsetBy: trigger.range.upperBound)
-            let range = NSRange(start..<end, in: text)
+            guard let textView, let range = currentToken()?.range else { return }
             let replacement = SkillCatalog.invocation(of: item, for: parent.agent) + (item.kind == .folder ? "" : " ")
             if textView.shouldChangeText(in: range, replacementString: replacement) {
                 textView.textStorage?.replaceCharacters(in: range, with: replacement)
                 textView.didChangeText()
                 textView.setSelectedRange(NSRange(location: range.location + (replacement as NSString).length, length: 0))
             }
-            parent.text = textView.string
+            write(textView.string)
             if item.kind == .folder { refresh() } else { parent.completions.close() }
         }
 
-        private func currentTrigger() -> CompletionTrigger? {
+        /// The token the caret ends — `/bra`, `@read` — and where it sits, in the text view's own
+        /// UTF-16 offsets. Only the word before the caret is read: a pasted prompt can run to
+        /// hundreds of thousands of characters, and walking all of them through the bridged
+        /// `NSString` on every keystroke made typing lag.
+        private func currentToken() -> (trigger: CompletionTrigger, range: NSRange)? {
             guard let textView else { return nil }
-            let text = textView.string
-            let utf16Caret = textView.selectedRange().location
-            guard textView.selectedRange().length == 0,
-                  let caretIndex = Range(NSRange(location: utf16Caret, length: 0), in: text)?.lowerBound else { return nil }
-            let caret = text.distance(from: text.startIndex, to: caretIndex)
-            return SkillCatalog.trigger(in: text, caret: caret)
+            let selection = textView.selectedRange()
+            let text = textView.string as NSString
+            guard selection.length == 0, selection.location <= text.length else { return nil }
+            let caret = selection.location
+            var start = caret
+            while start > 0 {
+                // A surrogate half is no scalar on its own, and never whitespace.
+                if let scalar = Unicode.Scalar(text.character(at: start - 1)), scalar.properties.isWhitespace { break }
+                start -= 1
+            }
+            let word = text.substring(with: NSRange(location: start, length: caret - start))
+            guard let trigger = SkillCatalog.trigger(in: word, caret: word.count) else { return nil }
+            return (trigger, NSRange(location: start, length: caret - start))
         }
 
         func refresh() {
             let model = parent.completions
-            guard let textView, let trigger = currentTrigger() else { model.close(); return }
+            guard let textView, let (trigger, range) = currentToken() else { model.close(); return }
             let matches = trigger.sigil == ProjectFiles.trigger ? model.files.matches(trigger.query)
                 : SkillCatalog.matches(model.all, query: trigger.query)
             guard !matches.isEmpty else { model.close(); return }
             if model.visible != matches { model.visible = matches; model.index = 0 }
-            let line = tokenLine(in: textView, tokenStart: trigger.range.lowerBound)
+            let line = tokenLine(in: textView, tokenStart: range.location)
             let height = CompletionPopup.height(rows: matches.count)
             let above = CompletionPopup.opensAbove(line: textView.convert(line, to: nil), height: height, visible: visibleArea(of: textView))
             let scrolled = textView.enclosingScrollView?.contentView.bounds.origin.y ?? 0
@@ -198,14 +238,11 @@ struct PromptEditor: NSViewRepresentable {
             model.fieldWidth = textView.enclosingScrollView?.bounds.width ?? textView.bounds.width
         }
 
-        /// The line the token being typed starts on, in the text view's coordinates, so the popup
-        /// hangs by the token rather than at a fixed spot.
+        /// The line the token being typed starts on (`tokenStart` in UTF-16), in the text view's
+        /// coordinates, so the popup hangs by the token rather than at a fixed spot.
         private func tokenLine(in textView: NSTextView, tokenStart: Int) -> CGRect {
             guard let layout = textView.layoutManager, let container = textView.textContainer else { return .zero }
-            let text = textView.string
-            let start = text.index(text.startIndex, offsetBy: min(tokenStart, text.count))
-            let location = NSRange(start..<start, in: text).location
-            let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: location, length: 0), actualCharacterRange: nil)
+            let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: tokenStart, length: 0), actualCharacterRange: nil)
             var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
             rect.origin.x += textView.textContainerInset.width
             rect.origin.y += textView.textContainerInset.height
