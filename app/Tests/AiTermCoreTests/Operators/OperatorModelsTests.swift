@@ -145,6 +145,16 @@ import Foundation
         #expect(try roundTrip(run) == run)
     }
 
+    /// The workers your Pause told to stop are kept with their task's ownership, for Resume after a restart, and a run
+    /// that paused none saves as it did before.
+    @Test func theWorkersAPauseStoppedAreKeptAndLeftOutWhileNone() throws {
+        var run = OperatorRun(id: UUID(), name: "Paused", profile: profile, prompt: "b", createdAt: Date(timeIntervalSince1970: 0))
+        #expect(!(try keys(run)).contains("pausedWorkers"))
+        run.pausedWorkers = [PausedWorker(task: UUID(), tab: nil, ownership: 3), PausedWorker(task: UUID(), tab: "docs", ownership: 1)]
+        #expect(try keys(run).contains("pausedWorkers"))
+        #expect(try roundTrip(run) == run)
+    }
+
     /// The comments `jira_comment` posted are kept by their key, and a run that posted none saves as it did before.
     @Test func whatJiraCommentPostedIsKeptByItsKeyAndLeftOutWhileEmpty() throws {
         var run = OperatorRun(id: UUID(), name: "Comment", profile: profile, prompt: "b", createdAt: Date(timeIntervalSince1970: 0))

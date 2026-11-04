@@ -83,6 +83,9 @@ public struct TaskRow: Equatable, Identifiable, Sendable {
     /// broadcast's group, its planned agent as its avatar, its title in secondary ink and the pause sign as its
     /// mark. Selectable, but nothing opens: it has no window yet.
     public var queued = false
+    /// A working task of a broadcast you paused whose workers stopped (`OperatorLine.paused`): the pause sign as its mark,
+    /// its status idle, nothing running.
+    public var paused = false
     /// The existing mark's work card, also available while working or asking. Display facts do
     /// not change the row's status or its Operator line (`SidebarModel.displayJobs`).
     public var background: [BackgroundJob] = []
@@ -528,13 +531,15 @@ public enum SidebarModel {
                               tasks: operated.tasks, sessions: own, turn: operated.turns[task.id])
         }
         let queued = line != nil && task.isQueuedByOperator
+        let paused = line == .paused
         let status = aggregate(tabs: own)
         var row = TaskRow(id: task.id, title: task.title, jiraKey: task.jira?.key, jiraUrl: task.jira?.url, mr: task.mr,
                        branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: task.branch, fallback: nil),
                        avatars: queued && own.isEmpty ? AvatarGroup(marks: [task.agent.session], overflow: 0) : avatars(for: own),
-                       status: queued ? status : heldStatus(status, line: line),
+                       status: paused ? .idle : queued ? status : heldStatus(status, line: line),
                        diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line,
-                       broadcastLive: run.map { !$0.hasEnded } ?? false, queued: queued, background: displayJobs(of: own))
+                       broadcastLive: run.map { !$0.hasEnded } ?? false, queued: queued, paused: paused,
+                       background: displayJobs(of: own))
         row.ticketIsGitLabIssue = task.jira?.isGitLabIssue ?? false
         return row
     }

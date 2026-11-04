@@ -22,7 +22,7 @@ struct OperatorSnapshotTests {
         "banner-find-a-fix-failed.png",
         "notice-footer.png",
         "new-broadcast-not-ready.png",
-        "broadcast-folded.png", "broadcast-queued.png",
+        "broadcast-folded.png", "broadcast-queued.png", "broadcast-paused.png",
         "board-summary-worked-around.png", "board-shelved-worked-around.png",
         "board-setup-cards.png", "board-setup-running.png", "board-setup-checking-goal.png", "board-setup-goal-not-met.png",
     ]

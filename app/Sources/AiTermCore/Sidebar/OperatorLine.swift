@@ -110,6 +110,11 @@ public struct OperatorLine: Equatable, Sendable {
     public static let working = OperatorLine("working", look: .acting)
     /// The Operator row's line while its window is closed.
     public static let windowClosed = OperatorLine("window closed")
+    /// A broadcast you paused: a working task's line once its workers stopped, and the Operator row's once every task's
+    /// did. Both rows wear the pause sign with it.
+    public static let paused = OperatorLine("paused")
+    /// A broadcast you paused: a working task's line while one of its workers is still at work (`WorkerTab.isStillAtWork`).
+    public static let pausing = OperatorLine("pausing", look: .acting)
 
     /// Whether the Operator row's line names something the Operator does: an act, or checking the goal; not
     /// `working`, which names nothing. What OPERATOR decodes into as it happens (`OperatorTitle`).
@@ -157,6 +162,11 @@ public struct OperatorLine: Equatable, Sendable {
             if let stopped = tabs.lazy.compactMap({ $0.session?.stoppedOn }).first {
                 return needsYou("blocked", stopped.detail(now: now, calendar: calendar),
                                 tooltip: "Its worker " + stopped.reason(now: now, calendar: calendar) + ".")
+            }
+            // You paused the broadcast: its workers were told to stop. A prompt in one is still yours, below.
+            // A first worker still launching, as of `now`, is at work too: its first prompt is on its way.
+            if run.isPausedByYou, !tabs.contains(where: { $0.status == .needsInput }) {
+                return task.workerTabs(in: sessions, now: now).contains(where: \.isStillAtWork) ? .pausing : .paused
             }
             if !tabs.contains(where: { $0.status == .needsInput }),
                let tests = tabs.lazy.compactMap({ $0.session?.testActivity }).first(where: \.isActive) {
@@ -357,8 +367,8 @@ public struct OperatorLine: Equatable, Sendable {
     /// The Operator row's line: its own session's, nothing of its tasks (OPERATOR's tooltip and the board say
     /// those). Its window closed, `window closed`; a prompt open in its tab or a question of its own, `waiting on
     /// you`, with `about` after it, the task one question is about, or how many it asks (`waiting on you · PAY-232`,
-    /// 1A and 2A, 22 Oct 2026), and what it `asks` as the tooltip; paused,
-    /// `paused`; every task done, `done · writing summary` until it is written, then `done · summary ready`, as the
+    /// 1A and 2A, 22 Oct 2026), and what it `asks` as the tooltip; paused, `pausing · 2 tasks` while `pausing` tasks
+    /// are still at work, then `paused`; every task done, `done · writing summary` until it is written, then `done · summary ready`, as the
     /// header says it, or `done` once AiTerm gave up on it; else its act, the task it is about named (`answering
     /// Claude · PAY-231`); else `working` while its session works, and between turns `watching 3 tasks`, its
     /// working ones counted (`waiting for its tasks` with none), or `in background` with its jobs on the tooltip
@@ -367,14 +377,17 @@ public struct OperatorLine: Equatable, Sendable {
     /// `OperatorActs.broadcast` gives it, its task a `key` (or an id) among `tasks`, the broadcast's.
     public static func session(acting: (OperatorAct, task: String?)?, working: Bool, asking: Bool, about: String? = nil,
                                asks: String? = nil, windowClosed: Bool,
-                               paused: Bool = false, summary: RunSummary = .notYet, tasks: [TaskItem] = [],
+                               paused: Bool = false, pausing: Int = 0, summary: RunSummary = .notYet, tasks: [TaskItem] = [],
                                background: [String] = []) -> OperatorLine {
         if windowClosed { return .windowClosed }
         if asking {
             guard let about else { return OperatorLine("waiting on you", look: .needsYou, tooltip: asks) }
             return needsYou("waiting on you", about, tooltip: asks)
         }
-        if paused { return OperatorLine("paused") }
+        if paused {
+            guard pausing > 0 else { return .paused }
+            return OperatorLine("pausing · \(pausing) \(pausing == 1 ? "task" : "tasks")", look: .acting)
+        }
         switch summary {
         case .writing: return OperatorLine("done · writing summary", look: .ended)
         case .written: return OperatorLine("done · summary ready", look: .ended)

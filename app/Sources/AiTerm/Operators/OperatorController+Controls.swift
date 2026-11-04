@@ -137,10 +137,21 @@ extension OperatorController {
     }
 
     // -- a broadcast -----------------------------------------------------------------------------
-    /// Pause (spec §9): no task starts, no message is delivered, nothing is accepted; workers finish
-    /// their turn. Persisted as your intent: a pause that cannot be saved is taken back, so the broadcast
-    /// never reads as paused for what the file would not hold. A delivery already in flight is not
-    /// cancelled — the daemon offers no way to — it ends as the daemon's rules end it.
+    /// What Pause types into a worker at work, or one whose ended turn left work running that will wake it.
+    static let pauseNote = "[AiTerm] The person paused this broadcast. Finish the step you are on, then end your turn "
+        + "without starting anything new. If background work wakes you before you hear more, end your turn again. "
+        + "You will be told when to carry on."
+    /// What Resume types into each worker Pause told to stop.
+    static let carryOnNote = "[AiTerm] The broadcast is resumed. Carry on with your task where you left off."
+    /// Resume's wake reason when a worker Pause stopped could not be told to carry on, in place of `resumed`: one reason,
+    /// so the line says it rather than `updates waiting`. Plain: a wake line names no task.
+    static let resumedMissingCarryOn = "resumed; paused workers missed the carry-on note, steer them with message_task"
+
+    /// Pause (spec §9): no task starts, no message is delivered, nothing is accepted. Persisted as your intent: a pause
+    /// that cannot be saved is taken back, so the broadcast never reads as paused for what the file would not hold. A
+    /// delivery already in flight is not cancelled — the daemon offers no way to — it ends as the daemon's rules end it.
+    /// Then each worker still at work, or whose ended turn left work running, is told to wrap up and stop
+    /// (`pauseNote`), behind any notes a Resume is still typing (`signalPause`).
     func pause(run id: UUID) throws {
         guard let run = self.run(id: id), [.planning, .active, .operatorOffline].contains(run.state) else {
             throw ActionUnavailable("Only a broadcast under way can be paused.")
@@ -149,6 +160,113 @@ extension OperatorController {
             state.updateRun(id: id) { $0.intent = .paused; $0.state = .paused }
         }
         finisher.stopWatching(inRun: id)
+        pauseAttempted[id] = []
+        queueSignalling(id) { [weak self] in await self?.signalPause(id) }
+    }
+
+    /// A worker of a broadcast you paused that is at work and was neither told nor tried yet — its window listed only
+    /// after Pause, its launch having passed its last check before it — is told to stop now, behind the notes queued.
+    func pauseLateWorkers() {
+        for run in workspace.state.runs where run.intent == .paused && !run.hasEnded {
+            let tried = pauseAttempted[run.id] ?? [], now = ports.now()
+            let late = Self.pauseTargets(of: run.id, in: workspace.state, sessions: live.sessions, now: now)
+                .filter { !tried.contains($0) && !run.pausedWorkers.contains($0) }
+            guard !late.isEmpty else { continue }
+            queueSignalling(run.id) { [weak self] in await self?.signalPause(run.id) }
+        }
+    }
+
+    /// `work`, once every note queued before it for broadcast `id` is typed.
+    @discardableResult
+    func queueSignalling<Value: Sendable>(_ id: UUID, _ work: @escaping @MainActor () async -> Value) -> Task<Value, Never> {
+        let before = signalling[id]
+        let task = Task { @MainActor in
+            await before?.value
+            return await work()
+        }
+        signalling[id] = Task { _ = await task.value }
+        return task
+    }
+
+    /// The pause note to every worker of the broadcast's driven working tasks that is at work, or whose ended turn left
+    /// work running, and that this pause has not tried yet (`pauseAttempted`) nor told already: each recorded on the run,
+    /// with its task's ownership, before anything is typed, so a Resume after a restart still tells it to carry on. Each
+    /// is looked at again right before its note (`steerable`): one you stopped or took over meanwhile, or the note did not
+    /// reach, is dropped again. A worker whose turn ended with nothing running has stopped already and is told nothing.
+    func signalPause(_ id: UUID) async {
+        guard let run = self.run(id: id), run.intent == .paused, !run.hasEnded, let daemon = daemon() else { return }
+        let tried = pauseAttempted[id] ?? []
+        let workers = Self.pauseTargets(of: id, in: workspace.state, sessions: live.sessions, now: ports.now())
+            .filter { !tried.contains($0) && !run.pausedWorkers.contains($0) }
+        guard !workers.isEmpty else { return }
+        pauseAttempted[id, default: []].formUnion(workers)
+        mutateRun(id) { $0.pausedWorkers += workers }
+        // On disk before the first note goes: a restart mid-way still tells each to carry on. A save that fails is
+        // logged by the store and tried again with the next change; the notes still go.
+        _ = workspace.flush()
+        for worker in workers {
+            // Ended meanwhile: its tasks are yours, told nothing more.
+            guard self.run(id: id)?.hasEnded == false else { break }
+            guard let place = steerable(worker, in: id) else {
+                mutateRun(id) { $0.pausedWorkers.removeAll { $0 == worker } }
+                continue
+            }
+            let delivery = try? await daemon.deliver(sessionId: place.sessionId, text: Self.pauseNote,
+                                                     ownership: worker.ownership, wake: false, worktree: place.worktree)
+            if delivery?.result != .delivered {
+                Log.daemon.info("The pause note did not reach a worker of task \(worker.task.uuidString, privacy: .public): \(delivery?.reason ?? "no helper", privacy: .public)")
+                mutateRun(id) { $0.pausedWorkers.removeAll { $0 == worker } }
+                // Not ready yet — its screen shows no input box, could not be read, or iTerm2 is away: tried again as its
+                // tabs change (`pauseLateWorkers`). A prompt open waits on you, and is not asked again.
+                if let code = delivery?.code, Self.notReadyYet.contains(code) { pauseAttempted[id]?.remove(worker) }
+            }
+        }
+    }
+
+    /// Why a note could not be typed that passes as the tab settles: its agent still drawing its screen, or iTerm2 away.
+    static let notReadyYet: Set<DeliveryCode> = [.unrecognisedScreen, .screenUnread, .itermDisconnected]
+
+    /// The workers a pause tells to stop: those of the broadcast's driven working tasks at work, or whose ended turn
+    /// left work running (`WorkerTab.isStillAtWork`), the ones that keep their task `pausing`. As of `now`, a first worker
+    /// whose launch is under way counts as at work: its first prompt is on its way, though Codex reads idle until its first
+    /// hook. One whose window iTerm2 does not list yet is told once it is (`pauseLateWorkers`).
+    static func pauseTargets(of id: UUID, in state: AppState, sessions: [SessionInfo], now: Date) -> [PausedWorker] {
+        state.tasks(inRun: id).flatMap { task -> [PausedWorker] in
+            guard let operated = task.operated, !operated.takenOver, operated.state == .working else { return [] }
+            // An agent to type into: an extra tab still listed as the shell its command is typed into waits for its agent.
+            return task.workerTabs(in: sessions, now: now).filter { $0.session?.agent.agentKind != nil && $0.isStillAtWork }.map { tab in
+                PausedWorker(task: task.id, tab: tab.key, ownership: operated.ownership)
+            }
+        }
+    }
+
+    /// Where `worker` is typed into while broadcast `id` may still steer it: its task still the broadcast's, not taken
+    /// over, working, at the ownership it was paused with, its tab listed. Nil once any of that changed.
+    func steerable(_ worker: PausedWorker, in id: UUID) -> (sessionId: String, worktree: String)? {
+        guard let task = workspace.state.task(id: worker.task), let operated = task.operated, operated.runId == id,
+              !operated.takenOver, operated.state == .working, operated.ownership == worker.ownership,
+              let session = task.workerTab(worker.tab, in: live.sessions)?.session else { return nil }
+        return (session.sessionId, task.worktreePath)
+    }
+
+    /// The carry-on note to each worker Pause told to stop, in the order they were stopped, once the notes before it are
+    /// typed. Each is let go from the run as it is handled; one that is no longer the broadcast's to steer — its task
+    /// taken over, stopped or moved on, its ownership changed, its tab gone — is let go without a word. An End meanwhile
+    /// stops the rest. Each worker told is answered (`WorkerTurnReader.messaged`), so the turn the pause ended never reads
+    /// as ready for the Operator. Returns how many could not be told.
+    func signalCarryOn(_ id: UUID) async -> Int {
+        guard let daemon = daemon() else { return run(id: id)?.pausedWorkers.count ?? 0 }
+        var missed = 0
+        for worker in run(id: id)?.pausedWorkers ?? [] {
+            guard self.run(id: id)?.hasEnded == false else { break }
+            defer { mutateRun(id) { $0.pausedWorkers.removeAll { $0 == worker } } }
+            guard let place = steerable(worker, in: id) else { continue }
+            let delivery = try? await daemon.deliver(sessionId: place.sessionId, text: Self.carryOnNote,
+                                                     ownership: worker.ownership, wake: false, worktree: place.worktree)
+            guard delivery?.result == .delivered else { missed += 1; continue }
+            turns.messaged(worker.task, tab: worker.tab)
+        }
+        return missed
     }
 
     /// Resume (spec §9), from paused or offline: an operator still there is kept and woken; one gone is
@@ -160,11 +278,17 @@ extension OperatorController {
         // A reopening already under way (a second click) is the first one's to finish: it sets the state and wakes.
         if operatorTab(of: id) == nil, try await reopenOperatorWindow(id, background: background) == .underway { return }
         // The reopening took a while: it may have been ended meanwhile.
+        guard self.run(id: id)?.hasEnded == false else { return }
+        // The workers the pause stopped are told to carry on first, while the broadcast still reads paused: its news is
+        // held and its tools refuse, so the Operator neither hears of nor accepts a turn the pause cut short before that
+        // worker has its note. Paused, the broadcast offers no Pause, so none comes in between.
+        let missed = await queueSignalling(id) { [weak self] in await self?.signalCarryOn(id) ?? 0 }.value
+        pauseAttempted[id] = nil
         guard let current = self.run(id: id), !current.hasEnded else { return }
         if current.state == .paused || current.state == .operatorOffline {
             mutateRun(id) { $0.intent = nil; $0.state = RunReconciler.resumedState(of: $0) }
         }
-        waker.say("resumed", to: id)
+        waker.say(missed > 0 ? Self.resumedMissingCarryOn : "resumed", to: id)
         runChanged(id)
     }
 
@@ -194,6 +318,10 @@ extension OperatorController {
                 try await setOwnership(ownership, on: task)
             }
         }
+        // The notes being typed stop at the end, and their new ownership is set first, so the helper holds back the
+        // Enter of one mid-paste: none is sent once the tasks are yours.
+        await signalling[id]?.value
+        pauseAttempted[id] = nil
         await closeOperatorWindowIfOnlyItsOperator(id, daemon: daemon)
     }
 
@@ -223,7 +351,7 @@ extension OperatorController {
     @discardableResult
     static func applyEnd(_ id: UUID, at now: Date, to state: inout AppState) -> (dropped: Set<UUID>, handed: [UUID]) {
         let ending = Self.ending(id, in: state)
-        state.updateRun(id: id) { $0.intent = .stopped; $0.state = .stopped; $0.endedAt = now }
+        state.updateRun(id: id) { $0.intent = .stopped; $0.state = .stopped; $0.endedAt = now; $0.pausedWorkers = [] }
         state.tasks.removeAll { ending.dropped.contains($0.id) }
         for task in ending.handed {
             _ = try? OperatedTransitions.apply(.stop, toTask: task, in: &state, by: .you)

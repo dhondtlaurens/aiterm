@@ -671,6 +671,19 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+/// A worker your Pause told to stop: its task, its tab (nil for the first worker, else the extra tab's key) and the
+/// task's ownership generation then. Resume tells it to carry on only while the task is still the broadcast's, at
+/// that same generation.
+public struct PausedWorker: Codable, Hashable, Sendable {
+    public var task: UUID
+    public var tab: String?
+    public var ownership: Int
+
+    public init(task: UUID, tab: String?, ownership: Int) {
+        self.task = task; self.tab = tab; self.ownership = ownership
+    }
+}
+
 /// A broadcast, "run" in code (spec §4, §5). The app is its only writer.
 public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     public var id: UUID
@@ -748,6 +761,9 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     public var finished: [FinishedTaskRecord] = []
     /// When the closing last ran.
     public var closedAt: Date?
+    /// The workers your Pause told to stop, saved before the note is typed, so Resume tells each to carry on, even
+    /// after a restart. Left out of the save while empty.
+    public var pausedWorkers: [PausedWorker] = []
 
     /// `projectIds` defaults to none: a run made in a test or a fixture that never reads its scope.
     public init(id: UUID, name: String, profile: OperatorProfile, projectIds: [UUID] = [], jiraProjectKeys: [String] = [],
@@ -777,7 +793,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         case firstPlanSize, questions, decisions, finds, snags, leftForYou, leftForYouRecords, challenges, operatorConversation, operatorWindowId
         case operatorSessionId, jiraCreated, jiraSprinted, jiraCommented, threadReplies, pendingWrites, createdAt
         case summary, summaryAt, completedAt, summaryGivenUp, endedAt, gateAllowances
-        case agents, taskSettings, goal, goalCheckDue, roundsUsed, goalChecks, goalOutcome, revisionAtLastCheck, finished, closedAt
+        case agents, taskSettings, goal, goalCheckDue, roundsUsed, goalChecks, goalOutcome, revisionAtLastCheck, finished, closedAt, pausedWorkers
     }
 
     /// The lists may be missing and read as empty. A run without a profile or a prompt (round 1's,
@@ -826,6 +842,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         revisionAtLastCheck = try c.decodeIfPresent(Int.self, forKey: .revisionAtLastCheck)
         finished = try c.decodeIfPresent([FinishedTaskRecord].self, forKey: .finished) ?? []
         closedAt = try c.decodeIfPresent(Date.self, forKey: .closedAt)
+        pausedWorkers = try c.decodeIfPresent([PausedWorker].self, forKey: .pausedWorkers) ?? []
     }
 
     /// A new plan on a finished run: the summary, its time, the completion and the give-up belonged to the old
@@ -883,6 +900,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         try c.encodeIfPresent(revisionAtLastCheck, forKey: .revisionAtLastCheck)
         if !finished.isEmpty { try c.encode(finished, forKey: .finished) }
         try c.encodeIfPresent(closedAt, forKey: .closedAt)
+        if !pausedWorkers.isEmpty { try c.encode(pausedWorkers, forKey: .pausedWorkers) }
     }
 }
 

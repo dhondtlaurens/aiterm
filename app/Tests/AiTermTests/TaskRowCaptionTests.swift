@@ -64,7 +64,12 @@ import Testing
 
     @Test func aQueuedTaskShowsThePauseSignUnlessItIsBeingRemoved() {
         let queued = OperatorLine("queued · after PAY-232")
-        #expect(TaskRowMark(status: .idle, line: queued, removing: false, queued: true) == .queued)
+        #expect(TaskRowMark(status: .idle, line: queued, removing: false, queued: true) == .pauseSign)
         #expect(TaskRowMark(status: .idle, line: queued, removing: true, queued: true) == .status(.working))
+    }
+
+    @Test func aTaskPausedByYouShowsThePauseSignUnlessItIsBeingRemoved() {
+        #expect(TaskRowMark(status: .idle, line: .paused, removing: false, paused: true) == .pauseSign)
+        #expect(TaskRowMark(status: .idle, line: .paused, removing: true, paused: true) == .status(.working))
     }
 }

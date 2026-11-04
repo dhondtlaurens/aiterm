@@ -89,6 +89,21 @@ import Testing
         #expect(group.tasks[2].operatorLine?.text == "queued")
     }
 
+    /// Paused by you, a task whose workers stopped wears the pause sign and no longer spins; one still at work spins on,
+    /// `pausing`, and so does the Operator's row until none is.
+    @Test func aTaskWhoseWorkersStoppedWhilePausedWearsThePauseSign() throws {
+        var paused = run(.paused)
+        paused.intent = .paused
+        let stopped = task("stopped", run: paused.id, .working), stopping = task("stopping", run: paused.id, .working)
+        let group = try section(state(paused, [stopped, stopping]), sessions: [tab(stopped, .done), tab(stopping, .working)])
+        #expect(group.tasks.map(\.paused) == [true, false])
+        #expect(group.tasks[0].status == .idle, "nothing runs: the pause sign, not the spinner or an unseen ring")
+        #expect(group.tasks[1].status == .working && group.tasks[1].operatorLine?.text == "pausing")
+        #expect(!group.operatorRow.paused)
+        let settled = try section(state(paused, [stopped, stopping]), sessions: [tab(stopped, .done), tab(stopping, .idle)])
+        #expect(settled.tasks.map(\.paused) == [true, true] && settled.operatorRow.paused)
+    }
+
     @Test func aHeldTaskSpinsUntilItNeedsYou() throws {
         let run = run()
         let working = task("working", run: run.id, .working), turnEnded = task("turn ended", run: run.id, .working)

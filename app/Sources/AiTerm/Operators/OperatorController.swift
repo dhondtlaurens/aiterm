@@ -127,6 +127,13 @@ final class OperatorController {
     @ObservationIgnored private(set) var summaryWaits: [UUID: Task<Void, Never>] = [:]
     /// The latest wait for a summary, for a test to await.
     @ObservationIgnored private(set) var summaryWait: Task<Void, Never>?
+    /// The notes Pause and Resume type into a broadcast's workers, by run: each new batch waits for the one before it,
+    /// so the workers read them in the order you pressed the controls (`queueSignalling`). A test awaits it too.
+    @ObservationIgnored var signalling: [UUID: Task<Void, Never>] = [:]
+    /// The workers this pause has tried to tell to stop, by run, told or not: none is tried twice while it lasts, so a
+    /// worker whose window is listed only after Pause is told once it is (`pauseLateWorkers`), and one that refused is
+    /// not asked again on every change of the tabs.
+    @ObservationIgnored var pauseAttempted: [UUID: Set<PausedWorker>] = [:]
     /// The broadcast whose board a notification's click asked for (spec §10.3): the sidebar presents
     /// it and sets this back to nil. Observed, so the click reaches a sidebar already on screen.
     var presentBoard: UUID?
@@ -750,6 +757,7 @@ final class OperatorController {
         let held = starter.tabsListed(sessions)
         for id in closed { operatorWindowClosed(id) }
         recordWindowAnswers(sessions)
+        pauseLateWorkers()
         observeRuns()
         probePrompts()
         for run in runs { waker.operatorSessionChanged(run.id) }
