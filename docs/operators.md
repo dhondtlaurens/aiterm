@@ -133,11 +133,17 @@ keep their board records, and their Operator tools remain disabled.
 | Plan | `create_task`, `update_task`, `submit_plan` |
 | Steer | `message_task`, `open_tab`, `resume_task`, `retry_task` |
 | Review | `record_review`, `find_user`, `request_review`, `reply_thread` |
-| Finish | `mark_task`, `finish_task`, `check_goal` |
+| Finish | `mark_task`, `finish_task`, `update_request`, `check_goal` |
 | Ask you | `ask_you`, `resolve_question` |
 | Read Jira | `jira_search`, `jira_board` |
 | Write Jira | `jira_create`, `jira_edit`, `jira_comment`, `jira_move`, `jira_link`, `jira_sprint` |
 | Record | `report_find`, `report_snag`, `leave_for_you`, `log_decision`, `write_summary` |
+
+A request `finish_task` opens takes the Operator's title, description and assignee. Without them its
+title is the ticket key, a colon and the task's title. Its description is the checks the worker ran,
+never the worker's brief. It is assigned to the user AiTerm acts as on the host. `update_request`
+changes an open request's title, description or assignee; the Operator's shell stays refused
+`glab mr update`, `gh pr edit` and API writes.
 
 `review_task` remains a served refusal directing the Operator to `open_tab`/`record_review`; it does
 not run a headless reviewer. Current tool schemas and complete generated briefs are frozen by the

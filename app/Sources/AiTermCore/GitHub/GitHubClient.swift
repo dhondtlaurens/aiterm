@@ -278,6 +278,27 @@ public struct GitHubClient: Sendable {
                            body: Retarget(base: target), notFound: .repoNotFound(repo))
     }
 
+    /// Changes its title, body and assignee, each nil one left as it is; the assignee replaces any it has. Two writes,
+    /// the pull request's then its issue's, each safe to repeat. `beforeWrite` gets the pull request as read, right before
+    /// each of them.
+    public func updatePullRequest(repo: String, number: Int, title: String?, body: String?, assignee: String?,
+                                  beforeWrite: @Sendable (MergeRequest) async throws -> Void = { _ in }) async throws {
+        let pull = try await get(PullPayload.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
+        try await beforeWrite(pull.mergeRequest)
+        if title != nil || body != nil {
+            struct Edit: Encodable { var title, body: String? }
+            _ = try await send(PullPayload.self, method: "PATCH", path: "/repos/\(repo)/pulls/\(number)",
+                               body: Edit(title: title, body: body), notFound: .repoNotFound(repo))
+        }
+        if let assignee {
+            if title != nil || body != nil { try await beforeWrite(pull.mergeRequest) }
+            struct Assign: Encodable { var assignees: [String] }
+            struct Answer: Decodable { var number: Int? }
+            _ = try await send(Answer.self, method: "PATCH", path: "/repos/\(repo)/issues/\(number)",
+                               body: Assign(assignees: [assignee]), notFound: .repoNotFound(repo))
+        }
+    }
+
     // MARK: The Review slice (spec §5): people on the pull request, only for an operator whose broadcast allows it.
     // A fine-grained token needs write access to pull requests.
 

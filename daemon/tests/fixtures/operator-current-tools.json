@@ -861,7 +861,7 @@
   },
   {
     "name": "finish_task",
-    "description": "Carries out an accepted task's end from the plan, for its accepted commit only. draft MR: pushes the task's own branch and opens a draft merge request; a stacked task's targets its parent's branch, so finish the parent first. merge: pushes, opens a merge request and merges it at the accepted commit, once the host calls it mergeable with its pipelines green, read twice at least 30 seconds apart. A stacked task waits for its parent's merge, then retargets to the default branch. While it waits this answers waitingToMerge, and AiTerm wakes you when it merged or is blocked; after about an hour of waiting it answers blocked. A failed pipeline or a conflict blocks it: have the worker fix it, accept the new commit, and call finish_task again. A task that ends in a commit has nothing to finish. The task goes into review instead when the Review slice is on and its review is written: the broadcast's Review, or, in a broadcast started with the Agents and Task steps, the task's review prompt. Its request then opens as a draft and this answers inReview: AiTerm wakes you on people's feedback, and the next finish_task after the last fix ends the review, a draft end published, a merge end going on to merge. A merge, through the request or local, is refused unless the broadcast's Merge slice is on; AiTerm then leaves it for the person. Before it merges a request that is still a draft, AiTerm marks it ready, only to merge it, and it merges only with every one of its review threads resolved. mergeLocal: merges the accepted commit into the project's own checkout's default branch and never pushes; that checkout must be on its default branch with nothing uncommitted. AiTerm leaves the push for the person, as \"Push main in <project>: merged locally.\" A merge or mergeLocal end whose accepted commit is already in its default branch, merged outside finish_task by the person or a worker, is recorded as merged: nothing is pushed or merged, AiTerm never writes to the host, and the Oracle isn't asked, so call finish_task for such work, even after a refused merge or one left for the person. AiTerm leaves pushing a default branch that has it only locally, and closing a request still open from the task's branch, for the person. With the Oracle on, a finish_task that would merge first needs the Oracle's yes that the merge conditions hold: those written in the broadcast's Review and Done, or, in a broadcast started with the Agents and Task steps, the task's review prompt, its verdicts and the person's answers to its fix-rounds questions; a no is recorded on the task and refuses the merge. A push the repository's pre-push hook refused fails with the hook's output as its reason. noVerify pushes past the hook, and only after such a refusal; with the Oracle on it first needs the Oracle's yes that the hook failed on the environment, not the code, judged from that output and your reason. A call that also merges asks both at once, and only a yes to both acts. It answers result: published, inReview, waitingToMerge, blocked, refused or failed, with reason, mergeRequest, pushedSHA, merged and mergedSHA as far as they are known; refused and failed also say what was already done. draftNote says what this call did to the request's draft state (opened as a draft, opened ready, left as a draft, marked ready), and is left out when it did nothing. Each step is recorded and calling again resumes at the next step: it never pushes or opens a request twice, and on a task that is done it answers what was done. A push that timed out may have landed: call finish_task again. A takeover stops a merge's waiting: call finish_task again once the task is handed back. Refused if the task ends in a commit, the task was taken over, its branch moved past the accepted commit (unless that commit is already in the default branch), its parent was accepted again, the broadcast is paused, stopped or offline, the host protects its branch or cannot say whether it does, or it is the default branch. AiTerm never deploys, never force-pushes, and never pushes to a default or protected branch.",
+    "description": "Carries out an accepted task's end from the plan, for its accepted commit only. draft MR: pushes the task's own branch and opens a draft merge request; a stacked task's targets its parent's branch, so finish the parent first. merge: pushes, opens a merge request and merges it at the accepted commit, once the host calls it mergeable with its pipelines green, read twice at least 30 seconds apart. A stacked task waits for its parent's merge, then retargets to the default branch. While it waits this answers waitingToMerge, and AiTerm wakes you when it merged or is blocked; after about an hour of waiting it answers blocked. A failed pipeline or a conflict blocks it: have the worker fix it, accept the new commit, and call finish_task again. A task that ends in a commit has nothing to finish. The task goes into review instead when the Review slice is on and its review is written: the broadcast's Review, or, in a broadcast started with the Agents and Task steps, the task's review prompt. Its request then opens as a draft and this answers inReview: AiTerm wakes you on people's feedback, and the next finish_task after the last fix ends the review, a draft end published, a merge end going on to merge. A merge, through the request or local, is refused unless the broadcast's Merge slice is on; AiTerm then leaves it for the person. Before it merges a request that is still a draft, AiTerm marks it ready, only to merge it, and it merges only with every one of its review threads resolved. mergeLocal: merges the accepted commit into the project's own checkout's default branch and never pushes; that checkout must be on its default branch with nothing uncommitted. AiTerm leaves the push for the person, as \"Push main in <project>: merged locally.\" A merge or mergeLocal end whose accepted commit is already in its default branch, merged outside finish_task by the person or a worker, is recorded as merged: nothing is pushed or merged, AiTerm never writes to the host, and the Oracle isn't asked, so call finish_task for such work, even after a refused merge or one left for the person. AiTerm leaves pushing a default branch that has it only locally, and closing a request still open from the task's branch, for the person. With the Oracle on, a finish_task that would merge first needs the Oracle's yes that the merge conditions hold: those written in the broadcast's Review and Done, or, in a broadcast started with the Agents and Task steps, the task's review prompt, its verdicts and the person's answers to its fix-rounds questions; a no is recorded on the task and refuses the merge. A push the repository's pre-push hook refused fails with the hook's output as its reason. noVerify pushes past the hook, and only after such a refusal; with the Oracle on it first needs the Oracle's yes that the hook failed on the environment, not the code, judged from that output and your reason. A call that also merges asks both at once, and only a yes to both acts. It answers result: published, inReview, waitingToMerge, blocked, refused or failed, with reason, mergeRequest, pushedSHA, merged and mergedSHA as far as they are known; refused and failed also say what was already done. draftNote says what this call did to the request's draft state (opened as a draft, opened ready, left as a draft, marked ready), or that the request couldn't be assigned, and is left out when it did nothing. A request AiTerm opens takes your title, description and assignee; without them its title is the ticket key, a colon and the task's title, its description the checks the worker ran (never the worker's brief), and it is assigned to the person AiTerm acts as on the host. A request already open keeps what it says: change it with update_request. Each step is recorded and calling again resumes at the next step: it never pushes or opens a request twice, and on a task that is done it answers what was done. A push that timed out may have landed: call finish_task again. A takeover stops a merge's waiting: call finish_task again once the task is handed back. Refused if the task ends in a commit, the task was taken over, its branch moved past the accepted commit (unless that commit is already in the default branch), its parent was accepted again, the broadcast is paused, stopped or offline, the host protects its branch or cannot say whether it does, or it is the default branch. AiTerm never deploys, never force-pushes, and never pushes to a default or protected branch.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -877,6 +877,18 @@
           "type": "string",
           "description": "With noVerify: what you tried to repair the environment, for the Oracle. Left out, it reads your last shell commands in the task's worktree."
         },
+        "title": {
+          "type": "string",
+          "description": "The request's title, as the project's workflow asks for it."
+        },
+        "description": {
+          "type": "string",
+          "description": "The request's description, from the project's merge request template when it has one: for its reviewers, without your instructions to the worker or paths on this Mac."
+        },
+        "assignee": {
+          "type": "string",
+          "description": "The username on the code host to assign the request to, as find_user gives it."
+        },
         "challengeId": {
           "type": "string",
           "description": "The challengeId a challenged call returned: send it with your revised arguments, or with challengeReply. A reply that says pending has no answer yet: call again with its challengeId and the same arguments. For create_task, finish_task and check_goal, the call again acts only on the Oracle's yes. The same challengeId again, once answered, returns the recorded result."
@@ -884,6 +896,35 @@
         "challengeReply": {
           "type": "string",
           "description": "Your answer to each point of the second opinion's critique, when you keep the act as it was."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "task"
+      ]
+    }
+  },
+  {
+    "name": "update_request",
+    "description": "Changes the title, description or assignee of the merge request finish_task opened for a task; what you leave out stays as it is, and an assignee replaces the one it has. A draft stays a draft. It needs no slice and the Oracle isn't asked; the same change again changes nothing. Refused while the task has no request, once the request is merged or closed, when the task was taken over, or while the broadcast is paused or ended.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "description": "The task: its key as you gave it to create_task, or its id from run_status."
+        },
+        "title": {
+          "type": "string",
+          "description": "The new title."
+        },
+        "description": {
+          "type": "string",
+          "description": "The new description."
+        },
+        "assignee": {
+          "type": "string",
+          "description": "The username on the code host to assign it to, as find_user gives it."
         }
       },
       "additionalProperties": false,

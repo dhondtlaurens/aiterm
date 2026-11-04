@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Synchronization
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
@@ -64,6 +65,46 @@ import Testing
     }
 
     // MARK: Opening and finding
+
+    /// Snag !62 ("Aikido findings 2026-11"), on GitHub: the title and body are the pull request's, the assignee its issue's.
+    @Test func anOpenPullRequestIsRetitledRedescribedAndReassigned() async throws {
+        let (client, stub) = makeClient { request in
+            if request.url?.path.hasSuffix("/issues/88") == true { return (200, Data(#"{"number":88}"#.utf8)) }
+            return (200, Data(Self.pull(draft: true).utf8))
+        }
+        try await client.updatePullRequest(repo: "octocat/hello", number: 88, title: "PLUTO-231: Add gift card",
+                                           body: "Adds the gift card.", assignee: "nathan")
+        let writes = stub.requests.filter { $0.httpMethod != "GET" }
+        #expect(writes.map { "\($0.httpMethod ?? "") \($0.url?.absoluteString ?? "")" }
+                == ["PATCH \(Self.api)/pulls/88", "PATCH \(Self.api)/issues/88"])
+        let edit = try body(writes[0])
+        #expect(Set(edit.keys) == ["title", "body"])
+        #expect(edit["title"] as? String == "PLUTO-231: Add gift card")
+        #expect(edit["body"] as? String == "Adds the gift card.")
+        #expect(try body(writes[1])["assignees"] as? [String] == ["nathan"])
+    }
+
+    /// Each write is checked right before it: a pause after the title's leaves the assignee unwritten.
+    @Test func eachWriteOfAnEditIsCheckedRightBeforeIt() async throws {
+        let (client, stub) = makeClient { request in
+            request.url?.path.hasSuffix("/issues/88") == true ? (200, Data(#"{"number":88}"#.utf8)) : (200, Data(Self.pull().utf8))
+        }
+        let checks = Mutex(0)
+        struct Paused: Error {}
+        await #expect(throws: Paused.self) {
+            try await client.updatePullRequest(repo: "octocat/hello", number: 88, title: "T", body: nil, assignee: "nathan",
+                                               beforeWrite: { _ in if checks.withLock({ $0 += 1; return $0 }) > 1 { throw Paused() } })
+        }
+        #expect(stub.requests.filter { $0.httpMethod != "GET" }.map { $0.url?.path ?? "" } == ["/repos/octocat/hello/pulls/88"])
+    }
+
+    @Test func anAssigneeAloneTouchesOnlyTheIssue() async throws {
+        let (client, stub) = makeClient { request in
+            request.httpMethod == "GET" ? (200, Data(Self.pull().utf8)) : (200, Data(#"{"number":88}"#.utf8))
+        }
+        try await client.updatePullRequest(repo: "octocat/hello", number: 88, title: nil, body: nil, assignee: "laurens")
+        #expect(stub.requests.filter { $0.httpMethod != "GET" }.map { $0.url?.path ?? "" } == ["/repos/octocat/hello/issues/88"])
+    }
 
     @Test func aDraftIsOpenedFromTheTasksBranch() async throws {
         let (client, stub) = makeClient { _ in (201, Data(Self.pull(draft: true, mergeable: "null", mergeableState: "unknown").utf8)) }

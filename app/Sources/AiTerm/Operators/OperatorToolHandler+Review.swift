@@ -185,15 +185,16 @@ extension OperatorToolHandler {
     // -- writes read fresh, and kept as pending while they may have landed ----------------------------
 
     /// The check before each write to the task's request, read fresh: the broadcast takes work (no Pause, no End),
-    /// its Review slice is on, and the task is still the operator's under the same ownership (no takeover, none handed
-    /// back since) with the same request in the same repository.
-    func writeCheck(_ original: TaskItem, number: Int, in runId: UUID) -> @Sendable () async throws -> Void {
+    /// its Review slice is on unless `review` is false (`update_request`, which corrects the request finish_task opened),
+    /// and the task is still the operator's under the same ownership (no takeover, none handed back since) with the same
+    /// request in the same repository.
+    func writeCheck(_ original: TaskItem, number: Int, in runId: UUID, review: Bool = true) -> @Sendable () async throws -> Void {
         { @MainActor [weak self] in
             try Task.checkCancellation()
             guard let self else { throw ToolRefusal("AiTerm is closing; nothing more is written.") }
             guard let run = state.run(id: runId) else { throw ToolRefusal("This broadcast is no longer in AiTerm.") }
             try acceptsWork(run)
-            guard run.profile.slices.review else { throw ToolRefusal(WriteSlice.review.off) }
+            guard !review || run.profile.slices.review else { throw ToolRefusal(WriteSlice.review.off) }
             guard let task = state.task(id: original.id), task.operated?.runId == runId else {
                 throw ToolRefusal("This task is no longer in this broadcast.")
             }

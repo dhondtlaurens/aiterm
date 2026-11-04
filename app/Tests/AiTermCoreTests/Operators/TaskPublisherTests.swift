@@ -86,8 +86,9 @@ import Synchronization
 
     func advance(_ s: inout Setup, host: FakeMergeHost, restart: Bool = true, records: Records = Records(),
                  current: Current = Current(), parent: UUID? = nil, git pushGit: (any GitRunning)? = nil,
-                 now: @escaping @Sendable () -> Date = Date.init, forReview: Bool = false) async throws -> TaskPublisher.Outcome {
-        let publisher = TaskPublisher(repository: Repository(s.path, git: pushGit ?? git), host: host, now: now)
+                 now: @escaping @Sendable () -> Date = Date.init, forReview: Bool = false,
+                 noted: @escaping @Sendable (TaskPublisher.DraftEvent) -> Void = { _ in }) async throws -> TaskPublisher.Outcome {
+        let publisher = TaskPublisher(repository: Repository(s.path, git: pushGit ?? git), host: host, now: now, noted: noted)
         let task = s.world.state.tasks.first { $0.id == s.task }!
         let context = TaskPublisher.Context(task: task, run: s.world.state.runs.first { $0.id == s.run }!,
                                             parent: parent.flatMap { id in s.world.state.tasks.first { $0.id == id } }, forReview: forReview)
@@ -105,11 +106,16 @@ import Synchronization
         var s = try setUp(end: .draftMR)
         let host = FakeMergeHost(), records = Records()
         let outcome = try await advance(&s, host: host, records: records)
-        let expected = TaskPublication(pushedSHA: s.sha, mergeRequestURL: FakeMergeHost.url, mergeRequestNumber: 12, targetBranch: "main",
-                                       repository: FakeMergeHost.repository)
+        var opened = TaskPublication(pushedSHA: s.sha, mergeRequestURL: FakeMergeHost.url, mergeRequestNumber: 12, targetBranch: "main",
+                                     repository: FakeMergeHost.repository)
+        opened.assigning = true
+        var expected = opened
+        expected.assigning = nil
+        expected.assignee = "aiterm"
         #expect(outcome == .published(expected))
-        #expect(records.list == [TaskPublication(pushedSHA: s.sha), expected])
-        #expect(host.log == ["protection feat/pluto-231", "existing feat/pluto-231", "create feat/pluto-231 → main draft"])
+        #expect(records.list == [TaskPublication(pushedSHA: s.sha), opened, expected])
+        #expect(host.log == ["protection feat/pluto-231", "existing feat/pluto-231", "create feat/pluto-231 → main draft",
+                             "edit 12 assignee aiterm"])
         #expect(originHas("feat/pluto-231", in: s.origin) == s.sha)
     }
 
@@ -120,7 +126,7 @@ import Synchronization
         let again = try await advance(&s, host: host, git: pushes)
         guard case .published(let publication) = again else { Issue.record("\(again)"); return }
         #expect(publication.mergeRequestNumber == 12)
-        #expect(host.log.count == 3, "no second protection check, lookup or request")
+        #expect(host.log.count == 4, "no second protection check, lookup, request or assignment")
         #expect(pushes.pushes == 1)
     }
 
@@ -131,8 +137,10 @@ import Synchronization
         #expect(records.list == [TaskPublication(pushedSHA: s.sha)], "the push is on record")
         host.update { $0.createFails = false }
         let outcome = try await advance(&s, host: host)
-        #expect(outcome == .published(TaskPublication(pushedSHA: s.sha, mergeRequestURL: FakeMergeHost.url, mergeRequestNumber: 12, targetBranch: "main",
-                                                      repository: FakeMergeHost.repository)))
+        var expected = TaskPublication(pushedSHA: s.sha, mergeRequestURL: FakeMergeHost.url, mergeRequestNumber: 12, targetBranch: "main",
+                                       repository: FakeMergeHost.repository)
+        expected.assignee = "aiterm"
+        #expect(outcome == .published(expected))
     }
 
     @Test func aLostReplyAfterOpeningFindsTheRequestInsteadOfOpeningASecond() async throws {
@@ -144,6 +152,96 @@ import Synchronization
         #expect(publication.mergeRequestNumber == 12)
         #expect(host.log.filter { $0.hasPrefix("create") }.count == 1)
         #expect(host.log.filter { $0.hasPrefix("existing") }.count == 2, "the repeat looked for it first")
+    }
+
+    /// !62 as broadcast "Aikido findings 2026-11" left it: a Jira task whose brief is the Operator's instructions with a path
+    /// on this Mac.
+    func aikidoTask(_ s: inout Setup) {
+        let i = s.world.state.tasks.firstIndex { $0.id == s.task }!
+        s.world.state.tasks[i].title = "Validate the redirect target"
+        s.world.state.tasks[i].jira = JiraRef(key: "PLUTO-231", summary: "Open redirect", url: "https://example.atlassian.net/browse/PLUTO-231")
+        s.world.state.tasks[i].operated?.brief = "You are T3 of the Operator's broadcast. Work in /Users/laurens/Sites/acme/.worktrees/t3 "
+            + "and commit; push nothing."
+    }
+
+    /// Snags !62–!65: opened with the worker's brief as description, "KEY title" with no colon, and nobody assigned.
+    @Test func aRequestOpensAsKeyColonTitleWithoutTheBriefAndAssignedToYou() async throws {
+        var s = try setUp(end: .draftMR)
+        aikidoTask(&s)
+        let host = FakeMergeHost(), records = Records()
+        let outcome = try await advance(&s, host: host, records: records)
+        let request = try #require(host.request)
+        #expect(request.title == "PLUTO-231: Validate the redirect target")
+        let description = try #require(request.description)
+        #expect(!description.contains("Operator") && !description.contains("/Users/"), "never the worker's brief")
+        #expect(description.contains("12 passed"), "the checks the worker ran")
+        guard case .published(let publication) = outcome else { Issue.record("\(outcome)"); return }
+        #expect(host.log == ["protection feat/pluto-231", "existing feat/pluto-231", "create feat/pluto-231 → main draft",
+                             "edit 12 assignee aiterm"])
+        #expect(publication.assignee == "aiterm")
+        #expect(publication.assigning == nil)
+    }
+
+    /// The Operator wrote the request's title, description and assignee: it opens with them, and a retry rewrites nothing.
+    @Test func theOperatorsContentOpensTheRequestAndARetryLeavesIt() async throws {
+        var s = try setUp(end: .draftMR)
+        aikidoTask(&s)
+        var asked = TaskPublication()
+        asked.requested = RequestContent(title: "PLUTO-231: Validate redirect targets", description: "## Why\nAn open redirect.",
+                                         assignee: "nathan")
+        s.world.state.updateOperated(s.task) { $0.publication = asked }
+        let host = FakeMergeHost()
+        _ = try await advance(&s, host: host)
+        let request = try #require(host.request)
+        #expect(request.title == "PLUTO-231: Validate redirect targets")
+        #expect(request.description == "## Why\nAn open redirect.")
+        #expect(host.log.last == "edit 12 assignee nathan")
+        let again = try await advance(&s, host: host)
+        guard case .published = again else { Issue.record("\(again)"); return }
+        #expect(host.log.filter { $0.hasPrefix("create") || $0.hasPrefix("edit") }.count == 2, "nothing opened or edited twice")
+    }
+
+    /// The request opened, then the assignment failed: the publication stands, the failure is said, and a later advance
+    /// assigns it once.
+    @Test func anAssignmentThatFailsIsSaidAndDoneByTheNextAdvance() async throws {
+        var s = try setUp(end: .draftMR)
+        let host = FakeMergeHost(.init(editError: URLError(.timedOut))), events = Mutex<[TaskPublisher.DraftEvent]>([])
+        let first = try await advance(&s, host: host, noted: { e in events.withLock { $0.append(e) } })
+        guard case .published(let open) = first else { Issue.record("\(first)"); return }
+        #expect(open.mergeRequestNumber == 12)
+        #expect(open.assigning == true && open.assignee == nil)
+        #expect(events.withLock { $0 }.contains { if case .notAssigned(name: "aiterm", _) = $0 { true } else { false } })
+        host.update { $0.editError = nil }
+        let second = try await advance(&s, host: host)
+        guard case .published(let assigned) = second else { Issue.record("\(second)"); return }
+        #expect(assigned.assignee == "aiterm" && assigned.assigning == nil)
+        #expect(host.assignee == "aiterm")
+        _ = try await advance(&s, host: host)
+        #expect(host.log.filter { $0.hasPrefix("edit") }.count == 2, "tried, done, then left alone")
+        #expect(host.log.filter { $0.hasPrefix("create") }.count == 1)
+    }
+
+    /// A pause or a takeover while the host is asked who to assign: nothing is written, and it is still to assign.
+    @Test func aChangeWhileAssigningWritesNoAssignee() async throws {
+        var s = try setUp(end: .draftMR)
+        let host = FakeMergeHost(), records = Records()
+        // Read before the push, the lookup, after it and before the assignment's reads: closed right before its write.
+        let outcome = try await advance(&s, host: host, records: records, current: Current(opensFor: 4))
+        #expect(outcome == .refused(PublicationGuard.changedMidway))
+        #expect(!host.log.contains { $0.hasPrefix("edit") })
+        #expect(records.last?.assigning == true)
+    }
+
+    /// The assignee written, then not saved: that is the last step, never taken for a host that failed to assign.
+    @Test func anAssignmentThatCannotBeSavedStopsThePublication() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost()
+        host.update { $0.readiness = [.ready(head: s.sha)] }
+        do {
+            _ = try await advance(&s, host: host, records: Records(crashAfter: 3, host: host))
+            Issue.record("the unsaved assignment should have stopped it")
+        } catch is Records.Crashed {}
+        #expect(host.log.last == "edit 12 assignee aiterm", "nothing read or merged after it")
     }
 
     /// The app dies right after each save in turn; the next call resumes at the following step, and
@@ -170,13 +268,13 @@ import Synchronization
         for k in 1...clean.saves {
             let run = try await publish(crashAfter: k)
             #expect(run.pushes == 1, "crash after save \(k)")
-            for step in ["protection", "create"] {
+            for step in ["protection", "create", "edit"] {
                 #expect(run.log.filter { $0.hasPrefix(step) }.count == 1, "\(step), crash after save \(k)")
             }
             // The lookup before opening, and for a merge end the live read before merging.
             #expect(run.log.filter { $0.hasPrefix("existing") }.count == (end == .merge ? 2 : 1), "crash after save \(k)")
             #expect(run.log.filter { $0.hasPrefix("merge") }.count == (end == .merge ? 1 : 0), "crash after save \(k)")
-            #expect(run.log.last == (end == .merge ? "merge 12 at \(run.sha)" : "create feat/pluto-231 → main draft"), "crash after save \(k)")
+            #expect(run.log.last == (end == .merge ? "merge 12 at \(run.sha)" : "edit 12 assignee aiterm"), "crash after save \(k)")
         }
     }
 
@@ -585,7 +683,7 @@ import Synchronization
         let outcome = try await advance(&s, host: host, parent: parent)
         guard case .published(let publication) = outcome else { Issue.record("\(outcome)"); return }
         #expect(publication.targetBranch == "feat/pluto-230")
-        #expect(host.log.last == "create feat/pluto-231 → feat/pluto-230 draft")
+        #expect(host.log.suffix(2) == ["create feat/pluto-231 → feat/pluto-230 draft", "edit 12 assignee aiterm"])
     }
 
     @Test func aStackedDraftsOpenRequestIntoTheDefaultBranchIsRefused() async throws {
@@ -636,7 +734,7 @@ import Synchronization
         let host = FakeMergeHost()
         guard case .published(let publication) = try await advance(&s, host: host, parent: parent) else { Issue.record("not published"); return }
         #expect(publication.targetBranch == "main")
-        #expect(host.log.last == "create feat/pluto-231 → main draft")
+        #expect(host.log.suffix(2) == ["create feat/pluto-231 → main draft", "edit 12 assignee aiterm"])
     }
 
     /// The parent merged before the child's request was opened: it opens into the default branch,
@@ -757,7 +855,7 @@ import Synchronization
         let host = FakeMergeHost(), clock = Clock()
         // Opened as a draft for its review, which has ended.
         _ = try await advance(&s, host: host, now: { clock.now }, forReview: true)
-        #expect(host.log.last == "create feat/pluto-231 → main draft")
+        #expect(host.log.suffix(2) == ["create feat/pluto-231 → main draft", "edit 12 assignee aiterm"])
         host.update { $0.readiness = [.blocked("it is a draft"), .ready(head: s.sha)] }
         let first = try await advance(&s, host: host, restart: false, now: { clock.now })
         guard case .waiting = first else { Issue.record("\(first)"); return }

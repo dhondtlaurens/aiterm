@@ -115,9 +115,9 @@ holds Operator instructions and a `/Users/...` path.
 
 ## To-dos
 
-- [ ] Default title with the colon, and a description without brief or note (TaskPublisher + tests 1)
-- [ ] Assignee as a recorded, retried step: protocol, GitLab, GitHub, fake host, default `currentUser()` (tests 1, 2b, 3)
-- [ ] finish_task's optional title, description and assignee, saved on the publication, end to end through daemon, handler dispatch, controller bridge, finisher and publisher (tests 2, 6, golden)
-- [ ] `update_request`: protocol edit, clients with the draft prefix, handler, daemon tool (tests 3, 4, 6)
-- [ ] The shell gate's refusals name update_request (test 5)
-- [ ] docs/operators.md tools table and MR content line
+- [x] Default title with the colon, and a description without brief or note (TaskPublisher + tests 1)
+- [x] Assignee as a recorded, retried step: protocol, GitLab, GitHub, fake host, default `currentUser()` (tests 1, 2b, 3)
+- [x] finish_task's optional title, description and assignee, saved on the publication, end to end through daemon, handler dispatch, controller bridge, finisher and publisher (tests 2, 6, golden)
+- [x] `update_request`: protocol edit, clients with the draft prefix, handler, daemon tool (tests 3, 4, 6)
+- [x] The shell gate's refusals name update_request (test 5)
+- [x] docs/operators.md tools table and MR content line
