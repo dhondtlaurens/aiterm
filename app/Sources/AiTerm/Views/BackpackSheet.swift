@@ -72,17 +72,17 @@ enum BackpackSheetPresentation {
 
     /// The card's help, under its rule.
     static func safeHelp(hotspot: String, until: BackpackUntil) -> String {
-        let ends = until == .turnedOff ? "stays on until you turn it off" : "ends when your agents stop"
+        let ends = until == .turnedOff ? "stays on until you turn it off" : "ends when your agents are done and no broadcast is active"
         return "On \(hotspot). Unplugged \(ends), or at \(BackpackSettings.cutoff) % battery."
     }
 
-    /// Turns off's choices, ending with the work first: every sheet opens on it.
-    static let untilChoices: [BackpackUntil] = [.agentsStop, .turnedOff]
+    /// Never is the default for every trip; ending with the work is an explicit choice.
+    static let untilChoices: [BackpackUntil] = [.turnedOff, .agentsStop]
 
     static func untilLabel(_ until: BackpackUntil) -> String {
         switch until {
-        case .agentsStop: "When agents stop"
-        case .turnedOff: "When I turn it off"
+        case .agentsStop: "When agents are done"
+        case .turnedOff: "Never"
         }
     }
 
@@ -115,9 +115,21 @@ final class BackpackSheetModel: Identifiable {
     /// The field's text: the remembered hotspot's saved password, filled in as if typed, or what the
     /// person types. Empty sends none, and the saved one is used.
     var password = ""
-    /// Turns off: what ends the mode this trip. Never remembered — every sheet starts on
-    /// `.agentsStop`, so a Mac is never left on in a bag by a choice made trips ago.
-    var until: BackpackUntil = .agentsStop
+    /// A broadcast can keep working across quiet agent turns. While one is active, Never is the
+    /// only available choice, including if it starts after this sheet was opened.
+    private var selectedUntil: BackpackUntil = .turnedOff
+    var until: BackpackUntil {
+        get { canSelectUntil(selectedUntil) ? selectedUntil : .turnedOff }
+        set { if canSelectUntil(newValue) { selectedUntil = newValue } }
+    }
+
+    func canSelectUntil(_ until: BackpackUntil) -> Bool {
+        until != .agentsStop || !backpack.broadcastRunning
+    }
+
+    func untilDetail(_ until: BackpackUntil) -> String? {
+        canSelectUntil(until) ? nil : "Unavailable while a broadcast is active."
+    }
     /// The Keychain's password, read once: it belongs to the remembered hotspot only.
     private var saved: String?
     private(set) var inRange: [String] = []
@@ -283,7 +295,8 @@ struct BackpackSheet: View {
                     FormField("Turns off") {
                         Select(values: BackpackSheetPresentation.untilChoices,
                                selection: Binding(get: { model.until }, set: { model.until = $0 }),
-                               label: BackpackSheetPresentation.untilLabel)
+                               label: BackpackSheetPresentation.untilLabel,
+                               detail: model.untilDetail, isSelectable: model.canSelectUntil)
                     }
                     .frame(maxWidth: .infinity)
                     Color.clear.frame(maxWidth: .infinity, maxHeight: 0)

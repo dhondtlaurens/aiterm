@@ -253,7 +253,7 @@ import Synchronization
         let fake = FakeBackpack(), clock = TestClock()
         fake.lidSensor.closed = true
         let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
-        _ = try mode.turnOn().get()
+        _ = try mode.turnOn(until: .agentsStop).get()
         #expect(mode.tick(agentsWorking: true) == .unchanged)
         clock.advance(by: 119)
         #expect(mode.tick(agentsWorking: false) == .unchanged, "the grace counts from the last working tick")
@@ -267,7 +267,7 @@ import Synchronization
         let fake = FakeBackpack(), clock = TestClock()
         fake.lidSensor.closed = true
         let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
-        _ = try mode.turnOn().get()
+        _ = try mode.turnOn(until: .agentsStop).get()
         clock.advance(by: 100)
         _ = mode.tick(agentsWorking: true)
         clock.advance(by: 100)
@@ -284,7 +284,7 @@ import Synchronization
         let fake = FakeBackpack(), clock = TestClock()
         fake.lidSensor.closed = lidClosed
         let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
-        _ = try mode.turnOn().get()
+        _ = try mode.turnOn(until: .agentsStop).get()
         clock.advance(by: 120)
         #expect(mode.tick(agentsWorking: false) == .ended)
     }
@@ -294,7 +294,7 @@ import Synchronization
     @Test func anOpenLidHoldsTheGrace() throws {
         let fake = FakeBackpack(), clock = TestClock()
         let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
-        _ = try mode.turnOn().get()
+        _ = try mode.turnOn(until: .agentsStop).get()
         clock.advance(by: 600)
         #expect(mode.tick(agentsWorking: false) == .unchanged)
         #expect(mode.state.isOn)
@@ -329,10 +329,15 @@ import Synchronization
         #expect(mode.tick(agentsWorking: false) == .ended)
     }
 
-    /// A turn-on that names nothing ends with the work, as it always has.
-    @Test func aTurnOnEndsWithTheWorkByDefault() throws {
-        let fake = FakeBackpack()
-        #expect(try mode(fake).turnOn().get().until == .agentsStop)
+    /// The default must keep a Mac awake even after all agents have gone quiet.
+    @Test func aTurnOnStaysOnByDefault() throws {
+        let fake = FakeBackpack(), clock = TestClock()
+        fake.lidSensor.closed = true
+        let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
+        #expect(try mode.turnOn().get().until == .turnedOff)
+        clock.advance(by: 3600)
+        #expect(mode.tick(agentsWorking: false) == .unchanged)
+        #expect(mode.state.isOn)
     }
 
     @Test func theCutoffIsAFixedTenPercent() throws {

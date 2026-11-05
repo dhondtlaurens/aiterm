@@ -1,4 +1,7 @@
 import Foundation
+import AppKit
+import SwiftUI
+import AiTermUI
 import Synchronization
 import Testing
 @testable import AiTermCore
@@ -40,6 +43,7 @@ import Testing
         await backpack.connect(network: "Phone", password: nil)
         #expect(backpack.phase == .safe)
         #expect(backpack.isOn)
+        #expect(backpack.state.until == .turnedOff)
         #expect(toasts.lines.isEmpty, "the sheet says it; a toast would say it twice")
     }
 
@@ -308,7 +312,7 @@ import Testing
         let clock = Mutex(start)
         // The cutoff ends it with an agent still working; the idle grace needs none working.
         let backpack = controller(fake, working: { onBatteryCutoff }, now: { clock.withLock { $0 } })
-        await backpack.connect(network: "Phone", password: nil)
+        await backpack.connect(network: "Phone", password: nil, until: .agentsStop)
         fake.lidSensor.closed = true
         if onBatteryCutoff {
             fake.power.value = PowerReading(level: BackpackSettings.cutoff, onBattery: true)
@@ -329,7 +333,7 @@ import Testing
         let start = Date(timeIntervalSince1970: 1_000)
         let clock = Mutex(start)
         let backpack = controller(fake, toasts: toasts, working: { false }, now: { clock.withLock { $0 } })
-        await backpack.connect(network: "Phone", password: nil)
+        await backpack.connect(network: "Phone", password: nil, until: .agentsStop)
         fake.lidSensor.closed = true
         fake.lid.succeeds = false
         clock.withLock { $0 = start.addingTimeInterval(BackpackMode.idleGrace) }
@@ -545,6 +549,78 @@ import Testing
 }
 
 extension AppControllerTests {
+    /// The sheet's actual popup follows workspace broadcasts, including one starting after the
+    /// sheet opens. Ending a broadcast enables the option again and Connect carries that choice.
+    @Test func unpluggedChoicesFollowTheLiveBroadcast() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fake = FakeBackpack()
+        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")),
+                                       preferences: .scratch(), backpackPorts: fake.ports)
+        defer { controller.shutdown() }
+        try controller.workspace.load()
+        controller.backpack.network = "Phone"
+        controller.toggleBackpack()
+        guard case .backpack(let model)? = controller.sheet else { Issue.record("no sheet"); return }
+        await model.load()
+        #expect(model.until == .turnedOff)
+        model.until = .agentsStop
+        let host = testHost(BackpackSheet(model: model), size: CGSize(width: Sheet.width, height: Sheet.height))
+        testWindow(hosting: host, orderFront: false).close()
+        settle(host)
+        let button = try #require(host.descendants(NSPopUpButton.self).last)
+        let agentsDone = try #require(button.itemArray.first { $0.title == "When agents are done" })
+        #expect(agentsDone.isEnabled)
+
+        let run = OperatorUIFixtures.run()
+        controller.workspace.mutate { $0.runs = [run] }
+        settle(host)
+        #expect(!agentsDone.isEnabled)
+        #expect(model.until == .turnedOff, "a broadcast starting under the sheet falls back to Never")
+        #expect(button.titleOfSelectedItem == "Never")
+        model.until = .agentsStop
+        #expect(model.canConnect)
+        model.connect()
+        await eventually { model.isSafe && !model.isConnecting }
+        #expect(model.backpack.state.until == .turnedOff)
+        await model.backpack.turnOff()
+
+        controller.workspace.mutate { $0.updateRun(id: run.id) { $0.state = .stopped } }
+        settle(host)
+        let refreshedButton = try #require(host.descendants(NSPopUpButton.self).last)
+        #expect(refreshedButton.itemArray.first { $0.title == "When agents are done" }?.isEnabled == true)
+        model.until = .agentsStop
+        #expect(model.canConnect)
+        model.connect()
+        await eventually { model.isSafe && !model.isConnecting }
+        #expect(model.backpack.state.until == .agentsStop)
+    }
+
+    /// A broadcast starting after Unplugged was enabled must also bridge quiet turns. The cutoff
+    /// still wins, and after the broadcast ends the normal idle grace resumes.
+    @Test(arguments: [false, true])
+    func aBroadcastHoldsUnpluggedAwakeButNeverPastTheBatteryCutoff(cutoff: Bool) async {
+        let fake = FakeBackpack(), clock = TestClock()
+        fake.lidSensor.closed = true
+        let broadcasting = Mutex(false)
+        let backpack = BackpackController(ports: fake.ports, settings: fake.settings, tickInterval: .seconds(3600),
+                                          now: { clock.now }, agentsWorking: { false },
+                                          broadcastRunning: { broadcasting.withLock { $0 } }, toast: { _ in })
+        await backpack.connect(network: "Phone", password: nil, until: .agentsStop)
+        broadcasting.withLock { $0 = true }
+        clock.advance(by: 3600)
+        await backpack.tick()
+        #expect(backpack.isOn)
+        if cutoff {
+            fake.power.value = PowerReading(level: BackpackSettings.cutoff, onBattery: true)
+        } else {
+            broadcasting.withLock { $0 = false }
+            clock.advance(by: BackpackMode.idleGrace)
+        }
+        await backpack.tick()
+        #expect(!backpack.isOn)
+    }
+
     /// The desk click opens the sheet once; ⌘U while it connects neither replaces the sheet, nor
     /// opens another once it is gone, nor turns anything off. The hotspot is out
     /// of range, so the connect keeps retrying and `busy` holds until the Cancel.
