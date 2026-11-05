@@ -102,6 +102,10 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     public var assigning: Bool?
     /// Who AiTerm assigned the request to.
     public var assignee: String?
+    /// The accepted commit of a `finish_task` call that answered `running`: its publication outlived the call's reply
+    /// budget, and the task's next call is owed what it did. Saved, so after a restart a retry still isn't read as a new
+    /// act (a review ended, a merge judged); cleared once a call has the answer.
+    public var unanswered: String?
 
     /// What the hook said refusing the push of `sha`: nil when the last refusal was of another commit, or none was.
     /// A commit accepted since was never run through the hook, so nothing is known yet to push it past.

@@ -41,11 +41,25 @@ extension OperatorToolHandler {
         }
     }
 
-    /// Whether `task`'s accepted commit is already in its project's default branch (`TaskFinisher.landing`): its finish_task
-    /// records it as merged and merges nothing.
-    private func landed(_ task: TaskItem) async -> Bool {
-        guard let sha = task.operated?.acceptance?.resultSHA, let project = state.project(id: task.projectId) else { return false }
-        return await TaskFinisher.landing(of: sha, in: project.path, git: ports.git) != nil
+    /// Whether `task`'s accepted commit is already in its project's default branch, origin's fetched now
+    /// (`TaskFinisher.landingFetched`): its finish_task records it as merged and merges nothing. A request the person merged on
+    /// the host is in origin's branch only once fetched.
+    private func landed(_ task: TaskItem) async -> TaskFinisher.LandingCheck {
+        guard let sha = task.operated?.acceptance?.resultSHA, let project = state.project(id: task.projectId) else { return .notLanded }
+        return await TaskFinisher.landingFetched(of: sha, in: project.path, git: ports.git)
+    }
+
+    /// Whether a `finish_task` only joins its task's publication in flight or answers one that outlived its call
+    /// (`TaskFinisher.pending`), or repeats, with its challengeId, a challenged call that answered `running`, whose
+    /// publication went on: it decides nothing new, so it is neither judged nor fetched for, and never starts a publication.
+    func finishJoins(_ call: ToolCall, in run: OperatorRun) -> Bool {
+        guard call.operatorTool == .finishTask, let task = try? task(call, in: run) else { return false }
+        if pendingFinish(task.id) { return true }
+        guard let id = call.optionalString("challengeId"),
+              let kept = state.run(id: run.id)?.challenges.first(where: { $0.id == id && $0.tool == call.tool }),
+              kept.stage == .acted, kept.actedArguments == Self.invocation(call), let result = kept.result,
+              let answer = try? JSONDecoder().decode(JSONValue.self, from: Data(result.utf8)) else { return false }
+        return answer["result"] == "running"
     }
 
     /// The task a `finish_task` with `noVerify` would push past its hook, and what the hook said when it refused the push
@@ -80,7 +94,8 @@ extension OperatorToolHandler {
     }
 
     /// Nil: the call takes effect. Otherwise what the operator reads instead.
-    func challengeGate(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue? {
+    /// `deadline`: when a `finish_task` must answer; the Oracle's wait in it ends by then too.
+    func challengeGate(_ call: ToolCall, in run: OperatorRun, deadline: ContinuousClock.Instant? = nil) async throws -> JSONValue? {
         if call.operatorTool == .finishTask, let task = try? task(call, in: run), task.operated?.publication?.mergeRefusal != nil {
             mutate(in: run.id) { $0.updateOperated(task.id) { $0.publication?.mergeRefusal = nil } }
         }
@@ -93,8 +108,15 @@ extension OperatorToolHandler {
         }
         var merging = mergeAwaitingOracle(call, in: run)
         let skipping = hookSkipAwaitingOracle(call, in: run)
-        // A commit already in its target, merged outside finish_task, merges nothing: the Oracle isn't asked about it.
-        if named == nil, let task = merging, await landed(task) { merging = nil }
+        // A commit already in its target, merged outside finish_task, merges nothing: the Oracle isn't asked about it. Whether
+        // it is, is read with origin fetched; when it can't be, nothing is decided and the call says why.
+        if named == nil, opinion.isOn, let task = merging {
+            switch await landed(task) {
+            case .landed: merging = nil
+            case .notLanded: break
+            case .unknown(let why): throw ToolRefusal(why)
+            }
+        }
         // A noVerify with nothing to judge goes on to the finisher, which refuses it before it acts.
         if named == nil, call.operatorTool == .finishTask, call.optionalBool("noVerify") == true, skipping == nil { return nil }
         // A check_goal the tool refuses, or the last one again, goes on to the tool: it costs no Oracle run.
@@ -217,7 +239,11 @@ extension OperatorToolHandler {
         runningChallenges[id] = settled
         lastChallenge = settled
         // Nil out of budget, or cancelled with AiTerm quitting.
-        let answered = try? await Self.within(ports.challengeReplyBudget, cancelling: false) { await challenge.value }.get()
+        // A finish_task answers by its deadline, the Oracle's wait in it too.
+        let wait = call.operatorTool == .finishTask
+            ? deadline.map { min(ports.challengeReplyBudget, max(.zero, $0 - ContinuousClock.now)) } ?? ports.challengeReplyBudget
+            : ports.challengeReplyBudget
+        let answered = try? await Self.within(wait, cancelling: false) { await challenge.value }.get()
         refreshOracleSettings()
         if oracleGeneration(run.id) != generation {
             guard state.run(id: run.id)?.profile.oracle.isOn != false else { return nil }

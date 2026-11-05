@@ -54,14 +54,17 @@ looks new.
   `[AiTerm] <task>'s finish_task ended: call run_status`. The next finish_task of that task answers
   that kept result (the reason says it is the earlier call's) and clears it and the marker. A run
   joined by a call still waiting is answered to that call, which clears the marker; nothing is kept.
-  A marker or kept result for another accepted commit is dropped.
+  A marker or kept result for another accepted commit is dropped. Only the end of the run whose call
+  answered `running` is kept and wakes the Operator; a merge watch's later polls keep that answer up
+  to date with their own result and wake nobody, and the next call has it first, even while a poll is
+  in flight.
 - **After a restart, the marker still holds.** The run in flight died with the app; its steps are
   saved. With the marker set and nothing kept: a task in `inReview` answers `inReview` from the record
   (the fix-round push landed before the quit; a call now must not end the review), and anything else
   clears the marker and resumes from the saved steps, which repeats nothing.
 - **A call that joins or answers the record is never judged.** At the start of the challenge gate, a
-  finish_task of a task with a run in flight, a kept result or a marker for its accepted commit skips
-  the Oracle and the fetch: it decides nothing new. It is passed on join-only, so if nothing is
+  finish_task of a task with a run in flight, a kept result, or a marker for its accepted commit on a
+  task in review (the only marker the record answers) skips the Oracle and the fetch: it decides nothing new. It is passed on join-only, so if nothing is
   pending by the time the finisher has it, the finisher refuses it ("call finish_task again") instead
   of starting a run the gate never judged. This is the T7 fix: the retry answers `inReview`.
 - **Challenge replay.** A challenged finish_task whose acting call answered `running` has that answer
@@ -73,7 +76,8 @@ looks new.
   branch (`Repository.fetchFromOrigin`, bounded by `OperatorTiming.landedFetchTimeout`, 8 s) and then
   reads `landing` as before; a project without origin reads only the local branch. It answers landed,
   not landed, or "couldn't tell" with git's reason. The challenge gate uses it before asking the Oracle
-  about a merge; the finisher's `finishLanded` uses it on the Operator's own calls (a watch poll reads
+  about a merge; the finisher uses it on the Operator's own calls, before it ends a review or decides
+  anything (`finishLanded` reads its result) (a watch poll reads
   the host, which says whether the request merged, and keeps the local read). A failed fetch is never
   read as "not merged": the gate refuses the call, and the finisher answers `failed`, each saying
   AiTerm couldn't fetch `<branch>` from origin and why, that nothing was done, and to call again. No
@@ -150,9 +154,9 @@ past the budget, as T2, T7 and T8's hooks and requests did.
 
 ## To-dos
 
-- [ ] Tests 1–5 written and failing for the snag's reason
-- [ ] Reply budget, `running`, kept result and late wake (tests 1, 2)
-- [ ] Pending finish skips the gate, join-only (test 3)
-- [ ] Fetch before a merge decision, failed fetch said (tests 4, 5)
-- [ ] finish_task description, golden entry by hand, docs/operators.md (test 6)
-- [ ] Gate green, `scripts/test.sh all` green
+- [x] Tests 1–5 written and failing for the snag's reason
+- [x] Reply budget, `running`, kept result and late wake (tests 1, 2)
+- [x] Pending finish skips the gate, join-only (test 3)
+- [x] Fetch before a merge decision, failed fetch said (tests 4, 5)
+- [x] finish_task description, golden entry by hand, docs/operators.md (test 6)
+- [x] Gate green, `scripts/test.sh all` green

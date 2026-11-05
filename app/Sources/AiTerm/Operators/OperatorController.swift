@@ -31,6 +31,8 @@ struct OperatorPorts {
     /// How long a challenged call waits for its critique before answering that it is still coming: well
     /// inside the daemon's `operatorRequestTimeout`, which the challenge's own limit is not.
     var challengeReplyBudget: Duration = .seconds(20)
+    /// How long after a `finish_task` reached the app it answers, its publication done or not (`OperatorTiming.finishReplyBudget`).
+    var finishReplyBudget: Duration = .seconds(OperatorTiming.finishReplyBudget)
     var clock = OperatorClock()
     var now: @Sendable () -> Date { clock.now }
     /// The version of AiTerm that is running, for the snags the Operator reports: "dev" for a build with none.
@@ -295,9 +297,12 @@ final class OperatorController {
         finisher.mergedOnHost = { [weak self] id, why in self?.askAboutMergeOnHost(id, why) }
         finisher.watchStopped = { [weak self] id, _ in self?.mergeWatchStopped(id) }
         tools.publishing = { [weak self] id in self?.finisher.running.contains(id) ?? false }
-        tools.finish = { [weak self] id, noVerify, content in
+        tools.pendingFinish = { [weak self] id in self?.finisher.pending(id) ?? false }
+        finisher.finishedLate = { [weak self] id in self?.publicationEndedLate(id) }
+        tools.finish = { [weak self] id, call in
             guard let self else { return TaskFinisher.Result(result: .refused, reason: "AiTerm is closing.") }
-            return await self.finisher.finish(id, noVerify: noVerify, content: content)
+            return await self.finisher.finish(id, noVerify: call.noVerify, content: call.content, budget: call.budget,
+                                              joinOnly: call.joinOnly)
         }
         notices.onIssueChanged { [weak self] old, new in self?.bannerChanged(from: old, to: new) }
     }
@@ -887,6 +892,14 @@ final class OperatorController {
     func publicationChanged(_ id: UUID) {
         guard let operated = workspace.state.task(id: id)?.operated else { return }
         waker.say(operated.state == .published ? "one task merged" : "one task can’t merge", to: operated.runId)
+        runChanged(operated.runId)
+    }
+
+    /// A `finish_task` whose publication outlived its call ended: its operator is woken, and the next finish_task answers
+    /// what it did.
+    func publicationEndedLate(_ id: UUID) {
+        guard let operated = workspace.state.task(id: id)?.operated else { return }
+        waker.say("\(OperatorWaker.taskReference(operated.key))'s finish_task ended", to: operated.runId, colon: true)
         runChanged(operated.runId)
     }
 

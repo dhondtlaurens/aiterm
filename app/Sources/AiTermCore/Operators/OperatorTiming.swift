@@ -23,6 +23,12 @@ public enum OperatorTiming {
     public static let gateTimeout: TimeInterval = 200
     /// How long the daemon waits for the app's reply to a forwarded tool call.
     public static let operatorRequestTimeout: TimeInterval = 30
+    /// App only: seconds after an Operator's tool call reached the app within which `finish_task` answers, its publication
+    /// done or not, well inside `operatorRequestTimeout`: past it, the call answers `running` and the publication goes on.
+    public static let finishReplyBudget: TimeInterval = 24
+    /// App only: seconds the fetch of a merge end's default branch from origin may take, before `finish_task` decides
+    /// whether its accepted commit is merged there already or that its merge is new.
+    public static let landedFetchTimeout: TimeInterval = 8
     /// App only: seconds `jira_search` waits for Jira before it answers that Jira didn't, inside `operatorRequestTimeout`. The
     /// app's Jira client ends each request by then too (`JiraClient.resourceDeadline`).
     public static let jiraSearchBudget: TimeInterval = 20

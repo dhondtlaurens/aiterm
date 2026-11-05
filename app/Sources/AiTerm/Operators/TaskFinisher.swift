@@ -12,15 +12,21 @@ import AiTermCore
 /// waits for a merge: it answers `waitingToMerge` at once. A merge end whose accepted commit is already in its default
 /// branch, merged outside `finish_task`, is recorded as merged with nothing pushed, merged or written (`finishLanded`).
 ///
+/// The Operator's call waits for its publication only within its reply budget, inside the daemon's wait for the app's
+/// answer: past it, the call answers `running` with what is done so far, and the publication goes on. The task's next
+/// call joins it, or once it ended answers what it did (`kept`); one that ended with no call waiting on it wakes the
+/// Operator (`finishedLate`). That an answer is owed is saved on the publication (`unanswered`).
+///
 /// The host is the one the push goes to: origin's fetch URL, never `Repository.remoteUrl()`, which
 /// prefers the branch's upstream remote — the protection asked about must be the pushed repository's.
 @MainActor
 final class TaskFinisher {
     /// What `finish_task` answers the operator: what was done, whatever the outcome.
     struct Result: Codable, Equatable, Sendable {
-        /// How the call ended, by the word the Operator reads in `result`.
+        /// How the call ended, by the word the Operator reads in `result`. `running`: the publication outlived the call's
+        /// reply budget and goes on.
         enum Kind: String, Codable, Sendable {
-            case published, inReview, waitingToMerge, blocked, refused, failed, leftForYou
+            case published, inReview, waitingToMerge, blocked, refused, failed, leftForYou, running
         }
 
         var result: Kind
@@ -58,6 +64,14 @@ final class TaskFinisher {
         var notAssigned: TaskPublisher.DraftEvent? { unassigned.withLock { $0 } }
     }
 
+    /// The Operator's `finish_task`, as the tool handler passes it on (`finish(_:noVerify:content:budget:joinOnly:)`).
+    struct Call: Sendable {
+        var noVerify = false
+        var content: RequestContent?
+        var budget: Duration?
+        var joinOnly = false
+    }
+
     /// A step done but not saved: nothing more is done outside this machine.
     struct NotSaved: Error {}
     static let notSavedReason = "AiTerm couldn’t save what it has done so far, so it stopped before the next step. Call finish_task again once the workspace saves."
@@ -77,8 +91,17 @@ final class TaskFinisher {
     /// state — the branch moved, the task changed hands — with that reason, recorded as the problem. Set
     /// like `changed`.
     var watchStopped: @MainActor (UUID, String) -> Void = { _, _ in }
-    /// Each task's publication in flight.
-    private var inFlight: [UUID: Task<Result, Never>] = [:]
+    /// Each task's publication in flight, and the token that tells it from a later one.
+    private var inFlight: [UUID: (token: UUID, task: Task<Result, Never>)] = [:]
+    /// The Operator's calls waiting on each task's publication now, within their budget.
+    private var listening: [UUID: Int] = [:]
+    /// What a publication that outlived its call did, for the task's next call, with the accepted commit it ran on.
+    private var kept: [UUID: (sha: String, result: Result)] = [:]
+    /// The publication whose call answered `running`, by its token: only its end is kept and wakes the Operator, never a
+    /// merge watch's later polls.
+    private var owedFlights: [UUID: UUID] = [:]
+    /// Told when a publication whose call answered `running` ended with no call waiting on it. Set like `changed`.
+    var finishedLate: @MainActor (UUID) -> Void = { _ in }
     private var watchers: [UUID: Task<Void, Never>] = [:]
     private var isStopped = false
     /// How many calls found a publication in flight and waited for it; for a test.
@@ -116,8 +139,19 @@ final class TaskFinisher {
     /// `content`, the Operator's title, description and assignee for the request, is saved before anything is done, so every
     /// later advance opens the request with it; only while no request is recorded, since one open is changed through
     /// `update_request`.
-    func finish(_ id: UUID, noVerify: Bool = false, content: RequestContent? = nil) async -> Result {
+    ///
+    /// `budget`, the Operator's call's: how long it waits for the publication before it answers `running`; nil waits until
+    /// it ends. A call made while one is in flight joins it; one made once a publication outlived its call answers what it
+    /// did (`owedAnswer`). `joinOnly`, a call the challenge gate let through only for that, never starts a publication.
+    func finish(_ id: UUID, noVerify: Bool = false, content: RequestContent? = nil, budget: Duration? = nil,
+                joinOnly: Bool = false) async -> Result {
         guard !isStopped else { return Result(result: .refused, reason: Self.closingReason) }
+        // What a publication that outlived its call did is owed first, even while a merge watch's poll is in flight. With
+        // nothing kept, the saved marker is read only once nothing runs: a run in flight is still the one it is owed for.
+        if kept[id] != nil || inFlight[id] == nil, let owed = owedAnswer(id) { return owed }
+        if inFlight[id] == nil, joinOnly {
+            return Result(store.state.task(id: id)?.operated?.publication, result: .refused, reason: Self.nothingToJoin)
+        }
         if noVerify, let operated = store.state.task(id: id)?.operated, Self.stillToPush(operated),
            operated.publication?.pushFailure(for: operated.acceptance?.resultSHA) == nil {
             return Result(operated.publication, result: .refused, reason: Self.noFailedPush)
@@ -135,7 +169,91 @@ final class TaskFinisher {
                 return Result(store.state.task(id: id)?.operated?.publication, result: .failed, reason: Self.notSavedReason)
             }
         }
-        return await run(id, restart: watchers[id] == nil, noVerify: noVerify)
+        let restart = watchers[id] == nil
+        guard let budget else { return await run(id, restart: restart, noVerify: noVerify, operatorCall: true) }
+        return await wait(for: id, restart: restart, noVerify: noVerify, budget: budget)
+    }
+
+    /// Why a call let through only to join a publication is refused when none runs or is owed any more.
+    static let nothingToJoin = "No finish_task of this task is running or left to answer any more: call finish_task again, without a challengeId."
+
+    /// Whether a `finish_task` of the task now joins a publication in flight or answers one that outlived its call: it decides
+    /// nothing new, so the challenge gate neither asks the Oracle nor fetches.
+    /// The saved marker alone counts only where it answers (`owedAnswer`): after a restart, a call on anything but a task in
+    /// review resumes from the saved steps, through the gate as any call.
+    func pending(_ id: UUID) -> Bool {
+        if inFlight[id] != nil { return true }
+        guard let operated = store.state.task(id: id)?.operated, let accepted = operated.acceptance?.resultSHA else { return false }
+        if let late = kept[id], late.sha == accepted { return true }
+        return operated.state == .inReview && operated.publication?.unanswered == accepted
+    }
+
+    /// The answer owed to this call, when a publication outlived the call that waited on it: what it did, kept since it
+    /// ended. After a restart only the saved marker is left: a task back in review answers so (its fix-round push landed,
+    /// and a call now must not end the review); anything else resumes from its saved steps, which repeats nothing. Either
+    /// way the marker goes. Nil when nothing is owed for the commit accepted now.
+    private func owedAnswer(_ id: UUID) -> Result? {
+        let operated = store.state.task(id: id)?.operated, accepted = operated?.acceptance?.resultSHA
+        let late = kept.removeValue(forKey: id), marked = operated?.publication?.unanswered
+        owedFlights[id] = nil
+        if marked != nil { setUnanswered(nil, on: id) }
+        if let late, late.sha == accepted {
+            var result = late.result
+            result.reason = Self.earlier(result.reason)
+            return result
+        }
+        guard let operated, late == nil, let marked, marked == accepted, operated.state == .inReview else { return nil }
+        return Result(operated.publication, result: .inReview, reason: Self.earlier(Self.inReviewReason))
+    }
+
+    /// A kept answer's reason, saying it is the earlier call's.
+    static func earlier(_ reason: String?) -> String {
+        "This is what the earlier finish_task did after it answered running." + (reason.map { " " + $0 } ?? "")
+    }
+
+    /// The Operator's call, waiting for the publication within `budget`. One that ends in time is this call's answer, and
+    /// nothing is owed. Past the budget, the call answers `running` and saves that an answer is owed: the publication's
+    /// end keeps it for the next call (`ended`).
+    private func wait(for id: UUID, restart: Bool, noVerify: Bool, budget: Duration) async -> Result {
+        let flight = start(id, restart: restart, noVerify: noVerify, operatorCall: true)
+        listening[id, default: 0] += 1
+        let answered = await OperatorToolHandler.within(budget, cancelling: false) { await flight.task.value }
+        listening[id, default: 1] -= 1
+        if listening[id] == 0 { listening[id] = nil }
+        // It may have ended in the turn the budget ran out: then its answer is this call's.
+        if case .success(let result) = answered { return delivered(result, to: id) }
+        if inFlight[id]?.token != flight.token { return delivered(await flight.task.value, to: id) }
+        setUnanswered(store.state.task(id: id)?.operated?.acceptance?.resultSHA, on: id)
+        owedFlights[id] = flight.token
+        let publication = store.state.task(id: id)?.operated?.publication
+        return Result(publication, result: .running, reason: Self.stillRunning(store.state.task(id: id)?.operated?.key ?? "the task"))
+    }
+
+    /// `result` answered to a call: nothing is owed any more.
+    private func delivered(_ result: Result, to id: UUID) -> Result {
+        kept[id] = nil
+        owedFlights[id] = nil
+        if store.state.task(id: id)?.operated?.publication?.unanswered != nil { setUnanswered(nil, on: id) }
+        return result
+    }
+
+    /// What a call answers whose publication goes on past its budget.
+    static func stillRunning(_ key: String) -> String {
+        "AiTerm is still finishing \(key): pushedSHA and mergeRequest say what is done so far. It goes on; AiTerm wakes you when "
+            + "it ends, and finish_task then answers what it did. A finish_task meanwhile waits for it again; it never repeats a step."
+    }
+
+    /// Saves (or clears, with nil) that the task's next call is owed a publication's answer.
+    private func setUnanswered(_ sha: String?, on id: UUID) {
+        guard store.state.task(id: id)?.operated != nil else { return }
+        store.mutate { state in
+            state.updateOperated(id) {
+                var publication = $0.publication ?? TaskPublication()
+                publication.unanswered = sha
+                $0.publication = publication
+            }
+        }
+        _ = store.flush()
     }
 
     /// Why a `noVerify` is refused before any push the hook refused.
@@ -202,22 +320,48 @@ final class TaskFinisher {
     }
 
     /// The one way a publication runs: joined when one is in flight for the task.
-    private func run(_ id: UUID, restart: Bool, noVerify: Bool = false) async -> Result {
+    private func run(_ id: UUID, restart: Bool, noVerify: Bool = false, operatorCall: Bool = false) async -> Result {
         guard !isStopped else { return Result(result: .refused, reason: Self.closingReason) }
+        return await start(id, restart: restart, noVerify: noVerify, operatorCall: operatorCall).task.value
+    }
+
+    /// The task's publication in flight, joined, or a new one started. `operatorCall`: started by the Operator's own call,
+    /// which reads origin fresh before it decides that a merge end's commit is merged already (`finishLanded`).
+    private func start(_ id: UUID, restart: Bool, noVerify: Bool, operatorCall: Bool) -> (token: UUID, task: Task<Result, Never>) {
         if let running = inFlight[id] {
             joined += 1
-            return await running.value
+            return running
         }
-        let started = Task { await self.advance(id, restart: restart, noVerify: noVerify) }
-        inFlight[id] = started
-        let result = await started.value
-        if inFlight[id] == started { inFlight[id] = nil }
-        return result
+        let token = UUID()
+        let started = Task { () -> Result in
+            let result = await self.advance(id, restart: restart, noVerify: noVerify, operatorCall: operatorCall)
+            self.ended(id, token: token, result)
+            return result
+        }
+        inFlight[id] = (token, started)
+        return (token, started)
+    }
+
+    /// A publication's end: no longer in flight. One whose call answered `running`, with no call waiting on it now, is kept
+    /// for the next call and the Operator woken; a call still waiting has it as its answer. A merge watch's poll after it
+    /// keeps the answer owed up to date, its own result, and wakes nobody again: the watch has its own word when it ends.
+    private func ended(_ id: UUID, token: UUID, _ result: Result) {
+        guard inFlight[id]?.token == token else { return }
+        inFlight[id] = nil
+        if owedFlights[id] != token, let late = kept[id] {
+            kept[id] = (late.sha, result)
+            return
+        }
+        guard owedFlights[id] == token, listening[id] == nil,
+              let sha = store.state.task(id: id)?.operated?.publication?.unanswered else { return }
+        owedFlights[id] = nil
+        kept[id] = (sha, result)
+        finishedLate(id)
     }
 
     /// A publication's step, and what the Merge slice kept from happening left for you once (spec §5).
-    private func advance(_ id: UUID, restart: Bool, noVerify: Bool) async -> Result {
-        let result = await publish(id, restart: restart, noVerify: noVerify)
+    private func advance(_ id: UUID, restart: Bool, noVerify: Bool, operatorCall: Bool) async -> Result {
+        let result = await publish(id, restart: restart, noVerify: noVerify, operatorCall: operatorCall)
         if result.result == .refused, let reason = result.reason,
            let task = store.state.task(id: id), let operated = task.operated,
            operated.state == .accepted, Self.permanent(reason) {
@@ -250,8 +394,27 @@ final class TaskFinisher {
         _ = store.flush()
     }
 
-    private func publish(_ id: UUID, restart: Bool, noVerify: Bool) async -> Result {
+    private func publish(_ id: UUID, restart: Bool, noVerify: Bool, operatorCall: Bool) async -> Result {
         guard var first = context(of: id) else { return Result(result: .refused, reason: PublicationGuard.gone) }
+        // The Operator's own call on a merge end reads origin fetched before it changes or decides anything (a review
+        // ended, the commit read as merged or not): a fetch that fails changes nothing.
+        var fetched: LandingCheck?
+        if operatorCall, first.operated.end.merges, [.accepted, .inReview].contains(first.operated.state),
+           let sha = first.operated.acceptance?.resultSHA, first.operated.publication?.merged != true,
+           first.operated.publication?.mergedSHA == nil {
+            let ownership = first.operated.ownership
+            let check = await Self.landingFetched(of: sha, in: first.project.path, git: git)
+            if case .unknown(let why) = check {
+                return Result(store.state.task(id: id)?.operated?.publication, result: .failed, reason: why)
+            }
+            // Read fresh: the fetch awaited git. What it found holds only for the commit accepted then, by the same owner.
+            guard let fresh = context(of: id) else { return Result(result: .refused, reason: PublicationGuard.gone) }
+            guard fresh.operated.acceptance?.resultSHA == sha, fresh.operated.ownership == ownership else {
+                return Result(fresh.operated.publication, result: .refused, reason: PublicationGuard.changedMidway)
+            }
+            fetched = check
+            first = fresh
+        }
         // A task in review: this finish_task ends the review (spec §5). A draft end is then published; a merge end
         // goes on to its merge.
         if first.operated.state == .inReview {
@@ -260,7 +423,7 @@ final class TaskFinisher {
             first = fresh
         }
         // Merged outside finish_task, even after it was left for you: recorded as it is, nothing more done.
-        if let landed = await finishLanded(first) { return landed }
+        if let landed = await finishLanded(first, fetched: fetched) { return landed }
         let task = first.task, operated = first.operated, project = first.project
         // What is done is answered from the record, whatever the host's connection is now.
         if operated.publication?.leftForYou == true { return Result(operated.publication, result: .leftForYou, reason: nil) }
@@ -426,6 +589,37 @@ final class TaskFinisher {
         }
     }
 
+    /// Whether a merge end's accepted commit is already in its default branch, origin's fetched now (`landingFetched`).
+    enum LandingCheck: Sendable {
+        case landed(target: String, landing: Repository.Landing)
+        case notLanded
+        /// Origin couldn't be fetched: whether it is merged there is not known, and never read as not merged. Why, as said.
+        case unknown(String)
+    }
+
+    /// `landing(of:in:git:)` after fetching the default branch from origin, bounded by `OperatorTiming.landedFetchTimeout`:
+    /// the person may have merged the request on the host, which origin's branch as last fetched doesn't show. A project
+    /// without origin reads its own branch. A fetch that fails answers `unknown` with why. Read off the main actor.
+    nonisolated static func landingFetched(of sha: String, in path: String, git: any GitRunning) async -> LandingCheck {
+        let repository = Repository(path, git: git)
+        return await BackgroundWork.run { () -> LandingCheck in
+            let target = repository.defaultBranch()
+            do {
+                if try repository.hasOrigin { try repository.fetchFromOrigin(target, timeout: OperatorTiming.landedFetchTimeout) }
+            } catch {
+                return .unknown(TaskFinisher.unfetched(target, error))
+            }
+            guard let landing = try? repository.landing(of: sha, in: target) else { return .notLanded }
+            return .landed(target: target, landing: landing)
+        }
+    }
+
+    /// Why a merge decision isn't taken when origin couldn't be fetched.
+    nonisolated static func unfetched(_ branch: String, _ error: any Error) -> String {
+        "AiTerm couldn’t fetch \(branch) from origin, so it can’t tell whether the accepted commit is merged there already: "
+            + "\(GitError.displayReason(of: error)). Nothing was done: call finish_task again."
+    }
+
     /// Where `sha` already is in the default branch of the checkout at `path`, the branch a merge end merges into, and which
     /// branch that is (`Repository.landing`); nil when it is in neither that branch nor origin's as last fetched, or git
     /// couldn't say. Read off the main actor.
@@ -443,11 +637,20 @@ final class TaskFinisher {
     /// is only read, so none of what authorises those is asked for: not the Merge slice, the Oracle's yes, the branch's
     /// tip nor a stacked parent's end (`PublicationGuard.landedRefusal`). Its problem and the Oracle's refusal go with it.
     /// Left for you: pushing a target that has it only here, and closing a request still open from its branch.
-    private func finishLanded(_ first: Context) async -> Result? {
+    /// `fetched`, for the Operator's own call: what `publish` read with origin fetched (a fetch that failed answered there,
+    /// before anything changed). Without it, a merge watch's poll reads the host, and origin as last fetched.
+    private func finishLanded(_ first: Context, fetched: LandingCheck?) async -> Result? {
         let id = first.task.id, operated = first.operated
         guard operated.end.merges, operated.state == .accepted, let sha = operated.acceptance?.resultSHA,
-              operated.publication?.merged != true, operated.publication?.mergedSHA == nil,
-              let (target, landing) = await Self.landing(of: sha, in: first.project.path, git: git) else { return nil }
+              operated.publication?.merged != true, operated.publication?.mergedSHA == nil else { return nil }
+        let target: String, landing: Repository.Landing
+        switch fetched {
+        case .landed(let branch, let found)?: (target, landing) = (branch, found)
+        case .notLanded?, .unknown?: return nil
+        case nil:
+            guard let found = await Self.landing(of: sha, in: first.project.path, git: git) else { return nil }
+            (target, landing) = found
+        }
         // Read fresh: the look awaited git. It holds only for the commit accepted now, by the owner it was looked at under.
         guard let current = context(of: id) else { return Result(result: .refused, reason: PublicationGuard.gone) }
         guard current.operated.acceptance?.resultSHA == sha, current.operated.ownership == operated.ownership else {
@@ -569,6 +772,8 @@ final class TaskFinisher {
         guard let saved else { return publication }
         var kept = publication
         kept.requested = saved.requested
+        // Whether a call is owed this publication's answer is the finisher's, never a step's.
+        kept.unanswered = saved.unanswered
         if saved.assigning != true, let assignee = saved.assignee {
             kept.assigning = nil
             kept.assignee = assignee
