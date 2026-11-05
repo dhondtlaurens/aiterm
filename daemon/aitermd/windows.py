@@ -22,8 +22,11 @@ class WindowManager:
     moves it to where its window works, and keeps the tab titles and the background the app asks
     for. `tick` refreshes the registry from iTerm2 after each change."""
 
-    def __init__(self, iterm: ItermPort, registry: SessionRegistry, tick: Callable[[], Awaitable[None]]):
+    def __init__(self, iterm: ItermPort, registry: SessionRegistry, tick: Callable[[], Awaitable[None]],
+                 typed_in: Callable[[str], bool] = lambda _session_id: False):
         self.iterm, self.registry, self.tick = iterm, registry, tick
+        # Whether the keystroke monitor saw a key in a session (TypingGuard.typed_in).
+        self.typed_in = typed_in
         self._creation_lock = asyncio.Lock()
         # Sessions the daemon created and has not yet seen iTerm2 announce, and how many tab.creates
         # are still opening a tab in each window: neither is a user's tab to tag and redirect.
@@ -89,8 +92,7 @@ class WindowManager:
         frame, cwd, cmd = frame_param(p), param(p, "cwd", str), optional_param(p, "agentCommand", str)
         require_iterm(self.iterm)
         wid, sid = await guard(self.iterm.create_window(cwd, title, tags, frame, background=background))
-        await self._set_up_created(sid, cmd)
-        return {"windowId": wid}
+        return {"windowId": wid} | await self._set_up_created(sid, cmd, background=background)
 
     async def create_task(self, p: Any) -> dict[str, Any]:
         task_id, title = param(p, "taskId", str), optional_param(p, "title", str)
@@ -148,13 +150,14 @@ class WindowManager:
                 del self._creating_in[wid]
         if wid in self._startup_windows:
             self._startup_sessions.add(sid)
-        await self._set_up_created(sid, cmd)
-        return {"sessionId": sid}
+        return {"sessionId": sid} | await self._set_up_created(sid, cmd)
 
-    async def _set_up_created(self, sid: str, cmd: str | None) -> None:
+    async def _set_up_created(self, sid: str, cmd: str | None, background: bool = False) -> dict[str, str]:
         """The background, the agent command and the tick for a window or tab iTerm2 has made.
-        Each failure is logged, not answered: the window exists, an error would make the app
-        retry, and a retry opens a second one -- window.createTerminal has no dedupe at all."""
+        Each failure is logged, not answered as an error: the window exists, an error would make the app
+        retry, and a retry opens a second one -- window.createTerminal has no dedupe at all. An agent
+        command that could not be typed is said in the reply, as `commandError`, for the app's launch of
+        an Operator's worker to say the launch failed and why; the reply is otherwise as it always was."""
         self._self_created.add(sid)
         async with self._background_lock:
             if self.match_iterm_background:
@@ -167,15 +170,24 @@ class WindowManager:
             # HIST_IGNORE_SPACE (Oh My Zsh sets it; bash's is HISTCONTROL=ignorespace) the command
             # also stays out of the history, as a redirect's `cd` does, though up-arrow recalls it
             # until the next command.
-            await self._after_create("sending the agent command", self.iterm.send_text(sid, " " + cmd + "\n"))
+            # A background window was asked for unselected; keys that landed in its new shell anyway, meant for
+            # the window you were in, would garble the command (T3's launch): ⌃U clears the line first.
+            clear = "\x15" if background and self.typed_in(sid) else ""
+            failure = await self._after_create("sending the agent command", self.iterm.send_text(sid, clear + " " + cmd + "\n"))
+        else:
+            failure = None
         await self._after_create("tick", self.tick())
+        return {"commandError": failure} if failure else {}
 
     @staticmethod
-    async def _after_create(step: str, coro: Awaitable[Any]) -> None:
+    async def _after_create(step: str, coro: Awaitable[Any]) -> str | None:
+        """Runs `step`; its failure, logged, is returned as a sentence (the exception's own words), else None."""
         try:
             await coro
-        except Exception:  # noqa: BLE001 - the window exists either way
+        except Exception as exc:  # noqa: BLE001 - the window exists either way
             log.exception("%s after creating a window or tab failed", step)
+            return str(exc) or type(exc).__name__
+        return None
 
     async def set_match_iterm_background(self, p: Any) -> dict[str, Any]:
         enabled = bool(optional_param(p, "matchItermBackground", bool))

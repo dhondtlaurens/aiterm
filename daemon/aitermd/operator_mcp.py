@@ -442,7 +442,10 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "A task ready for acceptance is never blocked on runtime. "
           "Inspect before resuming; resume_task resets both clocks.",
           {"task": _TASK}, ("task",)),
-    _tool("retry_task", "Queues a failed task again, if it has retries left.", {"task": _TASK}, ("task",)),
+    _tool("retry_task",
+          "Queues a failed task again, if it has retries left, and starts its worker: "
+          "the answer's launch says whether it started, or why it couldn't.",
+          {"task": _TASK}, ("task",)),
     _tool("finish_task",
           "Carries out an accepted task's end from the plan, for its accepted commit only. "
           "draft MR: pushes the task's own branch and opens a draft merge request; a stacked task's targets "

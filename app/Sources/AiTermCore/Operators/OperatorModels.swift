@@ -153,8 +153,13 @@ public struct LaunchAttempt: Codable, Equatable, Sendable {
     /// opening. A launch that showed a window is never launched again: a worker whose window you
     /// closed comes back on your click, its conversation resumed, never as a second worker.
     public var openedAt: Date?
-    public init(number: Int, requestedAt: Date, openedAt: Date? = nil) {
-        self.number = number; self.requestedAt = requestedAt; self.openedAt = openedAt
+    /// True from just before AiTerm asks for this attempt's window or tab, where its agent command is typed, until a first
+    /// worker running an agent is listed for the task; nil otherwise, and in every record from before it existed. A pending
+    /// attempt whose window was seen `OperatorTiming.firstWorkerOpening` ago with still no agent is a launch that failed:
+    /// AiTerm blocks the task and says so (`WorkerStarter.checkLaunches`), never leaving it working with no worker.
+    public var workerPending: Bool?
+    public init(number: Int, requestedAt: Date, openedAt: Date? = nil, workerPending: Bool? = nil) {
+        self.number = number; self.requestedAt = requestedAt; self.openedAt = openedAt; self.workerPending = workerPending
     }
 }
 

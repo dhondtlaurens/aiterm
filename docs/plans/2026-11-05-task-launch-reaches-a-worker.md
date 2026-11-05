@@ -260,14 +260,14 @@ Tests first. Each reproduces its snag and fails before the fix.
 
 ## To-dos
 
-- [ ] Daemon: background window not selected, focus handed back before the command is typed (test 1)
-- [ ] App: a claimed launch into a shell-only task window opens the worker as a new background tab (test 2)
-- [ ] Daemon: ⌃U ahead of a background window's command when keys landed in it (test 4b)
-- [ ] App: `workerPending`, the 3-minute block that resumes to queued, run on listings and on every tick (test 4)
-- [ ] App: the 3-try bound on launches that never got a window, and the sustained-disconnect block (tests 4c, 4e)
-- [ ] Daemon + app: `commandError` from a failed send, through the wire, to a plain block (test 4d)
-- [ ] App: retry_task waits for its launch within the reply budget and answers `launch` (test 3)
-- [ ] retry_task description in `operator_mcp.py` and the golden entry by hand; docs/operators.md (test 5)
+- [x] Daemon: background window not selected, focus handed back before the command is typed (test 1)
+- [x] App: a claimed launch into a shell-only task window opens the worker as a new background tab (test 2)
+- [x] Daemon: ⌃U ahead of a background window's command when keys landed in it (test 4b)
+- [x] App: `workerPending`, the 3-minute block that resumes to queued, run on listings and on every tick (test 4)
+- [x] App: the 3-try bound on launches that never got a window, and the sustained-disconnect block (tests 4c, 4e)
+- [x] Daemon + app: `commandError` from a failed send, through the wire, to a plain block (test 4d)
+- [x] App: retry_task waits for its launch within the reply budget and answers `launch` (test 3)
+- [x] retry_task description in `operator_mcp.py` and the golden entry by hand; docs/operators.md (test 5)
 
 ## Open
 
@@ -301,3 +301,19 @@ Important is still open, apart from the live focus check, which only the person 
 - Round 3:
   - An adopted orphan shell escapes the 3-minute rule (Important): fixed. `workerPending` is set before
     the window is asked for and kept through adoption.
+
+## Review of the change
+
+Adversarial change review by Codex against f66095dc, with this plan as context.
+
+- Round 1:
+  - A retried task with a recorded conversation, whose window request times out, stays working
+    forever, because the reconciler never relaunches it (Important): fixed. A launch that ended
+    unconfirmed is blocked 180 s later, whether or not iTerm2's tabs are known.
+  - A repeated retry_task answers `opened` for a launch with no confirmed window (Important): fixed.
+    The answer now reads `openedAt` and `workerPending`.
+- Round 2: the same two again. Round 1's edits had not been applied, so this round saw the old code.
+  They were applied and run.
+- Round 3: no findings, verdict "Ready".
+
+Still open: focus in a live iTerm2 (see Open).

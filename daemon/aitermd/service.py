@@ -85,7 +85,7 @@ class Service:
         self.publisher = Publisher(rpc.broadcast, self.registry, self.usage)
         self.hook_router = HookRouter(self.resolver, self.status, self.usage, clock, self.publisher, tick=self.tick)
         self.hooks.on_post = self.hook_router.handle_hook
-        self.windows = WindowManager(iterm, self.registry, self.tick)
+        self.windows = WindowManager(iterm, self.registry, self.tick, typed_in=lambda sid: self.typing.typed_in(sid))
         self.supervisor.on_connected = self.windows.forget_titles
         self.supervisor.on_launched_connected = self.windows.capture_startup_window
         # The delivery adapter (Operators spec §7.1), and when you last typed in each session, which

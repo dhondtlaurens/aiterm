@@ -628,26 +628,53 @@ class ItermBridge:
     # opens a second one.
     async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame,
                             background: bool = False) -> tuple[str, str]:
-        win, session = await _call(self._new_window(cwd, title))
+        # The focus as the last refresh read it: the daemon ticks just before it creates a task window.
+        before = self._focus()
+        win, session = await _call(self._new_window(cwd, title, select=not background))
         try:
-            await _call(self._set_up_window(win, session, tags, frame, background))
+            await _call(self._set_up_window(win, session, tags, frame, background, before))
         except Exception:  # noqa: BLE001 - the window exists either way
             log.exception("iTerm2 made window %s but setting it up failed", win.window_id)
         return win.window_id, session.session_id
 
-    async def _new_window(self, cwd: str, title: str) -> tuple[iterm2.Window, iterm2.Session]:
+    async def _new_window(self, cwd: str, title: str, select: bool = True) -> tuple[iterm2.Window, iterm2.Session]:
         prof = _in_directory(cwd)
         prof.set_name(f"AiTerm · {title}")
-        return await self._make(None, prof)
+        return await self._make(None, prof, select=select)
+
+    def _focus(self) -> tuple[bool, str | None]:
+        """Whether iTerm2 was the active app and which of its windows had keyboard focus, as the last
+        refresh read them (`App.async_refresh` fetches the focus with the hierarchy)."""
+        tree = self._tree
+        if tree is None:
+            return False, None
+        return bool(getattr(tree, "app_active", False)), getattr(tree, "current_terminal_window_id", None)
 
     async def _set_up_window(self, win: iterm2.Window, session: iterm2.Session, tags: dict[str, str], frame: Frame,
-                             background: bool) -> None:
+                             background: bool, before: tuple[bool, str | None] = (False, None)) -> None:
         await self._tag(session, tags)
         await win.async_set_frame(_iterm_frame(frame))
-        # A window opened in the background -- a task an operator starts -- is placed but not
-        # brought forward, and iTerm2 is not raised: it stays behind your current work.
+        # A window opened in the background -- a task an operator starts -- was asked for unselected, as an
+        # open_tab's tab is: placed, not brought forward, iTerm2 not raised. It stays behind your work.
         if not background:
             await win.async_activate()
+        else:
+            await self._give_focus_back(win, before)
+
+    async def _give_focus_back(self, win: iterm2.Window, before: tuple[bool, str | None]) -> None:
+        """iterm2's docs allow that a brand-new window is ordered front even unselected. If it took keyboard
+        focus from the window you were typing in -- iTerm2 active, another window key before, this one key now,
+        as the refresh that found it read them -- that window gets it back, before the agent command is typed.
+        With iTerm2 not the active app, nothing is activated: that would bring iTerm2 forward."""
+        active, previous = before
+        tree = self._tree
+        if not active or previous is None or previous == win.window_id or tree is None:
+            return
+        if getattr(tree, "current_terminal_window_id", None) != win.window_id:
+            return
+        if (back := tree.get_window_by_id(previous)) is not None:
+            log.info("A background window took keyboard focus; giving it back to window %s", previous)
+            await back.async_activate()
 
     async def create_tab(self, window_id: str, tags: dict[str, str], cwd: str | None = None,
                          background: bool = False) -> str:

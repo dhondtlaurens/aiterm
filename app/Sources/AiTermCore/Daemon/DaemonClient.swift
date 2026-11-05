@@ -475,6 +475,9 @@ public final class DaemonClient: Sendable {
     public struct Empty: Decodable, Sendable { public init() {} }
     struct WindowResult: Decodable { var windowId: String }
     struct SessionResult: Decodable { var sessionId: String }
+    /// A window or tab made for an agent command, and why the command could not be typed, when it could not.
+    struct WorkerWindowResult: Decodable { var windowId: String; var commandError: String? }
+    struct WorkerTabResult: Decodable { var sessionId: String; var commandError: String? }
     struct ChangedResult: Decodable { var changed: Int }
     struct CreateTaskParams: Encodable { var taskId, cwd, title: String; var agentCommand: String?; var frame: Frame; var background: Bool? }
     struct DeliverParams: Encodable { var sessionId, text: String; var ownership: Int; var wake: Bool; var worktree: String? }
@@ -542,6 +545,16 @@ public final class DaemonClient: Sendable {
         try await request(.windowCreateTask, params: CreateTaskParams(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand,
                                                                       frame: frame, background: background ? true : nil),
                           as: WindowResult.self).windowId
+    }
+    public func openWorkerWindow(taskId: String, cwd: String, title: String, agentCommand: String, frame: Frame) async throws -> WorkerOpening {
+        let result = try await request(.windowCreateTask, params: CreateTaskParams(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand,
+                                                                                    frame: frame, background: true), as: WorkerWindowResult.self)
+        return WorkerOpening(id: result.windowId, commandError: result.commandError)
+    }
+    public func openWorkerTab(windowId: String, cwd: String, agentCommand: String) async throws -> WorkerOpening {
+        let result = try await request(.tabCreate, params: CreateTabParams(windowId: windowId, cwd: cwd, agentCommand: agentCommand, tabKey: nil,
+                                                                            background: true), as: WorkerTabResult.self)
+        return WorkerOpening(id: result.sessionId, commandError: result.commandError)
     }
     public func createTerminalWindow(projectId: String, terminalId: String, cwd: String, title: String, frame: Frame) async throws -> String {
         try await request(.windowCreateTerminal, params: CreateTerminalParams(projectId: projectId, terminalId: terminalId, cwd: cwd, title: title, frame: frame), as: WindowResult.self).windowId }
