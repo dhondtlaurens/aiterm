@@ -52,6 +52,8 @@ final class RunReconciler {
         firstSynced = firstSynced ?? now
         var changed: Set<UUID> = []
         tabs.tabsListed(sessions)
+        // Time alone can make a launch one that reached no worker: no listing need come for it.
+        starter.checkLaunches(sessions: sessions, now: now)
         for run in state.runs where !run.hasEnded {
             if reconcileOperator(run, sessions: sessions) { changed.insert(run.id) }
             let active = state.run(id: run.id)?.state == .active
@@ -103,6 +105,11 @@ final class RunReconciler {
               task.conversations.isEmpty, !starter.starting.contains(task.id),
               now.timeIntervalSince(max(launch.requestedAt, starter.settledAt[task.id] ?? firstSynced ?? now)) > OperatorTiming.launchAdoptAfter
         else { return }
+        // Its launches in a row showed no window `WorkerStarter.launchTries` times: it is blocked, with why, not tried again.
+        if let reason = starter.unconfirmedReason(task.id) {
+            starter.giveUp(task.id, reason: reason)
+            return
+        }
         let attempt = LaunchAttempt(number: launch.number + 1, requestedAt: now)
         workspace.mutate { $0.updateOperated(task.id) { $0.launch = attempt } }
         guard workspace.flush() else { return }

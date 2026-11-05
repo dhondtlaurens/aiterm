@@ -67,6 +67,10 @@ class TypingGuard:
         last = self._last.get(session_id)
         return last is not None and now - last < TYPING_QUIET
 
+    def typed_in(self, session_id: str) -> bool:
+        """Whether any key was seen in the session since it was opened or last forgotten."""
+        return session_id in self._last
+
     def watching(self) -> bool:
         """Whether iTerm2's keystroke monitor is live, so that keys are seen at all."""
         self._sync_monitor()

@@ -172,6 +172,11 @@ final class OperatorToolHandler {
     /// (`TaskFinisher.pending`): the challenge gate leaves such a call alone.
     var pendingFinish: @MainActor (UUID) -> Bool = { _ in false }
 
+    /// Starts a retried task now and waits for its launch within the call's reply budget: what `retry_task` answers of it
+    /// (the controller's `launchNow`).
+    var launchNow: @MainActor (UUID, Duration?) async -> LaunchReport = { _, _ in
+        LaunchReport(result: "queued", note: "AiTerm isn’t ready to start it yet.")
+    }
     /// Whether a publication of the task is in flight (`TaskFinisher.running`): finish_task, a retry or a merge watch's poll.
     var publishing: @MainActor (UUID) -> Bool = { _ in false }
 
@@ -261,7 +266,8 @@ final class OperatorToolHandler {
 
     /// The answer, and how the call went, which the activity log keeps.
     func respond(_ request: OperatorRequest) async -> (ToolAnswer, ActivityEntry.Outcome) {
-        // A finish_task answers by then, its publication done or not: the daemon stops waiting soon after.
+        // A finish_task answers by then, its publication done or not, and a retry_task, its launch done or not: the daemon
+        // stops waiting soon after.
         let deadline = ContinuousClock.now + ports.finishReplyBudget
         refreshOracleSettings()
         // A shell command is the gate's alone: never a tool, a challenge or a replayed message. It answers an ended
@@ -360,7 +366,7 @@ final class OperatorToolHandler {
         case .openTab: return try await openTab(call, in: run)
         case .markTask: return try await markTask(call, in: run)
         case .resumeTask: return try resumeTask(call, in: run)
-        case .retryTask: return try retryTask(call, in: run)
+        case .retryTask: return try await retryTask(call, in: run, deadline: deadline)
         case .recordReview: return try await recordReview(call, in: run)
         case .checkGoal: return try checkGoal(call, in: run)
         case .reviewTask: return try await reviewTask(call, in: run)

@@ -105,7 +105,12 @@ import Testing
                     #expect(verdict.policy.rawValue == agents[agent]?["policy"] as? String && verdict.version == agents[agent]?["version"] as? String)
                 }
             case .itermProvideCookie: #expect(try read(DaemonClient.AcceptedResult.self).accepted == field("accepted") as? Bool)
-            case .windowCreateTask, .windowCreateTerminal: #expect(try read(DaemonClient.WindowResult.self).windowId == field("windowId") as? String)
+            case .windowCreateTask:
+                // An Operator's worker window says why its agent command could not be typed, when it could not.
+                let opened = try read(DaemonClient.WorkerWindowResult.self)
+                #expect(try opened.windowId == field("windowId") as? String && opened.commandError == field("commandError") as? String)
+                #expect(try read(DaemonClient.WindowResult.self).windowId == field("windowId") as? String)
+            case .windowCreateTerminal: #expect(try read(DaemonClient.WindowResult.self).windowId == field("windowId") as? String)
             case .tabCreate: #expect(try read(DaemonClient.SessionResult.self).sessionId == field("sessionId") as? String)
             case .sessionsSetTitles, .sessionsMarkSeen: #expect(try read(DaemonClient.ChangedResult.self).changed == field("changed") as? Int)
             case .workspaceSnapshot: try Self.expectSame(read(DaemonSnapshot.self), #require(result["result"] as? [String: Any]))

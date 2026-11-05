@@ -334,6 +334,66 @@ async def test_an_agent_command_iterm_would_not_take_still_returns_the_window(st
     assert "sending the agent command after creating a window or tab failed" in caplog.text
 
 
+async def test_an_agent_command_iterm_would_not_take_is_said_in_the_reply(stack):
+    """The window is returned, and so is why its agent command could not be typed: the app's launch of an
+    Operator's worker reads it, and says the launch failed."""
+    svc, it, files, r, w = stack
+    it.send_error = ItermUnavailable("iTerm2 did not answer within 10s")
+    res = await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "agentCommand": "claude", "frame": FRAME,
+                                                 "background": True})
+    wid = res["result"]["windowId"]
+    assert res["result"] == {"windowId": wid, "commandError": "iTerm2 did not answer within 10s"}
+    res = await call(r, w, "tab.create", {"windowId": wid, "agentCommand": "claude", "background": True}, id_=2)
+    assert res["result"]["commandError"] == "iTerm2 did not answer within 10s"
+    it.send_error = None
+    res = await call(r, w, "tab.create", {"windowId": wid, "agentCommand": "claude"}, id_=3)
+    assert set(res["result"]) == {"sessionId"}, "typed: the reply is as it always was"
+    res = await call(r, w, "window.createTask", {"taskId": "t2", "cwd": "/wt", "frame": FRAME}, id_=4)
+    assert set(res["result"]) == {"windowId"}, "no command: nothing to report"
+
+
+async def test_keys_that_landed_in_t3s_new_shell_are_cleared_before_its_agent_command(stack, monkeypatch):
+    """T3's snag: keys you typed went into its new window while AiTerm typed the agent command, and no agent
+    started. A key seen in a background window's new session before the command goes is cleared with ⌃U first."""
+    svc, it, files, r, w = stack
+    created = it.create_window
+
+    async def typed_into_while_made(*args, **kwargs):
+        wid, sid = await created(*args, **kwargs)
+        await it.user_types(sid, "l")
+        return wid, sid
+
+    monkeypatch.setattr(it, "create_window", typed_into_while_made)
+    res = await call(r, w, "window.createTask", {"taskId": "t3", "cwd": "/wt", "agentCommand": "claude", "frame": FRAME,
+                                                 "background": True})
+    sid = it.windows[res["result"]["windowId"]]["sessions"][0]
+    assert it.sent == [(sid, "\x15 claude\n")]
+
+
+async def test_a_background_window_nobody_typed_into_gets_its_command_as_ever(stack):
+    svc, it, files, r, w = stack
+    res = await call(r, w, "window.createTask", {"taskId": "t3", "cwd": "/wt", "agentCommand": "claude", "frame": FRAME,
+                                                 "background": True})
+    sid = it.windows[res["result"]["windowId"]]["sessions"][0]
+    assert it.sent == [(sid, " claude\n")]
+
+
+async def test_a_foreground_window_typed_into_is_left_as_you_typed(stack, monkeypatch):
+    """A window you asked for is yours to type in: nothing is cleared."""
+    svc, it, files, r, w = stack
+    created = it.create_window
+
+    async def typed_into_while_made(*args, **kwargs):
+        wid, sid = await created(*args, **kwargs)
+        await it.user_types(sid, "l")
+        return wid, sid
+
+    monkeypatch.setattr(it, "create_window", typed_into_while_made)
+    res = await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "agentCommand": "claude", "frame": FRAME})
+    sid = it.windows[res["result"]["windowId"]]["sessions"][0]
+    assert it.sent == [(sid, " claude\n")]
+
+
 async def test_interface_background_only_changes_aiterm_sessions_and_future_tabs(stack):
     svc, it, files, r, w = stack
     wid, sid = await task_tab(svc, r, w)

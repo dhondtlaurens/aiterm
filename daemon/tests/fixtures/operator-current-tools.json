@@ -844,7 +844,7 @@
   },
   {
     "name": "retry_task",
-    "description": "Queues a failed task again, if it has retries left.",
+    "description": "Queues a failed task again, if it has retries left, and starts its worker: the answer's launch says whether it started, or why it couldn't.",
     "inputSchema": {
       "type": "object",
       "properties": {

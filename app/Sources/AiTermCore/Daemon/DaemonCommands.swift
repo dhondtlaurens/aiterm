@@ -11,6 +11,12 @@ public protocol DaemonCommands: Sendable {
     /// extra worker tab of that key (`open_tab`), and a repeat returns the tab already tagged so; `background` opens
     /// it behind the person's work.
     func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool) async throws -> String
+    /// An Operator's worker window, behind your work, as `createTaskWindow` with `background`: its id, and why its agent
+    /// command could not be typed, when the daemon could not type it.
+    func openWorkerWindow(taskId: String, cwd: String, title: String, agentCommand: String, frame: Frame) async throws -> WorkerOpening
+    /// An Operator's worker as a new tab in its task's window, behind your work, as `createTab` with `background` and no
+    /// tab key: its session id, and why its agent command could not be typed, when the daemon could not type it.
+    func openWorkerTab(windowId: String, cwd: String, agentCommand: String) async throws -> WorkerOpening
     func activate(windowId: String) async throws
     /// One tab selected in its window, and that window brought forward: a task's worker tab among several, which
     /// `activate(windowId:)` would leave as its window last showed it.
@@ -46,6 +52,14 @@ extension DaemonCommands {
     public func createTab(windowId: String, cwd: String, agentCommand: String?) async throws -> String {
         try await createTab(windowId: windowId, cwd: cwd, agentCommand: agentCommand, tabKey: nil, background: false)
     }
+}
+
+/// A worker's window or tab the daemon opened (`openWorkerWindow`, `openWorkerTab`): its window or session id, and the
+/// reason its agent command could not be typed (the daemon's `commandError`), nil when it was.
+public struct WorkerOpening: Equatable, Sendable {
+    public var id: String
+    public var commandError: String?
+    public init(id: String, commandError: String? = nil) { self.id = id; self.commandError = commandError }
 }
 
 extension DaemonClient: DaemonCommands {}

@@ -387,8 +387,9 @@ import Testing
     @Test func aFailedTaskIsRetriedWhileRetriesAreLeftAndABlockedOneResumes() async throws {
         let (world, run, task) = try makeWorld()
         _ = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "failed", "note": "The build broke."])
-        #expect(await world.call(run.id, "retry_task", ["task": "PLUTO-1"]).value?["state"] == "queued")
-        // Queued again, AiTerm starts it again at once.
+        // Queued again, AiTerm starts it again at once, and the answer says how its launch went.
+        let retried = await world.call(run.id, "retry_task", ["task": "PLUTO-1"]).value
+        #expect(retried?["state"] == "working" && retried?["launch"]?["result"] == "opened")
         await world.controller.lastStart?.value
         let afterRetry = try #require(world.task(task.id)?.operated)
         #expect(afterRetry.retriesUsed == 1 && [.queued, .working].contains(afterRetry.state))

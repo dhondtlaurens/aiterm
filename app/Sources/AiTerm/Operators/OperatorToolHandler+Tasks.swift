@@ -468,17 +468,21 @@ extension OperatorToolHandler {
         return Self.taskAnswer(state.task(id: task.id) ?? task, created: false)
     }
 
-    /// `failed` → `queued` while retries are left; AiTerm then starts it again (`WorkerStarter`).
-    func retryTask(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
+    /// `failed` → `queued` while retries are left, and AiTerm starts it again at once (`WorkerStarter`): the answer waits for
+    /// that launch within the call's reply budget (`deadline`) and says how it went under `launch` — its worker started,
+    /// opened, still opening, or why it failed or waits (`LaunchReport`). A repeat of a task retried already answers the same.
+    func retryTask(_ call: ToolCall, in run: OperatorRun, deadline: ContinuousClock.Instant? = nil) async throws -> JSONValue {
         let task = try self.task(call, in: run)
         let operated = try self.operated(task, in: run)
-        guard operated.state == .failed else { return Self.taskAnswer(task, created: false) }
-        let limit = OperatorTiming.retries
-        guard operated.retriesUsed < limit else {
-            throw ToolRefusal("\(operated.key) has used its \(limit) retr\(limit == 1 ? "y" : "ies"). Ask the person how to go on, in your chat and with ask_you.")
+        if operated.state == .failed {
+            let limit = OperatorTiming.retries
+            guard operated.retriesUsed < limit else {
+                throw ToolRefusal("\(operated.key) has used its \(limit) retr\(limit == 1 ? "y" : "ies"). Ask the person how to go on, in your chat and with ask_you.")
+            }
+            try apply(.retry, to: task)
         }
-        try apply(.retry, to: task)
-        return Self.taskAnswer(state.task(id: task.id) ?? task, created: false)
+        let launch = await launchNow(task.id, deadline.map { max(.zero, $0 - ContinuousClock.now) })
+        return Self.taskAnswer(state.task(id: task.id) ?? task, created: false).adding("launch", launch.json)
     }
 
     // -- helpers ---------------------------------------------------------------------------------

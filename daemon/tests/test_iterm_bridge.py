@@ -1320,6 +1320,8 @@ class _CreatingApp:
 
         async def async_activate(self):
             self.activated = True
+            # Activating a window gives it keyboard focus, as iTerm2 does.
+            self.app.current_terminal_window_id = self.window_id
 
         async def async_create_tab(self, profile_customizations=None):
             # The library's own: the request, then the delegate's refresh to find the new tab.
@@ -1335,6 +1337,12 @@ class _CreatingApp:
         self.on_create = None
         self.session_options = session_options or {}
         self.created: list[tuple[str | None, dict]] = []
+        # Each create request's `select`, and the focus iTerm2 reports: whether it is the active app, and which
+        # window has keyboard focus. `raises_new_windows` makes a new window take focus whatever `select` says.
+        self.selects: list[bool] = []
+        self.app_active: bool | None = None
+        self.current_terminal_window_id: str | None = None
+        self.raises_new_windows = False
         self._refreshing = False
         self._ids = iter(range(1, 100))
 
@@ -1379,7 +1387,10 @@ class _CreatingApp:
     async def create_tab_rpc(self, _conn, profile=None, window=None, index=None, command=None, profile_customizations=None,
                              select=True):
         self.created.append((window, profile_customizations))
+        self.selects.append(select)
         win = self.live[window] if window else self.add_window(f"w{next(self._ids)}")
+        if window is None and (select or self.raises_new_windows):
+            self.current_terminal_window_id = win.window_id
         session_id = f"s{next(self._ids)}"
         win.tabs.append(_CreatingApp.Tab(_CreatingApp.Session(session_id, **self.session_options)))
         if self.on_create:
@@ -1468,6 +1479,54 @@ async def test_a_background_window_is_placed_and_tagged_but_not_activated(creati
     window = app.live["w1"]
     assert window.frames and not window.activated
     assert window.current_tab.current_session.variables == {"user.aiterm_task": "t1"}
+
+
+def _person_typing_in_w0(app: _CreatingApp) -> _CreatingApp.Window:
+    """T3's snag: the person types in window w0, iTerm2 the active app, while submit_plan's start makes T3's window."""
+    w0 = app.add_window("w0")
+    w0.tabs.append(_CreatingApp.Tab(_CreatingApp.Session("s0")))
+    app.app_active, app.current_terminal_window_id = True, "w0"
+    return w0
+
+
+async def test_t3s_background_window_is_asked_for_without_selecting_it(creating_app):
+    """A task's new window opens behind your work, as open_tab's tabs do: iTerm2 is asked not to select it."""
+    bridge, app = creating_app()
+    w0 = _person_typing_in_w0(app)
+    await bridge._app()  # the tick the daemon runs just before it creates a task window
+    wid, _sid = await bridge.create_window("/wt", "T3", {"aiterm_task": "t3"}, iterm_bridge.Frame(0, 0, 10, 10), background=True)
+    assert app.selects == [False]
+    assert app.current_terminal_window_id == "w0" and not w0.activated and not app.live[wid].activated
+
+
+async def test_t3s_background_window_that_took_focus_anyway_gives_it_back(creating_app):
+    """iTerm2 may still raise a brand-new window: keyboard focus goes back to the window you were typing in,
+    before the agent command is typed, and the new window is never activated."""
+    bridge, app = creating_app()
+    w0 = _person_typing_in_w0(app)
+    app.raises_new_windows = True
+    await bridge._app()
+    wid, _sid = await bridge.create_window("/wt", "T3", {"aiterm_task": "t3"}, iterm_bridge.Frame(0, 0, 10, 10), background=True)
+    assert w0.activated and app.current_terminal_window_id == "w0"
+    assert not app.live[wid].activated
+
+
+async def test_a_background_window_moves_no_focus_when_iterm2_was_not_the_active_app(creating_app):
+    """You were in another app: iTerm2's windows are left as they are -- activating one would bring iTerm2 forward."""
+    bridge, app = creating_app()
+    w0 = _person_typing_in_w0(app)
+    app.app_active, app.raises_new_windows = False, True
+    await bridge._app()
+    await bridge.create_window("/wt", "T3", {"aiterm_task": "t3"}, iterm_bridge.Frame(0, 0, 10, 10), background=True)
+    assert not w0.activated
+
+
+async def test_a_foreground_window_is_selected_and_activated(creating_app):
+    bridge, app = creating_app()
+    w0 = _person_typing_in_w0(app)
+    await bridge._app()
+    wid, _sid = await bridge.create_window("/wt", "mine", {"aiterm_task": "t1"}, iterm_bridge.Frame(0, 0, 10, 10))
+    assert app.selects == [True] and app.live[wid].activated and not w0.activated
 
 
 async def test_a_background_tab_is_tagged_but_not_selected(creating_app, monkeypatch):

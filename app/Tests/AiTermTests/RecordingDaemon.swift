@@ -25,6 +25,9 @@ final class RecordingDaemon: DaemonCommands {
     /// What `delivery.policy` answers: both agents checked at the versions the scratch ports say are installed.
     var deliveryVerdicts: [AgentKind: DeliveryVerdict] = [.claude: DeliveryVerdict(policy: .auto, version: "2.1.301"),
                                                           .codex: DeliveryVerdict(policy: .auto, version: "0.160.0")]
+    /// What `commandError` the worker-opening calls answer, by method (`window.createTask`, `tab.create`): an agent command
+    /// the daemon could not type.
+    var commandErrors: [String: String] = [:]
     private let holding: String?
     private var released = false
     private var held: [CheckedContinuation<Void, Never>] = []
@@ -75,6 +78,16 @@ final class RecordingDaemon: DaemonCommands {
         params["agentCommand"] = agentCommand
         if background { params["background"] = true }
         return try await answer("window.createTask", params, id: "reopened")
+    }
+
+    func openWorkerWindow(taskId: String, cwd: String, title: String, agentCommand: String, frame: Frame) async throws -> WorkerOpening {
+        let id = try await createTaskWindow(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand, frame: frame, background: true)
+        return WorkerOpening(id: id, commandError: commandErrors["window.createTask"])
+    }
+
+    func openWorkerTab(windowId: String, cwd: String, agentCommand: String) async throws -> WorkerOpening {
+        let id = try await createTab(windowId: windowId, cwd: cwd, agentCommand: agentCommand, tabKey: nil, background: true)
+        return WorkerOpening(id: id, commandError: commandErrors["tab.create"])
     }
 
     func createTerminalWindow(projectId: String, terminalId: String, cwd: String, title: String, frame: Frame) async throws -> String {

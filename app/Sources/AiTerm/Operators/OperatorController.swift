@@ -125,6 +125,8 @@ final class OperatorController {
     @ObservationIgnored private(set) var resending: Task<Void, Never>?
     /// The latest start a pass made, for a test to await.
     @ObservationIgnored private(set) var lastStart: Task<Void, Never>?
+    /// Each task's start under way, and how it ended once it has: what a `retry_task` waits for (`launchNow`).
+    @ObservationIgnored private var launches: [UUID: Task<WorkerStarter.Outcome, Never>] = [:]
     /// Each complete broadcast's wait for its summary, by run, while it waits: one per completion.
     @ObservationIgnored private(set) var summaryWaits: [UUID: Task<Void, Never>] = [:]
     /// The latest wait for a summary, for a test to await.
@@ -298,6 +300,9 @@ final class OperatorController {
         finisher.watchStopped = { [weak self] id, _ in self?.mergeWatchStopped(id) }
         tools.publishing = { [weak self] id in self?.finisher.running.contains(id) ?? false }
         tools.pendingFinish = { [weak self] id in self?.finisher.pending(id) ?? false }
+        tools.launchNow = { [weak self] id, budget in
+            await self?.launchNow(id, within: budget) ?? LaunchReport(result: "queued", note: "AiTerm is closing.")
+        }
         finisher.finishedLate = { [weak self] id in self?.publicationEndedLate(id) }
         tools.finish = { [weak self] id, call in
             guard let self else { return TaskFinisher.Result(result: .refused, reason: "AiTerm is closing.") }
@@ -476,11 +481,38 @@ final class OperatorController {
                 continue
             }
             let run = operated.runId
-            lastStart = Task { [weak self] in
-                await self?.starter.launchClaimed(id, attempt: attempt)
+            let start = Task { [weak self] () -> WorkerStarter.Outcome in
+                let outcome = await self?.starter.launchClaimed(id, attempt: attempt) ?? .notLaunched
+                self?.launches[id] = nil
                 self?.runChanged(run)
+                return outcome
             }
+            launches[id] = start
+            lastStart = Task { _ = await start.value }
         }
+    }
+
+    /// A retried task started now, as `retry_task` answers it (spec §6): one start pass, then its start waited for within
+    /// `budget`, the call's reply budget. How it went — its worker told to try again, opened, still opening, blocked and why
+    /// — or, with nothing started, why not.
+    func launchNow(_ id: UUID, within budget: Duration?) async -> LaunchReport {
+        guard daemon() != nil else { return LaunchReport(id, in: workspace.state, connected: false) }
+        startReadyTasks()
+        guard let start = launches[id] else { return LaunchReport(id, in: workspace.state, starting: starter.starting.contains(id)) }
+        let outcome: WorkerStarter.Outcome?
+        if let budget {
+            if case .success(let ended) = await OperatorToolHandler.within(budget, cancelling: false, { await start.value }) {
+                outcome = ended
+            } else {
+                outcome = nil
+            }
+        } else {
+            outcome = await start.value
+        }
+        guard let outcome, outcome != .notLaunched else {
+            return outcome == nil ? .opening : LaunchReport(id, in: workspace.state, starting: starter.starting.contains(id))
+        }
+        return LaunchReport(outcome)
     }
 
     /// Something in the run changed: whatever may start now starts, a summary overdue is given up on, and a
@@ -828,7 +860,8 @@ final class OperatorController {
         for run in runs where run.state == .complete {
             if giveUpOnSummary(run.id) { runChanged(run.id) }
         }
-        guard tabsKnown else { return }
+        // iTerm2 unreachable: no listing comes to try a launch it cut off again, so one that stays cut off is given up here.
+        guard tabsKnown else { return starter.checkLaunches(sessions: nil, now: ports.now()) }
         let offline = Set(runs.filter { $0.state == .operatorOffline }.map(\.id))
         for id in reconciler.tick() {
             runChanged(id)

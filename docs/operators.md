@@ -161,6 +161,19 @@ is still not read as ending a review. Such a call is never judged by the Oracle.
 decision (the commit already merged, or a merge the Oracle judges), AiTerm fetches the default
 branch from origin; a fetch that fails is said, and nothing is done.
 
+A task's worker opens behind your work: its window is asked for unselected, as `open_tab`'s tabs are.
+If iTerm2 raises it anyway, keyboard focus goes back to the window you were in before its agent
+command is typed, and keys that landed in its new shell are cleared first. `retry_task` starts the
+worker at once and answers how its launch went (`launch`: `started`, `opened`, `opening`, `failed`
+or `queued`, with a note). A window left holding only a shell gets the worker as a new tab. A launch
+that reaches no worker is blocked with why:
+- its agent command couldn't be typed;
+- no agent started in its window within 3 minutes;
+- iTerm2 didn't confirm its window in 3 tries;
+- iTerm2 stayed unreachable for 3 minutes.
+
+`resume_task` then queues it to start again.
+
 `review_task` remains a served refusal directing the Operator to `open_tab`/`record_review`; it does
 not run a headless reviewer. Current tool schemas and complete generated briefs are frozen by the
 [contract tests](testing.md). The structured broadcast format is the supported persisted format;

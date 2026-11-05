@@ -121,6 +121,7 @@
         "reply.window.close.json"
       ],
       "window.createTask": [
+        "reply.window.createTask.commandError.json",
         "reply.window.createTask.json"
       ],
       "window.createTerminal": [

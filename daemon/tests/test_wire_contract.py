@@ -26,6 +26,7 @@ from aitermd import delivery, protocol, service
 from uuid import UUID
 from aitermd.models import AgentKind, State, StoppedOn
 from tests.conftest import FRAME, operator_post
+from aitermd.iterm_bridge import ItermUnavailable
 from tests.fake_iterm import FakeIterm
 
 WIRE = Path(__file__).parent / "wire"
@@ -36,6 +37,14 @@ WORKTREE = "/repo/.worktrees/feat-wire"
 REFUSAL = "execution error: Not authorized to send Apple events to iTerm2. (-1743)"
 RUN_ID = "5B8A2C1D-9E7F-4A6B-8C3D-2E1F0A9B8C7D"
 RUN_TOKEN = "3f9a" * 16
+OTHER_TASK_ID = "8E1D2C3B-4A5F-4E6D-9C8B-7A6F5E4D3C2B"
+# A reply's variants beside its plain fixture: `<method>.<variant>`.
+VARIANTS = (".refused", ".commandError")
+
+
+def _method(name: str) -> str:
+    """The method a reply fixture's name is of, its variant suffix dropped."""
+    return next((name.removesuffix(v) for v in VARIANTS if name.endswith(v)), name)
 
 
 class App:
@@ -242,6 +251,12 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         # A wake line PI cannot be sent: no prompt of its can be read off its screen. The refusal names why.
         replies["session.deliver.refused"] = await app.call("session.deliver", {
             "sessionId": pi, "text": "[AiTerm] updates waiting, call run_status", "ownership": 1, "wake": True, "worktree": None})
+        # An Operator's worker window whose agent command iTerm2 would not take: the window, and why.
+        iterm.send_error = ItermUnavailable("iTerm2 did not answer within 10s")
+        replies["window.createTask.commandError"] = await app.call("window.createTask", {
+            "taskId": OTHER_TASK_ID, "cwd": WORKTREE, "title": "feat-wire-2", "agentCommand": "pi", "frame": FRAME,
+            "background": True})
+        iterm.send_error = None
         mark = app.mark()
         await app.send("[]")
         errors[protocol.PROTOCOL] = await app.first(mark, lambda m: "error" in m and m.get("id") is None)
@@ -255,7 +270,7 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
 
     assert sorted(events) == sorted(protocol.EVENTS), "every event has a fixture"
     assert sorted(errors) == sorted(protocol.ERROR_CODES), "every error code has a fixture"
-    assert {name.removesuffix(".refused") for name in replies} == set(methods), "every method has a fixture"
+    assert {_method(name) for name in replies} == set(methods), "every method has a fixture"
 
     files = {f"event.{name}.json": frame for name, frame in events.items()}
     files |= {f"reply.{name}.json": frame for name, frame in replies.items()}
@@ -271,7 +286,7 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         # Which files show each name: a reply can have more than one, a snapshot both refused and connected.
         "fixtures": {
             "events": {name: f"event.{name}.json" for name in sorted(events)},
-            "replies": {method: sorted(f"reply.{name}.json" for name in replies if name.removesuffix(".refused") == method)
+            "replies": {method: sorted(f"reply.{name}.json" for name in replies if _method(name) == method)
                         for method in methods},
             "errors": {code: f"error.{code}.json" for code in sorted(errors)},
         },
