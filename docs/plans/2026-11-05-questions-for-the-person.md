@@ -118,17 +118,18 @@ the Operator; B2 turned that into the card's muted line, so nothing on disk name
     card's line `waiting on you`. A non-holding one adds the needs-you chip `question for you`, keeps the card's own
     line, and edges the card as one that needs you.
   - Until slice 2 the card's question link opens the Operator's window, as `opens` does now.
-- **Brief (A).**
-  - `OperatorCommand.questionRule`, `askRules` and `askExamples` say: ask with `ask_you`, not in the chat. A question
-    about a task goes on that task; it holds only when the task can't go on without the answer; give `choices` when
-    the answers are few and known; in the reply, one line "Asked you in AiTerm: …".
-  - Gate questions keep their chat rule.
+- **Brief.** `OperatorCommand.questionRule` and `askExamples` say: a question about a task goes on that task; it holds
+  only when the task can't go on without the answer; give `choices` when the answers are few and known. The Operator
+  still asks in its chat as today, because the list that replaces the chat comes in slice 2.
 
 ### Slice 2: the Waiting on you list (D1a)
 
-- **The board.** `BroadcastBoard` gains `waiting: [ListedQuestion]`, from `OperatorRequests.open`'s `.question` and
-  `.permission` requests joined to their `OperatorQuestion`. Each entry has its key, task label (ticket and title, or
-  "The broadcast"), age, asker line, question, choices, channel and answer.
+- **The board.** `BroadcastBoard` gains `waiting: [ListedQuestion]`, read from `run.questions` itself: every open
+  question, under the same silencing rules as `OperatorRequests.open`. It is not built from the requests, because
+  `open` folds a task's permission prompts into one (the first by tab order), while `WorkerPrompts` records one
+  `prompt-` question per asking tab. So two tabs prompting on one task make two blocks, each naming its tab. Each
+  entry has its key, task label (ticket and title, or "The broadcast"), tab, age, asker line, question, choices,
+  channel and answer.
   - It is ordered oldest first by `askedAt`, with a permission prompt by when its question was recorded.
   - `BroadcastBoardSheet`'s Board tab draws it above the columns: a header "Waiting on you" with its count, then one
     block each, drawn as on the proposal.
@@ -146,7 +147,9 @@ the Operator; B2 turned that into the card's muted line, so nothing on disk name
     never travels in the line.
   - It never resolves the question. A `fixRounds` block calls `answerFixRounds` (`answeredOnCard`), and both read
     `answer`, so an answer on the card shows in the list and the other way round.
-  - Refused: an answer on a task you took over or that has finished, and an AiTerm question answered there.
+  - Refused: an answer on a task you took over, a holding question on a finished task (it is silent and not listed),
+    and an AiTerm question answered there. A non-holding question on a finished task stays listed (slice 1), so it can
+    still be answered here, until the Operator resolves or withdraws it.
 - **`run_status`.** `RunStatus.Question` gains:
   - `answeredHere`: what the person answered in AiTerm;
   - `choices`;
@@ -158,16 +161,21 @@ the Operator; B2 turned that into the card's muted line, so nothing on disk name
   - `OperatorNote.Target` gains `.question(run:key:)`, saved as `aiterm.question` beside `aiterm.overview`. An older
     notification without it still opens the board.
   - `OperatorNotifier` posts one shape for every request addressed to the person: "The Operator asks: …", "PAY-236's
-    worker asks: …", or "AiTerm asks: …"; a permission keeps its sentence. Each targets its block.
+    worker asks: …", or "AiTerm asks: …"; a permission keeps its sentence. Each targets its block. A task's permission
+    notification stays one per task, as today (its id `request-<run>-<task>-permission`), and opens the block of the
+    tab it names.
   - `AppController.openNote` sets `presentBoard` and the question to show. The sheet opens on the Board tab, scrolled
     to that block. A question gone by the click opens the board at its top.
   - The Operator row's click while its line says `waiting on you` opens the board at the oldest block. A prompt in the
     Operator's own tab still opens its window, since it is not a record.
   - A card's question link opens the board at its block.
-- **Answer there.** A permission block's "Open its window" goes through `choose(task:)` to the tab that asks. A gate
-  block's "Open the Operator's chat" opens the Operator's window.
-- **Brief.** "When run_status shows `answeredHere`, act on it, then `resolve_question` with it." The
-  `resolve_question` description says the same.
+- **Answer there.** A permission block's "Open its window" raises its own tab, by the block's tab key, through a
+  `choose(task:tab:)` beside `choose(task:)`, which today picks the first requesting tab. A gate block's "Open the
+  Operator's chat" opens the Operator's window.
+- **Brief (A).** Now that the list exists, `questionRule`, `askRules` and `askExamples` say: ask with `ask_you`, not in
+  the chat, and in the reply write one line, "Asked you in AiTerm: …". "When run_status shows `answeredHere`, act on
+  it, then `resolve_question` with it." Gate questions keep their chat rule. The `resolve_question` description says
+  the same.
 
 ### Slice 3: worker questions
 
@@ -259,12 +267,11 @@ the Operator; B2 turned that into the card's muted line, so nothing on disk name
 ## The tools and `run_status`
 
 - **`ask_you`.**
-  - New `holds` (boolean): "False when the task can go on without the answer: the question shows on its card and in
-    the list, and the task stays ready to accept and watched. Left out, it holds."
-  - New `choices` (array of two to four strings).
-  - The `task` description changes to: "the task the question is about".
-  - The description changes: the person sees the question under Waiting on you in AiTerm and answers there or in this
-    chat, and the chat gets one pointer line.
+  - Slice 1: new `holds` (boolean): "False when the task can go on without the answer: the question shows on its card,
+    and the task stays ready to accept and watched. Left out, it holds." New `choices` (array of two to four strings).
+    The `task` description changes to: "the task the question is about".
+  - Slice 2: the description changes: the person sees the question under Waiting on you in AiTerm and answers there
+    or in this chat, and the chat gets one pointer line. `holds` adds "and in the list".
 - **`relay_question`** (new, after `ask_you`): key, task, tab, holds, choices, plus `challengeId` and `challengeReply`
   from `_CHALLENGE`.
 - **`resolve_question`.** Its description adds: "answeredHere is the person's answer in AiTerm: act on it, then
@@ -289,8 +296,9 @@ evidence (`docs/testing.md`).
 - **`app/Tests/AiTermTests/Fixtures/operator-current/contract.json`:** only the `"question"` entry's `note`, which
   says where the person answers and that the task waits. Its `questionsWaiting` entries stay byte-for-byte, because the
   new fields are omitted at their defaults.
-- **`state.json`:** untouched. It must decode and re-encode unchanged, which `OperatorCurrentContractTests` already
-  checks.
+- **`state.json`:** untouched. A new test checks that it decodes, and that re-encoding it adds none of the new keys
+  (`holds`, `choices`, `answeredHere`, `answeredHereAt`, `relayedFrom`, `history`, `relayCheck`, `round`).
+  `OperatorCurrentContractTests` checks only selected properties and the journey's replies, not the re-encoding.
 - **`daemon/tests/wire/`:** untouched. No daemon wire message changes; the wake line is an existing call.
 - **`daemon/tests/fixtures/wake-lines.json`** is a shared table, not a golden: it gains the two answer lines.
 - **`worktreeLine`** is in no frozen fixture. `WorkerStarterTests`, `WorkerLaunchTests`, `OperatorOpenTabTests` and
@@ -372,8 +380,8 @@ Each test is written first and fails before its change. The fixture is the broad
    - T2's card keeps its line and adds `question for you`, and T2's row keeps its line.
    - T4's card and row say `waiting on you`.
 4. Migration (`OperatorModelsTests`): a saved open question with none of the new fields decodes as
-   holding, asked by the Operator, unanswered, and re-encodes to the same bytes. `OperatorCurrentContractTests` loads
-   `state.json` unchanged.
+   holding, asked by the Operator, unanswered, and re-encodes with no new key. The frozen `state.json` decodes, and
+   re-encoded it carries none of the new keys on its run, questions or challenges.
 5. `OperatorCommandTests` against the hand-edited brief lines; `test_operator_mcp.py` against the hand-edited `ask_you`
    entry.
 
@@ -383,6 +391,9 @@ Each test is written first and fails before its change. The fixture is the broad
    - T2, T4, T7 and a `prompt-` question on T6 make four blocks, oldest first, each with its task, asker line and
      channel.
    - A `gate-` block offers only the chat; a `merged-on-host-` block takes free text.
+   - Two tabs of T6 prompting at once make two blocks, each naming its tab, and each "Open its window" raises its own
+     tab.
+   - T2's non-holding question, after T2 is accepted as a commit-only task, is still listed and can be answered.
 7. `TaskEndControlsTests` (fake daemon):
    - Answering T2 with "Drop it for admins" records `answeredHere` once.
    - It wakes the Operator with the exact fixed line. Both lines (on a task, and on no task) are added to the shared
@@ -443,14 +454,14 @@ Each test is written first and fails before its change. The fixture is the broad
 - [ ] `OperatorQuestion` fields and computed parts; migration test (test 4)
 - [ ] `ask_you` with `holds` and `choices`; release by `holds(task:)` in every path (test 1)
 - [ ] Requests, task lines and cards read holds (tests 2, 3)
-- [ ] The brief's question lines; `ask_you` served schema; goldens by hand; `contract.json`'s note (test 5)
+- [ ] The brief's task and holds lines; `ask_you` served schema; goldens by hand; `contract.json`'s note (test 5)
 
 ### Slice 2: the Waiting on you list
 
 - [ ] `BroadcastBoard.waiting` and the list above the columns, answer here and answer there (test 6)
 - [ ] `answer(question:with:)`, its wake line, and `run_status` (tests 7, 8)
 - [ ] Notifications, the Operator row and a card's question open the block (test 9)
-- [ ] The brief's `answeredHere` line; the `resolve_question` description; goldens by hand (test 5)
+- [ ] The brief's pointer and `answeredHere` lines (A); the `resolve_question` description; goldens by hand (test 5)
 
 ### Slice 3: worker questions
 
@@ -463,3 +474,16 @@ Each test is written first and fails before its change. The fixture is the broad
 ### At the end
 
 - [ ] `docs/operators.md`, the UI README and the design page synced; the proposal removed from the Proposals tab (test 15)
+
+## Plan review
+
+Codex, one round against 23e719e2: three Important findings and one Minor, all fixed in this plan.
+
+- **Finished tasks.** A non-holding question on a finished task stayed listed but couldn't be answered. It can now be
+  answered.
+- **Several tabs prompting.** The list was built from `OperatorRequests.open`, which folds a task's permission prompts
+  into one. It now reads `run.questions` itself, with one block per prompting tab, each opening its own tab.
+- **Slice 1 too early.** Slice 1 removed the questions from the chat before the list existed. The pointer-only brief
+  now lands in slice 2.
+- **Migration proof.** The plan claimed a migration check that `OperatorCurrentContractTests` doesn't make. An explicit
+  re-encode check of `state.json` is added.
