@@ -53,8 +53,9 @@ import Foundation
         #expect(OperatorWakeNotice(run: run, status: status(), refusal: Delivery(result: .partial, reason: "held", code: .typing)) == nil)
     }
 
-    /// The daemon guesses unsent text from your keys, so a wake can wait on an input that is empty: once it has waited long
-    /// enough, the Notice says what waits and how to let the line in, and Settings, which can't, is not offered.
+    /// Text the screen shows in the Operator's input, or an input the keys and the screen leave unknown, holds the line: once
+    /// it has waited long enough, the Notice says what waits and how to let the line in, and Settings, which can't, is not
+    /// offered.
     @Test func inputThatMayHoldUnsentTextIsShownOnceTheWakeWasHeldOnIt() throws {
         let unsent = Delivery(result: .refused, reason: "unsent text waits in its input", code: .unsentInput)
         let notice = try #require(OperatorWakeNotice(run: run, status: status(ready: ["PAY-1", "PAY-2"]), refusal: unsent, held: true))
@@ -63,6 +64,15 @@ import Foundation
         let unread = Delivery(result: .refused, reason: "unrecognised screen", code: .unrecognisedScreen)
         #expect(try #require(OperatorWakeNotice(run: run, status: nil, refusal: unread)).fixInSettings)
         #expect(OperatorWakeNotice(run: run, status: nil, refusal: Delivery(result: .refused, reason: "you are typing", code: .typing), held: true) == nil)
+    }
+
+    /// With no keystroke monitor iTerm2 shows AiTerm none of your keys, so the line is not typed: the Notice says that,
+    /// at once, never that text waits in an input nobody saw, and offers no Settings, which can't change it.
+    @Test func keysAiTermCantSeeAreSaidAsSuch() throws {
+        let unwatched = Delivery(result: .refused, reason: "iTerm2 gives AiTerm no keys to watch", code: .keysUnwatched)
+        let notice = try #require(OperatorWakeNotice(run: run, status: status(ready: ["PAY-1"]), refusal: unwatched))
+        #expect(notice.description == "1 task ready to accept in “Payments”. AiTerm can’t see your keys in iTerm2.")
+        #expect(!notice.fixInSettings)
     }
 
     @Test func aRefusalFromADaemonThatNamesNoCodeStillSaysSomething() throws {

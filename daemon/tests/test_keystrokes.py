@@ -81,3 +81,33 @@ def test_unknown_history_and_lost_monitor_refuse_wakes():
 
 def test_unobserved_input_is_not_assumed_empty():
     assert TypingGuard().has_unsent_input("s1")
+
+
+def test_an_input_the_screen_shows_empty_is_known_empty_until_the_next_key():
+    guard = TypingGuard(lambda: True)
+    guard.note_key("s1", 10, "\x0f")  # ⌃O, which types nothing in Claude Code but cannot be told from text
+    assert guard.has_unsent_input("s1")
+    guard.note_empty("s1", read_at=20)
+    assert not guard.has_unsent_input("s1")
+    guard.note_key("s1", 30, "a")
+    assert guard.has_unsent_input("s1")
+    # Unknown history, the daemon's first look at a session, is settled by the screen too.
+    guard.note_empty("s2", read_at=0)
+    assert not guard.has_unsent_input("s2")
+
+
+def test_a_key_after_the_screen_was_read_keeps_the_input_unknown():
+    guard = TypingGuard(lambda: True)
+    guard.note_key("s1", 25, "a")  # pressed while the screen read was out
+    guard.note_empty("s1", read_at=20)
+    assert guard.has_unsent_input("s1")
+
+
+def test_without_a_keystroke_monitor_nothing_is_watched_and_no_screen_settles_the_input():
+    epoch = [None]
+    guard = TypingGuard(lambda: epoch[0])
+    assert not guard.watching()
+    guard.note_empty("s1", read_at=0)
+    assert guard.has_unsent_input("s1")
+    epoch[0] = object()
+    assert guard.watching()

@@ -1,0 +1,15 @@
+[
+  {"text": "[AiTerm] letter-tee-seven asks a question, call run_status", "plain": false,
+   "why": "T7's worker question as AiTerm 0.39.0 wrote it: the one-letter word `a`"},
+  {"text": "[AiTerm] letter-tee-seven asks something, call run_status", "plain": true},
+  {"text": "[AiTerm] letter-tee-one-zero finished with no commit; letter-tee-seven asks a question; letter-tee-six finished with no commit, call run_status",
+   "plain": false, "why": "T6, T7 and T10 in one line, as 0.39.0 wrote it"},
+  {"text": "[AiTerm] letter-tee-one-zero finished with no commit; letter-tee-seven asks something; letter-tee-six finished with no commit, call run_status",
+   "plain": true},
+  {"text": "[AiTerm] T7 needs acceptance, call run_status", "plain": false, "why": "a digit"},
+  {"text": "[AiTerm] updates waiting, call run_status", "plain": true},
+  {"text": "[AiTerm] one task is in review with nothing waiting, call run_status", "plain": true},
+  {"text": "[AiTerm] Codex’s review failed: call run_status", "plain": true},
+  {"text": "[AiTerm] y, call run_status", "plain": false, "why": "a one-letter answer"},
+  {"text": "[AiTerm] “a” in quotes, call run_status", "plain": false, "why": "a one-letter word in curly quotes"}
+]

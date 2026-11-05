@@ -16,6 +16,8 @@ from aitermd.iterm_bridge import ItermUnavailable
 from aitermd.keystrokes import TypingGuard
 from aitermd.models import HARNESS_BY_AGENT, Frame
 from aitermd.sessions import SessionRegistry
+from aitermd import iterm_bridge
+from tests import captured_screens
 from tests.fake_iterm import FakeIterm
 
 # What Claude Code 2.1.301 and Codex 0.160.0 drew in the spike (15 Oct 2026), read back from iTerm2.
@@ -515,12 +517,19 @@ async def test_a_wake_line_waits_while_you_type(rig):
     assert (await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)).result == "delivered"
 
 
+def drafted(text: str) -> str:
+    """Claude's idle screen with `text` typed in its input, not sent."""
+    return f"────────────────\n❯ {text}\n────────────────\n  ? for shortcuts"
+
+
 async def test_a_wake_line_waits_while_your_words_wait_unsent(rig):
     rig.guard.note_key(rig.sid, rig.clock.now - 600, "a")  # typed long ago, never sent
+    rig.iterm.screens[rig.sid] = drafted("a")
     result = await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)
     assert result == DeliveryResult("refused", "unsent text waits in its input")
     assert rig.iterm.sent == []
     rig.guard.note_key(rig.sid, rig.clock.now - 60, "\x15")  # Ctrl-U: the input is empty again
+    rig.iterm.screens[rig.sid] = IDLE
     assert (await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)).result == "delivered"
 
 
@@ -534,11 +543,113 @@ async def test_text_left_without_its_enter_holds_back_the_next_wake_line(rig):
     rig.pauses.during.append(lambda: rig.iterm.screens.__setitem__(rig.sid, CLAUDE_PERMISSION))
     assert (await rig.deliverer.deliver(rig.sid, "hello", 1)).result == "partial"
     rig.pauses.during.clear()
-    rig.iterm.screens[rig.sid] = IDLE
+    rig.iterm.screens[rig.sid] = drafted("hello")
     result = await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)
     assert result == DeliveryResult("refused", "unsent text waits in its input")
     rig.guard.note_key(rig.sid, rig.clock.now - delivery.TYPING_QUIET, "\r")  # you sent it, or cleared it
+    rig.iterm.screens[rig.sid] = IDLE
     assert (await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)).result == "delivered"
+
+
+# Claude Code 2.1.318 idle, as captured: its empty input shows its placeholder, drawn faint.
+CAPTURED_IDLE = captured_screens.lines(captured_screens.CLAUDE_IDLE)
+# The wake line T8 and T10 finishing and T5's quiet review brought (snag A, case 2).
+SNAG_WAKE = ("[AiTerm] letter-tee-eight needs acceptance; letter-tee-five has no review activity waiting; "
+             "letter-tee-one-zero needs acceptance, call run_status")
+
+
+def show_captured_idle(rig) -> None:
+    rig.iterm.screens[rig.sid] = captured_screens.text(CAPTURED_IDLE)
+    rig.iterm.typed_screens[rig.sid] = "\n".join(iterm_bridge.typed_line(line) for line in CAPTURED_IDLE)
+
+
+@pytest.mark.parametrize("history", ["a key that typed nothing", "unknown"])
+async def test_an_idle_empty_input_takes_the_wake_line_whatever_the_keys_left_unknown(rig, history):
+    """Snag A, case 2: the Operator sat idle with an empty input, and its wake was refused for text that might wait
+    unsent there. The keys alone said so: ⌃O, which Claude Code takes without typing, or a history the daemon never saw,
+    leave the input unknown for good. The screen shows it empty, its placeholder faint, so the line is typed."""
+    show_captured_idle(rig)
+    if history == "unknown":
+        rig.guard.forget(rig.sid)
+    else:
+        rig.guard.note_key(rig.sid, rig.clock.now - 600, "\x0f")
+    assert await rig.deliverer.deliver(rig.sid, SNAG_WAKE, 1, wake=True) == DeliveryResult("delivered", None)
+    assert rig.iterm.sent == [(rig.sid, pasted(SNAG_WAKE)), (rig.sid, "\r")]
+    assert not rig.guard.has_unsent_input(rig.sid), "known empty until the next key"
+
+
+def test_the_captured_idle_input_reads_as_text_without_its_styles():
+    # Why a plain read can't settle it either: the placeholder reads as typed words, and only its faint cells tell.
+    text = captured_screens.text(CAPTURED_IDLE)
+    typed = "\n".join(iterm_bridge.typed_line(line) for line in CAPTURED_IDLE)
+    assert delivery.input_text("claude", text, text) == 'Try "write a test for <filepath>"'
+    assert delivery.input_text("claude", text, typed) == ""
+
+
+@pytest.mark.parametrize("screen,expected", [
+    pytest.param(drafted("fix the tests"), "fix the tests", id="typed"),
+    pytest.param("────────────────\n❯ first line\n  second line\n────────────────", "first line\n  second line", id="two lines"),
+    pytest.param(IDLE, "", id="empty"),
+    pytest.param(CLAUDE_WORKING, "", id="empty, at work"),
+    pytest.param(CLAUDE_PERMISSION, None, id="a prompt"),
+    pytest.param("⏺ OK\nShowing detailed transcript · ctrl+o to toggle", None, id="transcript view"),
+    pytest.param("❯ hello", None, id="no frame"),
+])
+def test_what_claudes_input_holds_is_read_inside_its_frame(screen, expected):
+    assert delivery.input_text("claude", screen, screen) == expected
+
+
+def test_only_claudes_ruled_input_is_read():
+    assert delivery.input_text("codex", CODEX_IDLE, CODEX_IDLE) is None
+
+
+async def test_text_typed_in_the_input_still_holds_the_wake_line(rig):
+    rig.guard.note_key(rig.sid, rig.clock.now - 600, "\x0f")
+    rig.iterm.screens[rig.sid] = drafted("fix the tests")
+    result = await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)
+    assert (result.result, result.code) == ("refused", "unsentInput")
+    assert rig.iterm.sent == []
+
+
+@pytest.mark.parametrize("screen,code", [
+    pytest.param("⏺ OK\nShowing detailed transcript · ctrl+o to toggle", "unrecognisedScreen", id="transcript view"),
+    pytest.param(CLAUDE_PERMISSION, "prompt", id="a prompt"),
+    pytest.param("", "screenUnread", id="an empty read"),
+])
+async def test_a_screen_with_no_input_to_read_says_what_it_shows(rig, screen, code):
+    # ⌃O opened the transcript view, and the keys left the input unknown: the refusal names the screen, not text.
+    rig.guard.note_key(rig.sid, rig.clock.now - 600, "\x0f")
+    rig.iterm.screens[rig.sid] = screen
+    result = await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)
+    assert (result.result, result.code) == ("refused", code)
+
+
+async def test_a_key_pressed_while_the_screen_was_read_keeps_the_input_unknown(rig):
+    rig.guard.note_key(rig.sid, rig.clock.now - 600, "\x0f")
+    show_captured_idle(rig)
+    original = rig.iterm.typed_screen
+
+    async def typed_during(sid):
+        read = await original(sid)
+        rig.clock.now += delivery.TYPING_QUIET + 1
+        rig.guard.note_key(sid, rig.clock.now - delivery.TYPING_QUIET - 0.5, "a")  # after the read began
+        return read
+
+    rig.iterm.typed_screen = typed_during
+    result = await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)
+    assert (result.result, result.code) == ("refused", "unsentInput")
+    assert rig.iterm.sent == []
+
+
+async def test_without_a_keystroke_monitor_a_wake_line_is_refused_for_that(rig):
+    unwatched = Deliverer(rig.iterm, rig.registry, lambda: rig.policy, TypingGuard(lambda: None), monotonic=rig.clock,
+                          sleep=rig.pauses)
+    show_captured_idle(rig)
+    result = await unwatched.deliver(rig.sid, WAKE, 1, wake=True)
+    assert (result.result, result.code) == ("refused", "keysUnwatched")
+    assert rig.iterm.sent == []
+    # A worker's message is not held by your keys: you take a worker's task over to type in it.
+    assert (await unwatched.deliver(rig.sid, "hello", 1)).result == "delivered"
 
 
 async def test_a_closed_session_forgets_its_generation(rig):
@@ -703,6 +814,7 @@ async def test_screen_read_rechecks_safety_after_await(rig, read_number, change)
         rig.guard.note_key(rig.sid, rig.clock(), "\x1b")
     elif change == "dirty":
         rig.guard.mark_unsent(rig.sid)
+        rig.iterm.screens[rig.sid] = drafted("hello")
     elif change == "closed":
         rig.registry.apply_snapshot([])
     else:
@@ -713,10 +825,12 @@ async def test_screen_read_rechecks_safety_after_await(rig, read_number, change)
     assert len(rig.iterm.sent) == read_number - 1
 
 
-async def test_wake_refused_without_observed_input_history(rig):
+async def test_wake_refused_without_observed_input_history_while_its_screen_shows_text(rig):
+    # An empty input on screen settles an unknown history (test_an_idle_empty_input_takes_the_wake_line_...); text does not.
     rig.guard.forget(rig.sid)
+    rig.iterm.screens[rig.sid] = drafted("half a thought")
     result = await rig.deliverer.deliver(rig.sid, "wake", 1, wake=True)
-    assert result.result == "refused"
+    assert (result.result, result.code) == ("refused", "unsentInput")
     assert rig.iterm.sent == []
 
 
@@ -841,6 +955,15 @@ async def test_a_wake_line_that_a_prompt_could_read_as_an_answer_is_refused(rig,
 ])
 def test_plain_wake_lines_pass(text):
     assert delivery.wake_text_problem(text) is None
+
+
+# The table the app's OperatorWakerTests reads too: its rule (OperatorWaker.isPlain) and this one agree on each line.
+WAKE_LINES = json.loads((Path(__file__).parent / "fixtures" / "wake-lines.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("row", WAKE_LINES, ids=[row["text"][:60] for row in WAKE_LINES])
+def test_the_daemon_and_the_app_agree_on_which_wake_lines_are_plain(row):
+    assert (delivery.wake_text_problem(row["text"]) is None) == row["plain"]
 
 
 async def test_a_wake_line_never_goes_through_a_message_file(rig, tmp_path):

@@ -4,7 +4,7 @@ import asyncio
 import itertools
 from collections.abc import Awaitable, Callable
 
-from aitermd.iterm_bridge import ItermAuthFailed, ItermNotRunning, ItermPort, ItermUnavailable, KeystrokeCallback
+from aitermd.iterm_bridge import ItermAuthFailed, ItermNotRunning, ItermPort, ItermUnavailable, KeystrokeCallback, TypedScreen
 from aitermd.models import Frame, RawSession
 
 
@@ -35,6 +35,9 @@ class FakeIterm:
         # What each session's screen shows, the sessions whose screen was read, and an error to fail
         # every read with.
         self.screens: dict[str, str] = {}
+        # A screen's typed view (typed_screen): the screen with its ghost text blanked. Unset, the screen itself, as
+        # a screen with no ghost text reads.
+        self.typed_screens: dict[str, str] = {}
         self.screen_reads: list[str] = []
         self.screen_error: Exception | None = None
         # Set to make every snapshot, or every send_text, fail as iTerm2 can mid-call.
@@ -141,6 +144,11 @@ class FakeIterm:
         if self.screen_error is not None:
             raise self.screen_error
         return self.screens.get(session_id, "") if session_id in self.sessions else None
+
+    async def typed_screen(self, session_id: str) -> TypedScreen | None:
+        if (text := await self.screen_text(session_id)) is None:
+            return None
+        return TypedScreen(text, self.typed_screens.get(session_id, text))
 
     async def snapshot(self) -> list[RawSession]:
         if self.snapshot_error is not None:

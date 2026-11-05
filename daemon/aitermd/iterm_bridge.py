@@ -10,7 +10,7 @@ import os
 import plistlib
 import subprocess
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterable
-from typing import Any, ParamSpec, Protocol, TypeVar
+from typing import Any, NamedTuple, ParamSpec, Protocol, TypeVar
 
 import iterm2
 from websockets.legacy.exceptions import InvalidStatusCode
@@ -304,6 +304,48 @@ def _is_auth_rejection(exc: BaseException) -> bool:
     return getattr(response, "status_code", getattr(exc, "status_code", None)) == 401
 
 
+class TypedScreen(NamedTuple):
+    """One read of a session's screen (ItermPort.typed_screen): `text` as `screen_text` reads it, and `typed`
+    the same lines, cell for cell, with ghost text blanked (`typed_line`), so a line's positions match in both."""
+    text: str
+    typed: str
+
+
+class _Cell(Protocol):
+    """What `typed_line` reads of iterm2's CellStyle."""
+    @property
+    def faint(self) -> bool: ...
+    @property
+    def inverse(self) -> bool: ...
+
+
+class _Line(Protocol):
+    """What `typed_line` reads of iterm2's LineContents."""
+    def string_at(self, x: int) -> str: ...
+    def style_at(self, x: int) -> _Cell | None: ...
+
+
+def typed_line(line: _Line) -> str:
+    """`line` as typed text, cell for cell, its ghost text blanked to spaces. Ghost text is drawn, not typed: a
+    faint cell (SGR 2: Claude Code draws its empty input's placeholder and its prompt suggestion faint), and an inverse
+    cell right before a faint one (its own cursor drawn on a placeholder's first character)."""
+    cells: list[tuple[str, _Cell | None]] = []
+    while True:
+        try:
+            cells.append((line.string_at(len(cells)), line.style_at(len(cells))))
+        except IndexError:
+            break
+
+    def faint(x: int) -> bool:
+        return x < len(cells) and (style := cells[x][1]) is not None and style.faint
+
+    def ghost(x: int) -> bool:
+        style = cells[x][1]
+        return faint(x) or (style is not None and style.inverse and faint(x + 1))
+
+    return "".join(" " * len(text) if ghost(x) else text for x, (text, _style) in enumerate(cells))
+
+
 class ItermPort(Protocol):
     async def connect(self) -> str | None: ...
     def is_connected(self) -> bool: ...
@@ -322,6 +364,7 @@ class ItermPort(Protocol):
     async def set_session_titles(self, titles: dict[str, str]) -> list[str]: ...
     async def set_aiterm_background(self, session_ids: list[str], enabled: bool) -> None: ...
     async def screen_text(self, session_id: str) -> str | None: ...
+    async def typed_screen(self, session_id: str) -> TypedScreen | None: ...
     async def snapshot(self) -> list[RawSession]: ...
     async def session_info(self, session_id: str) -> RawSession | None: ...
     def on_new_session(self, cb: Callable[[str], Awaitable[None]]) -> None: ...
@@ -771,6 +814,18 @@ class ItermBridge:
             return None
         contents = await session.async_get_screen_contents()
         return screen_string(contents.line(i).string for i in range(contents.number_of_lines))
+
+    @_bounded
+    async def typed_screen(self, session_id: str) -> TypedScreen | None:
+        """One read of the session's screen, with and without its ghost text (TypedScreen); None for a session
+        that has closed. iTerm2 sends the cells' styles with every screen read."""
+        try:
+            session = await self._session(session_id)
+        except KeyError:
+            return None
+        contents = await session.async_get_screen_contents()
+        lines = [contents.line(i) for i in range(contents.number_of_lines)]
+        return TypedScreen(screen_string(line.string for line in lines), screen_string(typed_line(line) for line in lines))
 
     @_bounded
     async def session_info(self, session_id: str) -> RawSession | None:

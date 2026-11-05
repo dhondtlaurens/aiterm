@@ -74,7 +74,7 @@ import Testing
         #expect(obligations.readyForAcceptance.isEmpty)
         #expect(world.controller.acting.turns[task.id] == .asks)
         #expect(await eventually(describing: "the Operator told") {
-            wakeLines(world).last == "[AiTerm] PLUTO-one asks a question, call run_status"
+            wakeLines(world).last == "[AiTerm] PLUTO-one asks something, call run_status"
         })
 
         _ = await world.call(run.id, "message_task", ["task": "PLUTO-1", "text": "No, leave eslint."])

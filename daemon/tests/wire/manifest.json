@@ -2,6 +2,7 @@
   "deliveryCodes": [
     "itermDisconnected",
     "itermRefused",
+    "keysUnwatched",
     "messageFile",
     "notChecked",
     "nothing",
