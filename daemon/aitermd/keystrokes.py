@@ -67,6 +67,21 @@ class TypingGuard:
         last = self._last.get(session_id)
         return last is not None and now - last < TYPING_QUIET
 
+    def watching(self) -> bool:
+        """Whether iTerm2's keystroke monitor is live, so that keys are seen at all."""
+        self._sync_monitor()
+        return self._epoch is not None
+
+    def note_empty(self, session_id: str, read_at: float) -> None:
+        """The session's screen, read just after `read_at`, showed its input empty: it is known empty from now, as an
+        emptying key leaves it. Not when a key came at or after `read_at`, which may have typed after the read, nor
+        while no monitor watches keys."""
+        self._sync_monitor()
+        if self._epoch is None or self._last.get(session_id, float("-inf")) >= read_at:
+            return
+        self._known.add(session_id)
+        self._unsent.discard(session_id)
+
     def has_unsent_input(self, session_id: str) -> bool:
         self._sync_monitor()
         return self._epoch is None or session_id not in self._known or session_id in self._unsent

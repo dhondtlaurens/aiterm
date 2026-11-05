@@ -360,10 +360,9 @@ import Testing
                                revision: 1, live: live)!
     }
 
-    /// A worker that ends its turn asking something wakes the Operator with a line that says what kind of news it is; the
-    /// line carries no key, since a key's digits are what a menu opening as it lands could take for its answer, and
-    /// run_status's `workerAsks` names the task. Each of the three kinds has its line; two pieces of news at once are the
-    /// generic line.
+    /// A worker that ends its turn asking something wakes the Operator with a line that says which task and what kind of
+    /// news it is, the key spoken (`taskReference`) so that no digit or one-letter word is typed; two pieces of news at
+    /// once are one line naming both.
     @Test func aWorkerQuestionWakesTheOperatorNamingTheKind() async throws {
         let asks = TaskLiveFacts(status: .idle, lastMessage: "Should I also bump eslint?", commitsAhead: 1)
         let empty = TaskLiveFacts(status: .idle, lastMessage: "Nothing to update.", commitsAhead: 0)
@@ -380,9 +379,62 @@ import Testing
             await waker.lastSend?.value
             return daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
         }
-        #expect(try await woken(by: ["PAY-2": asks, "PAY-3": quiet]) == ["[AiTerm] PAY-two asks a question, call run_status"])
+        #expect(try await woken(by: ["PAY-2": asks, "PAY-3": quiet]) == ["[AiTerm] PAY-two asks something, call run_status"])
         #expect(try await woken(by: ["PAY-2": empty, "PAY-3": quiet]) == ["[AiTerm] PAY-two finished with no commit, call run_status"])
-        #expect(try await woken(by: ["PAY-2": asks, "PAY-3": empty]) == ["[AiTerm] PAY-three finished with no commit; PAY-two asks a question, call run_status"])
+        #expect(try await woken(by: ["PAY-2": asks, "PAY-3": empty]) == ["[AiTerm] PAY-three finished with no commit; PAY-two asks something, call run_status"])
+    }
+
+    /// Snag A, case 1 (broadcast "Aikido findings 2026-11"): T7's worker asked something, and T6 and T10 finished with no
+    /// commit, while the Operator was in a turn. Nothing is typed during the turn; once it ends one line goes, and it is a
+    /// line the daemon types. It was `asks a question`, whose one-letter word the daemon refuses (`wake_text_problem`) on
+    /// every try, so the wake was lost and the Notice said AiTerm couldn't type it.
+    @Test func newsDuringTheOperatorsTurnIsTypedOnceTheTurnEndsInALineTheDaemonTakes() async throws {
+        let asks = TaskLiveFacts(status: .idle, lastMessage: "Should I keep the old endpoint?", commitsAhead: 1)
+        let empty = TaskLiveFacts(status: .idle, lastMessage: "Nothing to change.", commitsAhead: 0)
+        let quiet = TaskLiveFacts(status: .working)
+        let tasks = ["T6", "T7", "T10"].map { OperatorServiceFixtures.task(in: run, project: project, key: $0, state: .working) }
+        func woken(by news: [String: TaskLiveFacts]) async throws -> [String] {
+            let daemon = RecordingDaemon(), op = Operator()
+            op.tab = OperatorServiceFixtures.session("op", tag: run.id)
+            let waker = OperatorWaker(daemon: { daemon }, session: { [op] _ in op.tab }, awake: { _ in true }, coalesce: .zero)
+            waker.acknowledged(status(tasks, turns: ["T6": quiet, "T7": quiet, "T10": quiet]), of: run.id)
+            op.tab?.state = .working
+            waker.observe(status(tasks, turns: ["T6": quiet, "T7": quiet, "T10": quiet].merging(news) { $1 }), of: run.id)
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(daemon.requests("session.deliver").isEmpty, "nothing is typed while the Operator works")
+            op.tab?.state = .idle
+            waker.operatorSessionChanged(run.id)
+            try await daemon.received("session.deliver")
+            await waker.lastSend?.value
+            let lines = daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
+            #expect(lines.allSatisfy(OperatorWaker.isPlain), "\(lines)")
+            return lines
+        }
+        #expect(try await woken(by: ["T7": asks]) == ["[AiTerm] letter-tee-seven asks something, call run_status"])
+        #expect(try await woken(by: ["T6": empty, "T7": asks, "T10": empty]) == [
+            "[AiTerm] letter-tee-one-zero finished with no commit; letter-tee-seven asks something; letter-tee-six finished with no commit, call run_status"
+        ])
+    }
+
+    /// Whatever a wake line is made of, the waker types only one the daemon takes: a line that is not plain is the generic
+    /// one, never a line refused on every try.
+    @Test func aLineThatIsNotPlainIsTypedAsTheGenericOne() {
+        #expect(OperatorWaker.typable("[AiTerm] letter-tee-seven asks a question, call run_status") == "[AiTerm] updates waiting, call run_status")
+        #expect(OperatorWaker.typable("[AiTerm] T7 needs acceptance, call run_status") == "[AiTerm] updates waiting, call run_status")
+        #expect(OperatorWaker.typable("[AiTerm] letter-tee-seven asks something, call run_status")
+                == "[AiTerm] letter-tee-seven asks something, call run_status")
+    }
+
+    /// The app's rule (`isPlain`) and the daemon's (`delivery.wake_text_problem`) agree on one table of lines, which
+    /// `daemon/tests/test_delivery.py` reads too: a line the app thinks plain is one the daemon types.
+    @Test func theAppAndTheDaemonAgreeOnWhichLinesArePlain() throws {
+        let table = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("daemon/tests/fixtures/wake-lines.json")
+        struct Row: Decodable { let text: String, plain: Bool }
+        let rows = try JSONDecoder().decode([Row].self, from: Data(contentsOf: table))
+        #expect(rows.count >= 8, "the table, read from \(table.path)")
+        for row in rows { #expect(OperatorWaker.isPlain(row.text) == row.plain, "\(row.text)") }
     }
 
     /// A worker an API error stopped is news, once: a usage limit or a billing failure keeps the task off every list it

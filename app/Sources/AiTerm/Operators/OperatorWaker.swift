@@ -9,7 +9,8 @@ import AiTermCore
 /// operator's next `run_status` shows everything, whether or not one landed. A line refused for anything
 /// but your typing or a prompt waiting on you is reported (`refused`) for the sidebar's Notice, which
 /// `cleared` takes down; one refused because its input may hold unsent text only once it has waited
-/// `OperatorTiming.unsentWakeNotice` on that, since a key that typed nothing holds it as long.
+/// `OperatorTiming.unsentWakeNotice` on that, which the person may be about to send. Every line is one the
+/// daemon types (`typable`): a line refused for its own words would be refused on every try.
 @MainActor
 final class OperatorWaker {
     private let daemon: @MainActor () -> (any DaemonCommands)?
@@ -270,7 +271,14 @@ final class OperatorWaker {
         return prefix + (kept + [more]).joined(separator: "; ") + suffix
     }
 
-    /// Each piece of concurrent actionable news stays in the same coalesced line.
+    /// `text` if the daemon will type it (`isPlain`, the daemon's `wake_text_problem`), else the generic line: a line it
+    /// refuses for its own words is refused on every try, so its news would never be told.
+    static func typable(_ text: String) -> String {
+        isPlain(text) ? text : line(updates: 2, reason: nil)
+    }
+
+    /// Each piece of concurrent actionable news stays in the same coalesced line, its words plain (`isPlain`): a task by its
+    /// spoken key (`taskReference`), and never a one-letter word.
     static func actionReason(for news: Set<News>, status: RunStatus) -> String? {
         let tasks = Dictionary(status.tasks.map { ($0.id, $0.key) }, uniquingKeysWith: { first, _ in first })
         var actions = Set<String>()
@@ -288,7 +296,7 @@ final class OperatorWaker {
                 }
                 actions.insert(taskReference(key) + " " + action)
             case .asks(let key, _, let tab):
-                actions.insert(taskReference(key) + (tab.map { " tab " + taskReference($0) } ?? "") + " asks a question")
+                actions.insert(taskReference(key) + (tab.map { " tab " + taskReference($0) } ?? "") + " asks something")
             case .state(let id, .inReview):
                 if let key = tasks[id] { actions.insert(taskReference(key) + " entered review") }
             case .quietReview(let id, _):
@@ -500,7 +508,7 @@ final class OperatorWaker {
         }
         let text = parts.isEmpty ? Self.line(updates: reason == nil ? count : 1, reason: reason, turn: Self.turnReason(for: news))
             : "[AiTerm] " + parts.joined(separator: "; ") + ", call run_status"
-        let bounded = Self.boundedLine(text)
+        let bounded = Self.typable(Self.boundedLine(text))
         wake.sending = snapshot
         lastSend = Task { [weak self] in
             let delivery = try? await daemon.deliver(sessionId: tab.sessionId, text: bounded, ownership: 0, wake: true, worktree: nil)

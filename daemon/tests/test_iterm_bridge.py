@@ -24,6 +24,7 @@ from aitermd.iterm_bridge import ItermAuthFailed, ItermBridge, ItermUnavailable,
 from aitermd.models import Frame
 from aitermd.process_agents import read_processes
 from aitermd.sessions import SessionRegistry
+from tests import captured_screens
 
 T = TypeVar("T")
 
@@ -1603,3 +1604,52 @@ async def test_one_failed_disconnect_callback_does_not_skip_the_rest(patched_con
     await patched_connect[0].websocket.close()
     await watch
     assert called == [True]
+
+
+def test_ghost_text_is_blanked_in_the_typed_view_of_a_captured_screen():
+    # Claude Code 2.1.318 draws its empty input's placeholder faint: it reads as text, but nobody typed it.
+    screen = captured_screens.lines(captured_screens.CLAUDE_IDLE)
+    line = next(line for line in screen if line.string.startswith("❯"))
+    assert line.string == "❯\xa0Try \"write a test for <filepath>\""
+    assert iterm_bridge.typed_line(line).rstrip() == "❯"
+    assert len(iterm_bridge.typed_line(line)) == len(line.string), "cell for cell, so positions still match"
+
+
+@pytest.mark.parametrize("text,faint,inverse,typed", [
+    pytest.param("❯ hello", [], [], "❯ hello", id="typed text"),
+    pytest.param("❯ Try it", [[3, 8]], [[2, 3]], "❯       ", id="the cursor on a placeholder's first character"),
+    pytest.param("❯ hello", [], [[6, 7]], "❯ hello", id="the cursor on typed text"),
+    pytest.param("❯ /mod", [[5, 6]], [], "❯ /mo ", id="typed text and a faint completion"),
+])
+def test_the_typed_view_keeps_typed_cells_and_blanks_ghost_ones(text, faint, inverse, typed):
+    assert iterm_bridge.typed_line(captured_screens.Line(text, faint, inverse)) == typed
+
+
+async def test_one_screen_read_gives_its_text_and_its_typed_view(monkeypatch):
+    screen = captured_screens.lines(captured_screens.CLAUDE_IDLE)
+
+    class Contents:
+        number_of_lines = len(screen)
+
+        def line(self, i):
+            return screen[i]
+
+    class Session:
+        async def async_get_screen_contents(self):
+            return Contents()
+
+    bridge = ItermBridge()
+
+    async def session(session_id, app=None):
+        if session_id != "s1":
+            raise KeyError(session_id)
+        return Session()
+
+    monkeypatch.setattr(bridge, "_session", session)
+    read = await bridge.typed_screen("s1")
+    assert read is not None and read.text == captured_screens.text(screen)
+    typed = read.typed.splitlines()
+    arrow = next(i for i, line in enumerate(screen) if line.string.startswith("❯"))
+    assert typed[arrow].rstrip() == "❯", "the placeholder is blanked"
+    assert typed[arrow - 1] == screen[arrow - 1].string, "the rule above it is not faint, and is kept"
+    assert await bridge.typed_screen("gone") is None

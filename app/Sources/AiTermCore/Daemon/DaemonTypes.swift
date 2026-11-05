@@ -296,7 +296,7 @@ public enum DeliveryOutcome: String, Codable, LenientRawDecodable, Sendable {
 /// what the app tells apart and says in its own words, where `Delivery.reason` says it in the daemon's. A
 /// code a newer daemon names that this app does not know decodes as `.unknown`.
 public enum DeliveryCode: String, Codable, LenientRawDecodable, CaseIterable, Sendable {
-    case ownership, itermDisconnected, sessionClosed, replaced, notChecked, unsupported, typing, unsentInput
+    case ownership, itermDisconnected, sessionClosed, replaced, notChecked, unsupported, typing, unsentInput, keysUnwatched
     case screenUnread, prompt, unrecognisedScreen, nothing, messageFile, wakeText, itermRefused, pasteOnly
     case unknown
     static var unrecognized: Self { .unknown }

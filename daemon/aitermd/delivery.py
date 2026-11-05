@@ -141,6 +141,25 @@ def shows_input_box(agent: AgentKind, screen: str) -> bool:
                for index, text in _arrow_lines(harness, screen))
 
 
+def input_text(agent: AgentKind, screen: str, typed: str) -> str | None:
+    """What the CLI's input holds as one screen read shows it: `screen` its text, `typed` the same lines with their
+    ghost text blanked (iterm_bridge.typed_line), since Claude Code draws its empty input's placeholder and its prompt
+    suggestion as faint text that reads as typed. "" for an input with nothing typed; None for a screen with no input
+    to read: no ruled input frame -- a prompt, the transcript view, a blank or unrecognised screen -- or a harness
+    without one (only Claude draws it). The frame is found in `screen`, whose rules no style blanks."""
+    harness = HARNESS_BY_AGENT.get(agent)
+    lines, typed_lines = screen.splitlines(), typed.splitlines()
+    if harness is None or not harness.numbered_menus or len(lines) != len(typed_lines) or _shows_transcript(harness, screen):
+        return None
+    framed = [index for index, _ in _arrow_lines(harness, screen) if _in_input_frame(harness, lines, index)]
+    if not framed:
+        return None
+    start = framed[-1]
+    end = next(index for index in range(start + 1, len(lines)) if _RULE.fullmatch(lines[index].strip()))
+    arrow = len(lines[start]) - len(lines[start].lstrip()) + 1
+    return "\n".join([typed_lines[start][arrow:], *typed_lines[start + 1:end]]).strip()
+
+
 def _below_input(harness: Harness, screen: str) -> str:
     """Markers above the last input arrow belong to the transcript, not an unannounced dialog."""
     lines = screen.splitlines()
@@ -296,6 +315,7 @@ RefusalCode = Literal[
     "unsupported",         # prompts cannot be read off this CLI's screen
     "typing",              # you are typing (a wake line only)
     "unsentInput",         # unsent text waits in the input (a wake line only)
+    "keysUnwatched",       # no keystroke monitor, so your typing cannot be seen (a wake line only)
     "screenUnread",        # the screen could not be read, or came back empty
     "prompt",              # a prompt is open: it waits on the person
     "unrecognisedScreen",  # the screen shows no input box
@@ -461,13 +481,39 @@ class Deliverer:
         """Why the session cannot take text now -- or, when it can, the session and how its CLI may be
         typed into. Made before anything is typed, and again right before the paste when a message
         file was written in between, `process` then the session as the first check found it."""
-        ready = self._ready(session_id, ownership, wake, process=process)
+        ready = await self._ready_reading_input(session_id, ownership, wake, process=process)
         if isinstance(ready, Refusal):
             return ready
         session, _policy = ready
         if (why := await self._ineligible(session_id)) is not None:
             return why
-        return self._ready(session_id, ownership, wake, process=session)
+        return await self._ready_reading_input(session_id, ownership, wake, process=session)
+
+    async def _ready_reading_input(self, session_id: str, ownership: int, wake: bool, *,
+                                   process: SessionInfo | None = None) -> tuple[SessionInfo, DeliveryPolicy] | Refusal:
+        """`_ready`, with a wake line it refuses because the keys leave the input unknown (`unsentInput`) held to what
+        the screen shows the input holds (`input_text`): typed text keeps the refusal; an input empty on screen is known
+        empty from then (TypingGuard.note_empty) and the checks run again; a screen with no input to read refuses for
+        what it shows instead -- a prompt, an unrecognised or unread screen -- or, showing none of those, keeps the
+        refusal, as nothing tells what its input holds. Before Enter the line just pasted is in the input, which the
+        screen shows as text."""
+        ready = self._ready(session_id, ownership, wake, process=process)
+        if not (isinstance(ready, Refusal) and ready.code == "unsentInput"):
+            return ready
+        read_at = self._monotonic()
+        try:
+            screen = await self.iterm.typed_screen(session_id)
+        except ItermUnavailable as exc:
+            return Refusal("screenUnread", f"its screen could not be read: {exc}")
+        if screen is None or (session := self.registry.get(session_id)) is None:
+            return Refusal("sessionClosed", "the session has closed")
+        held = input_text(session.agent, screen.text, screen.typed)
+        if held is None:
+            return self._screen_refusal(session, screen.text) or ready
+        if held:
+            return ready
+        self.typing.note_empty(session_id, read_at)
+        return self._ready(session_id, ownership, wake, process=process)
 
     def _ready(self, session_id: str, ownership: int, wake: bool, *,
                process: SessionInfo | None = None) -> tuple[SessionInfo, DeliveryPolicy] | Refusal:
@@ -497,6 +543,9 @@ class Deliverer:
                 # one whose files have not named their version yet, gets nothing until it is checked.
                 return Refusal("notChecked",
                                f"{session.agent} {session.cli_version or '(version unknown)'} has not passed the delivery check")
+        if wake and not self.typing.watching():
+            # Without the keystroke monitor nothing shows that you are not typing there: the line is not typed.
+            return Refusal("keysUnwatched", "iTerm2 gives AiTerm no keys to watch, so whether you are typing there is unknown")
         if wake and self.typing.is_typing(session_id, self._monotonic()):
             # Not lost: the operator sees the news at its next run_status (spec §7.4).
             return Refusal("typing", "you are typing")
@@ -523,6 +572,11 @@ class Deliverer:
             return Refusal("screenUnread", f"its screen could not be read: {exc}")
         if screen is None or (session := self.registry.get(session_id)) is None:
             return Refusal("sessionClosed", "the session has closed")
+        return self._screen_refusal(session, screen)
+
+    @staticmethod
+    def _screen_refusal(session: SessionInfo, screen: str) -> Refusal | None:
+        """Why `screen`, read off `session`, cannot take text; None when it shows the CLI's input box and no prompt."""
         if not screen.strip():
             # The spike saw a read come back empty: nothing then shows that no prompt is open.
             return Refusal("screenUnread", "the screen came back empty, so whether a prompt is open is unknown")

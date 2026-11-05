@@ -4,15 +4,16 @@ import Foundation
 /// from its `run_status`, and why AiTerm couldn't type into its tab, in one short sentence. Its links are Open the
 /// Operator and, but for input that may hold unsent text, Fix in Settings. Not shown while the person types in its
 /// tab, or for a prompt open there, which already waits on them (`shows`); for input that may hold unsent text only
-/// once the wake has waited on it `OperatorTiming.unsentWakeNotice`, since a key that typed nothing holds it too and
-/// nothing on screen says so. Taken down once the Operator calls `run_status` or a later wake line is delivered.
+/// once the wake has waited on it `OperatorTiming.unsentWakeNotice`: the daemon holds it for text the screen shows in the
+/// input, or for an input neither your keys nor the screen tell. Taken down once the Operator calls `run_status` or a later wake line is delivered.
 public struct OperatorWakeNotice: Equatable, Sendable {
     public static let title = "The Operator can’t be woken"
 
     /// The broadcast whose Operator it is.
     public var run: UUID
     public var description: String
-    /// Whether Settings can fix the refusal: not the Operator's own input, which only its tab can send or clear.
+    /// Whether Settings can fix the refusal: not the Operator's own input, which only its tab can send or clear, nor iTerm2
+    /// keeping its keys from AiTerm.
     public var fixInSettings: Bool
 
     /// The Notice for `refusal`, with `status` as the Operator's `run_status` would show it now; nil when the refusal
@@ -22,7 +23,7 @@ public struct OperatorWakeNotice: Equatable, Sendable {
         guard refusal.result == .refused, Self.shows(refusal.code, held: held) else { return nil }
         self.run = run
         description = Self.waiting(status) + " " + Self.sentence(refusal.code)
-        fixInSettings = refusal.code != .unsentInput
+        fixInSettings = ![.unsentInput, .keysUnwatched].contains(refusal.code)
     }
 
     /// Whether a wake refused for `code` is the Notice's: not a prompt that waits on the person, nor their own typing
@@ -60,6 +61,7 @@ public struct OperatorWakeNotice: Equatable, Sendable {
         case .unsupported: "AiTerm can’t read prompts in its tab."
         case .typing: "You’re typing in its tab."
         case .unsentInput: "Text may wait unsent in its input: send it there, or clear it with ⌃U."
+        case .keysUnwatched: "AiTerm can’t see your keys in iTerm2."
         case .screenUnread: "Its screen couldn’t be read."
         case .prompt: "A prompt in its tab waits on you."
         case .unrecognisedScreen: "Its tab doesn’t show Claude Code’s input box."

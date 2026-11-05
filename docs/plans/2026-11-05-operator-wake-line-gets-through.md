@@ -193,10 +193,10 @@ Tests first. Each one fails before its fix.
 
 ## To-dos
 
-- [ ] Case 1: failing tests (1–3), then `asks something`, the plainness guard in `send`, the shared table and its route
-- [ ] Case 2: the fixture screen and failing tests (4–7), then `typed_screen`, `input_text`, `note_empty` and the `_check` change; the existing unsent tests move their text onto the screen
-- [ ] No monitor: `keysUnwatched` in the daemon, the app's code and Notice, and the wire manifest by hand
-- [ ] Gate, review, `scripts/test.sh all`, one commit
+- [x] Case 1: failing tests (1–3), then `asks something`, the plainness guard in `send`, the shared table and its route
+- [x] Case 2: the fixture screen and failing tests (4–7), then `typed_screen`, `input_text`, `note_empty` and the `_check` change; the existing unsent tests move their text onto the screen
+- [x] No monitor: `keysUnwatched` in the daemon, the app's code and Notice, and the wire manifest by hand
+- [x] Gate, review, `scripts/test.sh all`, one commit
 
 ## Decided without the person
 

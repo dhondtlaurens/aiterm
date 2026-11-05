@@ -1,0 +1,207 @@
+{
+ "provenance": "Captured 2026-11-05 from Claude Code 2.1.318 (claude --model haiku), started in a private pty of 100x30 with a scratch CLAUDE_CONFIG_DIR and an empty CLAUDE_SECURESTORAGE_CONFIG_DIR, in a pre-trusted scratch folder; no key was typed, and it was ended after 12 s. Its raw bytes were rendered into this final screen: each line's text, and the cell ranges [from, to) drawn faint (SGR 2) and inverse (SGR 7). The folder line's scratch path is replaced by /…/wt/operator. Not read through iTerm2: SGR 2 is taken as iTerm2's CellStyle.faint.",
+ "agent": "claude",
+ "version": "2.1.318",
+ "lines": [
+  {
+   "text": "",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": " ▐▛███▛█   Claude Code v2.1.318",
+   "faint": [
+    [
+     23,
+     31
+    ]
+   ],
+   "inverse": []
+  },
+  {
+   "text": "▝▜██████▀  Haiku 5.5 · Claude Team",
+   "faint": [
+    [
+     11,
+     34
+    ]
+   ],
+   "inverse": []
+  },
+  {
+   "text": " ▝▝   ▝▝   /…/wt/operator",
+   "faint": [
+    [
+     11,
+     25
+    ]
+   ],
+   "inverse": []
+  },
+  {
+   "text": "",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "▎ Auto mode is now Claude Code's default permission mode.",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "▎ Auto mode lets Claude handle permission prompts automatically. Claude checks each tool call for",
+   "faint": [
+    [
+     2,
+     97
+    ]
+   ],
+   "inverse": []
+  },
+  {
+   "text": "▎ risky actions and prompt injection before executing, runs the ones it assesses as lower-risk, and",
+   "faint": [
+    [
+     2,
+     99
+    ]
+   ],
+   "inverse": []
+  },
+  {
+   "text": "▎ blocks the rest.",
+   "faint": [
+    [
+     2,
+     18
+    ]
+   ],
+   "inverse": []
+  },
+  {
+   "text": "▎ https://code.claude.com/docs/en/permission-modes",
+   "faint": [
+    [
+     2,
+     50
+    ]
+   ],
+   "inverse": []
+  },
+  {
+   "text": "  1 more notice hidden",
+   "faint": [
+    [
+     2,
+     22
+    ]
+   ],
+   "inverse": []
+  },
+  {
+   "text": "",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "⏺ Your organization may apply global configuration to Claude Code. These settings are",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "  centrally managed by your IT administrator.",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "────────────────────────────────────────────────────────────────────────────────────────────────────",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "❯ Try \"write a test for <filepath>\"",
+   "faint": [
+    [
+     2,
+     35
+    ]
+   ],
+   "inverse": []
+  },
+  {
+   "text": "────────────────────────────────────────────────────────────────────────────────────────────────────",
+   "faint": [],
+   "inverse": []
+  },
+  {
+   "text": "  ⏵⏵ auto mode on (shift+tab to cycle)",
+   "faint": [
+    [
+     18,
+     38
+    ]
+   ],
+   "inverse": []
+  }
+ ]
+}
