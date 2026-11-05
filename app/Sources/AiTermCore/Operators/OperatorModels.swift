@@ -114,6 +114,20 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         return lastPushFailure
     }
 
+    /// The problems that wait on the Operator's next finish_task, not on you: your change of end to Merge, and the
+    /// Oracle's yes to renew once the evidence it covered changed. Like any problem they keep a merge watch from starting
+    /// again; unlike one they ask you nothing, and the card says `waiting on the Operator`.
+    public static let operatorHolds: Set<String> = [TaskEndChange.mergeWaitsForFinish, PublicationGuard.oracleYesNeeded]
+
+    /// Whether `problem` waits on the Operator: one of the `operatorHolds`, or the Oracle's refusal a merge watch saved in
+    /// its own words before it recorded `PublicationGuard.oracleYesNeeded`, which is the same hold.
+    public static func isHold(_ problem: String) -> Bool {
+        operatorHolds.contains(problem) || PublicationGuard.isOracleRefusal(problem)
+    }
+
+    /// Its problem is a hold for the Operator (`isHold`).
+    public var holdsForOperator: Bool { problem.map(Self.isHold) ?? false }
+
     public init(pushedSHA: String? = nil, mergeRequestURL: String? = nil, mergeRequestNumber: Int? = nil,
                 targetBranch: String? = nil, waitingSince: Date? = nil, readySince: Date? = nil, merged: Bool = false,
                 mergedSHA: String? = nil, mergedHead: String? = nil, problem: String? = nil, conditionsHeld: String? = nil,
@@ -923,5 +937,17 @@ public extension OperatedTask {
     var isFinished: Bool {
         state == .noChange || state == .published || state == .stopped
             || (state == .accepted && (end == .commit || publication?.leftForYou == true))
+    }
+}
+
+extension OperatedTask {
+    /// What keeps its publication from going on, as it stands now: an accepted task's recorded problem. A task in review,
+    /// published or back at work is past its publication's last failure (a later push landed), so nothing it recorded
+    /// then is said of it now. The card, the requests and run_status read it here.
+    public var currentPublicationProblem: String? { state == .accepted ? publication?.problem : nil }
+
+    /// The current problem when it is a failure that needs you, not a hold for the Operator (`TaskPublication.operatorHolds`).
+    public var publicationFailure: String? {
+        currentPublicationProblem.flatMap { TaskPublication.isHold($0) ? nil : $0 }
     }
 }

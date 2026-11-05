@@ -206,8 +206,12 @@ public struct OperatorLine: Equatable, Sendable {
                 // Its publication handed back: the one finished state that is yours to act on.
                 return OperatorLine(ending, look: operated.publication?.leftForYou == true ? .needsYou : .ended)
             }
-            // A merge end you picked waits for the Operator's next finish_task: nothing of yours.
-            if operated.publication?.problem == TaskEndChange.mergeWaitsForFinish { return quiet("accepted", "waiting on the Operator") }
+            // What waits for the Operator's next finish_task (a merge end you picked, the Oracle's yes to renew): nothing of
+            // yours. A refusal of that finish_task by the Oracle is said as for any refused merge.
+            if operated.publication?.holdsForOperator == true {
+                if operated.end.merges, operated.publication?.mergeRefusal != nil { return quiet("waiting to merge", "refused by the Oracle") }
+                return quiet("accepted", "waiting on the Operator")
+            }
             if let problem = reason(operated.publication?.problem) { return needsYou("blocked", problem, tooltip: nil) }
             // Worked out from the end it has now: what a merge left behind says nothing once you changed it.
             if operated.end == .merge, let publication = operated.publication, publication.waitingSince != nil {
@@ -434,7 +438,7 @@ public struct OperatorLine: Equatable, Sendable {
         case .blocked:
             return needsYou("blocked", reason(task?.operated?.blockedReason) ?? "it needs you", tooltip: request.text)
         case .problem:
-            return needsYou("blocked", reason(task?.operated?.publication?.problem ?? task?.operated?.blockedReason) ?? "a problem in AiTerm", tooltip: request.text)
+            return needsYou("blocked", reason(task?.operated?.publicationFailure ?? task?.operated?.blockedReason) ?? "a problem in AiTerm", tooltip: request.text)
         }
     }
 

@@ -125,6 +125,14 @@ read the outcome; expiry of the summary wait also wakes it when cleanup becomes 
 file is unsaved work and remains for you to preserve before removing its worktree. Ended broadcasts
 keep their board records, and their Operator tools remain disabled.
 
+`run_status` and the cards say what is true now. A task's `peopleReview` thread counts are read from
+the host on every call, in any state, and `reviewQuiet` follows that read; a host that can't be read
+leaves the last counts with `threadsNote`. `publicationProblem` is what keeps an accepted task's
+publication from going on, the sentence its card says `blocked` for. A problem left from a failed push
+or host read goes once a later run gets past it, and a task back in review shows none. What waits for
+the Operator's next `finish_task` (a merge whose Oracle yes no longer covers refreshed evidence, an
+end changed to Merge) is a hold: its card says `accepted · waiting on the Operator` and asks you nothing.
+
 ## Tools
 
 | Purpose | Tools |

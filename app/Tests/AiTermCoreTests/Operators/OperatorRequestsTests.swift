@@ -140,4 +140,51 @@ import Foundation
         #expect(requests.first?.text == "\(task.title): CI failed.")
         #expect(OperatorLine.task(task, run: run, acting: nil, requests: requests)?.look == .needsYou)
     }
+
+    // MARK: - From the current state only (snag D)
+
+    /// T7's record: a hook's refusal left on a task whose later push landed and that is back in review. In review, its
+    /// publication's failure is past: no request, its line is its review's, and run_status says no problem.
+    @Test func aPublicationProblemLeftOnATaskInReviewIsNotShown() {
+        var task = OperatorFixtures.task("T7", .inReview, run: run.id)
+        task.operated?.end = .merge
+        task.operated?.peopleReview = PeopleReview(reviewers: ["nathan.geleyn"])
+        task.operated?.publication = TaskPublication(pushedSHA: "8eb4928", mergeRequestNumber: 68,
+                                                     problem: "The pre-push hook refused the push of fix/fe-1817: npm: command not found")
+        let requests = open(run, [task])
+        #expect(requests.isEmpty)
+        #expect(OperatorLine.task(task, run: run, acting: nil, requests: requests)?.text == "in review · waiting on nathan.geleyn")
+        let status = RunStatus.build(state: OperatorFixtures.state(run, [task]), run: run.id, revision: 1, live: [:])
+        #expect(status?.tasks.first?.publicationProblem == nil)
+    }
+
+    /// A really blocked task still looks blocked: the hook refused the push of the commit accepted now.
+    @Test func aHookRefusalOfTheAcceptedCommitStillNeedsYou() {
+        var task = OperatorFixtures.task("T7", .accepted, run: run.id)
+        task.operated?.end = .merge
+        let why = "The pre-push hook refused the push of fix/fe-1817: npm: command not found"
+        task.operated?.publication = TaskPublication(mergeRequestNumber: 68, problem: why)
+        let requests = open(run, [task])
+        #expect(requests.map(\.kind) == [.problem])
+        let line = OperatorLine.task(task, run: run, acting: nil, requests: requests)
+        #expect(line?.look == .needsYou && line?.text.hasPrefix("blocked · The pre-push hook") == true)
+        let status = RunStatus.build(state: OperatorFixtures.state(run, [task]), run: run.id, revision: 1, live: [:])
+        #expect(status?.tasks.first?.publicationProblem == why)
+    }
+
+    /// What waits on the Operator's finish_task asks you nothing: the Oracle's yes to renew, and your change of end to Merge.
+    /// T1's record, saved before this hold had its own words, is the same hold.
+    @Test func aHoldForTheOperatorAsksYouNothing() {
+        let saved = "The Oracle hasn’t said that the task’s review conditions hold for T1, so AiTerm doesn’t merge it: call finish_task again."
+        for hold in [PublicationGuard.oracleYesNeeded, TaskEndChange.mergeWaitsForFinish, saved] {
+            var task = OperatorFixtures.task("T1", .accepted, run: run.id)
+            task.operated?.end = .merge
+            task.operated?.publication = TaskPublication(mergeRequestNumber: 65, problem: hold)
+            let requests = open(run, [task])
+            #expect(requests.isEmpty)
+            #expect(OperatorLine.task(task, run: run, acting: nil, requests: requests)?.text == "accepted · waiting on the Operator")
+            task.operated?.publication?.mergeRefusal = "The Oracle judged that the conditions to merge don’t hold yet: no approval."
+            #expect(OperatorLine.task(task, run: run, acting: nil, requests: open(run, [task]))?.text == "waiting to merge · refused by the Oracle")
+        }
+    }
 }

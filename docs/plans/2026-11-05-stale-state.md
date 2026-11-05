@@ -69,7 +69,9 @@ once, then answered `waiting`).
    finisher, whose restart clears the hold; a no never reaches it (`refuseVetoed` records `mergeRefusal` and
    throws), so the hold stays and the card, which checks the hold before `waitingSince` and `mergeRefusal`, reads
    `mergeRefusal` inside the hold: `waiting to merge · refused by the Oracle`, as for any refused merge. One set,
-   `TaskPublication.operatorHolds`, names the holds; the card, the requests and run_status read it.
+   `TaskPublication.operatorHolds`, names the holds; the card, the requests and run_status read it
+   (`TaskPublication.isHold`). A record saved before this fix with the refusal's own sentence (T1's) is read as the
+   same hold, matched on the sentence `oracleRefusal` builds around the key.
 3. **A later run that goes through clears a failure's problem.** A run with `restart: false` that ends published,
    in review or waiting to merge clears a `publication.problem` that is not a hold: only a failed step of the same
    watch could have recorded it (a watch starts only with no problem, and its polls are the only `restart: false`
@@ -155,9 +157,9 @@ Tests first; each fails before its fix, with the snag's case as fixture.
 
 ## To-dos
 
-- [ ] Tests 1–4 written and failing for the snag's reason
-- [ ] run_status reads thread counts from the host, `threadsNote` (test 1)
-- [ ] Oracle hold for the watch's Oracle refusal; holds on the card, requests, run_status (test 2)
-- [ ] A `restart: false` run that goes through clears a failure's problem (tests 3, 3b)
-- [ ] `currentPublicationProblem` read by the card, the requests and run_status (test 4)
-- [ ] docs/operators.md; snapshots read; gate green; `scripts/test.sh all` green
+- [x] Tests 1–4 written and failing for the snag's reason
+- [x] run_status reads thread counts from the host, `threadsNote` (test 1)
+- [x] Oracle hold for the watch's Oracle refusal; holds on the card, requests, run_status (test 2)
+- [x] A `restart: false` run that goes through clears a failure's problem (tests 3, 3b)
+- [x] `currentPublicationProblem` read by the card, the requests and run_status (test 4)
+- [x] docs/operators.md; snapshots read; gate green; `scripts/test.sh all` green
