@@ -46,7 +46,7 @@ public final class BackpackMode: Sendable {
     /// without a scan first: a locked iPhone's hotspot is missing from scans but joins with its
     /// password; the scan only decides which failure to report. `onJoined` runs once the Mac is on
     /// the hotspot, before the marker. `until` is what ends it, besides the cutoff.
-    public func turnOn(until: BackpackUntil = .agentsStop,
+    public func turnOn(until: BackpackUntil = .turnedOff,
                        onJoined: @escaping @Sendable () -> Void = {}) -> Result<BackpackStatus, BackpackRefusal> {
         if closed.withLock({ $0 }) { return .failure(.quitting) }
         if case .on(let status) = state { return .success(status) }

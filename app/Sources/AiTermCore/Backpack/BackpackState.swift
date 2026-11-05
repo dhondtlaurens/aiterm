@@ -38,7 +38,7 @@ public struct BackpackStatus: Equatable, Sendable {
     public var power: PowerReading
     public var until: BackpackUntil
 
-    public init(network: String, joined: Bool, power: PowerReading, until: BackpackUntil = .agentsStop) {
+    public init(network: String, joined: Bool, power: PowerReading, until: BackpackUntil = .turnedOff) {
         self.network = network
         self.joined = joined
         self.power = power
@@ -58,9 +58,9 @@ public enum BackpackState: Equatable, Sendable {
         if case .on = self { true } else { false }
     }
 
-    /// What ends it while on; off, `.agentsStop`, the sheet's default.
+    /// What ends it while on; off, `.turnedOff`, the sheet's default.
     public var until: BackpackUntil {
-        if case .on(let status) = self { status.until } else { .agentsStop }
+        if case .on(let status) = self { status.until } else { .turnedOff }
     }
 }
 

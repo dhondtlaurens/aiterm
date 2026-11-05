@@ -132,27 +132,27 @@ import Testing
         #expect(!model.canConnect, "the fields hold still while it connects")
         await eventually(describing: "the connect to end safe") { model.backpack.phase == .safe }
         #expect(model.backpack.isOn)
+        #expect(model.backpack.state.until == .turnedOff)
         #expect(model.isSafe && !model.isConnecting)
     }
 
-    /// Every sheet opens ending with the work; turned off by hand is chosen per trip, and the mode
-    /// keeps that choice while it is on.
-    @Test func turnsOffStartsWhenAgentsStopAndConnectCarriesTheChoice() async {
+    /// Every trip defaults to Never; ending with the work is an explicit choice for that trip.
+    @Test func turnsOffStartsNeverAndConnectCarriesTheChoice() async {
         let fake = FakeBackpack()
         let backpack = backpack(fake)
         let model = BackpackSheetModel(backpack: backpack)
-        #expect(model.until == .agentsStop)
-        #expect(BackpackSheetPresentation.untilChoices == [.agentsStop, .turnedOff])
-        #expect(BackpackSheetPresentation.untilLabel(.agentsStop) == "When agents stop")
-        #expect(BackpackSheetPresentation.untilLabel(.turnedOff) == "When I turn it off")
+        #expect(model.until == .turnedOff)
+        #expect(BackpackSheetPresentation.untilChoices == [.turnedOff, .agentsStop])
+        #expect(BackpackSheetPresentation.untilLabel(.agentsStop) == "When agents are done")
+        #expect(BackpackSheetPresentation.untilLabel(.turnedOff) == "Never")
         #expect(BackpackSheetPresentation.untilHelp == "Either way, at 10 % battery.")
         await model.load()
-        model.until = .turnedOff
+        model.until = .agentsStop
         model.connect()
         await eventually(describing: "the connect to end safe") { model.backpack.phase == .safe }
         guard case .on(let status) = backpack.state else { Issue.record("not on"); return }
-        #expect(status.until == .turnedOff)
-        #expect(BackpackSheetModel(backpack: backpack).until == .agentsStop, "the next sheet starts over")
+        #expect(status.until == .agentsStop)
+        #expect(BackpackSheetModel(backpack: backpack).until == .turnedOff, "the next sheet starts over")
     }
 
     /// No Back: a failure leaves the fields live, the person fixes the password, and Connect retries.
@@ -225,7 +225,7 @@ import Testing
         #expect(BackpackSheetPresentation.safeTitle == "Unplugged. Safe to close the lid.")
         #expect(BackpackSheetPresentation.safeStatus == SettingsStatus(.ready, "Unplugged enabled"))
         #expect(BackpackSheetPresentation.safeHelp(hotspot: "Laurens’s iPhone", until: .agentsStop)
-                == "On Laurens’s iPhone. Unplugged ends when your agents stop, or at 10 % battery.")
+                == "On Laurens’s iPhone. Unplugged ends when your agents are done and no broadcast is active, or at 10 % battery.")
         #expect(BackpackSheetPresentation.safeHelp(hotspot: "Laurens’s iPhone", until: .turnedOff)
                 == "On Laurens’s iPhone. Unplugged stays on until you turn it off, or at 10 % battery.")
         #expect(BackpackSheetPresentation.title == "Unplugged")

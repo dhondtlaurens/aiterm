@@ -52,6 +52,8 @@ final class BackpackController {
     @ObservationIgnored private let retryDelays: [Duration]
     /// Whether any session in the workspace is `.working`: the 5 s check's reason to stay on.
     @ObservationIgnored private let agentsWorking: @MainActor () -> Bool
+    /// A broadcast spans quiet agent turns and continues to need the Mac awake.
+    @ObservationIgnored private let hasBroadcast: @MainActor () -> Bool
     @ObservationIgnored private var cancelled = false
     /// The sheet closed under the connect (the lid): nobody is left to Cancel, so a hotspot not in
     /// range is no longer waited for. Reset by each connect.
@@ -66,6 +68,7 @@ final class BackpackController {
     init(ports: BackpackPorts, settings: BackpackSettings, tickInterval: Duration = .seconds(5),
          retryDelays: [Duration] = [.seconds(5), .seconds(10), .seconds(20), .seconds(30)],
          now: @escaping @Sendable () -> Date = Date.init, agentsWorking: @escaping @MainActor () -> Bool = { false },
+         broadcastRunning: @escaping @MainActor () -> Bool = { false },
          openLocationSettings: @escaping @MainActor () -> Void = {},
          toast: @escaping @MainActor (String) -> Void) {
         self.openLocationSettings = openLocationSettings
@@ -74,6 +77,7 @@ final class BackpackController {
         self.tickInterval = tickInterval
         self.retryDelays = retryDelays
         self.agentsWorking = agentsWorking
+        self.hasBroadcast = broadcastRunning
         self.toast = toast
         setup.network = settings.network
     }
@@ -84,6 +88,7 @@ final class BackpackController {
     }
 
     var isOn: Bool { state.isOn }
+    var broadcastRunning: Bool { hasBroadcast() }
 
     /// The hotspot and its password, written on Save. A change takes effect at the next turn-on.
     var network: String? {
@@ -105,7 +110,7 @@ final class BackpackController {
     /// The sheet's Connect: saves the hotspot (and a typed password), then turns on, retrying a
     /// hotspot that isn't showing on `retryDelays` until it shows, a final refusal, Cancel, quit or
     /// the sheet closing (`finishWithoutSheet()`). `until` is the sheet's Turns off.
-    func connect(network: String, password: String?, until: BackpackUntil = .agentsStop) async {
+    func connect(network: String, password: String?, until: BackpackUntil = .turnedOff) async {
         guard !busy, !isOn else { return }
         self.network = network
         if let password, !password.isEmpty, !setPassword(password) { phase = .keychainRefused; return }
@@ -274,7 +279,7 @@ final class BackpackController {
 
     /// The 5 s check: the cutoff, the work, and the network.
     func tick() async {
-        let mode = self.mode, working = agentsWorking()
+        let mode = self.mode, working = agentsWorking() || broadcastRunning
         let outcome: BackpackTick? = await worker.run { mode.tick(agentsWorking: working) }
         state = mode.state
         if case .on(let status) = state { power = status.power }

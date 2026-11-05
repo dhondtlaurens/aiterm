@@ -11,20 +11,23 @@ public struct Select<Value: Hashable>: View {
     var label: (Value) -> String
     var detail: (Value) -> String? = { _ in nil }
     var monospaced = false
+    var isSelectable: (Value) -> Bool = { _ in true }
 
     public init(values: [Value], selection: Binding<Value>, label: @escaping (Value) -> String,
-                detail: @escaping (Value) -> String? = { _ in nil }, monospaced: Bool = false) {
+                detail: @escaping (Value) -> String? = { _ in nil }, monospaced: Bool = false,
+                isSelectable: @escaping (Value) -> Bool = { _ in true }) {
         self.values = values
         self._selection = selection
         self.label = label
         self.detail = detail
         self.monospaced = monospaced
+        self.isSelectable = isSelectable
     }
 
     public var body: some View {
-        NativePopUp(titles: values.map(label), tooltips: values.map(detail),
+        NativePopUp(titles: values.map(label), tooltips: values.map(detail), selectable: values.map(isSelectable),
                     selectedIndex: values.firstIndex(of: selection) ?? 0, monospaced: monospaced) { index in
-            if values.indices.contains(index) { selection = values[index] }
+            if values.indices.contains(index), isSelectable(values[index]) { selection = values[index] }
         }
         // SwiftUI pushes this environment value onto the button after `makeNSView`, so the `.large`
         // set there is not enough on its own: without it the button came back `.regular` and drew
@@ -38,6 +41,7 @@ public struct Select<Value: Hashable>: View {
 struct NativePopUp: NSViewRepresentable {
     let titles: [String]
     let tooltips: [String?]
+    let selectable: [Bool]
     let selectedIndex: Int
     let monospaced: Bool
     let onSelect: (Int) -> Void
@@ -48,6 +52,7 @@ struct NativePopUp: NSViewRepresentable {
         let button = NSPopUpButton(frame: .zero, pullsDown: false)
         button.target = context.coordinator
         button.action = #selector(Coordinator.changed(_:))
+        button.menu?.autoenablesItems = false
         // `.large` *is* 28 pt, which is the height `sizeThatFits` hands back. At `.regular` AppKit
         // drew a ~21 pt bezel stretched into a 28 pt slot.
         button.controlSize = .large
@@ -75,6 +80,7 @@ struct NativePopUp: NSViewRepresentable {
         } else {
             for (item, tip) in zip(button.itemArray, tips) where item.toolTip != tip { item.toolTip = tip }
         }
+        for (item, enabled) in zip(button.itemArray, selectable) where item.isEnabled != enabled { item.isEnabled = enabled }
         if titles.indices.contains(selectedIndex), button.indexOfSelectedItem != selectedIndex {
             button.selectItem(at: selectedIndex)
         }
@@ -93,6 +99,9 @@ struct NativePopUp: NSViewRepresentable {
     final class Coordinator: NSObject {
         var onSelect: (Int) -> Void
         init(onSelect: @escaping (Int) -> Void) { self.onSelect = onSelect }
-        @objc func changed(_ sender: NSPopUpButton) { onSelect(sender.indexOfSelectedItem) }
+        @objc func changed(_ sender: NSPopUpButton) {
+            guard sender.isEnabled, sender.selectedItem?.isEnabled == true else { return }
+            onSelect(sender.indexOfSelectedItem)
+        }
     }
 }

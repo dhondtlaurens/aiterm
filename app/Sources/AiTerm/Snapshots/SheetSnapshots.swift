@@ -351,6 +351,9 @@ enum SheetSnapshots {
             backpackSheet("not-found", setup: ready, chosen: hotspot, started: true, phase: .notInRange, busy: true),
             backpackSheet("failed", setup: ready, chosen: hotspot, started: true, phase: .failed(.joinFailed(network: hotspot))),
             backpackSheet("safe", setup: ready, chosen: hotspot, started: true, phase: .safe, state: safe),
+            backpackSheet("safe-with-work", setup: ready, chosen: hotspot, started: true, phase: .safe,
+                          state: .on(BackpackStatus(network: hotspot, joined: true,
+                                                   power: PowerReading(level: 64, onBattery: true), until: .agentsStop))),
         ]
     }
 

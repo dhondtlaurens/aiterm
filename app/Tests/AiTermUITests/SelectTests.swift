@@ -52,9 +52,44 @@ import SwiftUI
         #expect(!button.isEnabled)
     }
 
+    /// Native menu validation must preserve the predicate, and a refreshed predicate must update
+    /// existing items even when their titles did not change.
+    @Test func individualChoicesCanBeDisabledAndEnabledAgain() throws {
+        let catalogue = Catalogue(), picked = Box("never")
+        let host = Self.host(ChoiceSelect(catalogue: catalogue, picked: picked))
+        let button = try #require(host.firstDescendant(NSPopUpButton.self))
+        let item = try #require(button.item(at: 1))
+        button.menu?.update()
+        #expect(button.item(at: 0)?.isEnabled == true)
+        #expect(!item.isEnabled)
+        button.selectItem(at: 1)
+        _ = button.sendAction(button.action, to: button.target)
+        #expect(picked.value == "never", "a disabled item cannot change the binding")
+
+        catalogue.available = true
+        settle(host)
+        #expect(button.item(at: 1) === item)
+        #expect(item.isEnabled)
+        button.selectItem(at: 1)
+        _ = button.sendAction(button.action, to: button.target)
+        #expect(picked.value == "done")
+    }
+
     private final class Box<T> { var value: T; init(_ value: T) { self.value = value } }
 
-    private final class Catalogue: ObservableObject { @Published var detail = "Fast" }
+    private final class Catalogue: ObservableObject {
+        @Published var detail = "Fast"
+        @Published var available = false
+    }
+
+    private struct ChoiceSelect: View {
+        @ObservedObject var catalogue: Catalogue
+        let picked: Box<String>
+        var body: some View {
+            Select(values: ["never", "done"], selection: Binding(get: { picked.value }, set: { picked.value = $0 }),
+                   label: { $0 }, isSelectable: { $0 == "never" || catalogue.available })
+        }
+    }
 
     private struct CatalogueSelect: View {
         @ObservedObject var catalogue: Catalogue

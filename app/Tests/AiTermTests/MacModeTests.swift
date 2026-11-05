@@ -57,9 +57,9 @@ struct MacModeTests {
         // Off with no other network in range: it stayed on the hotspot, and says so.
         #expect(help(.desk, wifi: "Laurens’s iPhone") == "desk mode · still on Laurens’s iPhone · ⌘U turns on Unplugged")
         #expect(help(.turningOn) == "Unplugging · joining Laurens’s iPhone")
-        #expect(help(.on) == "Unplugged · Laurens’s iPhone · ends when your agents stop, or at 10 %")
-        #expect(MacModePresentation.line(mode: .on, hotspot: "Laurens’s iPhone", wifi: nil, until: .turnedOff).help
-                == "Unplugged · Laurens’s iPhone · stays on until you turn it off, or at 10 %")
+        #expect(help(.on) == "Unplugged · Laurens’s iPhone · stays on until you turn it off, or at 10 %")
+        #expect(MacModePresentation.line(mode: .on, hotspot: "Laurens’s iPhone", wifi: nil, until: .agentsStop).help
+                == "Unplugged · Laurens’s iPhone · ends when your agents are done and no broadcast is active, or at 10 %")
         #expect(help(.needsYou(.lostHotspot)) == "Unplugged needs you · lost Laurens’s iPhone, open Personal Hotspot on the iPhone")
         #expect(help(.needsYou(.lowBattery(level: 13))) == "Unplugged needs you · battery at 13 %, turns off at 10 %")
         #expect(help(.turningOff) == "Plugging back in · rejoining Wi-Fi")

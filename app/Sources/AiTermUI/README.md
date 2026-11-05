@@ -104,7 +104,7 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 | `HelpText` | String or composed Text in surface-aware secondary or warning ink; paragraph or inline sizing. |
 | `Input` | Native plain/secure text field in shared chrome; optional caret-at-end on focus. |
 | `SearchField` | Native single-line field that delegates navigation to an open popup first. |
-| `Select` | Native full-column popup button. |
+| `Select` | Native full-column popup button; optional per-value tooltip and selectable predicate, with disabled items retained in the menu. |
 | `SegmentedControl` | Neutral/focus or accent styles, selectable predicate, labels inked for their grounds. |
 | `Kbd` | Shortcut keycaps using the current surface's ink/wash. |
 | `SidebarHeading` | Micro uppercase tracked heading. |
