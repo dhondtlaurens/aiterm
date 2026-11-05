@@ -128,6 +128,38 @@ final class TaskFinisher {
     /// The tasks with a publication in flight.
     var running: Set<UUID> { Set(inFlight.keys) }
 
+    /// The accepted tasks the Operator is steering now (`message_task`, `open_tab`), each with how many of its calls hold
+    /// it: none of them is watched, and no publication of one starts, until the last call lets it go. A merge then never
+    /// races a worker's new commits, not even while the message is on its way.
+    private var held: [UUID: Int] = [:]
+
+    /// Holds `id`'s publication while it is steered: its merge watch stops, and none starts.
+    func hold(_ id: UUID) {
+        held[id, default: 0] += 1
+        stopWatching(id)
+    }
+
+    /// Lets `id`'s publication go once its last steering call ended: a task still accepted and waiting to merge (its
+    /// message not delivered, its tab failed) is watched again; one back at work isn't watchable.
+    func release(_ id: UUID) {
+        guard let count = held[id] else { return }
+        if count > 1 { held[id] = count - 1; return }
+        held[id] = nil
+        watch(id)
+    }
+
+    /// Why a publication of a task the Operator is steering waits.
+    static func beingSteered(_ key: String) -> String {
+        "\(key) is being steered now: call finish_task again once message_task or open_tab answers."
+    }
+
+    /// A publication of a task held for steering: refused with why, nothing done.
+    private func steeringRefusal(_ id: UUID) -> Result? {
+        guard held[id] != nil else { return nil }
+        let operated = store.state.task(id: id)?.operated
+        return Result(operated?.publication, result: .refused, reason: Self.beingSteered(operated?.key ?? "This task"))
+    }
+
     /// What a takeover records on a waiting merge: it is watched again only after a new `finish_task`.
     static let takenOverProblem = "taken over by you; call finish_task again once it's handed back"
 
@@ -149,6 +181,7 @@ final class TaskFinisher {
         // What a publication that outlived its call did is owed first, even while a merge watch's poll is in flight. With
         // nothing kept, the saved marker is read only once nothing runs: a run in flight is still the one it is owed for.
         if kept[id] != nil || inFlight[id] == nil, let owed = owedAnswer(id) { return owed }
+        if let steered = steeringRefusal(id) { return steered }
         if inFlight[id] == nil, joinOnly {
             return Result(store.state.task(id: id)?.operated?.publication, result: .refused, reason: Self.nothingToJoin)
         }
@@ -309,7 +342,7 @@ final class TaskFinisher {
     /// A merge end opened and waiting, not stuck, in a broadcast that runs and that you have neither
     /// paused nor ended, and still the operator's.
     private func isWatchable(_ id: UUID) -> Bool {
-        guard !isStopped else { return false }
+        guard !isStopped, held[id] == nil else { return false }
         guard let operated = store.state.task(id: id)?.operated, operated.end == .merge, operated.state == .accepted,
               !operated.takenOver, !operated.flags.contains(.upstreamReplaced),
               let publication = operated.publication, publication.mergeRequestNumber != nil,
@@ -322,6 +355,7 @@ final class TaskFinisher {
     /// The one way a publication runs: joined when one is in flight for the task.
     private func run(_ id: UUID, restart: Bool, noVerify: Bool = false, operatorCall: Bool = false) async -> Result {
         guard !isStopped else { return Result(result: .refused, reason: Self.closingReason) }
+        if let steered = steeringRefusal(id) { return steered }
         return await start(id, restart: restart, noVerify: noVerify, operatorCall: operatorCall).task.value
     }
 

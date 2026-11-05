@@ -299,6 +299,8 @@ final class OperatorController {
         finisher.mergedOnHost = { [weak self] id, why in self?.askAboutMergeOnHost(id, why) }
         finisher.watchStopped = { [weak self] id, _ in self?.mergeWatchStopped(id) }
         tools.publishing = { [weak self] id in self?.finisher.running.contains(id) ?? false }
+        tools.holdPublication = { [weak self] id in self?.finisher.hold(id) }
+        tools.releasePublication = { [weak self] id in self?.finisher.release(id) }
         tools.pendingFinish = { [weak self] id in self?.finisher.pending(id) ?? false }
         tools.launchNow = { [weak self] id, budget in
             await self?.launchNow(id, within: budget) ?? LaunchReport(result: "queued", note: "AiTerm is closing.")

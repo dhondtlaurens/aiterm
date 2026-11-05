@@ -172,11 +172,16 @@ import Testing
 
     // -- refusals ------------------------------------------------------------------------------------
 
+    /// An accepted task message_task could steer takes a tab too (`OperatorSteerAcceptedTests`); one with its commit on
+    /// origin and no request open doesn't.
     @Test(arguments: [OperatedState.planned, .accepted, .published, .noChange, .blocked, .failed])
     func aTaskThatIsNotWorkingOrInReviewIsRefused(_ state: OperatedState) async throws {
-        let (world, run, task) = try makeWorld(state: state)
+        let (world, run, task) = try makeWorld(state: state) {
+            $0.operated?.acceptance = TaskAcceptance(resultSHA: "4f2a91c0ffee", prerequisiteSHAs: [], checkOutput: "ok", note: nil, at: Date())
+            $0.operated?.publication = TaskPublication(pushedSHA: "4f2a91c0ffee")
+        }
         #expect(await world.call(run.id, "open_tab", Self.arguments()).message
-                == "PLUTO-1 is \(state.rawValue): only a working task, or one in review, takes another tab.")
+                == "PLUTO-1 is \(state.rawValue): only a working task, one in review, or an accepted one message_task could steer takes another tab.")
         #expect(world.daemon.requests("tab.create").isEmpty && tabs(of: task, in: world).isEmpty)
     }
 

@@ -214,15 +214,16 @@ public enum OperatedTransitions {
         return nil
     }
 
-    /// Whether `task` may go back to its worker (spec §D): accepted, and its accepted commit not on origin yet — nothing
-    /// pushed for it, none merged, its publication not left to you. A commit-end task never pushes, so it stays open to
-    /// steering until something else ends it.
+    /// Whether `task` may go back to its worker (spec §D): accepted, none merged, its publication not left to you, and either
+    /// its accepted commit not on origin yet, or its request recorded and so still open as far as AiTerm knows (snag G: T1's
+    /// !65 needed origin/main merged in). Whether the host still has that request open is the caller's to read. A commit-end
+    /// task never pushes, so it stays open to steering until something else ends it.
     public static func isReopenable(_ task: OperatedTask) -> Bool {
         guard task.state == .accepted else { return false }
         let publication = task.publication
         if publication?.merged == true || publication?.mergedSHA != nil || publication?.leftForYou == true { return false }
         guard let pushed = publication?.pushedSHA, let accepted = task.acceptance?.resultSHA else { return true }
-        return !sameCommit(pushed, accepted)
+        return !sameCommit(pushed, accepted) || publication?.mergeRequestNumber != nil
     }
 
     /// Two spellings of one commit: equal, or one a prefix of the other at least 7 long, as git

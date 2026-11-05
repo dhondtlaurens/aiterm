@@ -62,6 +62,51 @@ extension OperatorToolHandler {
                 "updated": .array(changed.compactMap { $0 }.map(JSONValue.string))]
     }
 
+    /// `retry_pipeline`: reruns the failed pipeline of the task's own open request (snag G: six pipelines failed on runner
+    /// timeouts and image pulls, and the shell gate refuses the host's API). It changes no code, so it needs no slice and the
+    /// Oracle isn't asked. It is refused once the broadcast is paused or ended, the task taken over, its origin moved to
+    /// another repository, for a request merged or not open on the host, one not from the task's own branch, and a pipeline
+    /// that didn't fail; each is read fresh right before the retry. A repeat finds the pipeline running and retries nothing.
+    func retryPipeline(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        let task = try self.task(call, in: run)
+        let operated = try notTakenOver(task)
+        try acceptsWork(run)
+        guard let publication = operated.publication, let number = publication.mergeRequestNumber else {
+            throw ToolRefusal("\(operated.key) has no merge request yet: finish_task opens it.")
+        }
+        let reference = publication.mergeRequestURL.map { CodeHost(webURL: $0).reference(number) } ?? "#\(number)"
+        if publication.merged || publication.mergedSHA != nil { throw ToolRefusal("\(reference) is merged: there is no pipeline of it to retry.") }
+        // Two calls at once would both find it failed and retry it twice.
+        let flight = WriteInFlight(kind: .pipelineRetry, run: run.id, key: task.id.uuidString)
+        guard writesInFlight.insert(flight).inserted else {
+            throw ToolRefusal("AiTerm is retrying \(reference)’s pipeline now: call retry_pipeline again for what it found.")
+        }
+        defer { writesInFlight.remove(flight) }
+        let host = try await reviewHost(of: task, request: publication)
+        let check = writeCheck(task, number: number, in: run.id, review: false)
+        let key = operated.key, branch = task.branch
+        let result: PipelineRetry
+        do {
+            result = try await host.retryPipeline(number, beforeWrite: { live in
+                guard ["opened", "open"].contains(live.state) else {
+                    throw ToolRefusal("\(reference) is \(live.state): AiTerm retries only an open request’s pipeline.")
+                }
+                guard live.forkHead == nil, live.sourceBranch == branch else {
+                    throw ToolRefusal("\(reference) isn’t \(key)’s request on the host: it is from \(live.forkHead ?? live.sourceBranch), not \(branch).")
+                }
+                try await check()
+            })
+        } catch let error where !(error is ToolRefusal) && Self.mayHaveLanded(error) {
+            throw ToolRefusal("AiTerm doesn’t know whether \(reference)’s pipeline was retried: \(error.localizedDescription) "
+                              + "Call retry_pipeline again: it says whether the pipeline runs now.")
+        }
+        switch result {
+        case .notFailed(let why): throw ToolRefusal("\(reference) has nothing to retry: \(why).")
+        case .retried(let what):
+            return ["task": .string(key), "mergeRequest": publication.mergeRequestURL.map(JSONValue.string) ?? .null, "retried": .string(what)]
+        }
+    }
+
     /// `text` when it says something; nil for none, or only whitespace.
     private static func said(_ text: String?) -> String? {
         guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }

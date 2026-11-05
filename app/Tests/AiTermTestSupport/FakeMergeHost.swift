@@ -16,6 +16,10 @@ final class FakeMergeHost: MergeRequestPublishing {
         /// Awaited inside a create, after it is logged: a test holds a create in flight with it.
         var beforeCreate: (@Sendable () async -> Void)?
         var existing: MergeRequest?
+        /// Thrown by `existingRequest(from:)` instead, after it is logged: a host that can't say what is open now.
+        var existingError: (any Error)?
+        /// Awaited inside `existingRequest(from:)` after it is logged: a test holds the read in flight with it.
+        var beforeExisting: (@Sendable () async -> Void)?
         var readiness: [MergeReadiness] = [.waiting("its pipeline is running")]
         /// Once the host has marked the request ready, reading its readiness fails (a timeout on the way).
         var readinessFailsAfterReady = false
@@ -59,6 +63,12 @@ final class FakeMergeHost: MergeRequestPublishing {
         var assignee: String?
         /// Awaited at the start of `updateRequest`, before its reads: a test holds an edit in flight with it.
         var beforeEdit: (@Sendable () async -> Void)?
+        /// Each thread whole, by its id; a thread with none is its last note alone.
+        var details: [String: ReviewThreadDetail] = [:]
+        /// The status of the request's head pipeline, nil with none; a retry of a failed one makes it `running`.
+        var pipeline: String?
+        /// Awaited inside `retryPipeline` after its read, before `beforeWrite`: a test holds a retry in flight with it.
+        var beforeRetry: (@Sendable () async -> Void)?
     }
 
     private let script: Mutex<Script>
@@ -88,6 +98,8 @@ final class FakeMergeHost: MergeRequestPublishing {
 
     func existingRequest(from source: String) async throws -> MergeRequest? {
         calls.withLock { $0.append("existing \(source)") }
+        if let hold = script.withLock({ $0.beforeExisting }) { await hold() }
+        if let error = script.withLock({ $0.existingError }) { throw error }
         return script.withLock { $0.existing }
     }
 
@@ -185,6 +197,39 @@ final class FakeMergeHost: MergeRequestPublishing {
     func reply(_ number: Int, thread: String, body: String) async throws {
         try await reviewCall("reply \(number) \(thread) \(body)")
         if script.withLock({ s in defer { s.loseReply = false }; return s.loseReply }) { throw URLError(.networkConnectionLost) }
+    }
+
+    /// Logged as `detail 64 d1`.
+    func threadDetail(_ number: Int, thread: String) async throws -> ReviewThreadDetail {
+        try await reviewCall("detail \(number) \(thread)")
+        return script.withLock { s in
+            s.details[thread] ?? ReviewThreadDetail(id: thread, path: nil, line: nil, notes: s.threads.filter { $0.id == thread }
+                .map { ReviewThreadDetail.Note(author: $0.lastAuthor, body: $0.lastBody) })
+        }
+    }
+
+    /// Logged as `resolve 64 d1`; the thread it keeps is resolved after.
+    func resolve(_ number: Int, thread: String) async throws {
+        try await reviewCall("resolve \(number) \(thread)")
+        script.withLock { s in
+            if let i = s.threads.firstIndex(where: { $0.id == thread }) { s.threads[i].resolved = true }
+        }
+    }
+
+    /// Logged as `retry 69` once `beforeWrite` let it go. The request is the open one it keeps, or one still open from
+    /// `feat/a` when it keeps none.
+    func retryPipeline(_ number: Int, beforeWrite: @Sendable (MergeRequest) async throws -> Void) async throws -> PipelineRetry {
+        let (status, live) = script.withLock { s in
+            (s.pipeline, s.existing ?? MergeRequest(iid: number, title: "", sourceBranch: "feat/a", targetBranch: "main",
+                                                     author: "aiterm", state: "opened", draft: false, url: Self.url))
+        }
+        if let hold = script.withLock({ $0.beforeRetry }) { await hold() }
+        guard let status else { return .notFailed("it has no pipeline") }
+        guard status == "failed" else { return .notFailed("its pipeline is \(status)") }
+        try await beforeWrite(live)
+        calls.withLock { $0.append("retry \(number)") }
+        script.withLock { $0.pipeline = "running" }
+        return .retried("pipeline 5501")
     }
 
     func findUsers(_ query: String) async throws -> [HostUser] {

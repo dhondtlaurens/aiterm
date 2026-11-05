@@ -50,8 +50,10 @@ fresh right before each write (no Pause, no End, no takeover, same ownership, sa
   merge can then never race the worker's new commits, also not during the delivery's await. The finisher's recheck before
   a merge (`PublicationGuard.recheck`, which needs the task `accepted` on the same commit) stays the last guard.
 - **open_tab** uses the same rule as message_task (`working`, `inReview`, or reopenable): a tab added to an accepted task
-  reopens it once the tab is asked for (its outcome not failed). A first-key reopen after a lost answer finds the task
-  working already and answers the same. The served descriptions of both tools say so.
+  reopens it once the tab is recorded and saved, right before the tab is asked for: AiTerm's tab opener opens tabs only on
+  a task at work. A tab that then fails leaves the task reopened on its accepted commit, which `mark_task accepted` takes
+  again. The same key after a lost answer finds the tab recorded and answers the same. The served descriptions of both
+  tools say so.
 
 ### 2. retry_pipeline
 
@@ -62,7 +64,8 @@ fresh right before each write (no Pause, no End, no takeover, same ownership, sa
   - **GitLab:** reads the merge request with its `head_pipeline` (id, status). Failed: `POST
     /projects/:id/pipelines/:pipeline/retry`, which reruns its failed jobs. Any other status: `.notFailed(status)`.
   - **GitHub:** reads the pull request's head, then the Actions workflow runs for that head
-    (`GET /repos/:repo/actions/runs?head_sha=…`), the latest run of each workflow. Each one that failed
+    (`GET /repos/:repo/actions/runs?head_sha=…`), the latest run of each workflow for each event that ran it (a push and
+    the pull request run the same workflow on the same head apart). Each one that failed
     (`failure`, `timed_out`, `startup_failure`): `POST /repos/:repo/actions/runs/:id/rerun-failed-jobs`, `beforeWrite`
     before each. None failed: `.notFailed`. A failed check from another app than Actions can't be rerun through the
     API, and is said so.
@@ -87,9 +90,10 @@ fresh right before each write (no Pause, no End, no takeover, same ownership, sa
   written.
 - **critique_thread(task, thread)** asks the Oracle for a critique of one thread on demand: whether the reviewer's point
   is right for this change, and whether the worker should fix it or the Operator push back. It writes nothing to the
-  host, so it needs no slice; it needs the Oracle on, and is refused after a takeover, a Pause or an End. The prompt
-  carries the thread's last note fenced as data, with the task's key, brief, branch, worktree and accepted commit; the
-  Oracle reads the code itself, read-only, as for any challenge.
+  host, so it needs no slice; it needs the Oracle on, and is refused after a takeover, a Pause or an End, read again right
+  before the Oracle starts. The prompt carries the whole thread (its file and line, its notes with who wrote them, the
+  latest 20, fenced as data), with the task's key, request, brief, branch, worktree and commit; the Oracle reads the code
+  itself, read-only, as for any challenge. A critique that comes back after a takeover is not recorded.
   - **Recorded** on the task as `threadCritiques` (thread id, the signature of the note it critiqued as
     `ReviewWatcher.signature` makes it, the commit the task's worktree was on when the Oracle read it, the critique,
     when), saved before it is answered, and shown by `read_task` with what: review next to its thread, with the commit
@@ -121,9 +125,9 @@ saved state of every existing broadcast reads and writes as before.
   merged work.
 - **critique_thread needs no slice**: it only reads the host and asks the Oracle; the Review slice is about writing to
   people's review. It needs the Oracle on.
-- **The critique sees the thread's last note**, which is what the host reads give today (GitHub's thread read is
-  `comments(last: 1)`); widening every thread read to all notes would change the badge and watcher reads too. For the
-  scanner's rule (critique before any fix or pushback) the last note is the finding.
+- **The critique sees the whole thread**: a dedicated read (`threadDetail`: the file and line, every note oldest first)
+  that only critique_thread uses, so the badge and watcher reads stay as they are. The planned last-note-only prompt was
+  dropped after the change review: a follow-up like "Still reproducible" can't be judged without the finding before it.
 - **GitHub "pipeline" means GitHub Actions workflow runs.** Other apps' checks have no rerun API AiTerm can call for
   them; the refusal says so.
 - **The publication record is not touched by a reopen**: the Operator's next finish_task clears an old problem and
@@ -184,14 +188,23 @@ Tests first, each failing before its fix, with the snag log's cases as fixtures.
 
 ## To-dos
 
-- [ ] Steering T1: `isReopenable`, message_task and open_tab with the host check, the finisher's hold while steering (tests 1–3)
-- [ ] retry_pipeline: protocol, GitLab, GitHub, fake host, handler, shell gate wording (tests 4, 5, 7)
-- [ ] resolve_thread: protocol, both hosts, handler (tests 5, 6)
-- [ ] critique_thread: prompt, record, pending, read_task review (test 6)
-- [ ] Served schemas and golden by hand, activity lines, docs (test 8)
+- [x] Steering T1: `isReopenable`, message_task and open_tab with the host check, the finisher's hold while steering (tests 1–3)
+- [x] retry_pipeline: protocol, GitLab, GitHub, fake host, handler, shell gate wording (tests 4, 5, 7)
+- [x] resolve_thread: protocol, both hosts, handler (tests 5, 6)
+- [x] critique_thread: prompt, record, pending, read_task review (test 6)
+- [x] Served schemas and golden by hand, activity lines, docs (test 8)
 
 ## Plan review
 
 Codex, two rounds against 41efd727. Round 1: two Important findings, both fixed in this plan. Steering raced automatic
 merging while the delivery or tab opening awaited (now the finisher's hold from the publishing check to the call's end),
 and a critique was reused after the code it judged had changed (now keyed by the commit it read too). Round 2: none.
+
+## Change review
+
+Codex, three rounds against 41efd727. Round 1, three Important, all fixed. GitHub's latest run per workflow hid a failed
+pull request run behind a newer green push run (now per workflow and event). The Oracle saw only a thread's last note (now
+the whole thread through `threadDetail`). An Oracle could start after a Pause, End or takeover during the reads (now read
+again right before it starts, and a critique back after a takeover is not recorded). Round 2, one Important, fixed:
+message_task could deliver after a Pause during its new host read (now `requestStillOpen` reads the run and task again
+once the host answered, for open_tab too). Round 3: none.

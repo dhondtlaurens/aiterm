@@ -140,6 +140,29 @@ import Foundation
         #expect(throws: OperatedTransitionError.notAllowed(action: "be reopened", from: .accepted)) { try apply(.reopen, left) }
     }
 
+    /// Snag G (T1, !65): an accepted task whose commit is on origin goes back to its worker while its request is open and
+    /// not merged, as AiTerm recorded it; with no request recorded, merged, left for you or published, it doesn't.
+    @Test func anAcceptedTaskWithItsRequestOpenIsReopenable() throws {
+        var t1 = try apply(.accept(F.acceptance("4f2a91c"), branchHead: head), F.operated("T1", .working))
+        t1.end = .merge
+        t1.publication = TaskPublication(pushedSHA: head, mergeRequestURL: "https://git.example.net/web/acme-web/-/merge_requests/65",
+                                         mergeRequestNumber: 65, problem: "it has conflicts")
+        #expect(OperatedTransitions.isReopenable(t1))
+        let reopened = try apply(.reopen, t1)
+        #expect(reopened.state == .working && reopened.acceptance == nil && reopened.reopenedFrom == head)
+        #expect(reopened.publication == t1.publication, "the next finish_task pushes to the same request")
+
+        var merged = t1
+        merged.publication?.merged = true
+        var mergedSHA = t1
+        mergedSHA.publication?.mergedSHA = "5eed5eed"
+        var left = t1
+        left.publication?.leftForYou = true
+        var published = t1
+        published.state = .published
+        for task in [merged, mergedSHA, left, published] { #expect(!OperatedTransitions.isReopenable(task)) }
+    }
+
     /// A reopened task's accepted commit stands: noChange would drop it, so it is refused with what to do instead.
     @Test func noChangeIsRefusedWhileReopened() throws {
         var reopened = F.operated("A", .working)

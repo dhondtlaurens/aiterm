@@ -384,6 +384,9 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     /// Internal content baseline for changedAfterAcceptance; absent in older saved broadcasts.
     /// Kept outside TaskAcceptance so it never enters status or Oracle acceptance evidence.
     public var acceptanceWorktreeFingerprint: String? = nil
+    /// The Oracle's critiques of the task's review threads, asked for by `critique_thread`, oldest first: one per thread,
+    /// note and commit judged. Absent in older saved broadcasts, and left out of the file while there is none.
+    public var threadCritiques: [ThreadCritique] = []
 
     public init(runId: UUID, key: String, state: OperatedState = .planned, end: TaskEnd = .commit, brief: String,
                 dependsOn: [TaskDependency] = [], stackedOn: UUID? = nil, revision: Int, firstRevision: Int? = nil,
@@ -417,7 +420,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         case blockedReason, blockedFrom, lastFailure, flags
         case requestedLaunch
         case modelReason, agentPinned, problem, agentReview, peopleReview, branchDrift, extraTabs, reopenedFrom, reviewVerdicts, keptReason
-        case closingWait, diffBaseSHA, acceptanceWorktreeFingerprint
+        case closingWait, diffBaseSHA, acceptanceWorktreeFingerprint, threadCritiques
     }
 
     /// Synthesised but for `flags`: a flag this build does not know is dropped, not a failed load.
@@ -460,6 +463,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         closingWait = try c.decodeIfPresent(ClosingWait.self, forKey: .closingWait)
         diffBaseSHA = try c.decodeIfPresent(String.self, forKey: .diffBaseSHA)
         acceptanceWorktreeFingerprint = try c.decodeIfPresent(String.self, forKey: .acceptanceWorktreeFingerprint)
+        threadCritiques = try c.decodeIfPresent([ThreadCritique].self, forKey: .threadCritiques) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -502,6 +506,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         try c.encodeIfPresent(closingWait, forKey: .closingWait)
         try c.encodeIfPresent(diffBaseSHA, forKey: .diffBaseSHA)
         try c.encodeIfPresent(acceptanceWorktreeFingerprint, forKey: .acceptanceWorktreeFingerprint)
+        if !threadCritiques.isEmpty { try c.encode(threadCritiques, forKey: .threadCritiques) }
     }
 }
 
@@ -621,6 +626,20 @@ public struct OperatorSnag: Codable, Equatable, Sendable {
         }
         lines += ["", "Make AiTerm show what was true here, so the Operator doesn't have to work around it."]
         return lines.joined(separator: "\n")
+    }
+}
+
+/// The Oracle's critique of one review thread, as `critique_thread` asked for it (snag G): the thread, the note it read
+/// (`ReviewWatcher.signature` of its last author and body), the commit the task's worktree was on, and what it said. A new
+/// note or a branch that moved since is another critique.
+public struct ThreadCritique: Codable, Equatable, Sendable {
+    public var thread: String
+    public var note: String
+    public var head: String?
+    public var critique: String
+    public var at: Date
+    public init(thread: String, note: String, head: String?, critique: String, at: Date) {
+        self.thread = thread; self.note = note; self.head = head; self.critique = critique; self.at = at
     }
 }
 

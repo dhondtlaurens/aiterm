@@ -57,7 +57,7 @@ changes. Their provenance files describe the synthetic data. They contain no pri
 | `AiTermTests/Fixtures/operator-current/state.json` | `OperatorCurrentContractTests`: StateStore load, restart/reconnect, task/worker ownership. |
 | Same directory's `contract.json` | The same suite's current journey: tool/status replies across tabs, pause, acceptance/publication, goal rounds and summary. |
 | `AiTermCoreTests/Operators/Fixtures/operator-current/brief-*.md` | `OperatorCommandTests`: complete current brief variants, including resume. |
-| `daemon/tests/fixtures/operator-current-tools.json` | `test_operator_mcp.py`: all 33 served schemas, preserving order and descriptions. |
+| `daemon/tests/fixtures/operator-current-tools.json` | `test_operator_mcp.py`: all 36 served schemas, preserving order and descriptions. |
 | `daemon/tests/wire/` | Python producers and Swift `WireContractTests`: framing, event/reply decoding and protocol names. |
 
 Swift fixture paths above are relative to `app/Tests/`. They are checkout-read fixtures, excluded

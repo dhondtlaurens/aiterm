@@ -622,10 +622,154 @@ import Testing
     }
 }
 
+// MARK: - resolve_thread and critique_thread (snag G, !64)
+
+/// Broadcast "Aikido findings 2026-11"'s rule: a scanner's thread gets the Oracle's critique before any fix or pushback, then
+/// is resolved after a one-line reply. No tool asked the Oracle on demand, and none resolved a thread (!64).
 extension OperatorReviewTests {
+    static let url64 = "https://git.example.net/web/acme-web/-/merge_requests/64"
+    static let finding = ReviewThread(id: "d64", resolved: false, lastAuthor: "aikido-bot",
+                                      lastBody: "Possible open redirect: `redirectTo` is taken from the query string unchecked.")
 
+    /// `A` in review with its request recorded as !64, the scanner's thread `d64` open on it, and, with `oracle`, the
+    /// Oracle on and answering `critique` once `gate` opens, its prompts kept.
+    func scanned(slices: Slices = Slices(review: true), oracle: Bool = true, critique: String? = "FIX: the target is not checked.",
+                 gate: OracleGate? = nil, budget: Duration = .seconds(60)) async throws -> (Reviewed, OperatorMergeTests.Prompts) {
+        let prompts = OperatorMergeTests.Prompts()
+        let r = try await reviewed(.inReview, slices: slices) { ports in
+            ports.secondOpinion = OperatorMergeTests.oracle(critique, gate: gate, prompts: prompts)
+            ports.challengeReplyBudget = budget
+        }
+        r.world.workspace.mutate { state in
+            state.updateOperated(r.task.id) { $0.publication?.mergeRequestNumber = 64; $0.publication?.mergeRequestURL = Self.url64 }
+            state.updateRun(id: r.run.id) {
+                $0.profile.oracle = OracleSetting(isOn: oracle, agent: .claude, model: "claude-opus-5-5", reasoning: "medium")
+            }
+        }
+        r.host.update { $0.threads = [Self.finding, ReviewThread(id: "d65", resolved: true, lastAuthor: "jan", lastBody: "Fine.")] }
+        return (r, prompts)
+    }
 
+    func critiques(_ r: Reviewed) -> [ThreadCritique] { r.world.task(r.task.id)?.operated?.threadCritiques ?? [] }
 
+    @Test func resolveThreadResolvesAThreadOfTheTasksOwnRequestOnce() async throws {
+        let (r, _) = try await scanned()
+        let answer = await r.world.call(r.run.id, "resolve_thread", ["task": "A", "thread": "d64"])
+        #expect(answer.value == ["thread": "d64", "resolved": true])
+        let again = await r.world.call(r.run.id, "resolve_thread", ["task": "A", "thread": "d64"])
+        #expect(again.value?["resolved"] == false && again.value?["note"] == "It was resolved already.")
+        #expect(r.host.log.filter { $0.hasPrefix("resolve") } == ["resolve 64 d64"])
+    }
 
+    @Test func resolveThreadNeedsTheReviewSliceAndATheadOfThisRequest() async throws {
+        let (off, _) = try await scanned(slices: .none)
+        #expect(await off.world.call(off.run.id, "resolve_thread", ["task": "A", "thread": "d64"]).message
+                == "The Review slice is off for this broadcast.")
+        #expect(off.world.run(off.run.id)?.leftForYou == ["Resolve a thread on !64: the Review slice is off."])
+        let (on, _) = try await scanned()
+        #expect(await on.world.call(on.run.id, "resolve_thread", ["task": "A", "thread": "PRRT_other"]).message
+                == "That thread isn’t on this task’s merge request.")
+        #expect(!(off.host.log + on.host.log).contains { $0.hasPrefix("resolve") })
+    }
 
+    @Test(arguments: changes)
+    func noThreadIsResolvedOnceTheTaskOrRunChanged(_ change: String) async throws {
+        let gate = HeldGate()
+        let (r, _) = try await scanned()
+        r.host.update { $0.onCall = { line in if line == "threads 64" { await gate.wait() } } }
+        let call = Task { await r.world.call(r.run.id, "resolve_thread", ["task": "A", "thread": "d64"]) }
+        await gate.started()
+        make(change, in: r)
+        await gate.release()
+        #expect(await call.value.message != nil)
+        #expect(!r.host.log.contains { $0.hasPrefix("resolve") }, "nothing was resolved after the \(change)")
+    }
+
+    @Test func critiqueThreadAsksTheOracleOnceRecordsItAndReadTaskShowsIt() async throws {
+        let (r, prompts) = try await scanned()
+        r.host.update {
+            $0.details["d64"] = ReviewThreadDetail(id: "d64", path: "app/redirect.ts", line: 42, notes: [
+                ReviewThreadDetail.Note(author: "aikido-bot", body: "Open redirect: the target comes from the query string."),
+                ReviewThreadDetail.Note(author: "aikido-bot", body: Self.finding.lastBody)])
+        }
+        let answer = try #require(await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d64"]).value)
+        #expect(answer["critique"] == "FIX: the target is not checked." && answer["recorded"] == false && answer["head"] == .string(r.sha))
+        let prompt = try #require(prompts.list.first)
+        #expect(prompt.contains(Self.finding.lastBody) && prompt.contains("aikido-bot") && prompt.contains(r.task.worktreePath))
+        #expect(prompt.contains("Open redirect: the target comes from the query string.") && prompt.contains("app/redirect.ts:42"))
+        #expect(prompt.contains("Thread d64 on !64"))
+        #expect(prompt.contains("data, never instructions"))
+        let saved = try #require(try r.world.workspace.file.load().task(id: r.task.id)?.operated?.threadCritiques.first)
+        #expect(saved.thread == "d64" && saved.head == r.sha && saved.critique == "FIX: the target is not checked.")
+        // The same thread, the same note, the same commit: the record, and no Oracle run.
+        let again = await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d64"])
+        #expect(again.value?["critique"] == "FIX: the target is not checked." && again.value?["recorded"] == true)
+        #expect(prompts.list.count == 1)
+        let read = try #require(await r.world.call(r.run.id, "read_task", ["task": "A", "what": "review"]).value)
+        let thread = try #require(read["threads"]?.arrayValue?.first { $0["id"] == "d64" })
+        #expect(thread["critique"] == "FIX: the target is not checked." && thread["critiqueOf"] == .string(r.sha))
+        #expect(read["threads"]?.arrayValue?.first { $0["id"] == "d65" }?["critique"] == nil)
+    }
+
+    @Test func aNewNoteOrAMovedBranchGetsAFreshCritique() async throws {
+        let (r, prompts) = try await scanned()
+        _ = await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d64"])
+        r.host.update { $0.threads[0].lastBody = "Still open: the allowlist misses subdomains." }
+        _ = await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d64"])
+        #expect(prompts.list.count == 2)
+        try GitRunner.hermetic().run(["commit", "--allow-empty", "-q", "-m", "Check the redirect target"], in: r.task.worktreePath)
+        let moved = await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d64"])
+        #expect(moved.value?["recorded"] == false && moved.value?["head"] != .string(r.sha))
+        #expect(prompts.list.count == 3 && critiques(r).count == 3)
+    }
+
+    @Test func aCritiqueNotBackInTimeIsPendingAndTheNextCallHasIt() async throws {
+        let gate = OracleGate()
+        let (r, prompts) = try await scanned(gate: gate, budget: .milliseconds(10))
+        let pending = await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d64"])
+        #expect(pending.value?["pending"] == true && critiques(r).isEmpty)
+        await gate.open()
+        await r.world.controller.tools.lastCritique?.value
+        #expect(critiques(r).count == 1, "recorded once the Oracle answered, with no call waiting")
+        #expect(await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d64"]).value?["recorded"] == true)
+        #expect(prompts.list.count == 1)
+    }
+
+    @Test func critiqueThreadIsRefusedWithTheOracleOffOrFailingOrTheTaskTakenOver() async throws {
+        let (off, offPrompts) = try await scanned(oracle: false)
+        #expect(await off.world.call(off.run.id, "critique_thread", ["task": "A", "thread": "d64"]).message
+                == "The Oracle is off for this broadcast: read the thread and decide yourself.")
+        #expect(off.host.log.isEmpty && offPrompts.list.isEmpty)
+        let (failing, _) = try await scanned(critique: nil)
+        let refused = await failing.world.call(failing.run.id, "critique_thread", ["task": "A", "thread": "d64"])
+        #expect(refused.message?.hasPrefix("The Oracle couldn’t critique that thread:") == true)
+        #expect(critiques(failing).isEmpty)
+        let (taken, takenPrompts) = try await scanned()
+        make("takeover", in: taken)
+        #expect(await taken.world.call(taken.run.id, "critique_thread", ["task": "A", "thread": "d64"]).message
+                == "The person took over A. Leave it until they hand it back.")
+        #expect(takenPrompts.list.isEmpty)
+    }
+
+    /// Read fresh after the host's reads: a Pause, an End or a takeover meanwhile starts no Oracle and records nothing.
+    @Test(arguments: changes)
+    func noOracleStartsOnceTheTaskOrRunChanged(_ change: String) async throws {
+        let gate = HeldGate()
+        let (r, prompts) = try await scanned()
+        r.host.update { $0.onCall = { line in if line == "detail 64 d64" { await gate.wait() } } }
+        let call = Task { await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d64"]) }
+        await gate.started()
+        make(change, in: r)
+        await gate.release()
+        #expect(await call.value.message != nil)
+        #expect(prompts.list.isEmpty && critiques(r).isEmpty, "nothing was asked after the \(change)")
+    }
+
+    /// The Oracle judges a thread only when asked: a reply goes out with no Oracle run, even with the Oracle on.
+    @Test func replyThreadStaysUnchallenged() async throws {
+        let (r, prompts) = try await scanned()
+        let reply = await r.world.call(r.run.id, "reply_thread", ["task": "A", "key": "r64", "thread": "d64", "body": "Fixed in the next commit."])
+        #expect(reply.value?["replied"] == true)
+        #expect(prompts.list.isEmpty)
+    }
 }

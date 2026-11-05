@@ -179,6 +179,53 @@ import Synchronization
         #expect(try body(stub.lastRequest)["title"] as? String == "PLUTO-231: Add gift card", "a request that is no draft gets no prefix")
     }
 
+    // MARK: - retry_pipeline and resolve_thread (snag G)
+
+    /// Six pipelines of broadcast "Aikido findings 2026-11" failed on runner timeouts: the request's head pipeline, once
+    /// failed, is retried by its id, with the request as read handed over first.
+    @Test func aFailedHeadPipelineIsRetried() async throws {
+        let (client, stub) = makeClient { request in
+            request.httpMethod == "POST" ? (201, Data(#"{"id":5501,"status":"running"}"#.utf8))
+                : (200, Data(Self.status(detailed: "ci_must_pass", pipeline: "failed").utf8))
+        }
+        let seen = Mutex<MergeRequest?>(nil)
+        let retried = try await client.retryPipeline(project: "web/acme-web", iid: 12, beforeWrite: { request in seen.withLock { $0 = request } })
+        #expect(retried == .retried("pipeline 5501"))
+        #expect(seen.withLock { $0 }?.sourceBranch == "feat/pluto-231-add-gift-card")
+        let sent = try #require(stub.lastRequest)
+        #expect(sent.httpMethod == "POST")
+        #expect(sent.url?.absoluteString == "https://git.example.net/api/v4/projects/web%2Facme-web/pipelines/5501/retry")
+    }
+
+    @Test(arguments: ["running", "success", "canceled", nil] as [String?])
+    func aPipelineThatDidntFailIsNotRetried(_ pipeline: String?) async throws {
+        let (client, stub) = makeClient { _ in (200, Data(Self.status(detailed: "mergeable", pipeline: pipeline).utf8)) }
+        let answer = try await client.retryPipeline(project: "web/acme-web", iid: 12, beforeWrite: { _ in Issue.record("nothing to write") })
+        #expect(answer == .notFailed(pipeline.map { "its pipeline is \($0)" } ?? "it has no pipeline"))
+        #expect(!stub.requests.contains { $0.httpMethod != "GET" })
+    }
+
+    /// critique_thread's read: the discussion whole, its place on the diff and its notes, GitLab's own left out.
+    @Test func aDiscussionIsReadWhole() async throws {
+        let discussion = #"{"id":"d64","notes":[{"body":"Open redirect.","author":{"username":"aikido-bot"},"system":false,"#
+            + #""position":{"new_path":"app/redirect.ts","new_line":42,"old_path":"app/redirect.ts","old_line":40}},"#
+            + #"{"body":"changed this line","system":true},{"body":"Still open.","author":{"username":"jan"},"system":false}]}"#
+        let (client, stub) = makeClient { _ in (200, Data(discussion.utf8)) }
+        let detail = try await client.threadDetail(project: "web/acme-web", iid: 64, discussion: "d64")
+        #expect(detail == ReviewThreadDetail(id: "d64", path: "app/redirect.ts", line: 42, notes: [
+            ReviewThreadDetail.Note(author: "aikido-bot", body: "Open redirect."), ReviewThreadDetail.Note(author: "jan", body: "Still open.")]))
+        #expect(stub.lastRequest?.url?.absoluteString == Self.base + "/64/discussions/d64")
+    }
+
+    @Test func aDiscussionIsResolved() async throws {
+        let (client, stub) = makeClient { _ in (200, Data(#"{"id":"d64","notes":[]}"#.utf8)) }
+        try await client.resolve(project: "web/acme-web", iid: 64, discussion: "d64")
+        let sent = try #require(stub.lastRequest)
+        #expect(sent.httpMethod == "PUT")
+        #expect(sent.url?.absoluteString == Self.base + "/64/discussions/d64")
+        #expect(try body(sent)["resolved"] as? Bool == true)
+    }
+
     @Test func anAssigneeGitLabDoesNotKnowWritesNothing() async throws {
         let (client, stub) = makeClient { request in
             if request.url?.path.hasSuffix("/users") == true { return (200, Data("[]".utf8)) }

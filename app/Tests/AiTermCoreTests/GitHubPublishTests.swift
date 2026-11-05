@@ -106,6 +106,81 @@ import Synchronization
         #expect(stub.requests.filter { $0.httpMethod != "GET" }.map { $0.url?.path ?? "" } == ["/repos/octocat/hello/issues/88"])
     }
 
+    // MARK: - retry_pipeline and resolve_thread (snag G)
+
+    /// The Actions runs of a head, newest first, as `GET /repos/:repo/actions/runs?head_sha=` lists them.
+    static func workflowRuns(_ runs: [(id: Int, workflow: Int, name: String, status: String, conclusion: String?)],
+                             event: (Int) -> String = { _ in "pull_request" }) -> String {
+        let items = runs.map { run in
+            let conclusion = run.conclusion.map { "\"\($0)\"" } ?? "null"
+            return #"{"id":\#(run.id),"workflow_id":\#(run.workflow),"name":"\#(run.name)","event":"\#(event(run.id))","status":"\#(run.status)","conclusion":\#(conclusion)}"#
+        }
+        return #"{"total_count":\#(runs.count),"workflow_runs":[\#(items.joined(separator: ","))]}"#
+    }
+
+    /// The failed jobs of each workflow's latest run on the head are rerun; an older failed run of a workflow that passed
+    /// since, and a green one, are left alone.
+    @Test func theFailedLatestRunOfEachWorkflowIsRerun() async throws {
+        let runs = Self.workflowRuns([(31, 7, "CI", "completed", "timed_out"), (30, 8, "Lint", "completed", "success"),
+                                      (20, 8, "Lint", "completed", "failure")])
+        let (client, stub) = makeClient { request in
+            let path = request.url?.path ?? ""
+            if request.httpMethod == "POST" { return (201, Data()) }
+            if path.hasSuffix("/actions/runs") { return (200, Data(runs.utf8)) }
+            return (200, Data(Self.pull().utf8))
+        }
+        let checked = Mutex(0)
+        let answer = try await client.retryFailedRuns(repo: "octocat/hello", number: 88, beforeWrite: { _ in checked.withLock { $0 += 1 } })
+        #expect(answer == .retried("the failed jobs of CI"))
+        let listed = try #require(stub.requests.first { $0.url?.path.hasSuffix("/actions/runs") == true })
+        #expect(listed.url?.query?.contains("head_sha=\(Self.head)") == true)
+        #expect(stub.requests.filter { $0.httpMethod == "POST" }.map { $0.url?.absoluteString } == ["\(Self.api)/actions/runs/31/rerun-failed-jobs"])
+        #expect(checked.withLock { $0 } == 1)
+    }
+
+    /// One workflow run on both `push` and `pull_request` for the same head: a newer green push run doesn't hide the
+    /// failed pull request run.
+    @Test func eachEventsLatestRunIsJudgedApart() async throws {
+        let runs = Self.workflowRuns([(41, 7, "CI", "completed", "success"), (40, 7, "CI", "completed", "failure")],
+                                     event: { $0 == 41 ? "push" : "pull_request" })
+        let (client, stub) = makeClient { request in
+            if request.httpMethod == "POST" { return (201, Data()) }
+            return request.url?.path.hasSuffix("/actions/runs") == true ? (200, Data(runs.utf8)) : (200, Data(Self.pull().utf8))
+        }
+        #expect(try await client.retryFailedRuns(repo: "octocat/hello", number: 88) == .retried("the failed jobs of CI"))
+        #expect(stub.requests.filter { $0.httpMethod == "POST" }.map { $0.url?.absoluteString } == ["\(Self.api)/actions/runs/40/rerun-failed-jobs"])
+    }
+
+    @Test func aHeadWithNoFailedRunIsNotRetried() async throws {
+        let runs = Self.workflowRuns([(31, 7, "CI", "in_progress", nil)])
+        let (client, stub) = makeClient { request in
+            request.url?.path.hasSuffix("/actions/runs") == true ? (200, Data(runs.utf8)) : (200, Data(Self.pull().utf8))
+        }
+        let answer = try await client.retryFailedRuns(repo: "octocat/hello", number: 88, beforeWrite: { _ in Issue.record("nothing to write") })
+        #expect(answer == .notFailed("no GitHub Actions run of its head failed; another app's check is rerun in that app"))
+        #expect(!stub.requests.contains { $0.httpMethod == "POST" })
+    }
+
+    /// critique_thread's read: the thread by its node id, its file, line and comments; one of another pull request is refused.
+    @Test func aReviewThreadIsReadWholeAndOnlyFromItsOwnPullRequest() async throws {
+        let answer = #"{"data":{"node":{"id":"PRRT_64","path":"app/redirect.ts","line":42,"originalLine":40,"pullRequest":{"number":88},"#
+            + #""comments":{"nodes":[{"body":"Open redirect.","author":{"login":"aikido-bot"}},{"body":"Still open.","author":{"login":"jan"}}]}}}}"#
+        let (client, stub) = makeClient { _ in (200, Data(answer.utf8)) }
+        let detail = try await client.threadDetail(repo: "octocat/hello", number: 88, thread: "PRRT_64")
+        #expect(detail == ReviewThreadDetail(id: "PRRT_64", path: "app/redirect.ts", line: 42, notes: [
+            ReviewThreadDetail.Note(author: "aikido-bot", body: "Open redirect."), ReviewThreadDetail.Note(author: "jan", body: "Still open.")]))
+        #expect((try body(stub.lastRequest)["variables"] as? [String: Any])?["thread"] as? String == "PRRT_64")
+        await #expect(throws: GitHubError.self) { try await client.threadDetail(repo: "octocat/hello", number: 89, thread: "PRRT_64") }
+    }
+
+    @Test func aReviewThreadIsResolvedByItsNodeId() async throws {
+        let (client, stub) = makeClient { _ in (200, Data(#"{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}"#.utf8)) }
+        try await client.resolve(repo: "octocat/hello", thread: "PRRT_64")
+        let sent = try body(stub.lastRequest)
+        #expect((sent["query"] as? String)?.contains("resolveReviewThread") == true)
+        #expect((sent["variables"] as? [String: Any])?["thread"] as? String == "PRRT_64")
+    }
+
     @Test func aDraftIsOpenedFromTheTasksBranch() async throws {
         let (client, stub) = makeClient { _ in (201, Data(Self.pull(draft: true, mergeable: "null", mergeableState: "unknown").utf8)) }
         let request = try await client.createPullRequest(repo: "octocat/hello", source: "feat/pluto-231", target: "main",

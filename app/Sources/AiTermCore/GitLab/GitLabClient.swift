@@ -354,6 +354,49 @@ public struct GitLabClient: Sendable {
                            body: Note(body: body), notFound: .projectNotFound(project))
     }
 
+    /// The discussion `discussion` whole: the file and line its first note is on, when it is on the diff, and every note
+    /// that is not GitLab's own, oldest first.
+    public func threadDetail(project: String, iid: Int, discussion: String) async throws -> ReviewThreadDetail {
+        struct Discussion: Decodable {
+            struct Position: Decodable { var newPath: String?, newLine: Int?, oldPath: String?, oldLine: Int? }
+            struct Note: Decodable {
+                struct Author: Decodable { var username: String? }
+                var body: String?, author: Author?, system: Bool?, position: Position?
+            }
+            var id: String, notes: [Note]?
+        }
+        let read = try await get(Discussion.self, path: Self.requestsPath(project) + "/\(iid)/discussions/\(Self.encodedProject(discussion))",
+                                 notFound: .projectNotFound(project))
+        let notes = (read.notes ?? []).filter { $0.system != true }
+        let position = notes.first?.position
+        return ReviewThreadDetail(id: read.id, path: position?.newPath ?? position?.oldPath, line: position?.newLine ?? position?.oldLine,
+                            notes: notes.map { ReviewThreadDetail.Note(author: $0.author?.username, body: $0.body ?? "") })
+    }
+
+    /// Resolves the discussion `discussion`; GitLab leaves one resolved already as it is.
+    public func resolve(project: String, iid: Int, discussion: String) async throws {
+        struct Resolve: Encodable { var resolved = true }
+        struct Resolved: Decodable { var id: String? }
+        _ = try await send(Resolved.self, method: "PUT", path: Self.requestsPath(project) + "/\(iid)/discussions/\(Self.encodedProject(discussion))",
+                           body: Resolve(), notFound: .projectNotFound(project))
+    }
+
+    /// Retries its head pipeline once it failed: GitLab reruns that pipeline's failed jobs. Any other status, or none, is
+    /// `.notFailed` with nothing written. `beforeWrite` gets the request as read, right before the retry.
+    public func retryPipeline(project: String, iid: Int, beforeWrite: @Sendable (MergeRequest) async throws -> Void = { _ in }) async throws -> PipelineRetry {
+        let read = try await get(RequestWithPipeline.self, path: Self.requestsPath(project) + "/\(iid)", notFound: .projectNotFound(project))
+        guard let pipeline = read.headPipeline else { return .notFailed("it has no pipeline") }
+        guard pipeline.status == "failed", let id = pipeline.id else {
+            return .notFailed("its pipeline is \((pipeline.status ?? "unknown").replacingOccurrences(of: "_", with: " "))")
+        }
+        try await beforeWrite(read.request.mergeRequest)
+        struct Nothing: Encodable {}
+        struct Retried: Decodable { var id: Int? }
+        _ = try await send(Retried.self, method: "POST", path: Self.projectPath(project) + "/pipelines/\(id)/retry", body: Nothing(),
+                           notFound: .projectNotFound(project))
+        return .retried("pipeline \(id)")
+    }
+
     /// The project's members who match `query`, by username or name: who may review in it.
     public func findUsers(project: String, query: String) async throws -> [HostUser] {
         struct User: Decodable { var username: String, name: String? }
@@ -507,6 +550,17 @@ private struct MergeRequestPayload: Decodable {
                      forkHead: sourceProjectId != nil && targetProjectId != nil && sourceProjectId != targetProjectId
                          ? "project \(sourceProjectId!):\(sourceBranch)" : nil,
                      description: description)
+    }
+}
+
+/// A merge request with its head pipeline, read in one answer: what `retryPipeline` decides on.
+private struct RequestWithPipeline: Decodable {
+    struct Pipeline: Decodable { var id: Int?, status: String? }
+    private struct Head: Decodable { var headPipeline: Pipeline? }
+    let request: MergeRequestPayload, headPipeline: Pipeline?
+    init(from decoder: Decoder) throws {
+        request = try MergeRequestPayload(from: decoder)
+        headPipeline = try Head(from: decoder).headPipeline
     }
 }
 

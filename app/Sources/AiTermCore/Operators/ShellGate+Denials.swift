@@ -30,7 +30,8 @@ extension ShellGate {
 
     static func apiDenial(_ tool: String) -> String {
         "AiTerm refuses a `\(tool) api` call other than a GET from the Operator's shell: changes on the host, merges and merge "
-            + "requests among them, are AiTerm's: update_request changes a task's request's title, description or assignee, and "
+            + "requests among them, are AiTerm's: update_request changes a task's request's title, description or assignee, "
+            + "retry_pipeline reruns its failed pipeline, reply_thread and resolve_thread answer and resolve its review threads, and "
             + "finish_task merges."
     }
 

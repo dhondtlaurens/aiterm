@@ -242,6 +242,9 @@ extension OperatorToolHandler {
             throw ToolRefusal("\(operated.key) is \(operated.state.rawValue)\(why): there is no worker to steer.")
         }
         let worker = try self.worker(call, of: task)
+        let release = try holdForSteering(task, operated, by: "message_task")
+        defer { release() }
+        try await requestStillOpen(task, operated, by: "message_task", in: run.id)
         let key = MessageKey(task: task.id, tab: worker.key, text: text), now = ports.now()
         deliveredMessages = deliveredMessages.filter { now.timeIntervalSince($0.value.at) < Self.messageReplayWindow }
         if let recorded = deliveredMessages[key] { return recorded.answer }
@@ -264,9 +267,56 @@ extension OperatorToolHandler {
         return answer
     }
 
+    /// An accepted task steered by `tool` (`message_task`, `open_tab`): refused while a publication of it runs, else its
+    /// publication held from now, before anything is awaited, until the returned release is called at the call's end
+    /// (`TaskFinisher.hold`). Nothing is held for a task in any other state.
+    func holdForSteering(_ task: TaskItem, _ operated: OperatedTask, by tool: String) throws(ToolRefusal) -> () -> Void {
+        guard operated.state == .accepted else { return {} }
+        guard !publishing(task.id) else {
+            throw ToolRefusal("AiTerm is publishing \(operated.key) now: call \(tool) again once finish_task answers.")
+        }
+        holdPublication(task.id)
+        return { [weak self] in self?.releasePublication(task.id) }
+    }
+
+    /// For an accepted task whose commit is on origin, steered while its request is open (snag G, T1's !65): the host must
+    /// still have that request open from the task's branch. One merged or closed there, or a host that can't say within
+    /// `OperatorPorts.hostTimeout`, steers nothing: a worker would otherwise work on merged work on a guess.
+    /// Once the host answered, the broadcast and the task are read again: a Pause, an End, a takeover or another acceptance
+    /// meanwhile steers nothing.
+    func requestStillOpen(_ task: TaskItem, _ operated: OperatedTask, by tool: String, in runId: UUID) async throws {
+        guard operated.state == .accepted, let publication = operated.publication, let number = publication.mergeRequestNumber,
+              let pushed = publication.pushedSHA, let accepted = operated.acceptance?.resultSHA,
+              OperatedTransitions.sameCommit(pushed, accepted) else { return }
+        let reference = publication.mergeRequestURL.map { CodeHost(webURL: $0).reference(number) } ?? "#\(number)"
+        let limit = ports.hostTimeout, branch = task.branch
+        let answer = await Self.within(limit) { [self] in
+            let host = try await reviewHost(of: task, request: publication)
+            return try await host.existingRequest(from: branch)
+        }
+        switch answer {
+        case .success(let open):
+            guard open?.iid == number else {
+                throw ToolRefusal("\(reference) is no longer open on the host: AiTerm steers an accepted task only while its request is open.")
+            }
+        case .failure(let error):
+            var why = error is NoAnswer ? "the host did not answer in \(Int(limit.components.seconds)) seconds"
+                : (error as? ToolRefusal)?.message ?? error.localizedDescription
+            while why.hasSuffix(".") { why.removeLast() }
+            throw ToolRefusal("AiTerm couldn’t read \(reference) on the host to see that it is still open: \(why). Try again in a moment.")
+        }
+        guard let fresh = state.run(id: runId), let current = state.task(id: task.id) else {
+            throw ToolRefusal("This task is no longer in this broadcast.")
+        }
+        let now = try self.operated(current, in: fresh)
+        guard now.ownership == operated.ownership, now.state == operated.state, now.acceptance?.resultSHA == accepted else {
+            throw ToolRefusal("\(operated.key) changed while AiTerm read its request on the host; call \(tool) again.")
+        }
+    }
+
     /// An accepted task back to its worker, in one change; a complete broadcast holding work again settles once it is
     /// done. False where the task moved on while its message was delivered: the worker has it, the task stays as it is.
-    private func reopen(_ task: TaskItem) -> Bool {
+    func reopen(_ task: TaskItem) -> Bool {
         do {
             try mutate(in: task.operated?.runId) { state in
                 try OperatedTransitions.apply(.reopen, toTask: task.id, in: &state, by: .operatorTool)
