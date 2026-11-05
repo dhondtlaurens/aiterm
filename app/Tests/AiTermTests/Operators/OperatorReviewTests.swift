@@ -139,6 +139,72 @@ import Testing
         #expect(try line(await r.world.call(r.run.id, "run_status"))["mergeRequest"]?["draft"] == false)
     }
 
+    // MARK: - Thread counts as the host has them now (snag D, !63)
+
+    static func thread(_ id: String, resolved: Bool) -> ReviewThread {
+        ReviewThread(id: id, resolved: resolved, lastAuthor: "nathan.geleyn", lastBody: "Please rename this.")
+    }
+
+    /// !63 (T3): a merge end whose review finish_task ended waits for the merge, `accepted`; the watcher no longer reads it,
+    /// so its record keeps two unresolved threads. The reviewer resolved all three on the host: run_status counts 0 and 3,
+    /// and a thread reopened on the host is counted on the very next run_status, with no cache in between.
+    @Test func runStatusCountsTheThreadsTheHostHasNow() async throws {
+        let r = try await reviewed(.accepted, end: .merge, slices: Slices(review: true, merge: true))
+        r.world.workspace.mutate { state in
+            state.updateOperated(r.task.id) {
+                $0.publication = TaskPublication(pushedSHA: r.sha, mergeRequestURL: FakeMergeHost.url, mergeRequestNumber: 63,
+                                                 targetBranch: "main", repository: FakeMergeHost.repository)
+                $0.peopleReview = PeopleReview(reviewers: ["nathan.geleyn"], threads: ["f947912594": false, "b6c93c2c13": false],
+                                               ended: true, startedAt: Date(timeIntervalSince1970: 0))
+            }
+        }
+        r.host.update {
+            $0.threads = [Self.thread("f947912594", resolved: true), Self.thread("b6c93c2c13", resolved: true),
+                          Self.thread("0c11e2a7d4", resolved: true)]
+        }
+        let review = try #require(try line(await r.world.call(r.run.id, "run_status"))["peopleReview"])
+        #expect(review["unresolvedThreads"] == 0 && review["resolvedThreads"] == 3)
+        #expect(review["threadsNote"] == nil)
+
+        r.host.update { $0.threads[2].resolved = false }
+        let again = try #require(try line(await r.world.call(r.run.id, "run_status"))["peopleReview"])
+        #expect(again["unresolvedThreads"] == 1 && again["resolvedThreads"] == 2, "read again, not from a cache")
+        #expect(r.world.task(r.task.id)?.operated?.peopleReview?.threads == ["f947912594": false, "b6c93c2c13": false],
+                "the watcher's record is left as it read it")
+    }
+
+    /// A host that can't be read leaves the counts AiTerm last read, saying they are not current.
+    @Test func threadsTheHostCantGiveAreSaidToBeTheLastRead() async throws {
+        let r = try await reviewed(.inReview)
+        r.world.workspace.mutate { state in
+            state.updateOperated(r.task.id) { $0.peopleReview = PeopleReview(threads: ["t1": false, "t2": true]) }
+        }
+        r.host.update { $0.reviewError = URLError(.notConnectedToInternet) }
+        let review = try #require(try line(await r.world.call(r.run.id, "run_status"))["peopleReview"])
+        #expect(review["unresolvedThreads"] == 1 && review["resolvedThreads"] == 1)
+        let note = try #require(review["threadsNote"]?.stringValue)
+        #expect(note.hasPrefix("AiTerm couldn’t read its threads on the host now: ") && note.hasSuffix("these counts are from its last read."))
+    }
+
+    /// One answer never says a thread is open and the review quiet: a review quiet by the watcher's last read, with a
+    /// thread open on the host now, is not listed under reviewQuiet.
+    @Test func aThreadOpenOnTheHostKeepsTheReviewFromBeingQuiet() async throws {
+        let r = try await reviewed(.inReview)
+        r.world.workspace.mutate { state in
+            state.updateOperated(r.task.id) {
+                $0.peopleReview = PeopleReview(reviewers: ["jan"], threads: ["t1": true], startedAt: Date(timeIntervalSince1970: 0))
+            }
+        }
+        r.host.update { $0.threads = [Self.thread("t1", resolved: true)] }
+        let quiet = await r.world.call(r.run.id, "run_status")
+        #expect(quiet.value?["obligations"]?["reviewQuiet"] == ["A"])
+
+        r.host.update { $0.threads.append(Self.thread("t2", resolved: false)) }
+        let open = await r.world.call(r.run.id, "run_status")
+        #expect(open.value?["obligations"]?["reviewQuiet"] == [])
+        #expect(try line(open)["peopleReview"]?["unresolvedThreads"] == 1)
+    }
+
     @Test func readTaskReviewShowsTheRequestToo() async throws {
         let r = try await reviewed(.inReview)
         r.host.update { $0.approvals = ["alice"] }

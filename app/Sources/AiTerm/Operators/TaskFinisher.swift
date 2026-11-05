@@ -361,7 +361,9 @@ final class TaskFinisher {
 
     /// A publication's step, and what the Merge slice kept from happening left for you once (spec §5).
     private func advance(_ id: UUID, restart: Bool, noVerify: Bool, operatorCall: Bool) async -> Result {
+        let before = store.state.task(id: id)?.operated?.publication?.problem
         let result = await publish(id, restart: restart, noVerify: noVerify, operatorCall: operatorCall)
+        clearFailure(before, on: id, restart: restart, after: result)
         if result.result == .refused, let reason = result.reason,
            let task = store.state.task(id: id), let operated = task.operated,
            operated.state == .accepted, Self.permanent(reason) {
@@ -377,6 +379,19 @@ final class TaskFinisher {
             }
         }
         return result
+    }
+
+    /// A run that went through clears the problem an earlier failed step left. Only a run with `restart` clears a problem
+    /// itself (`TaskPublisher`); a merge watch's polls, and a call while one watches, go on without it, and a watch starts
+    /// only with no problem: one recorded before such a run began (`before`) is a failure of that watch, which a run that
+    /// ended published, in review or waiting to merge is past (T7: the push that landed after the hook refused one). One
+    /// changed meanwhile, a hold (`TaskPublication.operatorHolds`) or a takeover's is kept.
+    private func clearFailure(_ before: String?, on id: UUID, restart: Bool, after result: Result) {
+        guard !restart, let before, [.published, .inReview, .waitingToMerge].contains(result.result),
+              !TaskPublication.isHold(before), before != Self.takenOverProblem,
+              store.state.task(id: id)?.operated?.publication?.problem == before else { return }
+        store.mutate { $0.updateOperated(id) { $0.publication?.problem = nil } }
+        _ = store.flush()
     }
 
     private static func permanent(_ reason: String) -> Bool {
@@ -879,7 +894,10 @@ final class TaskFinisher {
                     continue
                 case .refused:
                     guard !self.isSuspended(id), self.store.state.task(id: id)?.operated != nil else { return }
-                    let why = result.reason ?? PublicationGuard.changedMidway
+                    var why = result.reason ?? PublicationGuard.changedMidway
+                    // The Oracle's yes no longer covers the evidence (mark_task refreshed it): the merge waits for the
+                    // Operator's finish_task, which the Oracle judges, not for you.
+                    if self.awaitsOracle(id, refusedFor: why) { why = PublicationGuard.oracleYesNeeded }
                     self.recordFailure(why, on: id)
                     self.watchStopped(id, why)
                 case .failed:
@@ -894,6 +912,13 @@ final class TaskFinisher {
             }
         }
         watchers[id] = current
+    }
+
+    /// Whether a watch's poll was refused, `why`, for the Oracle's yes no longer covering the task's evidence, as it stands now.
+    private func awaitsOracle(_ id: UUID, refusedFor why: String) -> Bool {
+        let state = store.state
+        guard let task = state.task(id: id), let run = task.operated.flatMap({ state.run(id: $0.runId) }) else { return false }
+        return PublicationGuard.oracleRefusal(task, in: run) == why
     }
 
     /// Why a host could not be had for the project's origin, as Settings would fix it.

@@ -35,7 +35,8 @@ import Synchronization
     /// A broadcast with the Oracle on and `slices` frozen, its Review and Done written, and one accepted task `A`
     /// ending in `end` on the branch of a repository with an origin.
     func merging(end: TaskEnd = .merge, slices: Slices = Slices(merge: true), review: String? = "Merge after Jan approves.",
-                 answer: String?, gate: OracleGate? = nil, budget: Duration = .seconds(60), runner: SecondOpinionRunner? = nil) throws -> Merging {
+                 answer: String?, gate: OracleGate? = nil, budget: Duration = .seconds(60), runner: SecondOpinionRunner? = nil,
+                 adjust: (inout OperatorPorts) -> Void = { _ in }) throws -> Merging {
         let fixture = try GitFixture.withOrigin(branch: "feat/a")
         let project = OperatorServiceFixtures.project(path: fixture.path)
         var profile = OperatorServiceFixtures.profile(oracle: true, oracleAgent: .claude)
@@ -53,6 +54,7 @@ import Synchronization
             ports.publisher = { _ in host }
             ports.secondOpinion = runner ?? Self.oracle(answer, gate: gate, prompts: prompts)
             ports.challengeReplyBudget = budget
+            adjust(&ports)
         })
         world.live.sessions = [OperatorServiceFixtures.session("operator", tag: run.id), OperatorServiceFixtures.session("worker", tag: task.id)]
         return Merging(world: world, run: run, task: task, host: host, sha: fixture.sha, prompts: prompts)
@@ -136,6 +138,62 @@ import Synchronization
     }
 
     func publication(_ m: Merging) -> TaskPublication? { m.world.task(m.task.id)?.operated?.publication }
+
+    /// An Oracle that gives `answers` in turn, the last one again once they run out, keeping each prompt.
+    static func oracle(answering answers: [String], prompts: Prompts) -> SecondOpinionRunner {
+        let left = Mutex(answers)
+        return SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, arguments, _, _, _ in
+            if let at = arguments.firstIndex(of: "-p"), at + 1 < arguments.count { prompts.append(arguments[at + 1]) }
+            let answer = left.withLock { $0.count > 1 ? $0.removeFirst() : $0.first ?? "YES" }
+            let json = String(decoding: try JSONEncoder().encode(["result": answer]), as: UTF8.self)
+            return ProcessOutput(status: 0, stdout: json, stderr: "", timedOut: false)
+        })
+    }
+
+    /// T1, challenge 7A68F0F0, end to end: the merge waits on the host with the Oracle's yes; mark_task refreshes the
+    /// evidence on the same commit through its challenge, which takes that yes away; the watch's next poll stops for it.
+    /// The card waits on the Operator, not on you, with nothing asked of you. The Operator's next finish_task, refused by
+    /// the Oracle, leaves the card saying so, and run_status says both.
+    @Test func aMergeWhoseEvidenceWasRefreshedWaitsOnTheOperator() async throws {
+        let ticker = Ticker(), prompts = Prompts()
+        let runner = Self.oracle(answering: ["YES\nNathan approved it.", "Sound evidence.", "NO\nNathan hasn't approved the new evidence."],
+                                 prompts: prompts)
+        let m = try merging(answer: nil, runner: runner) { ports in
+            ports.clock.sleep = { wait, duration in
+                if wait == .merge { await ticker.wait() } else { try await Task.sleep(for: duration) }
+            }
+        }
+        #expect(await m.world.call(m.run.id, "finish_task", ["task": "A"]).value?["result"] == "waitingToMerge")
+        #expect(m.world.controller.finisher.watching == [m.task.id])
+
+        let args: JSONValue = ["task": "A", "outcome": "accepted", "sha": .string(m.sha),
+                               "checkOutput": "Head b30d82d: integration with main proven; gate green."]
+        let critique = await m.world.call(m.run.id, "mark_task", args)
+        let id = try #require(critique.value?["challengeId"]?.stringValue)
+        #expect(await m.world.call(m.run.id, "mark_task", args.adding("challengeId", .string(id))).message == nil)
+        #expect(publication(m)?.conditionsHeld == nil, "the refreshed evidence has no yes yet")
+
+        await ticker.tick()
+        #expect(await eventually(describing: "the watch to stop") { m.world.controller.finisher.watching.isEmpty })
+        #expect(publication(m)?.problem == PublicationGuard.oracleYesNeeded)
+        func card() throws -> (line: OperatorLine?, requests: [BroadcastRequest]) {
+            let state = m.world.state, run = try #require(state.run(id: m.run.id)), task = try #require(state.task(id: m.task.id))
+            let requests = OperatorRequests.open(run: run, state: state)
+            return (OperatorLine.task(task, run: run, acting: nil, requests: requests), requests)
+        }
+        #expect(try card().line?.text == "accepted · waiting on the Operator")
+        #expect(try card().requests.isEmpty, "nothing asks you")
+        let held = await m.world.call(m.run.id, "run_status")
+        #expect(held.value?["tasks"]?.arrayValue?.first?["publicationProblem"]?.stringValue == PublicationGuard.oracleYesNeeded)
+
+        let refused = await m.world.call(m.run.id, "finish_task", ["task": "A"])
+        #expect(refused.message?.contains("Nathan hasn't approved the new evidence.") == true)
+        #expect(try card().line?.text == "waiting to merge · refused by the Oracle")
+        #expect(try card().line?.look != .needsYou && card().requests.isEmpty)
+        let status = await m.world.call(m.run.id, "run_status")
+        #expect(status.value?["tasks"]?.arrayValue?.first?["mergeRefusal"]?.stringValue == publication(m)?.mergeRefusal)
+        #expect(!m.host.log.contains { $0.hasPrefix("merge") }, "nothing merged")
+    }
 
     @Test(arguments: [true, false]) func mergeEndConditionsJudgeTheAcceptedCommitBeforePublication(approved: Bool) async throws {
         let prompts = Prompts()

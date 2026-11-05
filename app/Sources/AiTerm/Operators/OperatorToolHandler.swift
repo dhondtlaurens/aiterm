@@ -380,9 +380,14 @@ final class OperatorToolHandler {
         }
     }
 
-    func currentStatus(of run: OperatorRun) -> RunStatus? {
+    func currentStatus(of run: OperatorRun) -> RunStatus? { currentStatus(of: run, hostThreads: [:]) }
+
+    /// `hostThreads`: each task's request's threads as the host has them now, which run_status reads first (`readThreads`);
+    /// every other caller counts them as AiTerm last read them.
+    func currentStatus(of run: OperatorRun, hostThreads: [UUID: [String: Bool]]) -> RunStatus? {
         var status = OperatorController.status(of: run.id, state: state, sessions: live.sessions, revision: 0,
-                                  usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turnReadings(), extraTurns: extraTurnReadings(), quiet: quietTasks(), now: ports.now())
+                                  usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turnReadings(), extraTurns: extraTurnReadings(),
+                                  quiet: quietTasks(), hostThreads: hostThreads, now: ports.now())
         for (agent, reading) in [("claude", live.usage.claude), ("codex", live.usage.codex)] {
             var telemetry = RunStatus.UsageTelemetry(lastKnown: reading, now: ports.now())
             if let kind = AgentKind(rawValue: agent), live.usageUnavailable.contains(kind), reading?.retrievalFailure == nil {
@@ -405,14 +410,19 @@ final class OperatorToolHandler {
     // -- reading -------------------------------------------------------------------------------
     /// The snapshot, numbered by the per-run counter here: the same content keeps its revision,
     /// anything changed gets the next one. It carries what each installed agent may run, its model list read
-    /// off the main actor, and what each host says of its tasks' requests (`fillMergeRequests`); the rest is read
-    /// after that, as it is when the answer goes.
+    /// off the main actor, what each host says of its tasks' requests (`fillMergeRequests`), and their review threads as
+    /// the host has them now (`readThreads`); the rest is read after that, as it is when the answer goes.
     private func runStatus(_ run: OperatorRun) async throws -> JSONValue {
         let delivery = await deliveryStatus()
         var agents = await agentChoices()
         for (agent, messaging) in delivery ?? [:] { agents[agent]?.delivery = messaging }
-        guard let current = state.run(id: run.id), var content = currentStatus(of: current) else {
+        let threads = await readThreads(inRun: run.id)
+        guard let current = state.run(id: run.id),
+              var content = currentStatus(of: current, hostThreads: threads.compactMapValues(\.resolutions)) else {
             throw ToolRefusal("This broadcast is no longer in AiTerm.")
+        }
+        for index in content.tasks.indices {
+            if case .note(let note)? = threads[content.tasks[index].id] { content.tasks[index].peopleReview?.threadsNote = note }
         }
         content.run.agents.installed = Dictionary(agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
         await fillMergeRequests(&content)

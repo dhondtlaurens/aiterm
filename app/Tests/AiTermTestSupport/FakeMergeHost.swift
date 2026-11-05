@@ -19,6 +19,10 @@ final class FakeMergeHost: MergeRequestPublishing {
         var readiness: [MergeReadiness] = [.waiting("its pipeline is running")]
         /// Once the host has marked the request ready, reading its readiness fails (a timeout on the way).
         var readinessFailsAfterReady = false
+        /// The next this many readiness reads fail (a timeout on the way), one fewer each read.
+        var readinessFailures = 0
+        /// Awaited inside a readiness read, after it is logged: a test holds a merge watch's poll in flight with it.
+        var beforeReadiness: (@Sendable () async -> Void)?
         /// The merge's answer; nil: merged as `5eed5eed`, at the commit it was asked to merge.
         var merge: MergeReadiness?
         /// The create fails before the host has it (a timeout on the way there).
@@ -101,7 +105,14 @@ final class FakeMergeHost: MergeRequestPublishing {
 
     func readiness(of number: Int) async throws -> MergeReadiness {
         calls.withLock { $0.append("readiness \(number)") }
+        if let hold = script.withLock({ $0.beforeReadiness }) { await hold() }
         if script.withLock({ $0.readinessFailsAfterReady }), calls.withLock({ $0.contains("ready \(number)") }) { throw URLError(.timedOut) }
+        let failing = script.withLock { s in
+            guard s.readinessFailures > 0 else { return false }
+            s.readinessFailures -= 1
+            return true
+        }
+        if failing { throw URLError(.timedOut) }
         return script.withLock { s in
             s.readiness.count > 1 ? s.readiness.removeFirst() : (s.readiness.first ?? .waiting("its pipeline is running"))
         }

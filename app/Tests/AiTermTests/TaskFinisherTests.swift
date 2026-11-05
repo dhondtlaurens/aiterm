@@ -433,6 +433,118 @@ final class MergeClock: Sendable {
         #expect(operated(s)?.publication?.problem == nil)
     }
 
+    // MARK: - What the card and run_status say comes from the current state (snag D)
+
+    /// The task's line, its open requests and its run_status line, as the card and the Operator read them now.
+    func shown(_ s: Setup) throws -> (line: OperatorLine?, requests: [BroadcastRequest], status: RunStatus.TaskLine) {
+        let state = s.store.state
+        let task = try #require(state.task(id: s.task)), run = try #require(state.run(id: s.run))
+        let requests = OperatorRequests.open(run: run, state: state).filter { $0.taskId == s.task }
+        let status = try #require(RunStatus.build(state: state, run: s.run, revision: 1, live: [:])?.tasks.first)
+        return (OperatorLine.task(task, run: run, acting: nil, requests: requests), requests, status)
+    }
+
+    /// T1, challenge 7A68F0F0: a merge waiting on the host with the Oracle's yes for its evidence; mark_task refreshes the
+    /// evidence on the same commit, which takes the yes away. The watch's next poll is refused for it. Nothing waits on the
+    /// person: the merge waits for the Operator's next finish_task, which the Oracle judges. So the card doesn't say
+    /// `blocked`, nobody is notified, and run_status says why the watch stopped.
+    @Test func theOraclesYesToRenewWaitsOnTheOperatorNotOnYou() async throws {
+        let s = try setUp(end: .merge, slices: Slices(merge: true))
+        s.store.mutate { state in
+            state.updateRun(id: s.run) { $0.profile.oracle.isOn = true }
+            guard let task = state.task(id: s.task), let run = state.run(id: s.run) else { return }
+            let evidence = PublicationGuard.evidence(task: task, run: run)
+            state.updateOperated(s.task) {
+                var publication = $0.publication ?? TaskPublication()
+                publication.conditionsHeld = s.sha
+                publication.conditionsEvidence = evidence
+                $0.publication = publication
+            }
+        }
+        #expect(await s.finisher.finish(s.task).result == .waitingToMerge)
+        // mark_task accepted on the same commit with fresh evidence, as OperatorToolHandler+Tasks records it.
+        s.store.mutate { state in
+            state.updateOperated(s.task) {
+                $0.acceptance?.checkOutput = "Head b30d82d: integration with main proven; gate green."
+                $0.publication?.conditionsHeld = nil
+            }
+        }
+        await s.ticker.tick()
+        #expect(await eventually(describing: "the watch to stop") { s.finisher.watching.isEmpty })
+        #expect(operated(s)?.publication?.problem == PublicationGuard.oracleYesNeeded)
+        let now = try shown(s)
+        #expect(now.line?.text == "accepted · waiting on the Operator" && now.line?.look == .quiet)
+        #expect(now.requests.isEmpty, "nothing asks the person")
+        #expect(now.status.publicationProblem == PublicationGuard.oracleYesNeeded, "run_status says what the card waits for")
+        s.finisher.resumeWatching()
+        #expect(s.finisher.watching.isEmpty, "held until the Operator's finish_task")
+
+        // The Operator's next finish_task, the Oracle having said yes again, clears the hold and waits for the host.
+        s.store.mutate { state in
+            guard let task = state.task(id: s.task), let run = state.run(id: s.run) else { return }
+            let evidence = PublicationGuard.evidence(task: task, run: run)
+            state.updateOperated(s.task) { $0.publication?.conditionsHeld = s.sha; $0.publication?.conditionsEvidence = evidence }
+        }
+        #expect(await s.finisher.finish(s.task).result == .waitingToMerge)
+        #expect(operated(s)?.publication?.problem == nil)
+    }
+
+    /// T7, 8eb4928 on !68: a merge end in review, accepted again for a fix round and watched. The first poll's push is
+    /// refused by the pre-push hook, recorded as the task's problem; the next poll's push lands and the task is back in
+    /// review. The hook's label goes with the push that landed.
+    @Test func aLaterPushThatLandsClearsTheHooksLabel() async throws {
+        let s = try setUp(end: .merge, slices: Slices(review: true, merge: true))
+        s.store.mutate { state in
+            state.updateRun(id: s.run) { $0.taskSettings.review = "Assign Nathan, fix his feedback." }
+            state.updateOperated(s.task) {
+                $0.publication = TaskPublication(pushedSHA: "e5c1d0a2b7f4c9e3d8a1b6f0c2e4d7a9b3c5e8f1", mergeRequestURL: FakeMergeHost.url,
+                                                 mergeRequestNumber: 12, targetBranch: "main", repository: FakeMergeHost.repository)
+                $0.peopleReview = PeopleReview(reviewers: ["nathan.geleyn"], startedAt: Date(timeIntervalSince1970: 0))
+            }
+        }
+        let hook = try writeHook("#!/bin/sh\necho 'lefthook: running pre-push'\necho 'sh: npm: command not found' >&2\nexit 1\n", in: s)
+        s.finisher.resumeWatching()
+        #expect(s.finisher.watching == [s.task])
+        await s.ticker.tick()
+        #expect(await eventually(describing: "the refused push recorded") {
+            operated(s)?.publication?.problem?.hasPrefix("The pre-push hook refused the push of feat/pluto-231") == true
+        })
+        #expect(try shown(s).line?.look == .needsYou, "while the refusal holds, the task looks blocked")
+
+        try FileManager.default.removeItem(at: hook)
+        await s.ticker.tick()
+        #expect(await eventually(describing: "back in review") { operated(s)?.state == .inReview })
+        #expect(try git.run(["rev-parse", "refs/heads/feat/pluto-231"], in: s.origin) == s.sha)
+        #expect(operated(s)?.publication?.problem == nil)
+        let now = try shown(s)
+        #expect(now.line?.text == "in review · waiting on nathan.geleyn" && now.line?.look == .quiet)
+        #expect(now.requests.isEmpty && now.status.publicationProblem == nil)
+    }
+
+    /// A host read that failed once during a merge wait, then answers it waits: the failure's problem goes. A hold set while
+    /// a poll is in flight (your change of end to Merge) is kept.
+    @Test func aWaitThatGoesOnClearsAFailureButKeepsAHold() async throws {
+        let s = try setUp(end: .merge)
+        #expect(await s.finisher.finish(s.task).result == .waitingToMerge)
+        s.host.update { $0.readinessFailures = 1 }
+        await s.ticker.tick()
+        #expect(await eventually(describing: "the failed read recorded") { operated(s)?.publication?.problem != nil })
+        await s.ticker.tick()
+        #expect(await eventually(describing: "the failure cleared") { operated(s)?.publication?.problem == nil })
+        #expect(s.finisher.watching == [s.task])
+
+        let release = AsyncStream<Void>.makeStream()
+        s.host.update { $0.beforeReadiness = { for await _ in release.stream { break } } }
+        let reads = s.host.log.filter { $0.hasPrefix("readiness") }.count
+        await s.ticker.tick()
+        #expect(await eventually(describing: "a poll in flight") { s.host.log.filter { $0.hasPrefix("readiness") }.count > reads })
+        s.finisher.disarm(s.task, because: TaskEndChange.mergeWaitsForFinish)
+        release.continuation.finish()
+        #expect(await eventually(describing: "the poll to end") { !s.finisher.running.contains(s.task) })
+        #expect(operated(s)?.publication?.problem == TaskEndChange.mergeWaitsForFinish)
+        #expect(s.finisher.watching.isEmpty)
+    }
+
     func writeHook(_ script: String, in s: Setup) throws -> URL {
         let hook = URL(fileURLWithPath: s.path).appendingPathComponent(".git/hooks/pre-push")
         try script.write(to: hook, atomically: true, encoding: .utf8)

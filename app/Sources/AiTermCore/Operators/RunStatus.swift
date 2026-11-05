@@ -258,11 +258,16 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var reviewers: [String], unresolvedThreads: Int, resolvedThreads: Int, approvals: [String]
         /// When the task went into review.
         public var startedAt: Date?
-        public init(_ review: PeopleReview) {
+        /// Why the counts are AiTerm's last read of the threads, not the host's now: the host couldn't be read. Nil when
+        /// they are the host's now.
+        public var threadsNote: String?
+        /// `threads`, each thread's resolution as the host has it now, when run_status read them; nil: as AiTerm last read them.
+        public init(_ review: PeopleReview, threads: [String: Bool]? = nil) {
+            let resolutions = threads ?? review.threads
             startedAt = review.startedAt
             reviewers = review.reviewers
-            unresolvedThreads = review.threads.values.filter { !$0 }.count
-            resolvedThreads = review.threads.values.filter { $0 }.count
+            unresolvedThreads = resolutions.values.filter { !$0 }.count
+            resolvedThreads = resolutions.values.filter { $0 }.count
             approvals = review.approvals
         }
     }
@@ -334,6 +339,9 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var branch: String
         public var dependsOn: [Dependency]
         public var acceptedSHA: String?, blockedReason: String?, mergeRefusal: String?
+        /// What keeps its publication from going on now, as its card says it: a failure (`blocked` on the card) or a hold
+        /// for your next finish_task (`TaskPublication.operatorHolds`). Nil when nothing does.
+        public var publicationProblem: String?
         /// The same current-pass refusal or deferred wait shown on the board card.
         public var keptReason: String?
         public var closingWait: ClosingWait?
@@ -386,7 +394,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                     acceptedSHA: String? = nil, blockedReason: String? = nil, flags: [OperatedFlag] = [],
                     takenOver: Bool = false, retriesUsed: Int = 0, agentReview: AgentReviewLine? = nil,
                     peopleReview: PeopleReviewLine? = nil, branchDrift: BranchDrift? = nil, tabs: [TabLine]? = nil, background: [String]? = nil,
-                    yourPrompt: String? = nil, mergeRefusal: String? = nil, reopenedFrom: String? = nil, liveModel: String? = nil,
+                    yourPrompt: String? = nil, mergeRefusal: String? = nil, publicationProblem: String? = nil, reopenedFrom: String? = nil, liveModel: String? = nil,
                     liveReasoning: String? = nil, slashCommands: [SlashCommandLine]? = nil, stoppedOn: String? = nil,
                     opening: Bool = false, reviewVerdicts: [ReviewVerdict] = [], reasoning: String? = nil,
                     acceptanceEvidence: TaskAcceptance? = nil, diffBaseline: String? = nil, requestedLaunch: LaunchRequest? = nil, testActivities: [TestActivity] = [],
@@ -402,7 +410,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             self.agentReview = agentReview; self.peopleReview = peopleReview; self.branchDrift = branchDrift
             self.tabs = tabs; self.background = background
             self.youAreDriving = yourPrompt == nil ? nil : true; self.yourPrompt = yourPrompt
-            self.mergeRefusal = mergeRefusal; self.reopenedFrom = reopenedFrom
+            self.mergeRefusal = mergeRefusal; self.publicationProblem = publicationProblem; self.reopenedFrom = reopenedFrom
             self.liveModel = liveModel; self.liveReasoning = liveReasoning; self.slashCommands = slashCommands
             self.stoppedOn = stoppedOn
             self.opening = opening ? true : nil
@@ -488,9 +496,12 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     }
 
     /// The snapshot of `run` in `state` as of `now`, which the quiet review is measured against; nil for a run the workspace
-    /// does not have.
+    /// does not have. `hostThreads`, by task, are its request's threads as the host has them now (each one's resolution, by
+    /// id), read by `run_status`: wherever the snapshot counts threads it counts these, so one answer never says a thread is
+    /// open and the review quiet. A task left out is counted as AiTerm last read it (`PeopleReview.threads`).
     public static func build(state: AppState, run id: UUID, revision: Int, live: [UUID: TaskLiveFacts],
-                             runLive: RunLiveFacts = RunLiveFacts(), now: Date = Date()) -> RunStatus? {
+                             runLive: RunLiveFacts = RunLiveFacts(), hostThreads: [UUID: [String: Bool]] = [:],
+                             now: Date = Date()) -> RunStatus? {
         guard let run = state.run(id: id) else { return nil }
         let items = state.tasks(inRun: id)
         let keys = Dictionary(items.compactMap { item in item.operated.map { (item.id, $0.key) } }, uniquingKeysWith: { first, _ in first })
@@ -508,11 +519,12 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 dependsOn: o.dependsOn.map { Dependency(key: keys[$0.task] ?? $0.task.uuidString, kind: $0.kind) },
                 acceptedSHA: o.acceptance?.resultSHA, blockedReason: o.blockedReason,
                 flags: o.flags.sorted { $0.rawValue < $1.rawValue }, takenOver: o.takenOver, retriesUsed: o.retriesUsed,
-                agentReview: o.agentReview.map(AgentReviewLine.init), peopleReview: o.peopleReview.map(PeopleReviewLine.init),
+                agentReview: o.agentReview.map(AgentReviewLine.init),
+                peopleReview: o.peopleReview.map { PeopleReviewLine($0, threads: hostThreads[item.id]) },
                 branchDrift: o.branchDrift, tabs: tabLines(item, facts), background: facts.background.isEmpty ? nil : facts.background,
                 yourPrompt: facts.yourPrompt,
                 // As on its card: a task finished or taken over is past the refusal.
-                mergeRefusal: o.takenOver || o.isFinished ? nil : o.publication?.mergeRefusal,
+                mergeRefusal: o.takenOver || o.isFinished ? nil : o.publication?.mergeRefusal, publicationProblem: o.takenOver || o.isFinished ? nil : o.currentPublicationProblem,
                 reopenedFrom: o.state == .working ? o.reopenedFrom : nil, liveModel: facts.liveModel, liveReasoning: facts.liveReasoning,
                 slashCommands: SlashCommandLine.lines(facts.slashCommands), stoppedOn: facts.stoppedOn, opening: facts.opening,
                 reviewVerdicts: o.reviewVerdicts, reasoning: item.reasoning, acceptanceEvidence: o.acceptance,
@@ -530,7 +542,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             let asking = mainAsking || !extraAsks.isEmpty
             let moved = turn && (facts.turnEnded || facts.tabs.contains { $0.counted?.turnEnded == true }) && facts.changedAfterAcceptance && [.accepted, .inReview, .published].contains(o.state)
             if moved { changed.append(o.key) }
-            if !asking, !moved, isReviewQuiet(o, facts, now: now) { reviewQuiet.append(o.key) }
+            if !asking, !moved, isReviewQuiet(o, facts, threads: hostThreads[item.id], now: now) { reviewQuiet.append(o.key) }
             let tabPrompts = facts.tabs.filter { $0.waitingPrompt != nil }.map { "\(o.key)/\($0.key)" }
             if facts.waitingPrompt != nil || !tabPrompts.isEmpty {
                 // Only a prompt open in a terminal is listed: the task's key stands for its first worker's prompt.
@@ -575,14 +587,14 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     /// `OperatorTiming.reviewQuietMinutes` before `now`, with nothing of the task at work or waiting (`facts`): no worker
     /// tab working or opening (a review skill's subagent holds its tab working), nothing in the background, no turn still
     /// being read, no agent review running, no prompt or question waiting on you. What else waits (a worker's question,
-    /// work after acceptance) the caller rules out.
-    private static func isReviewQuiet(_ task: OperatedTask, _ facts: TaskLiveFacts, now: Date) -> Bool {
+    /// work after acceptance) the caller rules out. `threads`, the host's now when read, else the last read.
+    private static func isReviewQuiet(_ task: OperatedTask, _ facts: TaskLiveFacts, threads: [String: Bool]?, now: Date) -> Bool {
         guard task.state == .inReview, !task.takenOver, let review = task.peopleReview, !review.ended,
               let began = review.startedAt else { return false }
         let busy: (SessionState?) -> Bool = { $0 == .working || $0 == .needsInput }
         let waiting = busy(facts.counted) || facts.tabs.contains { busy($0.counted) || $0.waitingPrompt != nil || $0.turnUnread } || facts.waitingPrompt != nil
             || !facts.background.isEmpty || facts.turnUnread || task.flags.contains(.waitingOnYou)
-        return !waiting && !review.threads.values.contains(false)
+        return !waiting && !(threads ?? review.threads).values.contains(false)
             && now.timeIntervalSince(began) >= TimeInterval(OperatorTiming.reviewQuietMinutes) * 60
     }
 

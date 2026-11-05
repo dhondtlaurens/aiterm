@@ -77,7 +77,7 @@ enum OperatorEvalGrading {
         RunStatus.TaskLine(id: keys[key]!, key: key, title: title, project: evalProject.name, agent: .claude, model: "claude-opus-5-5",
                            state: state, end: .draftMR, revision: 1, live: live, branch: branch,
                            acceptedSHA: acceptedSHA, flags: flags,
-                           peopleReview: peopleReview.map(RunStatus.PeopleReviewLine.init))
+                           peopleReview: peopleReview.map { RunStatus.PeopleReviewLine($0) })
     }
 
     /// PAY-12 in people's review: its draft MR is open and its review-tab verdict is accepted.

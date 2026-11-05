@@ -87,13 +87,26 @@ public enum PublicationGuard {
         return nil
     }
 
-    private static func oracleRefusal(_ task: TaskItem, in run: OperatorRun) -> String? {
+    /// What a merge watch records when the Oracle's yes no longer covers the task's evidence (`oracleRefusal`): a hold
+    /// for the Operator's next finish_task, which the Oracle judges, not a problem for you (`TaskPublication.operatorHolds`).
+    public static let oracleYesNeeded = "the Oracle’s yes doesn’t cover its evidence now; call finish_task to merge it"
+
+    public static func oracleRefusal(_ task: TaskItem, in run: OperatorRun) -> String? {
         guard let operated = task.operated else { return notOperated }
         guard operated.end.merges, run.profile.oracle.isOn, !TaskPublisher.Context.entersReview(operated, run: run),
               operated.publication?.conditionsHeld != operated.acceptance?.resultSHA
                 || operated.publication?.conditionsEvidence != evidence(task: task, run: run) else { return nil }
-        let conditions = "the task’s review conditions"
-        return "The Oracle hasn’t said that \(conditions) hold for \(operated.key), so AiTerm doesn’t merge it: call finish_task again."
+        return oracleRefusalOpening + operated.key + oracleRefusalClosing
+    }
+
+    /// How `oracleRefusal`'s sentence opens and closes around the task's key: a merge watch saved it as the task's problem
+    /// before it recorded `oracleYesNeeded`, and a record saved so is read as that hold (`TaskPublication.isHold`).
+    static let oracleRefusalOpening = "The Oracle hasn’t said that the task’s review conditions hold for "
+    static let oracleRefusalClosing = ", so AiTerm doesn’t merge it: call finish_task again."
+
+    /// Whether `problem` is `oracleRefusal`'s sentence, for any task.
+    static func isOracleRefusal(_ problem: String) -> Bool {
+        problem.hasPrefix(oracleRefusalOpening) && problem.hasSuffix(oracleRefusalClosing)
     }
 
     /// The same required-check inputs identify the Oracle's evidence and every publication step.

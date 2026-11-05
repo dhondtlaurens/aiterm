@@ -364,10 +364,10 @@ final class OperatorController {
     static func status(of run: UUID, state: AppState, sessions: [SessionInfo], revision: Int,
                        usage: [AgentKind: Int] = [:], turns: [UUID: WorkerTurnReader.Reading],
                        extraTurns: [UUID: [String: WorkerTurnReader.Reading]] = [:], quiet: Set<UUID> = [],
-                       now: Date = Date()) -> RunStatus? {
+                       hostThreads: [UUID: [String: Bool]] = [:], now: Date = Date()) -> RunStatus? {
         RunStatus.build(state: state, run: run, revision: revision,
                         live: liveFacts(of: run, state: state, sessions: sessions, turns: turns, extraTurns: extraTurns, quiet: quiet, now: now),
-                        runLive: RunLiveFacts(weeklyUsage: usage), now: now)
+                        runLive: RunLiveFacts(weeklyUsage: usage), hostThreads: hostThreads, now: now)
     }
 
     /// What the tabs say of each of the run's tasks: each worker tab's live status (`WorkerTab`), and the prompt
