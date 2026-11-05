@@ -61,13 +61,16 @@ public struct TaskWorkflow: Sendable {
         return try await checkOut(draft, prompt: prompt) { try TaskCreator.createReview(draft: draft, project: project, reserved: reserved, git: $0) }
     }
 
-    /// Creates or adopts a worker checkout on the same mutation queue as manual tasks. Adoption
-    /// records its fork: work already on the branch must not become the worker's starting baseline.
-    public func checkOutWorker(_ task: TaskItem, project: Project, start: String,
+    /// Creates or adopts a worker checkout on the same mutation queue as manual tasks. A new branch's baseline is the
+    /// commit it started at, origin's or local (`fromOrigin`). Adoption records its fork: work already on the branch must
+    /// not become the worker's starting baseline.
+    public func checkOutWorker(_ task: TaskItem, project: Project, start: String, fromOrigin: Bool = true,
                                reserved: Set<String> = []) async throws -> (made: TaskCreator.Made, baseline: String?) {
         let git = git
         return try await BackgroundWork.run(on: Self.queue) {
-            let made = try TaskCreator.checkOutWorker(task, project: project, start: start, reserved: reserved, git: git)
+            let made = try TaskCreator.checkOutWorker(task, project: project, start: start, fromOrigin: fromOrigin, reserved: reserved,
+                                                      git: git)
+            if let started = made.startCommit { return (made, started) }
             return (made, try Repository(made.task.worktreePath, git: git).mergeBase(start, "HEAD"))
         }
     }

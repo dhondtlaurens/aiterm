@@ -68,6 +68,9 @@ public enum OperatorTiming {
     /// one, they read origin's copy as it is without fetching again.
     public static let diffBaseFetchTimeout: TimeInterval = 10
     public static let diffBaseFetchInterval: TimeInterval = 60
+    /// App only: seconds a broadcast may go with nobody at work and nothing moving before AiTerm wakes its Operator, once per
+    /// such spell (`OperatorWatchdog`). Its wake line says it in words: `nothing has moved for ten minutes`.
+    public static let quietWake: TimeInterval = 10 * 60
 }
 
 public extension TaskEnd {

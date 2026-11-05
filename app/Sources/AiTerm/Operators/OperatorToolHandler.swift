@@ -158,6 +158,8 @@ final class OperatorToolHandler {
     /// Told when one of the Operator's acts starts and ends: the controller's `acting`, which the status
     /// lines say (`OperatorLine`).
     var onActing: @MainActor (OperatorActivity, Bool) -> Void = { _, _ in }
+    /// Said for every tool call a known, running broadcast's Operator makes: the quiet time starts again (`OperatorWatchdog`).
+    var onCall: @MainActor (UUID) -> Void = { _ in }
     /// Said after an operator's own change to its run: what may start now starts.
     var onChange: @MainActor (UUID) -> Void = { _ in }
     /// What each task's worker's last ended turn left (`WorkerTurnReader.readings`), which `run_status` shows.
@@ -288,6 +290,7 @@ final class OperatorToolHandler {
             return (.error("This broadcast is no longer in AiTerm."), .refused)
         }
         guard !run.hasEnded else { return (.error(ToolRefusal.ended.message), .refused) }
+        onCall(id)
         let call = ToolCall(tool: request.tool, arguments: request.arguments)
         let activity = activity(for: call, in: id)
         if let activity { onActing(activity, true) }

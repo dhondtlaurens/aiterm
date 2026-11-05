@@ -34,9 +34,15 @@ public extension AppState {
     /// The run's tasks in sidebar order, which is the plan's order: the order they were created.
     func tasks(inRun id: UUID) -> [TaskItem] { tasks.filter { $0.operated?.runId == id } }
 
-    /// The run's task an Operator names: by its id, or by the key it created it with.
+    /// The run’s task an Operator names: by its id, by the key it created it with, or by that key as a wake line spoke it.
     func task(inRun run: UUID, named ref: String) -> TaskItem? {
-        tasks(inRun: run).first { $0.id.uuidString.caseInsensitiveCompare(ref) == .orderedSame || $0.operated?.key == ref }
+        let tasks = tasks(inRun: run)
+        if let named = tasks.first(where: { $0.id.uuidString.caseInsensitiveCompare(ref) == .orderedSame || $0.operated?.key == ref }) {
+            return named
+        }
+        // A key as a wake line spoke it (`TaskKeyReference`), when it is one task's alone.
+        let spoken = tasks.filter { $0.operated.map { TaskKeyReference.spoken($0.key) } == ref }
+        return spoken.count == 1 ? spoken.first : nil
     }
 
     /// Changes an operated task's record; nothing for a task that has gone or was never an Operator's.

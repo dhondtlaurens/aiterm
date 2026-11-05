@@ -228,29 +228,9 @@ final class OperatorWaker {
         }
     }
 
-    /// Task identifiers are spoken so a menu opening as the line lands cannot consume a digit
-    /// or a one-letter answer. The exact key remains in run_status.
-    static func taskReference(_ key: String) -> String {
-        let digits = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
-        let letters: [String: String] = ["a": "ay", "b": "bee", "c": "see", "d": "dee", "e": "ee", "f": "eff", "g": "gee", "h": "aitch", "i": "eye", "j": "jay", "k": "kay", "l": "ell", "m": "em", "n": "en", "o": "oh", "p": "pee", "q": "cue", "r": "ar", "s": "ess", "t": "tee", "u": "you", "v": "vee", "w": "double-you", "x": "ex", "y": "why", "z": "zed"]
-        var words: [String] = [], word = ""
-        func flush() {
-            guard !word.isEmpty else { return }
-            words.append(word.count == 1 ? "letter-" + (letters[word.lowercased()] ?? word) : word)
-            word = ""
-        }
-        for character in key {
-            if character.isLetter { word.append(character) }
-            else {
-                flush()
-                if let digit = character.wholeNumberValue {
-                    words.append(contentsOf: String(digit).compactMap { $0.wholeNumberValue.map { digits[$0] } })
-                }
-            }
-        }
-        flush()
-        return words.isEmpty ? "task" : words.joined(separator: "-")
-    }
+    /// A task's key as a wake line says it, and as the Operator's tools take it back (`TaskKeyReference`): its letters as
+    /// written, its digits spelled, so that no digit or one-letter word is typed. The exact key remains in run_status.
+    static func taskReference(_ key: String) -> String { TaskKeyReference.spoken(key) }
 
     /// The daemon pastes wake lines directly and rejects anything over its limit. Keep whole
     /// action clauses, reserving space to say that run_status has more; never cut into a key or word.
@@ -301,6 +281,9 @@ final class OperatorWaker {
                 if let key = tasks[id] { actions.insert(taskReference(key) + " entered review") }
             case .quietReview(let id, _):
                 if let key = tasks[id] { actions.insert(taskReference(key) + " has no review activity waiting") }
+            case .stopped(let id, _):
+                // An API error, a sleep that cut its connection: its worker won't finish the turn by itself.
+                if let key = tasks[id] { actions.insert(taskReference(key) + "'s worker stopped on an error") }
             default: break
             }
         }
@@ -441,7 +424,7 @@ final class OperatorWaker {
     /// the agents' model lists, or what each host says of a task's request (`TaskLine.mergeRequest`), which only
     /// `run_status` itself reads; nor what a worker runs now and what became of the slash commands sent to it, the
     /// operator's own message_task's "delivered" among them, which it reads when it looks at that task.
-    private static func content(_ status: RunStatus) -> RunStatus {
+    static func content(_ status: RunStatus) -> RunStatus {
         var status = status
         status.revision = 0
         status.run.usage = [:]

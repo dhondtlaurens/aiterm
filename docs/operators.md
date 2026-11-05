@@ -76,6 +76,13 @@ uncommitted content differs from the content recorded at acceptance. An unchange
 plan stays quiet, including after a local merge and restart. Older saved acceptances have no
 content baseline, so only commit movement proves a later change for them.
 
+A wake line names a task by its key as the tools take it: its letters as written and its digits
+spelled (`T7` is `T-seven`, `area-E` stays `area-E`), which every tool resolves; it never carries a
+digit or a one-letter word. A worker an API error stopped gets a line naming its task. A broadcast
+with nobody at work and nothing moving for ten minutes wakes the Operator once, `nothing has moved
+for ten minutes`, until something moves again: never during its own turn, while paused, or once the
+broadcast is complete or ended.
+
 On the board, **ends at** changes one task's end. It clears a previous wait/refusal, retains a push
 or request already completed, and wakes the Operator. Changing to Commit after opening a request
 leaves that request for you.
@@ -172,9 +179,16 @@ done so far and goes on. The next `finish_task` joins it, or once it ended answe
 AiTerm wakes the Operator when it ends; that an answer is owed is saved, so a retry after a restart
 is still not read as ending a review. Such a call is never judged by the Oracle. Before a merge
 decision (the commit already merged, or a merge the Oracle judges), AiTerm fetches the default
-branch from origin; a fetch that fails is said, and nothing is done.
+branch from origin; a fetch that fails is said, and nothing is done. A local merge pushes nothing, so
+origin out of reach doesn't stop it: whether its commit is merged already is read from the checkout
+and origin as last fetched, the Oracle still judges a new merge, and the answer says origin couldn't
+be read. Only `finish_task` pushes: a merge watch that finds the task accepted again on a commit not
+pushed yet pushes nothing, stops with that reason, and wakes the Operator naming the task.
 
-A task's worker opens behind your work: its window is asked for unselected, as `open_tab`'s tabs are.
+A task's branch starts at origin's default branch, fetched first; in a local-merge broadcast, at the
+local default branch, where the tasks before it merged. Its diff base is the commit it started at.
+While its launch is pending, the shell its new window shows first is its opening, not an uncertain
+task. A task's worker opens behind your work: its window is asked for unselected, as `open_tab`'s tabs are.
 If iTerm2 raises it anyway, keyboard focus goes back to the window you were in before its agent
 command is typed, and keys that landed in its new shell are cleared first. `retry_task` starts the
 worker at once and answers how its launch went (`launch`: `started`, `opened`, `opening`, `failed`

@@ -49,6 +49,12 @@ extension OperatorToolHandler {
         return await TaskFinisher.landingFetched(of: sha, in: project.path, git: ports.git)
     }
 
+    /// Whether the task's accepted commit is in its target in the checkout or in origin's as last fetched (`TaskFinisher.landing`).
+    private func landedAsLastFetched(_ task: TaskItem) async -> Bool {
+        guard let sha = task.operated?.acceptance?.resultSHA, let project = state.project(id: task.projectId) else { return false }
+        return await TaskFinisher.landing(of: sha, in: project.path, git: ports.git) != nil
+    }
+
     /// Whether a `finish_task` only joins its task's publication in flight or answers one that outlived its call
     /// (`TaskFinisher.pending`), or repeats, with its challengeId, a challenged call that answered `running`, whose
     /// publication went on: it decides nothing new, so it is neither judged nor fetched for, and never starts a publication.
@@ -109,12 +115,15 @@ extension OperatorToolHandler {
         var merging = mergeAwaitingOracle(call, in: run)
         let skipping = hookSkipAwaitingOracle(call, in: run)
         // A commit already in its target, merged outside finish_task, merges nothing: the Oracle isn't asked about it. Whether
-        // it is, is read with origin fetched; when it can't be, nothing is decided and the call says why.
+        // it is, is read with origin fetched; when it can't be, nothing is decided and the call says why. A local merge
+        // pushes nothing, so it reads the checkout and origin as last fetched instead, and a new merge is still judged.
         if named == nil, opinion.isOn, let task = merging {
             switch await landed(task) {
             case .landed: merging = nil
             case .notLanded: break
-            case .unknown(let why): throw ToolRefusal(why)
+            case .unknown(let why, _):
+                guard task.operated?.end == .mergeLocal else { throw ToolRefusal(why) }
+                if await landedAsLastFetched(task) { merging = nil }
             }
         }
         // A noVerify with nothing to judge goes on to the finisher, which refuses it before it acts.
