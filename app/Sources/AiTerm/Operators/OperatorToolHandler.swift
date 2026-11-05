@@ -164,10 +164,13 @@ final class OperatorToolHandler {
     /// Reads the addressed worker's screen after delivery or a refusal that suggests a prompt.
     var onMessageResult: @MainActor (UUID, String?) -> Void = { _, _ in }
     /// Carries out a task's recorded end (G10), past the push hooks when told (`noVerify`), opening its request with the
-    /// Operator's content when given: the controller's `TaskFinisher`.
-    var finish: @MainActor (UUID, Bool, RequestContent?) async -> TaskFinisher.Result = { _, _, _ in
+    /// Operator's content when given, within the call's reply budget: the controller's `TaskFinisher`.
+    var finish: @MainActor (UUID, TaskFinisher.Call) async -> TaskFinisher.Result = { _, _ in
         TaskFinisher.Result(result: .refused, reason: "AiTerm isn’t ready to publish yet.")
     }
+    /// Whether a `finish_task` of the task now only joins a publication in flight or answers one that outlived its call
+    /// (`TaskFinisher.pending`): the challenge gate leaves such a call alone.
+    var pendingFinish: @MainActor (UUID) -> Bool = { _ in false }
 
     /// Whether a publication of the task is in flight (`TaskFinisher.running`): finish_task, a retry or a merge watch's poll.
     var publishing: @MainActor (UUID) -> Bool = { _ in false }
@@ -258,6 +261,8 @@ final class OperatorToolHandler {
 
     /// The answer, and how the call went, which the activity log keeps.
     func respond(_ request: OperatorRequest) async -> (ToolAnswer, ActivityEntry.Outcome) {
+        // A finish_task answers by then, its publication done or not: the daemon stops waiting soon after.
+        let deadline = ContinuousClock.now + ports.finishReplyBudget
         refreshOracleSettings()
         // A shell command is the gate's alone: never a tool, a challenge or a replayed message. It answers an ended
         // broadcast itself, with a deny rather than an error, which the hook would let run.
@@ -272,7 +277,9 @@ final class OperatorToolHandler {
         defer { if let activity { onActing(activity, false) } }
         do {
             if let recorded = try replayedMessage(call, in: run) { return (.result(recorded), .repeated) }
-            if let instead = try await challengeGate(call, in: run) {
+            // A finish_task that only joins its publication or answers what it did decides nothing new: no Oracle, no fetch.
+            let joins = finishJoins(call, in: run)
+            if !joins, let instead = try await challengeGate(call, in: run, deadline: deadline) {
                 // The critique, or the answer to a challenged call that acted already, said again.
                 return (.result(instead), instead["challenged"] == true ? .challenged : .repeated)
             }
@@ -287,7 +294,7 @@ final class OperatorToolHandler {
             if Self.isMutating(call), current.state != run.state || current.intent != run.intent, current.isPaused {
                 try acceptsWork(current)
             }
-            let value = try await perform(call, in: current)
+            let value = try await perform(call, in: current, deadline: deadline, joinOnly: joins)
             recordActed(call, in: id, answer: value)
             if Self.isMutating(call) { onChange(id) }
             return (.result(value), .ok)
@@ -319,8 +326,9 @@ final class OperatorToolHandler {
         throw ToolRefusal(slice.off)
     }
 
-    /// One tool, by its name.
-    func perform(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+    /// One tool, by its name. `deadline`: when a `finish_task` answers, its publication done or not; none waits for it.
+    /// `joinOnly`: a `finish_task` that may only join its publication or answer what it did (`finishJoins`).
+    func perform(_ call: ToolCall, in run: OperatorRun, deadline: ContinuousClock.Instant? = nil, joinOnly: Bool = false) async throws -> JSONValue {
         guard let tool = call.operatorTool else { throw ToolRefusal("AiTerm has no tool called \(call.tool).") }
         switch tool {
         case .runStatus: return try await runStatus(run)
@@ -364,7 +372,10 @@ final class OperatorToolHandler {
             let task = try self.task(call, in: run)
             let content = RequestContent(title: call.optionalString("title"), description: call.optionalString("description"),
                                          assignee: call.optionalString("assignee"))
-            let result = await finish(task.id, call.optionalBool("noVerify") ?? false, content.isEmpty ? nil : content)
+            let budget = deadline.map { max(.zero, $0 - ContinuousClock.now) }
+            let result = await finish(task.id, TaskFinisher.Call(noVerify: call.optionalBool("noVerify") ?? false,
+                                                                 content: content.isEmpty ? nil : content, budget: budget,
+                                                                 joinOnly: joinOnly))
             return try JSONValue(encoding: result)
         }
     }

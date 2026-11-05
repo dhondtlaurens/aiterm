@@ -145,6 +145,14 @@ never the worker's brief. It is assigned to the user AiTerm acts as on the host.
 changes an open request's title, description or assignee; the Operator's shell stays refused
 `glab mr update`, `gh pr edit` and API writes.
 
+`finish_task` answers within about 20 seconds of the call, inside the daemon's 30-second wait for the
+app. A publication that takes longer (a pre-push hook, a slow host) answers `running` with what is
+done so far and goes on. The next `finish_task` joins it, or once it ended answers what it did, and
+AiTerm wakes the Operator when it ends; that an answer is owed is saved, so a retry after a restart
+is still not read as ending a review. Such a call is never judged by the Oracle. Before a merge
+decision (the commit already merged, or a merge the Oracle judges), AiTerm fetches the default
+branch from origin; a fetch that fails is said, and nothing is done.
+
 `review_task` remains a served refusal directing the Operator to `open_tab`/`record_review`; it does
 not run a headless reviewer. Current tool schemas and complete generated briefs are frozen by the
 [contract tests](testing.md). The structured broadcast format is the supported persisted format;
