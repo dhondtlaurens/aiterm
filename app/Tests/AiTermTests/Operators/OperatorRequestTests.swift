@@ -172,4 +172,77 @@ import Testing
         #expect(answer.value == nil, "\(change): \(answer.message ?? "")")
         #expect(!o.host.log.contains { $0.hasPrefix("edit") }, "\(change)")
     }
+
+    // MARK: - retry_pipeline (snag G: six request pipelines failed on runner timeouts and image pulls)
+
+    static let url69 = "https://git.example.net/web/acme-web/-/merge_requests/69"
+
+    /// `A` with its request recorded as !69 and open on the host from its own branch, its pipeline failed on the runner.
+    func failedPipeline() async throws -> Opened {
+        let o = try await accepted(open: true)
+        o.world.workspace.mutate { $0.updateOperated(o.task.id) { $0.publication?.mergeRequestNumber = 69; $0.publication?.mergeRequestURL = Self.url69 } }
+        o.host.update {
+            $0.existing = MergeRequest(iid: 69, title: "Draft: A: Task A", sourceBranch: "feat/a", targetBranch: "main", author: "aiterm",
+                                       state: "opened", draft: true, url: Self.url69)
+            $0.pipeline = "failed"
+        }
+        return o
+    }
+
+    @Test func retryPipelineRerunsTheFailedPipelineOfTheTasksOwnRequestOnce() async throws {
+        let o = try await failedPipeline()
+        let answer = await o.world.call(o.run.id, "retry_pipeline", ["task": "A"])
+        #expect(answer.value == ["task": "A", "mergeRequest": .string(Self.url69), "retried": "pipeline 5501"])
+        #expect(o.host.log == ["retry 69"], "no slice and no Oracle: nothing else is asked")
+        // Asked again, the pipeline runs: nothing to retry, nothing written.
+        #expect(await o.world.call(o.run.id, "retry_pipeline", ["task": "A"]).message == "!69 has nothing to retry: its pipeline is running.")
+        #expect(o.host.log == ["retry 69"])
+    }
+
+    @Test(arguments: ["running", "noPipeline", "noRequest", "merged", "closed", "otherBranch", "fork", "paused", "ended", "takeover", "elsewhere"])
+    func retryPipelineRetriesNothingThatIsNotTheTasksFailedOpenRequest(_ change: String) async throws {
+        let o = try await failedPipeline()
+        switch change {
+        case "running": o.host.update { $0.pipeline = "running" }
+        case "noPipeline": o.host.update { $0.pipeline = nil }
+        case "noRequest": o.world.workspace.mutate { $0.updateOperated(o.task.id) { $0.publication = nil } }
+        case "merged": o.world.workspace.mutate { $0.updateOperated(o.task.id) { $0.publication?.merged = true } }
+        case "closed": o.host.update { $0.existing?.state = "closed" }
+        case "otherBranch": o.host.update { $0.existing?.sourceBranch = "feat/b" }
+        case "fork": o.host.update { $0.existing?.forkHead = "project 7:feat/a" }
+        case "paused": o.world.workspace.mutate { $0.updateRun(id: o.run.id) { $0.state = .paused; $0.intent = .paused } }
+        case "ended": o.world.workspace.mutate { $0.updateRun(id: o.run.id) { $0.state = .stopped; $0.intent = .stopped } }
+        case "takeover": o.world.workspace.mutate { $0.updateOperated(o.task.id) { $0.takenOver = true; $0.ownership += 1 } }
+        default: o.host.update { $0.repository = "git.example.net/other/repo" }
+        }
+        let answer = await o.world.call(o.run.id, "retry_pipeline", ["task": "A"])
+        #expect(answer.value == nil, "\(change): \(answer.value.map { "\($0)" } ?? "")")
+        #expect(!o.host.log.contains("retry 69"), "\(change)")
+        switch change {
+        case "running": #expect(answer.message == "!69 has nothing to retry: its pipeline is running.")
+        case "otherBranch": #expect(answer.message == "!69 isn’t A’s request on the host: it is from feat/b, not feat/a.")
+        case "closed": #expect(answer.message == "!69 is closed: AiTerm retries only an open request’s pipeline.")
+        default: break
+        }
+    }
+
+    /// Read fresh right before the retry: a Pause, an End or a takeover while the host was read retries nothing.
+    @Test(arguments: ["paused", "ended", "takeover"])
+    func retryPipelineChecksTheBroadcastAgainRightBeforeItWrites(_ change: String) async throws {
+        let o = try await failedPipeline()
+        let gate = HeldGate()
+        o.host.update { $0.beforeRetry = { await gate.wait() } }
+        let call = Task { await o.world.call(o.run.id, "retry_pipeline", ["task": "A"]) }
+        await gate.started()
+        o.world.workspace.mutate { state in
+            switch change {
+            case "paused": state.updateRun(id: o.run.id) { $0.intent = .paused }
+            case "ended": state.updateRun(id: o.run.id) { $0.state = .stopped; $0.intent = .stopped }
+            default: state.updateOperated(o.task.id) { $0.takenOver = true; $0.ownership += 1 }
+            }
+        }
+        await gate.release()
+        #expect(await call.value.message != nil)
+        #expect(!o.host.log.contains("retry 69"))
+    }
 }

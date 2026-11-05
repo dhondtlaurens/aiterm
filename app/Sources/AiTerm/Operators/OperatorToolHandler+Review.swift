@@ -46,8 +46,16 @@ extension OperatorToolHandler {
             let host = try await reviewHost(of: task, request: operated.publication)
             let threads = try await host.threads(of: number)
             answer["threads"] = .array(threads.map { thread in
-                ["id": .string(thread.id), "resolved": .bool(thread.resolved), "lastAuthor": thread.lastAuthor.map(JSONValue.string) ?? .null,
-                 "lastBody": .string(String(thread.lastBody.prefix(4000)))]
+                var fields: [String: JSONValue] = ["id": .string(thread.id), "resolved": .bool(thread.resolved),
+                                                   "lastAuthor": thread.lastAuthor.map(JSONValue.string) ?? .null,
+                                                   "lastBody": .string(String(thread.lastBody.prefix(4000)))]
+                // The Oracle's latest critique of its last note, with the commit it judged (`critique_thread`).
+                let note = ReviewWatcher.signature(thread)
+                if let kept = operated.threadCritiques.last(where: { $0.thread == thread.id && $0.note == note }) {
+                    fields["critique"] = .string(kept.critique)
+                    fields["critiqueOf"] = kept.head.map(JSONValue.string) ?? .null
+                }
+                return .object(fields)
             })
             answer["threadsAre"] = .string(Self.threadsAre)
             do { answer["approvals"] = .array(try await host.approvals(of: number).map(JSONValue.string)) } catch {
@@ -180,6 +188,131 @@ extension OperatorToolHandler {
         }
         settle(pending, in: run.id) { $0.threadReplies[callKey] = thread }
         return ["thread": .string(thread), "replied": true]
+    }
+
+    /// `resolve_thread`: resolves one review thread of the task's own request (snag G, !64), under the Review slice and
+    /// refused as reply_thread is. A thread the host shows resolved already is left as it is, so a repeat writes nothing.
+    func resolveThread(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        let task = try self.task(call, in: run), thread = try call.string("thread")
+        let operated = try notTakenOver(task)
+        try requireSlice(.review, in: run, otherwise: "Resolve a thread on \(Self.request(of: operated))")
+        try acceptsWork(run)
+        guard let number = operated.publication?.mergeRequestNumber else {
+            throw ToolRefusal("\(operated.key) has no merge request yet: finish_task opens it.")
+        }
+        let host = try await reviewHost(of: task, request: operated.publication)
+        // A GitHub thread's id names it across GitHub: only one on this task's own request is resolved.
+        guard let found = try await host.threads(of: number).first(where: { $0.id == thread }) else {
+            throw ToolRefusal("That thread isn’t on this task’s merge request.")
+        }
+        if found.resolved { return ["thread": .string(thread), "resolved": false, "note": "It was resolved already."] }
+        // Read fresh after the reads, right before the write.
+        try await writeCheck(task, number: number, in: run.id)()
+        try await host.resolve(number, thread: thread)
+        return ["thread": .string(thread), "resolved": true]
+    }
+
+    /// How the answers label the Oracle's critique of a thread: an opinion to weigh, never a grant.
+    static let critiqueIs = "The Oracle’s opinion of the thread, to weigh before you have it fixed or push back: it grants no action."
+
+    /// `critique_thread`: the Oracle's critique of one review thread of the task's own request, on demand (snag G, !64). It
+    /// writes nothing to the host, so it needs no slice; it needs the Oracle on, and is refused once the broadcast is paused
+    /// or ended or the task taken over. Recorded on the task (`threadCritiques`) when the Oracle answers, whoever waits for
+    /// it; the same thread with the same last note on the same commit answers from the record with no Oracle run. An
+    /// Oracle not back within the challenge budget answers pending, and the next call waits for the same run.
+    func critiqueThread(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        let task = try self.task(call, in: run), thread = try call.string("thread")
+        let operated = try self.operated(task, in: run)
+        let opinion = state.run(id: run.id)?.profile.oracle ?? run.profile.oracle
+        guard opinion.isOn else { throw ToolRefusal("The Oracle is off for this broadcast: read the thread and decide yourself.") }
+        guard let number = operated.publication?.mergeRequestNumber else {
+            throw ToolRefusal("\(operated.key) has no merge request yet: finish_task opens it.")
+        }
+        let host = try await reviewHost(of: task, request: operated.publication)
+        guard let found = try await host.threads(of: number).first(where: { $0.id == thread }) else {
+            throw ToolRefusal("That thread isn’t on this task’s merge request.")
+        }
+        let worktree = task.worktreePath, git = ports.git
+        let head = (try? await BackgroundWork.run { try Repository(worktree, git: git).commit("HEAD") }) ?? nil
+        let key = CritiqueKey(task: task.id, thread: thread, note: ReviewWatcher.signature(found), head: head)
+        if let kept = state.task(id: task.id)?.operated?.threadCritiques.last(where: { Self.judged($0, key) }) {
+            return Self.critiqueAnswer(kept, recorded: true)
+        }
+        let job: Task<SecondOpinionRunner.Verdict?, Never>
+        if let running = runningCritiques[key] {
+            job = running
+        } else {
+            let detail = try await host.threadDetail(number, thread: thread)
+            // Read fresh after the reads, right before the Oracle starts: a Pause, an End or a takeover meanwhile asks nothing.
+            guard let fresh = state.run(id: run.id), let current = state.task(id: task.id) else {
+                throw ToolRefusal("This task is no longer in this broadcast.")
+            }
+            try acceptsWork(fresh)
+            let now = try notTakenOver(current)
+            guard fresh.profile.oracle.isOn else { throw ToolRefusal("The Oracle is off for this broadcast: read the thread and decide yourself.") }
+            guard now.ownership == operated.ownership, now.publication?.mergeRequestNumber == number else {
+                throw ToolRefusal("This task changed while AiTerm read the thread; call critique_thread again.")
+            }
+            job = runningCritiques[key] ?? startCritique(key, of: current, detail, request: Self.request(of: now), opinion: fresh.profile.oracle,
+                                                         in: fresh)
+        }
+        let verdict: SecondOpinionRunner.Verdict?
+        switch await Self.within(ports.challengeReplyBudget, cancelling: false, { await job.value }) {
+        case .success(let answered): verdict = answered
+        case .failure: verdict = nil
+        }
+        switch verdict {
+        case nil:
+            return ["thread": .string(thread), "pending": true,
+                    "note": "The Oracle is still reading the thread: call critique_thread again in a little while."]
+        case .unchallenged(let why)?:
+            throw ToolRefusal("The Oracle couldn’t critique that thread: \(why)")
+        case .critique?:
+            guard let kept = state.task(id: task.id)?.operated?.threadCritiques.last(where: { Self.judged($0, key) }) else {
+                throw ToolRefusal("AiTerm couldn’t record the Oracle’s critique: \(task.operated?.key ?? "the task") changed meanwhile.")
+            }
+            return Self.critiqueAnswer(kept, recorded: false)
+        }
+    }
+
+    private static func judged(_ critique: ThreadCritique, _ key: CritiqueKey) -> Bool {
+        critique.thread == key.thread && critique.note == key.note && critique.head == key.head
+    }
+
+    private static func critiqueAnswer(_ critique: ThreadCritique, recorded: Bool) -> JSONValue {
+        ["thread": .string(critique.thread), "critique": .string(critique.critique), "head": critique.head.map(JSONValue.string) ?? .null,
+         "recorded": .bool(recorded), "critiqueIs": .string(Self.critiqueIs)]
+    }
+
+    /// The Oracle asked about `thread` in the background, its critique recorded on the task and saved when it answers.
+    private func startCritique(_ key: CritiqueKey, of task: TaskItem, _ thread: ReviewThreadDetail, request: String, opinion: OracleSetting,
+                               in run: OperatorRun) -> Task<SecondOpinionRunner.Verdict?, Never> {
+        let operated = task.operated, ownership = operated?.ownership
+        let prompt = ChallengeLaunch.threadPrompt(task: operated?.key ?? task.title, request: request, brief: operated?.brief ?? "",
+                                                  branch: task.branch, worktree: task.worktreePath, head: key.head, thread: thread)
+        let runner = ports.secondOpinion, folder = OperatorCommand.runFolder(run.id, home: ports.home)
+        let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
+        let consulting = OperatorActivity(run: run.id, task: task.id, act: .consultingTheOracle)
+        onActing(consulting, true)
+        let job = Task { @MainActor [weak self] () -> SecondOpinionRunner.Verdict? in
+            let verdict = await runner.challenge(opinion, prompt: prompt, runFolder: folder, projects: projects)
+            guard let self else { return nil }
+            runningCritiques[key] = nil
+            onActing(consulting, false)
+            guard !Task.isCancelled else { return nil }
+            let capped = Self.capped(verdict)
+            // Kept only for the task as it was asked about: one taken over or handed back since is someone else's now.
+            guard let now = state.task(id: key.task)?.operated, now.ownership == ownership, !now.takenOver else { return capped }
+            if case .critique(let text) = capped {
+                let critique = ThreadCritique(thread: key.thread, note: key.note, head: key.head, critique: text, at: ports.now())
+                mutate(in: run.id) { $0.updateOperated(key.task) { $0.threadCritiques.append(critique) } }
+                _ = workspace.flush()
+            }
+            return capped
+        }
+        runningCritiques[key] = job
+        lastCritique = Task { _ = await job.value }
+        return job
     }
 
     // -- writes read fresh, and kept as pending while they may have landed ----------------------------

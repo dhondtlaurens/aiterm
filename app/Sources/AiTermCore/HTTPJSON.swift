@@ -224,6 +224,15 @@ struct HostAPI: Sendable {
         return try await HTTPJSON.decode(type, request, session: session, mapping: mapping).value
     }
 
+    /// `send` for a write whose answer has nothing to read (GitHub's 201 or 204 with an empty body): only its status counts.
+    func write<Body: Encodable>(method: String, path: String, body: Body, encoder: JSONEncoder = JSONEncoder()) async throws {
+        var request = try request(path)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpMethod = method
+        request.httpBody = try encoder.encode(body)
+        do { _ = try await HTTPJSON.send(request, session: session) } catch let failure as HTTPJSON.Failure { throw mapping(failure) }
+    }
+
     private func request(_ path: String, query: [URLQueryItem] = []) throws -> URLRequest {
         guard let url = HTTPJSON.url(base + path, query: query) else { throw malformed }
         return HTTPJSON.request(url, headers: headers)

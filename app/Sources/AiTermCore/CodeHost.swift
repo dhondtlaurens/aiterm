@@ -80,6 +80,19 @@ public struct ReviewThread: Equatable, Sendable {
     }
 }
 
+/// One review thread whole, as `critique_thread` hands it to the Oracle (snag G): where in the change it sits, when the
+/// host says, and every note in it that is not the host's own, oldest first.
+public struct ReviewThreadDetail: Equatable, Sendable {
+    public struct Note: Equatable, Sendable {
+        public var author: String?, body: String
+        public init(author: String?, body: String) { self.author = author; self.body = body }
+    }
+    public var id: String, path: String?, line: Int?, notes: [Note]
+    public init(id: String, path: String?, line: Int?, notes: [Note]) {
+        self.id = id; self.path = path; self.line = line; self.notes = notes
+    }
+}
+
 /// A list the host pages that AiTerm could not read to its end: a page past the cap, a page that failed, or an
 /// entry that did not decode. What is decided on it (the merge floor, the review watcher) decides on nothing.
 public struct IncompleteRead: Error, Equatable, LocalizedError {

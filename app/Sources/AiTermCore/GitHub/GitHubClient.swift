@@ -386,6 +386,83 @@ public struct GitHubClient: Sendable {
         _ = try await graphQL(Done.self, query: Self.replyMutation, variables: Variables(thread: thread, body: body), repo: repo)
     }
 
+    /// One query, never a mutation: a review thread by its node id, with its file, line, request and first comments.
+    static let threadDetailQuery = """
+        query($thread: ID!) {
+          node(id: $thread) {
+            ... on PullRequestReviewThread {
+              id path line originalLine pullRequest { number }
+              comments(first: 50) { nodes { body author { login } } }
+            }
+          }
+        }
+        """
+
+    /// The review thread `thread` whole, by its node id: its file and line, and its comments, oldest first, up to 50. One
+    /// that is not a thread of pull request `number` is no thread of it.
+    public func threadDetail(repo: String, number: Int, thread: String) async throws -> ReviewThreadDetail {
+        struct Variables: Encodable { var thread: String }
+        struct Payload: Decodable {
+            struct Node: Decodable {
+                struct Pull: Decodable { var number: Int }
+                struct Comments: Decodable {
+                    struct Comment: Decodable { struct Author: Decodable { var login: String? }; var body: String?, author: Author? }
+                    var nodes: [Comment]?
+                }
+                var id: String?, path: String?, line: Int?, originalLine: Int?, pullRequest: Pull?, comments: Comments?
+            }
+            var node: Node?
+        }
+        let read = try await graphQL(Payload.self, query: Self.threadDetailQuery, variables: Variables(thread: thread), repo: repo)
+        guard let node = read.node, let id = node.id, node.pullRequest?.number == number else {
+            throw GitHubError.refused("thread \(thread) is not on pull request #\(number)")
+        }
+        return ReviewThreadDetail(id: id, path: node.path, line: node.line ?? node.originalLine,
+                            notes: (node.comments?.nodes ?? []).map { ReviewThreadDetail.Note(author: $0.author?.login, body: $0.body ?? "") })
+    }
+
+    static let resolveMutation = """
+        mutation($thread: ID!) { resolveReviewThread(input: {threadId: $thread}) { thread { isResolved } } }
+        """
+
+    /// Resolves the review thread `thread`, by its node id; GitHub leaves one resolved already as it is.
+    public func resolve(repo: String, thread: String) async throws {
+        struct Variables: Encodable { var thread: String }
+        struct Done: Decodable {}
+        _ = try await graphQL(Done.self, query: Self.resolveMutation, variables: Variables(thread: thread), repo: repo)
+    }
+
+    /// The conclusions of a finished Actions run that failed, which `rerun-failed-jobs` reruns.
+    static let failedConclusions: Set<String> = ["failure", "timed_out", "startup_failure"]
+
+    /// Reruns the failed jobs of each workflow whose latest Actions run on the pull request's head failed, for each event
+    /// that ran it. Older runs of a workflow that ran again for the same event are left alone, and another app's checks have no rerun AiTerm can ask for. None failed:
+    /// `.notFailed`, nothing written. `beforeWrite` gets the pull request as read, right before each rerun.
+    public func retryFailedRuns(repo: String, number: Int,
+                                beforeWrite: @Sendable (MergeRequest) async throws -> Void = { _ in }) async throws -> PipelineRetry {
+        let pull = try await get(PullPayload.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
+        guard let sha = pull.head.sha else { throw GitHubError.decoding }
+        struct Runs: Decodable {
+            struct Run: Decodable { var id: Int, workflowId: Int?, name: String?, event: String?, status: String?, conclusion: String? }
+            var workflowRuns: [Run]
+        }
+        let runs = try await get(Runs.self, path: "/repos/\(repo)/actions/runs",
+                                 query: [URLQueryItem(name: "head_sha", value: sha), URLQueryItem(name: "per_page", value: "100")],
+                                 notFound: .repoNotFound(repo)).workflowRuns
+        // Newest first: the first run seen of each workflow, for each event that ran it (a push and the pull request run the
+        // same workflow on the same head apart), is its latest.
+        var seen: Set<String> = []
+        let failed = runs.filter { seen.insert("\($0.workflowId ?? $0.id) \($0.event ?? "")").inserted }
+            .filter { $0.status == "completed" && Self.failedConclusions.contains($0.conclusion ?? "") }
+        guard !failed.isEmpty else { return .notFailed("no GitHub Actions run of its head failed; another app's check is rerun in that app") }
+        struct Nothing: Encodable {}
+        for run in failed {
+            try await beforeWrite(pull.mergeRequest)
+            try await api(.repoNotFound(repo)).write(method: "POST", path: "/repos/\(repo)/actions/runs/\(run.id)/rerun-failed-jobs", body: Nothing())
+        }
+        return .retried("the failed jobs of " + failed.map { $0.name ?? "run \($0.id)" }.joined(separator: ", "))
+    }
+
     /// The people who may be assigned in `repo` whose login matches `query`. GitHub lists assignees by login
     /// only, so a name is not known.
     public func findUsers(repo: String, query: String) async throws -> [HostUser] {
@@ -595,7 +672,7 @@ public struct GitHubClient: Sendable {
 private struct PullPayload: Decodable {
     struct User: Decodable { var login: String? }
     struct Repo: Decodable { var fullName: String? }
-    struct Ref: Decodable { var ref: String, label: String?, repo: Repo? }
+    struct Ref: Decodable { var ref: String, label: String?, repo: Repo?, sha: String? }
     var number: Int, title: String, htmlUrl: String, draft: Bool?, user: User?, head: Ref, base: Ref
     /// A pull request fetched by number can be closed or merged; the list holds open ones only,
     /// and omits `merged`.

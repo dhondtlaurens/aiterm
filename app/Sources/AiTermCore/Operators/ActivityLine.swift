@@ -38,6 +38,8 @@ public enum ActivityLine {
         case "review_task": words = ("Asked for an agent review of \(named)", "ask for an agent review of \(named)")
         case "request_review": words = ("Asked people to review \(named)", "ask people to review \(named)")
         case "reply_thread": words = ("Replied in a review thread on \(named)", "reply in a review thread on \(named)")
+        case "resolve_thread": words = ("Resolved a review thread on \(named)", "resolve a review thread on \(named)")
+        case "critique_thread": words = ("Asked the Oracle about a review thread on \(named)", "ask the Oracle about a review thread on \(named)")
         case "find_user": words = ("Looked up “\(text("query"))”", "look up “\(text("query"))”")
         case "message_task": words = ("Told \(named)’s worker: \(text("text"))", "tell \(named)’s worker: \(text("text"))")
         case "open_tab": words = ("Opened another tab on \(named)", "open another tab on \(named)")
@@ -45,6 +47,7 @@ public enum ActivityLine {
         case "resume_task": words = ("Put \(named) back to work", "put \(named) back to work")
         case "retry_task": words = ("Queued \(named) again", "queue \(named) again")
         case "finish_task": words = ("Finished \(named)", "finish \(named)")
+        case "retry_pipeline": words = ("Retried \(named)’s failed pipeline", "retry \(named)’s failed pipeline")
         case "record_review":
             let verdict = arguments["passed"] == true ? "passed" : "not passed"
             words = ("Recorded \(named)’s review: \(verdict)", "record \(named)’s review: \(verdict)")

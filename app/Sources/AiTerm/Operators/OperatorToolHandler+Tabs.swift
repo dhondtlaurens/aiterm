@@ -27,6 +27,12 @@ extension OperatorToolHandler {
             return recorded
         }
         try tabRefusal(task, in: run)
+        // An accepted task the tab steers: no publication of it runs from here to the call's end, and its request must
+        // still be open on the host (snag G).
+        let accepted = try self.operated(task, in: run)
+        let release = try holdForSteering(task, accepted, by: "open_tab")
+        defer { release() }
+        try await requestStillOpen(task, accepted, by: "open_tab", in: run.id)
         let delivery = await deliveryStatus()
         let model = try self.model(call, for: agent, in: run)
         let warning = try deliveryWarning(for: agent, pinned: pinned, delivery: delivery, in: run)
@@ -47,12 +53,17 @@ extension OperatorToolHandler {
             mutate(in: run.id) { $0.updateOperated(task.id) { $0.extraTabs.removeAll { $0.key == key } } }
             throw ToolRefusal("AiTerm couldn’t save the tab before opening it; call open_tab again.")
         }
+        // Its new worker works on it: an accepted task is at work again, as a message to it would make it, before the tab is
+        // asked for (`TabOpener` opens tabs only on a task at work). A tab that then fails leaves it reopened on its accepted
+        // commit, which mark_task accepts again.
+        let reopened = state.task(id: task.id)?.operated?.state == .accepted && reopen(task)
         var outcome = await tabs.open(TabOpener.ID(task: task.id, key: key), attempt: tab.launch)
         if case .failed(let reason) = outcome { throw ToolRefusal(Self.tabFailure(reason)) }
         // A request that ended with no answer may have been overtaken: the reconciler found its tab meanwhile.
         let recorded = state.task(id: task.id)?.operated?.extraTabs.first { $0.key == key } ?? tab
         if outcome == .opening { outcome = TabOpener.outcome(of: recorded) == .opened ? .opened : .opening }
-        let answer = Self.tabAnswer(recorded, of: current, outcome: outcome)
+        var answer = Self.tabAnswer(recorded, of: current, outcome: outcome)
+        if reopened { answer = answer.adding("reopened", true) }
         return warning.map { answer.adding("warning", .string($0)) } ?? answer
     }
 
@@ -75,8 +86,9 @@ extension OperatorToolHandler {
     /// Why `task` may not have a tab opened now, in the words the other tools' refusals use.
     private func tabRefusal(_ task: TaskItem, in run: OperatorRun) throws(ToolRefusal) {
         let operated = try self.operated(task, in: run)
-        guard [.working, .inReview].contains(operated.state) else {
-            throw ToolRefusal("\(operated.key) is \(operated.state.rawValue): only a working task, or one in review, takes another tab.")
+        guard [.working, .inReview].contains(operated.state) || OperatedTransitions.isReopenable(operated) else {
+            throw ToolRefusal("\(operated.key) is \(operated.state.rawValue): only a working task, one in review, or an accepted one "
+                              + "message_task could steer takes another tab.")
         }
         guard task.hasCheckout else { throw ToolRefusal("\(operated.key) hasn’t started: it has no worktree yet.") }
         guard task.windowId != nil else { throw ToolRefusal("\(operated.key)’s window isn’t open right now, so there is nowhere to add a tab.") }

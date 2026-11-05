@@ -366,6 +366,20 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "review. Refused unless the broadcast's Review slice is on. The same key posts once.",
           {"task": _TASK, "key": _KEY, "thread": _text("The thread's id."), "body": _text("The reply, in plain text.")},
           ("task", "key", "thread", "body")),
+    _tool("resolve_thread", "Resolves a review thread on a task's merge request, by the thread's id from read_task with what: "
+          "review, once its point is fixed or answered: reply first with reply_thread when a reply is due. Refused unless the "
+          "broadcast's Review slice is on, for a thread that isn't on the task's own request, when the task was taken over, or "
+          "while the broadcast is paused or ended. A thread resolved already is left as it is.",
+          {"task": _TASK, "thread": _text("The thread's id.")}, ("task", "thread")),
+    _tool("critique_thread", "Asks the Oracle for its critique of one review thread on a task's merge request, by the thread's "
+          "id from read_task with what: review: whether its point is right for this change, and whether the worker should fix "
+          "it or you should push back. The Oracle reads the code in the task's worktree. It writes nothing on the host, so it "
+          "needs no slice; it needs the Oracle on. The critique is recorded on the task, and read_task with what: review shows "
+          "it beside its thread. The same thread with the same last note on the same commit answers the recorded critique and "
+          "asks the Oracle nothing; a new note, or a branch that moved since, asks again. An Oracle not back in time answers "
+          "pending: call again for it. Refused for a thread that isn't on the task's own request, when the task was taken over, "
+          "or while the broadcast is paused or ended.",
+          {"task": _TASK, "thread": _text("The thread's id.")}, ("task", "thread")),
     _tool("find_user", "Finds people on the code host of a task's project who may review there, by username or name. It only "
           "reads, so it needs no slice.",
           {"task": _TASK, "query": _text("A username or a name, or part of one.")}, ("task", "query")),
@@ -376,11 +390,15 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "added by open_tab. Claude Code saves a /model or /effort that runs as the person's default for new sessions. "
           "A task with tabs "
           "added by open_tab: tab names the one to message. A key the task has no tab for is refused with its tabs. "
-          "Messaging an accepted task that isn't published yet sends it back to working; accept its new commit again.",
+          "Messaging an accepted task that isn't published yet sends it back to working; accept its new commit again. That is "
+          "an accepted task whose commit isn't pushed yet, or one whose merge request is still open on the host and not "
+          "merged, such as a merge waiting on a conflict: finish_task then pushes the new commit to the same request. "
+          "No merge of it runs while the message is on its way; one refused while finish_task publishes it.",
           {"task": _TASK, "text": _text("The message."),
            "tab": _text("The key of the tab to message, as run_status lists it. Left out, or main, the first worker.")},
           ("task", "text")),
-    _tool("open_tab", "Adds a worker tab to a task that is working or in review: another agent in the task's window, on the "
+    _tool("open_tab", "Adds a worker tab to a task that is working or in review, or accepted and open to steering as "
+          "message_task says, which sends it back to working: another agent in the task's window, on the "
           "same worktree and branch, for more work on that task. It is part of the task: one card, one branch, accepted once. "
           "Its first prompt is your brief, after AiTerm's lines on where it works and that it shares the worktree. It opens "
           "behind the person's work. The same key on the same task returns the first call's tab and opens nothing more; the same "
@@ -519,6 +537,15 @@ TOOLS: tuple[dict[str, Any], ...] = (
           {"task": _TASK, "title": _text("The new title."), "description": _text("The new description."),
            "assignee": _text("The username on the code host to assign it to, as find_user gives it.")},
           ("task",)),
+    _tool("retry_pipeline",
+          "Reruns the failed pipeline of the merge request finish_task opened for a task, when it failed on the environment "
+          "(a runner timeout, an image pull), not the code: on GitLab its head pipeline's failed jobs, on GitHub the failed "
+          "jobs of each workflow's latest Actions run on its head. It changes no code, so it needs no slice and the Oracle "
+          "isn't asked. Refused while the task has no request, once it is merged or not open, for a request that isn't from "
+          "the task's own branch, for a pipeline that didn't fail (called again, a retried one is running), when the task was "
+          "taken over, or while the broadcast is paused or ended. A pipeline that fails on the code needs a fix by the worker "
+          "instead.",
+          {"task": _TASK}, ("task",)),
     _tool("ask_you", "Lists a question you asked in your chat under Waiting on you, with the same text, and notifies the person. "
           "They answer in this window; close it with resolve_question. The same key returns the open question.",
           {"key": _KEY, "question": _text("The question, complete on its own."),

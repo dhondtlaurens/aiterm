@@ -122,7 +122,7 @@ final class OperatorToolHandler {
     var sendingMessages: Set<MessageKey> = []
     /// A keyed write being sent now: a second call for the same one leaves it to the first.
     struct WriteInFlight: Hashable {
-        enum Kind { case jiraCreate, jiraComment, threadReply, find }
+        enum Kind { case jiraCreate, jiraComment, threadReply, find, pipelineRetry }
         let kind: Kind, run: UUID, key: String
     }
     var writesInFlight: Set<WriteInFlight> = []
@@ -142,6 +142,12 @@ final class OperatorToolHandler {
     var diffBaseFetches: [String: Date] = [:]
     /// The latest challenge's run, for a test to await. Set by `OperatorToolHandler+Challenge.swift`.
     var lastChallenge: Task<Void, Never>?
+    /// The Oracle's critiques of review threads running now (`critique_thread`), by task, thread, note and commit: a call
+    /// that comes while one runs waits for that one, and each is recorded on its task when it answers, whoever waits.
+    struct CritiqueKey: Hashable { let task: UUID, thread: String, note: String, head: String? }
+    var runningCritiques: [CritiqueKey: Task<SecondOpinionRunner.Verdict?, Never>] = [:]
+    /// The latest critique asked for, recorded once it ends: for a test to await.
+    var lastCritique: Task<Void, Never>?
     /// The latest reply sent, for a test to await.
     private(set) var lastReply: Task<Void, Never>?
     /// The latest line written to a run's activity log, for a test to await: each waits for the one before it, so the
@@ -179,6 +185,10 @@ final class OperatorToolHandler {
     }
     /// Whether a publication of the task is in flight (`TaskFinisher.running`): finish_task, a retry or a merge watch's poll.
     var publishing: @MainActor (UUID) -> Bool = { _ in false }
+    /// Holds an accepted task's publication while message_task or open_tab steers it, and lets it go once the call ends
+    /// (`TaskFinisher.hold`, `release`): no merge of it runs meanwhile.
+    var holdPublication: @MainActor (UUID) -> Void = { _ in }
+    var releasePublication: @MainActor (UUID) -> Void = { _ in }
 
     /// The tools that act on one task while they run: its line says the act meanwhile (`act(for:on:)`).
     static let actsOnTask: Set<OperatorTool> = [.messageTask, .markTask, .finishTask, .reviewTask, .requestReview, .replyThread]
@@ -223,7 +233,8 @@ final class OperatorToolHandler {
     static let mutating: Set<OperatorTool> = [.createTask, .updateTask, .submitPlan, .messageTask, .openTab, .markTask, .resumeTask,
                                               .retryTask, .finishTask, .askYou, .resolveQuestion, .logDecision, .leaveForYou, .reportFind,
                                               .reportSnag, .writeSummary, .jiraCreate, .jiraMove, .jiraLink, .jiraSprint, .jiraEdit,
-                                              .jiraComment, .reviewTask, .requestReview, .replyThread, .updateRequest, .recordReview, .checkGoal]
+                                              .jiraComment, .reviewTask, .requestReview, .replyThread, .resolveThread, .critiqueThread, .updateRequest, .retryPipeline, .recordReview,
+                                              .checkGoal]
 
     /// Whether `call` is one of the tools that change the run (`mutating`).
     static func isMutating(_ call: ToolCall) -> Bool { call.operatorTool.map(mutating.contains) ?? false }
@@ -372,7 +383,10 @@ final class OperatorToolHandler {
         case .reviewTask: return try await reviewTask(call, in: run)
         case .requestReview: return try await requestReview(call, in: run)
         case .replyThread: return try await replyThread(call, in: run)
+        case .resolveThread: return try await resolveThread(call, in: run)
+        case .critiqueThread: return try await critiqueThread(call, in: run)
         case .updateRequest: return try await updateRequest(call, in: run)
+        case .retryPipeline: return try await retryPipeline(call, in: run)
         case .findUser: return try await findUser(call, in: run)
         case .finishTask:
             let task = try self.task(call, in: run)

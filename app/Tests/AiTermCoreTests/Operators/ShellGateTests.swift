@@ -328,6 +328,19 @@ import Testing
         #expect(ShellGate.apiDenial("glab").contains("update_request"))
     }
 
+    /// Snag G ("Aikido findings 2026-11"): six request pipelines failed on the runner, and the gate refused the Operator's
+    /// retry with no tool to turn to; a thread could not be resolved either. The API call stays refused, and the refusal
+    /// names the tools that do it.
+    @Test func aRefusedPipelineRetryOrThreadWriteNamesItsTool() {
+        for command in ["glab api -X POST projects/web%2Facme-web/pipelines/5501/retry",
+                        "gh api -X POST repos/acme/web/actions/runs/31/rerun-failed-jobs",
+                        "glab api -X PUT projects/1/merge_requests/64/discussions/d1 -f resolved=true"] {
+            let refusal = ShellGate.hardDenial(command)
+            #expect(refusal?.contains("retry_pipeline") == true, "\(command)")
+            #expect(refusal?.contains("resolve_thread") == true && refusal?.contains("reply_thread") == true, "\(command)")
+        }
+    }
+
     @Test func anAPICallThatIsNoGetIsRefused() {
         for command in ["gh api -X PUT repos/a/b/pulls/1/merge", "gh api repos/a/b/pulls/1/merge -XPUT", "gh api --method=PATCH repos/a/b/pulls/1",
                         "gh api --method POST repos/a/b/issues", "gh api -iXPOST repos/a/b/issues", "gh api repos/a/b/issues -f title=x",

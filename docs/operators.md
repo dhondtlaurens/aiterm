@@ -140,8 +140,8 @@ end changed to Merge) is a hold: its card says `accepted · waiting on the Opera
 | Observe | `run_status`, `read_task` |
 | Plan | `create_task`, `update_task`, `submit_plan` |
 | Steer | `message_task`, `open_tab`, `resume_task`, `retry_task` |
-| Review | `record_review`, `find_user`, `request_review`, `reply_thread` |
-| Finish | `mark_task`, `finish_task`, `update_request`, `check_goal` |
+| Review | `record_review`, `find_user`, `request_review`, `reply_thread`, `resolve_thread`, `critique_thread` |
+| Finish | `mark_task`, `finish_task`, `update_request`, `retry_pipeline`, `check_goal` |
 | Ask you | `ask_you`, `resolve_question` |
 | Read Jira | `jira_search`, `jira_board` |
 | Write Jira | `jira_create`, `jira_edit`, `jira_comment`, `jira_move`, `jira_link`, `jira_sprint` |
@@ -151,7 +151,20 @@ A request `finish_task` opens takes the Operator's title, description and assign
 title is the ticket key, a colon and the task's title. Its description is the checks the worker ran,
 never the worker's brief. It is assigned to the user AiTerm acts as on the host. `update_request`
 changes an open request's title, description or assignee; the Operator's shell stays refused
-`glab mr update`, `gh pr edit` and API writes.
+`glab mr update`, `gh pr edit` and API writes, and the refusal names the tool to use instead.
+
+An accepted task is steered (`message_task`, `open_tab`) while its commit is not pushed yet, or while
+its request is still open on the host and not merged, such as a merge waiting on a conflict; AiTerm
+reads the host first, and a host that can't say steers nothing. The task goes back to working, its
+accepted commit kept as `reopenedFrom`, and its next `finish_task` pushes the new commit to the same
+request. No publication of it runs while it is steered: its merge watch stops, and `finish_task`
+refuses until the call ends. `retry_pipeline` reruns the failed pipeline of a task's own open request
+(GitLab's head pipeline, GitHub's failed Actions runs of the head), with no slice and no Oracle; a
+pipeline that didn't fail, a request not from the task's branch, a takeover, Pause and End are
+refused. `resolve_thread` resolves a review thread under the Review slice. `critique_thread` asks the
+Oracle for a critique of one thread on demand, needs the Oracle on and no slice, and records it on the
+task, per thread, note and commit; `read_task` with what: review shows it. `reply_thread` is never
+challenged.
 
 `finish_task` answers within about 20 seconds of the call, inside the daemon's 30-second wait for the
 app. A publication that takes longer (a pre-push hook, a slow host) answers `running` with what is

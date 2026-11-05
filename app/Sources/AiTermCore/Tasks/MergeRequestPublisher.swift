@@ -34,6 +34,15 @@ public protocol MergeRequestPublishing: Sendable {
     func threads(of number: Int) async throws -> [ReviewThread]
     /// A reply in the thread `thread`, as the token's user.
     func reply(_ number: Int, thread: String, body: String) async throws
+    /// The thread `thread` whole: its file and line, and all its notes. Read only.
+    func threadDetail(_ number: Int, thread: String) async throws -> ReviewThreadDetail
+    /// Resolves the thread `thread`; resolving one resolved already changes nothing.
+    func resolve(_ number: Int, thread: String) async throws
+    /// Reruns what failed of the pipeline on its head, for `retry_pipeline`: GitLab's head pipeline, GitHub's latest Actions
+    /// run of each workflow on the head. Reads the request and its pipeline first; only when something failed is
+    /// `beforeWrite` run, with the request as read, right before each write, and its error stops it. Nothing failed:
+    /// `.notFailed`, and nothing is written.
+    func retryPipeline(_ number: Int, beforeWrite: @Sendable (MergeRequest) async throws -> Void) async throws -> PipelineRetry
     /// The people on the host who match `query`, by username or name, who may review here.
     func findUsers(_ query: String) async throws -> [HostUser]
     /// The usernames that approved it as it stands.
@@ -53,6 +62,14 @@ public struct RequestContent: Codable, Equatable, Sendable {
         self.title = title; self.description = description; self.assignee = assignee
     }
     public var isEmpty: Bool { title == nil && description == nil && assignee == nil }
+}
+
+/// What `retryPipeline` came to, in the host's own few words.
+public enum PipelineRetry: Equatable, Sendable {
+    /// Rerun: what (`pipeline 5501`, `the failed jobs of CI`).
+    case retried(String)
+    /// Nothing failed to rerun, and why (`its pipeline is running`).
+    case notFailed(String)
 }
 
 extension MergeRequestPublishing {
@@ -118,6 +135,13 @@ struct GitHubPublisher: HostRepository {
     }
     func threads(of number: Int) async throws -> [ReviewThread] { try await client.threads(repo: repo, number: number) }
     func reply(_ number: Int, thread: String, body: String) async throws { try await client.reply(repo: repo, thread: thread, body: body) }
+    func resolve(_ number: Int, thread: String) async throws { try await client.resolve(repo: repo, thread: thread) }
+    func threadDetail(_ number: Int, thread: String) async throws -> ReviewThreadDetail {
+        try await client.threadDetail(repo: repo, number: number, thread: thread)
+    }
+    func retryPipeline(_ number: Int, beforeWrite: @Sendable (MergeRequest) async throws -> Void) async throws -> PipelineRetry {
+        try await client.retryFailedRuns(repo: repo, number: number, beforeWrite: beforeWrite)
+    }
     func findUsers(_ query: String) async throws -> [HostUser] { try await client.findUsers(repo: repo, query: query) }
     func approvals(of number: Int) async throws -> [String] { try await client.approvals(repo: repo, number: number) }
     func currentUser() async throws -> String { try await client.testConnection() }
@@ -154,6 +178,13 @@ struct GitLabPublisher: HostRepository {
     func threads(of number: Int) async throws -> [ReviewThread] { try await client.threads(project: project, iid: number) }
     func reply(_ number: Int, thread: String, body: String) async throws {
         try await client.reply(project: project, iid: number, discussion: thread, body: body)
+    }
+    func resolve(_ number: Int, thread: String) async throws { try await client.resolve(project: project, iid: number, discussion: thread) }
+    func threadDetail(_ number: Int, thread: String) async throws -> ReviewThreadDetail {
+        try await client.threadDetail(project: project, iid: number, discussion: thread)
+    }
+    func retryPipeline(_ number: Int, beforeWrite: @Sendable (MergeRequest) async throws -> Void) async throws -> PipelineRetry {
+        try await client.retryPipeline(project: project, iid: number, beforeWrite: beforeWrite)
     }
     func findUsers(_ query: String) async throws -> [HostUser] { try await client.findUsers(project: project, query: query) }
     func approvals(of number: Int) async throws -> [String] { try await client.approvals(project: project, iid: number) }
