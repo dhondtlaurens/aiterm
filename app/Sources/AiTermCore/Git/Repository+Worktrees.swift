@@ -36,14 +36,14 @@ extension Repository {
         try git.run(["worktree", "prune"], in: path)
     }
 
-    /// A task's worktree on a new `branch` from `base` — origin's when there is one — locked as
-    /// the task's from the moment git makes it.
+    /// A task's worktree on a new `branch` from `base` — origin's when there is one, unless not `fromOrigin`: a local-merge
+    /// task starts at the local branch, where the tasks before it merged — locked as the task's from the moment git makes it.
     ///
     /// A `worktree add` that fails can still leave a worktree behind: git keeps the checkout when
     /// only its `post-checkout` hook failed, and keeps it *locked*, since the lock is part of the
     /// add. Nothing may assume git cleaned up after a failed add. The same holds for a review's.
-    public func addTaskWorktree(slug: String, branch: String, base: String) throws -> String {
-        let hasOrigin = try hasOrigin
+    public func addTaskWorktree(slug: String, branch: String, base: String, fromOrigin: Bool = true) throws -> String {
+        let hasOrigin = try fromOrigin && hasOrigin
         let worktreePath = try prepareWorktree(slug: slug)
         // Best-effort, so a new worktree starts from the remote's latest when it can: offline, it
         // starts from what was last fetched. Whether origin has the base at all is not: a git that

@@ -362,6 +362,34 @@ import Synchronization
         #expect(reviewed.prompts.list.count == 1)
     }
 
+    /// A local merge pushes nothing, so origin out of reach doesn't stop it (found in broadcast "Broadcast fix",
+    /// 2026-11-05): with the Oracle on, whether the commit is in main already is read from the checkout and origin as last
+    /// fetched, and the Oracle is still asked. Its no merges nothing; its yes merges, and the answer says origin couldn't
+    /// be read. A merge end is still refused with why.
+    @Test(arguments: ["YES", "NO."]) func anOfflineLocalMergeStillAsksTheOracleAndMergesOnItsYes(answer: String) async throws {
+        let m = try merging(end: .mergeLocal, answer: answer)
+        let git = GitRunner.hermetic(), path = m.task.worktreePath
+        try git.run(["switch", "-q", "main"], in: path)
+        try git.run(["remote", "set-url", "origin", path + "-gone"], in: path)
+        let reply = await m.world.call(m.run.id, "finish_task", ["task": "A"])
+        #expect(m.prompts.list.count == 1, "the Oracle is asked: \(reply)")
+        if answer == "YES" {
+            #expect(reply.value?["result"] == "published", "\(reply)")
+            #expect(reply.value?["merged"] == true)
+            #expect(reply.value?["reason"]?.stringValue?.contains("couldn’t fetch main from origin") == true)
+            #expect(try git.run(["rev-parse", "main^2"], in: path) == m.sha)
+        } else {
+            #expect(reply.value?["merged"] != true, "\(reply)")
+            #expect(try git.run(["rev-parse", "main"], in: path) != m.sha && publication(m)?.merged != true)
+        }
+
+        let merge = try merging(end: .merge, answer: "YES")
+        try git.run(["remote", "set-url", "origin", merge.task.worktreePath + "-gone"], in: merge.task.worktreePath)
+        let refused = await merge.world.call(merge.run.id, "finish_task", ["task": "A"])
+        #expect((refused.message ?? "").contains("couldn’t fetch main from origin"), "\(refused)")
+        #expect(merge.prompts.list.isEmpty)
+    }
+
     /// The task accepted again on another commit while the Oracle judged: its yes was for the old commit, so it
     /// neither merges nor counts for the new one.
     func reaccept(_ m: Merging) {

@@ -94,6 +94,9 @@ public enum TaskCreator {
     public struct Made: Sendable {
         public let task: TaskItem
         public let worktreeInclude: WorktreeInclude.Outcome
+        /// The commit a branch made just now started at, which its diffs are read against; nil for a branch or worktree
+        /// adopted from an earlier attempt.
+        public var startCommit: String? = nil
     }
 
     public static func create(draft: TaskDraft, project: Project, reserved: Set<String> = [], git: any GitRunning) throws -> Made {
@@ -127,9 +130,10 @@ public enum TaskCreator {
     }
 
     /// An operator's worker's worktree, made when AiTerm starts the task: a new branch from `start` — the
-    /// default branch, or a stacked task's parent's accepted commit. A relaunch adopts what an earlier
-    /// attempt left: the worktree it made for the branch, or the branch it made, checked out afresh.
-    public static func checkOutWorker(_ task: TaskItem, project: Project, start: String, reserved: Set<String> = [],
+    /// default branch, or a stacked task's parent's accepted commit — origin's copy of it when `fromOrigin` and origin has
+    /// one. A relaunch adopts what an earlier attempt left: the worktree it made for the branch, or the branch it made,
+    /// checked out afresh.
+    public static func checkOutWorker(_ task: TaskItem, project: Project, start: String, fromOrigin: Bool = true, reserved: Set<String> = [],
                                       git: any GitRunning) throws -> Made {
         let repository = Repository(project.path, git: git)
         var checkedOut = task
@@ -143,7 +147,9 @@ public enum TaskCreator {
             checkedOut.worktreePath = project.path + "/" + Worktree.directoryName + "/" + slug
             try repository.restoreWorktree(at: checkedOut.worktreePath, branch: task.branch, kind: .task)
         } else {
-            checkedOut.worktreePath = try repository.addTaskWorktree(slug: slug, branch: task.branch, base: start)
+            checkedOut.worktreePath = try repository.addTaskWorktree(slug: slug, branch: task.branch, base: start, fromOrigin: fromOrigin)
+            return Made(task: checkedOut, worktreeInclude: copyIncludes(true, from: repository, into: checkedOut.worktreePath),
+                        startCommit: repository.sha("refs/heads/" + task.branch))
         }
         return Made(task: checkedOut, worktreeInclude: copyIncludes(true, from: repository, into: checkedOut.worktreePath))
     }

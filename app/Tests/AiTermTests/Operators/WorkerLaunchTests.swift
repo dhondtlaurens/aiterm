@@ -179,6 +179,113 @@ import Testing
         #expect(world.task(task.id)?.operated?.blockedReason == Self.noAgentReason)
     }
 
+    // -- where a task's branch starts (broadcast "Broadcast fix", 2026-11-05) -----------------------------------------
+
+    /// The run's project: origin's `main` at the commit 4fb7de17 stood for (X), and local `main` one merge ahead (Y, as
+    /// 558cea0d "merge c7174be9" was), not pushed: a local-merge broadcast merges into local main and pushes nothing.
+    /// `originAhead`: origin instead has a commit local main lacks (Z), pushed from another clone.
+    func localMergeRepo(originAhead: Bool = false) throws -> (path: String, x: String, ahead: String) {
+        let fixture = try GitFixture.withOrigin(branch: "scratch")
+        let path = fixture.path
+        func sha(_ ref: String, in dir: String) throws -> String {
+            try git.run(["rev-parse", ref], in: dir).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        try git.run(["switch", "-q", "main"], in: path)
+        let x = try sha("main", in: path)
+        if originAhead {
+            let other = try GitFixture.folder("other-")
+            try git.run(["clone", "-q", fixture.origin, other], in: "/")
+            try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-q", "-m", "Z"], in: other)
+            try git.run(["push", "-q", "origin", "HEAD:main"], in: other)
+            return (path, x, try sha("HEAD", in: other))
+        }
+        try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-q", "-m", "merge c7174be9"], in: path)
+        return (path, x, try sha("main", in: path))
+    }
+
+    func launched(_ end: TaskEnd, in path: String) async throws -> TaskItem {
+        let project = OperatorServiceFixtures.project(path: path)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "area-A", state: .queued, end: end)
+        let clock = self.clock
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])) {
+            $0.clock.now = { clock.now }
+        }
+        world.show([OperatorServiceFixtures.session("op", window: "w-op", tag: run.id)])
+        world.controller.startReadyTasks()
+        await world.controller.lastStart?.value
+        return try #require(world.task(task.id))
+    }
+
+    /// area-A, released by area-C's local merge: its branch was "Created from origin/main" at 4fb7de17, and
+    /// `git merge-base --is-ancestor c7174be9 <A's branch>` was false. A local-merge task branches from local main.
+    @Test func aLocalMergeTaskBranchesFromLocalMainWithTheMergeBeforeIt() async throws {
+        let repo = try localMergeRepo()
+        let task = try await launched(.mergeLocal, in: repo.path)
+        let head = try git.run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(head == repo.ahead, "A's branch starts at local main, the merge in it")
+        #expect(task.operated?.diffBaseSHA == repo.ahead)
+    }
+
+    /// Every other end keeps origin's: a merge or a draft goes to origin.
+    @Test func aMergeTaskStillBranchesFromOriginsMain() async throws {
+        let repo = try localMergeRepo()
+        let task = try await launched(.merge, in: repo.path)
+        let head = try git.run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(head == repo.x)
+        #expect(task.operated?.diffBaseSHA == repo.x)
+    }
+
+    /// Its diff base is where its branch really started: origin's main, ahead of the local one, not their merge base.
+    @Test func aTasksDiffBaseIsItsRealStartWhenOriginIsAhead() async throws {
+        let repo = try localMergeRepo(originAhead: true)
+        let task = try await launched(.merge, in: repo.path)
+        let head = try git.run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(head == repo.ahead)
+        #expect(task.operated?.diffBaseSHA == repo.ahead)
+    }
+
+    // -- no uncertainty while a launch opens (broadcast "Broadcast fix", 2026-11-05) -----------------------------------
+
+    /// area-G, released: its new window was listed first as the shell its agent command is typed into, and the Operator was
+    /// woken "one task is uncertain, no worker confirmed in its window" while its worker opened normally. While its launch is
+    /// pending (`workerPending`), the shell is its opening: no uncertain flag, no wake. Its agent listed after says nothing.
+    @Test func aNewWorkersShellWhileItsLaunchIsPendingIsNotUncertain() async throws {
+        let (world, run, task) = try queued(RecordingDaemon())
+        var uncertain = 0
+        world.controller.starter.onUncertain = { _ in uncertain += 1 }
+        world.controller.startReadyTasks()
+        await world.controller.lastStart?.value
+        #expect(world.task(task.id)?.operated?.launch?.workerPending == true)
+        let op = OperatorServiceFixtures.session("op", window: "w-op", tag: run.id)
+        world.show([op, OperatorServiceFixtures.session("s-g", window: "reopened", tag: task.id, agent: .shell)])
+        #expect(world.task(task.id)?.operated?.flags.contains(.uncertain) == false)
+        clock.advance(by: 120)
+        world.controller.reconcileTick()
+        #expect(world.task(task.id)?.operated?.flags.contains(.uncertain) == false, "about 2 minutes in, as area-G was")
+        world.show([op, OperatorServiceFixtures.session("s-g", window: "reopened", tag: task.id)])
+        #expect(world.task(task.id)?.operated?.launch?.workerPending == nil)
+        #expect(world.task(task.id)?.operated?.flags.contains(.uncertain) == false)
+        #expect(uncertain == 0)
+    }
+
+    /// No agent ever shows: past the opening window the launch is blocked with why (the 3-minute rule), which wakes the
+    /// Operator; it is never a late uncertain line.
+    @Test func aNewWorkersShellThatNeverRunsAnAgentIsBlockedNotUncertain() async throws {
+        let (world, run, task) = try queued(RecordingDaemon())
+        var uncertain = 0
+        world.controller.starter.onUncertain = { _ in uncertain += 1 }
+        world.controller.startReadyTasks()
+        await world.controller.lastStart?.value
+        world.show([OperatorServiceFixtures.session("op", window: "w-op", tag: run.id),
+                    OperatorServiceFixtures.session("s-g", window: "reopened", tag: task.id, agent: .shell)])
+        clock.advance(by: OperatorTiming.firstWorkerOpening)
+        world.controller.reconcileTick()
+        let blocked = try #require(world.task(task.id)?.operated)
+        #expect(blocked.state == .blocked && blocked.blockedReason == Self.noAgentReason)
+        #expect(!blocked.flags.contains(.uncertain) && uncertain == 0)
+    }
+
     // -- a launch that never gets a window ------------------------------------------------------
 
     func queued(_ daemon: RecordingDaemon) throws -> (OperatorWorld, OperatorRun, TaskItem) {

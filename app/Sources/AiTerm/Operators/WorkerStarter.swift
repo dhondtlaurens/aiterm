@@ -194,7 +194,10 @@ final class WorkerStarter {
         do {
             let start = try await startPoint(of: id, in: project)
             let reserved = state.reservedWorktreeSlugs(projectId: project.id)
-            let (made, baseline) = try await workflow.checkOutWorker(task, project: project, start: start, reserved: reserved)
+            // A local merge goes into the local default branch and pushes nothing: its tasks start there, where the tasks
+            // before them merged, never at origin's copy.
+            let (made, baseline) = try await workflow.checkOutWorker(task, project: project, start: start,
+                                                                     fromOrigin: operated.end != .mergeLocal, reserved: reserved)
             workspace.mutate { state in
                 guard let i = state.tasks.firstIndex(where: { $0.id == id }) else { return }
                 state.tasks[i].worktreePath = made.task.worktreePath
@@ -434,16 +437,20 @@ final class WorkerStarter {
         checkWorker(id, sessions: live.sessions)
     }
 
-    /// A tagged shell confirms a window, not an agent. Keep that uncertainty visible until an agent appears.
+    /// A tagged shell confirms a window, not an agent. Keep that uncertainty visible until an agent appears, except while
+    /// the launch is pending (`LaunchAttempt.workerPending`): a new worker's window is listed first as the shell its agent
+    /// command is typed into, and that is its opening, which the 3-minute rule judges (`checkLaunches`).
     private func checkWorker(_ id: UUID, sessions: [SessionInfo]) {
         guard let task = state.task(id: id), let operated = task.operated, operated.launch != nil,
               [.working, .blocked].contains(operated.state) else { return }
         let tabs = sessions.filter { $0.taskUUID == id }
         guard !tabs.isEmpty else { return }
         // Its first worker is listed running an agent: the launch reached a worker.
-        if operated.launch?.workerPending == true, tabs.contains(where: Self.isFirstWorkerTab) {
+        let pending = operated.launch?.workerPending == true
+        if pending, tabs.contains(where: Self.isFirstWorkerTab) {
             workspace.mutate { $0.updateOperated(id) { $0.launch?.workerPending = nil } }
         }
+        if pending, !tabs.contains(where: Self.isWorkerTab) { return }
         if tabs.contains(where: Self.isWorkerTab) {
             if operated.flags.contains(.uncertain) { workspace.mutate { $0.updateOperated(id) { $0.flags.remove(.uncertain) } } }
         } else if !operated.flags.contains(.uncertain) {

@@ -410,9 +410,9 @@ import Testing
             #expect(lines.allSatisfy(OperatorWaker.isPlain), "\(lines)")
             return lines
         }
-        #expect(try await woken(by: ["T7": asks]) == ["[AiTerm] letter-tee-seven asks something, call run_status"])
+        #expect(try await woken(by: ["T7": asks]) == ["[AiTerm] T-seven asks something, call run_status"])
         #expect(try await woken(by: ["T6": empty, "T7": asks, "T10": empty]) == [
-            "[AiTerm] letter-tee-one-zero finished with no commit; letter-tee-seven asks something; letter-tee-six finished with no commit, call run_status"
+            "[AiTerm] T-one-zero finished with no commit; T-seven asks something; T-six finished with no commit, call run_status"
         ])
     }
 
@@ -421,8 +421,8 @@ import Testing
     @Test func aLineThatIsNotPlainIsTypedAsTheGenericOne() {
         #expect(OperatorWaker.typable("[AiTerm] letter-tee-seven asks a question, call run_status") == "[AiTerm] updates waiting, call run_status")
         #expect(OperatorWaker.typable("[AiTerm] T7 needs acceptance, call run_status") == "[AiTerm] updates waiting, call run_status")
-        #expect(OperatorWaker.typable("[AiTerm] letter-tee-seven asks something, call run_status")
-                == "[AiTerm] letter-tee-seven asks something, call run_status")
+        #expect(OperatorWaker.typable("[AiTerm] T-seven asks something, call run_status")
+                == "[AiTerm] T-seven asks something, call run_status")
     }
 
     /// The app's rule (`isPlain`) and the daemon's (`delivery.wake_text_problem`) agree on one table of lines, which
@@ -450,7 +450,29 @@ import Testing
         await hand.release(1)
         try await daemon.received("session.deliver")
         await waker.lastSend?.value
-        #expect(lines == ["[AiTerm] updates waiting, call run_status"])
+        #expect(lines == ["[AiTerm] PAY-two's worker stopped on an error, call run_status"])
+    }
+
+    /// Broadcast "Broadcast fix" (2026-11-05): A's worker stopped on an API error after the Mac slept, and the line, when
+    /// it went, was the generic one. It names the task now, in a line the daemon types.
+    @Test func aWorkerStoppedAfterTheMacSleptIsNamed() async throws {
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
+        let tasks = [OperatorServiceFixtures.task(in: run, project: project, key: "area-A", state: .working)]
+        waker.acknowledged(status(tasks, turns: ["area-A": TaskLiveFacts(status: .working)]), of: run.id)
+        let stopped = TaskLiveFacts(status: .idle, lastMessage: "API Error: Connection error.", commitsAhead: 1,
+                                    stoppedOn: "it won't carry on by itself")
+        waker.observe(status(tasks, turns: ["area-A": stopped]), of: run.id)
+        await hand.release(1)
+        try await daemon.received("session.deliver")
+        await waker.lastSend?.value
+        #expect(lines == ["[AiTerm] area-A's worker stopped on an error, call run_status"])
+        #expect(lines.allSatisfy(OperatorWaker.isPlain))
+    }
+
+    /// A merge watch that found a commit accepted again and not pushed (only finish_task pushes it) names the task.
+    @Test func anUnpushedAcceptedCommitIsSaidWithTheTasksName() {
+        let reason = OperatorWaker.Reason(text: OperatorController.unpushedReason(key: "area-E"), colon: true)
+        #expect(OperatorWaker.line(updates: 1, reason: reason) == "[AiTerm] area-E has an accepted commit to push: call run_status")
     }
 
     /// Work done in an accepted task's worker after its acceptance wakes the Operator with its own line.
@@ -585,6 +607,36 @@ import Testing
         await settle()
         try await Task.sleep(for: .milliseconds(50))
         #expect(lines.count == 1, "\(lines)")
+    }
+
+    /// Broadcast "Broadcast fix" (2026-11-05): area-C, A and D turned ready for acceptance with no wake on 0.42.0, whose
+    /// daemon held every line on input it only guessed held text (fixed by abf4f363). On `main`, area-E turning ready
+    /// wakes the Operator whether it idles or works (the line then goes once its turn ends), and the line names area-E by
+    /// its own key: 0.42.0 typed `area-letter-ee`, which no tool took.
+    @Test func aTaskReadyForAcceptanceWakesTheOperatorByAKeyItsToolsTake() async throws {
+        let tasks = [OperatorServiceFixtures.task(in: run, project: project, key: "area-E", state: .working)]
+        let working = status(tasks, turns: ["area-E": TaskLiveFacts(status: .working)])
+        let ready = status(tasks, turns: ["area-E": TaskLiveFacts(status: .idle, lastMessage: "Done.", commitsAhead: 1)])
+        #expect(ready.obligations.readyForAcceptance == ["area-E"])
+        for midTurn in [false, true] {
+            let daemon = RecordingDaemon(), op = Operator()
+            op.tab = OperatorServiceFixtures.session("op", tag: run.id)
+            let waker = OperatorWaker(daemon: { daemon }, session: { [op] _ in op.tab }, awake: { _ in true }, coalesce: .zero)
+            waker.acknowledged(working, of: run.id)
+            if midTurn { op.tab?.state = .working }
+            waker.observe(ready, of: run.id)
+            if midTurn {
+                await waker.lastCoalesce?.value
+                #expect(daemon.requests("session.deliver").isEmpty, "nothing is typed while the Operator works")
+                op.tab?.state = .idle
+                waker.operatorSessionChanged(run.id)
+            }
+            try await daemon.received("session.deliver")
+            await waker.lastSend?.value
+            let lines = daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
+            #expect(lines == ["[AiTerm] area-E needs acceptance, call run_status"], "mid-turn: \(midTurn)")
+            #expect(lines.allSatisfy(OperatorWaker.isPlain))
+        }
     }
 
     /// A worker whose transcript went quiet while it says working reads `working?` and its task uncertain: news once per

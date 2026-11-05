@@ -245,6 +245,63 @@ final class MergeClock: Sendable {
         #expect(s.changed.ids.isEmpty)
     }
 
+    /// Only finish_task pushes (found in broadcast "Broadcast fix", 2026-11-05): a merge watch running on an open request
+    /// whose task was accepted again on a fix-round commit pushes nothing. It stops, records why and tells the Operator,
+    /// whose finish_task then pushes the commit and watches again.
+    @Test func aMergeWatchNeverPushesANewlyAcceptedCommit() async throws {
+        let s = try setUp(end: .merge)
+        #expect(await s.finisher.finish(s.task).result == .waitingToMerge)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "fix round"], in: s.path)
+        let fix = try git.run(["rev-parse", "HEAD"], in: s.path)
+        s.store.mutate { $0.updateOperated(s.task) { $0.acceptance?.resultSHA = fix } }
+        await s.ticker.tick()
+        #expect(await eventually(describing: "the watch to stop") { s.finisher.watching.isEmpty })
+        #expect(try git.run(["rev-parse", "feat/pluto-231"], in: s.origin) == s.sha, "nothing pushed")
+        let why = TaskFinisher.unpushedAcceptance("PLUTO-231", sha: fix)
+        #expect(why == "PLUTO-231’s accepted commit \(fix.prefix(7)) isn’t pushed: only finish_task pushes it.")
+        #expect(s.stopped.all == [why])
+        #expect(operated(s)?.publication?.problem == why)
+        s.finisher.resumeWatching()
+        #expect(s.finisher.watching.isEmpty, "it waits for finish_task")
+        let pushed = await s.finisher.finish(s.task)
+        #expect(pushed.pushedSHA == fix, "\(pushed)")
+        #expect(try git.run(["rev-parse", "feat/pluto-231"], in: s.origin) == fix)
+        #expect(s.finisher.watching == [s.task], "watched again")
+    }
+
+    /// A git that, once armed, holds the next read of the task branch's tip until the test lets it go.
+    final class HeldTip: GitRunning, @unchecked Sendable {
+        let inner = GitRunner.hermetic(), go = DispatchSemaphore(value: 0)
+        private let state = Mutex((armed: false, holding: false))
+        var holding: Bool { state.withLock { $0.holding } }
+        func arm() { state.withLock { $0.armed = true } }
+        func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+            let hold = args.first == "rev-parse" && args.contains("refs/heads/feat/pluto-231^{commit}")
+                && state.withLock { s in defer { s.armed = false }; if s.armed { s.holding = true }; return s.armed }
+            if hold { go.wait() }
+            return try inner.run(args, in: dir, timeout: timeout, environment: environment)
+        }
+    }
+
+    /// The same, accepted again while the watch's poll was reading git: what it hands the publisher is checked again, so
+    /// the new commit is still never pushed by the watch.
+    @Test func aMergeWatchNeverPushesACommitAcceptedWhileItsPollReadsGit() async throws {
+        let held = HeldTip()
+        let s = try setUp(end: .merge, git: held)
+        defer { held.go.signal() }
+        #expect(await s.finisher.finish(s.task).result == .waitingToMerge)
+        held.arm()
+        await s.ticker.tick()
+        #expect(await eventually(describing: "the poll reading the branch's tip") { held.holding })
+        try git.run(["commit", "--allow-empty", "-q", "-m", "fix round"], in: s.path)
+        let fix = try git.run(["rev-parse", "HEAD"], in: s.path)
+        s.store.mutate { $0.updateOperated(s.task) { $0.acceptance?.resultSHA = fix } }
+        held.go.signal()
+        #expect(await eventually(describing: "the watch to stop") { s.finisher.watching.isEmpty })
+        #expect(try git.run(["rev-parse", "feat/pluto-231"], in: s.origin) == s.sha, "nothing pushed")
+        #expect(s.stopped.all == [TaskFinisher.unpushedAcceptance("PLUTO-231", sha: fix)])
+    }
+
     /// The branch moved past the accepted commit while the merge waited: the reason is recorded, the
     /// operator told once, and nothing watches it again until its next finish_task.
     @Test func aBranchMovedDuringTheWaitStopsTheWatchAndSaysWhy() async throws {
@@ -489,9 +546,10 @@ final class MergeClock: Sendable {
         #expect(operated(s)?.publication?.problem == nil)
     }
 
-    /// T7, 8eb4928 on !68: a merge end in review, accepted again for a fix round and watched. The first poll's push is
-    /// refused by the pre-push hook, recorded as the task's problem; the next poll's push lands and the task is back in
-    /// review. The hook's label goes with the push that landed.
+    /// T7, 8eb4928 on !68: a merge end in review, accepted again for a fix round. The first push is refused by the pre-push
+    /// hook, recorded as the task's problem; the next one lands and the task is back in review. The hook's label goes with
+    /// the push that landed. Each push is the Operator's finish_task: a merge watch never pushes (broadcast "Broadcast
+    /// fix", 2026-11-05), where 0.42.0's watch pushed these itself.
     @Test func aLaterPushThatLandsClearsTheHooksLabel() async throws {
         let s = try setUp(end: .merge, slices: Slices(review: true, merge: true))
         s.store.mutate { state in
@@ -503,17 +561,13 @@ final class MergeClock: Sendable {
             }
         }
         let hook = try writeHook("#!/bin/sh\necho 'lefthook: running pre-push'\necho 'sh: npm: command not found' >&2\nexit 1\n", in: s)
-        s.finisher.resumeWatching()
-        #expect(s.finisher.watching == [s.task])
-        await s.ticker.tick()
-        #expect(await eventually(describing: "the refused push recorded") {
-            operated(s)?.publication?.problem?.hasPrefix("The pre-push hook refused the push of feat/pluto-231") == true
-        })
+        #expect(await s.finisher.finish(s.task).result == .failed)
+        #expect(operated(s)?.publication?.problem?.hasPrefix("The pre-push hook refused the push of feat/pluto-231") == true)
         #expect(try shown(s).line?.look == .needsYou, "while the refusal holds, the task looks blocked")
 
         try FileManager.default.removeItem(at: hook)
-        await s.ticker.tick()
-        #expect(await eventually(describing: "back in review") { operated(s)?.state == .inReview })
+        _ = await s.finisher.finish(s.task)
+        #expect(operated(s)?.state == .inReview)
         #expect(try git.run(["rev-parse", "refs/heads/feat/pluto-231"], in: s.origin) == s.sha)
         #expect(operated(s)?.publication?.problem == nil)
         let now = try shown(s)
@@ -692,6 +746,19 @@ final class MergeClock: Sendable {
         #expect(saved.task(id: s.task)?.operated?.publication?.merged == true, "on disk")
         #expect(await s.finisher.finish(s.task) == result, "a repeat is answered from the record")
         #expect(s.store.state.run(id: s.run)?.leftForYou.count == 1)
+    }
+
+    /// Origin out of reach (found in broadcast "Broadcast fix", 2026-11-05): a local merge pushes nothing, so it goes
+    /// ahead, reading origin as last fetched, and its answer says origin couldn't be read.
+    @Test func aLocalMergeGoesAheadWhenOriginCantBeFetched() async throws {
+        let s = try setUp(end: .mergeLocal)
+        try git.run(["switch", "-q", "main"], in: s.path)
+        try git.run(["remote", "set-url", "origin", s.path + "-gone"], in: s.path)
+        let result = await s.finisher.finish(s.task)
+        #expect(result.result == .published && result.merged, "\(result)")
+        #expect(result.reason?.hasPrefix("Merged locally. AiTerm couldn’t fetch main from origin") == true, "\(String(describing: result.reason))")
+        #expect(try git.run(["rev-parse", "main^2"], in: s.path) == s.sha)
+        #expect(operated(s)?.state == .published)
     }
 
     /// A checkout with uncommitted changes is refused, and nothing is left for you to push.

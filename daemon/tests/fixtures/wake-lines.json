@@ -11,5 +11,14 @@
   {"text": "[AiTerm] one task is in review with nothing waiting, call run_status", "plain": true},
   {"text": "[AiTerm] Codex’s review failed: call run_status", "plain": true},
   {"text": "[AiTerm] y, call run_status", "plain": false, "why": "a one-letter answer"},
-  {"text": "[AiTerm] “a” in quotes, call run_status", "plain": false, "why": "a one-letter word in curly quotes"}
+  {"text": "[AiTerm] “a” in quotes, call run_status", "plain": false, "why": "a one-letter word in curly quotes"},
+  {"text": "[AiTerm] area-letter-ee needs acceptance, call run_status", "plain": true,
+   "why": "area-E as AiTerm 0.42.0 wrote it (broadcast fix, 2026-11-05): plain, but no tool takes that key"},
+  {"text": "[AiTerm] area-E needs acceptance, call run_status", "plain": true,
+   "why": "a key's one letter inside a hyphenated key is not a one-letter word"},
+  {"text": "[AiTerm] T-seven asks something, call run_status", "plain": true},
+  {"text": "[AiTerm] E needs acceptance, call run_status", "plain": false, "why": "a key that is one letter"},
+  {"text": "[AiTerm] area-A's worker stopped on an error, call run_status", "plain": true},
+  {"text": "[AiTerm] nothing has moved for ten minutes, call run_status", "plain": true},
+  {"text": "[AiTerm] area-E has an accepted commit to push: call run_status", "plain": true}
 ]

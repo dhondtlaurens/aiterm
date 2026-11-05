@@ -289,6 +289,20 @@ final class TaskFinisher {
         _ = store.flush()
     }
 
+    /// Only the Operator's finish_task pushes: a merge watch's poll (`operatorCall` false) that finds the task accepted again
+    /// on a commit not pushed yet pushes nothing, and stops with why, which tells the Operator. Nil when it may go on.
+    static func watchMayNotPush(_ operated: OperatedTask, operatorCall: Bool) -> Result? {
+        guard !operatorCall, stillToPush(operated), operated.publication?.pushedSHA != nil, let sha = operated.acceptance?.resultSHA
+        else { return nil }
+        return Result(operated.publication, result: .refused, reason: unpushedAcceptance(operated.key, sha: sha))
+    }
+
+    /// Why a merge watch's poll pushed nothing: the task was accepted again on a commit not yet pushed, which only the
+    /// Operator's `finish_task` pushes.
+    static func unpushedAcceptance(_ key: String, sha: String) -> String {
+        "\(key)’s accepted commit \(sha.prefix(7)) isn’t pushed: only finish_task pushes it."
+    }
+
     /// Why a `noVerify` is refused before any push the hook refused.
     static let noFailedPush = "Push without noVerify first, so the hook's output is known."
 
@@ -447,14 +461,20 @@ final class TaskFinisher {
         guard var first = context(of: id) else { return Result(result: .refused, reason: PublicationGuard.gone) }
         // The Operator's own call on a merge end reads origin fetched before it changes or decides anything (a review
         // ended, the commit read as merged or not): a fetch that fails changes nothing.
-        var fetched: LandingCheck?
+        var fetched: LandingCheck?, offline: String?
         if operatorCall, first.operated.end.merges, [.accepted, .inReview].contains(first.operated.state),
            let sha = first.operated.acceptance?.resultSHA, first.operated.publication?.merged != true,
            first.operated.publication?.mergedSHA == nil {
             let ownership = first.operated.ownership
-            let check = await Self.landingFetched(of: sha, in: first.project.path, git: git)
-            if case .unknown(let why) = check {
-                return Result(store.state.task(id: id)?.operated?.publication, result: .failed, reason: why)
+            var check = await Self.landingFetched(of: sha, in: first.project.path, git: git)
+            if case .unknown(let why, let note) = check {
+                // A local merge pushes nothing: it goes ahead on the checkout and origin as last fetched, and says so.
+                guard first.operated.end == .mergeLocal else {
+                    return Result(store.state.task(id: id)?.operated?.publication, result: .failed, reason: why)
+                }
+                offline = note
+                check = await Self.landing(of: sha, in: first.project.path, git: git)
+                    .map { .landed(target: $0.target, landing: $0.landing) } ?? .notLanded
             }
             // Read fresh: the fetch awaited git. What it found holds only for the commit accepted then, by the same owner.
             guard let fresh = context(of: id) else { return Result(result: .refused, reason: PublicationGuard.gone) }
@@ -472,7 +492,7 @@ final class TaskFinisher {
             first = fresh
         }
         // Merged outside finish_task, even after it was left for you: recorded as it is, nothing more done.
-        if let landed = await finishLanded(first, fetched: fetched) { return landed }
+        if let landed = await finishLanded(first, fetched: fetched) { return Self.noting(offline, on: landed) }
         let task = first.task, operated = first.operated, project = first.project
         // What is done is answered from the record, whatever the host's connection is now.
         if operated.publication?.leftForYou == true { return Result(operated.publication, result: .leftForYou, reason: nil) }
@@ -481,6 +501,7 @@ final class TaskFinisher {
             if operated.publication?.assigning == true, operated.publication?.merged != true { return await assignAgain(first) }
             return apply(.published(operated.publication ?? TaskPublication()), to: id)
         }
+        if let refused = Self.watchMayNotPush(operated, operatorCall: operatorCall) { return refused }
         let repository = Repository(project.path, git: git), branch = task.branch
         let host: any MergeRequestPublishing
         do {
@@ -492,7 +513,7 @@ final class TaskFinisher {
                 return Result(fresh.operated.publication, result: .refused, reason: refusal)
             }
             // A local merge asks no host and pushes nothing.
-            if fresh.operated.end == .mergeLocal { return await mergeLocally(fresh, repository: repository) }
+            if fresh.operated.end == .mergeLocal { return Self.noting(offline, on: await mergeLocally(fresh, repository: repository)) }
             host = try await codeHost.host(of: project)
         } catch CodeHostCheck.Failure.noOrigin {
             return Result(store.state.task(id: id)?.operated?.publication, result: .refused, reason: PublishRefusal.noOrigin.localizedDescription)
@@ -507,6 +528,8 @@ final class TaskFinisher {
         }
         // Read fresh: the checks above awaited git.
         guard let current = context(of: id) else { return Result(result: .refused, reason: PublicationGuard.gone) }
+        // Accepted again while the reads above awaited git: checked again on what the publisher is handed.
+        if let refused = Self.watchMayNotPush(current.operated, operatorCall: operatorCall) { return refused }
         let ownership = current.operated.ownership, accepted = current.operated.acceptance?.resultSHA ?? ""
         let drafted = DraftNews(), step = steps(of: id, ownership: ownership, sha: accepted)
         let publisher = TaskPublisher(repository: repository, host: host, now: now, noted: { drafted.record($0) })
@@ -642,8 +665,9 @@ final class TaskFinisher {
     enum LandingCheck: Sendable {
         case landed(target: String, landing: Repository.Landing)
         case notLanded
-        /// Origin couldn't be fetched: whether it is merged there is not known, and never read as not merged. Why, as said.
-        case unknown(String)
+        /// Origin couldn't be fetched: whether it is merged there is not known, and never read as not merged. Why, as said
+        /// when nothing is done; and what a local merge, which pushes nothing and so goes ahead, says of it (`offline`).
+        case unknown(String, offline: String)
     }
 
     /// `landing(of:in:git:)` after fetching the default branch from origin, bounded by `OperatorTiming.landedFetchTimeout`:
@@ -656,11 +680,25 @@ final class TaskFinisher {
             do {
                 if try repository.hasOrigin { try repository.fetchFromOrigin(target, timeout: OperatorTiming.landedFetchTimeout) }
             } catch {
-                return .unknown(TaskFinisher.unfetched(target, error))
+                return .unknown(TaskFinisher.unfetched(target, error), offline: TaskFinisher.readAsLastFetched(target, error))
             }
             guard let landing = try? repository.landing(of: sha, in: target) else { return .notLanded }
             return .landed(target: target, landing: landing)
         }
+    }
+
+    /// A local merge's answer, saying that it went ahead with origin unread (`offline`) when it merged or recorded a merge.
+    static func noting(_ offline: String?, on result: Result) -> Result {
+        guard let offline, result.result == .published else { return result }
+        var noted = result
+        noted.reason = (result.reason.map { $0 + " " } ?? "Merged locally. ") + offline
+        return noted
+    }
+
+    /// What a local merge's answer says when origin couldn't be fetched: it pushes nothing, so it went ahead on origin as last
+    /// fetched.
+    nonisolated static func readAsLastFetched(_ branch: String, _ error: any Error) -> String {
+        "AiTerm couldn’t fetch \(branch) from origin (\(GitError.displayReason(of: error))), so it read origin as last fetched."
     }
 
     /// Why a merge decision isn't taken when origin couldn't be fetched.

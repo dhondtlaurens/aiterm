@@ -233,15 +233,20 @@ fixtures:
 
 ## To-dos
 
-One commit per item, in this order, each leaving `main`'s behaviour working:
+Built in this order, each slice green before the next. It is one commit rather than one per item: the slices share
+`OperatorWaker`, the wake-line table and their tests, and the review saw the change whole.
 
-- [ ] 3: `TaskKeyReference`, the resolver, the waker and the table (others use its output)
-- [ ] 4: no uncertain flag while pending
-- [ ] 2: local-merge start point and the real `diffBaseSHA`
-- [ ] 5: local merge with origin unreadable
-- [ ] 6: the watch never pushes
-- [ ] 1: the stopped wake, then the watchdog
-- [ ] `/psg:review`, fix rounds, `scripts/test.sh all` green, no push
+- [x] 3: `TaskKeyReference`, the resolver, the waker and the table (others use its output)
+- [x] 4: no uncertain flag while pending
+- [x] 2: local-merge start point and the real `diffBaseSHA`
+- [x] 5: local merge with origin unreadable, the Oracle gate's fallback included
+- [x] 6: the watch never pushes, checked again on the context the publisher is handed
+- [x] 1: the stopped wake, then the watchdog; an Operator's turn ending starts its quiet time again
+- [x] `/psg:review` (two rounds: one Important and one Minor, both fixed), `scripts/test.sh all` green, no push
+
+The existing test `TaskFinisherTests.aLaterPushThatLandsClearsTheHooksLabel` (T7's hook label, area D) drove its fix-round
+pushes through the merge watch. Item 6 forbids those, so its pushes are now the Operator's `finish_task`, and what it
+proves is unchanged.
 
 ## Decided without the person
 

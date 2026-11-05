@@ -95,6 +95,10 @@ final class OperatorController {
     @ObservationIgnored let ports: OperatorPorts
     @ObservationIgnored let notifier: OperatorNotifier
     @ObservationIgnored let waker: OperatorWaker
+    /// Wakes an Operator whose broadcast went quiet with nobody at work (`OperatorWatchdog`).
+    @ObservationIgnored let watchdog: OperatorWatchdog
+    /// The broadcasts whose Operator's tab was working at the last listing: one that leaves it ended a turn.
+    @ObservationIgnored private var operatorsWorking: Set<UUID> = []
     @ObservationIgnored let tools: OperatorToolHandler
     @ObservationIgnored let starter: WorkerStarter
     /// `open_tab`'s extra worker tabs.
@@ -223,6 +227,7 @@ final class OperatorController {
                                   return state == .planning || state == .active || state == .complete
                               },
                               coalesce: ports.wakeCoalesce, sleep: { try await clock.sleep(.wake, $0) }, now: clock.now)
+        watchdog = OperatorWatchdog(now: clock.now)
         tabs = TabOpener(workspace: workspace, daemon: daemon, ports: ports)
         let transcripts = TranscriptLocator(home: ports.home, claudeConfig: ports.claudeConfig)
         self.transcripts = transcripts
@@ -264,7 +269,11 @@ final class OperatorController {
         }
         waker.cleared = { [weak self] run in
             if self?.wakeNotice?.run == run { self?.wakeNotice = nil }
+            // Its run_status, or a wake line delivered: the quiet time starts again.
+            self?.watchdog.touched(run)
         }
+        watchdog.wake = { [weak self] run in self?.waker.say(OperatorWatchdog.reason, to: run) }
+        tools.onCall = { [weak self] run in self?.watchdog.touched(run) }
         reconciler.tabsKnown = { [weak self] in self?.tabsKnown ?? false }
         prompts.tabsKnown = { [weak self] in self?.tabsKnown ?? false }
         prompts.changed = { [weak self] in self?.runChanged($0) }
@@ -297,7 +306,7 @@ final class OperatorController {
         }
         finisher.changed = { [weak self] id in self?.publicationChanged(id) }
         finisher.mergedOnHost = { [weak self] id, why in self?.askAboutMergeOnHost(id, why) }
-        finisher.watchStopped = { [weak self] id, _ in self?.mergeWatchStopped(id) }
+        finisher.watchStopped = { [weak self] id, why in self?.mergeWatchStopped(id, why) }
         tools.publishing = { [weak self] id in self?.finisher.running.contains(id) ?? false }
         tools.holdPublication = { [weak self] id in self?.finisher.hold(id) }
         tools.releasePublication = { [weak self] id in self?.finisher.release(id) }
@@ -801,6 +810,7 @@ final class OperatorController {
         observeRuns()
         probePrompts()
         for run in runs { waker.operatorSessionChanged(run.id) }
+        operatorTurnsEnded(sessions)
         // A retried task held back until its worker's window was listed: the retry goes to that worker now.
         if held { startReadyTasks() }
     }
@@ -878,6 +888,24 @@ final class OperatorController {
         // A prompt whose tab left it without an event, or a menu no hook announced.
         probePrompts(.reconcile)
         startReadyTasks()
+        checkQuiet()
+    }
+
+    /// Each Operator whose turn just ended: its quiet time starts again (`OperatorWatchdog`), however short the turn was.
+    private func operatorTurnsEnded(_ sessions: [SessionInfo]) {
+        let working = Set(runs.filter { Self.operatorTab(of: $0.id, in: sessions)?.state == .working }.map(\.id))
+        for run in operatorsWorking.subtracting(working) { watchdog.touched(run) }
+        operatorsWorking = working
+    }
+
+    /// Each broadcast's quiet time (`OperatorWatchdog`): its Operator in its own turn, or its tab not listed, is not quiet.
+    private func checkQuiet() {
+        let sessions = live.sessions
+        for run in runs {
+            guard !run.hasEnded, let status = status(of: run) else { watchdog.forget(run.id); continue }
+            let tab = Self.operatorTab(of: run.id, in: sessions)
+            watchdog.check(run.id, status: status, state: run.state, operatorWorking: tab == nil || tab?.state == .working)
+        }
     }
 
     /// On every reconcile tick (spec §8, *possibly stalled*): the tasks quiet for `stallAfter`, each on
@@ -939,11 +967,19 @@ final class OperatorController {
     }
 
     /// A merge watch stopped for what it found — the branch moved, the task changed hands: its operator
-    /// is told once, with the reason recorded on the task.
-    func mergeWatchStopped(_ id: UUID) {
+    /// is told once, with the reason recorded on the task. A commit accepted again and not pushed, which only its
+    /// finish_task pushes, is said with the task's name.
+    func mergeWatchStopped(_ id: UUID, _ why: String) {
         guard let operated = workspace.state.task(id: id)?.operated else { return }
+        if let sha = operated.acceptance?.resultSHA, why == TaskFinisher.unpushedAcceptance(operated.key, sha: sha) {
+            waker.say(Self.unpushedReason(key: operated.key), to: operated.runId, colon: true)
+            return
+        }
         waker.say("one task’s merge watch stopped", to: operated.runId, colon: true)
     }
+
+    /// What wakes the Operator for a task accepted again on a commit only its finish_task pushes.
+    static func unpushedReason(key: String) -> String { "\(OperatorWaker.taskReference(key)) has an accepted commit to push" }
 
     /// The host merged the task's request with a head nobody accepted (spec §6): only you can say how the
     /// broadcast goes on, so it is a question for you, asked once — as `ask_you` asks it — on the task.
@@ -1013,7 +1049,9 @@ final class OperatorController {
     /// What each open run's `run_status` would show now, for the waker.
     private func observeRuns() {
         for run in runs where !run.hasEnded {
-            if let status = status(of: run) { waker.observe(status, of: run.id) }
+            guard let status = status(of: run) else { continue }
+            waker.observe(status, of: run.id)
+            watchdog.observe(status, of: run.id)
         }
     }
 }
