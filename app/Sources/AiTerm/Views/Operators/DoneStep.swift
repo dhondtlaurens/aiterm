@@ -2,9 +2,10 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// New Broadcast's Done step (broadcast setup v2, design 10A): the broadcast's goal, a `PromptStep` whose `/` lists both
-/// agents' skills, and its extra rounds, one number under it. A goal is checked with the Oracle, so while the Oracle is
-/// off both are disabled, their editor and field dimmed as 10A draws them, and the goal's help says why for both.
+/// New Broadcast's Done step (broadcast setup v2, design 10A; copy 2, 5 Nov 2026): the broadcast's goal, a `PromptStep` whose
+/// `/` lists both agents' skills; Goal rounds, one number under it; then Worker questions, a `Select` of how hard the Oracle
+/// checks a worker's question before it reaches you (`RelayCheck`). All three need the Oracle, so while it is off they are
+/// disabled and dimmed as 10A draws them, Worker questions reading Straight to you, and the goal's help says why for all.
 struct DoneStep: View {
     @Bindable var model: NewBroadcastModel
 
@@ -24,6 +25,14 @@ struct DoneStep: View {
                     .disabled(!available)
                     .opacity(available ? 1 : Opacity.disabled)
                 if let help = model.extraRoundsHelp { HelpText(help) }
+            }
+            FormField(NewBroadcastModel.workerQuestionsLabel) {
+                Select(values: RelayCheck.allCases, selection: Binding(get: { model.shownRelayCheck }, set: { model.relayCheck = $0 }),
+                       label: \.title)
+                    .fixedSize()
+                    .disabled(!available)
+                    .opacity(available ? 1 : Opacity.disabled)
+                if let help = model.workerQuestionsHelp { HelpText(help) }
             }
         }
     }

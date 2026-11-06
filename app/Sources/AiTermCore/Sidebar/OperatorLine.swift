@@ -58,9 +58,14 @@ public struct OperatorActs: Equatable, Sendable {
     /// How each task's worker ended its last turn, where that is not simply done (spec §E): what its line says once the
     /// turn ended, in place of `ready for the Operator`.
     public var turns: [UUID: WorkerTurn.Ending]
+    /// What each task's worker asks the Operator at the end of its turn, not yet answered with `message_task` nor relayed
+    /// to you (`WorkerTurn.question`): the first worker's, else the first asking tab's, its key before it. Its card shows it,
+    /// muted, under `asking the Operator`.
+    public var asks: [UUID: String]
 
-    public init(tasks: [UUID: OperatorAct] = [:], runs: [UUID: Broadcast] = [:], turns: [UUID: WorkerTurn.Ending] = [:]) {
-        self.tasks = tasks; self.runs = runs; self.turns = turns
+    public init(tasks: [UUID: OperatorAct] = [:], runs: [UUID: Broadcast] = [:], turns: [UUID: WorkerTurn.Ending] = [:],
+                asks: [UUID: String] = [:]) {
+        self.tasks = tasks; self.runs = runs; self.turns = turns; self.asks = asks
     }
 
     /// Nothing in flight.

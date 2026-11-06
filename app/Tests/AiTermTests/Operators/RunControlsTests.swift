@@ -38,9 +38,12 @@ import Testing
         try await world.controller.end(run: run.id)
         #expect(world.controller.activeRun == nil)
         let next = try await world.controller.startBroadcast(name: "Sprint 43", jiraProjectKeys: ["PLUTO"], projectIds: [project.id],
-                                                             prompt: "Go", agents: OperatorServiceFixtures.agents, taskSettings: TaskSettings(review: nil, end: .commit, closeWhenDone: false))
+                                                             prompt: "Go", agents: OperatorServiceFixtures.agents, taskSettings: TaskSettings(review: nil, end: .commit, closeWhenDone: false),
+                                                             relayCheck: .agreeFirst)
         #expect(world.controller.activeRun?.id == next)
         #expect(world.run(next)?.name == "Sprint 43" && world.run(next)?.jiraProjectKeys == ["PLUTO"])
+        // Worker questions, as the Done step picked it; with the Oracle off, straight to you.
+        #expect(world.run(next)?.relayCheck == (world.run(next)?.profile.oracle.isOn == true ? .agreeFirst : .straight))
     }
 
     @Test func endingDropsUnstartedTasksAndHandsRunningOnesToYou() async throws {

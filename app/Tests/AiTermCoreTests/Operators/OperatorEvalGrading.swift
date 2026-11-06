@@ -119,6 +119,7 @@ enum OperatorEvalGrading {
     /// What every scenario's other tools answer, as the app would for a call that worked; a scenario's own replies win.
     static let commonReplies: [String: JSONValue] = [
         "ask_you": ["open": true, "resolution": nil],
+        "relay_question": ["open": true, "resolution": nil],
         "resolve_question": ["open": false],
         "report_snag": ["recorded": true],
         "report_find": ["recorded": true],
@@ -209,7 +210,8 @@ enum OperatorEvalGrading {
             return failures
         })
 
-    /// PAY-14's worker stopped to ask a scope question: it waits on the answer, so the question goes on PAY-14.
+    /// PAY-14's worker stopped to ask a scope question only the person can answer: it is relayed in the worker's words
+    /// (`relay_question` on PAY-14), never asked again with ask_you.
     static let workerScopeQuestion = EvalScenario(
         name: "workerScopeQuestion", firstMessage: wakeLine,
         replies: replies([
@@ -223,9 +225,10 @@ enum OperatorEvalGrading {
         ]),
         check: { t in
             var failures: [String] = []
-            if !t.arguments(of: "ask_you").contains(where: { names($0["task"], "PAY-14") }) {
-                failures.append("no ask_you with task PAY-14")
+            if !t.arguments(of: "relay_question").contains(where: { names($0["task"], "PAY-14") }) {
+                failures.append("no relay_question with task PAY-14")
             }
+            if t.called("ask_you") { failures.append("ask_you was called with a worker's question") }
             if t.calls(["mark_task"], on: "PAY-14").contains(where: { $0.arguments["outcome"]?.stringValue == "accepted" }) {
                 failures.append("PAY-14 was accepted with its question open")
             }

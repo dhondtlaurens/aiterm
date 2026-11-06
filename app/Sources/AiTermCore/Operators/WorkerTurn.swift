@@ -78,7 +78,7 @@ public enum WorkerTurn {
     }
 
     /// The question and any answer choices, cut to the tool's display limit.
-    static func question(_ lastMessage: String) -> String {
+    public static func question(_ lastMessage: String) -> String {
         let lines = lastMessage.components(separatedBy: .newlines)
         var paragraph: [String] = []
         for line in lines.reversed() {

@@ -233,7 +233,7 @@ final class OperatorToolHandler {
     /// The tools that change the run, its tasks or its records: the operator has seen what they changed.
     /// `finish_task` is one: a publication changes the run, and may complete it.
     static let mutating: Set<OperatorTool> = [.createTask, .updateTask, .submitPlan, .messageTask, .openTab, .markTask, .resumeTask,
-                                              .retryTask, .finishTask, .askYou, .resolveQuestion, .logDecision, .leaveForYou, .reportFind,
+                                              .retryTask, .finishTask, .askYou, .relayQuestion, .resolveQuestion, .logDecision, .leaveForYou, .reportFind,
                                               .reportSnag, .writeSummary, .jiraCreate, .jiraMove, .jiraLink, .jiraSprint, .jiraEdit,
                                               .jiraComment, .reviewTask, .requestReview, .replyThread, .resolveThread, .critiqueThread, .updateRequest, .retryPipeline, .recordReview,
                                               .checkGoal]
@@ -299,7 +299,9 @@ final class OperatorToolHandler {
             if let recorded = try replayedMessage(call, in: run) { return (.result(recorded), .repeated) }
             // A finish_task that only joins its publication or answers what it did decides nothing new: no Oracle, no fetch.
             let joins = finishJoins(call, in: run)
-            if !joins, let instead = try await challengeGate(call, in: run, deadline: deadline) {
+            // A relay runs its own Oracle rounds (`relayQuestion`): the gate never sees it.
+            let relays = call.operatorTool == .relayQuestion
+            if !joins, !relays, let instead = try await challengeGate(call, in: run, deadline: deadline) {
                 // The critique, or the answer to a challenged call that acted already, said again.
                 return (.result(instead), instead["challenged"] == true ? .challenged : .repeated)
             }
@@ -317,7 +319,7 @@ final class OperatorToolHandler {
             let value = try await perform(call, in: current, deadline: deadline, joinOnly: joins)
             recordActed(call, in: id, answer: value)
             if Self.isMutating(call) { onChange(id) }
-            return (.result(value), .ok)
+            return (.result(value), relays && value["challenged"] == true ? .challenged : .ok)
         } catch let refusal as ToolRefusal {
             return (.error(refusal.message), .refused)
         } catch {
@@ -366,6 +368,7 @@ final class OperatorToolHandler {
         case .jiraEdit: return try await jiraEdit(call, in: run)
         case .jiraComment: return try await jiraComment(call, in: run)
         case .askYou: return try askYou(call, in: run)
+        case .relayQuestion: return try await relayQuestion(call, in: run)
         case .resolveQuestion: return try resolveQuestion(call, in: run)
         case .leaveForYou: return try leaveForYou(call, in: run)
         case .logDecision: return try logDecision(call, in: run)
@@ -528,7 +531,7 @@ final class OperatorToolHandler {
     }
 
     /// `ask_you`'s `holds`: false only for a question about a task, and never for its fix rounds, which always hold.
-    private static func holds(_ call: ToolCall, task: UUID?, about: String?) throws -> Bool? {
+    static func holds(_ call: ToolCall, task: UUID?, about: String?) throws -> Bool? {
         guard let value = call.arguments["holds"], value != .null else { return nil }
         guard let holds = value.boolValue else { throw ToolRefusal("holds must be true or false.") }
         guard !holds else { return true }
@@ -545,7 +548,7 @@ final class OperatorToolHandler {
     static let choiceLimit = 60
 
     /// `ask_you`'s `choices`: two to four short answers, each one line, and none for fix rounds, whose answers are fixed.
-    private static func choices(_ call: ToolCall, about: String?) throws -> [String]? {
+    static func choices(_ call: ToolCall, about: String?) throws -> [String]? {
         guard let value = call.arguments["choices"], value != .null else { return nil }
         guard about != OperatorQuestion.fixRounds else {
             throw ToolRefusal("A question about fix rounds has its answers already: One More Round and Accept As It Is. Leave choices out.")

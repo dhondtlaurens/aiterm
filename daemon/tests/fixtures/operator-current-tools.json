@@ -1039,6 +1039,51 @@
     }
   },
   {
+    "name": "relay_question",
+    "description": "Passes a worker's question on to the person, in the worker's own words: AiTerm reads them from the worker's last message, lists the question under Waiting on you and notifies the person. A worker's question is yours first: answer it with message_task when the brief, the plan or the code answers it, and relay it only when the person must decide. The Oracle looks first, as the broadcast's Worker questions setting says: when it thinks you can answer, its critique comes back; answer the worker with message_task, or reply to each point in challengeReply and call again with its challengeId. Write one line in your reply, starting \"Asked you in AiTerm:\". The same key, or another key for the same worker turn, returns the one question.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Your idempotency key for this act: the same key again returns what the first call did."
+        },
+        "task": {
+          "type": "string",
+          "description": "The task whose worker asks, by its key or its id from run_status."
+        },
+        "tab": {
+          "type": "string",
+          "description": "The worker tab that asks, by its key from run_status. Left out, the first worker, main."
+        },
+        "holds": {
+          "type": "boolean",
+          "description": "False when the task can go on without the answer. Left out, it holds: the task isn't ready to accept and isn't watched for stalls until you resolve the question."
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Two to four short answers, each one line of 60 characters at most, when the worker's question offers them. Left out for an open question."
+        },
+        "challengeId": {
+          "type": "string",
+          "description": "The challengeId a challenged call returned: send it with your revised arguments, or with challengeReply. A reply that says pending has no answer yet: call again with its challengeId and the same arguments. For create_task, finish_task and check_goal, the call again acts only on the Oracle's yes. The same challengeId again, once answered, returns the recorded result."
+        },
+        "challengeReply": {
+          "type": "string",
+          "description": "Your answer to each point of the second opinion's critique, when you keep the act as it was."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "task"
+      ]
+    }
+  },
+  {
     "name": "resolve_question",
     "description": "Closes a question: answered by the person, or withdrawn by you when it became moot. Record the answer in summary for a question you asked with ask_you, or AiTerm's question about a merge on the host, which only the person decides. Call it at once when they answer in your chat. answeredHere is the person's answer in AiTerm: act on it, then resolve with it. A worker's prompt is refused: AiTerm closes it itself once the worker leaves the prompt. A gate- question, opened when your shell's command needs the person's word, is answered with allow true or false, from what the person said in this chat. If your own question or a gate- command became moot, set withdrawn true with a one-line reason in summary, and tell the person you withdrew it and why. Withdrawal grants nothing; allow true must be left out. Host-merge questions cannot be withdrawn. An already resolved question returns its recorded outcome unchanged; answeredInWindow must be checked and resolved as an answer, not withdrawn.",
     "inputSchema": {

@@ -499,6 +499,10 @@ public enum OperatorCommand {
     static let writingRule = "Use a comma, a colon or parentheses where you would use a dash: what "
         + "you write shows in AiTerm, Jira and merge requests."
 
+    /// Rule 3 of talking to the person: a worker's question is the Operator's to answer, or to relay (B2).
+    static let workerQuestionRule = "A worker's question is yours first. Answer it with message_task when the brief, the plan "
+        + "or the code answers it. Relay it with relay_question only when the person must decide; never ask_you with a worker's words."
+
     /// Rule 2 of talking to the person: which questions go on a task. Includes exhausted fix rounds.
     static let questionRule = "A question about a task goes on that task, so its card shows it. It holds the task, which then isn't ready to "
         + "accept and isn't watched for stalls until you resolve the question, only when its worker is itself stopped on the "
@@ -514,6 +518,7 @@ public enum OperatorCommand {
             "Ask the person with ask_you, not in this chat: AiTerm lists the question under Waiting on you, where the person "
                 + "answers it. Your reply gets one line for it instead, starting \"Asked you in AiTerm:\" and saying what it is about.",
             questionRule,
+            workerQuestionRule,
             "When run_status shows answeredHere on a question, the person answered it in AiTerm: act on it, then call "
                 + "resolve_question with it. When the person answers in this chat instead, call resolve_question at once, so your "
                 + "row stops showing it, AiTerm's question about a merge on the host included. AiTerm closes a worker prompt's "
@@ -532,8 +537,8 @@ public enum OperatorCommand {
     static let askExamples = [
         "find_user finds two people named Sofie for PAY-12's review. Call ask_you with \"Which Sofie should review PAY-12?\", "
             + "no task and the two usernames as choices, and end your reply with \"Asked you in AiTerm: which Sofie reviews PAY-12.\"",
-        "PAY-14's worker stopped to ask whether its export includes archived orders. Call ask_you with the question and task "
-            + "PAY-14, and write \"Asked you in AiTerm: whether PAY-14's export includes archived orders.\"",
+        "PAY-14's worker stopped to ask whether its export includes archived orders, which only the person can decide. Call "
+            + "relay_question with task PAY-14, and write \"Asked you in AiTerm: whether PAY-14's export includes archived orders.\"",
         "PAY-13's brief doesn't say whether the export page keeps its access gate for admins, and its worker can go on without "
             + "the answer. Call ask_you with the question, task PAY-13, holds false and the choices \"Keep it for admins\" "
             + "and \"Drop it for admins\", and point to it in one line of your reply.",

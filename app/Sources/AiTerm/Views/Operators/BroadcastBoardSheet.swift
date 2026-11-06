@@ -392,13 +392,15 @@ struct BoardCardView: View, Equatable {
         .ruled()
     }
 
-    private var hasFoot: Bool { card.fixRounds != nil || card.notice != nil || card.question != nil }
+    private var hasFoot: Bool { card.fixRounds != nil || card.notice != nil || card.question != nil || card.workerAsks != nil }
 
     /// What a card says under its rule: why its worktree was kept, or a task out of its fix rounds' counts and its
     /// answers, or what you answered.
     private var foot: some View {
         VStack(alignment: .leading, spacing: Space.base) {
             if let notice = card.notice { HelpText(notice) }
+            // Its worker's question, the Operator's to answer or relay: muted, no link.
+            if let asks = card.workerAsks { HelpText(asks).lineLimit(2).help(asks) }
             if let question = card.question { questionLines(question) }
             if let fixRounds = card.fixRounds {
                 if let counts = fixRounds.counts { HelpText(counts) }
@@ -422,7 +424,8 @@ struct BoardCardView: View, Equatable {
     private func questionLines(_ question: BroadcastBoard.CardQuestion) -> some View {
         VStack(alignment: .leading, spacing: Space.base) {
             if !question.holds { OperatorBadge(line: Self.questionForYou) }
-            HelpText(question.text).lineLimit(3).help(question.text)
+            let text = question.asker == .worker ? "From its worker: " + question.text : question.text
+            HelpText(text).lineLimit(3).help(text)
             Button("Answer…") { actions.showQuestion(question.key) }.buttonStyle(.link).font(Typography.help)
                 .accessibilityHint(Text("Shows the question under Waiting on you."))
         }

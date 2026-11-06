@@ -44,6 +44,8 @@ struct QuestionBlock: View {
     // `@State` is a macro in the macOS 26 SDK; this is the storage and accessor the macro would generate.
     private var _typed = State(initialValue: "")
     private var typed: String { get { _typed.wrappedValue } nonmutating set { _typed.wrappedValue = newValue } }
+    private var _discussing = State(initialValue: false)
+    private var discussing: Bool { get { _discussing.wrappedValue } nonmutating set { _discussing.wrappedValue = newValue } }
 
     init(question: BroadcastBoard.ListedQuestion, actions: BoardActions, choose: @escaping (BroadcastBoard.Opens) -> Void) {
         self.question = question; self.actions = actions; self.choose = choose
@@ -57,6 +59,7 @@ struct QuestionBlock: View {
                 HelpText(question.from)
                 Text(verbatim: question.text).font(Typography.body).foregroundStyle(Palette.text)
                     .fixedSize(horizontal: false, vertical: true)
+                if let why = question.why { discussion(why) }
                 if let answered = question.answeredLine(now: now) {
                     HelpText(answered, fixedVerticalSize: false)
                 } else {
@@ -70,6 +73,25 @@ struct QuestionBlock: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(question.title): \(question.text)")
+    }
+
+    /// Why a relayed question reached you, and Read the discussion, which opens the Oracle's rounds and the Operator's
+    /// replies under it, each a `HelpText`.
+    private func discussion(_ why: String) -> some View {
+        VStack(alignment: .leading, spacing: Space.base) {
+            HStack(alignment: .firstTextBaseline, spacing: Space.gap) {
+                HelpText(why, fixedVerticalSize: false)
+                if question.discussion != nil {
+                    Button(discussing ? "Hide the discussion" : "Read the discussion") { discussing.toggle() }
+                        .buttonStyle(.link).font(Typography.help).fixedSize()
+                }
+            }
+            if discussing, let steps = question.discussion {
+                ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
+                    HelpText(step.said, fixedVerticalSize: false)
+                }
+            }
+        }
     }
 
     private func head(now: Date) -> some View {

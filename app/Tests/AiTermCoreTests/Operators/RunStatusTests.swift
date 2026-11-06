@@ -389,6 +389,16 @@ import Foundation
         #expect(!RunStatus.isReadyForAcceptance(F.operated("B", .working), live: .idle, asks: true))
     }
 
+    /// The shared table of last messages (H3): run_status lists a worker's question exactly when the scan says it asks, with
+    /// the question it reads.
+    @Test(arguments: WorkerTurnTests.LastMessage.table)
+    func runStatusListsAWorkersQuestionAsTheSharedTableSays(_ row: WorkerTurnTests.LastMessage) throws {
+        let status = try turn(.working, lastMessage: row.message, commitsAhead: 2)
+        #expect(status.obligations.workerAsks.count == (row.asks ? 1 : 0))
+        #expect(status.obligations.readyForAcceptance.isEmpty == row.asks)
+        if let question = row.question { #expect(status.obligations.workerAsks.first?.question == question) }
+    }
+
     /// A turn that ended with nothing committed past the base is not ready, and still wakes the Operator, listed.
     @Test func noCommitIsNotReadyButIsListed() throws {
         let status = try turn(.working, lastMessage: "Nothing to update.", commitsAhead: 0)

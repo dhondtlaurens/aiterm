@@ -322,13 +322,28 @@ struct BroadcastSetupStepsTests {
     @Test func theGoalAndItsRoundsFollowTheOracle() {
         let on = sheet(.installed(oracle: true)), off = sheet(.installed(oracle: false))
         #expect(on.goalIsAvailable && !off.goalIsAvailable)
-        #expect(NewBroadcastModel.goalLabel == "Goal" && NewBroadcastModel.extraRoundsLabel == "Extra rounds")
+        #expect(NewBroadcastModel.goalLabel == "Goal" && NewBroadcastModel.extraRoundsLabel == "Goal rounds")
         #expect(NewBroadcastModel.goalPlaceholder == "Every ticket is merged and its work is released")
         #expect(on.goalHelp == "What must be true once every task is done. The Operator checks it with the Oracle. Optional: left empty, the broadcast ends when its tasks do.")
-        #expect(on.extraRoundsHelp == "How many times the Operator may plan what the goal still misses, once every task is done. When they are used up, it stops and says what is left.")
-        #expect(off.goalHelp == "The Oracle is off in Settings › Operator, and a goal needs it: the broadcast ends when its tasks do.")
+        #expect(on.extraRoundsHelp == "Times the Operator may plan more work when the goal isn’t met once every task is done.")
+        #expect(off.goalHelp == "The Oracle is off in Settings › Operator, and a goal needs it: the broadcast ends when its tasks do, "
+                + "and a worker’s question the Operator passes on reaches you straight away.")
         #expect(off.extraRoundsHelp == nil, "the goal's help says it for both")
         #expect(on.extraRounds == 2)
+    }
+
+    /// Worker questions (copy 2): Challenged once for each new broadcast, picked among the three; with the Oracle off it
+    /// reads Straight to you, and that is what the broadcast starts with.
+    @Test func workerQuestionsFollowTheOracleAndDefaultToChallengedOnce() {
+        let on = sheet(.installed(oracle: true)), off = sheet(.installed(oracle: false))
+        #expect(NewBroadcastModel.workerQuestionsLabel == "Worker questions")
+        #expect(RelayCheck.allCases.map(\.title) == ["Straight to you", "Challenged once", "Agreed first"])
+        #expect(on.shownRelayCheck == .challengeOnce)
+        #expect(on.workerQuestionsHelp == "How hard the Oracle checks a worker’s question before the Operator passes it on to you.")
+        on.relayCheck = .agreeFirst
+        #expect(on.shownRelayCheck == .agreeFirst)
+        off.relayCheck = .agreeFirst
+        #expect(off.shownRelayCheck == .straight && off.workerQuestionsHelp == nil, "the goal's help says it for all three")
     }
 
     @Test func extraRoundsTakeDigitsOnly() {
@@ -351,6 +366,7 @@ struct BroadcastSetupStepsTests {
         let on = sheet(.installed(oracle: true)), off = sheet(.installed(slices: .none, oracle: false))
         let copy = [NewBroadcastModel.agentsHelp, NewBroadcastModel.reviewHelp, off.endHelp, NewBroadcastModel.closeLabel,
                     NewBroadcastModel.deleteBranchLabel, on.goalHelp, off.goalHelp, on.extraRoundsHelp ?? "",
+                    on.workerQuestionsHelp ?? "",
                     NewBroadcastModel.taskLeadTitle, NewBroadcastModel.taskLead]
         for text in copy {
             #expect(!text.contains("—"), "no em dash in \(text)")

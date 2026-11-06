@@ -549,14 +549,17 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// For a worker's question the Operator relayed, that worker tab's key (`WorkerTab.firstKey` for the first worker);
     /// nil for the Operator's own question and AiTerm's.
     public var relayedFrom: String?
+    /// How a relayed question reached the person (`relay_question`): the worker's last message, then each of the Oracle's
+    /// rounds and the Operator's replies, or why it went unchallenged. Nil for any other question.
+    public var history: [QuestionStep]?
     public init(id: String, text: String, task: UUID?, askedAt: Date, resolution: String? = nil, tab: String? = nil,
                 gate: GateRequest? = nil, answeredInWindow: String? = nil, withdrawn: Bool? = nil, about: String? = nil,
                 answeredOnCard: String? = nil, holds: Bool? = nil, choices: [String]? = nil, answeredHere: String? = nil,
-                answeredHereAt: Date? = nil, relayedFrom: String? = nil) {
+                answeredHereAt: Date? = nil, relayedFrom: String? = nil, history: [QuestionStep]? = nil) {
         self.id = id; self.text = text; self.task = task; self.askedAt = askedAt; self.resolution = resolution; self.tab = tab
         self.gate = gate; self.answeredInWindow = answeredInWindow; self.withdrawn = withdrawn; self.about = about
         self.answeredOnCard = answeredOnCard; self.holds = holds; self.choices = choices; self.answeredHere = answeredHere
-        self.answeredHereAt = answeredHereAt; self.relayedFrom = relayedFrom
+        self.answeredHereAt = answeredHereAt; self.relayedFrom = relayedFrom; self.history = history
     }
 
     /// Who asks the person: AiTerm for its own keys (`aitermPrefixes`), a worker when the Operator relayed its question,
@@ -601,6 +604,63 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// The Operator may instead withdraw a stopped command it no longer needs, without allowing it.
     public static let promptPrefix = "prompt-", mergedOnHostPrefix = "merged-on-host-", gatePrefix = "gate-"
     public static let aitermPrefixes = [promptPrefix, mergedOnHostPrefix, gatePrefix]
+}
+
+/// One step of how a worker's question reached the person (`OperatorQuestion.history`).
+public struct QuestionStep: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Sendable {
+        /// The worker's last message, in full: what it asked in.
+        case asked
+        /// The Oracle's critique of the relay, in `round`.
+        case oracle
+        /// The Operator's reply to it.
+        case reply
+        /// The Oracle couldn't judge it, and `text` says why: the relay went ahead unchallenged.
+        case unchallenged
+    }
+    public var kind: Kind
+    public var text: String
+    public var at: Date
+    /// The Oracle's round, from 1, for its critique and the reply to it.
+    public var round: Int?
+    public init(kind: Kind, text: String, at: Date, round: Int? = nil) {
+        self.kind = kind; self.text = text; self.at = at; self.round = round
+    }
+
+    /// The step as its block's discussion and the Oracle's next round say it: `The Oracle, round 1: …`, `The Operator: …`.
+    public var said: String {
+        switch kind {
+        case .oracle: "The Oracle" + (round.map { ", round \($0)" } ?? "") + ": " + text
+        case .reply: "The Operator: " + text
+        case .unchallenged: "Unchallenged: " + text
+        case .asked: "Its worker: " + text
+        }
+    }
+}
+
+/// How hard the Oracle checks a worker's question before the Operator relays it to the person (`relay_question`), as the
+/// Done step's Worker questions sets it for a broadcast. The Oracle off, every relay goes straight.
+public enum RelayCheck: String, Codable, CaseIterable, Sendable {
+    /// No check: the question reaches the person at once.
+    case straight
+    /// One round: the Oracle says whether only the person can answer; the Operator may answer the worker instead, or reply
+    /// and relay it anyway.
+    case challengeOnce
+    /// Rounds until the Oracle has no major or important point left, at most three; then it reaches the person with both
+    /// sides.
+    case agreeFirst
+
+    /// The Done step's words for it.
+    public var title: String {
+        switch self {
+        case .straight: "Straight to you"
+        case .challengeOnce: "Challenged once"
+        case .agreeFirst: "Agreed first"
+        }
+    }
+
+    /// The most rounds `agreeFirst` runs.
+    public static let rounds = 3
 }
 
 /// A shell command of the Operator's and the directory it runs in, as the gate judges it (spec §A): what a `gate-`
@@ -731,18 +791,23 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     /// The acting call's answer, as the JSON the operator read.
     public var result: String?
     public var askedAt: Date
+    /// A relay's Oracle round, from 1 (`relay_question`, Agreed first); nil for any other challenge.
+    public var round: Int?
+    /// A relay's round answered: the Operator's reply to its critique, which the next round reads. Nil otherwise.
+    public var reply: String?
 
     public init(id: String, tool: String, kind: ChallengeKind = .critique, stage: ChallengeStage = .running, critique: String? = nil,
                 approved: Bool? = nil, askedArguments: String? = nil, askedSHA: String? = nil, unchallengedReason: String? = nil,
-                actedArguments: String? = nil, result: String? = nil, askedAt: Date, askedMerge: Bool? = nil, askedEvidence: String? = nil) {
+                actedArguments: String? = nil, result: String? = nil, askedAt: Date, askedMerge: Bool? = nil, askedEvidence: String? = nil,
+                round: Int? = nil) {
         self.id = id; self.tool = tool; self.kind = kind; self.stage = stage; self.critique = critique; self.approved = approved
         self.askedArguments = askedArguments; self.askedSHA = askedSHA; self.askedMerge = askedMerge
         self.unchallengedReason = unchallengedReason; self.actedArguments = actedArguments; self.result = result
-        self.askedAt = askedAt; self.askedEvidence = askedEvidence
+        self.askedAt = askedAt; self.askedEvidence = askedEvidence; self.round = round
     }
 
     private enum CodingKeys: String, CodingKey {
-        case askedEvidence
+        case askedEvidence, round, reply
         case id, tool, kind, stage, critique, approved, askedArguments, askedSHA, askedMerge, unchallengedReason, actedArguments, result, askedAt
     }
 
@@ -862,6 +927,12 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     /// The workers your Pause told to stop, saved before the note is typed, so Resume tells each to carry on, even
     /// after a restart. Left out of the save while empty.
     public var pausedWorkers: [PausedWorker] = []
+    /// How hard the Oracle checks a worker's question before it is relayed to you, as the Done step's Worker questions set
+    /// it; nil, as every broadcast saved before it, is Challenged once (`relayCheckOrDefault`).
+    public var relayCheck: RelayCheck?
+
+    /// The relay check this broadcast runs.
+    public var relayCheckOrDefault: RelayCheck { relayCheck ?? .challengeOnce }
 
     /// `projectIds` defaults to none: a run made in a test or a fixture that never reads its scope.
     public init(id: UUID, name: String, profile: OperatorProfile, projectIds: [UUID] = [], jiraProjectKeys: [String] = [],
@@ -892,6 +963,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         case operatorSessionId, jiraCreated, jiraSprinted, jiraCommented, threadReplies, pendingWrites, createdAt
         case summary, summaryAt, completedAt, summaryGivenUp, endedAt, gateAllowances
         case agents, taskSettings, goal, goalCheckDue, roundsUsed, goalChecks, goalOutcome, revisionAtLastCheck, finished, closedAt, pausedWorkers
+        case relayCheck
     }
 
     /// The lists may be missing and read as empty. A run without a profile or a prompt (round 1's,
@@ -941,6 +1013,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         finished = try c.decodeIfPresent([FinishedTaskRecord].self, forKey: .finished) ?? []
         closedAt = try c.decodeIfPresent(Date.self, forKey: .closedAt)
         pausedWorkers = try c.decodeIfPresent([PausedWorker].self, forKey: .pausedWorkers) ?? []
+        relayCheck = try c.decodeIfPresent(RelayCheck.self, forKey: .relayCheck)
     }
 
     /// A new plan on a finished run: the summary, its time, the completion and the give-up belonged to the old
@@ -999,6 +1072,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         if !finished.isEmpty { try c.encode(finished, forKey: .finished) }
         try c.encodeIfPresent(closedAt, forKey: .closedAt)
         if !pausedWorkers.isEmpty { try c.encode(pausedWorkers, forKey: .pausedWorkers) }
+        try c.encodeIfPresent(relayCheck, forKey: .relayCheck)
     }
 }
 

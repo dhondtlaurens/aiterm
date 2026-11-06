@@ -102,6 +102,26 @@ import Foundation
         #expect(!question.contains("HEAD remains") && !question.contains("test selector guard passed"))
     }
 
+    /// One worker's last message of the shared table (H3), which `RunStatusTests` reads too: whether the scan says it asks,
+    /// and the question it reads, when the row names one.
+    struct LastMessage: Decodable, CustomTestStringConvertible {
+        var name: String, message: String, asks: Bool, question: String?
+        var testDescription: String { name }
+
+        static let table: [LastMessage] = {
+            let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/worker-last-messages.json")
+            return (try? JSONDecoder().decode([LastMessage].self, from: Data(contentsOf: file))) ?? []
+        }()
+    }
+
+    @Test func theSharedTableHasItsRows() { #expect(LastMessage.table.count == 5) }
+
+    @Test(arguments: LastMessage.table)
+    func eachLastMessageOfTheSharedTableAsksOrNot(_ row: LastMessage) {
+        #expect(WorkerTurn.endsWithQuestion(row.message) == row.asks)
+        if let question = row.question { #expect(WorkerTurn.question(row.message) == question) }
+    }
+
     @Test func aHistoricalQuestionFollowedByWorkIsNotPending() {
         #expect(!WorkerTurn.endsWithQuestion("Why did the tests fail?\n\nThe lockfile was stale. Fixed it and all tests pass."))
         #expect(!WorkerTurn.endsWithQuestion("Should the cache be cleared?\n\nThe existing invalidation already covers it. Committed the fix."))

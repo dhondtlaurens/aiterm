@@ -433,10 +433,15 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var choices: [String]?
         /// False when the question doesn't hold its task (`ask_you` with `holds: false`); left out when it holds.
         public var holds: Bool?
+        /// `worker` for a worker's question you relayed (`relay_question`), with its `tab`; left out for yours and AiTerm's.
+        public var asker: String?
+        public var tab: String?
         public init(key: String, text: String, task: String? = nil, askedAt: Date, answeredInWindow: String? = nil,
-                    answeredOnCard: String? = nil, answeredHere: String? = nil, choices: [String]? = nil, holds: Bool? = nil) {
+                    answeredOnCard: String? = nil, answeredHere: String? = nil, choices: [String]? = nil, holds: Bool? = nil,
+                    asker: String? = nil, tab: String? = nil) {
             self.key = key; self.text = text; self.task = task; self.askedAt = askedAt; self.answeredInWindow = answeredInWindow
             self.answeredOnCard = answeredOnCard; self.answeredHere = answeredHere; self.choices = choices; self.holds = holds
+            self.asker = asker; self.tab = tab
         }
     }
 
@@ -584,7 +589,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 questionsWaiting: run.questions.filter { $0.resolution == nil }.map {
                     Question(key: $0.id, text: $0.text, task: $0.task.flatMap { keys[$0] }, askedAt: $0.askedAt,
                              answeredInWindow: $0.answeredInWindow, answeredOnCard: $0.answeredOnCard, answeredHere: $0.answeredHere,
-                             choices: $0.choices, holds: $0.task != nil && !$0.holdsTask ? false : nil)
+                             choices: $0.choices, holds: $0.task != nil && !$0.holdsTask ? false : nil,
+                             asker: $0.relayedFrom == nil ? nil : "worker", tab: $0.relayedFrom)
                 },
                 promptsWaitingOnYou: prompts, readyForAcceptance: ready, background: background, possiblyStalled: stalled, uncertain: uncertain,
                 branchDrift: drift, workerAsks: asks, changedAfterAcceptance: changed, finishedWithoutCommit: noCommit,

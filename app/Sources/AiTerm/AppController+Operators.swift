@@ -72,7 +72,8 @@ extension AppController {
                 let id = try await controller.startBroadcast(name: request.name, jiraProjectKeys: request.jiraProjectKeys,
                                                              projectIds: request.projectIds, prompt: request.prompt,
                                                              agents: request.agents,
-                                                             taskSettings: request.taskSettings, goal: request.goal)
+                                                             taskSettings: request.taskSettings, goal: request.goal,
+                                                             relayCheck: request.relayCheck)
                 self?.focus.browse(.operation(id))
                 return id
             }

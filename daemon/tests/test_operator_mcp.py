@@ -150,7 +150,8 @@ def test_every_tool_has_a_description_and_a_closed_object_schema(tool):
 
 
 def test_only_the_challenged_tools_take_a_challenge_reply():
-    assert set(CHALLENGED_TOOLS) == {"submit_plan", "mark_task", "create_task", "finish_task", "check_goal"}
+    # relay_question: the Oracle vets a worker's question before it reaches the person (questions plan, C2).
+    assert set(CHALLENGED_TOOLS) == {"submit_plan", "mark_task", "create_task", "finish_task", "check_goal", "relay_question"}
     for tool in TOOLS:
         properties = tool["inputSchema"]["properties"]
         assert ("challengeId" in properties and "challengeReply" in properties) == (tool["name"] in CHALLENGED_TOOLS)

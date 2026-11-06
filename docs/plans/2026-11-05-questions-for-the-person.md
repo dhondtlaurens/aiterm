@@ -501,11 +501,28 @@ Built as planned, with these differences:
 
 ### Slice 3: worker questions
 
-- [ ] The card's muted worker question (test 10)
-- [ ] `relay_question` with the three strengths and fail-open (test 11)
-- [ ] The Done step: Goal rounds, Worker questions (test 13)
-- [ ] H1 to H3 (test 12)
-- [ ] The relay brief lines, the served schema, goldens by hand, 37 schemas (test 14)
+- [x] The card's muted worker question (test 10)
+- [x] `relay_question` with the three strengths and fail-open (test 11)
+- [x] The Done step: Goal rounds, Worker questions (test 13)
+- [x] H1 to H3 (test 12)
+- [x] The relay brief lines, the served schema, goldens by hand, 37 schemas (test 14)
+
+Built as planned, with these differences:
+
+- **`ChallengeRecord.reply`.** Each relay round keeps the Operator's reply to its critique, which the next round's prompt
+  reads; saved only when there is one. The plan named `round` alone.
+- **An Oracle answer with no verdict line** counts as no answer, so the relay goes ahead unchallenged ("The Oracle gave no
+  clear verdict."), as fail-open says.
+- **The card's tests sit in `OperatorRelayTests`**, beside the relay, reading a real worker turn, rather than in
+  `OperatorProjectionTests`.
+- **`WorkerTurnTests` reads the shared table by `#filePath`**, so it is named on `scripts/test-routes.tsv`'s "reads only
+  its own target" line.
+- **The eval's `workerScopeQuestion`** now wants `relay_question` on PAY-14, and fails an `ask_you` with the worker's
+  question.
+- **The block's discussion opens in place**: Read the discussion shows each round under the why line.
+- **H1's sentence stays off review tabs.** A review ends with its verdict block, which "nothing after them" would
+  contradict, so `worktreeLine(branch:asks:)` leaves it out of `TabOpener.reviewPrompt`. Workers and extra tabs carry it.
+- **`relay_question` runs its own Oracle rounds**: the generic challenge gate skips it, so its records are the relay's alone.
 
 ### At the end
 

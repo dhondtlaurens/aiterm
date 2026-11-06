@@ -14,7 +14,7 @@ public enum OperatorTool: String, CaseIterable, Sendable {
     case retryTask = "retry_task", finishTask = "finish_task", updateRequest = "update_request", retryPipeline = "retry_pipeline"
     case recordReview = "record_review"
     case checkGoal = "check_goal"
-    case askYou = "ask_you", resolveQuestion = "resolve_question", reportFind = "report_find", reportSnag = "report_snag"
+    case askYou = "ask_you", relayQuestion = "relay_question", resolveQuestion = "resolve_question", reportFind = "report_find", reportSnag = "report_snag"
     case leaveForYou = "leave_for_you", logDecision = "log_decision", writeSummary = "write_summary"
 
     /// What a veto's call does when the Oracle gives no answer: missing, failed, too slow, or lost with AiTerm's restart.

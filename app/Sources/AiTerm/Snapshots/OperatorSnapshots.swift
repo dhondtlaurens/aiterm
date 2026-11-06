@@ -401,7 +401,10 @@ struct OperatorScene {
                                            agent: .claude, model: layout.model, reasoning: layout.reasoning, end: .merge, state: .published,
                                            acceptedSHA: "9b3e07d", branch: layout.branch, mergeRequestURL: nil, mergedSHA: "9b3e07d",
                                            result: "merged · 9b3e07d", branchDeleted: true, at: Snapshots.clock.now)]
-        scene.show(run, tasks.filter { $0.id != scene.layout } + [stuck], turnEnded: [scene.autocomplete])
+        // The order summary's worker asks the Operator: its card shows the question, muted, under its line.
+        let asking = OperatorActs(turns: [scene.summary: .asks],
+                                  asks: [scene.summary: "Question: Should the summary show the coupon line when no coupon applies?\n- Show it\n- Hide it"])
+        scene.show(run, tasks.filter { $0.id != scene.layout } + [stuck], acting: asking, turnEnded: [scene.autocomplete, scene.summary])
         let cards = Dictionary((scene.board?.columns.flatMap(\.cards) ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return [scene.drawer, scene.provider, scene.summary, scene.autocomplete, outOfRounds, scene.layout].compactMap { cards[$0] }
             + [kept()].compactMap { $0 }
@@ -440,6 +443,12 @@ struct OperatorScene {
                                 + "top of it: decide how the broadcast goes on.", task: scene.shipping, askedAt: ago(31)),
             OperatorQuestion(id: "gate-1", text: "The Oracle stopped `npm publish --dry-run` in payments-api: it publishes to the registry.",
                              task: nil, askedAt: ago(2), gate: GateRequest(command: "npm publish --dry-run", directory: "payments-api")),
+            OperatorQuestion(id: "drawer-bulk", text: "Question: Should the drawer's remove-all ask first too, or only a single remove?\n"
+                                + "- Remove-all asks too\n- Single removes only", task: scene.drawer, askedAt: ago(9),
+                             choices: ["Remove-all asks too", "Single removes only"], relayedFrom: "main",
+                             history: [QuestionStep(kind: .asked, text: "Wired the remove button.", at: ago(10)),
+                                       QuestionStep(kind: .oracle, text: "MAJOR: The brief answers it.\nVERDICT: ANSWER", at: ago(10), round: 1),
+                                       QuestionStep(kind: .reply, text: "The brief names the single remove only.", at: ago(9), round: 1)]),
         ]
         scene.show(scene.setUp(.active, questions: questions), tasks)
         return scene

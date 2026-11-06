@@ -196,7 +196,7 @@ _CHALLENGE = {
 # broadcast's Oracle switch, and is the app's to decide. A create_task past the backlog's threshold, a
 # finish_task that would merge, and a check_goal get the Oracle's yes or no the same way: it may answer pending, and only
 # a yes acts.
-CHALLENGED_TOOLS = ("submit_plan", "mark_task", "create_task", "finish_task", "check_goal")
+CHALLENGED_TOOLS = ("submit_plan", "mark_task", "create_task", "finish_task", "check_goal", "relay_question")
 
 
 def _tool(name: str, description: str, properties: dict[str, Any] | None = None, required: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -567,6 +567,23 @@ TOOLS: tuple[dict[str, Any], ...] = (
                             "used up its fix rounds, asked on that task. Its card then offers One More Round and Accept As "
                             "It Is. Left out for any other question.", "fixRounds")},
           ("key", "question")),
+    _tool("relay_question", "Passes a worker's question on to the person, in the worker's own words: AiTerm reads them from "
+          "the worker's last message, lists the question under Waiting on you and notifies the person. A worker's question is "
+          "yours first: answer it with message_task when the brief, the plan or the code answers it, and relay it only when "
+          "the person must decide. The Oracle looks first, as the broadcast's Worker questions setting says: when it thinks "
+          "you can answer, its critique comes back; answer the worker with message_task, or reply to each point in "
+          "challengeReply and call again with its challengeId. Write one line in your reply, starting \"Asked you in "
+          "AiTerm:\". The same key, or another key for the same worker turn, returns the one question.",
+          {"key": _KEY,
+           "task": _text("The task whose worker asks, by its key or its id from run_status."),
+           "tab": _text("The worker tab that asks, by its key from run_status. Left out, the first worker, main."),
+           "holds": {"type": "boolean",
+                     "description": "False when the task can go on without the answer. Left out, it holds: the task isn't ready "
+                                    "to accept and isn't watched for stalls until you resolve the question."},
+           "choices": {"type": "array", "items": {"type": "string"},
+                       "description": "Two to four short answers, each one line of 60 characters at most, when the worker's "
+                                      "question offers them. Left out for an open question."}},
+          ("key", "task")),
     _tool("resolve_question", "Closes a question: answered by the person, or withdrawn by you when it became moot. "
           "Record the answer in summary for a question you asked with ask_you, or AiTerm's question about a merge on "
           "the host, which only the person decides. Call it at "

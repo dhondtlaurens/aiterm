@@ -55,6 +55,7 @@ public enum ActivityLine {
             let verdict = arguments["met"] == true ? "met" : "not met"
             words = ("Checked the goal: \(verdict)", "check the goal: \(verdict)")
         case "ask_you": words = ("Asked you: \(text("question"))", "ask you: \(text("question"))")
+        case "relay_question": words = ("Passed on \(named)’s worker’s question to you", "pass on \(named)’s worker’s question to you")
         case "resolve_question":
             if arguments["withdrawn"] == true {
                 words = ("Withdrew question: \(text("summary"))", "withdraw question: \(text("summary"))")

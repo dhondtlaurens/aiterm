@@ -184,11 +184,15 @@ final class OperatorController {
         for (task, reading) in turns.readings where !reading.messaged {
             if let ending = WorkerTurn.ending(lastMessage: reading.lastMessage, commitsAhead: reading.commitsAhead,
                                              atReopenedCommit: reading.atReopenedCommit) { acts.turns[task] = ending }
+            if acts.turns[task] == .asks, let message = reading.lastMessage { acts.asks[task] = WorkerTurn.question(message) }
         }
         for (task, readings) in turns.extraReadings {
-            if readings.values.contains(where: { !$0.messaged && WorkerTurn.ending(lastMessage: $0.lastMessage, commitsAhead: $0.commitsAhead) == .asks }) {
-                acts.turns[task] = .asks
-            }
+            // The first asking tab by key, so the card's line doesn't change between reads.
+            let asking = readings.filter { !$0.value.messaged && WorkerTurn.ending(lastMessage: $0.value.lastMessage, commitsAhead: $0.value.commitsAhead) == .asks }
+                .min { $0.key < $1.key }
+            guard let (key, reading) = asking else { continue }
+            acts.turns[task] = .asks
+            if acts.asks[task] == nil, let message = reading.lastMessage { acts.asks[task] = "\(key): " + WorkerTurn.question(message) }
         }
         return acts
     }
@@ -628,7 +632,7 @@ final class OperatorController {
     @discardableResult
     func startBroadcast(name: String?, jiraProjectKeys: [String], projectIds: [UUID], prompt: String,
                         agents: [AgentChoice], taskSettings: TaskSettings,
-                        goal: BroadcastGoal? = nil) async throws -> UUID {
+                        goal: BroadcastGoal? = nil, relayCheck: RelayCheck? = nil) async throws -> UUID {
         guard activeRun == nil else { throw ActionUnavailable(Self.oneBroadcast) }
         guard workspace.canChangeWorkspace else { throw ActionUnavailable("Save or recover the workspace before starting a broadcast.") }
         guard let firstLine = Self.broadcastName(from: prompt) else { throw ActionUnavailable("Tell the Operator what to work on.") }
@@ -644,10 +648,15 @@ final class OperatorController {
         let goal = goal.flatMap { goal in
             OperatorCommand.said(goal.text).map { BroadcastGoal(text: $0, extraRounds: goal.extraRounds) }
         }
-        let run = OperatorRun(id: UUID(), name: OperatorCommand.said(name) ?? firstLine, profile: profile,
-                              projectIds: projectIds, jiraProjectKeys: jiraProjectKeys, prompt: prompt,
-                              createdAt: ports.now(), agents: agents, taskSettings: taskSettings,
-                              goal: !profile.oracle.isOn ? nil : goal)
+        let run = {
+            var run = OperatorRun(id: UUID(), name: OperatorCommand.said(name) ?? firstLine, profile: profile,
+                                  projectIds: projectIds, jiraProjectKeys: jiraProjectKeys, prompt: prompt,
+                                  createdAt: ports.now(), agents: agents, taskSettings: taskSettings,
+                                  goal: !profile.oracle.isOn ? nil : goal)
+            // The Oracle off, a worker's question goes straight; Challenged once, the default, is saved as none.
+            run.relayCheck = !profile.oracle.isOn ? .straight : relayCheck == .challengeOnce ? nil : relayCheck
+            return run
+        }()
         let home = ports.home, claudeConfig = ports.claudeConfig
         // A fresh start: `prepare` makes the token and writes the first message the command reads.
         let prepared = try await BackgroundWork.run {

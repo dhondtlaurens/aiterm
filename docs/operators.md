@@ -124,6 +124,17 @@ never types a permission, and a stopped command's opens the Operator's chat, whe
 A question's notification, the Operator row's click while it waits on a question, and a card's
 Answer… open the board at that block.
 
+A worker's question is the Operator's first: its card shows it muted under `asking the Operator`
+until the Operator answers it with `message_task` or relays it to you with `relay_question`. A relay
+takes no text: AiTerm reads the worker's own words from its last message, so the question in Waiting
+on you is the worker's, marked "relayed by the Operator", never a second one. The Oracle looks first,
+as the Done step's Worker questions sets it for the broadcast: Straight to you, Challenged once (the
+default: when the Oracle thinks the Operator can answer, the Operator answers the worker or replies
+and relays it anyway), or Agreed first (rounds until the Oracle has no major or important point
+left, at most three, then it reaches you with both sides). An Oracle that can't answer lets the
+question through, and the block says why. With the Oracle off, every relay goes straight. Workers
+are asked to end a question with a paragraph starting `Question:`, which AiTerm's scan reads.
+
 ## Goal and completion
 
 With a goal, all tasks finishing wakes the Operator to call `check_goal`. A met goal completes the
@@ -166,7 +177,7 @@ end changed to Merge) is a hold: its card says `accepted · waiting on the Opera
 | Steer | `message_task`, `open_tab`, `resume_task`, `retry_task` |
 | Review | `record_review`, `find_user`, `request_review`, `reply_thread`, `resolve_thread`, `critique_thread` |
 | Finish | `mark_task`, `finish_task`, `update_request`, `retry_pipeline`, `check_goal` |
-| Ask you | `ask_you`, `resolve_question` |
+| Ask you | `ask_you`, `relay_question`, `resolve_question` |
 | Read Jira | `jira_search`, `jira_board` |
 | Write Jira | `jira_create`, `jira_edit`, `jira_comment`, `jira_move`, `jira_link`, `jira_sprint` |
 | Record | `report_find`, `report_snag`, `leave_for_you`, `log_decision`, `write_summary` |

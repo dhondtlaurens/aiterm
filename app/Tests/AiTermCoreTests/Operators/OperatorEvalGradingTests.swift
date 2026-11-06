@@ -88,13 +88,14 @@ import Foundation
     @Test func workerScopeQuestion() throws {
         let check = try scenario("workerScopeQuestion").check
         let good = transcript([status, ("read_task", ["task": "PAY-14", "what": "lastMessage"]),
-                               ("ask_you", ["key": "pay-14-scope", "question": "Every order, or the filtered ones?", "task": "PAY-14"])],
+                               ("relay_question", ["key": "pay-14-scope", "task": "PAY-14"])],
                               "Asked you in AiTerm: whether PAY-14's button downloads every order, or only the filtered ones.")
         #expect(check(good) == [])
-        let ownStep = transcript([status, ("ask_you", ["key": "k", "question": "Every order, or the filtered ones?"]),
+        let ownStep = transcript([status, ("ask_you", ["key": "k", "question": "Every order, or the filtered ones?", "task": "PAY-14"]),
                                   ("mark_task", ["task": "PAY-14", "outcome": "accepted", "sha": "a41c9d2"])],
                                  "Asked you in AiTerm: every order, or the filtered ones.")
-        #expect(check(ownStep) == ["no ask_you with task PAY-14", "PAY-14 was accepted with its question open"])
+        #expect(check(ownStep) == ["no relay_question with task PAY-14", "ask_you was called with a worker's question",
+                                   "PAY-14 was accepted with its question open"])
     }
 
     @Test func promptWithNoPrompt() throws {

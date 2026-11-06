@@ -181,12 +181,19 @@ public struct BroadcastBoard: Equatable, Sendable {
         /// resolves the question.
         public var answered: String?
         public var answeredAt: Date?
+        /// For a worker's question the Operator relayed, why it reached you, in one line (`QuestionStep`s summed up), and
+        /// the whole discussion its Read the discussion opens: the Oracle's rounds and the Operator's replies. Nil for
+        /// one relayed straight, and for any other question.
+        public var why: String? = nil
+        public var discussion: [QuestionStep]? = nil
         public var id: String { key }
 
         public init(key: String, task: UUID?, ticket: String?, title: String, askedAt: Date, from: String, text: String,
-                    answer: Answer, answered: String? = nil, answeredAt: Date? = nil) {
+                    answer: Answer, answered: String? = nil, answeredAt: Date? = nil, why: String? = nil,
+                    discussion: [QuestionStep]? = nil) {
             self.key = key; self.task = task; self.ticket = ticket; self.title = title; self.askedAt = askedAt; self.from = from
             self.text = text; self.answer = answer; self.answered = answered; self.answeredAt = answeredAt
+            self.why = why; self.discussion = discussion
         }
 
         /// What an answered block says: `You answered “Drop it for admins” 2 min ago. Waiting for the Operator to take
@@ -249,6 +256,9 @@ public struct BroadcastBoard: Equatable, Sendable {
         public var notice: String? = nil
         /// A question for you about it, while it is not yours.
         public var question: CardQuestion? = nil
+        /// What its worker asks the Operator and the Operator hasn't answered nor relayed (`OperatorActs.asks`): muted under
+        /// `asking the Operator`, two lines at most, no link. Nil while it is yours, or once relayed: `question` then.
+        public var workerAsks: String? = nil
     }
 
     /// A column: its head, its cards, and the one muted line it says while it has none.
@@ -374,9 +384,12 @@ public struct BroadcastBoard: Equatable, Sendable {
             guard let operated = task.operated else { return nil }
             let handed = keepsHanded && Self.handedOnEnd(operated)
             guard operated.state != .stopped || handed else { return nil }
-            let card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId, sessions: sessions,
+            var card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId, sessions: sessions,
                                  live: liveModels[task.id], turn: acting.turns[task.id], labels: modelLabels,
                                  project: projects.count > 1 ? names[task.projectId] : nil)
+            // Relayed, it is a record of yours, which the card shows as its question instead.
+            let relayed = run.questions.contains { $0.task == task.id && $0.resolution == nil && $0.relayedFrom != nil }
+            if !operated.takenOver, !relayed { card.workerAsks = acting.asks[task.id] }
             // A task is in review while one of its review tabs is open.
             let reviewing = OperatorLine.isInReview(operated, tabs: task.workerTabs(in: sessions))
             return (handed ? .inProgress : Self.column(of: operated, hasReview: hasReview, reviewing: reviewing), card, task.agent)
@@ -422,7 +435,8 @@ public struct BroadcastBoard: Equatable, Sendable {
             let ticket = task?.jira?.key ?? question.task.flatMap { records[$0]?.ticket }
             return (offset, ListedQuestion(key: question.id, task: question.task, ticket: ticket, title: title, askedAt: question.askedAt,
                                            from: from(question), text: question.text, answer: answer(question),
-                                           answered: question.answer, answeredAt: question.answeredHereAt))
+                                           answered: question.answer, answeredAt: question.answeredHereAt,
+                                           why: why(question.history), discussion: discussion(question.history)))
         }
         return listed.sorted { ($0.1.askedAt, $0.0) < ($1.1.askedAt, $1.0) }.map(\.1)
     }
@@ -436,8 +450,28 @@ public struct BroadcastBoard: Equatable, Sendable {
         if question.id.hasPrefix(OperatorQuestion.gatePrefix) { return "Waits in the Operator’s chat" }
         switch question.asker {
         case .aiterm: return "AiTerm asks"
-        case .worker, .theOperator: return "The Operator asks"
+        case .theOperator: return "The Operator asks"
+        case .worker:
+            let tab = question.relayedFrom.flatMap { $0 == WorkerTab.firstKey ? nil : $0 }
+            return (tab.map { "Its \($0) tab asks" } ?? "Its worker asks") + " · relayed by the Operator"
         }
+    }
+
+    /// The Oracle's part in a relay, after its rounds: nil when it had none.
+    private static func discussion(_ history: [QuestionStep]?) -> [QuestionStep]? {
+        let steps = (history ?? []).filter { $0.kind != .asked }
+        return steps.isEmpty ? nil : steps
+    }
+
+    /// Why a relayed question reached you, in one line: the Oracle's rounds, or why it had none.
+    static func why(_ history: [QuestionStep]?) -> String? {
+        let steps = history ?? []
+        if let unchallenged = steps.last(where: { $0.kind == .unchallenged }) { return "Unchallenged: \(unchallenged.text)" }
+        let rounds = steps.compactMap { $0.kind == .oracle ? $0.round : nil }.max() ?? 0
+        guard rounds > 0 else { return nil }
+        let replied = steps.contains { $0.kind == .reply }
+        let said = rounds == 1 ? "The Oracle looked at it once" : "The Oracle and the Operator took \(rounds) rounds"
+        return said + (replied ? ", and the Operator kept it for you." : ", and agreed only you can answer it.")
     }
 
     /// How a question is answered: there, by one link, or here, with its choices and a field.
