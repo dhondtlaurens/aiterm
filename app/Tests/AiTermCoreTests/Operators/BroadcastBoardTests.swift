@@ -229,6 +229,93 @@ import Testing
         #expect(done["Refund webhook"]?.question == nil, "a finished task's holding question asks nothing")
     }
 
+    /// Waiting on you (D1a): T2, T4, T7 and a prompt on T6, oldest first, each with its task, who asks and how it is
+    /// answered; AiTerm's own; two tabs of T6 prompting at once; T2's question that doesn't hold, after T2 is accepted.
+    @Test func waitingOnYouListsEveryOpenQuestionOldestFirst() throws {
+        let plain = run()
+        let t2 = task("Payment provider switch", jira: "PAY-232", run: plain.id, .working)
+        let t4 = task("Refund webhook", jira: "PAY-238", run: plain.id, .working)
+        let t6 = task("Delete confirmation", jira: "PAY-236", run: plain.id, .working, agent: .codex)
+        let t7 = task("Chat reset", run: plain.id, .working)
+        let at = { (minutes: Double) in OperatorUIFixtures.epoch.addingTimeInterval(minutes * 60) }
+        var asking = plain
+        asking.questions = [
+            OperatorQuestion(id: "t7-drafts", text: "Does the chat reset keep drafts?", task: t7.id, askedAt: at(4), holds: false),
+            OperatorQuestion(id: "t2-gate", text: "Keep the access gate on the export page for admins too, or drop it for them?",
+                             task: t2.id, askedAt: at(1), holds: false, choices: ["Keep it for admins", "Drop it for admins"]),
+            OperatorQuestion(id: "prompt-\(t6.id.uuidString)-1", text: "Codex asks for permission", task: t6.id, askedAt: at(3)),
+            OperatorQuestion(id: "prompt-\(t6.id.uuidString)-2", text: "Codex asks for permission", task: t6.id, askedAt: at(3), tab: "tests"),
+            OperatorQuestion(id: "t4-token", text: "Which token does the refund webhook use?", task: t4.id, askedAt: at(2)),
+            OperatorQuestion(id: "gate-1", text: "The Oracle stopped `npm publish` in payments-api: it publishes.", task: nil, askedAt: at(5),
+                             gate: GateRequest(command: "npm publish", directory: "payments-api")),
+            OperatorQuestion(id: "merged-on-host-\(t4.id.uuidString)", text: "!71 was merged on GitLab.", task: t4.id, askedAt: at(6)),
+            OperatorQuestion(id: "old", text: "Answered long ago", task: nil, askedAt: at(0), resolution: "Yes."),
+        ]
+        let waiting = BroadcastBoard.make(run: asking, state: state(asking, [t2, t4, t6, t7]), acting: .none, requests: []).waiting
+        #expect(waiting.map(\.key) == ["t2-gate", "t4-token", "prompt-\(t6.id.uuidString)-1", "prompt-\(t6.id.uuidString)-2", "t7-drafts",
+                                       "gate-1", "merged-on-host-\(t4.id.uuidString)"])
+        let byKey = Dictionary(uniqueKeysWithValues: waiting.map { ($0.key, $0) })
+        let scope = try #require(byKey["t2-gate"])
+        #expect(scope.ticket == "PAY-232" && scope.title == "Payment provider switch" && scope.from == "The Operator asks")
+        #expect(scope.answer == .here(choices: ["Keep it for admins", "Drop it for admins"], field: true))
+        #expect(byKey["t7-drafts"]?.answer == .here(choices: [], field: true) && byKey["t7-drafts"]?.ticket == nil)
+        #expect(byKey["prompt-\(t6.id.uuidString)-1"]?.answer == .window(task: t6.id, tab: "main"))
+        #expect(byKey["prompt-\(t6.id.uuidString)-1"]?.from == "Waits in its worker’s window")
+        #expect(byKey["prompt-\(t6.id.uuidString)-2"]?.answer == .window(task: t6.id, tab: "tests"))
+        #expect(byKey["prompt-\(t6.id.uuidString)-2"]?.from == "Waits in its tests tab")
+        #expect(byKey["gate-1"]?.answer == .chat && byKey["gate-1"]?.title == "The broadcast"
+            && byKey["gate-1"]?.from == "Waits in the Operator’s chat")
+        let merged = try #require(byKey["merged-on-host-\(t4.id.uuidString)"])
+        #expect(merged.answer == .here(choices: [], field: true) && merged.from == "AiTerm asks")
+
+        // T2 accepted as a commit-only task: its question that doesn't hold still waits; T4 stopped asking with it done.
+        let accepted = task("Payment provider switch", jira: "PAY-232", run: plain.id, .accepted)
+        let finished = task("Refund webhook", jira: "PAY-238", run: plain.id, .noChange)
+        var ended = asking
+        for i in ended.questions.indices where ended.questions[i].task == t2.id { ended.questions[i].task = accepted.id }
+        for i in ended.questions.indices where ended.questions[i].task == t4.id { ended.questions[i].task = finished.id }
+        let later = BroadcastBoard.make(run: ended, state: state(ended, [accepted, finished, t6, t7]), acting: .none, requests: []).waiting
+        #expect(later.first?.key == "t2-gate")
+        #expect(!later.contains { $0.key == "t4-token" || $0.key.hasPrefix("merged-on-host-") })
+
+        // Taken over, T7 is yours: nothing of it waits. An ended broadcast lists nothing.
+        let mine = task("Chat reset", run: plain.id, .working, takenOver: true)
+        var yours = asking
+        for i in yours.questions.indices where yours.questions[i].task == t7.id { yours.questions[i].task = mine.id }
+        #expect(!BroadcastBoard.make(run: yours, state: state(yours, [t2, t4, t6, mine]), acting: .none, requests: [])
+            .waiting.contains { $0.key == "t7-drafts" })
+        var over = asking
+        over.state = .complete
+        #expect(BroadcastBoard.waiting(of: over, state: state(over, [t2, t4, t6, t7])).count == 7, "complete is not ended: they still wait")
+        over.state = .stopped
+        #expect(BroadcastBoard.waiting(of: over, state: state(over, [t2, t4, t6, t7])).isEmpty)
+    }
+
+    @Test func anAnsweredBlockSaysWhatYouAnsweredUntilTheOperatorTakesIt() throws {
+        let plain = run()
+        let t2 = task("Payment provider switch", jira: "PAY-232", run: plain.id, .working)
+        let t5 = task("Refund webhook", jira: "PAY-235", run: plain.id, .working)
+        var asking = plain
+        let asked = OperatorUIFixtures.epoch
+        asking.questions = [
+            OperatorQuestion(id: "t2-gate", text: "Keep the gate?", task: t2.id, askedAt: asked, holds: false,
+                             choices: ["Keep it for admins", "Drop it for admins"], answeredHere: "Drop it for admins",
+                             answeredHereAt: asked.addingTimeInterval(60)),
+            OperatorQuestion(id: "t5-rounds", text: "One more round, or accept it?", task: t5.id, askedAt: asked,
+                             about: OperatorQuestion.fixRounds, answeredOnCard: "oneMoreRound"),
+        ]
+        let waiting = BroadcastBoard.make(run: asking, state: state(asking, [t2, t5]), acting: .none, requests: []).waiting
+        let now = asked.addingTimeInterval(3 * 60)
+        #expect(waiting[0].answeredLine(now: now) == "You answered “Drop it for admins” 2 min ago. Waiting for the Operator to take it.")
+        #expect(waiting[1].answer == .here(choices: ["One More Round", "Accept As It Is"], field: false))
+        #expect(waiting[1].answeredLine(now: now) == "You answered “One More Round”. Waiting for the Operator to take it.",
+                "answered on its card, it shows answered in the list")
+        #expect(BroadcastBoard.age(since: asked, now: asked.addingTimeInterval(20)) == "1 min")
+        #expect(BroadcastBoard.age(since: asked, now: asked.addingTimeInterval(24 * 60)) == "24 min")
+        #expect(BroadcastBoard.age(since: asked, now: asked.addingTimeInterval(130 * 60)) == "2 h")
+        #expect(BroadcastBoard.age(since: asked, now: asked.addingTimeInterval(50 * 3600)) == "2 d")
+    }
+
     @Test func theCardsTooltipCarriesTheModelAndItsReason() throws {
         let run = run()
         var task = task("Payment provider switch", run: run.id, .working, agent: .codex)

@@ -36,4 +36,34 @@ struct BoardActionsWiringTests {
         #expect(controller.notices.issue?.reason == "Merge is off for this broadcast, so a task ends at a commit or a draft MR.")
         #expect(controller.state.task(id: task.id)?.operated?.end == .commit)
     }
+
+    /// A question's block under Waiting on you: a choice or Send records the answer, a card's Answer… asks the board to
+    /// show the block, and an answer AiTerm refuses is said in the banner.
+    @Test func aBlocksAnswerAndACardsAnswerReachTheController() async throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        try controller.workspace.load()
+        let web = OperatorUIFixtures.project("pluto-web")
+        var run = OperatorUIFixtures.run(projectIds: [web.id], agents: OperatorUIFixtures.agents, taskSettings: OperatorUIFixtures.taskSettings)
+        let task = OperatorUIFixtures.task("Footer", project: web.id,
+                                           operated: OperatorUIFixtures.operated(run: run.id, key: "footer", state: .working, end: .draftMR))
+        run.questions = [OperatorQuestion(id: "scope", text: "Keep drafts?", task: task.id, askedAt: OperatorUIFixtures.epoch, holds: false,
+                                          choices: ["Keep them", "Drop them"]),
+                         OperatorQuestion(id: "gate-1", text: "The Oracle stopped `npm publish`.", task: nil, askedAt: OperatorUIFixtures.epoch,
+                                          gate: GateRequest(command: "npm publish", directory: "/w"))]
+        controller.workspace.mutate { state in state.append(project: web); state.runs = [run]; state.tasks = [task] }
+        let actions = controller.boardActions(for: run.id, dismiss: {})
+
+        actions.answer("scope", "Keep them")
+        await eventually(describing: "the answer recorded") {
+            controller.state.run(id: run.id)?.questions.first?.answeredHere == "Keep them"
+        }
+        actions.showQuestion("scope")
+        #expect(controller.operatorController.boardFocus?.key == "scope")
+
+        actions.answer("gate-1", "yes")
+        await eventually(describing: "the refusal reported") { controller.notices.issue != nil }
+        #expect(controller.notices.issue?.title == "Couldn’t answer the question.")
+        #expect(controller.notices.issue?.reason == "Answer it in the Operator’s chat.")
+    }
 }

@@ -473,10 +473,31 @@ Built as planned, with these differences:
 
 ### Slice 2: the Waiting on you list
 
-- [ ] `BroadcastBoard.waiting` and the list above the columns, answer here and answer there (test 6)
-- [ ] `answer(question:with:)`, its wake line, and `run_status` (tests 7, 8)
-- [ ] Notifications, the Operator row and a card's question open the block (test 9)
-- [ ] The brief's pointer and `answeredHere` lines (A); the `resolve_question` description; goldens by hand (test 5)
+- [x] `BroadcastBoard.waiting` and the list above the columns, answer here and answer there (test 6)
+- [x] `answer(question:with:)`, its wake line, and `run_status` (tests 7, 8)
+- [x] Notifications, the Operator row and a card's question open the block (test 9)
+- [x] The brief's pointer and `answeredHere` lines (A); the `resolve_question` description; goldens by hand (test 5)
+
+Built as planned, with these differences:
+
+- **The wake line spells the key as `TaskKeyReference` does:** `the person answered PAY-two-three-two's question in
+  AiTerm`, `t-two's` for T2. Only a key that is one letter becomes `letter-…`. Both lines in `wake-lines.json` are plain.
+- **`asker` and `tab` in `run_status` come with slice 3**, with `relayedFrom`: nothing sets it before the relay.
+  `answeredHere`, `choices` and `holds: false` are there now.
+- **One answer action.** A fix-rounds block's links call `answer(question:in:with:)` with the link's title, which goes on to
+  `answerFixRounds`, so the list and the card share `answeredOnCard`.
+- **`Opens.prompt(task:tab:)`** carries a prompt block's tab to `AppController.choose(task:tab:)`, through the sheet's
+  dismiss like every other link.
+- **The Operator row's ↩ follows its click**: both go through `chooseOperatorRow`. Its window closed, it reopens the
+  window as before.
+- **Notifications say who asks:** `AiTerm asks: …` for a merge on the host and a stopped command.
+- **Send's ⌘↩ belongs to a block only while its field holds text**, so it never reaches another block's Send. The footer's
+  primary has ⌘↩ only on a complete broadcast, which lists nothing, or when the Operator's window couldn't be reopened.
+- **The eval grades the pointer.** `reviewerUsername` and `workerScopeQuestion` now fail a reply without "Asked you in
+  AiTerm:", and `oneToolKeepsFailing` still wants a question in the chat, since `ask_you` fails there too.
+- **A task row's click is unchanged**: a holding question still opens the Operator's window from the row. The plan named
+  the Operator row, notifications and cards only.
+- **The UI README** waits for the end, with the design page.
 
 ### Slice 3: worker questions
 

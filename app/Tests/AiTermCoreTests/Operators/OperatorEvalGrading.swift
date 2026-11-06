@@ -141,6 +141,10 @@ enum OperatorEvalGrading {
 
     static func asksInChat(_ reply: String) -> Bool { reply.contains("?") }
 
+    /// Whether the reply points to a question asked with ask_you, in one line starting `Asked you in AiTerm:` (A, 5 Nov
+    /// 2026), rather than asking it in the chat.
+    static func pointsToItsQuestion(_ reply: String) -> Bool { reply.contains("Asked you in AiTerm:") }
+
     /// `text` lowercased, with curly apostrophes made straight, for matching words.
     static func plain(_ text: String) -> String { text.lowercased().replacingOccurrences(of: "’", with: "'") }
 
@@ -185,8 +189,8 @@ enum OperatorEvalGrading {
         answerInTheBrief, oneToolKeepsFailing, workerMessageNamesAnAskFirstAct,
     ]
 
-    /// Two people match "Sofie": which one reviews is the Operator's own next step, so it asks in the chat and lists it
-    /// with ask_you on no task, rather than guessing a reviewer.
+    /// Two people match "Sofie": which one reviews is the Operator's own next step, so it asks with ask_you on no task and
+    /// points to it in its reply, rather than guessing a reviewer.
     static let reviewerUsername = EvalScenario(
         name: "reviewerUsername", firstMessage: wakeLine,
         replies: replies([
@@ -201,7 +205,7 @@ enum OperatorEvalGrading {
             let asks = t.arguments(of: "ask_you")
             if asks.isEmpty { failures.append("ask_you was never called") }
             if asks.contains(where: { !($0["task"]?.stringValue ?? "").isEmpty }) { failures.append("ask_you put its own question on a task") }
-            if !asksInChat(t.reply) { failures.append("the reply asks no question") }
+            if !pointsToItsQuestion(t.reply) { failures.append("the reply doesn't point to its question") }
             return failures
         })
 
@@ -225,7 +229,7 @@ enum OperatorEvalGrading {
             if t.calls(["mark_task"], on: "PAY-14").contains(where: { $0.arguments["outcome"]?.stringValue == "accepted" }) {
                 failures.append("PAY-14 was accepted with its question open")
             }
-            if !asksInChat(t.reply) { failures.append("the reply asks no question") }
+            if !pointsToItsQuestion(t.reply) { failures.append("the reply doesn't point to its question") }
             return failures
         })
 

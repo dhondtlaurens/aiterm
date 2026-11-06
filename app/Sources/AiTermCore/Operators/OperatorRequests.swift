@@ -15,7 +15,8 @@ public struct BroadcastRequest: Equatable, Sendable, Identifiable {
     public var runId: UUID
     /// The task it is about; nil for the Operator's own question.
     public var taskId: UUID?
-    /// The whole request, as a sentence: the notification's body and a tooltip's text.
+    /// The whole request, as a sentence: the notification's body and a tooltip's text. A question says who asks:
+    /// `The Operator asks: …`, or `AiTerm asks: …` for AiTerm's own (a merge on the host, a command the Oracle stopped).
     public var text: String
     /// A question's key: each open question is its own request. A permission carries its recorded `prompt-` question's.
     public var key: String?
@@ -76,7 +77,8 @@ public enum OperatorRequests {
         }
         for question in run.questions where question.resolution == nil && !question.id.hasPrefix("prompt-") {
             if let task = question.task, takenOver.contains(task) || (silent.contains(task) && question.holdsTask) { continue }
-            requests.append(BroadcastRequest(kind: .question, runId: run.id, taskId: question.task, text: "The Operator asks: \(question.text)",
+            requests.append(BroadcastRequest(kind: .question, runId: run.id, taskId: question.task,
+                                             text: "\(question.asker == .aiterm ? "AiTerm" : "The Operator") asks: \(question.text)",
                                              key: question.id, holds: question.holdsTask))
         }
         return requests

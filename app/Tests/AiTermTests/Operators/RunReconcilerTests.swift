@@ -263,7 +263,7 @@ import Testing
         let question = try #require(world.run(run.id)?.questions.last)
         #expect(question.text == "Codex asks for permission" && question.task == task.id && question.resolution == nil)
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
-        #expect(world.notifications.posted.last?.target == .task(task.id))
+        #expect(world.notifications.posted.last?.target == .question(run: run.id, key: question.id), "its block under Waiting on you")
         #expect(world.notifications.posted.last?.body == "Codex asks for permission in Task PLUTO-4.")
         #expect(world.notifications.withdrawn.isEmpty)
         world.daemon.prompts["w1"] = nil
@@ -294,7 +294,7 @@ import Testing
         await world.controller.lastProbe?.value
         let question = try #require(world.run(run.id)?.questions.last)
         #expect(question.text == "Codex shows a startup question" && question.task == trust.id)
-        #expect(world.notifications.posted.last?.target == .task(trust.id))
+        #expect(world.notifications.posted.last?.target == .question(run: run.id, key: question.id))
     }
 
     // -- decisions taken after review ---------------------------------------------------------
@@ -636,7 +636,7 @@ import Testing
             await world.controller.lastProbe?.value
             #expect(world.run(run.id)?.questions.count == 1)
             #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
-            #expect(world.notifications.posted.contains { $0.target == .task(task.id) && $0.body.contains("asks for permission") })
+            #expect(world.notifications.posted.contains { $0.target == .question(run: run.id, key: "prompt-\(task.id.uuidString)-1") && $0.body.contains("asks for permission") })
         }
     }
 
@@ -669,7 +669,7 @@ import Testing
         await world.controller.lastProbe?.value
         #expect(world.daemon.requests("session.prompt").count == 2)
         #expect(world.run(run.id)?.questions.count == 1)
-        #expect(world.notifications.posted.contains { $0.target == .task(task.id) && $0.body.contains("asks for permission") })
+        #expect(world.notifications.posted.contains { $0.target == .question(run: run.id, key: "prompt-\(task.id.uuidString)-1") && $0.body.contains("asks for permission") })
     }
 
     @Test(arguments: [false, true])

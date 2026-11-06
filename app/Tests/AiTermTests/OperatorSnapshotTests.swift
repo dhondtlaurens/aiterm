@@ -25,6 +25,7 @@ struct OperatorSnapshotTests {
         "broadcast-folded.png", "broadcast-queued.png", "broadcast-paused.png",
         "board-summary-worked-around.png", "board-shelved-worked-around.png",
         "board-setup-cards.png", "board-setup-running.png", "board-setup-checking-goal.png", "board-setup-goal-not-met.png",
+        "board-waiting-on-you.png", "board-waiting-blocks.png",
     ]
 
     @Test func everyOperatorStateHasItsImage() {

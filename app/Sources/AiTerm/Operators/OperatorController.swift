@@ -145,6 +145,9 @@ final class OperatorController {
     /// The broadcast whose board a notification's click asked for (spec §10.3): the sidebar presents
     /// it and sets this back to nil. Observed, so the click reaches a sidebar already on screen.
     var presentBoard: UUID?
+    /// The question the board was last asked to show (`BoardFocus`): a notification's click, the Operator row's, or a
+    /// card's Answer…. Observed, so a board already up scrolls to it.
+    var boardFocus: BoardFocus?
     /// The broadcasts whose Operator's window could not be reopened behind the board, its conversation
     /// gone (spec §13): the board's footer says so and offers Start Fresh. Cleared by a reopening that
     /// opens one, and by Start Fresh. Observed, so the board open in front of it changes at once.

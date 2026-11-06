@@ -38,6 +38,9 @@ public struct BroadcastBoard: Equatable, Sendable {
         case sidebarBanner(issue: String)
         /// One of a task's worker tabs, from its line on the card: that tab selected and its window brought forward.
         case tab(task: UUID, sessionId: String)
+        /// A worker's prompt, from its block under Waiting on you: its own tab, by its key (`WorkerTab.firstKey` for the
+        /// first worker), brought forward, or the task's window when that tab isn't listed.
+        case prompt(task: UUID, tab: String)
         /// A Todo task that has not started: the card is not a button.
         case nothing
     }
@@ -149,6 +152,60 @@ public struct BroadcastBoard: Equatable, Sendable {
         }
     }
 
+    /// One question in Waiting on you, the list above the columns (D1a): every open question addressed to the person,
+    /// whoever asks, oldest first. Its task (ticket and title, or `The broadcast`) and age head it; then who asks or
+    /// where it waits; the question; then how it is answered: here, in its block, or there, by one link.
+    public struct ListedQuestion: Equatable, Identifiable, Sendable {
+        /// How it is answered.
+        public enum Answer: Equatable, Sendable {
+            /// In its block: its choices as links, then any other answer in a field, unless `field` is false (fix rounds,
+            /// whose answers are fixed).
+            case here(choices: [String], field: Bool)
+            /// A worker's prompt: Open its window, its own tab raised. AiTerm never types a permission.
+            case window(task: UUID, tab: String)
+            /// A command the Oracle stopped: Open the Operator's chat, where it is allowed (22 Oct, trust over a button).
+            case chat
+        }
+
+        public var key: String
+        public var task: UUID?
+        public var ticket: String?
+        /// The task's title, or `The broadcast` for a question on no task.
+        public var title: String
+        public var askedAt: Date
+        /// Who asks, or where it waits: `The Operator asks`, `AiTerm asks`, `Waits in its worker’s window`.
+        public var from: String
+        public var text: String
+        public var answer: Answer
+        /// What the person answered in AiTerm, and when when it is known: the block then says so until the Operator
+        /// resolves the question.
+        public var answered: String?
+        public var answeredAt: Date?
+        public var id: String { key }
+
+        public init(key: String, task: UUID?, ticket: String?, title: String, askedAt: Date, from: String, text: String,
+                    answer: Answer, answered: String? = nil, answeredAt: Date? = nil) {
+            self.key = key; self.task = task; self.ticket = ticket; self.title = title; self.askedAt = askedAt; self.from = from
+            self.text = text; self.answer = answer; self.answered = answered; self.answeredAt = answeredAt
+        }
+
+        /// What an answered block says: `You answered “Drop it for admins” 2 min ago. Waiting for the Operator to take
+        /// it.`, without the age when AiTerm didn't record when (an answer to fix rounds).
+        public func answeredLine(now: Date) -> String? {
+            guard let answered else { return nil }
+            let when = answeredAt.map { " " + BroadcastBoard.age(since: $0, now: now) + " ago" } ?? ""
+            return "You answered “\(answered)”\(when). Waiting for the Operator to take it."
+        }
+    }
+
+    /// How long ago `date` was, as a block's head says it: `1 min`, `24 min`, `2 h`, `3 d`, never less than a minute.
+    public static func age(since date: Date, now: Date) -> String {
+        let minutes = max(1, Int(now.timeIntervalSince(date) / 60))
+        if minutes < 60 { return "\(minutes) min" }
+        if minutes < 24 * 60 { return "\(minutes / 60) h" }
+        return "\(minutes / (24 * 60)) d"
+    }
+
     /// One task on the board.
     public struct Card: Equatable, Identifiable, Sendable {
         /// The task's id.
@@ -253,6 +310,8 @@ public struct BroadcastBoard: Equatable, Sendable {
     public var snags: [OperatorSnag] = []
     /// An ended broadcast read from the Shelf: nothing on it acts, and the footer is Close alone.
     public var isShelved: Bool = false
+    /// Waiting on you, above the columns: every open question for the person, oldest first (`waiting(of:state:)`).
+    public var waiting: [ListedQuestion] = []
 
     /// The header's lines, one each: Asked, Goal, then Each task.
     public var headerLines: [Clause] { clauses + [eachTask] }
@@ -342,7 +401,53 @@ public struct BroadcastBoard: Equatable, Sendable {
             eachTask: eachTask(run.taskSettings), goalOutcome: run.goalOutcome,
             columns: columns,
             isPaused: run.isPaused,
-            isComplete: run.state == .complete, summary: RunSummary(run), leftForYou: run.leftForYou, snags: run.snags)
+            isComplete: run.state == .complete, summary: RunSummary(run), leftForYou: run.leftForYou, snags: run.snags,
+            waiting: waiting(of: run, state: state))
+    }
+
+    /// Waiting on you: every open question of `run` addressed to the person, read from its questions themselves, so two
+    /// tabs of a task prompting at once are two blocks (`OperatorRequests.open` says a task's prompts as one). What asks
+    /// nothing is left out, as there: an ended run's, a task's you took over, and a finished task's that holds it. Oldest
+    /// first, a tie in the order they were recorded.
+    public static func waiting(of run: OperatorRun, state: AppState) -> [ListedQuestion] {
+        guard !run.hasEnded else { return [] }
+        let tasks = Dictionary(state.tasks(inRun: run.id).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let records = Dictionary(run.finished.map { ($0.task, $0) }, uniquingKeysWith: { first, _ in first })
+        let listed = run.questions.enumerated().compactMap { offset, question -> (Int, ListedQuestion)? in
+            guard question.resolution == nil else { return nil }
+            let operated = question.task.flatMap { tasks[$0]?.operated }
+            if let operated, operated.takenOver || (operated.isFinished && question.holdsTask) { return nil }
+            let task = question.task.flatMap { tasks[$0] }
+            let title = task?.title ?? question.task.flatMap { records[$0]?.title } ?? "The broadcast"
+            let ticket = task?.jira?.key ?? question.task.flatMap { records[$0]?.ticket }
+            return (offset, ListedQuestion(key: question.id, task: question.task, ticket: ticket, title: title, askedAt: question.askedAt,
+                                           from: from(question), text: question.text, answer: answer(question),
+                                           answered: question.answer, answeredAt: question.answeredHereAt))
+        }
+        return listed.sorted { ($0.1.askedAt, $0.0) < ($1.1.askedAt, $1.0) }.map(\.1)
+    }
+
+    /// Who asks, or where a question answered there waits.
+    private static func from(_ question: OperatorQuestion) -> String {
+        if question.id.hasPrefix(OperatorQuestion.promptPrefix) {
+            guard let tab = question.tab, tab != WorkerTab.firstKey else { return "Waits in its worker’s window" }
+            return "Waits in its \(tab) tab"
+        }
+        if question.id.hasPrefix(OperatorQuestion.gatePrefix) { return "Waits in the Operator’s chat" }
+        switch question.asker {
+        case .aiterm: return "AiTerm asks"
+        case .worker, .theOperator: return "The Operator asks"
+        }
+    }
+
+    /// How a question is answered: there, by one link, or here, with its choices and a field.
+    private static func answer(_ question: OperatorQuestion) -> ListedQuestion.Answer {
+        if question.id.hasPrefix(OperatorQuestion.promptPrefix), let task = question.task {
+            return .window(task: task, tab: question.tab ?? WorkerTab.firstKey)
+        }
+        if question.id.hasPrefix(OperatorQuestion.gatePrefix) { return .chat }
+        if question.about == OperatorQuestion.fixRounds { return .here(choices: FixRoundsAnswer.allCases.map(\.title), field: false) }
+        return .here(choices: question.choices ?? [], field: true)
     }
 
     /// The Each task line: the review prompt quoted when there is one, `ends at draft MR`, then `closed at the end`
@@ -376,6 +481,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         }
         board.isPaused = false
         board.isShelved = true
+        board.waiting = []
         return board
     }
 

@@ -91,6 +91,47 @@ extension OperatorController {
         waker.say(answer.wakeReason(key: operated.key), to: run.id)
     }
 
+    /// Your answer to a question in its block under Waiting on you (D1a): recorded once on the question (`answeredHere`),
+    /// which `run_status` and the block say, and the Operator woken with a fixed line that names the question's task, never
+    /// the answer. It stays open: the Operator acts on it and resolves it. A `fixRounds` block's link is its card's
+    /// answer (`answerFixRounds`). Refused: a question no longer open, one answered already, one AiTerm waits on
+    /// elsewhere (a prompt in its window, a stopped command in the Operator's chat), and one about a task you took over,
+    /// or about a finished task it held.
+    func answer(question key: String, in id: UUID, with text: String) throws {
+        let answer = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !answer.isEmpty else { return }
+        guard let run = run(id: id), !run.hasEnded, let question = run.questions.first(where: { $0.id == key }), question.resolution == nil
+        else { throw ActionUnavailable("That question isn’t open any more.") }
+        let operated = question.task.flatMap { workspace.state.task(id: $0)?.operated }
+        if operated?.takenOver == true { throw ActionUnavailable("You took that task over: nothing is answered for it.") }
+        if let operated, operated.isFinished, question.holdsTask { throw ActionUnavailable("That question asks nothing once its task finished.") }
+        guard question.channel == .here else {
+            throw ActionUnavailable(question.id.hasPrefix(OperatorQuestion.gatePrefix)
+                ? "Answer it in the Operator’s chat." : "Answer it in its worker’s window.")
+        }
+        guard question.answer == nil else { throw ActionUnavailable("Already answered: wait for the Operator, or answer again in its chat.") }
+        if question.about == OperatorQuestion.fixRounds, let task = question.task {
+            guard let choice = BroadcastBoard.FixRoundsAnswer.allCases.first(where: { $0.title == answer }) else {
+                throw ActionUnavailable("Its answers are One More Round and Accept As It Is.")
+            }
+            return try answerFixRounds(of: task, choice)
+        }
+        let now = ports.now()
+        mutateRun(run.id) { run in
+            guard let i = run.questions.firstIndex(where: { $0.id == key }) else { return }
+            run.questions[i].answeredHere = answer
+            run.questions[i].answeredHereAt = now
+        }
+        waker.say(Self.answeredReason(task: operated?.key), to: run.id)
+    }
+
+    /// The Operator's wake line for an answer in AiTerm: `the person answered letter-tee-two's question in AiTerm`, the
+    /// task's key spoken (`OperatorWaker.taskReference`), or `one question` for a question on no task. No digit and no
+    /// one-letter word, so the line goes as it is (`OperatorWaker.isPlain`); the answer never travels in it.
+    static func answeredReason(task key: String?) -> String {
+        "the person answered \(key.map { OperatorWaker.taskReference($0) + "'s question" } ?? "one question") in AiTerm"
+    }
+
     /// A worker window you closed, back on your click or ↩ on its row (integration decision 7): its
     /// conversation resumed in a window behind your work under the broadcast's flags (`WorkerStarter.reopen`),
     /// the row's `windowId` left on that window so the click can raise it — whether it still names the closed

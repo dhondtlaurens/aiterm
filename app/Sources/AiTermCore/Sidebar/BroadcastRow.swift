@@ -77,6 +77,9 @@ public struct OperatorRow: Equatable, Identifiable, Sendable {
     public var status: TaskStatus
     /// You paused the broadcast and every task's workers stopped: its mark is the pause sign.
     public var paused = false
+    /// While it waits on you for a question, not a prompt in its own tab, the oldest one's key: its click opens the
+    /// board at that question's block under Waiting on you. Nil otherwise, when its click brings its window.
+    public var question: String? = nil
 
     /// The row's id for the broadcast `run`: stable, and never the run's own.
     public static func id(of run: UUID) -> UUID {
@@ -149,7 +152,7 @@ public extension SidebarModel {
     /// The Operator's row: its own session's line (`OperatorLine.session`), nothing of its tasks, which the
     /// header's tooltip, the board's band and the tasks' own rows say. It waits on you while its tab waits on input
     /// or one of its questions is open, the broadcast's or one about a task, which it names (2A, 22 Oct 2026): you
-    /// answer those in its window; its window is closed while the run
+    /// answer those under Waiting on you, where its click opens the oldest (`question`); its window is closed while the run
     /// is `operatorOffline`; else paused, `done · writing summary` once every task is done and `done · summary ready`
     /// once it is written (`done` if AiTerm gave up on it), its act, `working` while its session works, and between
     /// turns `watching 3 tasks`, its working ones counted, or `in background` while its ended turn left work running.
@@ -182,8 +185,13 @@ public extension SidebarModel {
         case .ended: .done
         case .quiet: !background.isEmpty && !run.isPaused && run.state != .operatorOffline ? .background : .idle
         }
+        // A prompt in its own tab is answered there; else the oldest question, in its block.
+        let keys = Set(questions.compactMap(\.key))
+        // Its window closed, the click reopens it first.
+        let oldest = !keys.isEmpty && tab?.state != .needsInput && run.state != .operatorOffline
+            ? run.questions.filter { keys.contains($0.id) }.min { $0.askedAt < $1.askedAt }?.id : nil
         return OperatorRow(id: OperatorRow.id(of: run.id), runId: run.id, agent: AgentKind.claude.session, title: run.name,
-                           line: line, status: status, paused: run.isPausedByYou && line == .paused)
+                           line: line, status: status, paused: run.isPausedByYou && line == .paused, question: oldest)
     }
 
     /// The Operator's tab: the first tab tagged with the run, by its place in the window.

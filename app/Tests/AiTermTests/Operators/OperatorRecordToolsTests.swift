@@ -241,8 +241,8 @@ import Testing
         let token = await world.call(run.id, "ask_you", ["key": "t4-token", "question": "Which token does T4 use?", "task": "T4"])
         #expect(!waiting(t2.id))
         #expect(waiting(t4.id))
-        #expect(scope.value?["note"] == "The question shows on this task's card, and the person answers in this chat. The task doesn't wait: it stays ready to accept and watched for stalls.")
-        #expect(token.value?["note"] == "Your row in the sidebar now shows waiting on the person, naming this task, and they answer in this chat. The task waits: it isn't ready to accept and isn't watched for stalls until you resolve the question.")
+        #expect(scope.value?["note"] == "The person sees it on this task's card and under Waiting on you in AiTerm, and answers it there or in this chat. The task doesn't wait: it stays ready to accept and watched for stalls.")
+        #expect(token.value?["note"] == "The person sees it under Waiting on you in AiTerm and answers it there or in this chat, and your row shows waiting on them, naming this task. The task waits: it isn't ready to accept and isn't watched for stalls until you resolve the question.")
         let saved = try #require(world.run(run.id)?.questions)
         #expect(saved.map(\.holds) == [false, nil], "a holding question writes no holds")
         #expect(saved.map(\.choices) == [["Keep it for admins", "Drop it for admins"], nil])
@@ -300,7 +300,7 @@ import Testing
         let task = workingTask(in: run)
         let world = try makeWorld(run, tasks: [task])
         let onTask = await world.call(run.id, "ask_you", ["key": "a", "question": "Stuck?", "task": "T1"])
-        #expect(onTask.value?["note"] == "Your row in the sidebar now shows waiting on the person, naming this task, and they answer in this chat. The task waits: it isn't ready to accept and isn't watched for stalls until you resolve the question.")
+        #expect(onTask.value?["note"] == "The person sees it under Waiting on you in AiTerm and answers it there or in this chat, and your row shows waiting on them, naming this task. The task waits: it isn't ready to accept and isn't watched for stalls until you resolve the question.")
         #expect(await world.call(run.id, "ask_you", ["key": "b", "question": "Which scope?"]).value?["note"] == nil)
     }
 

@@ -45,8 +45,10 @@ struct BroadcastBoardHost: View {
         switch source {
         case .live:
             guard let board = controller.rows.board, board.runId == runId else { return nil }
+            let focus = controller.operatorController.boardFocus
             return BroadcastBoardSheet(board: board, reopenFailed: controller.operatorController.reopenFailed.contains(runId),
-                                       actions: controller.boardActions(for: runId, dismiss: { dismiss.afterThisEvent() }), activity: feed)
+                                       actions: controller.boardActions(for: runId, dismiss: { dismiss.afterThisEvent() }), activity: feed,
+                                       focus: focus?.run == runId ? focus : nil)
         case .shelved:
             guard let run = controller.state.run(id: runId), run.hasEnded else { return nil }
             return BroadcastBoardSheet(board: .shelved(run: run, state: controller.state, modelLabels: controller.rows.modelLabels),

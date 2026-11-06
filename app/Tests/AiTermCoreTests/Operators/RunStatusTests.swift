@@ -140,6 +140,30 @@ import Foundation
         #expect(json.components(separatedBy: "answeredInWindow").count == 2, "only the marked question carries the field")
     }
 
+    /// What the person answered in a question's block (`answeredHere`), its choices, and `holds: false` for one that
+    /// doesn't hold come with the question; a question with only today's fields encodes as today.
+    @Test func aQuestionCarriesItsAnswerHereItsChoicesAndWhetherItHolds() throws {
+        let t2 = F.task("T2", .working)
+        var s = F.state(F.run(), [t2])
+        s.runs[0].questions = [
+            OperatorQuestion(id: "t2-gate", text: "Keep the gate for admins?", task: t2.id, askedAt: F.epoch, holds: false,
+                             choices: ["Keep it for admins", "Drop it for admins"], answeredHere: "Drop it for admins",
+                             answeredHereAt: F.epoch),
+            OperatorQuestion(id: "reviewer", text: "Who reviews?", task: nil, askedAt: F.epoch),
+            OperatorQuestion(id: "t2-token", text: "Which token?", task: t2.id, askedAt: F.epoch),
+        ]
+        let waiting = try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: [:])).obligations.questionsWaiting
+        #expect(waiting[0] == RunStatus.Question(key: "t2-gate", text: "Keep the gate for admins?", task: "T2", askedAt: F.epoch,
+                                                 answeredHere: "Drop it for admins", choices: ["Keep it for admins", "Drop it for admins"],
+                                                 holds: false))
+        #expect(waiting[1] == RunStatus.Question(key: "reviewer", text: "Who reviews?", askedAt: F.epoch), "on no task, holds is left out")
+        #expect(waiting[2] == RunStatus.Question(key: "t2-token", text: "Which token?", task: "T2", askedAt: F.epoch))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let today = try String(decoding: encoder.encode(waiting[2]), as: UTF8.self)
+        #expect(!today.contains("holds") && !today.contains("choices") && !today.contains("answeredHere"))
+    }
+
     /// A worker that committed off its task branch is named with what AiTerm found, the branch and the SHA,
     /// and listed among the obligations, so the Operator looks before the runtime runs out.
     @Test func aTaskOffItsBranchSaysWhatWasFound() throws {

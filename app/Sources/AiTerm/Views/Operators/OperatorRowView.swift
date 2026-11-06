@@ -25,7 +25,7 @@ struct OperatorRowView: View {
         let _ = bodyCounter?.count(row.id)
         #endif
         let selected = controller.focus.isSelected(row.id)
-        SelectableRow(id: row.id, selected: selected, washed: true, activate: { controller.focus.select(.operation(row.runId)) }) {
+        SelectableRow(id: row.id, selected: selected, washed: true, activate: { controller.chooseOperatorRow(row) }) {
             HStack(spacing: scale(Space.inset)) {
                 AvatarGroupView(group: AvatarGroup(marks: [row.agent], overflow: 0))
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
@@ -42,7 +42,7 @@ struct OperatorRowView: View {
         }
         .accessibilityLabel(Self.label(row))
         .accessibilityValue(row.line.tooltip)
-        .accessibilityHint(Text("Press Return to bring its window to front."))
+        .accessibilityHint(Text(row.question == nil ? "Press Return to bring its window to front." : "Press Return to see its question."))
         .contextMenu { BroadcastMenu(runId: row.runId, controller: controller) }
     }
 }

@@ -685,8 +685,8 @@ final class OperatorToolHandler {
         var answer = questionAnswer(question)
         if question.task != nil, question.resolution == nil, case .object(var fields) = answer {
             fields["note"] = question.holdsTask
-                ? "Your row in the sidebar now shows waiting on the person, naming this task, and they answer in this chat. The task waits: it isn't ready to accept and isn't watched for stalls until you resolve the question."
-                : "The question shows on this task's card, and the person answers in this chat. The task doesn't wait: it stays ready to accept and watched for stalls."
+                ? "The person sees it under Waiting on you in AiTerm and answers it there or in this chat, and your row shows waiting on them, naming this task. The task waits: it isn't ready to accept and isn't watched for stalls until you resolve the question."
+                : "The person sees it on this task's card and under Waiting on you in AiTerm, and answers it there or in this chat. The task doesn't wait: it stays ready to accept and watched for stalls."
             answer = .object(fields)
         }
         return answer

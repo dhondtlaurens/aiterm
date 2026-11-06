@@ -500,17 +500,35 @@ final class AppController {
 
     // -- the selected row -------------------------------------------------------------
     /// What a notification's click opens (spec §10.3): a broadcast's board — the sidebar presents
-    /// what `presentBoard` names — or the task whose prompt waits on you, its tab that asks in front
-    /// (`choose(task:)`), as a click on its row brings it.
+    /// what `presentBoard` names — at a question's block under Waiting on you when it is about one, or for a note an older
+    /// AiTerm posted, the task whose prompt waits on you, its tab that asks in front (`choose(task:)`).
     func openNote(_ target: OperatorNote.Target) {
         switch target {
         case .board(let id): operatorController.presentBoard = id
+        case .question(let run, let key): showQuestion(key, run: run)
         case .task(let id): choose(task: id)
         }
     }
 
+    /// The board of `run`, presented if it isn't up, at the block of its question `key` (`BoardFocus`).
+    func showQuestion(_ key: String, run: UUID) {
+        operatorController.boardFocus = BoardFocus(run: run, key: key)
+        operatorController.presentBoard = run
+    }
+
+    /// A prompt's block's Open its window: its own tab in front, by its key, as a tab line on a card brings it; with that
+    /// tab not listed, the task as its row's click chooses it.
+    @discardableResult
+    func choose(task id: UUID, tab key: String) -> Task<Void, Never>? {
+        if let task = state.task(id: id),
+           let session = task.workerTabs(in: live.sessions).first(where: { ($0.key ?? WorkerTab.firstKey) == key })?.session {
+            return bringTab(task: id, sessionId: session.sessionId)
+        }
+        return choose(task: id)
+    }
+
     /// ↩ on the list: a header folds or opens its project; any other row
-    /// goes to its window, the Operator's row to the Operator's, a driven task's to its tab that asks
+    /// goes to its window, the Operator's row to the Operator's or the question it waits on (`chooseOperatorRow`), a driven task's to its tab that asks
     /// (`choose(task:)`), and a queued task's to none. An empty
     /// project has nothing to fold, so its header opens its context menu — its first items are the ones
     /// that give it a row.
@@ -528,6 +546,8 @@ final class AppController {
         }
         // A task's row, as its click chooses it: a driven one brings the tab that asks.
         if let id = focus.selectedTaskId, state.task(id: id) != nil { return choose(task: id) }
+        // The Operator's row, as its click chooses it: a question it waits on opens the board at its block.
+        if case .operation(let id)? = focus.selection, let row = rows.broadcast?.operatorRow, row.runId == id { return chooseOperatorRow(row) }
         return focus.activateSelection()
     }
 

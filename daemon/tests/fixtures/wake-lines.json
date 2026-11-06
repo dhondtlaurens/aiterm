@@ -20,5 +20,9 @@
   {"text": "[AiTerm] E needs acceptance, call run_status", "plain": false, "why": "a key that is one letter"},
   {"text": "[AiTerm] area-A's worker stopped on an error, call run_status", "plain": true},
   {"text": "[AiTerm] nothing has moved for ten minutes, call run_status", "plain": true},
-  {"text": "[AiTerm] area-E has an accepted commit to push: call run_status", "plain": true}
+  {"text": "[AiTerm] area-E has an accepted commit to push: call run_status", "plain": true},
+  {"text": "[AiTerm] the person answered PAY-two-three-two's question in AiTerm, call run_status", "plain": true,
+   "why": "an answer in a question's block under Waiting on you (questions plan, slice 2): the task named, never the answer"},
+  {"text": "[AiTerm] the person answered one question in AiTerm, call run_status", "plain": true,
+   "why": "the same, for a question on no task"}
 ]

@@ -585,6 +585,12 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// Recorded under one of AiTerm's own keys.
     public var isAiTerms: Bool { Self.aitermPrefixes.contains(where: id.hasPrefix) }
 
+    /// What the person answered in AiTerm, whichever place they answered it: in its block (`answeredHere`), or for a
+    /// `fixRounds` question on its card or in its block (`answeredOnCard`), by its link's title. Nil until then.
+    public var answer: String? {
+        answeredHere ?? answeredOnCard.flatMap(BroadcastBoard.FixRoundsAnswer.init(rawValue:))?.title
+    }
+
     /// `about` for a task out of its review's fix rounds.
     public static let fixRounds = "fixRounds"
 

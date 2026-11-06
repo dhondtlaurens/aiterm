@@ -16,6 +16,19 @@ struct BoardActions {
     var changeEnd: @MainActor (_ task: UUID, _ end: TaskEnd) -> Void = { _, _ in }
     /// One More Round or Accept As It Is, on a card out of fix rounds (`OperatorController.answerFixRounds`).
     var answerFixRounds: @MainActor (_ task: UUID, _ answer: BroadcastBoard.FixRoundsAnswer) -> Void = { _, _ in }
+    /// A choice or Send in a question's block under Waiting on you (`OperatorController.answer(question:in:with:)`).
+    var answer: @MainActor (_ key: String, _ text: String) -> Void = { _, _ in }
+    /// A card's Answer…: the board scrolls to that question's block (`BoardFocus`).
+    var showQuestion: @MainActor (_ key: String) -> Void = { _ in }
+}
+
+/// A question the board is asked to show, from a notification's click, the Operator row's or a card's Answer…: the sheet
+/// goes to the Board tab and scrolls to its block, or to its top once the question has gone. Each ask is new, so the same
+/// question asked again scrolls again.
+struct BoardFocus: Equatable, Sendable {
+    var run: UUID
+    var key: String
+    var id = UUID()
 }
 
 /// The board's footer at each moment (spec §9, §13): Pause Broadcast or Resume Broadcast and End
@@ -86,10 +99,15 @@ struct BoardFooter: Equatable {
 /// Operator's summary and what it left for you (`BroadcastSummaryView`); both scroll down. The footer is the same on
 /// every tab. Equatable by what it draws, its actions left out (they act on the broadcast as it is when
 /// pressed), so the host's `.equatable()` skips a body that would draw the same; the feed redraws Activity alone.
+///
+/// Above the columns, Waiting on you lists every open question for you (`WaitingOnYouList`, D1a), and the board scrolls
+/// as one. Asked to show a question (`focus`), the sheet goes to Board and scrolls to its block (`scrollTarget`).
 struct BroadcastBoardSheet: View, Equatable {
     let board: BroadcastBoard
     let reopenFailed: Bool
     let actions: BoardActions
+    /// The question to show, when one was asked for.
+    var focus: BoardFocus? = nil
     /// The run's activity log as the host follows it; nil where Activity is handed its `entries` instead.
     let activity: ActivityFeed?
     /// What Activity lists without a feed, and the row it opens with: the snapshots' (`seeded(tab:entries:open:)`).
@@ -104,12 +122,20 @@ struct BroadcastBoardSheet: View, Equatable {
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.board == rhs.board && lhs.reopenFailed == rhs.reopenFailed && lhs.activity === rhs.activity && lhs.entries == rhs.entries
-            && lhs.openEntry == rhs.openEntry
+            && lhs.openEntry == rhs.openEntry && lhs.focus == rhs.focus
     }
 
-    init(board: BroadcastBoard, reopenFailed: Bool, actions: BoardActions, activity: ActivityFeed?) {
-        self.board = board; self.reopenFailed = reopenFailed; self.actions = actions; self.activity = activity
-        _tab = State(initialValue: board.firstTab)
+    init(board: BroadcastBoard, reopenFailed: Bool, actions: BoardActions, activity: ActivityFeed?, focus: BoardFocus? = nil) {
+        self.board = board; self.reopenFailed = reopenFailed; self.actions = actions; self.activity = activity; self.focus = focus
+        _tab = State(initialValue: focus == nil ? board.firstTab : .board)
+    }
+
+    /// The board's top, what a question no longer listed scrolls to.
+    static let topId = "board-top"
+
+    /// Where the board scrolls for `key`: its block while it is listed, else the board's top.
+    static func scrollTarget(_ key: String, on board: BroadcastBoard) -> String {
+        board.waiting.contains { $0.key == key } ? key : topId
     }
 
     /// A card's click: the sheet closes, then what the card opens comes forward. A Todo card has nothing to
@@ -140,6 +166,7 @@ struct BroadcastBoardSheet: View, Equatable {
         #endif
         let footer = BoardFooter(board, reopenFailed: reopenFailed)
         let shown = Self.shownTab(tab, on: board)
+        ScrollViewReader { proxy in
         SheetLayout(title: board.title, height: Sheet.height, bandHeight: nil,
                     scrolls: shown == .board ? [.horizontal, .vertical] : .vertical, contentVerticalPadding: Space.block) {
             VStack(alignment: .leading, spacing: Space.block) {
@@ -151,7 +178,12 @@ struct BroadcastBoardSheet: View, Equatable {
             }
         } content: {
             switch shown {
-            case .board: columns
+            case .board:
+                VStack(alignment: .leading, spacing: Space.block) {
+                    Color.clear.frame(width: 0, height: 0).id(Self.topId)
+                    if !board.waiting.isEmpty { WaitingOnYouList(questions: board.waiting, actions: actions, choose: choose) }
+                    columns
+                }
             case .activity:
                 if let activity {
                     ActivityFeedView(feed: activity, titles: titles)
@@ -175,6 +207,14 @@ struct BroadcastBoardSheet: View, Equatable {
                 Button(item.title) { select(item) }.keyboardShortcut(Self.key(of: item), modifiers: .command)
             }
             .hidden()
+        }
+        // A question asked for: Board, then its block, once the tab has drawn it.
+        .task(id: focus?.id) {
+            guard let focus, focus.run == board.runId else { return }
+            tab = .board
+            await Task.yield()
+            proxy.scrollTo(Self.scrollTarget(focus.key, on: board), anchor: .top)
+        }
         }
     }
 
@@ -378,13 +418,13 @@ struct BoardCardView: View, Equatable {
 
     /// A question for you about the task: `question for you` when it doesn't hold the task (one that holds is the card's
     /// line already), its text in a `HelpText`, three lines at most and whole in its tooltip, and Answer… as a link to
-    /// where it is answered, the Operator's window.
+    /// its block under Waiting on you, above the columns.
     private func questionLines(_ question: BroadcastBoard.CardQuestion) -> some View {
         VStack(alignment: .leading, spacing: Space.base) {
             if !question.holds { OperatorBadge(line: Self.questionForYou) }
             HelpText(question.text).lineLimit(3).help(question.text)
-            Button("Answer…") { choose(.operatorWindow) }.buttonStyle(.link).font(Typography.help)
-                .accessibilityHint(Text(Self.hint(.operatorWindow)))
+            Button("Answer…") { actions.showQuestion(question.key) }.buttonStyle(.link).font(Typography.help)
+                .accessibilityHint(Text("Shows the question under Waiting on you."))
         }
     }
 
@@ -427,7 +467,7 @@ struct BoardCardView: View, Equatable {
     static func hint(_ opens: BroadcastBoard.Opens) -> String {
         switch opens {
         case .taskWindow: "Opens the task’s window."
-        case .tab: "Brings this tab to the front."
+        case .tab, .prompt: "Brings this tab to the front."
         case .operatorWindow: "Opens the Operator’s window."
         case .sidebarBanner: "Shows the problem in the sidebar’s banner."
         case .nothing: ""

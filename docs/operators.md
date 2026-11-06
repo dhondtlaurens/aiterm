@@ -113,6 +113,17 @@ the Operator asked it with `holds: false` because the task can go on without the
 card keeps its own line, adds `question for you`, and the question still asks after the task
 finishes, until the Operator resolves it. Fix rounds and AiTerm's own questions always hold.
 
+Every open question for you is listed under Waiting on you, above the Board tab's columns, oldest
+first: the Operator's, AiTerm's (a merge on the host, a command the Oracle stopped) and each worker
+tab's permission prompt. The Operator asks with `ask_you` and leaves one line in its chat, "Asked
+you in AiTerm: …". You answer in the question's block: a choice, or any answer and Send. AiTerm
+records it once on the question (`answeredHere`, in `run_status`) and wakes the Operator with a
+fixed line naming the task, never the answer; the Operator acts on it and resolves the question.
+Answering in the Operator's chat still works. A prompt's block only opens its window, since AiTerm
+never types a permission, and a stopped command's opens the Operator's chat, where it is allowed.
+A question's notification, the Operator row's click while it waits on a question, and a card's
+Answer… open the board at that block.
+
 ## Goal and completion
 
 With a goal, all tasks finishing wakes the Operator to call `check_goal`. A met goal completes the

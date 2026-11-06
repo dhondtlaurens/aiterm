@@ -63,7 +63,7 @@ import Foundation
                                           askedAt: OperatorFixtures.epoch, gate: GateRequest(command: "npm run deploy", directory: "/w"))]
         let requests = open(run, [task])
         #expect(requests.map(\.kind) == [.question] && requests.first?.key == "gate-1" && requests.first?.taskId == task.id)
-        #expect(requests.first?.text == "The Operator asks: The Oracle stopped `npm run deploy` in /w: it deploys.")
+        #expect(requests.first?.text == "AiTerm asks: The Oracle stopped `npm run deploy` in /w: it deploys.", "AiTerm's own, as its block says")
     }
 
     @Test func eachQuestionIsItsOwnRequestWithItsKeyInTheId() {
