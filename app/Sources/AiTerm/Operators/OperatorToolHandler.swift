@@ -516,13 +516,48 @@ final class OperatorToolHandler {
         let about = call.optionalString("about")
         guard about == nil || about == OperatorQuestion.fixRounds else { throw ToolRefusal("about is \(OperatorQuestion.fixRounds), or left out.") }
         let taskId = try call.optionalString("task").map { _ in try task(call, in: run).id }
+        let holds = try Self.holds(call, task: taskId, about: about), choices = try Self.choices(call, about: about)
         if let open = run.questions.first(where: { $0.id == key }) { return Self.askAnswer(open) }
-        let question = OperatorQuestion(id: key, text: text, task: taskId, askedAt: ports.now(), resolution: nil, about: about)
+        let question = OperatorQuestion(id: key, text: text, task: taskId, askedAt: ports.now(), resolution: nil, about: about,
+                                        holds: holds == false ? false : nil, choices: choices)
         mutate(in: run.id) { state in
             state.updateRun(id: run.id) { $0.questions.append(question) }
-            if let taskId { state.updateOperated(taskId) { $0.flags.insert(.waitingOnYou) } }
+            if let taskId, question.holdsTask { state.updateOperated(taskId) { $0.flags.insert(.waitingOnYou) } }
         }
         return Self.askAnswer(question)
+    }
+
+    /// `ask_you`'s `holds`: false only for a question about a task, and never for its fix rounds, which always hold.
+    private static func holds(_ call: ToolCall, task: UUID?, about: String?) throws -> Bool? {
+        guard let value = call.arguments["holds"], value != .null else { return nil }
+        guard let holds = value.boolValue else { throw ToolRefusal("holds must be true or false.") }
+        guard !holds else { return true }
+        guard task != nil else {
+            throw ToolRefusal("Only a question about a task holds one, so holds false needs a task. Leave holds out for a question on no task.")
+        }
+        guard about != OperatorQuestion.fixRounds else {
+            throw ToolRefusal("A question about fix rounds always holds its task. Leave holds out.")
+        }
+        return false
+    }
+
+    /// The most characters in one of `ask_you`'s choices.
+    static let choiceLimit = 60
+
+    /// `ask_you`'s `choices`: two to four short answers, each one line, and none for fix rounds, whose answers are fixed.
+    private static func choices(_ call: ToolCall, about: String?) throws -> [String]? {
+        guard let value = call.arguments["choices"], value != .null else { return nil }
+        guard about != OperatorQuestion.fixRounds else {
+            throw ToolRefusal("A question about fix rounds has its answers already: One More Round and Accept As It Is. Leave choices out.")
+        }
+        let said = value.arrayValue?.map { $0.stringValue?.trimmingCharacters(in: .whitespaces) ?? "" } ?? []
+        guard (2...4).contains(said.count), !said.contains(where: \.isEmpty) else {
+            throw ToolRefusal("choices are two to four short answers, as strings, or left out.")
+        }
+        if let long = said.first(where: { $0.count > choiceLimit || $0.rangeOfCharacter(from: .newlines) != nil }) {
+            throw ToolRefusal("Each choice is one line of \(choiceLimit) characters at most: “\(long)” isn’t.")
+        }
+        return said
     }
 
     /// `allow` is for a command the Oracle stopped (a `gate-` question) alone: true lets it pass the gate once, and
@@ -568,8 +603,8 @@ final class OperatorToolHandler {
                 }
                 if let allowed { run.gateAllowances.append(allowed) }
             }
-            // The row stops waiting on you once none of its questions is open.
-            if let taskId = question.task, state.run(id: run.id)?.questions.contains(where: { $0.task == taskId && $0.resolution == nil }) == false {
+            // The row stops waiting on you once no open question holds it.
+            if let taskId = question.task, state.run(id: run.id)?.holds(task: taskId) == false {
                 state.updateOperated(taskId) { $0.flags.remove(.waitingOnYou) }
             }
         }
@@ -649,7 +684,9 @@ final class OperatorToolHandler {
     private static func askAnswer(_ question: OperatorQuestion) -> JSONValue {
         var answer = questionAnswer(question)
         if question.task != nil, question.resolution == nil, case .object(var fields) = answer {
-            fields["note"] = "Your row in the sidebar now shows waiting on the person, naming this task, and they answer in this chat. The task waits: it isn't ready to accept and isn't watched for stalls until you resolve the question."
+            fields["note"] = question.holdsTask
+                ? "Your row in the sidebar now shows waiting on the person, naming this task, and they answer in this chat. The task waits: it isn't ready to accept and isn't watched for stalls until you resolve the question."
+                : "The question shows on this task's card, and the person answers in this chat. The task doesn't wait: it stays ready to accept and watched for stalls."
             answer = .object(fields)
         }
         return answer

@@ -15,6 +15,22 @@ import Testing
         try StateStore(url: folder.appendingPathComponent("state.json")).load()
     }
 
+    /// The frozen broadcast saves back with none of plan F's keys on its run, its questions or its challenges: a field
+    /// at its default is never written, so a state that never uses them keeps its bytes.
+    @Test func theSavedBroadcastSavesBackWithNoneOfTheQuestionRecordsNewKeys() throws {
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let saved = try JSONDecoder().decode(JSONValue.self, from: encoder.encode(try Self.load().runs))
+        guard case .array(let runs) = saved else { Issue.record("runs save as a list"); return }
+        func keys(_ value: JSONValue?) -> Set<String> { if case .object(let fields)? = value { Set(fields.keys) } else { [] } }
+        func items(_ value: JSONValue?) -> [JSONValue] { if case .array(let items)? = value { items } else { [] } }
+        let question: Set<String> = ["holds", "choices", "answeredHere", "answeredHereAt", "relayedFrom", "history"]
+        for run in runs {
+            #expect(!keys(run).contains("relayCheck"))
+            for saved in items(run["questions"]) { #expect(keys(saved).isDisjoint(with: question)) }
+            for saved in items(run["challenges"]) { #expect(!keys(saved).contains("round")) }
+        }
+    }
+
     @Test func currentSavedBroadcastRetainsItsWorkersReviewsAndGoal() throws {
         let state = try Self.load()
         let run = try #require(state.runs.first)

@@ -191,6 +191,44 @@ import Testing
         #expect(line?.text == "Operator answering" && line?.look == .acting)
     }
 
+    /// T2's scope question doesn't hold T2: its card keeps its own line and opens its window, and carries the question,
+    /// edged as needing you. T4's question holds T4: its card says `waiting on you` and carries it too. Once T2 is
+    /// accepted as a commit-only task, its question still shows, as it still asks; a finished task's holding one doesn't.
+    @Test func aCardShowsItsQuestionAndOnlyAHoldingOneIsItsLine() throws {
+        let plain = run()
+        let t2 = task("Payment provider switch", jira: "PAY-232", run: plain.id, .working)
+        let t4 = task("Refund webhook", jira: "PAY-238", run: plain.id, .working)
+        let gate = OperatorQuestion(id: "t2-gate", text: "Keep the access gate on the export page for admins too, or drop it for them?",
+                                    task: t2.id, askedAt: OperatorUIFixtures.epoch, holds: false,
+                                    choices: ["Keep it for admins", "Drop it for admins"])
+        let token = OperatorUIFixtures.question("Which token does the refund webhook use?", id: "t4-token", task: t4.id)
+        var asking = plain
+        asking.questions = [gate, token]
+        func cards(_ run: OperatorRun, _ tasks: [TaskItem]) -> [String: BroadcastBoard.Card] {
+            let state = state(run, tasks)
+            let board = BroadcastBoard.make(run: run, state: state, acting: .none, requests: OperatorRequests.open(run: run, state: state))
+            return Dictionary(uniqueKeysWithValues: board.columns.flatMap(\.cards).map { ($0.title, $0) })
+        }
+        let before = cards(plain, [t2, t4]), after = cards(asking, [t2, t4])
+        let scope = try #require(after["Payment provider switch"]), held = try #require(after["Refund webhook"])
+        #expect(scope.line == before["Payment provider switch"]?.line, "a question that doesn't hold leaves the line as it is")
+        #expect(scope.opens == .taskWindow(t2.id))
+        #expect(scope.needsYou)
+        #expect(scope.question == BroadcastBoard.CardQuestion(key: "t2-gate", text: gate.text, holds: false, asker: .theOperator))
+        #expect(held.line?.text == "waiting on you" && held.needsYou)
+        #expect(held.question == BroadcastBoard.CardQuestion(key: "t4-token", text: token.text, holds: true, asker: .theOperator))
+        #expect(before["Payment provider switch"]?.question == nil && before["Payment provider switch"]?.needsYou == false)
+
+        let accepted = task("Payment provider switch", jira: "PAY-232", run: plain.id, .accepted)
+        let finished = task("Refund webhook", jira: "PAY-238", run: plain.id, .noChange)
+        var ended = asking
+        ended.questions[0].task = accepted.id
+        ended.questions[1].task = finished.id
+        let done = cards(ended, [accepted, finished])
+        #expect(done["Payment provider switch"]?.question?.key == "t2-gate", "it still asks after T2 is accepted")
+        #expect(done["Refund webhook"]?.question == nil, "a finished task's holding question asks nothing")
+    }
+
     @Test func theCardsTooltipCarriesTheModelAndItsReason() throws {
         let run = run()
         var task = task("Payment provider switch", run: run.id, .working, agent: .codex)

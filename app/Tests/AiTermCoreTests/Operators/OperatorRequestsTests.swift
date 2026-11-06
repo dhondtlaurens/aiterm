@@ -131,6 +131,49 @@ import Foundation
         #expect(RunScheduler.isComplete(run, in: state))
     }
 
+    // MARK: - Holds (plan F, slice 1)
+
+    /// T2's scope question doesn't hold T2: after T2 is accepted as a commit-only task it still asks, and the broadcast
+    /// isn't complete until the Operator resolves it. A holding question on a finished task asks nothing, as before.
+    @Test func aQuestionThatNeverHeldItsFinishedTaskStillAsks() {
+        var run = OperatorFixtures.run()
+        let t2 = OperatorFixtures.task("T2", .accepted, run: run.id), t4 = OperatorFixtures.task("T4", .accepted, run: run.id)
+        run.questions = [OperatorQuestion(id: "t2-gate", text: "Keep the access gate for admins?", task: t2.id, askedAt: OperatorFixtures.epoch,
+                                          holds: false, choices: ["Keep it for admins", "Drop it for admins"]),
+                         OperatorQuestion(id: "t4-token", text: "Which token?", task: t4.id, askedAt: OperatorFixtures.epoch)]
+        let state = OperatorFixtures.state(run, [t2, t4])
+        let requests = OperatorRequests.open(run: run, state: state)
+        #expect(requests.map(\.key) == ["t2-gate"])
+        #expect(requests.first?.holds == false)
+        #expect(!RunScheduler.isComplete(run, in: state))
+        run.questions[0].resolution = "Keep it."
+        #expect(RunScheduler.isComplete(run, in: OperatorFixtures.state(run, [t2, t4])))
+    }
+
+    /// A task you took over silences every question on it, holding or not.
+    @Test func aTaskYouTookOverSilencesAQuestionThatDoesntHold() {
+        var task = codexTask("T2")
+        task.operated?.takenOver = true
+        var run = run
+        run.questions = [OperatorQuestion(id: "t2-gate", text: "Keep it?", task: task.id, askedAt: OperatorFixtures.epoch, holds: false)]
+        #expect(open(run, [task]).isEmpty)
+    }
+
+    /// Each request says whether it holds a task, and a permission carries its recorded question's key.
+    @Test func aRequestSaysWhetherItHoldsAndAPermissionItsKey() {
+        let task = codexTask("T7")
+        var run = run
+        let prompt = "prompt-\(task.id.uuidString)-1"
+        run.questions = [OperatorQuestion(id: prompt, text: "Codex asks for permission", task: task.id, askedAt: OperatorFixtures.epoch),
+                         OperatorQuestion(id: "t7-reset", text: "Does the chat reset keep drafts?", task: task.id,
+                                          askedAt: OperatorFixtures.epoch, holds: false),
+                         OperatorQuestion(id: "locale", text: "Which locale?", task: nil, askedAt: OperatorFixtures.epoch)]
+        let requests = open(run, [task])
+        #expect(requests.map(\.key) == [prompt, "t7-reset", "locale"])
+        #expect(requests.map(\.holds) == [true, false, false], "a question on no task holds no task")
+        #expect(requests.first?.id == "request-\(run.id.uuidString)-\(task.id.uuidString)-permission", "a permission's id is as before")
+    }
+
     /// A publication's problem is a request with its sentence, and the task's line needs you.
     @Test func aPublicationProblemNeedsYou() {
         var task = OperatorFixtures.task("PAY-1", .accepted, run: run.id)

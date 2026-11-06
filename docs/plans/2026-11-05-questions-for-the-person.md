@@ -451,10 +451,25 @@ Each test is written first and fails before its change. The fixture is the broad
 
 ### Slice 1: the record and its hold
 
-- [ ] `OperatorQuestion` fields and computed parts; migration test (test 4)
-- [ ] `ask_you` with `holds` and `choices`; release by `holds(task:)` in every path (test 1)
-- [ ] Requests, task lines and cards read holds (tests 2, 3)
-- [ ] The brief's task and holds lines; `ask_you` served schema; goldens by hand; `contract.json`'s note (test 5)
+- [x] `OperatorQuestion` fields and computed parts; migration test (test 4)
+- [x] `ask_you` with `holds` and `choices`; release by `holds(task:)` in every path (test 1)
+- [x] Requests, task lines and cards read holds (tests 2, 3)
+- [x] The brief's task and holds lines; `ask_you` served schema; goldens by hand (test 5)
+
+Built as planned, with these differences:
+
+- **Fields added when used.** Slice 1 adds `holds`, `choices`, `answeredHere`, `answeredHereAt` and `relayedFrom`, with
+  `asker`, `channel` and `holdsTask` computed. `answer` comes with slice 2, which shows it. `history` (`QuestionStep`),
+  `relayCheck` and `ChallengeRecord.round` come with slice 3. The `state.json` check already names all eight keys.
+- **`contract.json` unchanged in slice 1.** A holding question's note is still true in slice 1, word for word. Only a
+  question that doesn't hold has a new note. The `"question"` entry changes in slice 2, when the answer moves to the list.
+- **A question that doesn't hold keeps the broadcast open.** It still asks after its task finishes, so
+  `RunScheduler.isComplete` waits for it as for a question on no task. Otherwise the broadcast would complete with it
+  open and drop it unanswered.
+- **The card's click follows its line.** A card opens what its holding request opens. A question that doesn't hold has
+  its own Answer… link, which opens the Operator's window until slice 2.
+- **A new brief example.** "PAY-13's brief doesn't say whether the export page keeps its access gate for admins…" shows
+  `holds false` with choices, in the four brief goldens.
 
 ### Slice 2: the Waiting on you list
 

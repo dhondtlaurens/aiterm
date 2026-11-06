@@ -290,8 +290,10 @@ struct BoardHeading: View {
 /// click. A task out of its fix rounds (16) has, under the card's rule, a `Hairline` as over the tabs, the last
 /// verdict's counts in a `HelpText` when one was recorded, then One More Round and Accept As It Is as links, `Space.gap`
 /// apart and `Space.base` under it; once you answered, what you answered in their place, until the question is
-/// resolved. A worktree the closing kept says why there, in a `HelpText`, once the closing recorded it. Equatable by
-/// its card alone, so a change to another card redraws this one not at all.
+/// resolved. A worktree the closing kept says why there, in a `HelpText`, once the closing recorded it. A question for
+/// you about the task is there too (`questionLines`): `question for you` when it doesn't hold the task, its text, and
+/// Answer…; the card is then edged in the attention stroke whatever its line. Equatable by its card alone, so a change to
+/// another card redraws this one not at all.
 struct BoardCardView: View, Equatable {
     let card: BroadcastBoard.Card
     /// What the card's click, or a tab line's, opens: the sheet closes first (`BroadcastBoardSheet.choose`).
@@ -350,13 +352,14 @@ struct BoardCardView: View, Equatable {
         .ruled()
     }
 
-    private var hasFoot: Bool { card.fixRounds != nil || card.notice != nil }
+    private var hasFoot: Bool { card.fixRounds != nil || card.notice != nil || card.question != nil }
 
     /// What a card says under its rule: why its worktree was kept, or a task out of its fix rounds' counts and its
     /// answers, or what you answered.
     private var foot: some View {
         VStack(alignment: .leading, spacing: Space.base) {
             if let notice = card.notice { HelpText(notice) }
+            if let question = card.question { questionLines(question) }
             if let fixRounds = card.fixRounds {
                 if let counts = fixRounds.counts { HelpText(counts) }
                 if let answered = fixRounds.answered {
@@ -372,6 +375,21 @@ struct BoardCardView: View, Equatable {
         }
         .ruled()
     }
+
+    /// A question for you about the task: `question for you` when it doesn't hold the task (one that holds is the card's
+    /// line already), its text in a `HelpText`, three lines at most and whole in its tooltip, and Answer… as a link to
+    /// where it is answered, the Operator's window.
+    private func questionLines(_ question: BroadcastBoard.CardQuestion) -> some View {
+        VStack(alignment: .leading, spacing: Space.base) {
+            if !question.holds { OperatorBadge(line: Self.questionForYou) }
+            HelpText(question.text).lineLimit(3).help(question.text)
+            Button("Answer…") { choose(.operatorWindow) }.buttonStyle(.link).font(Typography.help)
+                .accessibilityHint(Text(Self.hint(.operatorWindow)))
+        }
+    }
+
+    /// The chip a question that doesn't hold its task adds to its card.
+    static let questionForYou = OperatorLine("question for you", look: .needsYou)
 
     /// What the card says once you answered its fix rounds: `You answered: one more round.`
     static func answered(_ answer: BroadcastBoard.FixRoundsAnswer) -> String { "You answered: \(answer.words)." }

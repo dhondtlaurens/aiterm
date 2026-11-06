@@ -536,13 +536,54 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// What an `ask_you` question is about, when AiTerm acts on it: `fixRounds`, a task out of its review's fix rounds,
     /// whose card offers the answers. Nil for any other question.
     public var about: String?
+    /// False when the Operator asked about a task that can go on without the answer (`ask_you` with `holds: false`): the
+    /// question shows on its card, and the task stays ready to accept and watched for stalls. Nil means it holds, today's
+    /// meaning and every older question's; written only when false. See `holdsTask`.
+    public var holds: Bool?
+    /// The two to four short answers the Operator offered (`ask_you`'s `choices`); nil for an open question.
+    public var choices: [String]?
+    /// What the person answered in AiTerm, in the question's own block, and when: written once, never closing the
+    /// question, which the Operator resolves. Nil until then, and for a `fixRounds` question (`answeredOnCard`).
+    public var answeredHere: String?
+    public var answeredHereAt: Date?
+    /// For a worker's question the Operator relayed, that worker tab's key (`WorkerTab.firstKey` for the first worker);
+    /// nil for the Operator's own question and AiTerm's.
+    public var relayedFrom: String?
     public init(id: String, text: String, task: UUID?, askedAt: Date, resolution: String? = nil, tab: String? = nil,
                 gate: GateRequest? = nil, answeredInWindow: String? = nil, withdrawn: Bool? = nil, about: String? = nil,
-                answeredOnCard: String? = nil) {
+                answeredOnCard: String? = nil, holds: Bool? = nil, choices: [String]? = nil, answeredHere: String? = nil,
+                answeredHereAt: Date? = nil, relayedFrom: String? = nil) {
         self.id = id; self.text = text; self.task = task; self.askedAt = askedAt; self.resolution = resolution; self.tab = tab
         self.gate = gate; self.answeredInWindow = answeredInWindow; self.withdrawn = withdrawn; self.about = about
-        self.answeredOnCard = answeredOnCard
+        self.answeredOnCard = answeredOnCard; self.holds = holds; self.choices = choices; self.answeredHere = answeredHere
+        self.answeredHereAt = answeredHereAt; self.relayedFrom = relayedFrom
     }
+
+    /// Who asks the person: AiTerm for its own keys (`aitermPrefixes`), a worker when the Operator relayed its question,
+    /// else the Operator.
+    public enum Asker: String, Sendable { case theOperator, worker, aiterm }
+    public var asker: Asker {
+        if isAiTerms { return .aiterm }
+        return relayedFrom == nil ? .theOperator : .worker
+    }
+
+    /// Where the person answers: `there` for a worker's prompt (its window) and a command the Oracle stopped (the
+    /// Operator's chat), `here`, in AiTerm, for the rest.
+    public enum Channel: String, Sendable { case here, there }
+    public var channel: Channel {
+        id.hasPrefix(Self.promptPrefix) || id.hasPrefix(Self.gatePrefix) ? .there : .here
+    }
+
+    /// Whether the question holds its task while open: the task waits on you, isn't ready to accept and isn't watched
+    /// for stalls. Only a question about a task holds one. `fixRounds` and AiTerm's own questions always hold; the
+    /// Operator's hold unless it asked with `holds: false`.
+    public var holdsTask: Bool {
+        guard task != nil else { return false }
+        return holds != false || about == Self.fixRounds || isAiTerms
+    }
+
+    /// Recorded under one of AiTerm's own keys.
+    public var isAiTerms: Bool { Self.aitermPrefixes.contains(where: id.hasPrefix) }
 
     /// `about` for a task out of its review's fix rounds.
     public static let fixRounds = "fixRounds"
@@ -973,5 +1014,14 @@ extension OperatedTask {
     /// The current problem when it is a failure that needs you, not a hold for the Operator (`TaskPublication.operatorHolds`).
     public var publicationFailure: String? {
         currentPublicationProblem.flatMap { TaskPublication.isHold($0) ? nil : $0 }
+    }
+}
+
+public extension OperatorRun {
+    /// Whether an open question holds `task` (`OperatorQuestion.holdsTask`): what keeps it waiting on you. Every place
+    /// that closes a question releases its task by this, so a question that doesn't hold never keeps the task waiting,
+    /// and one that holds never loses it while another closes.
+    func holds(task: UUID) -> Bool {
+        questions.contains { $0.task == task && $0.resolution == nil && $0.holdsTask }
     }
 }

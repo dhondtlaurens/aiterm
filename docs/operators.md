@@ -107,6 +107,12 @@ and types nothing more. Take Over removes the Operator's authority over a task, 
 restores it. Stop Task ends that task's participation. Questions remain on the board for your
 answer; the Operator cannot answer permission prompts on your behalf.
 
+A question the Operator asks about a task (`ask_you` with a task) shows on that task's card. It
+holds the task, which then waits on you, isn't ready to accept and isn't watched for stalls, unless
+the Operator asked it with `holds: false` because the task can go on without the answer. Then the
+card keeps its own line, adds `question for you`, and the question still asks after the task
+finishes, until the Operator resolves it. Fix rounds and AiTerm's own questions always hold.
+
 ## Goal and completion
 
 With a goal, all tasks finishing wakes the Operator to call `check_goal`. A met goal completes the

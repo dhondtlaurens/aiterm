@@ -136,6 +136,19 @@ public struct BroadcastBoard: Equatable, Sendable {
         public init(counts: String?, answered: FixRoundsAnswer? = nil) { self.counts = counts; self.answered = answered }
     }
 
+    /// A question for you about a task, under its card's rule: the oldest open one, its fix rounds' aside (`FixRounds`)
+    /// and a worker's prompt aside (its line says it). One that holds keeps the card's line `waiting on you`; one that
+    /// doesn't adds `question for you` and leaves the line as it is.
+    public struct CardQuestion: Equatable, Sendable {
+        public var key: String
+        public var text: String
+        public var holds: Bool
+        public var asker: OperatorQuestion.Asker
+        public init(key: String, text: String, holds: Bool, asker: OperatorQuestion.Asker) {
+            self.key = key; self.text = text; self.holds = holds; self.asker = asker
+        }
+    }
+
     /// One task on the board.
     public struct Card: Equatable, Identifiable, Sendable {
         /// The task's id.
@@ -156,7 +169,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         public var line: OperatorLine?
         /// You took it over: the card reads `taken over` with no badge until you Hand Back.
         public var takenOver: Bool
-        /// It carries a request: its edge in the attention stroke, its line the needs-you badge.
+        /// It carries a request, or a question for you: its edge in the attention stroke.
         public var needsYou: Bool
         public var opens: Opens
         /// The model the Operator chose and its one-line reason (spec §15.4): `Codex · gpt-5.5 · high`, then
@@ -177,6 +190,8 @@ public struct BroadcastBoard: Equatable, Sendable {
         /// Under its rule: why the closing kept its worktree once it ran (`OperatedTask.keptReason`), or while it is due what
         /// it waits for (`closingWait`); nil while neither is recorded.
         public var notice: String? = nil
+        /// A question for you about it, while it is not yours.
+        public var question: CardQuestion? = nil
     }
 
     /// A column: its head, its cards, and the one muted line it says while it has none.
@@ -427,11 +442,12 @@ public struct BroadcastBoard: Equatable, Sendable {
                 }
             }
         let tabs = tabs(of: task, sessions: sessions, labels: labels)
+        let question = takenOver ? nil : self.question(on: task.id, operated, run: run)
         return Card(id: task.id, title: task.title, agent: task.agent,
                     ticket: task.jira?.key, ticketSummary: task.jira?.summary,
                     mr: mr?.reference, mrHost: mr?.host, mrTitle: mr?.title, project: project,
                     line: takenOver ? nil : line, takenOver: takenOver,
-                    needsYou: !takenOver && line?.look == .needsYou,
+                    needsYou: !takenOver && (line?.look == .needsYou || question != nil),
                     opens: opens(task, operated, requests: requests),
                     modelTooltip: modelTooltip(task, operated, live: live), result: OperatorLine.ending(of: operated),
                     tabs: tabs,
@@ -443,7 +459,17 @@ public struct BroadcastBoard: Equatable, Sendable {
                         FixRounds(counts: operated.reviewVerdicts.last.map(counts),
                                   answered: question.answeredOnCard.flatMap(FixRoundsAnswer.init(rawValue:)))
                     },
-                    notice: kept ? operated.keptReason : closes && run.closingIsDue ? operated.closingWait?.text : nil)
+                    notice: kept ? operated.keptReason : closes && run.closingIsDue ? operated.closingWait?.text : nil,
+                    question: question)
+    }
+
+    /// The card's question for you (`CardQuestion`): on a finished task only one that never held it, as that one still asks.
+    private static func question(on task: UUID, _ operated: OperatedTask, run: OperatorRun) -> CardQuestion? {
+        run.questions
+            .filter { $0.task == task && $0.resolution == nil && !$0.id.hasPrefix(OperatorQuestion.promptPrefix)
+                && $0.about != OperatorQuestion.fixRounds && !(operated.isFinished && $0.holdsTask) }
+            .min { $0.askedAt < $1.askedAt }
+            .map { CardQuestion(key: $0.id, text: $0.text, holds: $0.holdsTask, asker: $0.asker) }
     }
 
     /// The card of a task closed at the broadcast's end, from its record: the title, agent, ticket and combination it
@@ -534,11 +560,12 @@ public struct BroadcastBoard: Equatable, Sendable {
     }
 
     /// What resolves the card's request, by its kind (the one its line says), else its task's window once
-    /// it has started. A finished task's leftover request asks nothing, as on its line.
+    /// it has started. A finished task's leftover request asks nothing, as on its line, and a question that doesn't hold
+    /// the task is opened from its own link (`CardQuestion`).
     private static func opens(_ task: TaskItem, _ operated: OperatedTask, requests: [BroadcastRequest]) -> Opens {
         var kind: BroadcastRequest.Kind?
         if !operated.takenOver, !operated.isFinished {
-            kind = OperatorLine.first(requests.filter { $0.runId == operated.runId && $0.taskId == task.id })?.kind
+            kind = OperatorLine.first(requests.filter { $0.runId == operated.runId && $0.taskId == task.id && $0.holds })?.kind
             // Blocked, whether or not its request was passed in: what blocks it is the Operator's, or AiTerm's.
             if kind == nil, operated.state == .blocked { kind = operated.problem == nil ? .blocked : .problem }
         }

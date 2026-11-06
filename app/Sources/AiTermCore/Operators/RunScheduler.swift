@@ -80,7 +80,9 @@ public enum RunScheduler {
         let runTasks = state.tasks(inRun: run.id)
         let tasks = runTasks.compactMap(\.operated)
         let finished = Set(runTasks.filter { $0.operated.map(\.isFinished) == true }.map(\.id))
-        guard !tasks.isEmpty, run.questions.allSatisfy({ $0.resolution != nil || $0.task.map(finished.contains) == true }) else { return false }
+        // A finished task's leftover question asks nothing, but for one that never held it (`OperatorRequests.open`).
+        guard !tasks.isEmpty, run.questions.allSatisfy({ $0.resolution != nil || ($0.holdsTask && $0.task.map(finished.contains) == true) })
+        else { return false }
         return tasks.allSatisfy(\.isFinished)
     }
 }

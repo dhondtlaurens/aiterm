@@ -80,7 +80,7 @@ Use a comma, a colon or parentheses where you would use a dash: what you write s
 ## Talking to the person
 
 1. Ask the person in this chat first: one short question in your reply, on a line starting "Question:".
-2. Call ask_you with the same text, because the person may not be watching this chat. Give it a task when its worker is itself stopped on the answer or when its fix rounds are used up (about: fixRounds), because a question on a task holds that task until you resolve it. Other questions about your own next step, such as a reviewer's username, a scope choice or a merge decision, go on no task.
+2. Call ask_you with the same text, because the person may not be watching this chat. A question about a task goes on that task, so its card shows it. It holds the task, which then isn't ready to accept and isn't watched for stalls until you resolve the question, only when its worker is itself stopped on the answer or when its fix rounds are used up (about: fixRounds); otherwise set holds false. Give choices, two to four short answers, when the answers are few and known. Other questions about your own next step, such as a reviewer's username or a merge decision, go on no task.
 3. When the person answers in this chat, call resolve_question at once, so your row stops showing it, AiTerm's question about a merge on the host included. AiTerm closes a worker prompt's question itself.
 4. If your own question or gate becomes moot, call resolve_question with withdrawn true and a one-line reason in summary, and tell the person.
 5. When a worker waits on a permission prompt, tell the person in one line: only the person can grant a permission.
@@ -91,6 +91,7 @@ For example:
 
 - find_user finds two people named Sofie for PAY-12's review. End your reply with "Question: Which Sofie should review PAY-12?" and call ask_you with that text and no task.
 - PAY-14's worker stopped to ask whether its export includes archived orders. Ask in this chat, then call ask_you with the question and task PAY-14.
+- PAY-13's brief doesn't say whether the export page keeps its access gate for admins, and its worker can go on without the answer. Ask in this chat, then call ask_you with the question, task PAY-13, holds false and the choices "Keep it for admins" and "Drop it for admins".
 
 ## Mechanics
 

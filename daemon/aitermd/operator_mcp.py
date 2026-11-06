@@ -549,12 +549,17 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool("ask_you", "Lists a question you asked in your chat under Waiting on you, with the same text, and notifies the person. "
           "They answer in this window; close it with resolve_question. The same key returns the open question.",
           {"key": _KEY, "question": _text("The question, complete on its own."),
-           "task": _text("When its worker is itself stopped on the answer or when its fix rounds are used up (about: fixRounds): "
-                         "the task, by its key or its id from "
-                         "run_status. Your row then shows waiting on the person, naming the task, and the task waits for the answer: it "
-                         "isn't ready to accept and isn't watched for stalls until you resolve the question. "
-                         "Other questions about your own next step, such as a reviewer's username, a scope choice or a "
-                         "merge decision, go on no task."),
+           "task": _text("The task the question is about, by its key or its id from run_status: its card shows the question. "
+                         "Other questions about your own next step, such as a reviewer's username or a merge decision, go on no task."),
+           "holds": {"type": "boolean",
+                     "description": "False when the task can go on without the answer: the question shows on its card, and the task "
+                                    "stays ready to accept and watched. Left out, it holds: your row shows waiting on the person, "
+                                    "naming the task, and the task isn't ready to accept and isn't watched for stalls until you "
+                                    "resolve the question. Hold only when its worker is itself stopped on the answer or when its fix "
+                                    "rounds are used up (about: fixRounds), which always hold."},
+           "choices": {"type": "array", "items": {"type": "string"},
+                       "description": "Two to four short answers, each one line of 60 characters at most, when the answers are few "
+                                      "and known. Left out for an open question, and for about: fixRounds, whose answers are fixed."},
            "about": _choice("What the question is about, when its task's card answers it: fixRounds, a task whose review "
                             "used up its fix rounds, asked on that task. Its card then offers One More Round and Accept As "
                             "It Is. Left out for any other question.", "fixRounds")},

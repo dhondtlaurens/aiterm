@@ -502,11 +502,14 @@ public enum OperatorCommand {
     /// Rule 2 of talking to the person: which questions go on a task. Includes exhausted fix rounds.
     static let questionLead = "Call ask_you with the same text, because the person may not be watching this chat. "
     static let questionRule = questionLead
-        + "Give it a task when its worker is itself stopped on the answer or when its fix rounds are used up (about: fixRounds), "
-        + "because a question on a task holds that task until you resolve it. Other questions about your own next step, "
-        + "such as a reviewer's username, a scope choice or a merge decision, go on no task."
+        + "A question about a task goes on that task, so its card shows it. It holds the task, which then isn't ready to "
+        + "accept and isn't watched for stalls until you resolve the question, only when its worker is itself stopped on the "
+        + "answer or when its fix rounds are used up (about: fixRounds); otherwise set holds false. Give choices, two to four "
+        + "short answers, when the answers are few and known. Other questions about your own next step, such as a reviewer's "
+        + "username or a merge decision, go on no task."
 
-    /// Questions appear on the Operator row and are answered in its chat. A question on a task holds acceptance and stall checks; use it for a stopped worker or exhausted fix rounds.
+    /// Questions appear on the Operator row and are answered in its chat. A question about a task goes on it, and holds its
+    /// acceptance and stall checks only for a stopped worker or exhausted fix rounds.
     static func askRules() -> [String] {
         [
             "Ask the person in this chat first: one short question in your reply, on a line starting \"Question:\".",
@@ -529,6 +532,9 @@ public enum OperatorCommand {
             + "PAY-12?\" and call ask_you with that text and no task.",
         "PAY-14's worker stopped to ask whether its export includes archived orders. Ask in this chat, then call ask_you with "
             + "the question and task PAY-14.",
+        "PAY-13's brief doesn't say whether the export page keeps its access gate for admins, and its worker can go on without "
+            + "the answer. Ask in this chat, then call ask_you with the question, task PAY-13, holds false and the choices "
+            + "\"Keep it for admins\" and \"Drop it for admins\".",
     ]
 
     /// When a task takes another worker tab (`open_tab`) rather than a task of its own, and how its tabs are briefed,

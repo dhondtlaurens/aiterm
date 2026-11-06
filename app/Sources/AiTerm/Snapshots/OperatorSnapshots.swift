@@ -356,8 +356,8 @@ struct OperatorScene {
         }
     }
 
-    /// The cards at the new stops (16), on one running broadcast: the cart drawer at work, the provider switch on the long
-    /// model, the order summary's two tabs, the address autocomplete in its second round of review and the same task out
+    /// The cards at the new stops (16), on one running broadcast: the cart drawer at work with a question that doesn't hold
+    /// it, the provider switch on the long model waiting on a question that holds it, the order summary's two tabs, the address autocomplete in its second round of review and the same task out
     /// of its fix rounds, and the checkout layout's card from its record; then, from the broadcast complete and closed,
     /// the shipping step's kept worktree. Returns the cards in that order.
     static func stops(_ scene: OperatorScene = OperatorScene()) -> [BroadcastBoard.Card] {
@@ -390,7 +390,13 @@ struct OperatorScene {
         let layout = tasks.first { $0.id == scene.layout }!
         let question = OperatorQuestion(id: "fix-rounds-pay-233", text: "Address autocomplete is out of fix rounds: one more, or accept it?",
                                         task: outOfRounds, askedAt: Snapshots.clock.now, about: OperatorQuestion.fixRounds)
-        var run = scene.setUp(.active, questions: [question])
+        // Two questions for you: the cart drawer can go on without its answer, so it keeps its line; the provider switch waits.
+        let coupon = OperatorQuestion(id: "drawer-coupon", text: "Should the drawer keep the last coupon after checkout, or clear it?",
+                                      task: scene.drawer, askedAt: Snapshots.clock.now, holds: false,
+                                      choices: ["Keep the coupon", "Clear it"])
+        let key = OperatorQuestion(id: "provider-key", text: "Which API key should the provider switch use in staging?",
+                                   task: scene.provider, askedAt: Snapshots.clock.now)
+        var run = scene.setUp(.active, questions: [question, coupon, key])
         run.finished = [FinishedTaskRecord(task: layout.id, key: "PAY-230", title: layout.title, ticket: "PAY-230", project: layout.projectId,
                                            agent: .claude, model: layout.model, reasoning: layout.reasoning, end: .merge, state: .published,
                                            acceptedSHA: "9b3e07d", branch: layout.branch, mergeRequestURL: nil, mergedSHA: "9b3e07d",
