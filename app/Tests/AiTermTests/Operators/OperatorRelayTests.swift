@@ -158,7 +158,7 @@ import Testing
         #expect(first.value?["challenged"] == true && first.value?["critique"]?.stringValue == critique)
         #expect(question(world, run) == nil, "nothing was passed on")
         let id = try #require(first.value?["challengeId"]?.stringValue)
-        #expect(await relay(world, run, ["challengeId": .string(id)]).message?.hasPrefix("Answer the worker with message_task") == true)
+        #expect(await relay(world, run, ["challengeId": .string(id)]) == first, "no reply yet: the critique again")
         let reply = "The brief names the delete button only; bulk deletes are another screen."
         let second = await relay(world, run, ["challengeId": .string(id), "challengeReply": .string(reply)])
         #expect(second.value?["question"] == "pay-236-bulk")
@@ -186,6 +186,47 @@ import Testing
         #expect(said.count == 2 && said[1].contains("The Operator: The brief names one screen only.") && said[1].contains("round 1"))
         #expect(question(world, run)?.history?.map(\.kind) == [.asked, .oracle, .reply, .oracle])
         #expect(world.run(run.id)?.challenges.compactMap(\.round) == [1, 2])
+    }
+
+    /// A reply call repeated after its answer was lost returns the next round already asked, never a second Oracle call.
+    @Test func aRepeatedReplyReturnsTheRoundItAlreadyStarted() async throws {
+        let prompts = PromptLog()
+        let answers = ["IMPORTANT: The brief answers it.\nVERDICT: ANSWER", "MAJOR: Still the brief.\nVERDICT: ANSWER"]
+        let (world, run, task) = try makeWorld(check: .agreeFirst, runner: .answeringInTurn(answers, prompts: prompts))
+        try await endTurn(world, run, task)
+        let first = try #require(await relay(world, run).value?["challengeId"]?.stringValue)
+        let reply: [String: JSONValue] = ["challengeId": .string(first), "challengeReply": "The brief names one screen only."]
+        let second = await relay(world, run, reply)
+        #expect(second.value?["challengeId"] != nil && second.value?["challengeId"]?.stringValue != first)
+        #expect(await relay(world, run, reply) == second)
+        #expect(await prompts.all.count == 2)
+        #expect(world.run(run.id)?.challenges.compactMap(\.round) == [1, 2])
+    }
+
+    /// The first call repeated after its answer was lost returns the round it started, never a second Oracle call.
+    @Test func aRepeatedFirstCallReturnsTheRoundItAlreadyStarted() async throws {
+        let prompts = PromptLog()
+        let (world, run, task) = try makeWorld(runner: .answeringInTurn(["MAJOR: The brief answers it.\nVERDICT: ANSWER"], prompts: prompts))
+        try await endTurn(world, run, task)
+        let first = await relay(world, run)
+        #expect(first.value?["challenged"] == true)
+        #expect(await relay(world, run) == first)
+        #expect(await prompts.all.count == 1)
+        #expect(world.run(run.id)?.challenges.count == 1)
+    }
+
+    /// A late critique fetched with its challengeId, that answer lost: the poll or the first call again returns it as it was.
+    @Test func aLateCritiqueStaysReplayableAfterItsPoll() async throws {
+        let gate = OracleGate(), critique = "MAJOR: The brief answers it.\nVERDICT: ANSWER"
+        let (world, run, task) = try makeWorld(runner: .answering(critique, gate: gate), budget: .milliseconds(20))
+        try await endTurn(world, run, task)
+        let id = try #require(await relay(world, run).value?["challengeId"]?.stringValue)
+        await gate.open()
+        await world.controller.tools.lastChallenge?.value
+        let polled = await relay(world, run, ["challengeId": .string(id)])
+        #expect(polled.value?["critique"]?.stringValue == critique)
+        #expect(await relay(world, run, ["challengeId": .string(id)]) == polled)
+        #expect(await relay(world, run) == polled)
     }
 
     @Test func agreedFirstStillApartAfterThreeRoundsReachesYouWithBothSides() async throws {
@@ -234,6 +275,53 @@ import Testing
         try await endTurn(off, offRun, offTask)
         _ = await relay(off, offRun)
         #expect(question(off, offRun)?.history?.map(\.kind) == [.asked], "the Oracle off, it goes straight")
+    }
+
+    /// A round saved mid-discussion keeps its number and the Operator's reply across AiTerm's restart, so Agreed first
+    /// neither runs extra rounds nor loses a reply from the discussion.
+    @Test func aRoundKeepsItsNumberAndReplyAcrossARestart() throws {
+        var record = ChallengeRecord(id: "r2", tool: "relay_question", askedAt: Date(timeIntervalSince1970: 0), round: 2)
+        record.reply = "The brief names one screen only."
+        let read = try JSONDecoder().decode(ChallengeRecord.self, from: JSONEncoder().encode(record))
+        #expect(read.round == 2 && read.reply == record.reply)
+    }
+
+    /// The Oracle answers after the worker moved past its question (the person answered it in its tab): nothing is relayed,
+    /// and the task doesn't wait.
+    @Test func aWorkerThatMovedOnWhileTheOracleReadRelaysNothing() async throws {
+        let held = HeldGate()
+        let runner = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, _, _, _, _ in
+            await held.wait()
+            let json = String(decoding: try JSONEncoder().encode(["result": "VERDICT: RELAY"]), as: UTF8.self)
+            return ProcessOutput(status: 0, stdout: json, stderr: "", timedOut: false)
+        })
+        let (world, run, task) = try makeWorld(runner: runner)
+        try await endTurn(world, run, task)
+        let relaying = Task { await relay(world, run) }
+        await held.started()
+        world.show(sessions(run, task, .working))
+        await held.release()
+        let answer = await relaying.value
+        #expect(answer.message?.hasPrefix("PAY-236’s worker has no ended turn AiTerm has read") == true)
+        #expect(question(world, run) == nil)
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) != true)
+    }
+
+    /// A round the Oracle answers late belongs to the question it read: once the worker asks something else, calling again
+    /// with its challengeId relays nothing.
+    @Test func aLateRoundNeverJudgesTheWorkersNextQuestion() async throws {
+        let gate = OracleGate()
+        let (world, run, task) = try makeWorld(runner: .answering("VERDICT: RELAY", gate: gate), budget: .milliseconds(20))
+        defer { world.controller.tools.cancelChallenges() }
+        try await endTurn(world, run, task)
+        let id = try #require(await relay(world, run).value?["challengeId"]?.stringValue)
+        world.show(sessions(run, task, .working))
+        try await endTurn(saying: "Done with the button.\n\nQuestion: Should the dialog name the item?", world, run, task)
+        let late = await relay(world, run, ["challengeId": .string(id)])
+        #expect(late.message == "PAY-236’s worker has asked something else since the Oracle read its question. "
+                + "Call relay_question again without challengeId.")
+        #expect(question(world, run) == nil)
+        await gate.open()
     }
 
     // -- the card ------------------------------------------------------------------------------

@@ -14,13 +14,21 @@ struct WaitingOnYouList: View {
 
     /// The list's width: the sheet's content, not the columns', which scroll sideways under it.
     static let width = Sheet.width - 2 * Space.margin
+    // `@State` is a macro in the macOS 26 SDK; this is the storage the macro would generate. The block whose field was
+    // focused or typed in last, the one ⌘↩ sends: with drafts in two blocks, only one claims the shortcut.
+    private var _drafting = State<String?>(initialValue: nil)
+
+    init(questions: [BroadcastBoard.ListedQuestion], actions: BoardActions, choose: @escaping (BroadcastBoard.Opens) -> Void) {
+        self.questions = questions; self.actions = actions; self.choose = choose
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.base) {
             BoardHeading(title: "Waiting on you", count: questions.count)
             VStack(alignment: .leading, spacing: Space.gap) {
                 ForEach(questions) { question in
-                    QuestionBlock(question: question, actions: actions, choose: choose).id(question.key)
+                    QuestionBlock(question: question, actions: actions, choose: choose, drafting: _drafting.projectedValue)
+                        .id(question.key)
                 }
             }
         }
@@ -32,14 +40,16 @@ struct WaitingOnYouList: View {
 /// needs you, `Space.block` inside and its lines `Space.base` apart. Its task's quiet Jira `Badge` and title in
 /// `Typography.help`, its age trailing in `Typography.monoChip`, on a `Size.chip` line; who asks, or where it waits, in
 /// a `HelpText`; the question in `Typography.body`; then how it is answered. **Here**: its choices as links in
-/// `Typography.help`, then the kit's `Input` with Send, enabled once the field holds text, ⌘↩ sending it (fix rounds have
-/// no field). A choice or Send records the answer once (`OperatorController.answer(question:in:with:)`). **There**: one
+/// `Typography.help`, then the kit's `Input` with Send, enabled once the field holds text, ⌘↩ sending it while this is
+/// the block focused or typed in last (fix rounds have no field). A choice or Send records the answer once (`OperatorController.answer(question:in:with:)`). **There**: one
 /// link, Open its window or Open the Operator's chat. Answered, the edge is `Palette.border` and the block says what you
 /// answered, until the Operator resolves the question and it leaves the list.
 struct QuestionBlock: View {
     let question: BroadcastBoard.ListedQuestion
     let actions: BoardActions
     let choose: (BroadcastBoard.Opens) -> Void
+    /// The key of the block focused or typed in last, which alone owns ⌘↩ (`WaitingOnYouList`).
+    @Binding var drafting: String?
     @Environment(\.footerClock) private var clock
     // `@State` is a macro in the macOS 26 SDK; this is the storage and accessor the macro would generate.
     private var _typed = State(initialValue: "")
@@ -47,8 +57,9 @@ struct QuestionBlock: View {
     private var _discussing = State(initialValue: false)
     private var discussing: Bool { get { _discussing.wrappedValue } nonmutating set { _discussing.wrappedValue = newValue } }
 
-    init(question: BroadcastBoard.ListedQuestion, actions: BoardActions, choose: @escaping (BroadcastBoard.Opens) -> Void) {
-        self.question = question; self.actions = actions; self.choose = choose
+    init(question: BroadcastBoard.ListedQuestion, actions: BoardActions, choose: @escaping (BroadcastBoard.Opens) -> Void,
+         drafting: Binding<String?>) {
+        self.question = question; self.actions = actions; self.choose = choose; self._drafting = drafting
     }
 
     var body: some View {
@@ -116,11 +127,15 @@ struct QuestionBlock: View {
             }
             if field {
                 HStack(spacing: Space.base) {
-                    Input(placeholder: choices.isEmpty ? "Your answer" : "Another answer", text: _typed.projectedValue)
+                    Input(placeholder: choices.isEmpty ? "Your answer" : "Another answer", text: _typed.projectedValue,
+                          onFocus: { drafting = question.key })
+                        .onChange(of: typed) { _, now in if !now.isEmpty { drafting = question.key } }
                     let ready = !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    // ⌘↩ only while this block holds text, so it never reaches another block's Send.
-                    if ready {
+                    // ⌘↩ only in the block focused or typed in last, so it never sends another block's draft.
+                    if ready, drafting == question.key {
                         Button("Send") { send(typed) }.keyboardShortcut(.return, modifiers: .command)
+                    } else if ready {
+                        Button("Send") { send(typed) }
                     } else {
                         Button("Send") {}.disabled(true)
                     }
@@ -138,6 +153,7 @@ struct QuestionBlock: View {
     private func send(_ text: String) {
         actions.answer(question.key, text)
         typed = ""
+        if drafting == question.key { drafting = nil }
     }
 }
 

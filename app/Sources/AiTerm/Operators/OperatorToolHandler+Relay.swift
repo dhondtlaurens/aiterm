@@ -32,6 +32,11 @@ extension OperatorToolHandler {
         }
         let asked = QuestionStep(kind: .asked, text: worker.message, at: ports.now())
         let check: RelayCheck = (state.run(id: run.id)?.profile.oracle ?? run.profile.oracle).isOn ? run.relayCheckOrDefault : .straight
+        // The same call repeated after its answer was lost: the round it started, never another Oracle call.
+        if let started = run.challenges.first(where: { $0.tool == call.tool && $0.askedArguments == Self.invocation(call)
+                                                       && $0.askedEvidence == worker.text && ($0.round ?? 1) == 1 }) {
+            return try await answerRound(started.id, call, in: run, task: task, holds: holds, choices: choices)
+        }
         guard check != .straight else {
             return relay(key, worker: worker, task: task, holds: holds, choices: choices, history: [asked], in: run)
         }
@@ -71,6 +76,17 @@ extension OperatorToolHandler {
         return WorkerQuestion(tab: tab, text: WorkerTurn.question(message), message: message)
     }
 
+    /// Refused unless the worker still asks `worker`'s question, read again now (`workerQuestion`).
+    private func stillAsks(_ worker: WorkerQuestion, _ call: ToolCall, task: TaskItem, in run: OperatorRun) throws {
+        guard let now = state.task(id: task.id), let current = state.run(id: run.id) else {
+            throw ToolRefusal("No task \(task.title) in this broadcast.")
+        }
+        let still = try workerQuestion(call, of: now, in: current)
+        guard still.text == worker.text else {
+            throw ToolRefusal("\(now.operated?.key ?? now.title)’s worker has asked something else since. Read it with read_task.")
+        }
+    }
+
     /// The question made, holding its task unless `holds` is false, and the round that made it, if any, marked acted with
     /// its key, so a repeat of that call answers it.
     private func relay(_ key: String, worker: WorkerQuestion, task: TaskItem, holds: Bool?, choices: [String]?,
@@ -99,7 +115,9 @@ extension OperatorToolHandler {
                        choices: [String]?, discussion: [QuestionStep]) async throws -> JSONValue {
         let key = try call.string("key"), opinion = state.run(id: run.id)?.profile.oracle ?? run.profile.oracle
         let id = UUID().uuidString
-        let record = ChallengeRecord(id: id, tool: call.tool, askedArguments: Self.invocation(call), askedAt: ports.now(), round: number)
+        // `askedEvidence` is the question the Oracle reads: its verdict judges that question only (`answerRound`).
+        let record = ChallengeRecord(id: id, tool: call.tool, askedArguments: Self.invocation(call), askedAt: ports.now(),
+                                     askedEvidence: worker.text, round: number)
         mutate(in: run.id) { $0.updateRun(id: run.id) { $0.challenges.append(record) } }
         let status = Self.json(currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null)
         let said = discussion.filter { $0.kind != .asked }.map(\.said)
@@ -129,6 +147,8 @@ extension OperatorToolHandler {
         runningChallenges[id] = settled
         lastChallenge = settled
         let answered = try? await Self.within(ports.challengeReplyBudget, cancelling: false) { await challenge.value }.get()
+        // While the Oracle read, the person may have answered the worker in its tab, or the task changed hands or finished.
+        if answered != nil { try stillAsks(worker, call, task: task, in: run) }
         switch answered {
         case nil:
             return Self.relayPending(id)
@@ -178,6 +198,18 @@ extension OperatorToolHandler {
             return Self.relayAnswer(made, task: task.operated?.key ?? task.title)
         }
         let worker = try workerQuestion(call, of: task, in: run)
+        if let read = kept.askedEvidence, read != worker.text {
+            throw ToolRefusal("\(task.operated?.key ?? task.title)’s worker has asked something else since the Oracle read its question. "
+                              + "Call relay_question again without challengeId.")
+        }
+        // Its reply taken and the next round asked (Agreed first): that round's answer again, never another Oracle call. The
+        // call still carries this round's reply, so a critique the next round delivered is said again here, not answered.
+        if kept.stage == .acted, let next = run.challenges.first(where: { $0.tool == kept.tool && $0.askedArguments == kept.askedArguments
+                                                                    && $0.askedEvidence == kept.askedEvidence
+                                                                    && $0.round == (kept.round ?? 1) + 1 }) {
+            if next.stage == .delivered { return Self.relayChallenged(next.id, next.critique ?? "", task: task.operated?.key ?? task.title) }
+            return try await answerRound(next.id, call, in: run, task: task, holds: holds, choices: choices)
+        }
         let discussion = discussion(before: kept, worker: worker, in: run)
         let number = kept.round ?? 1
         switch kept.stage {
@@ -193,6 +225,8 @@ extension OperatorToolHandler {
                           discussion: discussion)
         case .delivered, .acted:
             guard let reply = call.optionalString("challengeReply").said else {
+                // No reply yet: the critique again, as the Operator may have lost it.
+                if kept.stage == .delivered { return Self.relayChallenged(id, kept.critique ?? "", task: task.operated?.key ?? task.title) }
                 throw ToolRefusal("Answer the worker with message_task, or reply to each point in challengeReply and call again with "
                                   + "this challengeId.")
             }
@@ -211,6 +245,7 @@ extension OperatorToolHandler {
     /// The rounds before `kept` on this relay, oldest first: the worker's message, then each critique and its reply.
     private func discussion(before kept: ChallengeRecord, worker: WorkerQuestion, in run: OperatorRun) -> [QuestionStep] {
         let earlier = run.challenges.filter { $0.tool == kept.tool && $0.askedArguments == kept.askedArguments
+                                              && $0.askedEvidence == kept.askedEvidence
                                               && ($0.round ?? 1) < (kept.round ?? 1) && $0.askedAt <= kept.askedAt }
             .sorted { ($0.round ?? 1) < ($1.round ?? 1) }
         var steps = [QuestionStep(kind: .asked, text: worker.message, at: earlier.first?.askedAt ?? kept.askedAt)]

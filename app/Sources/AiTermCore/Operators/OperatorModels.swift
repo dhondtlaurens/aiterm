@@ -778,6 +778,7 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     /// asked. Its yes holds for that commit only.
     public var askedSHA: String?
     /// Acceptance and required-check inputs used by this veto; refreshed evidence cannot reuse its verdict.
+    /// For a relay round, the worker's question the Oracle read: its verdict judges no other question.
     public var askedEvidence: String?
     /// A finish_task's veto: whether the Oracle was asked about the merge's conditions, alone or with a push past the
     /// hook. False for one asked about the hook alone, whose yes is no merge's. Nil on a record saved before `noVerify`,
@@ -831,6 +832,8 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
         actedArguments = try c.decodeIfPresent(String.self, forKey: .actedArguments)
         result = try c.decodeIfPresent(String.self, forKey: .result)
         askedAt = try c.decode(Date.self, forKey: .askedAt)
+        round = try c.decodeIfPresent(Int.self, forKey: .round)
+        reply = try c.decodeIfPresent(String.self, forKey: .reply)
     }
 }
 

@@ -317,7 +317,8 @@ final class OperatorToolHandler {
                 try acceptsWork(current)
             }
             let value = try await perform(call, in: current, deadline: deadline, joinOnly: joins)
-            recordActed(call, in: id, answer: value)
+            // A relay keeps its own rounds: a critique delivered stays delivered, so a repeat says it again.
+            if !relays { recordActed(call, in: id, answer: value) }
             if Self.isMutating(call) { onChange(id) }
             return (.result(value), relays && value["challenged"] == true ? .challenged : .ok)
         } catch let refusal as ToolRefusal {
