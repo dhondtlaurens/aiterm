@@ -68,10 +68,7 @@ import Testing
         // AiTerm's own first line, not the Operator's: where the worker is, and where alone it commits.
         let prompt = "[AiTerm] You are already in this task's worktree, on branch feat/pluto-1. Commit only here, on feat/pluto-1. "
             + "Do not create another worktree or branch. Inventories, audits and lists go in your final message, never in a new file in the repository. "
-            + "Never type /model, /effort or /config into a live agent session: they save the person's defaults. "
-            + "To try a model or effort, use launch flags or a scratch CLAUDE_CONFIG_DIR. "
-            + "Keep each background command's handle/PID, log and exit status. Queued tests are not stalled. "
-            + "Finish when your command exits; do not poll other test processes. "
+            + "Keep each background command's handle/PID, log and exit status. "
             + "When you stop to ask, end your last message with a paragraph starting Question:, its choices under it, "
             + "and nothing after them.\n\nDo PLUTO-1."
         let expected = try AgentCommand.build(agent: .codex, model: "m", reasoning: nil, prompt: prompt,

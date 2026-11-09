@@ -157,7 +157,7 @@ def main() -> None:
     fcntl.flock(activity_fd, fcntl.LOCK_EX)
     os.set_inheritable(activity_fd, True)
     record: dict[str, object] = {
-        "run_id": run_id, "root": root, "suite": suite, "pid": os.getpid(),
+        "version": 1, "run_id": run_id, "root": root, "suite": suite, "pid": os.getpid(),
         "supervisor_pid": os.getpid(), "state": "queued", "ticket": None,
         "queued_at": time.time(), "started_at": None, "finished_at": None, "exit_code": None,
     }

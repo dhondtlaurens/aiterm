@@ -1,6 +1,10 @@
 import fcntl
 import json
 import os
+import subprocess
+import sys
+import time
+from pathlib import Path
 
 from aitermd.models import RawSession
 from aitermd.sessions import SessionRegistry
@@ -169,3 +173,60 @@ def test_observed_long_run_losing_its_lock_has_explicit_unavailable_exit(tmp_pat
     apply(reader, registry)
     assert registry.get("main").test_activity.state == "interrupted"
     assert registry.get("main").test_activity.exit_code is None
+
+
+def test_a_record_of_another_format_version_is_not_read(tmp_path):
+    folder = tmp_path / "runs"
+    record(folder, "1", tmp_path / "current", "completed", finished_at=15, exit_code=0, version=1)
+    record(folder, "2", tmp_path / "newer", "completed", finished_at=15, exit_code=0, version=2)
+    assert set(TestActivityReader(folder, clock=lambda: 20).read().activities) == {str(tmp_path / "current")}
+
+
+def test_a_minimal_record_as_documented_reaches_a_session_in_any_repository(tmp_path):
+    # docs/configuration.md, "Show your project's test runs": the required fields and the lock, nothing of AiTerm's.
+    folder, root = tmp_path / "runs", tmp_path / "shop"
+    (root / "web").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    folder.mkdir()
+    path = folder / "run-1.json"
+    fd = os.open(folder / "run-1.lock", os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    path.write_text(json.dumps({"version": 1, "run_id": "run-1", "root": str(root), "suite": "unit", "state": "running"}))
+    registry = SessionRegistry()
+    registry.apply_snapshot([RawSession("main", "w", 0, "codex", 12, "", str(root / "web"))])
+    reader = TestActivityReader(folder, clock=lambda: 20)
+    try:
+        apply(reader, registry)
+        assert registry.get("main").test_activity.state == "running"
+        assert registry.get("main").test_activity.suite == "unit"
+        path.write_text(json.dumps({"version": 1, "run_id": "run-1", "root": str(root), "suite": "unit",
+                                    "state": "completed", "finished_at": 19, "exit_code": 1}))
+    finally:
+        os.close(fd)
+    apply(reader, registry)
+    assert registry.get("main").test_activity.state == "completed"
+    assert registry.get("main").test_activity.exit_code == 1
+
+
+def test_the_reference_writer_records_what_the_reader_reads(tmp_path):
+    writer = Path(__file__).resolve().parents[2] / "scripts" / "test-queue.py"
+    lock, root, release = tmp_path / "lock", tmp_path / "own", tmp_path / "release"
+    root.mkdir()
+    folder = Path(str(lock) + ".runs")
+    run = subprocess.Popen([sys.executable, str(writer), str(lock), "unit", str(root), "sh", "-c",
+                            f"until [ -e '{release}' ]; do sleep 0.05; done; exit 3"])
+    try:
+        reader = TestActivityReader(folder)
+        deadline = time.monotonic() + 10
+        while (activity := reader.read().activities.get(str(root.resolve()))) is None or activity.state != "running":
+            assert time.monotonic() < deadline, "the writer's run never read as running"
+            time.sleep(0.05)
+        assert activity.suite == "unit"
+        assert all(json.loads(path.read_text())["version"] == 1 for path in folder.glob("*.json"))
+        release.touch()
+        assert run.wait(timeout=10) == 3
+    finally:
+        release.touch()
+        run.wait(timeout=10)
+    activity = reader.read().activities[str(root.resolve())]
+    assert activity.state == "completed" and activity.exit_code == 3

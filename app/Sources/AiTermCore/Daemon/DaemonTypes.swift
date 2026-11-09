@@ -100,7 +100,8 @@ extension SessionInfo {
     }
 }
 
-/// `scripts/test.sh` reports this command's lifecycle through an inherited kernel lock and exit record.
+/// A test run the project's runner reports through an inherited kernel lock and exit record, in the format
+/// docs/configuration.md documents for any project ("Show your project's test runs").
 public struct TestActivity: Codable, Equatable, Sendable {
     public enum State: String, Codable, LenientRawDecodable, Sendable {
         case queued, running, completed, interrupted
