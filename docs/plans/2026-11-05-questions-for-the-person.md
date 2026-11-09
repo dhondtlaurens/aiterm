@@ -526,7 +526,7 @@ Built as planned, with these differences:
 
 ### At the end
 
-- [ ] `docs/operators.md`, the UI README and the design page synced; the proposal removed from the Proposals tab (test 15)
+- [x] `docs/operators.md`, the UI README and the design page synced; the proposal removed from the Proposals tab (test 15)
 
 ## Plan review
 

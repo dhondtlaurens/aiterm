@@ -132,8 +132,10 @@ as the Done step's Worker questions sets it for the broadcast: Straight to you, 
 default: when the Oracle thinks the Operator can answer, the Operator answers the worker or replies
 and relays it anyway), or Agreed first (rounds until the Oracle has no major or important point
 left, at most three, then it reaches you with both sides). An Oracle that can't answer lets the
-question through, and the block says why. With the Oracle off, every relay goes straight. Workers
-are asked to end a question with a paragraph starting `Question:`, which AiTerm's scan reads.
+question through, and the block says why. A round judges only the question it read: once the worker
+has moved on or asks something else, nothing is relayed, and a repeated call gets back the round
+already asked rather than asking the Oracle again. With the Oracle off, every relay goes straight.
+Workers are asked to end a question with a paragraph starting `Question:`, which AiTerm's scan reads.
 
 ## Goal and completion
 
