@@ -23,6 +23,38 @@ import Foundation
         oracle: OracleSetting(isOn: true, agent: .codex, model: "gpt-6-astra", reasoning: "medium"),
         instructions: "Keep changes small.")
 
+    /// A question saved before plan F has none of the record's new fields: it decodes as holding, asked by the Operator
+    /// and unanswered here, and saves back with none of them (plan F, migration).
+    @Test func aSavedQuestionWithoutTheNewFieldsHoldsAndSavesBackTheSame() throws {
+        let task = UUID()
+        let old: [String: Any] = ["id": "locale", "text": "Which locale?", "task": task.uuidString, "askedAt": "2026-11-04T10:00:00Z"]
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let question = try decoder.decode(OperatorQuestion.self, from: JSONSerialization.data(withJSONObject: old))
+        #expect(question.holdsTask && question.asker == .theOperator && question.channel == .here)
+        #expect(question.holds == nil && question.choices == nil && question.answeredHere == nil && question.relayedFrom == nil)
+        var run = OperatorFixtures.run()
+        run.questions = [question]
+        #expect(run.holds(task: task))
+        let saved = try #require((try saved(run))["questions"] as? [[String: Any]])
+        #expect(Set(saved.first?.keys.map { $0 } ?? []) == Set(old.keys))
+    }
+
+    /// Who asks and where the person answers, by key and relay; and which questions hold their task.
+    @Test func aQuestionsAskerChannelAndHold() {
+        let task = UUID(), at = OperatorFixtures.epoch
+        func question(_ id: String, task: UUID? = task, about: String? = nil, holds: Bool? = nil, relayedFrom: String? = nil) -> OperatorQuestion {
+            OperatorQuestion(id: id, text: "Q?", task: task, askedAt: at, about: about, holds: holds, relayedFrom: relayedFrom)
+        }
+        #expect(question("scope").asker == .theOperator)
+        #expect(question("t6", relayedFrom: "main").asker == .worker)
+        #expect(["prompt-x-1", "gate-1", "merged-on-host-x"].map { question($0).asker } == [.aiterm, .aiterm, .aiterm])
+        #expect(["scope", "prompt-x-1", "gate-1", "merged-on-host-x"].map { question($0).channel } == [.here, .there, .there, .here])
+        #expect(question("scope", holds: false).holdsTask == false)
+        #expect(question("scope", task: nil).holdsTask == false, "a question on no task holds no task")
+        #expect(question("rounds", about: OperatorQuestion.fixRounds, holds: false).holdsTask, "fix rounds always hold")
+        #expect(question("gate-1", holds: false).holdsTask, "AiTerm's own always hold")
+    }
+
     /// The no-commit budget counts work until progress is observed.
     @Test func runtimeCountsTowardTheStuckLimit() throws {
         var task = OperatorFixtures.operated("A", .working)

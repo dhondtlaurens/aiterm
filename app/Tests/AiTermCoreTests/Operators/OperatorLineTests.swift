@@ -193,6 +193,22 @@ import Testing
         #expect(OperatorLine.task(byKey, run: run, acting: nil, requests: [], tasks: [parent.id: parent])?.text == "queued · after PAY-232")
     }
 
+    /// T2's question doesn't hold T2: its row keeps its own line, and the broadcast's line still says it waits on you,
+    /// after T2 is finished too. T4's holds T4: its row says `waiting on you`.
+    @Test func onlyAQuestionThatHoldsItsTaskIsItsRowsLine() throws {
+        let run = OperatorUIFixtures.run()
+        let t2 = task(run: run, .working), t4 = task(run: run, .working)
+        var scope = request(.question, run, t2, "The Operator asks: Keep the access gate for admins?")
+        scope.holds = false
+        let token = request(.question, run, t4, "The Operator asks: Which token?")
+        let own = OperatorLine.task(t2, run: run, acting: nil, requests: [])
+        #expect(OperatorLine.task(t2, run: run, acting: nil, requests: [scope, token]) == own)
+        #expect(OperatorLine.task(t4, run: run, acting: nil, requests: [scope, token])?.text == "waiting on you")
+        let accepted = task(run: run, .noChange)
+        scope.taskId = accepted.id
+        #expect(OperatorLine.broadcast(run, tasks: [accepted], acting: nil, requests: [scope]).text == "waiting on you")
+    }
+
     /// A question the Operator asks also marks the task whose work it holds. The question is answered
     /// in the Operator's window, and a worker's prompt still takes precedence.
     @Test func aQuestionAboutATaskIsVisibleAndABlockedReasonIsCutToFit() throws {

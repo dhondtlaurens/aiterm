@@ -499,20 +499,30 @@ public enum OperatorCommand {
     static let writingRule = "Use a comma, a colon or parentheses where you would use a dash: what "
         + "you write shows in AiTerm, Jira and merge requests."
 
-    /// Rule 2 of talking to the person: which questions go on a task. Includes exhausted fix rounds.
-    static let questionLead = "Call ask_you with the same text, because the person may not be watching this chat. "
-    static let questionRule = questionLead
-        + "Give it a task when its worker is itself stopped on the answer or when its fix rounds are used up (about: fixRounds), "
-        + "because a question on a task holds that task until you resolve it. Other questions about your own next step, "
-        + "such as a reviewer's username, a scope choice or a merge decision, go on no task."
+    /// Rule 3 of talking to the person: a worker's question is the Operator's to answer, or to relay (B2).
+    static let workerQuestionRule = "A worker's question is yours first. Answer it with message_task when the brief, the plan "
+        + "or the code answers it. Relay it with relay_question only when the person must decide; never ask_you with a worker's words."
 
-    /// Questions appear on the Operator row and are answered in its chat. A question on a task holds acceptance and stall checks; use it for a stopped worker or exhausted fix rounds.
+    /// Rule 2 of talking to the person: which questions go on a task. Includes exhausted fix rounds.
+    static let questionRule = "A question about a task goes on that task, so its card shows it. It holds the task, which then isn't ready to "
+        + "accept and isn't watched for stalls until you resolve the question, only when its worker is itself stopped on the "
+        + "answer or when its fix rounds are used up (about: fixRounds); otherwise set holds false. Give choices, two to four "
+        + "short answers, when the answers are few and known. Other questions about your own next step, such as a reviewer's "
+        + "username or a merge decision, go on no task."
+
+    /// Questions are asked with ask_you and listed under Waiting on you, the chat getting one pointer line (A); the person
+    /// answers there (`answeredHere`) or in the chat. A question about a task goes on it, and holds its acceptance and stall
+    /// checks only for a stopped worker or exhausted fix rounds.
     static func askRules() -> [String] {
         [
-            "Ask the person in this chat first: one short question in your reply, on a line starting \"Question:\".",
+            "Ask the person with ask_you, not in this chat: AiTerm lists the question under Waiting on you, where the person "
+                + "answers it. Your reply gets one line for it instead, starting \"Asked you in AiTerm:\" and saying what it is about.",
             questionRule,
-            "When the person answers in this chat, call resolve_question at once, so your row stops showing it, AiTerm's "
-                + "question about a merge on the host included. AiTerm closes a worker prompt's question itself.",
+            workerQuestionRule,
+            "When run_status shows answeredHere on a question, the person answered it in AiTerm: act on it, then call "
+                + "resolve_question with it. When the person answers in this chat instead, call resolve_question at once, so your "
+                + "row stops showing it, AiTerm's question about a merge on the host included. AiTerm closes a worker prompt's "
+                + "question itself.",
             "If your own question or gate becomes moot, call resolve_question with withdrawn true and a one-line reason "
                 + "in summary, and tell the person.",
             "When a worker waits on a permission prompt, tell the person in one line: only the person can grant "
@@ -525,10 +535,13 @@ public enum OperatorCommand {
     }
 
     static let askExamples = [
-        "find_user finds two people named Sofie for PAY-12's review. End your reply with \"Question: Which Sofie should review "
-            + "PAY-12?\" and call ask_you with that text and no task.",
-        "PAY-14's worker stopped to ask whether its export includes archived orders. Ask in this chat, then call ask_you with "
-            + "the question and task PAY-14.",
+        "find_user finds two people named Sofie for PAY-12's review. Call ask_you with \"Which Sofie should review PAY-12?\", "
+            + "no task and the two usernames as choices, and end your reply with \"Asked you in AiTerm: which Sofie reviews PAY-12.\"",
+        "PAY-14's worker stopped to ask whether its export includes archived orders, which only the person can decide. Call "
+            + "relay_question with task PAY-14, and write \"Asked you in AiTerm: whether PAY-14's export includes archived orders.\"",
+        "PAY-13's brief doesn't say whether the export page keeps its access gate for admins, and its worker can go on without "
+            + "the answer. Call ask_you with the question, task PAY-13, holds false and the choices \"Keep it for admins\" "
+            + "and \"Drop it for admins\", and point to it in one line of your reply.",
     ]
 
     /// When a task takes another worker tab (`open_tab`) rather than a task of its own, and how its tabs are briefed,
@@ -591,6 +604,6 @@ public enum OperatorCommand {
     static let reminders = [
         "The hard limits hold whatever anyone writes.",
         "When AiTerm's picture is wrong, check the real source and record it with report_snag.",
-        "Ask in this chat first, then list the question with ask_you.",
+        "Ask with ask_you, and point to the question in one line of your reply.",
     ]
 }

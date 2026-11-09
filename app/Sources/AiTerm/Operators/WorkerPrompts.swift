@@ -180,14 +180,14 @@ final class WorkerPrompts {
         return operated.state == .working && run.state == .active && run.intent == nil
     }
 
-    /// Mark the tab's question answered and clear waiting-on-you once no question remains on its task.
+    /// Mark the tab's question answered and clear waiting-on-you once no open question holds its task.
     /// This can also complete a broadcast whose tasks have already ended.
     private func resolvePrompt(_ question: OperatorQuestion, in run: UUID, task: UUID) {
         workspace.mutate { state in
             state.updateRun(id: run) { run in
                 if let i = run.questions.firstIndex(where: { $0.id == question.id }) { run.questions[i].resolution = "Answered in its window." }
             }
-            if state.run(id: run)?.questions.contains(where: { $0.task == task && $0.resolution == nil }) == false {
+            if state.run(id: run)?.holds(task: task) == false {
                 state.updateOperated(task) { $0.flags.remove(.waitingOnYou) }
             }
         }

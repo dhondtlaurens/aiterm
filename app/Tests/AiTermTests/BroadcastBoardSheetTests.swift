@@ -25,16 +25,18 @@ struct BroadcastBoardSheetTests {
             switch opens {
             case .taskWindow(let id): moments.append(id == task ? "open the task's window" : "open another window")
             case .tab(_, let session): moments.append("bring tab \(session)")
+            case .prompt(_, let tab): moments.append("bring the prompt's tab \(tab)")
             case .operatorWindow: moments.append("open the Operator's window")
             case .sidebarBanner(let issue): moments.append("show the banner's \(issue)")
             case .nothing: moments.append("open nothing")
             }
         })
-        for opens: BroadcastBoard.Opens in [.taskWindow(task), .tab(task: task, sessionId: "s2"), .operatorWindow,
+        for opens: BroadcastBoard.Opens in [.taskWindow(task), .tab(task: task, sessionId: "s2"), .prompt(task: task, tab: "e2e"), .operatorWindow,
                                             .sidebarBanner(issue: "issue-7"), .nothing] {
             BroadcastBoardSheet.choose(opens, dismiss: { moments.append("dismiss") }, actions: actions)
         }
-        #expect(moments == ["dismiss", "open the task's window", "dismiss", "bring tab s2", "dismiss", "open the Operator's window",
+        #expect(moments == ["dismiss", "open the task's window", "dismiss", "bring tab s2", "dismiss", "bring the prompt's tab e2e",
+                            "dismiss", "open the Operator's window",
                             "dismiss", "show the banner's issue-7"], "a Todo card does nothing, not even close the sheet")
         #expect(!BroadcastBoardSheet.isButton(.nothing) && BroadcastBoardSheet.isButton(.operatorWindow))
     }
@@ -362,6 +364,37 @@ struct BroadcastBoardSheetTests {
             if case .broadcastBoard(run.id) = controller.sheet { true } else { false }
         }
         #expect(controller.operatorController.presentBoard == nil, "presented once, then cleared")
+    }
+
+    /// A question's notification, the Operator row's click or a card's Answer… opens the board at its block: presented,
+    /// asked to show that question, which it scrolls to while it is listed and to its top once it is gone.
+    @Test func aQuestionsClickOpensTheBoardAtItsBlock() async throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        try controller.workspace.load()
+        var run = OperatorUIFixtures.run()
+        run.questions = [OperatorUIFixtures.question("Keep the access gate for admins?", id: "t2-gate")]
+        controller.workspace.mutate { $0.runs = [run] }
+        controller.openNote(.question(run: run.id, key: "t2-gate"))
+        await eventually(describing: "the board in the sheet slot") {
+            if case .broadcastBoard(run.id) = controller.sheet { true } else { false }
+        }
+        #expect(controller.operatorController.boardFocus?.key == "t2-gate" && controller.operatorController.boardFocus?.run == run.id)
+
+        let board = BroadcastBoard.make(run: run, state: controller.state, acting: .none, requests: [])
+        #expect(BroadcastBoardSheet.scrollTarget("t2-gate", on: board) == "t2-gate")
+        #expect(BroadcastBoardSheet.scrollTarget("gone", on: board) == BroadcastBoardSheet.topId, "resolved before the click: the top")
+        let sheet = BroadcastBoardSheet(board: board, reopenFailed: false, actions: BoardActions(), activity: nil,
+                                        focus: controller.operatorController.boardFocus)
+        #expect(sheet != BroadcastBoardSheet(board: board, reopenFailed: false, actions: BoardActions(), activity: nil),
+                "a new focus draws again")
+
+        // The Operator row waiting on that question opens the same block.
+        let row = OperatorRow(id: OperatorRow.id(of: run.id), runId: run.id, agent: AgentKind.claude.session, title: run.name,
+                              line: OperatorLine("waiting on you", look: .needsYou), status: .needsInput, question: "t2-gate")
+        let before = controller.operatorController.boardFocus?.id
+        #expect(controller.chooseOperatorRow(row) == nil)
+        #expect(controller.operatorController.boardFocus?.key == "t2-gate" && controller.operatorController.boardFocus?.id != before)
     }
 
     /// A request already there when the app starts watching — a click that launched it — is presented too.

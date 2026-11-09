@@ -58,9 +58,14 @@ public struct OperatorActs: Equatable, Sendable {
     /// How each task's worker ended its last turn, where that is not simply done (spec §E): what its line says once the
     /// turn ended, in place of `ready for the Operator`.
     public var turns: [UUID: WorkerTurn.Ending]
+    /// What each task's worker asks the Operator at the end of its turn, not yet answered with `message_task` nor relayed
+    /// to you (`WorkerTurn.question`): the first worker's, else the first asking tab's, its key before it. Its card shows it,
+    /// muted, under `asking the Operator`.
+    public var asks: [UUID: String]
 
-    public init(tasks: [UUID: OperatorAct] = [:], runs: [UUID: Broadcast] = [:], turns: [UUID: WorkerTurn.Ending] = [:]) {
-        self.tasks = tasks; self.runs = runs; self.turns = turns
+    public init(tasks: [UUID: OperatorAct] = [:], runs: [UUID: Broadcast] = [:], turns: [UUID: WorkerTurn.Ending] = [:],
+                asks: [UUID: String] = [:]) {
+        self.tasks = tasks; self.runs = runs; self.turns = turns; self.asks = asks
     }
 
     /// Nothing in flight.
@@ -136,9 +141,10 @@ public struct OperatorLine: Equatable, Sendable {
         guard let operated = task.operated, operated.runId == run.id, !operated.takenOver, operated.state != .stopped,
               !run.hasEnded else { return nil }
         // A finished task's leftover asks nothing. An open question also marks the task whose work
-        // its answer holds; choosing that row opens the Operator's window, where it is answered.
+        // its answer holds; choosing that row opens the Operator's window, where it is answered. A question that doesn't
+        // hold the task leaves its line as it is: its card shows it.
         if !operated.isFinished {
-            if let request = first(requests.filter { $0.runId == run.id && $0.taskId == task.id }) {
+            if let request = first(requests.filter { $0.runId == run.id && $0.taskId == task.id && $0.holds }) {
                 return line(for: request, task: task)
             }
             if operated.flags.contains(.waitingOnYou) { return OperatorLine("waiting on you", look: .needsYou) }
@@ -280,9 +286,9 @@ public struct OperatorLine: Equatable, Sendable {
     public static func broadcast(_ run: OperatorRun, tasks: [TaskItem], acting: (OperatorAct, task: String?)?,
                                  requests: [BroadcastRequest], ready: Set<UUID> = []) -> OperatorLine {
         let driven = tasks.filter { $0.operated?.runId == run.id }
-        // A finished task's leftover asks nothing, as on its own line.
+        // A finished task's leftover asks nothing, as on its own line, but for a question that never held it.
         let finished = Set(driven.filter { $0.operated.map(\.isFinished) ?? false }.map(\.id))
-        let asked = requests.filter { $0.runId == run.id && !($0.taskId.map(finished.contains) ?? false) }
+        let asked = requests.filter { $0.runId == run.id && !($0.holds && ($0.taskId.map(finished.contains) ?? false)) }
         // A request outranks everything: one is said, several are counted by what asks.
         if let top = first(asked) {
             let subjects = Set(asked.map { $0.taskId?.uuidString ?? "run" })

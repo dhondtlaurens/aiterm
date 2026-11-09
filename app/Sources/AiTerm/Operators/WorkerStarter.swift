@@ -472,15 +472,22 @@ final class WorkerStarter {
     /// the task branch alone, so work committed anywhere else goes unseen (`BranchWatch` flags it).
     /// Inventories stay in the conversation: repository files can expose personal paths and addresses. And no
     /// settings command in a live session: Claude Code saves a /model or /effort as the person's default.
-    nonisolated static func worktreeLine(branch: String) -> String {
+    /// `asks`: the marker a question ends with (`askLine`), for a worker that does the task; a review tab, which ends with
+    /// its verdict block instead, leaves it out.
+    nonisolated static func worktreeLine(branch: String, asks: Bool = true) -> String {
         "[AiTerm] You are already in this task's worktree, on branch \(branch). Commit only here, on \(branch). "
             + "Do not create another worktree or branch. Inventories, audits and lists go in your final message, "
             + "never in a new file in the repository. "
             + "Never type /model, /effort or /config into a live agent session: they save the person's defaults. "
             + "To try a model or effort, use launch flags or a scratch CLAUDE_CONFIG_DIR. "
             + "Keep each background command's handle/PID, log and exit status. Queued tests are not stalled. "
-            + "Finish when your command exits; do not poll other test processes."
+            + "Finish when your command exits; do not poll other test processes." + (asks ? " " + askLine : "")
     }
+
+    /// H1 of the questions plan: the marker AiTerm's scan reads (`WorkerTurn`), as a contract with the worker, as the review
+    /// verdict block is.
+    nonisolated static let askLine = "When you stop to ask, end your last message with a paragraph starting Question:, "
+        + "its choices under it, and nothing after them."
 
     /// Whether the task has a code parent and no accepted commit of its parent's to start from.
     private static func lacksBase(_ task: TaskItem, in state: AppState) -> Bool {

@@ -536,12 +536,62 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// What an `ask_you` question is about, when AiTerm acts on it: `fixRounds`, a task out of its review's fix rounds,
     /// whose card offers the answers. Nil for any other question.
     public var about: String?
+    /// False when the Operator asked about a task that can go on without the answer (`ask_you` with `holds: false`): the
+    /// question shows on its card, and the task stays ready to accept and watched for stalls. Nil means it holds, today's
+    /// meaning and every older question's; written only when false. See `holdsTask`.
+    public var holds: Bool?
+    /// The two to four short answers the Operator offered (`ask_you`'s `choices`); nil for an open question.
+    public var choices: [String]?
+    /// What the person answered in AiTerm, in the question's own block, and when: written once, never closing the
+    /// question, which the Operator resolves. Nil until then, and for a `fixRounds` question (`answeredOnCard`).
+    public var answeredHere: String?
+    public var answeredHereAt: Date?
+    /// For a worker's question the Operator relayed, that worker tab's key (`WorkerTab.firstKey` for the first worker);
+    /// nil for the Operator's own question and AiTerm's.
+    public var relayedFrom: String?
+    /// How a relayed question reached the person (`relay_question`): the worker's last message, then each of the Oracle's
+    /// rounds and the Operator's replies, or why it went unchallenged. Nil for any other question.
+    public var history: [QuestionStep]?
     public init(id: String, text: String, task: UUID?, askedAt: Date, resolution: String? = nil, tab: String? = nil,
                 gate: GateRequest? = nil, answeredInWindow: String? = nil, withdrawn: Bool? = nil, about: String? = nil,
-                answeredOnCard: String? = nil) {
+                answeredOnCard: String? = nil, holds: Bool? = nil, choices: [String]? = nil, answeredHere: String? = nil,
+                answeredHereAt: Date? = nil, relayedFrom: String? = nil, history: [QuestionStep]? = nil) {
         self.id = id; self.text = text; self.task = task; self.askedAt = askedAt; self.resolution = resolution; self.tab = tab
         self.gate = gate; self.answeredInWindow = answeredInWindow; self.withdrawn = withdrawn; self.about = about
-        self.answeredOnCard = answeredOnCard
+        self.answeredOnCard = answeredOnCard; self.holds = holds; self.choices = choices; self.answeredHere = answeredHere
+        self.answeredHereAt = answeredHereAt; self.relayedFrom = relayedFrom; self.history = history
+    }
+
+    /// Who asks the person: AiTerm for its own keys (`aitermPrefixes`), a worker when the Operator relayed its question,
+    /// else the Operator.
+    public enum Asker: String, Sendable { case theOperator, worker, aiterm }
+    public var asker: Asker {
+        if isAiTerms { return .aiterm }
+        return relayedFrom == nil ? .theOperator : .worker
+    }
+
+    /// Where the person answers: `there` for a worker's prompt (its window) and a command the Oracle stopped (the
+    /// Operator's chat), `here`, in AiTerm, for the rest.
+    public enum Channel: String, Sendable { case here, there }
+    public var channel: Channel {
+        id.hasPrefix(Self.promptPrefix) || id.hasPrefix(Self.gatePrefix) ? .there : .here
+    }
+
+    /// Whether the question holds its task while open: the task waits on you, isn't ready to accept and isn't watched
+    /// for stalls. Only a question about a task holds one. `fixRounds` and AiTerm's own questions always hold; the
+    /// Operator's hold unless it asked with `holds: false`.
+    public var holdsTask: Bool {
+        guard task != nil else { return false }
+        return holds != false || about == Self.fixRounds || isAiTerms
+    }
+
+    /// Recorded under one of AiTerm's own keys.
+    public var isAiTerms: Bool { Self.aitermPrefixes.contains(where: id.hasPrefix) }
+
+    /// What the person answered in AiTerm, whichever place they answered it: in its block (`answeredHere`), or for a
+    /// `fixRounds` question on its card or in its block (`answeredOnCard`), by its link's title. Nil until then.
+    public var answer: String? {
+        answeredHere ?? answeredOnCard.flatMap(BroadcastBoard.FixRoundsAnswer.init(rawValue:))?.title
     }
 
     /// `about` for a task out of its review's fix rounds.
@@ -554,6 +604,63 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// The Operator may instead withdraw a stopped command it no longer needs, without allowing it.
     public static let promptPrefix = "prompt-", mergedOnHostPrefix = "merged-on-host-", gatePrefix = "gate-"
     public static let aitermPrefixes = [promptPrefix, mergedOnHostPrefix, gatePrefix]
+}
+
+/// One step of how a worker's question reached the person (`OperatorQuestion.history`).
+public struct QuestionStep: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Sendable {
+        /// The worker's last message, in full: what it asked in.
+        case asked
+        /// The Oracle's critique of the relay, in `round`.
+        case oracle
+        /// The Operator's reply to it.
+        case reply
+        /// The Oracle couldn't judge it, and `text` says why: the relay went ahead unchallenged.
+        case unchallenged
+    }
+    public var kind: Kind
+    public var text: String
+    public var at: Date
+    /// The Oracle's round, from 1, for its critique and the reply to it.
+    public var round: Int?
+    public init(kind: Kind, text: String, at: Date, round: Int? = nil) {
+        self.kind = kind; self.text = text; self.at = at; self.round = round
+    }
+
+    /// The step as its block's discussion and the Oracle's next round say it: `The Oracle, round 1: …`, `The Operator: …`.
+    public var said: String {
+        switch kind {
+        case .oracle: "The Oracle" + (round.map { ", round \($0)" } ?? "") + ": " + text
+        case .reply: "The Operator: " + text
+        case .unchallenged: "Unchallenged: " + text
+        case .asked: "Its worker: " + text
+        }
+    }
+}
+
+/// How hard the Oracle checks a worker's question before the Operator relays it to the person (`relay_question`), as the
+/// Done step's Worker questions sets it for a broadcast. The Oracle off, every relay goes straight.
+public enum RelayCheck: String, Codable, CaseIterable, Sendable {
+    /// No check: the question reaches the person at once.
+    case straight
+    /// One round: the Oracle says whether only the person can answer; the Operator may answer the worker instead, or reply
+    /// and relay it anyway.
+    case challengeOnce
+    /// Rounds until the Oracle has no major or important point left, at most three; then it reaches the person with both
+    /// sides.
+    case agreeFirst
+
+    /// The Done step's words for it.
+    public var title: String {
+        switch self {
+        case .straight: "Straight to you"
+        case .challengeOnce: "Challenged once"
+        case .agreeFirst: "Agreed first"
+        }
+    }
+
+    /// The most rounds `agreeFirst` runs.
+    public static let rounds = 3
 }
 
 /// A shell command of the Operator's and the directory it runs in, as the gate judges it (spec §A): what a `gate-`
@@ -671,6 +778,7 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     /// asked. Its yes holds for that commit only.
     public var askedSHA: String?
     /// Acceptance and required-check inputs used by this veto; refreshed evidence cannot reuse its verdict.
+    /// For a relay round, the worker's question the Oracle read: its verdict judges no other question.
     public var askedEvidence: String?
     /// A finish_task's veto: whether the Oracle was asked about the merge's conditions, alone or with a push past the
     /// hook. False for one asked about the hook alone, whose yes is no merge's. Nil on a record saved before `noVerify`,
@@ -684,18 +792,23 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     /// The acting call's answer, as the JSON the operator read.
     public var result: String?
     public var askedAt: Date
+    /// A relay's Oracle round, from 1 (`relay_question`, Agreed first); nil for any other challenge.
+    public var round: Int?
+    /// A relay's round answered: the Operator's reply to its critique, which the next round reads. Nil otherwise.
+    public var reply: String?
 
     public init(id: String, tool: String, kind: ChallengeKind = .critique, stage: ChallengeStage = .running, critique: String? = nil,
                 approved: Bool? = nil, askedArguments: String? = nil, askedSHA: String? = nil, unchallengedReason: String? = nil,
-                actedArguments: String? = nil, result: String? = nil, askedAt: Date, askedMerge: Bool? = nil, askedEvidence: String? = nil) {
+                actedArguments: String? = nil, result: String? = nil, askedAt: Date, askedMerge: Bool? = nil, askedEvidence: String? = nil,
+                round: Int? = nil) {
         self.id = id; self.tool = tool; self.kind = kind; self.stage = stage; self.critique = critique; self.approved = approved
         self.askedArguments = askedArguments; self.askedSHA = askedSHA; self.askedMerge = askedMerge
         self.unchallengedReason = unchallengedReason; self.actedArguments = actedArguments; self.result = result
-        self.askedAt = askedAt; self.askedEvidence = askedEvidence
+        self.askedAt = askedAt; self.askedEvidence = askedEvidence; self.round = round
     }
 
     private enum CodingKeys: String, CodingKey {
-        case askedEvidence
+        case askedEvidence, round, reply
         case id, tool, kind, stage, critique, approved, askedArguments, askedSHA, askedMerge, unchallengedReason, actedArguments, result, askedAt
     }
 
@@ -719,6 +832,8 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
         actedArguments = try c.decodeIfPresent(String.self, forKey: .actedArguments)
         result = try c.decodeIfPresent(String.self, forKey: .result)
         askedAt = try c.decode(Date.self, forKey: .askedAt)
+        round = try c.decodeIfPresent(Int.self, forKey: .round)
+        reply = try c.decodeIfPresent(String.self, forKey: .reply)
     }
 }
 
@@ -815,6 +930,12 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     /// The workers your Pause told to stop, saved before the note is typed, so Resume tells each to carry on, even
     /// after a restart. Left out of the save while empty.
     public var pausedWorkers: [PausedWorker] = []
+    /// How hard the Oracle checks a worker's question before it is relayed to you, as the Done step's Worker questions set
+    /// it; nil, as every broadcast saved before it, is Challenged once (`relayCheckOrDefault`).
+    public var relayCheck: RelayCheck?
+
+    /// The relay check this broadcast runs.
+    public var relayCheckOrDefault: RelayCheck { relayCheck ?? .challengeOnce }
 
     /// `projectIds` defaults to none: a run made in a test or a fixture that never reads its scope.
     public init(id: UUID, name: String, profile: OperatorProfile, projectIds: [UUID] = [], jiraProjectKeys: [String] = [],
@@ -845,6 +966,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         case operatorSessionId, jiraCreated, jiraSprinted, jiraCommented, threadReplies, pendingWrites, createdAt
         case summary, summaryAt, completedAt, summaryGivenUp, endedAt, gateAllowances
         case agents, taskSettings, goal, goalCheckDue, roundsUsed, goalChecks, goalOutcome, revisionAtLastCheck, finished, closedAt, pausedWorkers
+        case relayCheck
     }
 
     /// The lists may be missing and read as empty. A run without a profile or a prompt (round 1's,
@@ -894,6 +1016,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         finished = try c.decodeIfPresent([FinishedTaskRecord].self, forKey: .finished) ?? []
         closedAt = try c.decodeIfPresent(Date.self, forKey: .closedAt)
         pausedWorkers = try c.decodeIfPresent([PausedWorker].self, forKey: .pausedWorkers) ?? []
+        relayCheck = try c.decodeIfPresent(RelayCheck.self, forKey: .relayCheck)
     }
 
     /// A new plan on a finished run: the summary, its time, the completion and the give-up belonged to the old
@@ -952,6 +1075,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         if !finished.isEmpty { try c.encode(finished, forKey: .finished) }
         try c.encodeIfPresent(closedAt, forKey: .closedAt)
         if !pausedWorkers.isEmpty { try c.encode(pausedWorkers, forKey: .pausedWorkers) }
+        try c.encodeIfPresent(relayCheck, forKey: .relayCheck)
     }
 }
 
@@ -973,5 +1097,14 @@ extension OperatedTask {
     /// The current problem when it is a failure that needs you, not a hold for the Operator (`TaskPublication.operatorHolds`).
     public var publicationFailure: String? {
         currentPublicationProblem.flatMap { TaskPublication.isHold($0) ? nil : $0 }
+    }
+}
+
+public extension OperatorRun {
+    /// Whether an open question holds `task` (`OperatorQuestion.holdsTask`): what keeps it waiting on you. Every place
+    /// that closes a question releases its task by this, so a question that doesn't hold never keeps the task waiting,
+    /// and one that holds never loses it while another closes.
+    func holds(task: UUID) -> Bool {
+        questions.contains { $0.task == task && $0.resolution == nil && $0.holdsTask }
     }
 }

@@ -56,7 +56,7 @@ import Testing
 
     @Test func reviewPromptsCarryTheWorkersWorktreeLine() {
         #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: nil, brief: "")
-            .hasPrefix(WorkerStarter.worktreeLine(branch: "task-branch") + "\n\n"))
+            .hasPrefix(WorkerStarter.worktreeLine(branch: "task-branch", asks: false) + "\n\n"))
     }
 
     @Test(arguments: ["HEAD", "main", "HEAD~0"])
@@ -228,7 +228,7 @@ import Testing
         // AiTerm's lines alone are too long to type, so even a review with no brief reads its prompt file.
         #expect(command.contains("$(command cat"))
         let prompt = try String(contentsOfFile: file, encoding: .utf8)
-        #expect(prompt.hasPrefix("Check correctness with /review.\n\n" + WorkerStarter.worktreeLine(branch: task.branch)))
+        #expect(prompt.hasPrefix("Check correctness with /review.\n\n" + WorkerStarter.worktreeLine(branch: task.branch, asks: false)))
         #expect(prompt.contains("read-only commands.\n\nEnd with this verdict block"))
     }
 

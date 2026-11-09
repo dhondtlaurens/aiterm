@@ -109,8 +109,8 @@ import Testing
         #expect(requests.map(\.kind) == [.question] && requests.first?.key == "gate-1" && requests.first?.taskId == task.id)
         let row = SidebarModel.operatorRow(current, tasks: world.state.tasks(inRun: run.id), acting: .none, requests: requests, sessions: [])
         #expect(row.line.look == .needsYou && row.line.text.hasPrefix("waiting on you") && row.line.text.contains("Task A"))
-        // And the person is notified of it, as of any question the Operator asks.
-        #expect(world.notifications.posted.map(\.body) == ["The Operator asks: \(question.text)"])
+        // And the person is notified of it, as AiTerm's own question.
+        #expect(world.notifications.posted.map(\.body) == ["AiTerm asks: \(question.text)"])
         // A second ASK gets the next key.
         _ = await gate(world, run, "npm run seed", in: project.path)
         #expect(world.run(run.id)?.questions.map(\.id) == ["gate-1", "gate-2"])

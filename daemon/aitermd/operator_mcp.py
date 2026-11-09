@@ -196,7 +196,7 @@ _CHALLENGE = {
 # broadcast's Oracle switch, and is the app's to decide. A create_task past the backlog's threshold, a
 # finish_task that would merge, and a check_goal get the Oracle's yes or no the same way: it may answer pending, and only
 # a yes acts.
-CHALLENGED_TOOLS = ("submit_plan", "mark_task", "create_task", "finish_task", "check_goal")
+CHALLENGED_TOOLS = ("submit_plan", "mark_task", "create_task", "finish_task", "check_goal", "relay_question")
 
 
 def _tool(name: str, description: str, properties: dict[str, Any] | None = None, required: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -546,23 +546,49 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "taken over, or while the broadcast is paused or ended. A pipeline that fails on the code needs a fix by the worker "
           "instead.",
           {"task": _TASK}, ("task",)),
-    _tool("ask_you", "Lists a question you asked in your chat under Waiting on you, with the same text, and notifies the person. "
-          "They answer in this window; close it with resolve_question. The same key returns the open question.",
+    _tool("ask_you", "Asks the person: AiTerm lists the question under Waiting on you, where they answer it, and notifies them. "
+          "Don't ask it in your chat too: write one line there, starting \"Asked you in AiTerm:\", saying what it is about. "
+          "They may still answer in this chat. When run_status shows answeredHere, act on it, then close the question with "
+          "resolve_question. The same key returns the open question.",
           {"key": _KEY, "question": _text("The question, complete on its own."),
-           "task": _text("When its worker is itself stopped on the answer or when its fix rounds are used up (about: fixRounds): "
-                         "the task, by its key or its id from "
-                         "run_status. Your row then shows waiting on the person, naming the task, and the task waits for the answer: it "
-                         "isn't ready to accept and isn't watched for stalls until you resolve the question. "
-                         "Other questions about your own next step, such as a reviewer's username, a scope choice or a "
-                         "merge decision, go on no task."),
+           "task": _text("The task the question is about, by its key or its id from run_status: its card shows the question. "
+                         "Other questions about your own next step, such as a reviewer's username or a merge decision, go on no task."),
+           "holds": {"type": "boolean",
+                     "description": "False when the task can go on without the answer: the question shows on its card and in the "
+                                    "list, and the task stays ready to accept and watched. Left out, it holds: your row shows "
+                                    "waiting on the person, "
+                                    "naming the task, and the task isn't ready to accept and isn't watched for stalls until you "
+                                    "resolve the question. Hold only when its worker is itself stopped on the answer or when its fix "
+                                    "rounds are used up (about: fixRounds), which always hold."},
+           "choices": {"type": "array", "items": {"type": "string"},
+                       "description": "Two to four short answers, each one line of 60 characters at most, when the answers are few "
+                                      "and known. Left out for an open question, and for about: fixRounds, whose answers are fixed."},
            "about": _choice("What the question is about, when its task's card answers it: fixRounds, a task whose review "
                             "used up its fix rounds, asked on that task. Its card then offers One More Round and Accept As "
                             "It Is. Left out for any other question.", "fixRounds")},
           ("key", "question")),
+    _tool("relay_question", "Passes a worker's question on to the person, in the worker's own words: AiTerm reads them from "
+          "the worker's last message, lists the question under Waiting on you and notifies the person. A worker's question is "
+          "yours first: answer it with message_task when the brief, the plan or the code answers it, and relay it only when "
+          "the person must decide. The Oracle looks first, as the broadcast's Worker questions setting says: when it thinks "
+          "you can answer, its critique comes back; answer the worker with message_task, or reply to each point in "
+          "challengeReply and call again with its challengeId. Write one line in your reply, starting \"Asked you in "
+          "AiTerm:\". The same key, or another key for the same worker turn, returns the one question.",
+          {"key": _KEY,
+           "task": _text("The task whose worker asks, by its key or its id from run_status."),
+           "tab": _text("The worker tab that asks, by its key from run_status. Left out, the first worker, main."),
+           "holds": {"type": "boolean",
+                     "description": "False when the task can go on without the answer. Left out, it holds: the task isn't ready "
+                                    "to accept and isn't watched for stalls until you resolve the question."},
+           "choices": {"type": "array", "items": {"type": "string"},
+                       "description": "Two to four short answers, each one line of 60 characters at most, when the worker's "
+                                      "question offers them. Left out for an open question."}},
+          ("key", "task")),
     _tool("resolve_question", "Closes a question: answered by the person, or withdrawn by you when it became moot. "
           "Record the answer in summary for a question you asked with ask_you, or AiTerm's question about a merge on "
           "the host, which only the person decides. Call it at "
-          "once when they answer in your chat. A worker's prompt is refused: AiTerm closes it itself once the worker leaves "
+          "once when they answer in your chat. answeredHere is the person's answer in AiTerm: act on it, then resolve with it. "
+          "A worker's prompt is refused: AiTerm closes it itself once the worker leaves "
           "the prompt. A gate- question, opened when your shell's command needs the person's word, is answered with allow "
           "true or false, from what the person said in this chat. If your own question or a gate- command became moot, "
           "set withdrawn true with a one-line reason in summary, and tell the person you withdrew it and why. Withdrawal "

@@ -226,6 +226,65 @@ import Testing
         #expect(world.task(merged.id)?.operated?.flags.contains(.waitingOnYou) == false, "its last open question")
     }
 
+    // MARK: - Holds and choices (plan F, slice 1)
+
+    /// T2: a scope question on T2 that T2 can go on without: it holds nothing, so T2 stays ready to accept and watched,
+    /// with its choices kept. T4: its worker is stopped on the token, so its question holds T4, as before.
+    @Test func aQuestionThatDoesntHoldLeavesItsTaskAndOneThatHoldsWaits() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let t2 = workingTask(in: run, key: "T2"), t4 = workingTask(in: run, key: "T4")
+        let world = try makeWorld(run, tasks: [t2, t4])
+        func waiting(_ id: UUID) -> Bool { world.task(id)?.operated?.flags.contains(.waitingOnYou) == true }
+        let scope = await world.call(run.id, "ask_you", ["key": "t2-gate", "task": "T2", "holds": false,
+                                                         "question": "Keep the access gate on the export page for admins too, or drop it for them?",
+                                                         "choices": ["Keep it for admins", "Drop it for admins"]])
+        let token = await world.call(run.id, "ask_you", ["key": "t4-token", "question": "Which token does T4 use?", "task": "T4"])
+        #expect(!waiting(t2.id))
+        #expect(waiting(t4.id))
+        #expect(scope.value?["note"] == "The person sees it on this task's card and under Waiting on you in AiTerm, and answers it there or in this chat. The task doesn't wait: it stays ready to accept and watched for stalls.")
+        #expect(token.value?["note"] == "The person sees it under Waiting on you in AiTerm and answers it there or in this chat, and your row shows waiting on them, naming this task. The task waits: it isn't ready to accept and isn't watched for stalls until you resolve the question.")
+        let saved = try #require(world.run(run.id)?.questions)
+        #expect(saved.map(\.holds) == [false, nil], "a holding question writes no holds")
+        #expect(saved.map(\.choices) == [["Keep it for admins", "Drop it for admins"], nil])
+        #expect(saved.map(\.holdsTask) == [false, true])
+    }
+
+    /// Resolving T4's holding question releases T4 while T4's other question, one that doesn't hold, stays open.
+    @Test func resolvingTheHoldingQuestionReleasesItsTaskWhileAnotherThatDoesntHoldStaysOpen() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let t4 = workingTask(in: run, key: "T4")
+        let world = try makeWorld(run, tasks: [t4])
+        _ = await world.call(run.id, "ask_you", ["key": "scope", "question": "Log the refunds too?", "task": "T4", "holds": false])
+        _ = await world.call(run.id, "ask_you", ["key": "token", "question": "Which token?", "task": "T4"])
+        #expect(world.task(t4.id)?.operated?.flags.contains(.waitingOnYou) == true)
+        _ = await world.call(run.id, "resolve_question", ["key": "token", "summary": "The staging token."])
+        #expect(world.task(t4.id)?.operated?.flags.contains(.waitingOnYou) == false)
+        #expect(world.run(run.id)?.questions.first?.resolution == nil)
+    }
+
+    @Test func askYouRefusesHoldsAndChoicesItCantKeep() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try makeWorld(run, tasks: [workingTask(in: run)])
+        func refusal(_ extra: [String: JSONValue]) async -> String? {
+            var arguments: [String: JSONValue] = ["key": "k", "question": "Q?"]
+            arguments.merge(extra) { $1 }
+            return await world.call(run.id, "ask_you", .object(arguments)).message
+        }
+        #expect(await refusal(["holds": false]) == "Only a question about a task holds one, so holds false needs a task. Leave holds out for a question on no task.")
+        #expect(await refusal(["holds": false, "task": "T1", "about": "fixRounds"]) == "A question about fix rounds always holds its task. Leave holds out.")
+        #expect(await refusal(["holds": "no", "task": "T1"]) == "holds must be true or false.")
+        let few = "choices are two to four short answers, as strings, or left out."
+        #expect(await refusal(["choices": ["Only one"]]) == few)
+        #expect(await refusal(["choices": ["A", "B", "C", "D", "E"]]) == few)
+        #expect(await refusal(["choices": ["A", 2]]) == few)
+        #expect(await refusal(["choices": ["A", "B"], "task": "T1", "about": "fixRounds"])
+                == "A question about fix rounds has its answers already: One More Round and Accept As It Is. Leave choices out.")
+        let long = String(repeating: "a", count: 61)
+        #expect(await refusal(["choices": ["Fine", .string(long)]]) == "Each choice is one line of 60 characters at most: “\(long)” isn’t.")
+        #expect(await refusal(["choices": ["Fine", "Two\nlines"]]) == "Each choice is one line of 60 characters at most: “Two\nlines” isn’t.")
+        #expect(world.run(run.id)?.questions.isEmpty == true)
+    }
+
     @Test func askYouRefusesAiTermsQuestionKeys() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)
@@ -241,7 +300,7 @@ import Testing
         let task = workingTask(in: run)
         let world = try makeWorld(run, tasks: [task])
         let onTask = await world.call(run.id, "ask_you", ["key": "a", "question": "Stuck?", "task": "T1"])
-        #expect(onTask.value?["note"] == "Your row in the sidebar now shows waiting on the person, naming this task, and they answer in this chat. The task waits: it isn't ready to accept and isn't watched for stalls until you resolve the question.")
+        #expect(onTask.value?["note"] == "The person sees it under Waiting on you in AiTerm and answers it there or in this chat, and your row shows waiting on them, naming this task. The task waits: it isn't ready to accept and isn't watched for stalls until you resolve the question.")
         #expect(await world.call(run.id, "ask_you", ["key": "b", "question": "Which scope?"]).value?["note"] == nil)
     }
 

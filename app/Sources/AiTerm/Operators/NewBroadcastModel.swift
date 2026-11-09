@@ -51,6 +51,8 @@ final class NewBroadcastModel: Identifiable {
         let agents: [AgentChoice]
         let taskSettings: TaskSettings
         let goal: BroadcastGoal?
+        /// Worker questions: how hard the Oracle checks one before it reaches you; Straight to you while the Oracle is off.
+        var relayCheck: RelayCheck = .challengeOnce
     }
 
     nonisolated let id = UUID()
@@ -141,7 +143,10 @@ final class NewBroadcastModel: Identifiable {
     static let deleteBranchLabel = "Delete their local branches once merged into the default branch"
     static let goalLabel = "Goal"
     static let goalPlaceholder = "Every ticket is merged and its work is released"
-    static let extraRoundsLabel = "Extra rounds"
+    static let extraRoundsLabel = "Goal rounds"
+    static let workerQuestionsLabel = "Worker questions"
+    /// Worker questions as picked: Challenged once for each new broadcast, as Goal rounds starts at its default.
+    var relayCheck = RelayCheck.challengeOnce
     /// What an emptied extra-rounds field counts as, and shows.
     static let extraRoundsPlaceholder = String(defaultExtraRounds)
     /// A goal's own default (`BroadcastGoal`).
@@ -385,15 +390,22 @@ final class NewBroadcastModel: Identifiable {
     var goalHelp: String {
         goalIsAvailable
             ? "What must be true once every task is done. The Operator checks it with the Oracle. Optional: left empty, the broadcast ends when its tasks do."
-            : "The Oracle is off in Settings › Operator, and a goal needs it: the broadcast ends when its tasks do."
+            : "The Oracle is off in Settings › Operator, and a goal needs it: the broadcast ends when its tasks do, and a worker’s "
+                + "question the Operator passes on reaches you straight away."
     }
 
     /// None while the Oracle is off: the goal's help says it for both.
     var extraRoundsHelp: String? {
-        goalIsAvailable
-            ? "How many times the Operator may plan what the goal still misses, once every task is done. When they are used up, it stops and says what is left."
-            : nil
+        goalIsAvailable ? "Times the Operator may plan more work when the goal isn’t met once every task is done." : nil
     }
+
+    /// None while the Oracle is off: the goal's help says it for all three.
+    var workerQuestionsHelp: String? {
+        goalIsAvailable ? "How hard the Oracle checks a worker’s question before the Operator passes it on to you." : nil
+    }
+
+    /// What Worker questions shows and the broadcast starts with: Straight to you while the Oracle is off.
+    var shownRelayCheck: RelayCheck { goalIsAvailable ? relayCheck : .straight }
 
     /// The extra rounds typed, the default when none are.
     var extraRounds: Int { Int(extraRoundsText) ?? Self.defaultExtraRounds }
@@ -431,7 +443,7 @@ final class NewBroadcastModel: Identifiable {
                                         deleteMergedBranch: deleteMergedBranch)
         let goal = goalIsAvailable ? Optional(done).said.map { BroadcastGoal(text: $0, extraRounds: extraRounds) } : nil
         let request = Request(name: Optional(name).said, jiraProjectKeys: jiraProjects.map(\.key), projectIds: projects.map(\.id),
-                              prompt: prompt, agents: agents, taskSettings: taskSettings, goal: goal)
+                              prompt: prompt, agents: agents, taskSettings: taskSettings, goal: goal, relayCheck: shownRelayCheck)
         do { return try await startBroadcast(request) }
         catch { self.error = CreationFailure(reason: OperationIssue.reason(of: error), detail: nil); return nil }
     }

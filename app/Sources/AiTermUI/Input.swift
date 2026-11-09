@@ -4,6 +4,8 @@ import SwiftUI
 /// A plain text field dressed in the house field chrome; `secure` hides what is typed, for a token.
 /// `caretAtEnd` puts the insertion point after the text when the field is focused, where AppKit
 /// would select it all: for a value filled in as if typed — the Backpack sheet's saved password.
+/// `onFocus` is told each time the field takes the keyboard: Waiting on you gives ⌘↩ to the block
+/// whose field was focused last.
 ///
 /// The field is AppKit's own `NSTextField` (`NSSecureTextField` for `secure`), as tall as AppKit
 /// measures it for its font. SwiftUI's `TextField` takes its height from a line height SwiftUI
@@ -16,6 +18,7 @@ public struct Input: View {
     var monospaced: Bool
     var secure: Bool
     var caretAtEnd: Bool
+    var onFocus: (() -> Void)?
     @Environment(\.interfaceScale) private var scale
     // `@State` is a macro in the macOS 26 SDK and its SwiftUIMacros plugin ships only with Xcode;
     // this is the storage and accessor the macro would generate. Private, and so kept out of the
@@ -24,12 +27,13 @@ public struct Input: View {
     private var focused: Bool { get { _focused.wrappedValue } nonmutating set { _focused.wrappedValue = newValue } }
 
     public init(placeholder: String, text: Binding<String>, monospaced: Bool = false, secure: Bool = false,
-                caretAtEnd: Bool = false) {
+                caretAtEnd: Bool = false, onFocus: (() -> Void)? = nil) {
         self.placeholder = placeholder
         self._text = text
         self.monospaced = monospaced
         self.secure = secure
         self.caretAtEnd = caretAtEnd
+        self.onFocus = onFocus
     }
 
     public var body: some View {
@@ -37,6 +41,7 @@ public struct Input: View {
                    font: (monospaced ? Typography.monoCode : Typography.body).scaled(by: scale).nsFont,
                    secure: secure, caretAtEnd: caretAtEnd)
             .fieldChrome(focused: focused)
+            .onChange(of: focused) { _, now in if now { onFocus?() } }
     }
 
     /// The insertion point after the last character, nothing selected. In UTF-16, as `NSText` counts.

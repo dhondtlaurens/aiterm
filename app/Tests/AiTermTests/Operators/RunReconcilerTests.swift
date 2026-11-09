@@ -231,6 +231,27 @@ import Testing
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
     }
 
+    /// T7's worker prompts while T7 has the Operator's question about the chat reset open, one that doesn't hold T7:
+    /// answered in its window, the prompt releases T7, and the question stays open. A holding question keeps T7 waiting.
+    @Test(arguments: [false, true]) func aPromptAnsweredInItsWindowReleasesItsTaskUnlessAQuestionHoldsIt(holds: Bool) async throws {
+        let project = OperatorServiceFixtures.project()
+        var run = OperatorServiceFixtures.run(projects: [project], state: .active)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "T7", state: .working, agent: .codex, worktree: "/tmp/aiterm-wt")
+        run.questions = [OperatorQuestion(id: "t7-reset", text: "Does the chat reset keep drafts?", task: task.id,
+                                          askedAt: Date(timeIntervalSince1970: 0), holds: holds ? nil : false)]
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        world.daemon.prompts["w1"] = .permission
+        world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .codex, state: .needsInput)])
+        await world.controller.lastProbe?.value
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
+        world.daemon.prompts["w1"] = nil
+        world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .codex, state: .working)])
+        await world.controller.lastProbe?.value
+        #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
+        #expect(world.run(run.id)?.questions.first?.resolution == nil, "the Operator's question stays open")
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == holds)
+    }
+
     @Test func aWorkersPromptIsAQuestionWaitingOnYouUntilItLeavesThePrompt() async throws {
         let project = OperatorServiceFixtures.project()
         let run = OperatorServiceFixtures.run(projects: [project], state: .active)
@@ -242,7 +263,7 @@ import Testing
         let question = try #require(world.run(run.id)?.questions.last)
         #expect(question.text == "Codex asks for permission" && question.task == task.id && question.resolution == nil)
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
-        #expect(world.notifications.posted.last?.target == .task(task.id))
+        #expect(world.notifications.posted.last?.target == .question(run: run.id, key: question.id), "its block under Waiting on you")
         #expect(world.notifications.posted.last?.body == "Codex asks for permission in Task PLUTO-4.")
         #expect(world.notifications.withdrawn.isEmpty)
         world.daemon.prompts["w1"] = nil
@@ -273,7 +294,7 @@ import Testing
         await world.controller.lastProbe?.value
         let question = try #require(world.run(run.id)?.questions.last)
         #expect(question.text == "Codex shows a startup question" && question.task == trust.id)
-        #expect(world.notifications.posted.last?.target == .task(trust.id))
+        #expect(world.notifications.posted.last?.target == .question(run: run.id, key: question.id))
     }
 
     // -- decisions taken after review ---------------------------------------------------------
@@ -615,7 +636,7 @@ import Testing
             await world.controller.lastProbe?.value
             #expect(world.run(run.id)?.questions.count == 1)
             #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
-            #expect(world.notifications.posted.contains { $0.target == .task(task.id) && $0.body.contains("asks for permission") })
+            #expect(world.notifications.posted.contains { $0.target == .question(run: run.id, key: "prompt-\(task.id.uuidString)-1") && $0.body.contains("asks for permission") })
         }
     }
 
@@ -648,7 +669,7 @@ import Testing
         await world.controller.lastProbe?.value
         #expect(world.daemon.requests("session.prompt").count == 2)
         #expect(world.run(run.id)?.questions.count == 1)
-        #expect(world.notifications.posted.contains { $0.target == .task(task.id) && $0.body.contains("asks for permission") })
+        #expect(world.notifications.posted.contains { $0.target == .question(run: run.id, key: "prompt-\(task.id.uuidString)-1") && $0.body.contains("asks for permission") })
     }
 
     @Test(arguments: [false, true])

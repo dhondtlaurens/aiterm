@@ -20,21 +20,29 @@ import Testing
 
 
 
-    /// ask_you's task description and rule 2 agree on which questions hold a task: a stopped worker in every run, and in a
-    /// new run exhausted fix rounds too (a legacy run has none). The description says both, as it serves both kinds of run.
+    /// ask_you's descriptions and rule 2 agree on which questions hold a task: a stopped worker in every run, and in a
+    /// new run exhausted fix rounds too (a legacy run has none), the rest asked with holds false; and on which go on no
+    /// task. The descriptions say both, as they serve both kinds of run.
     @Test func askYouAndTheBriefAllowTheSameTaskQuestions() throws {
         let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("daemon/aitermd/operator_mcp.py")
         let python = try String(contentsOf: file, encoding: .utf8).replacing(try Regex(#""\s*\n\s*""#), with: "")
         let start = try #require(python.firstRange(of: #"_tool("ask_you", ""#)?.upperBound)
-        let task = try #require(python[start...].firstRange(of: #""task": _text(""#)?.upperBound)
-        let description = String(python[task...].prefix { $0 != "\"" })
+        /// The description of `property`: the first string after `opening` that follows its name.
+        func described(_ property: String, after opening: String) throws -> String {
+            let name = try #require(python[start...].firstRange(of: "\"\(property)\": ")?.upperBound)
+            let from = try #require(python[name...].firstRange(of: opening)?.upperBound)
+            return String(python[from...].prefix { $0 != "\"" })
+        }
+        let task = try described("task", after: "_text(\"")
+        let holds = try described("holds", after: "\"description\": \"")
         let newRun = OperatorCommand.brief(run: OperatorFixtures.run(taskSettings: OperatorFixtures.taskSettings), projects: [])
         let stopped = "worker is itself stopped on the answer", fixRounds = "or when its fix rounds are used up (about: fixRounds)"
-        #expect(description.contains(stopped) && newRun.contains(stopped))
-        #expect(description.contains(fixRounds) && newRun.contains(fixRounds))
-        #expect(description.contains("Other questions about your own next step"))
+        #expect(holds.contains(stopped) && newRun.contains(stopped))
+        #expect(holds.contains(fixRounds) && newRun.contains(fixRounds))
+        #expect(holds.hasPrefix("False when the task can go on without the answer") && newRun.contains("otherwise set holds false"))
+        #expect(task.contains("Other questions about your own next step"))
         #expect(newRun.contains("Other questions about your own next step"))
     }
 

@@ -1,0 +1,29 @@
+[
+  {
+    "name": "marked, its choices under the marker (H1's form)",
+    "message": "I wired the delete button to the confirmation.\n\nQuestion: Should the confirmation cover bulk deletes too, or single deletes only?\n- Bulk deletes too\n- Single deletes only",
+    "asks": true,
+    "question": "Question: Should the confirmation cover bulk deletes too, or single deletes only?\n- Bulk deletes too\n- Single deletes only"
+  },
+  {
+    "name": "unmarked, its last line a question",
+    "message": "Updated the cart drawer and its copy.\n\nWant me to update the tests too?",
+    "asks": true,
+    "question": "Want me to update the tests too?"
+  },
+  {
+    "name": "a status report quoting Question: inside a line",
+    "message": "Done. The Operator's note said \"Question: keep drafts?\" and the brief answers it: drafts stay.\n\nAll tests pass; committed 4f2a91c.",
+    "asks": false
+  },
+  {
+    "name": "a question it answered itself, then work",
+    "message": "Why did the tests fail?\n\nThe lockfile was stale. Fixed it and all tests pass.",
+    "asks": false
+  },
+  {
+    "name": "a scope stop asking May I",
+    "message": "Read the review. Item 4 requires a change outside the authorized scope.\n\nMay I add that initialization call, keeping its implementation in `AppController+Operators.swift`? Your scope rule explicitly requires me to stop before editing another file.\n\nNo files changed, tests run, or new commit made. HEAD remains `76c4896`.",
+    "asks": true
+  }
+]

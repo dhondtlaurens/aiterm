@@ -72,7 +72,8 @@ extension AppController {
                 let id = try await controller.startBroadcast(name: request.name, jiraProjectKeys: request.jiraProjectKeys,
                                                              projectIds: request.projectIds, prompt: request.prompt,
                                                              agents: request.agents,
-                                                             taskSettings: request.taskSettings, goal: request.goal)
+                                                             taskSettings: request.taskSettings, goal: request.goal,
+                                                             relayCheck: request.relayCheck)
                 self?.focus.browse(.operation(id))
                 return id
             }
@@ -252,6 +253,22 @@ extension AppController {
         attempt("Couldn’t answer the task’s fix rounds") { try controller.answerFixRounds(of: task, answer) }
     }
 
+    func answer(question key: String, in run: UUID, with text: String) {
+        let controller = operatorController
+        attempt("Couldn’t answer the question") { try controller.answer(question: key, in: run, with: text) }
+    }
+
+    /// The Operator row's click or ↩: while it waits on you for a question, the board at the oldest one's block;
+    /// otherwise its window, as `RowFocus.select(.operation)` brings it.
+    @discardableResult
+    func chooseOperatorRow(_ row: OperatorRow) -> Task<Void, Never>? {
+        if let key = row.question {
+            showQuestion(key, run: row.runId)
+            return nil
+        }
+        return focus.select(.operation(row.runId))
+    }
+
     func resume(_ run: OperatorRun) {
         let controller = operatorController
         attempt("Couldn’t resume “\(run.name)”") { try await controller.resume(run: run.id) }
@@ -301,7 +318,9 @@ extension AppController {
             },
             startFresh: { [weak self] in self?.onActiveRun(id) { self?.startFresh($0) } },
             changeEnd: { [weak self] task, end in self?.onActiveRun(id) { _ in self?.changeEnd(of: task, to: end) } },
-            answerFixRounds: { [weak self] task, answer in self?.onActiveRun(id) { _ in self?.answerFixRounds(of: task, answer) } })
+            answerFixRounds: { [weak self] task, answer in self?.onActiveRun(id) { _ in self?.answerFixRounds(of: task, answer) } },
+            answer: { [weak self] key, text in self?.onActiveRun(id) { _ in self?.answer(question: key, in: id, with: text) } },
+            showQuestion: { [weak self] key in self?.onActiveRun(id) { _ in self?.showQuestion(key, run: id) } })
     }
 
     /// `work` on the broadcast with this id, as it is now, while it is the active one.
@@ -319,6 +338,7 @@ extension AppController {
         switch opens {
         case .taskWindow(let task): focus.select(.task(task))
         case .tab(let task, let session): bringTab(task: task, sessionId: session)
+        case .prompt(let task, let tab): choose(task: task, tab: tab)
         case .operatorWindow: openOperatorWindow(run)
         case .sidebarBanner, .nothing: break
         }

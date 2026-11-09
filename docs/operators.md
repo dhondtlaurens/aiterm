@@ -107,6 +107,36 @@ and types nothing more. Take Over removes the Operator's authority over a task, 
 restores it. Stop Task ends that task's participation. Questions remain on the board for your
 answer; the Operator cannot answer permission prompts on your behalf.
 
+A question the Operator asks about a task (`ask_you` with a task) shows on that task's card. It
+holds the task, which then waits on you, isn't ready to accept and isn't watched for stalls, unless
+the Operator asked it with `holds: false` because the task can go on without the answer. Then the
+card keeps its own line, adds `question for you`, and the question still asks after the task
+finishes, until the Operator resolves it. Fix rounds and AiTerm's own questions always hold.
+
+Every open question for you is listed under Waiting on you, above the Board tab's columns, oldest
+first: the Operator's, AiTerm's (a merge on the host, a command the Oracle stopped) and each worker
+tab's permission prompt. The Operator asks with `ask_you` and leaves one line in its chat, "Asked
+you in AiTerm: …". You answer in the question's block: a choice, or any answer and Send. AiTerm
+records it once on the question (`answeredHere`, in `run_status`) and wakes the Operator with a
+fixed line naming the task, never the answer; the Operator acts on it and resolves the question.
+Answering in the Operator's chat still works. A prompt's block only opens its window, since AiTerm
+never types a permission, and a stopped command's opens the Operator's chat, where it is allowed.
+A question's notification, the Operator row's click while it waits on a question, and a card's
+Answer… open the board at that block.
+
+A worker's question is the Operator's first: its card shows it muted under `asking the Operator`
+until the Operator answers it with `message_task` or relays it to you with `relay_question`. A relay
+takes no text: AiTerm reads the worker's own words from its last message, so the question in Waiting
+on you is the worker's, marked "relayed by the Operator", never a second one. The Oracle looks first,
+as the Done step's Worker questions sets it for the broadcast: Straight to you, Challenged once (the
+default: when the Oracle thinks the Operator can answer, the Operator answers the worker or replies
+and relays it anyway), or Agreed first (rounds until the Oracle has no major or important point
+left, at most three, then it reaches you with both sides). An Oracle that can't answer lets the
+question through, and the block says why. A round judges only the question it read: once the worker
+has moved on or asks something else, nothing is relayed, and a repeated call gets back the round
+already asked rather than asking the Oracle again. With the Oracle off, every relay goes straight.
+Workers are asked to end a question with a paragraph starting `Question:`, which AiTerm's scan reads.
+
 ## Goal and completion
 
 With a goal, all tasks finishing wakes the Operator to call `check_goal`. A met goal completes the
@@ -149,7 +179,7 @@ end changed to Merge) is a hold: its card says `accepted · waiting on the Opera
 | Steer | `message_task`, `open_tab`, `resume_task`, `retry_task` |
 | Review | `record_review`, `find_user`, `request_review`, `reply_thread`, `resolve_thread`, `critique_thread` |
 | Finish | `mark_task`, `finish_task`, `update_request`, `retry_pipeline`, `check_goal` |
-| Ask you | `ask_you`, `resolve_question` |
+| Ask you | `ask_you`, `relay_question`, `resolve_question` |
 | Read Jira | `jira_search`, `jira_board` |
 | Write Jira | `jira_create`, `jira_edit`, `jira_comment`, `jira_move`, `jira_link`, `jira_sprint` |
 | Record | `report_find`, `report_snag`, `leave_for_you`, `log_decision`, `write_summary` |

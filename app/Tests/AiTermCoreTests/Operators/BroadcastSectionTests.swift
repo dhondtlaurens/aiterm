@@ -217,6 +217,25 @@ import Testing
     }
 
     /// Its session is the one the run recorded (`operatorSessionId`), ahead of any other tab tagged with the run.
+    /// Waiting on you for a question, the row's click opens the oldest one's block under Waiting on you; for a prompt
+    /// in its own tab, or with its window closed, it opens the window as before.
+    @Test func theOperatorsRowOpensTheOldestQuestionsBlock() throws {
+        let busy = run()
+        let drawer = task("Cart drawer", run: busy.id, .working)
+        var asking = busy
+        asking.questions = [
+            OperatorQuestion(id: "newer", text: "which currency format?", task: nil, askedAt: OperatorUIFixtures.epoch.addingTimeInterval(60)),
+            OperatorQuestion(id: "older", text: "retry policy?", task: drawer.id, askedAt: OperatorUIFixtures.epoch),
+        ]
+        #expect(try section(state(asking, [drawer])).operatorRow.question == "older")
+        #expect(try section(state(asking, [drawer]), sessions: [operatorTab(asking, .needsInput)]).operatorRow.question == nil,
+                "a prompt in its own tab is answered in its window")
+        var closed = asking
+        closed.state = .operatorOffline
+        #expect(try section(state(closed, [drawer])).operatorRow.question == nil, "its window closed, the click reopens it")
+        #expect(try section(state(busy, [drawer])).operatorRow.question == nil)
+    }
+
     @Test func theOperatorsRowReadsTheSessionTheRunRecorded() throws {
         var run = run()
         run.operatorSessionId = "op-2"

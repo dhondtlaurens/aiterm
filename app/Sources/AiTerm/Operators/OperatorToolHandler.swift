@@ -233,7 +233,7 @@ final class OperatorToolHandler {
     /// The tools that change the run, its tasks or its records: the operator has seen what they changed.
     /// `finish_task` is one: a publication changes the run, and may complete it.
     static let mutating: Set<OperatorTool> = [.createTask, .updateTask, .submitPlan, .messageTask, .openTab, .markTask, .resumeTask,
-                                              .retryTask, .finishTask, .askYou, .resolveQuestion, .logDecision, .leaveForYou, .reportFind,
+                                              .retryTask, .finishTask, .askYou, .relayQuestion, .resolveQuestion, .logDecision, .leaveForYou, .reportFind,
                                               .reportSnag, .writeSummary, .jiraCreate, .jiraMove, .jiraLink, .jiraSprint, .jiraEdit,
                                               .jiraComment, .reviewTask, .requestReview, .replyThread, .resolveThread, .critiqueThread, .updateRequest, .retryPipeline, .recordReview,
                                               .checkGoal]
@@ -299,7 +299,9 @@ final class OperatorToolHandler {
             if let recorded = try replayedMessage(call, in: run) { return (.result(recorded), .repeated) }
             // A finish_task that only joins its publication or answers what it did decides nothing new: no Oracle, no fetch.
             let joins = finishJoins(call, in: run)
-            if !joins, let instead = try await challengeGate(call, in: run, deadline: deadline) {
+            // A relay runs its own Oracle rounds (`relayQuestion`): the gate never sees it.
+            let relays = call.operatorTool == .relayQuestion
+            if !joins, !relays, let instead = try await challengeGate(call, in: run, deadline: deadline) {
                 // The critique, or the answer to a challenged call that acted already, said again.
                 return (.result(instead), instead["challenged"] == true ? .challenged : .repeated)
             }
@@ -315,9 +317,10 @@ final class OperatorToolHandler {
                 try acceptsWork(current)
             }
             let value = try await perform(call, in: current, deadline: deadline, joinOnly: joins)
-            recordActed(call, in: id, answer: value)
+            // A relay keeps its own rounds: a critique delivered stays delivered, so a repeat says it again.
+            if !relays { recordActed(call, in: id, answer: value) }
             if Self.isMutating(call) { onChange(id) }
-            return (.result(value), .ok)
+            return (.result(value), relays && value["challenged"] == true ? .challenged : .ok)
         } catch let refusal as ToolRefusal {
             return (.error(refusal.message), .refused)
         } catch {
@@ -366,6 +369,7 @@ final class OperatorToolHandler {
         case .jiraEdit: return try await jiraEdit(call, in: run)
         case .jiraComment: return try await jiraComment(call, in: run)
         case .askYou: return try askYou(call, in: run)
+        case .relayQuestion: return try await relayQuestion(call, in: run)
         case .resolveQuestion: return try resolveQuestion(call, in: run)
         case .leaveForYou: return try leaveForYou(call, in: run)
         case .logDecision: return try logDecision(call, in: run)
@@ -516,13 +520,48 @@ final class OperatorToolHandler {
         let about = call.optionalString("about")
         guard about == nil || about == OperatorQuestion.fixRounds else { throw ToolRefusal("about is \(OperatorQuestion.fixRounds), or left out.") }
         let taskId = try call.optionalString("task").map { _ in try task(call, in: run).id }
+        let holds = try Self.holds(call, task: taskId, about: about), choices = try Self.choices(call, about: about)
         if let open = run.questions.first(where: { $0.id == key }) { return Self.askAnswer(open) }
-        let question = OperatorQuestion(id: key, text: text, task: taskId, askedAt: ports.now(), resolution: nil, about: about)
+        let question = OperatorQuestion(id: key, text: text, task: taskId, askedAt: ports.now(), resolution: nil, about: about,
+                                        holds: holds == false ? false : nil, choices: choices)
         mutate(in: run.id) { state in
             state.updateRun(id: run.id) { $0.questions.append(question) }
-            if let taskId { state.updateOperated(taskId) { $0.flags.insert(.waitingOnYou) } }
+            if let taskId, question.holdsTask { state.updateOperated(taskId) { $0.flags.insert(.waitingOnYou) } }
         }
         return Self.askAnswer(question)
+    }
+
+    /// `ask_you`'s `holds`: false only for a question about a task, and never for its fix rounds, which always hold.
+    static func holds(_ call: ToolCall, task: UUID?, about: String?) throws -> Bool? {
+        guard let value = call.arguments["holds"], value != .null else { return nil }
+        guard let holds = value.boolValue else { throw ToolRefusal("holds must be true or false.") }
+        guard !holds else { return true }
+        guard task != nil else {
+            throw ToolRefusal("Only a question about a task holds one, so holds false needs a task. Leave holds out for a question on no task.")
+        }
+        guard about != OperatorQuestion.fixRounds else {
+            throw ToolRefusal("A question about fix rounds always holds its task. Leave holds out.")
+        }
+        return false
+    }
+
+    /// The most characters in one of `ask_you`'s choices.
+    static let choiceLimit = 60
+
+    /// `ask_you`'s `choices`: two to four short answers, each one line, and none for fix rounds, whose answers are fixed.
+    static func choices(_ call: ToolCall, about: String?) throws -> [String]? {
+        guard let value = call.arguments["choices"], value != .null else { return nil }
+        guard about != OperatorQuestion.fixRounds else {
+            throw ToolRefusal("A question about fix rounds has its answers already: One More Round and Accept As It Is. Leave choices out.")
+        }
+        let said = value.arrayValue?.map { $0.stringValue?.trimmingCharacters(in: .whitespaces) ?? "" } ?? []
+        guard (2...4).contains(said.count), !said.contains(where: \.isEmpty) else {
+            throw ToolRefusal("choices are two to four short answers, as strings, or left out.")
+        }
+        if let long = said.first(where: { $0.count > choiceLimit || $0.rangeOfCharacter(from: .newlines) != nil }) {
+            throw ToolRefusal("Each choice is one line of \(choiceLimit) characters at most: “\(long)” isn’t.")
+        }
+        return said
     }
 
     /// `allow` is for a command the Oracle stopped (a `gate-` question) alone: true lets it pass the gate once, and
@@ -568,8 +607,8 @@ final class OperatorToolHandler {
                 }
                 if let allowed { run.gateAllowances.append(allowed) }
             }
-            // The row stops waiting on you once none of its questions is open.
-            if let taskId = question.task, state.run(id: run.id)?.questions.contains(where: { $0.task == taskId && $0.resolution == nil }) == false {
+            // The row stops waiting on you once no open question holds it.
+            if let taskId = question.task, state.run(id: run.id)?.holds(task: taskId) == false {
                 state.updateOperated(taskId) { $0.flags.remove(.waitingOnYou) }
             }
         }
@@ -649,7 +688,9 @@ final class OperatorToolHandler {
     private static func askAnswer(_ question: OperatorQuestion) -> JSONValue {
         var answer = questionAnswer(question)
         if question.task != nil, question.resolution == nil, case .object(var fields) = answer {
-            fields["note"] = "Your row in the sidebar now shows waiting on the person, naming this task, and they answer in this chat. The task waits: it isn't ready to accept and isn't watched for stalls until you resolve the question."
+            fields["note"] = question.holdsTask
+                ? "The person sees it under Waiting on you in AiTerm and answers it there or in this chat, and your row shows waiting on them, naming this task. The task waits: it isn't ready to accept and isn't watched for stalls until you resolve the question."
+                : "The person sees it on this task's card and under Waiting on you in AiTerm, and answers it there or in this chat. The task doesn't wait: it stays ready to accept and watched for stalls."
             answer = .object(fields)
         }
         return answer

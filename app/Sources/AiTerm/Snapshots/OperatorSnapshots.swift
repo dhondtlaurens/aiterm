@@ -356,8 +356,8 @@ struct OperatorScene {
         }
     }
 
-    /// The cards at the new stops (16), on one running broadcast: the cart drawer at work, the provider switch on the long
-    /// model, the order summary's two tabs, the address autocomplete in its second round of review and the same task out
+    /// The cards at the new stops (16), on one running broadcast: the cart drawer at work with a question that doesn't hold
+    /// it, the provider switch on the long model waiting on a question that holds it, the order summary's two tabs, the address autocomplete in its second round of review and the same task out
     /// of its fix rounds, and the checkout layout's card from its record; then, from the broadcast complete and closed,
     /// the shipping step's kept worktree. Returns the cards in that order.
     static func stops(_ scene: OperatorScene = OperatorScene()) -> [BroadcastBoard.Card] {
@@ -390,15 +390,68 @@ struct OperatorScene {
         let layout = tasks.first { $0.id == scene.layout }!
         let question = OperatorQuestion(id: "fix-rounds-pay-233", text: "Address autocomplete is out of fix rounds: one more, or accept it?",
                                         task: outOfRounds, askedAt: Snapshots.clock.now, about: OperatorQuestion.fixRounds)
-        var run = scene.setUp(.active, questions: [question])
+        // Two questions for you: the cart drawer can go on without its answer, so it keeps its line; the provider switch waits.
+        let coupon = OperatorQuestion(id: "drawer-coupon", text: "Should the drawer keep the last coupon after checkout, or clear it?",
+                                      task: scene.drawer, askedAt: Snapshots.clock.now, holds: false,
+                                      choices: ["Keep the coupon", "Clear it"])
+        let key = OperatorQuestion(id: "provider-key", text: "Which API key should the provider switch use in staging?",
+                                   task: scene.provider, askedAt: Snapshots.clock.now)
+        var run = scene.setUp(.active, questions: [question, coupon, key])
         run.finished = [FinishedTaskRecord(task: layout.id, key: "PAY-230", title: layout.title, ticket: "PAY-230", project: layout.projectId,
                                            agent: .claude, model: layout.model, reasoning: layout.reasoning, end: .merge, state: .published,
                                            acceptedSHA: "9b3e07d", branch: layout.branch, mergeRequestURL: nil, mergedSHA: "9b3e07d",
                                            result: "merged · 9b3e07d", branchDeleted: true, at: Snapshots.clock.now)]
-        scene.show(run, tasks.filter { $0.id != scene.layout } + [stuck], turnEnded: [scene.autocomplete])
+        // The order summary's worker asks the Operator: its card shows the question, muted, under its line.
+        let asking = OperatorActs(turns: [scene.summary: .asks],
+                                  asks: [scene.summary: "Question: Should the summary show the coupon line when no coupon applies?\n- Show it\n- Hide it"])
+        scene.show(run, tasks.filter { $0.id != scene.layout } + [stuck], acting: asking, turnEnded: [scene.autocomplete, scene.summary])
         let cards = Dictionary((scene.board?.columns.flatMap(\.cards) ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return [scene.drawer, scene.provider, scene.summary, scene.autocomplete, outOfRounds, scene.layout].compactMap { cards[$0] }
             + [kept()].compactMap { $0 }
+    }
+
+    /// Waiting on you (D1a) on the set-up broadcast at work: the provider switch's question with its choices, asked 24
+    /// minutes ago; the cart drawer's, answered 2 minutes ago; the order summary's worker prompt in its main tab and its
+    /// e2e-tests tab; the address autocomplete out of its fix rounds; a merge on the host on the shipping step; and a
+    /// command the Oracle stopped, on no task.
+    static func waitingOnYou(_ scene: OperatorScene = OperatorScene()) -> OperatorScene {
+        let ago = { (minutes: Double) in Snapshots.clock.now.addingTimeInterval(-minutes * 60) }
+        let opened = LaunchAttempt(number: 1, requestedAt: Snapshots.clock.now, openedAt: Snapshots.clock.now)
+        let tasks = scene.setUpCheckout([scene.summary: .working, scene.autocomplete: .working]).map { task in
+            var task = task
+            if task.id == scene.summary {
+                task.operated?.extraTabs = [ExtraTab(key: "e2e-tests", agent: .codex, model: "gpt-6-astra", reasoning: "medium",
+                                                     modelReason: "Codex writes the tests.", brief: "Write the end-to-end tests.",
+                                                     launch: opened, sessionId: "s-e2e")]
+            }
+            return task
+        }
+        let questions = [
+            OperatorQuestion(id: "provider-gate", text: "Keep the access gate on the export page for admins too, or drop it for them?",
+                             task: scene.provider, askedAt: ago(24), holds: false, choices: ["Keep it for admins", "Drop it for admins"]),
+            OperatorQuestion(id: "drawer-coupon", text: "Should the drawer keep the last coupon after checkout, or clear it?",
+                             task: scene.drawer, askedAt: ago(26), holds: false, choices: ["Keep the coupon", "Clear it"],
+                             answeredHere: "Clear it", answeredHereAt: ago(2)),
+            OperatorQuestion(id: "prompt-\(scene.summary.uuidString)-1", text: "Claude Code asks for permission", task: scene.summary,
+                             askedAt: ago(1)),
+            OperatorQuestion(id: "prompt-\(scene.summary.uuidString)-2", text: "Codex asks for permission", task: scene.summary,
+                             askedAt: ago(1), tab: "e2e-tests"),
+            OperatorQuestion(id: "fix-rounds-pay-233", text: "Address autocomplete is out of fix rounds: one more, or accept it?",
+                             task: scene.autocomplete, askedAt: ago(5), about: OperatorQuestion.fixRounds),
+            OperatorQuestion(id: "merged-on-host-\(scene.shipping.uuidString)",
+                             text: "!71 was merged on GitLab at 988ed6c, a head nobody accepted. AiTerm publishes nothing more of it or on "
+                                + "top of it: decide how the broadcast goes on.", task: scene.shipping, askedAt: ago(31)),
+            OperatorQuestion(id: "gate-1", text: "The Oracle stopped `npm publish --dry-run` in payments-api: it publishes to the registry.",
+                             task: nil, askedAt: ago(2), gate: GateRequest(command: "npm publish --dry-run", directory: "payments-api")),
+            OperatorQuestion(id: "drawer-bulk", text: "Question: Should the drawer's remove-all ask first too, or only a single remove?\n"
+                                + "- Remove-all asks too\n- Single removes only", task: scene.drawer, askedAt: ago(9),
+                             choices: ["Remove-all asks too", "Single removes only"], relayedFrom: "main",
+                             history: [QuestionStep(kind: .asked, text: "Wired the remove button.", at: ago(10)),
+                                       QuestionStep(kind: .oracle, text: "MAJOR: The brief answers it.\nVERDICT: ANSWER", at: ago(10), round: 1),
+                                       QuestionStep(kind: .reply, text: "The brief names the single remove only.", at: ago(9), round: 1)]),
+        ]
+        scene.show(scene.setUp(.active, questions: questions), tasks)
+        return scene
     }
 
     /// The shipping step's card once the broadcast completed and its closing ran, its worktree kept and why.
@@ -547,6 +600,9 @@ enum OperatorSnapshots {
             Snapshot("board-setup-goal-not-met.png") {
                 BroadcastBoardSheet(board: OperatorScene.goalNotMet(), reopenFailed: false, actions: BoardActions(), activity: nil)
             },
+            // Waiting on you (D1a): the board with the list above its columns, and the list's blocks whole.
+            Snapshot("board-waiting-on-you.png") { board(OperatorScene.waitingOnYou()) },
+            Snapshot("board-waiting-blocks.png") { waitingBlocks() },
         ]
     }
 
@@ -747,6 +803,15 @@ enum OperatorSnapshots {
         .padding(Space.margin)
         .fixedSize(horizontal: false, vertical: true)
         .background(Palette.surface)
+    }
+
+    /// Every block of Waiting on you, at the list's width.
+    private static func waitingBlocks() -> some View {
+        let waiting = OperatorScene.waitingOnYou().board?.waiting ?? []
+        return WaitingOnYouList(questions: waiting, actions: BoardActions(), choose: { _ in })
+            .padding(Space.margin)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(Palette.surface)
     }
 
     private static func board(_ scene: OperatorScene, reopenFailed: Bool = false) -> BroadcastBoardSheet {

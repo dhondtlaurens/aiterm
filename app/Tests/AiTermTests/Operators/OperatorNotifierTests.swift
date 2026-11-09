@@ -46,7 +46,7 @@ import Testing
         #expect(note?.title == "Payment broadcast")
         #expect(note?.body == "The Operator asks: Which locale is the default?")
         #expect(note?.id == "request-\(run.id.uuidString)-question-q1")
-        #expect(note?.target == .board(run.id))
+        #expect(note?.target == .question(run: run.id, key: "q1"), "its block under Waiting on you")
     }
 
     @Test func aRequestAlreadyPostedIsNotPostedAgain() {
@@ -68,7 +68,30 @@ import Testing
         }
         notifier.requestsChanged(run: current)
         #expect(notifications.posted.map(\.body) == ["Codex asks for permission in Payment provider switch."])
-        #expect(notifications.posted.first?.target == .task(task.id))
+        #expect(notifications.posted.first?.target == .question(run: run.id, key: "prompt-\(task.id.uuidString)-1"),
+                "its block, whose one link opens its window")
+    }
+
+    /// A question's notification carries its key beside its board, and decodes back to the block; one an older AiTerm
+    /// posted, with only the board, still opens the board. AiTerm's own questions say so.
+    @Test func aQuestionsNoteOpensItsBlockAndAnOlderOneTheBoard() throws {
+        let notifier = makeNotifier()
+        change { state in
+            state.updateRun(id: run.id) {
+                $0.questions.append(OperatorQuestion(id: "t2-gate", text: "Keep the access gate for admins?", task: task.id,
+                                                     askedAt: Date(timeIntervalSince1970: 0), holds: false))
+                $0.questions.append(OperatorQuestion(id: "merged-on-host-\(task.id.uuidString)", text: "!71 was merged on GitLab.",
+                                                     task: task.id, askedAt: Date(timeIntervalSince1970: 0)))
+            }
+        }
+        notifier.requestsChanged(run: current)
+        let scope = try #require(notifications.posted.first { $0.id.hasSuffix("t2-gate") })
+        #expect(scope.body == "The Operator asks: Keep the access gate for admins?")
+        #expect(scope.target.userInfo == ["aiterm.overview": run.id.uuidString, "aiterm.question": "t2-gate"])
+        #expect(OperatorNote.Target(userInfo: scope.target.userInfo) == .question(run: run.id, key: "t2-gate"))
+        #expect(notifications.posted.contains { $0.body == "AiTerm asks: !71 was merged on GitLab." })
+        #expect(OperatorNote.Target(userInfo: ["aiterm.overview": run.id.uuidString]) == .board(run.id))
+        #expect(OperatorNote.Target(userInfo: ["aiterm.task": task.id.uuidString]) == .task(task.id))
     }
 
     @Test func aBlockedTaskAndAProblemNotifyOnTheBoard() {

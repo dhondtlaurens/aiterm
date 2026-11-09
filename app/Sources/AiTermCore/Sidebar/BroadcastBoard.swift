@@ -38,6 +38,9 @@ public struct BroadcastBoard: Equatable, Sendable {
         case sidebarBanner(issue: String)
         /// One of a task's worker tabs, from its line on the card: that tab selected and its window brought forward.
         case tab(task: UUID, sessionId: String)
+        /// A worker's prompt, from its block under Waiting on you: its own tab, by its key (`WorkerTab.firstKey` for the
+        /// first worker), brought forward, or the task's window when that tab isn't listed.
+        case prompt(task: UUID, tab: String)
         /// A Todo task that has not started: the card is not a button.
         case nothing
     }
@@ -136,6 +139,80 @@ public struct BroadcastBoard: Equatable, Sendable {
         public init(counts: String?, answered: FixRoundsAnswer? = nil) { self.counts = counts; self.answered = answered }
     }
 
+    /// A question for you about a task, under its card's rule: the oldest open one, its fix rounds' aside (`FixRounds`)
+    /// and a worker's prompt aside (its line says it). One that holds keeps the card's line `waiting on you`; one that
+    /// doesn't adds `question for you` and leaves the line as it is.
+    public struct CardQuestion: Equatable, Sendable {
+        public var key: String
+        public var text: String
+        public var holds: Bool
+        public var asker: OperatorQuestion.Asker
+        public init(key: String, text: String, holds: Bool, asker: OperatorQuestion.Asker) {
+            self.key = key; self.text = text; self.holds = holds; self.asker = asker
+        }
+    }
+
+    /// One question in Waiting on you, the list above the columns (D1a): every open question addressed to the person,
+    /// whoever asks, oldest first. Its task (ticket and title, or `The broadcast`) and age head it; then who asks or
+    /// where it waits; the question; then how it is answered: here, in its block, or there, by one link.
+    public struct ListedQuestion: Equatable, Identifiable, Sendable {
+        /// How it is answered.
+        public enum Answer: Equatable, Sendable {
+            /// In its block: its choices as links, then any other answer in a field, unless `field` is false (fix rounds,
+            /// whose answers are fixed).
+            case here(choices: [String], field: Bool)
+            /// A worker's prompt: Open its window, its own tab raised. AiTerm never types a permission.
+            case window(task: UUID, tab: String)
+            /// A command the Oracle stopped: Open the Operator's chat, where it is allowed (22 Oct, trust over a button).
+            case chat
+        }
+
+        public var key: String
+        public var task: UUID?
+        public var ticket: String?
+        /// The task's title, or `The broadcast` for a question on no task.
+        public var title: String
+        public var askedAt: Date
+        /// Who asks, or where it waits: `The Operator asks`, `AiTerm asks`, `Waits in its worker’s window`.
+        public var from: String
+        public var text: String
+        public var answer: Answer
+        /// What the person answered in AiTerm, and when when it is known: the block then says so until the Operator
+        /// resolves the question.
+        public var answered: String?
+        public var answeredAt: Date?
+        /// For a worker's question the Operator relayed, why it reached you, in one line (`QuestionStep`s summed up), and
+        /// the whole discussion its Read the discussion opens: the Oracle's rounds and the Operator's replies. Nil for
+        /// one relayed straight, and for any other question.
+        public var why: String? = nil
+        public var discussion: [QuestionStep]? = nil
+        public var id: String { key }
+
+        public init(key: String, task: UUID?, ticket: String?, title: String, askedAt: Date, from: String, text: String,
+                    answer: Answer, answered: String? = nil, answeredAt: Date? = nil, why: String? = nil,
+                    discussion: [QuestionStep]? = nil) {
+            self.key = key; self.task = task; self.ticket = ticket; self.title = title; self.askedAt = askedAt; self.from = from
+            self.text = text; self.answer = answer; self.answered = answered; self.answeredAt = answeredAt
+            self.why = why; self.discussion = discussion
+        }
+
+        /// What an answered block says: `You answered “Drop it for admins” 2 min ago. Waiting for the Operator to take
+        /// it.`, without the age when AiTerm didn't record when (an answer to fix rounds).
+        public func answeredLine(now: Date) -> String? {
+            guard let answered else { return nil }
+            let when = answeredAt.map { " " + BroadcastBoard.age(since: $0, now: now) + " ago" } ?? ""
+            return "You answered “\(answered)”\(when). Waiting for the Operator to take it."
+        }
+    }
+
+    /// How long ago `date` was, as a block's head says it: `1 min`, `24 min`, `2 h`, `3 d`, never less than a minute.
+    public static func age(since date: Date, now: Date) -> String {
+        let minutes = max(1, Int(now.timeIntervalSince(date) / 60))
+        if minutes < 60 { return "\(minutes) min" }
+        if minutes < 24 * 60 { return "\(minutes / 60) h" }
+        return "\(minutes / (24 * 60)) d"
+    }
+
     /// One task on the board.
     public struct Card: Equatable, Identifiable, Sendable {
         /// The task's id.
@@ -156,7 +233,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         public var line: OperatorLine?
         /// You took it over: the card reads `taken over` with no badge until you Hand Back.
         public var takenOver: Bool
-        /// It carries a request: its edge in the attention stroke, its line the needs-you badge.
+        /// It carries a request, or a question for you: its edge in the attention stroke.
         public var needsYou: Bool
         public var opens: Opens
         /// The model the Operator chose and its one-line reason (spec §15.4): `Codex · gpt-5.5 · high`, then
@@ -177,6 +254,11 @@ public struct BroadcastBoard: Equatable, Sendable {
         /// Under its rule: why the closing kept its worktree once it ran (`OperatedTask.keptReason`), or while it is due what
         /// it waits for (`closingWait`); nil while neither is recorded.
         public var notice: String? = nil
+        /// A question for you about it, while it is not yours.
+        public var question: CardQuestion? = nil
+        /// What its worker asks the Operator and the Operator hasn't answered nor relayed (`OperatorActs.asks`): muted under
+        /// `asking the Operator`, two lines at most, no link. Nil while it is yours, or once relayed: `question` then.
+        public var workerAsks: String? = nil
     }
 
     /// A column: its head, its cards, and the one muted line it says while it has none.
@@ -238,6 +320,8 @@ public struct BroadcastBoard: Equatable, Sendable {
     public var snags: [OperatorSnag] = []
     /// An ended broadcast read from the Shelf: nothing on it acts, and the footer is Close alone.
     public var isShelved: Bool = false
+    /// Waiting on you, above the columns: every open question for the person, oldest first (`waiting(of:state:)`).
+    public var waiting: [ListedQuestion] = []
 
     /// The header's lines, one each: Asked, Goal, then Each task.
     public var headerLines: [Clause] { clauses + [eachTask] }
@@ -300,9 +384,12 @@ public struct BroadcastBoard: Equatable, Sendable {
             guard let operated = task.operated else { return nil }
             let handed = keepsHanded && Self.handedOnEnd(operated)
             guard operated.state != .stopped || handed else { return nil }
-            let card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId, sessions: sessions,
+            var card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId, sessions: sessions,
                                  live: liveModels[task.id], turn: acting.turns[task.id], labels: modelLabels,
                                  project: projects.count > 1 ? names[task.projectId] : nil)
+            // Relayed, it is a record of yours, which the card shows as its question instead.
+            let relayed = run.questions.contains { $0.task == task.id && $0.resolution == nil && $0.relayedFrom != nil }
+            if !operated.takenOver, !relayed { card.workerAsks = acting.asks[task.id] }
             // A task is in review while one of its review tabs is open.
             let reviewing = OperatorLine.isInReview(operated, tabs: task.workerTabs(in: sessions))
             return (handed ? .inProgress : Self.column(of: operated, hasReview: hasReview, reviewing: reviewing), card, task.agent)
@@ -327,7 +414,74 @@ public struct BroadcastBoard: Equatable, Sendable {
             eachTask: eachTask(run.taskSettings), goalOutcome: run.goalOutcome,
             columns: columns,
             isPaused: run.isPaused,
-            isComplete: run.state == .complete, summary: RunSummary(run), leftForYou: run.leftForYou, snags: run.snags)
+            isComplete: run.state == .complete, summary: RunSummary(run), leftForYou: run.leftForYou, snags: run.snags,
+            waiting: waiting(of: run, state: state))
+    }
+
+    /// Waiting on you: every open question of `run` addressed to the person, read from its questions themselves, so two
+    /// tabs of a task prompting at once are two blocks (`OperatorRequests.open` says a task's prompts as one). What asks
+    /// nothing is left out, as there: an ended run's, a task's you took over, and a finished task's that holds it. Oldest
+    /// first, a tie in the order they were recorded.
+    public static func waiting(of run: OperatorRun, state: AppState) -> [ListedQuestion] {
+        guard !run.hasEnded else { return [] }
+        let tasks = Dictionary(state.tasks(inRun: run.id).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let records = Dictionary(run.finished.map { ($0.task, $0) }, uniquingKeysWith: { first, _ in first })
+        let listed = run.questions.enumerated().compactMap { offset, question -> (Int, ListedQuestion)? in
+            guard question.resolution == nil else { return nil }
+            let operated = question.task.flatMap { tasks[$0]?.operated }
+            if let operated, operated.takenOver || (operated.isFinished && question.holdsTask) { return nil }
+            let task = question.task.flatMap { tasks[$0] }
+            let title = task?.title ?? question.task.flatMap { records[$0]?.title } ?? "The broadcast"
+            let ticket = task?.jira?.key ?? question.task.flatMap { records[$0]?.ticket }
+            return (offset, ListedQuestion(key: question.id, task: question.task, ticket: ticket, title: title, askedAt: question.askedAt,
+                                           from: from(question), text: question.text, answer: answer(question),
+                                           answered: question.answer, answeredAt: question.answeredHereAt,
+                                           why: why(question.history), discussion: discussion(question.history)))
+        }
+        return listed.sorted { ($0.1.askedAt, $0.0) < ($1.1.askedAt, $1.0) }.map(\.1)
+    }
+
+    /// Who asks, or where a question answered there waits.
+    private static func from(_ question: OperatorQuestion) -> String {
+        if question.id.hasPrefix(OperatorQuestion.promptPrefix) {
+            guard let tab = question.tab, tab != WorkerTab.firstKey else { return "Waits in its worker’s window" }
+            return "Waits in its \(tab) tab"
+        }
+        if question.id.hasPrefix(OperatorQuestion.gatePrefix) { return "Waits in the Operator’s chat" }
+        switch question.asker {
+        case .aiterm: return "AiTerm asks"
+        case .theOperator: return "The Operator asks"
+        case .worker:
+            let tab = question.relayedFrom.flatMap { $0 == WorkerTab.firstKey ? nil : $0 }
+            return (tab.map { "Its \($0) tab asks" } ?? "Its worker asks") + " · relayed by the Operator"
+        }
+    }
+
+    /// The Oracle's part in a relay, after its rounds: nil when it had none.
+    private static func discussion(_ history: [QuestionStep]?) -> [QuestionStep]? {
+        let steps = (history ?? []).filter { $0.kind != .asked }
+        return steps.isEmpty ? nil : steps
+    }
+
+    /// Why a relayed question reached you, in one line: the Oracle's rounds, or why it had none.
+    static func why(_ history: [QuestionStep]?) -> String? {
+        let steps = history ?? []
+        if let unchallenged = steps.last(where: { $0.kind == .unchallenged }) { return "Unchallenged: \(unchallenged.text)" }
+        let rounds = steps.compactMap { $0.kind == .oracle ? $0.round : nil }.max() ?? 0
+        guard rounds > 0 else { return nil }
+        let replied = steps.contains { $0.kind == .reply }
+        let said = rounds == 1 ? "The Oracle looked at it once" : "The Oracle and the Operator took \(rounds) rounds"
+        return said + (replied ? ", and the Operator kept it for you." : ", and agreed only you can answer it.")
+    }
+
+    /// How a question is answered: there, by one link, or here, with its choices and a field.
+    private static func answer(_ question: OperatorQuestion) -> ListedQuestion.Answer {
+        if question.id.hasPrefix(OperatorQuestion.promptPrefix), let task = question.task {
+            return .window(task: task, tab: question.tab ?? WorkerTab.firstKey)
+        }
+        if question.id.hasPrefix(OperatorQuestion.gatePrefix) { return .chat }
+        if question.about == OperatorQuestion.fixRounds { return .here(choices: FixRoundsAnswer.allCases.map(\.title), field: false) }
+        return .here(choices: question.choices ?? [], field: true)
     }
 
     /// The Each task line: the review prompt quoted when there is one, `ends at draft MR`, then `closed at the end`
@@ -361,6 +515,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         }
         board.isPaused = false
         board.isShelved = true
+        board.waiting = []
         return board
     }
 
@@ -427,11 +582,12 @@ public struct BroadcastBoard: Equatable, Sendable {
                 }
             }
         let tabs = tabs(of: task, sessions: sessions, labels: labels)
+        let question = takenOver ? nil : self.question(on: task.id, operated, run: run)
         return Card(id: task.id, title: task.title, agent: task.agent,
                     ticket: task.jira?.key, ticketSummary: task.jira?.summary,
                     mr: mr?.reference, mrHost: mr?.host, mrTitle: mr?.title, project: project,
                     line: takenOver ? nil : line, takenOver: takenOver,
-                    needsYou: !takenOver && line?.look == .needsYou,
+                    needsYou: !takenOver && (line?.look == .needsYou || question != nil),
                     opens: opens(task, operated, requests: requests),
                     modelTooltip: modelTooltip(task, operated, live: live), result: OperatorLine.ending(of: operated),
                     tabs: tabs,
@@ -443,7 +599,17 @@ public struct BroadcastBoard: Equatable, Sendable {
                         FixRounds(counts: operated.reviewVerdicts.last.map(counts),
                                   answered: question.answeredOnCard.flatMap(FixRoundsAnswer.init(rawValue:)))
                     },
-                    notice: kept ? operated.keptReason : closes && run.closingIsDue ? operated.closingWait?.text : nil)
+                    notice: kept ? operated.keptReason : closes && run.closingIsDue ? operated.closingWait?.text : nil,
+                    question: question)
+    }
+
+    /// The card's question for you (`CardQuestion`): on a finished task only one that never held it, as that one still asks.
+    private static func question(on task: UUID, _ operated: OperatedTask, run: OperatorRun) -> CardQuestion? {
+        run.questions
+            .filter { $0.task == task && $0.resolution == nil && !$0.id.hasPrefix(OperatorQuestion.promptPrefix)
+                && $0.about != OperatorQuestion.fixRounds && !(operated.isFinished && $0.holdsTask) }
+            .min { $0.askedAt < $1.askedAt }
+            .map { CardQuestion(key: $0.id, text: $0.text, holds: $0.holdsTask, asker: $0.asker) }
     }
 
     /// The card of a task closed at the broadcast's end, from its record: the title, agent, ticket and combination it
@@ -534,11 +700,12 @@ public struct BroadcastBoard: Equatable, Sendable {
     }
 
     /// What resolves the card's request, by its kind (the one its line says), else its task's window once
-    /// it has started. A finished task's leftover request asks nothing, as on its line.
+    /// it has started. A finished task's leftover request asks nothing, as on its line, and a question that doesn't hold
+    /// the task is opened from its own link (`CardQuestion`).
     private static func opens(_ task: TaskItem, _ operated: OperatedTask, requests: [BroadcastRequest]) -> Opens {
         var kind: BroadcastRequest.Kind?
         if !operated.takenOver, !operated.isFinished {
-            kind = OperatorLine.first(requests.filter { $0.runId == operated.runId && $0.taskId == task.id })?.kind
+            kind = OperatorLine.first(requests.filter { $0.runId == operated.runId && $0.taskId == task.id && $0.holds })?.kind
             // Blocked, whether or not its request was passed in: what blocks it is the Operator's, or AiTerm's.
             if kind == nil, operated.state == .blocked { kind = operated.problem == nil ? .blocked : .problem }
         }

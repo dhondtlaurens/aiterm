@@ -119,6 +119,7 @@ enum OperatorEvalGrading {
     /// What every scenario's other tools answer, as the app would for a call that worked; a scenario's own replies win.
     static let commonReplies: [String: JSONValue] = [
         "ask_you": ["open": true, "resolution": nil],
+        "relay_question": ["open": true, "resolution": nil],
         "resolve_question": ["open": false],
         "report_snag": ["recorded": true],
         "report_find": ["recorded": true],
@@ -140,6 +141,10 @@ enum OperatorEvalGrading {
     static let movesOn: Set<String> = ["message_task", "review_task", "mark_task"]
 
     static func asksInChat(_ reply: String) -> Bool { reply.contains("?") }
+
+    /// Whether the reply points to a question asked with ask_you, in one line starting `Asked you in AiTerm:` (A, 5 Nov
+    /// 2026), rather than asking it in the chat.
+    static func pointsToItsQuestion(_ reply: String) -> Bool { reply.contains("Asked you in AiTerm:") }
 
     /// `text` lowercased, with curly apostrophes made straight, for matching words.
     static func plain(_ text: String) -> String { text.lowercased().replacingOccurrences(of: "’", with: "'") }
@@ -185,8 +190,8 @@ enum OperatorEvalGrading {
         answerInTheBrief, oneToolKeepsFailing, workerMessageNamesAnAskFirstAct,
     ]
 
-    /// Two people match "Sofie": which one reviews is the Operator's own next step, so it asks in the chat and lists it
-    /// with ask_you on no task, rather than guessing a reviewer.
+    /// Two people match "Sofie": which one reviews is the Operator's own next step, so it asks with ask_you on no task and
+    /// points to it in its reply, rather than guessing a reviewer.
     static let reviewerUsername = EvalScenario(
         name: "reviewerUsername", firstMessage: wakeLine,
         replies: replies([
@@ -201,11 +206,12 @@ enum OperatorEvalGrading {
             let asks = t.arguments(of: "ask_you")
             if asks.isEmpty { failures.append("ask_you was never called") }
             if asks.contains(where: { !($0["task"]?.stringValue ?? "").isEmpty }) { failures.append("ask_you put its own question on a task") }
-            if !asksInChat(t.reply) { failures.append("the reply asks no question") }
+            if !pointsToItsQuestion(t.reply) { failures.append("the reply doesn't point to its question") }
             return failures
         })
 
-    /// PAY-14's worker stopped to ask a scope question: it waits on the answer, so the question goes on PAY-14.
+    /// PAY-14's worker stopped to ask a scope question only the person can answer: it is relayed in the worker's words
+    /// (`relay_question` on PAY-14), never asked again with ask_you.
     static let workerScopeQuestion = EvalScenario(
         name: "workerScopeQuestion", firstMessage: wakeLine,
         replies: replies([
@@ -219,13 +225,14 @@ enum OperatorEvalGrading {
         ]),
         check: { t in
             var failures: [String] = []
-            if !t.arguments(of: "ask_you").contains(where: { names($0["task"], "PAY-14") }) {
-                failures.append("no ask_you with task PAY-14")
+            if !t.arguments(of: "relay_question").contains(where: { names($0["task"], "PAY-14") }) {
+                failures.append("no relay_question with task PAY-14")
             }
+            if t.called("ask_you") { failures.append("ask_you was called with a worker's question") }
             if t.calls(["mark_task"], on: "PAY-14").contains(where: { $0.arguments["outcome"]?.stringValue == "accepted" }) {
                 failures.append("PAY-14 was accepted with its question open")
             }
-            if !asksInChat(t.reply) { failures.append("the reply asks no question") }
+            if !pointsToItsQuestion(t.reply) { failures.append("the reply doesn't point to its question") }
             return failures
         })
 

@@ -488,7 +488,7 @@ extension OperatorToolHandler {
         return json(.object(arguments))
     }
 
-    private func updateChallenge(_ id: String, in run: UUID, _ change: (inout ChallengeRecord) -> Void) {
+    func updateChallenge(_ id: String, in run: UUID, _ change: (inout ChallengeRecord) -> Void) {
         mutate(in: run) { state in
             state.updateRun(id: run) { run in
                 if let i = run.challenges.firstIndex(where: { $0.id == id }) { change(&run.challenges[i]) }

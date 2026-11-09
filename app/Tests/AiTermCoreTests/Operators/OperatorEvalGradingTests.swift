@@ -72,26 +72,30 @@ import Foundation
         let check = try scenario("reviewerUsername").check
         let good = transcript([status, ("find_user", ["task": "PAY-12", "query": "Sofie"]),
                                ("ask_you", ["key": "pay-12-reviewer", "question": "Which Sofie reviews PAY-12?"])],
-                              "Question: Which Sofie reviews PAY-12, sofie.peeters or sofie.maes?")
+                              "Asked you in AiTerm: which Sofie reviews PAY-12, sofie.peeters or sofie.maes.")
         #expect(check(good) == [])
         let onATask = transcript([status, ("ask_you", ["key": "k", "question": "Which Sofie reviews PAY-12?", "task": "PAY-12"])],
-                                 "Question: Which Sofie reviews PAY-12?")
+                                 "Asked you in AiTerm: which Sofie reviews PAY-12.")
         #expect(check(onATask) == ["ask_you put its own question on a task"])
         let guessed = transcript([status, ("request_review", ["task": "PAY-12", "reviewers": ["sofie.peeters"]])], "Asked Sofie.")
         #expect(check(guessed) == ["request_review was called before the person said which Sofie", "ask_you was never called",
-                                   "the reply asks no question"])
+                                   "the reply doesn't point to its question"])
+        let inChat = transcript([status, ("ask_you", ["key": "k", "question": "Which Sofie reviews PAY-12?"])],
+                                "Question: Which Sofie reviews PAY-12?")
+        #expect(check(inChat) == ["the reply doesn't point to its question"], "asked in the chat, not pointed to")
     }
 
     @Test func workerScopeQuestion() throws {
         let check = try scenario("workerScopeQuestion").check
         let good = transcript([status, ("read_task", ["task": "PAY-14", "what": "lastMessage"]),
-                               ("ask_you", ["key": "pay-14-scope", "question": "Every order, or the filtered ones?", "task": "PAY-14"])],
-                              "Question: Should PAY-14's button download every order, or only the filtered ones?")
+                               ("relay_question", ["key": "pay-14-scope", "task": "PAY-14"])],
+                              "Asked you in AiTerm: whether PAY-14's button downloads every order, or only the filtered ones.")
         #expect(check(good) == [])
-        let ownStep = transcript([status, ("ask_you", ["key": "k", "question": "Every order, or the filtered ones?"]),
+        let ownStep = transcript([status, ("ask_you", ["key": "k", "question": "Every order, or the filtered ones?", "task": "PAY-14"]),
                                   ("mark_task", ["task": "PAY-14", "outcome": "accepted", "sha": "a41c9d2"])],
-                                 "Question: Every order, or the filtered ones?")
-        #expect(check(ownStep) == ["no ask_you with task PAY-14", "PAY-14 was accepted with its question open"])
+                                 "Asked you in AiTerm: every order, or the filtered ones.")
+        #expect(check(ownStep) == ["no relay_question with task PAY-14", "ask_you was called with a worker's question",
+                                   "PAY-14 was accepted with its question open"])
     }
 
     @Test func promptWithNoPrompt() throws {

@@ -22,6 +22,17 @@ import Testing
         try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// H1: the marker AiTerm's scan reads is a contract with the worker, on its first prompt; a message that keeps it is a
+    /// question the scan reads whole.
+    @Test func theWorktreeLineAsksTheWorkerToMarkItsQuestion() {
+        #expect(WorkerStarter.worktreeLine(branch: "feat/x").hasSuffix(" " + WorkerStarter.askLine))
+        #expect(!WorkerStarter.worktreeLine(branch: "feat/x", asks: false).contains("Question:"), "a review tab ends with its verdict block")
+        #expect(WorkerStarter.askLine == "When you stop to ask, end your last message with a paragraph starting Question:, its choices under it, "
+                + "and nothing after them.")
+        let kept = "Wired it.\n\nQuestion: Keep drafts after a reset?\n- Keep them\n- Drop them"
+        #expect(WorkerTurn.endsWithQuestion(kept) && WorkerTurn.question(kept) == "Question: Keep drafts after a reset?\n- Keep them\n- Drop them")
+    }
+
     @Test func stoppingBeforeALaunchRunsLeavesItsClaimQueuedAndOpensNothing() async throws {
         let (world, run, project) = try makeWorld()
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .queued)
@@ -60,7 +71,9 @@ import Testing
             + "Never type /model, /effort or /config into a live agent session: they save the person's defaults. "
             + "To try a model or effort, use launch flags or a scratch CLAUDE_CONFIG_DIR. "
             + "Keep each background command's handle/PID, log and exit status. Queued tests are not stalled. "
-            + "Finish when your command exits; do not poll other test processes.\n\nDo PLUTO-1."
+            + "Finish when your command exits; do not poll other test processes. "
+            + "When you stop to ask, end your last message with a paragraph starting Question:, its choices under it, "
+            + "and nothing after them.\n\nDo PLUTO-1."
         let expected = try AgentCommand.build(agent: .codex, model: "m", reasoning: nil, prompt: prompt,
                                               worktreePath: started.worktreePath, git: git, operated: true)
         #expect(window.params["agentCommand"] as? String == expected)

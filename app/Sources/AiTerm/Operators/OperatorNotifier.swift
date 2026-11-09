@@ -1,22 +1,29 @@
 import Foundation
 import AiTermCore
 
-/// One notification: what it says, and what a click on it opens — a broadcast's board, or a task's
-/// window for a prompt only you can answer (spec §10.3). Its `id` replaces an earlier one with the same id.
+/// One notification: what it says, and what a click on it opens — a broadcast's board, at a question's block under
+/// Waiting on you when it is about one (spec §10.3; D1a, 5 Nov 2026). Its `id` replaces an earlier one with the same id.
+/// `.task` opens a task's window, as notifications from before the list did.
 struct OperatorNote: Equatable, Sendable {
     enum Target: Equatable, Sendable {
         case board(UUID), task(UUID)
+        /// The board of `run`, at the block of its question `key`.
+        case question(run: UUID, key: String)
 
-        /// The target as a notification carries it.
+        /// The target as a notification carries it: a question's key beside its board's run.
         var userInfo: [String: String] {
             switch self {
             case .board(let id): ["aiterm.overview": id.uuidString]
             case .task(let id): ["aiterm.task": id.uuidString]
+            case .question(let run, let key): ["aiterm.overview": run.uuidString, "aiterm.question": key]
             }
         }
 
+        /// A notification an older AiTerm posted, with no question, opens the board.
         init?(userInfo: [AnyHashable: Any]) {
-            if let id = (userInfo["aiterm.overview"] as? String).flatMap(UUID.init(uuidString:)) { self = .board(id) }
+            if let id = (userInfo["aiterm.overview"] as? String).flatMap(UUID.init(uuidString:)) {
+                if let key = userInfo["aiterm.question"] as? String { self = .question(run: id, key: key) } else { self = .board(id) }
+            }
             else if let id = (userInfo["aiterm.task"] as? String).flatMap(UUID.init(uuidString:)) { self = .task(id) }
             else { return nil }
         }
@@ -88,9 +95,8 @@ final class OperatorNotifier {
     /// summary settled, that it is ready — or, given up on, that the tasks are done.
     private func wanted(for run: OperatorRun, in state: AppState) -> [OperatorNote] {
         var notes: [OperatorNote] = OperatorRequests.open(run: run, state: state).map { request in
-            // A prompt only you can answer opens its task's window; anything else, the broadcast's board.
-            var target = OperatorNote.Target.board(run.id)
-            if request.kind == .permission, let task = request.taskId { target = .task(task) }
+            // A question, a prompt among them, opens its block under Waiting on you; anything else, the board.
+            let target = request.key.map { OperatorNote.Target.question(run: run.id, key: $0) } ?? .board(run.id)
             return OperatorNote(id: request.id, title: run.name, body: request.text, target: target)
         }
         if let summary = OperatorLine.summary(of: run), summary.isSettled {
