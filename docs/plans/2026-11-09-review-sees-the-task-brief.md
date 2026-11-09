@@ -75,8 +75,8 @@ because it can carry ticket text.
 
 ## To-dos
 
-- [ ] Commit the plan and the research note.
-- [ ] A review tab's first prompt carries the task's fenced brief, with its AiTerm line. Tests pinned.
-- [ ] The Oracle's critique of a `mark_task` verdict carries the task's fenced brief. Tests at the
+- [x] Commit the plan and the research note.
+- [x] A review tab's first prompt carries the task's fenced brief, with its AiTerm line. Tests pinned.
+- [x] The Oracle's critique of a `mark_task` verdict carries the task's fenced brief. Tests at the
       prompt and handler level.
-- [ ] `docs/operators.md` and the research note updated. `scripts/test.sh` green.
+- [x] `docs/operators.md` and the research note updated. `scripts/test.sh` green.

@@ -352,6 +352,15 @@ extension OperatorOpenTabTests {
         let repeatWithDifferentRole = await world.call(run.id, "open_tab", args.adding("role", "work"))
         #expect(repeatWithDifferentRole.message != nil)
     }
+
+    @Test func aReviewTabReadsTheTasksBrief() async throws {
+        let taskBrief = "Fix the refresh.\n\n" + String(repeating: "Done when its test passes. ", count: 80)
+        let (world, run, task) = try makeWorld { $0.operated?.brief = taskBrief }
+        let opened = await world.call(run.id, "open_tab", Self.arguments().adding("role", "review").adding("brief", "Look at the race."))
+        #expect(opened.value?["state"] == "opened")
+        let prompt = try String(contentsOfFile: task.worktreePath + "/.aiterm/" + TabOpener.promptFile(for: "review"), encoding: .utf8)
+        #expect(prompt.contains(TabOpener.taskBriefLine + "\n" + ChallengeLaunch.fenced(taskBrief) + "\n\nLook at the race."))
+    }
 }
 
 extension OperatorOpenTabTests {
