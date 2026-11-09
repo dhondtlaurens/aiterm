@@ -205,8 +205,10 @@ extension OperatorToolHandler {
             try await vetoPrecheck(call, in: run)
             prompt = ChallengeLaunch.vetoPrompt(addition: Self.invocation(call), run: status())
         } else {
+            // A verdict is judged against what its task was asked to do.
+            let brief = call.operatorTool == .markTask ? (try? task(call, in: run))?.operated?.brief : nil
             prompt = ChallengeLaunch.prompt(tool: call.tool, arguments: Self.json(call.arguments), status: status(),
-                                            instructions: run.profile.instructions)
+                                            instructions: run.profile.instructions, brief: brief)
         }
         let id = UUID().uuidString
         // A merge's or a push's yes holds for the commit accepted now, which the record keeps, with whether it was a merge's.

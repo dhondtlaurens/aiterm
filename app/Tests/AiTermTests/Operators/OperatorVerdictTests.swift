@@ -10,8 +10,8 @@ import Testing
          "critical": 1, "important": 2, "minor": 3, "summary": "A race needs fixing.", "round": 1, "rounds": 2]
     }
 
-    /// The review prompt as the tab reads it, `review` and `brief` in their places.
-    func expectedReviewPrompt(review: String?, brief: String?) -> String {
+    /// The review prompt as the tab reads it, `review`, the task's brief and `brief` in their places.
+    func expectedReviewPrompt(review: String?, taskBrief: String? = nil, brief: String?) -> String {
         let lines = """
         [AiTerm] You are already in this task's worktree, on branch task-branch. Commit only here, on task-branch. \
         Do not create another worktree or branch. Inventories, audits and lists go in your final message, never in a new file \
@@ -36,26 +36,34 @@ import Testing
         minor: <count>
         summary: <one-line summary>
         """
-        return [review, lines, brief, block].compactMap { $0 }.joined(separator: "\n\n")
+        let task = taskBrief.map { TabOpener.taskBriefLine + "\n```\n" + $0 + "\n```" }
+        return [review, lines, task, brief, block].compactMap { $0 }.joined(separator: "\n\n")
     }
 
     @Test func reviewPromptPinsInstructionsBriefAndVerdictInOrder() {
-        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: "Check correctness with /review.", brief: "Operator context.")
+        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: "Check correctness with /review.", taskBrief: "", brief: "Operator context.")
             == expectedReviewPrompt(review: "Check correctness with /review.", brief: "Operator context."))
     }
 
+    @Test func reviewPromptCarriesTheTasksBriefFencedBeforeTheOperatorsContext() {
+        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: "Check correctness with /review.",
+                                       taskBrief: "Fix the refresh. Done when its test passes.", brief: "Operator context.")
+            == expectedReviewPrompt(review: "Check correctness with /review.", taskBrief: "Fix the refresh. Done when its test passes.",
+                                    brief: "Operator context."))
+    }
+
     @Test func reviewPromptWithoutBriefPinsInstructionsAndVerdictInOrder() {
-        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: "Check correctness with /review.", brief: "")
+        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: "Check correctness with /review.", taskBrief: "", brief: "")
             == expectedReviewPrompt(review: "Check correctness with /review.", brief: nil))
     }
 
     @Test(arguments: [nil, ""]) func reviewPromptWithoutReviewTextStartsWithAiTermsLines(review: String?) {
-        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: review, brief: "Operator context.")
+        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: review, taskBrief: "", brief: "Operator context.")
             == expectedReviewPrompt(review: nil, brief: "Operator context."))
     }
 
     @Test func reviewPromptsCarryTheWorkersWorktreeLine() {
-        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: nil, brief: "")
+        #expect(TabOpener.reviewPrompt(branch: "task-branch", sha: "abc123", review: nil, taskBrief: "", brief: "")
             .hasPrefix(WorkerStarter.worktreeLine(branch: "task-branch", asks: false) + "\n\n"))
     }
 
@@ -229,7 +237,9 @@ import Testing
         #expect(command.contains("$(command cat"))
         let prompt = try String(contentsOfFile: file, encoding: .utf8)
         #expect(prompt.hasPrefix("Check correctness with /review.\n\n" + WorkerStarter.worktreeLine(branch: task.branch, asks: false)))
-        #expect(prompt.contains("read-only commands.\n\nEnd with this verdict block"))
+        let taskBrief = try #require(world.task(task.id)?.operated?.brief)
+        #expect(prompt.contains("read-only commands.\n\n" + TabOpener.taskBriefLine + "\n" + ChallengeLaunch.fenced(taskBrief)
+                                + "\n\nEnd with this verdict block"), "no Operator brief leaves no gap after the task's")
     }
 
     @Test func reviewTabsNeverUseLegacyReviewText() async throws {

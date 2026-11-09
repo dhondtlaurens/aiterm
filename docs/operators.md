@@ -62,8 +62,11 @@ command runs and the decision is logged. This policy is not a complete shell-lan
 A task has its own worktree/window and may have multiple worker tabs. `open_tab` starts another
 permitted Agents row in that worktree. A `review` tab starts read-only: Codex uses its read-only
 sandbox; Claude denies editing tools and Git mutation commands, in addition to worker publication
-denials. The Operator reads the ended turn and uses `record_review` to attach the verdict to its
-reviewed commit. Acceptance remains the Operator's decision.
+denials. Its first prompt carries the review prompt, the task's brief (what its worker was asked to
+do, fenced as data to judge the commit against) and the Operator's own brief for the tab. The
+Operator reads the ended turn and uses `record_review` to attach the verdict to its reviewed commit.
+Acceptance remains the Operator's decision; with the Oracle on, its critique of a verdict reads the
+task's brief too, as a merge's judgment does.
 
 When the review prompt's fix-round allowance runs out, the task asks you for **One More Round** or
 **Accept As It Is**. The Oracle judges whether a merge satisfies the review prompt, verdicts and
