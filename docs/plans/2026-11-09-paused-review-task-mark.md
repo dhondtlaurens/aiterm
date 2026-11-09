@@ -53,7 +53,8 @@ are needed. A closed Operator window by itself is not a pause by the person.
 - **Modify** `app/Sources/AiTerm/Snapshots/OperatorSnapshots.swift`: include a synthetic task
   waiting on a reviewer in both sides of `broadcast-paused.png`, alongside paused workers and
   completed work. Keep this task idle in both scenes, so it keeps its review text and pause sign
-  even while another task is still pausing; include it in both scenes' ended-turn fixture sets.
+  even while another task is still pausing. The fixture's `show` helper creates only working-task
+  sessions, so add the idle review session explicitly in each scene.
   Update the fixture's descriptive comments too.
 - **Modify** `docs/operators.md`: explain that an idle task in people's review keeps its review
   text while the mark changes to the pause sign during a pause by the person.
@@ -88,12 +89,13 @@ are needed. A closed Operator window by itself is not a pause by the person.
 
 ## To-dos
 
-- [ ] Add the review-state projection regression, implement the separate paused-mark decision and
+- [x] Add the review-state projection regression, implement the separate paused-mark decision and
       prove pause, resume, activity and attention through the focused suites.
-- [ ] Extend and inspect the paused snapshot with the retained review line and existing pause sign,
+- [x] Extend and inspect the paused snapshot with the retained review line and existing pause sign,
       and document the resulting behaviour.
-- [ ] Run the affected gate and review the finished change before committing; run the full gate
-      before merging.
+- [x] Run the affected gate.
+- [x] Review the finished change before committing.
+- [x] Run the full gate before merging.
 
 ## Plan review
 
@@ -102,4 +104,30 @@ Round one raised one Important finding and two Minor findings. All were verified
 check every task session rather than only registered workers, reuse existing mark-renderer
 coverage, and specify the review task's idle state in both snapshot scenes and their comments.
 Round two reported no findings and confirmed all previous findings settled. No open findings
-remain. Implementation and its tests have not started.
+remain.
+
+## Implementation proof
+
+- The new projection regression failed on the original code with six expected issues: the idle
+  review row and pause-intent cases still had no pause mark. The activity/attention alternatives
+  passed before the fix.
+- After the fix, the focused run passed all 52 tests across `BroadcastSectionTests`,
+  `OperatorLineTests` and `TaskRowMarkTests`.
+- `scripts/snapshots.sh build/paused-review-snapshots` succeeded. Direct inspection of
+  `broadcast-paused.png` confirmed that Order tracking keeps its review text and the pause sign
+  in both scenes, while Save the basket is still pausing on the left and paused on the right.
+- Plain `scripts/test.sh` passed: 4,065 tests across the three Swift test targets and the separate
+  snapshot pass, with three recorded known issues. The frozen Operator contract tests passed
+  without changing their fixtures.
+- After rebasing onto the current `main`, `scripts/test.sh all` passed: 1,511 daemon tests
+  with one skipped, type and lint checks, and 4,069 Swift tests with three recorded known issues.
+- The approved plan was committed first. The installed app and its broadcast were left
+  undisturbed throughout implementation, review and verification.
+
+## Implementation review
+
+Claude reviewed the finished change through the psg adversarial-review workflow in one round.
+It reported no findings and confirmed the pause mark preserves the review text and cannot hide
+task-tab activity, prompts, holding requests or Operator acts. There are no listed Minors and no
+open findings. The previously passing affected gate and inspected snapshot cover the reviewed
+implementation; no product code changed during review.

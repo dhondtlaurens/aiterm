@@ -104,6 +104,100 @@ import Testing
         #expect(settled.tasks.map(\.paused) == [true, true] && settled.operatorRow.paused)
     }
 
+    @Test(arguments: [SessionState.idle, .done], [false, true])
+    func anIdleReviewTaskKeepsItsTextWithThePauseSign(_ ended: SessionState, namedReviewer: Bool) throws {
+        let run = run(.paused)
+        var review = task("review", run: run.id, .inReview)
+        review.operated?.peopleReview = namedReviewer ? PeopleReview(reviewers: ["sam"]) : nil
+        review.operated?.extraTabs = (1...3).map { index in
+            var extra = OperatorUIFixtures.extraTab("review-\(index)")
+            extra.role = .review
+            return extra
+        }
+        let sessions = [tab(review, ended)] + (1...3).map { index in
+            OperatorUIFixtures.tab("review-\(index)", of: review, ended, index: index, key: "review-\(index)")
+        }
+        let merged = task("merged", run: run.id, .published), queued = task("queued", run: run.id, .queued)
+        let group = try section(state(run, [review, merged, queued]), sessions: sessions + [tab(merged, .done)])
+        let row = try #require(group.tasks.first)
+        #expect(row.operatorLine == OperatorLine(namedReviewer ? "in review · waiting on sam" : "in review"))
+        #expect(row.paused && row.status == .idle, "four ended workers must not synthesize a held spinner while paused")
+        #expect(group.tasks[1].status == .done && !group.tasks[1].paused)
+        #expect(group.tasks[2].queued && !group.tasks[2].paused)
+    }
+
+    @Test func aReviewTasksPauseMarkFollowsYourPauseAndResume() throws {
+        var run = run()
+        var review = task("review", run: run.id, .inReview)
+        let sessions = [tab(review, .idle)]
+        func row() throws -> TaskRow {
+            try #require(section(state(run, [review]), sessions: sessions).tasks.first)
+        }
+        #expect(try !row().paused && row().status == .working)
+        run.intent = .paused
+        #expect(try row().paused && row().status == .idle, "pause intent takes effect before the state settles")
+        run.state = .paused
+        #expect(try row().paused)
+        run.state = .active; run.intent = nil
+        #expect(try !row().paused && row().status == .working, "resume restores the held spinner")
+        #expect(try row().operatorLine == OperatorLine("in review"))
+        run.state = .operatorOffline
+        #expect(try !row().paused && row().status == .working, "a closed Operator window alone is not your pause")
+        run.state = .paused
+        review.operated?.takenOver = true
+        #expect(try !row().paused && row().operatorLine == nil)
+        run.state = .stopped; run.intent = .stopped
+        review.operated?.takenOver = false
+        let own = try #require(sections(state(run, [review]), sessions: sessions).first?.tasks.first)
+        #expect(!own.paused && own.status == .idle && own.operatorLine == nil)
+    }
+
+    /// A manually opened tab inherits the task tag but is not one of its registered workers. Its work
+    /// and prompts must still prevent the pause sign, just like a registered review tab's.
+    @Test(arguments: [false, true], ["working", "prompt", "background", "tests queued", "tests running"])
+    func aReviewTasksPauseSignDoesNotHideActivityOrInput(registered: Bool, activity: String) throws {
+        let run = run(.paused)
+        var review = task("review", run: run.id, .inReview)
+        review.operated?.extraTabs = [OperatorUIFixtures.extraTab("review")]
+        var other = OperatorUIFixtures.tab("other", of: review, .idle, index: 1, key: registered ? "review" : nil)
+        switch activity {
+        case "working": other.state = .working
+        case "prompt": other.state = .needsInput
+        case "background": other.background = [BackgroundJob(kind: .shell, text: "npm run build")]
+        case "tests queued": other.testActivity = TestActivity(runId: "tests", suite: "swift", state: .queued)
+        default: other.testActivity = TestActivity(runId: "tests", suite: "swift", state: .running)
+        }
+        let row = try #require(section(state(run, [review]), sessions: [tab(review, .idle), other]).tasks.first)
+        #expect(!row.paused)
+        #expect(row.status == (activity == "prompt" ? .needsInput : .working))
+        #expect(row.operatorLine == OperatorLine("in review"))
+    }
+
+    @Test func aReviewTaskWithAnOpeningTabKeepsItsSpinner() throws {
+        let run = run(.paused)
+        var review = task("review", run: run.id, .inReview)
+        review.operated?.extraTabs = [OperatorUIFixtures.extraTab("review", opened: false)]
+        let row = try #require(section(state(run, [review]), sessions: [tab(review, .idle)]).tasks.first)
+        #expect(!row.paused && row.status == .working)
+    }
+
+    @Test(arguments: ["question", "permission", "waiting flag", "act"])
+    func aReviewTasksPauseMarkDoesNotHideRequestsOrActs(_ attention: String) throws {
+        var run = run(.paused)
+        var review = task("review", run: run.id, .inReview)
+        var acting = OperatorActs.none
+        switch attention {
+        case "question": run.questions = [OperatorUIFixtures.question("Which scope?", task: review.id)]
+        case "permission": run.questions = [OperatorUIFixtures.question("Allow the command?", id: "prompt-1", task: review.id)]
+        case "waiting flag": review.operated?.flags = [.waitingOnYou]
+        default: acting.tasks[review.id] = .checkingTheWork
+        }
+        let row = try #require(section(state(run, [review]), sessions: [tab(review, .idle)], acting: acting).tasks.first)
+        #expect(!row.paused)
+        #expect(row.status == (attention == "act" ? .working : .needsInput))
+        #expect(row.operatorLine?.look == (attention == "act" ? .acting : .needsYou))
+    }
+
     @Test func aHeldTaskSpinsUntilItNeedsYou() throws {
         let run = run()
         let working = task("working", run: run.id, .working), turnEnded = task("turn ended", run: run.id, .working)
