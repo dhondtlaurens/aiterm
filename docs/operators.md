@@ -99,7 +99,9 @@ running: finish the current step, end the turn and wait. A worker whose window a
 Pause gets its note once iTerm2 lists its agent; one whose screen is not ready for it is tried again
 as its tab changes, and one with a prompt open is not asked again. Such a task reads `pausing` until
 its workers stop, then `paused` with the pause sign; the Operator's row reads `pausing · n tasks`
-until every task stopped, then `paused` with the same sign. Resume types a carry-on note into each
+until every task stopped, then `paused` with the same sign. An idle task in people's review keeps
+its `in review · waiting on …` text and shows the pause sign too. Activity or a permission prompt
+in any of its tabs keeps its activity or attention mark. Resume types a carry-on note into each
 worker that got the pause note and is still the broadcast's to steer (not taken over or stopped,
 same ownership) while the broadcast still reads paused, so the Operator neither hears of nor accepts
 a turn the pause cut short first; then it resumes and wakes the Operator. A carry-on that does not

@@ -580,6 +580,7 @@ enum OperatorSnapshots {
             Snapshot("broadcast-queued.png") { queued() },
             // Paused by you: Save the basket's worker still finishing (`pausing`), the shipping step's stopped with the
             // pause sign, and the Operator's row `pausing · 1 task` until the basket stops; then all stopped, the pause sign.
+            // In both scenes, idle Order tracking keeps its review text with the pause sign; Price formatting is merged.
             Snapshot("broadcast-paused.png") { paused() },
             // Summary with what the Operator worked around in AiTerm: two snags under the summary, with Copy All; and on
             // the Shelf one snag after Left for you, with no Copy All.
@@ -774,16 +775,22 @@ enum OperatorSnapshots {
     }
 
     /// A broadcast you paused, twice: while one task's worker still finishes its step, and once every task stopped.
+    /// The idle task in people's review keeps its review text and wears the pause sign in both scenes.
     private static func paused() -> some View {
         func scene(stopped: Bool) -> OperatorScene {
             let scene = OperatorScene(projects: [OperatorScene.project("webshop")])
-            let basket = UUID()
-            let tasks = scene.checkout([scene.shipping: .working, scene.price: .accepted, scene.layout: .queued], oneProject: true)
+            let basket = UUID(), review = UUID()
+            let reviewTask = scene.task(review, "Order tracking", agent: .codex, .inReview, reviewers: ["Jan"])
+            let tasks = scene.checkout([scene.shipping: .working, scene.price: .published, scene.layout: .queued], oneProject: true)
                 .filter { [scene.shipping, scene.price, scene.layout].contains($0.id) }
-                + [scene.task(basket, "Save the basket", .working)]
+                + [scene.task(basket, "Save the basket", .working), reviewTask]
             var run = scene.run(.paused)
             run.intent = .paused
             scene.show(run, tasks, operatorTab: "idle", turnEnded: stopped ? [scene.shipping, basket] : [scene.shipping])
+            // `show` creates sessions only for working tasks. This review worker already ended its turn.
+            scene.controller.live.sessions += [Fixture.session("s-review", reviewTask.windowId ?? "", review, "codex", "idle", 0,
+                                                               cwd: reviewTask.worktreePath)].compactMap { $0 }
+            scene.controller.rows.refresh()
             return scene
         }
         return HStack(alignment: .top, spacing: Space.margin) {
