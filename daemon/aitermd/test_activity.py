@@ -1,4 +1,7 @@
-"""Observe test.sh's exact-worktree run records without guessing from machine-wide processes."""
+"""Observe exact-worktree test run records without guessing from machine-wide processes.
+
+The record format is documented for any project's test runner in docs/configuration.md ("Show your
+project's test runs"); this repository's scripts/test-queue.py is its reference writer."""
 from __future__ import annotations
 
 import fcntl
@@ -15,6 +18,8 @@ from .models import SessionInfo, TestActivity
 from .sessions import SessionRegistry
 
 RESULT_SECONDS = 300
+# The documented record format. A record without a version is version 1; another version is skipped.
+FORMAT_VERSION = 1
 
 
 def _live(path: Path) -> bool:
@@ -72,7 +77,7 @@ class TestActivityReader:
         for path in self.directory.glob("*.json"):
             try:
                 data = json.loads(path.read_text())
-                if not isinstance(data, dict):
+                if not isinstance(data, dict) or data.get("version", FORMAT_VERSION) != FORMAT_VERSION:
                     continue
                 if not all(isinstance(data.get(key), str) and data[key] for key in ("run_id", "root", "suite")):
                     continue

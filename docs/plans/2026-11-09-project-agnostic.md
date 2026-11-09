@@ -113,10 +113,54 @@ What we agreed:
 ## To-dos
 
 - [x] Bring the branch up to `main` (fast-forwarded during planning).
-- [ ] Worker line: run the "before" probe, then move the advice to AGENTS.md, trim `worktreeLine`,
+- [x] Worker line: run the "before" probe, then move the advice to AGENTS.md, trim `worktreeLine`,
   update the pinned tests and run the "after" probe; gate green.
-- [ ] Run records: `version: 1` in the writer and the reader rule, the writer-to-reader contract
+- [x] Run records: `version: 1` in the writer and the reader rule, the writer-to-reader contract
   test and its routing; gate green.
-- [ ] Document the run-record format in docs/configuration.md, re-point the two doc comments and
-  prove a hand-written record shows up in a non-AiTerm repo.
+- [x] Document the run-record format in docs/configuration.md, re-point the two doc comments and
+  prove a hand-written record shows up in a non-AiTerm repo (the recipe test; the optional live
+  check was not run).
 - [ ] `scripts/test.sh all`, then merge.
+
+## Evidence: worker line, before and after (9 November 2026)
+
+Probe as described in Proof, each run in a fresh scratch clone of this branch.
+
+**Setup:**
+
+- **Clones.** The "before" clone was at `9ce7514a`, with the old line and the old AGENTS.md. The
+  "after" clone was the same commit plus this branch's AGENTS.md, and its prompt carried the new
+  line.
+- **Models.** Claude Code 2.1.321 on `claude-sonnet-5-5` at medium effort, and Codex CLI 0.166.0 on
+  `gpt-6-astra` at medium effort. Each used a scratch config.
+- **Queue.** The holder kept a scratch lock for about 180 s. The worker's own run read as queued
+  with a ticket after about 12 s in every valid run.
+
+**Sandboxing, unlike real workers.** The auto-mode classifier refused workers launched with full
+bypass permissions, so both agents ran sandboxed:
+
+- Claude used its Bash sandbox with `dontAsk`, and could write only in the clone, `$TMPDIR` and
+  `/tmp/claude*`.
+- Codex used `workspace-write`.
+
+The sandboxes break the daemon suite's local sockets, so every run exits 1. That is the same in
+both arms, and the exit code is the only thing the bar needs.
+
+| Arm | Valid runs | Polled or killed other test processes | Called the queue stalled | Reported the real exit (1) |
+| --- | --- | --- | --- | --- |
+| before, Claude | 2 of 2 | 0 | 0 | 2 |
+| before, Codex | 2 of 2 | 0 | 0 | 2 |
+| after, Claude | 2 of 3 | 0 | 0 | 2 |
+| after, Codex | 2 of 2 | 0 | 0 | 2 |
+
+**The discarded run.** One "after" Claude run was set aside and rerun once. It ended after 27 s,
+before its run was seen queued, asking for permission because the sandbox's `dontAsk` refused a
+Read of its log in `/tmp`. That is a harness artefact. Its only process commands were `ps -p` and
+`kill -0` on its own background PID, which the worker line asks it to keep.
+
+**Result.** The bar is met: with the advice only in AGENTS.md, workers behave as they did with it
+in the prompt. Every worker waited on its own command, with a foreground run or a run in the
+background plus `wait` or reads of its own log. None of them looked at the holder.
+
+**Unit side.** `WorkerStarterTests` pins the complete new first prompt in a fixture repository that
+is not AiTerm, with no test-queue or /model sentence.

@@ -114,6 +114,47 @@ Shelving keeps the task's branch and conversations while removing its worktree. 
 it back at its reserved path. Ended broadcasts remain readable on the Shelf. See
 [rows and windows](windows.md) for close, shelve, restore and reconnect behaviour.
 
+## Show your project's test runs
+
+AiTerm can show a test run in a task's row, such as `tests queued · #2`, `running tests · unit` or
+`last tests failed · exit 1`, when your project's test runner says so. This is opt-in: a runner that
+writes nothing shows nothing. While a run is queued or running it also counts as the worker at
+work, so the Operator does not flag a worker that waits on a long suite as possibly stalled, and a
+pause waits for the run.
+
+A runner reports a run through one record file in `/tmp/aiterm-test.lock.runs/`:
+
+1. Pick a run id that is unique on this Mac, such as a UUID.
+2. Open `<run id>.lock` in that folder and take an exclusive `flock` on it. Keep it open, and keep
+   holding it, until the run is over. Pass it on to the test processes: a lock held by a child
+   that outlives the runner still counts as the run being alive.
+3. Write `<run id>.json`, and rewrite it whenever the state changes. Write to a temporary file in
+   the same folder, then rename it over the record, so AiTerm never reads half a file.
+4. When the run ends, write the `completed` state with its exit code and finish time, then close
+   the lock.
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `version` | no | `1`. A record with another version is ignored. |
+| `run_id` | yes | The run id, as in the file names. |
+| `root` | yes | The absolute path of the checkout the run tests, usually the task's worktree. |
+| `suite` | yes | A short name for what runs, such as `unit`. |
+| `state` | yes | `queued`, `running` or `completed`. |
+| `exit_code` | with `completed` | The run's exit code. |
+| `finished_at` | with `completed` | Unix time in seconds when the run ended. Without it, a finished record is dropped as soon as its lock is released. |
+| `queued_at` | no | Unix time in seconds when the run was queued. |
+| `ticket` | no | A number giving a queued run's place, lowest first. |
+
+The record belongs to the agent tab whose folder is inside `root`. When several tabs share that
+worktree, it belongs to the task's first tab. A `queued` or `running` record whose lock nobody holds
+reads as interrupted. AiTerm picks up a finished record for five minutes after it ends, and the tab
+keeps its last result until its agent restarts. The folder is shared by every
+project on the Mac, so a queued run names the run that is holding the queue.
+
+macOS has no `flock` command. A runner written in shell can take the lock with a few lines of Python
+or Perl. AiTerm's own [`scripts/test-queue.py`](../scripts/test-queue.py) is a complete writer:
+it runs one suite at a time across worktrees and reports each run this way.
+
 ## Local data
 
 Workspace state and logs live under `~/Library/Application Support/AiTerm/`. Task worktrees live

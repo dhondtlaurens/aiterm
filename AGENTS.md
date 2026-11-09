@@ -26,6 +26,8 @@ Swift is written.
 - Build and test through `scripts/swift.sh` and `scripts/test.sh`, which pin swiftly's Swift 6.4.
   Never invoke `swift` directly. `scripts/test.sh` runs one at a time machine-wide and queues
   behind any other worktree's run, so start it in the background rather than under a short timeout.
+  A queued run is not stalled: finish when your own command exits, and never poll or kill other
+  test processes.
   - While iterating: `scripts/test.sh swift -- --filter <Suite>`; for the daemon, `pytest -k <expr>`
     from `daemon/` with its venv (`daemon/.venv/bin/pytest`).
   - Before each commit: plain `scripts/test.sh`. It runs only what the branch's changes can affect

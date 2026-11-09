@@ -470,18 +470,16 @@ final class WorkerStarter {
 
     /// The fixed line every worker's first prompt starts with, from AiTerm and never the Operator: AiTerm reads
     /// the task branch alone, so work committed anywhere else goes unseen (`BranchWatch` flags it).
-    /// Inventories stay in the conversation: repository files can expose personal paths and addresses. And no
-    /// settings command in a live session: Claude Code saves a /model or /effort as the person's default.
+    /// Inventories stay in the conversation: repository files can expose personal paths and addresses. It holds
+    /// only what fits every project; a project's own habits (how its tests queue, how to probe a model) belong in
+    /// its AGENTS.md or CLAUDE.md, which the worker reads anyway.
     /// `asks`: the marker a question ends with (`askLine`), for a worker that does the task; a review tab, which ends with
     /// its verdict block instead, leaves it out.
     nonisolated static func worktreeLine(branch: String, asks: Bool = true) -> String {
         "[AiTerm] You are already in this task's worktree, on branch \(branch). Commit only here, on \(branch). "
             + "Do not create another worktree or branch. Inventories, audits and lists go in your final message, "
             + "never in a new file in the repository. "
-            + "Never type /model, /effort or /config into a live agent session: they save the person's defaults. "
-            + "To try a model or effort, use launch flags or a scratch CLAUDE_CONFIG_DIR. "
-            + "Keep each background command's handle/PID, log and exit status. Queued tests are not stalled. "
-            + "Finish when your command exits; do not poll other test processes." + (asks ? " " + askLine : "")
+            + "Keep each background command's handle/PID, log and exit status." + (asks ? " " + askLine : "")
     }
 
     /// H1 of the questions plan: the marker AiTerm's scan reads (`WorkerTurn`), as a contract with the worker, as the review
