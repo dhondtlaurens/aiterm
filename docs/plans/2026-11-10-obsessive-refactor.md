@@ -1,7 +1,8 @@
 # Obsessive review and refactor, round two
 
-Status: plan agreed on 2026-11-10. Phase 0 is implemented and green, uncommitted for review; its
-numbers are in the [record](../reviews/2026-11-10-refactor.md). Phases 1 to 9 are not started.
+Status: plan agreed on 2026-11-10. Phase 0 is done, reviewed and merged; its numbers are in the
+[record](../reviews/2026-11-10-refactor.md). Phases 1 to 9 are not started; "Running phases 1 to 9 as a
+broadcast" below says how they are handed to the Operator.
 
 ## Goal
 
@@ -45,15 +46,16 @@ internals: about 500 test sites await private "last task" handles in the Operato
   Two fixes do change what a person sees, and the maintainer approved both by name on 2026-11-10:
   the Activity tab gains a sentence for `update_request` where it shows the raw tool name today,
   and the sidebar and board stop saying "ready" while a worker is still launching. Two small fixes
-  were added after that agreement under the same rule and are dropped on the maintainer's word:
+  were added after that agreement under the same rule, and the maintainer kept both on 2026-11-10:
   the Codex Stop reply order and token trimming.
 - **Everything else that changes what a person or an agent sees is left out** and listed under
   "Left out". Structural consolidation preserves current output byte for byte.
 - **Performance changes are proven by deterministic work budgets** (counts of builds, reads, spawns,
   requests), the way the existing `derivations` and registry-sort budgets work. Fixture timings are
   reported separately and never as installed-app latency. No speed-up is claimed without a count.
-- **Measure, then decide:** the synchronous save on the main actor (44 `flush()` call sites) is
-  only changed if phase 0 shows a real stall; that would be a new decision.
+- **The synchronous save stays.** Phase 0 measured it (about 7 ms for a 312 KB workspace in a debug
+  build), and the maintainer decided on 2026-11-10 not to make it asynchronous: it is under half a
+  frame, and phase 2's cloned backup halves the writes. No phase adds a suspension point to a flush.
 
 ### What phase 0 measured
 
@@ -64,9 +66,8 @@ The baselines are in the record. Three of them change how later phases are weigh
   with the restructure and not for their own sake.
 - The largest repeated work is the turn reader asking for every unchanged worker's transcript again
   on every event (nine reads per event in the frozen broadcast). Phase 5 lowers that first.
-- A synchronous save of a 312 KB workspace takes about 7 ms in a debug build. Whether that warrants
-  an async save is still the maintainer's decision; phase 2's cloned backup halves the writes
-  either way.
+- A synchronous save of a 312 KB workspace takes about 7 ms in a debug build. The maintainer decided
+  to keep it synchronous; phase 2's cloned backup halves the writes.
 
 ### Standing rules for every phase
 
@@ -392,6 +393,44 @@ Brief: take the known minute out of every gate run, then document and prove the 
   follow the code; a review record with baselines and final budgets; a full gate; an adversarial
   review of the integrated result.
 
+## Running phases 1 to 9 as a broadcast
+
+One task per phase, in the AiTerm project, each ending in a local merge to `main`. A task branches
+from `main` once the tasks it depends on are merged, so every dependency is an order dependency.
+
+| Task | Phase | Starts after |
+| --- | --- | --- |
+| `daemon` | 1 | nothing |
+| `core-infrastructure` | 2 | nothing |
+| `core-operator-rules` | 4 | nothing |
+| `gate-speed` | 9, to-dos 9a and 9b | nothing |
+| `integrations` | 3 | `core-infrastructure` |
+| `operator-runtime` | 5 | `core-operator-rules` |
+| `views` | 8 | `core-operator-rules` |
+| `operator-tools` | 6 | `operator-runtime` |
+| `app-shell` | 7 | `integrations` and `operator-runtime` |
+| `close-out` | 9, to-do 9c | every other task |
+
+At most three workers at once: every test run goes through the machine-wide queue, about eight
+minutes a run, and more workers only wait on it.
+
+What every task's worker is told, beyond its phase's brief:
+
+- Read this plan's "Decided while planning", "Standing rules for every phase", its own phase and
+  that phase's rows under "Files" and "To-dos", and the record's baselines. Re-read each finding's
+  evidence in the code first: `main` has moved since the audit.
+- Work its to-dos in order, each a commit that leaves the gate green. A defect gets its failing test
+  first. A performance item lowers its budget's number in the test in the same commit; a budget that
+  does not move means the item is dropped and said so.
+- Before reporting done: `scripts/test.sh all` green, the phase's to-do boxes ticked here, and the
+  record given a section for the phase with each budget's baseline and final number and what was
+  not proven.
+- Stop and ask, through the Operator, before anything that would change a frozen fixture, a
+  model-facing contract, what a person sees, or the saved format beyond phase 4's one key; and
+  when a finding's evidence no longer holds.
+- Never `scripts/run-dev.sh`, never the installed app, its daemon or a real account. The broadcast
+  itself runs on the installed AiTerm, which this work must not replace.
+
 ## Files
 
 Create or modify, and why. Paths a phase finds it must add (a moved type's new file) follow the
@@ -522,8 +561,8 @@ implemented by this plan.
   Operator row in background status opens no work card; the Interface tab mixes heading styles.
 - Read sites using `holds(task:)` instead of the held flag; a typed hold-or-failure field exposed
   in `run_status`.
-- An async durable save, or splitting the shelf and ended runs out of the saved state: only if
-  phase 0's timing shows a stall.
+- An async durable save, or splitting the shelf and ended runs out of the saved state: decided
+  against on 2026-11-10, after phase 0's timing.
 
 **Weighed and rejected**
 
