@@ -438,6 +438,11 @@ class Service:
                 # The file's cwd is the agent's own, and it follows it into a worktree;
                 # `s.cwd` is the shell's and never moves (spec: branch awareness, §1).
                 changed += self.status.apply_metadata(s.session_id, cwd=f.cwd)
+                # The file names the conversation its pid runs: a tab no hook has named one for (adopted after a
+                # restart) takes it, so a sibling's post placed by directory can't land there (resolver `_may_run`).
+                # A conversation a hook named stays: after a `/clear` the file may still name the one before.
+                if (current := self.registry.get(s.session_id)) is not None and current.conversation_id is None:
+                    changed += self.status.apply_metadata(s.session_id, conversation=f.session_id)
                 # The running Claude's own version, which delivery is held against (delivery.Verdict).
                 self.registry.set_cli_version(s.session_id, f.version)
             elif s.job_pid and (s.state == "idle" or self.status.showing_trust_prompt(s.session_id)):

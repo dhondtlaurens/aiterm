@@ -7,7 +7,8 @@ import AiTermCore
 /// them, `SessionInfo.subagentsWrittenAt`) has grown for `OperatorTiming.liveQuietMinutes`, and no tool call it started is
 /// still running (`WorkerTranscript.OpenCalls`, for up to `OperatorTiming.openCallMinutes`), is `quiet`
 /// (`StallWatch.isQuietWhileWorking`): `run_status` reads it `working?` and lists it as uncertain, on a task in any state
-/// but one you took over or not started. The transcripts are read off the main thread on each reconcile tick (`refresh`),
+/// but one you took over or not started. Each extra tab (`open_tab`) is judged the same way on its own clock: a review tab
+/// whose session sticks at working reads `working?` on its own line, whatever its first worker does. The transcripts are read off the main thread on each reconcile tick (`refresh`),
 /// never when a status is built; what the session changes is noted as it happens (`observe`).
 ///
 /// Every worker tab at work is read, its first worker and each extra tab (`open_tab`): what each read shows of it (its
@@ -18,14 +19,22 @@ final class WorkerQuietWatch {
     private let live: LiveSessions
     private let ports: OperatorPorts
     private let transcripts: TranscriptLocator
-    /// The tasks whose worker is quiet now, by task: what `run_status` shows.
-    private(set) var quiet: Set<UUID> = []
+    /// One worker tab of a task: its first worker (`tab` nil) or an extra tab by its key.
+    struct TabRef: Hashable, Sendable { let task: UUID, tab: String? }
+    /// The tasks whose first worker is quiet now: what `run_status` shows.
+    var quiet: Set<UUID> { Set(quietTabs.filter { $0.tab == nil }.map(\.task)) }
+    /// The extra tabs quiet now, their keys by task: what `run_status` shows on their lines.
+    var quietExtraTabs: [UUID: Set<String>] {
+        quietTabs.reduce(into: [:]) { tabs, ref in if let key = ref.tab { tabs[ref.task, default: []].insert(key) } }
+    }
+    /// Every worker tab quiet now.
+    private(set) var quietTabs: Set<TabRef> = []
     /// When each session was first seen working since it last was not: a turn only just begun is not quiet, whatever its
     /// transcript's age.
     private var workingSince: [String: Date] = [:]
-    /// What each task's first worker's transcript last showed, as read for the session it names: when it last grew, and
-    /// when the newest call still open in it started.
-    private var grew: [UUID: (session: String, at: Date, callSince: Date?)] = [:]
+    /// What each worker tab's transcript last showed, as read for the session it names: when it last grew, and when the
+    /// newest call still open in it started.
+    private var grew: [TabRef: (session: String, at: Date, callSince: Date?)] = [:]
     /// Each conversation's open calls as last read, by agent and conversation: the next read goes on from there.
     private var calls: [String: WorkerTranscript.OpenCalls] = [:]
     private var isReading = false
@@ -62,20 +71,21 @@ final class WorkerQuietWatch {
         return !operated.takenOver && ![.planned, .queued, .stopped].contains(operated.state)
     }
 
-    /// The first worker of `task`, when its task is judged and its session says working.
-    private func workingWorker(of task: TaskItem, in sessions: WorkerSessions) -> WorkerTab? {
-        guard isJudged(task) else { return nil }
+    /// The worker tabs of `task` whose session says working, when its task is judged. A test one of them runs holds them all.
+    private func workingWorkers(of task: TaskItem, in sessions: WorkerSessions) -> [WorkerTab] {
+        guard isJudged(task) else { return [] }
         let workers = task.workerTabs(in: sessions)
-        guard !workers.contains(where: { $0.session?.testActivity?.isActive == true }) else { return nil }
-        let worker = workers[0]
-        return worker.session?.state == .working ? worker : nil
+        guard !workers.contains(where: { $0.session?.testActivity?.isActive == true }) else { return [] }
+        return workers.filter { $0.session?.state == .working }
     }
 
-    /// The session of each judged task's first worker that says working now, by task.
-    private func workingSessions() -> [UUID: String] {
+    /// The session of each judged task's worker tab that says working now, by tab.
+    private func workingSessions() -> [TabRef: String] {
         let sessions = WorkerSessions(live.sessions)
-        return Dictionary(workspace.state.tasks.compactMap { task in
-            workingWorker(of: task, in: sessions)?.session.map { (task.id, $0.sessionId) }
+        return Dictionary(workspace.state.tasks.flatMap { task in
+            workingWorkers(of: task, in: sessions).compactMap { worker in
+                worker.session.map { (TabRef(task: task.id, tab: worker.key), $0.sessionId) }
+            }
         }, uniquingKeysWith: { first, _ in first })
     }
 
@@ -129,27 +139,28 @@ final class WorkerQuietWatch {
                       task.workerTab(ask.tab, in: sessions)?.session?.sessionId == ask.session else { continue }
                 if let modified = item.modified { sign(ask.task, ask.tab, modified) }
                 if StallWatch.isCallRunning(since: callSince, now: now) { sign(ask.task, ask.tab, now) }
-                guard ask.tab == nil, working[ask.task] == ask.session else { continue }
-                grew[ask.task] = item.modified.map { (ask.session, $0, callSince) }
+                let ref = TabRef(task: ask.task, tab: ask.tab)
+                guard working[ref] == ask.session else { continue }
+                grew[ref] = item.modified.map { (ask.session, $0, callSince) }
             }
             evaluate(working)
         }
     }
 
-    /// The quiet set from what is known: `working` is each task whose worker's session says working now. Its subagents'
+    /// The quiet set from what is known: `working` is each worker tab whose session says working now. Its subagents'
     /// transcripts, as the daemon last read them (`SessionInfo.subagentsWrittenAt`), grow with its own: a turn that ended
     /// on a subagent says nothing while the child works. A call still running in its own keeps it from quiet.
-    private func evaluate(_ working: [UUID: String]) {
+    private func evaluate(_ working: [TabRef: String]) {
         let now = ports.now()
         let children = Dictionary(live.sessions.compactMap { s in s.subagentsWrittenAt.map { (s.sessionId, Date(timeIntervalSince1970: $0)) } },
                                   uniquingKeysWith: { first, _ in first })
-        let quiet = Set(working.filter { task, session in
-            let grewAt = (grew[task]?.at).map { at in children[session].map { max(at, $0) } ?? at }
+        let quiet = Set(working.filter { tab, session in
+            let grewAt = (grew[tab]?.at).map { at in children[session].map { max(at, $0) } ?? at }
             return StallWatch.isQuietWhileWorking(transcriptGrewAt: grewAt, sessionWorkingSince: workingSince[session],
-                                                  callOpenSince: grew[task]?.callSince, now: now)
+                                                  callOpenSince: grew[tab]?.callSince, now: now)
         }.keys)
-        guard quiet != self.quiet else { return }
-        self.quiet = quiet
+        guard quiet != quietTabs else { return }
+        quietTabs = quiet
         changed()
     }
 }

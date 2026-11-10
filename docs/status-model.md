@@ -125,6 +125,14 @@ gone out, so no agent waits on this. Hooks that arrive before that tick starts s
 than one runs and one waits, at least a second apart, so a flood from an agent outside iTerm2 costs
 about one tick a second. Statusline posts are not retried: the next one carries the same data.
 
+Until then such a post can still be placed by its directory, but only on a tab that runs no other
+conversation. A Claude tab knows its conversation from its own hooks and, failing those, from its
+session file, which the tick reads by the tab's pid: a tab adopted after a restart, idle since before
+it and silent since, still names its conversation. A tab whose conversation a hook named keeps it; a
+`/clear`'s file may name the previous one for a moment. Without the file's word, a new tab's first
+prompt in the same worktree landed on such an idle sibling, which then read working for good: the
+sibling's file, older than that hook, could not correct it.
+
 The tab title is read for that spinner and for nothing else, so a title that changes while nothing
 else does is not a change to announce: a working Codex tab turns its spinner glyph on almost every
 tick, and each of those would have been a `session.changed` that the app decodes and discards. The
@@ -269,8 +277,9 @@ starts blank: the row no longer shows the old worktree's branch, and Cmd+T opens
 is. The state is not kept either: the tick that finds the tab back at its shell sets it idle at
 once (`StatusEngine.agent_exited`), an exited agent's unseen done included. An
 agent that hands the terminal to another program and gets it back under its own pid comes back
-blank too — Claude's Ctrl+G opening `$EDITOR`. Claude's session file restores its directory in the
-tick that sees it back; the model and context return with the next hook or status-line post.
+blank too — Claude's Ctrl+G opening `$EDITOR`. Claude's session file restores its directory and
+conversation in the tick that sees it back; the model and context return with the next hook or
+status-line post.
 
 ## What a Claude worker runs, and what became of a slash command
 

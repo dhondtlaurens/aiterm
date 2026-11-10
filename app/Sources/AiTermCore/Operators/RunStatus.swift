@@ -20,13 +20,16 @@ public struct TaskLiveFacts: Equatable, Sendable {
         public var slashCommands: [SlashCommand]
         public var lastMessage: String?
         public var turnUnread: Bool
+        /// Its session says working but its transcript went quiet, as `TaskLiveFacts.quiet` says of the first worker: its line
+        /// reads `working?` and its task is uncertain.
+        public var quiet: Bool
         public init(key: String, agent: AgentKind, model: String, status: SessionState? = nil, opening: Bool = false, closed: Bool = false,
                     waitingPrompt: String? = nil, liveModel: String? = nil, liveReasoning: String? = nil, slashCommands: [SlashCommand] = [],
-                    lastMessage: String? = nil, turnUnread: Bool = false) {
+                    lastMessage: String? = nil, turnUnread: Bool = false, quiet: Bool = false) {
             self.key = key; self.agent = agent; self.model = model; self.status = status; self.opening = opening; self.closed = closed
             self.waitingPrompt = waitingPrompt
             self.liveModel = liveModel; self.liveReasoning = liveReasoning; self.slashCommands = slashCommands
-            self.lastMessage = lastMessage; self.turnUnread = turnUnread
+            self.lastMessage = lastMessage; self.turnUnread = turnUnread; self.quiet = quiet
         }
         /// What it counts as: `WorkerTab.status`.
         public var counted: SessionState? { opening ? .working : status }
@@ -569,7 +572,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             // What one tab left running is listed while another still works: the fixer's tests beside its review tab.
             if o.state == .working, !o.takenOver, facts.stoppedOn == nil, !facts.background.isEmpty { background.append(o.key) }
             if o.flags.contains(.possiblyStalled) { stalled.append(o.key) }
-            if o.flags.contains(.uncertain) || (facts.quiet && facts.status == .working) { uncertain.append(o.key) }
+            if o.flags.contains(.uncertain) || (facts.quiet && facts.status == .working)
+                || facts.tabs.contains(where: { $0.quiet && $0.status == .working }) { uncertain.append(o.key) }
             if o.branchDrift != nil { drift.append(o.key) }
         }
         return RunStatus(
@@ -629,7 +633,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         guard !facts.tabs.isEmpty else { return nil }
         var lines = [TabLine(key: WorkerTab.firstKey, agent: item.agent, model: item.model, live: facts.status.map { LiveState($0, quiet: facts.quiet) },
                         opening: facts.opening, closed: facts.status == nil && !facts.opening, liveModel: facts.liveModel, liveReasoning: facts.liveReasoning, slashCommands: SlashCommandLine.lines(facts.slashCommands))]
-            + facts.tabs.map { TabLine(key: $0.key, agent: $0.agent, model: $0.model, live: $0.status.map { LiveState($0) }, opening: $0.opening,
+            + facts.tabs.map { TabLine(key: $0.key, agent: $0.agent, model: $0.model, live: $0.status.map { [quiet = $0.quiet] in LiveState($0, quiet: quiet) }, opening: $0.opening,
                                        closed: $0.closed, liveModel: $0.liveModel, liveReasoning: $0.liveReasoning,
                                        slashCommands: SlashCommandLine.lines($0.slashCommands)) }
         for i in lines.indices {

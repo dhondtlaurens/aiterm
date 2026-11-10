@@ -575,6 +575,62 @@ final class MergeClock: Sendable {
         #expect(now.requests.isEmpty && now.status.publicationProblem == nil)
     }
 
+    /// A merge end in review whose open request already holds an earlier push, accepted again on a fix commit, with the
+    /// Oracle on: what `UpstreamReplacement.reaccept` leaves before the Operator's next finish_task pushes it.
+    func reacceptedInReview(_ s: Setup) {
+        s.store.mutate { state in
+            state.updateRun(id: s.run) {
+                $0.taskSettings.review = "Assign Nathan, fix his feedback."
+                $0.profile.oracle.isOn = true
+            }
+            state.updateOperated(s.task) {
+                $0.publication = TaskPublication(pushedSHA: "e5c1d0a2b7f4c9e3d8a1b6f0c2e4d7a9b3c5e8f1", mergeRequestURL: FakeMergeHost.url,
+                                                 mergeRequestNumber: 12, targetBranch: "main", repository: FakeMergeHost.repository)
+                $0.peopleReview = PeopleReview(reviewers: ["nathan.geleyn"], startedAt: Date(timeIntervalSince1970: 0))
+            }
+        }
+    }
+
+    /// FE Sprint 84, fe-1801 on !75: accepted again on a fix commit, the task was watched as a merge waiting (mark_task's
+    /// `runChanged` resumes watches); finish_task pushed it back into review, and the watch's next poll ended that review,
+    /// stopped on the Oracle's hold and said so, while the request still waited on its reviewer. Its next publication enters
+    /// review, so nothing watches it, and the review goes on.
+    @Test func aTaskAcceptedAgainWhileInReviewIsNotWatchedAndStaysInReview() async throws {
+        let s = try setUp(end: .merge, slices: Slices(review: true, merge: true))
+        reacceptedInReview(s)
+        s.finisher.resumeWatching()
+        #expect(s.finisher.watching.isEmpty, "its next finish_task pushes it into review, not to a merge")
+        let pushed = await s.finisher.finish(s.task)
+        #expect(pushed.result == .inReview)
+        #expect(try git.run(["rev-parse", "refs/heads/feat/pluto-231"], in: s.origin) == s.sha)
+        s.finisher.resumeWatching()
+        await s.ticker.tick()
+        #expect(s.finisher.watching.isEmpty)
+        #expect(operated(s)?.state == .inReview && operated(s)?.peopleReview?.ended != true)
+        #expect(operated(s)?.publication?.problem == nil && s.stopped.all.isEmpty)
+    }
+
+    /// Only the Operator's finish_task ends a review. A watch's poll that finds its task in review (a watch armed before it
+    /// went there) changes nothing, ends, and wakes nobody: the review watcher speaks for the review.
+    @Test func aMergeWatchsPollNeverEndsAReview() async throws {
+        let s = try setUp(end: .merge, slices: Slices(review: true, merge: true))
+        s.host.update { $0.readiness = [.waiting("its pipeline is running")] }
+        #expect(await s.finisher.finish(s.task).result == .waitingToMerge)
+        #expect(s.finisher.watching == [s.task])
+        s.store.mutate { state in
+            state.updateRun(id: s.run) { $0.taskSettings.review = "Assign Nathan, fix his feedback." }
+            state.updateOperated(s.task) {
+                $0.state = .inReview
+                $0.peopleReview = PeopleReview(reviewers: ["nathan.geleyn"], startedAt: Date(timeIntervalSince1970: 0))
+            }
+        }
+        await s.ticker.tick()
+        #expect(await eventually(describing: "the watch to end") { s.finisher.watching.isEmpty })
+        #expect(operated(s)?.state == .inReview && operated(s)?.peopleReview?.ended != true)
+        #expect(operated(s)?.publication?.problem == nil)
+        #expect(s.stopped.all.isEmpty && s.changed.ids.isEmpty)
+    }
+
     /// A host read that failed once during a merge wait, then answers it waits: the failure's problem goes. A hold set while
     /// a poll is in flight (your change of end to Merge) is kept.
     @Test func aWaitThatGoesOnClearsAFailureButKeepsAHold() async throws {

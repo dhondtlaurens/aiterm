@@ -2439,3 +2439,47 @@ async def test_tick_recovers_codex_completion_without_stop_or_seen_spinner(stack
         stream.write(event("task_started", 2))
     await svc.tick()
     assert svc.registry.get(sid).state == "working"
+
+
+async def _idle_claude_known_by_its_file(svc, r, w, pid, conversation):
+    """A Claude tab in /wt whose turn ended before this daemon started: no hook of it since, only its session file."""
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    sid = svc.iterm.windows[wid]["sessions"][0]
+    await svc.iterm.user_runs(sid, "claude", job_pid=pid)
+    svc.claude_files.root.mkdir(parents=True, exist_ok=True)
+    (svc.claude_files.root / f"{pid}.json").write_text(json.dumps(
+        {"pid": pid, "sessionId": conversation, "cwd": "/wt", "status": "idle", "updatedAt": 1}))
+    await svc.tick()
+    return wid, sid
+
+
+async def test_a_tab_known_only_by_its_session_file_takes_no_siblings_turn(stack):
+    """After a restart, an idle review tab is known only by its session file. A new tab opened in the same worktree
+    posts its first prompt before a tick has seen it run Claude: the post must wait for its own tab rather than land
+    on the idle one by directory, which then read working for good (FE Sprint 84, fe-1801-review-3)."""
+    svc, it, files, r, w = stack
+    wid, idle = await _idle_claude_known_by_its_file(svc, r, w, 951, "review-3")
+    assert svc.registry.get(idle).conversation_id == "review-3"
+    new = (await call(r, w, "tab.create", {"windowId": wid, "cwd": "/wt"}, id_=2))["result"]["sessionId"]
+    # The new Claude runs and has written its file, but no tick has classified its tab yet.
+    await it.user_runs(new, "claude", job_pid=952)
+    (files.root / "952.json").write_text(json.dumps(
+        {"pid": 952, "sessionId": "review-4", "cwd": "/wt", "status": "busy", "updatedAt": 2}))
+    base = {"session_id": "review-4", "cwd": "/wt"}
+    await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit", "prompt": "review"})
+    assert (svc.registry.get(idle).state, svc.registry.get(new).state) == ("idle", "working")
+    await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "Stop"})
+    (files.root / "952.json").write_text(json.dumps(
+        {"pid": 952, "sessionId": "review-4", "cwd": "/wt", "status": "idle", "updatedAt": 3}))
+    await svc.tick()
+    assert (svc.registry.get(idle).state, svc.registry.get(new).state) == ("idle", "done")
+
+
+async def test_a_conversation_a_hook_named_is_not_replaced_by_the_session_file(stack):
+    """A `/clear` names the new conversation in its SessionStart before Claude rewrites its file: the file's older id
+    must not take the tab back."""
+    svc, it, files, r, w = stack
+    _, sid = await _idle_claude_known_by_its_file(svc, r, w, 953, "before")
+    svc.status.apply_metadata(sid, conversation="after")
+    await svc.tick()
+    assert svc.registry.get(sid).conversation_id == "after"
