@@ -937,10 +937,7 @@ final class OperatorController {
         guard !run.questions.contains(where: { $0.id == key }) else { return }
         let question = OperatorQuestion(id: key, text: "\(why) AiTerm publishes nothing more of it or on top of it: decide how the broadcast goes on.",
                                         task: id, askedAt: ports.now(), resolution: nil)
-        workspace.mutate { state in
-            state.updateRun(id: run.id) { $0.questions.append(question) }
-            state.updateOperated(id) { $0.flags.insert(.waitingOnYou) }
-        }
+        workspace.mutate { $0.open(question, inRun: run.id) }
     }
 
     /// Ends the runtime's polling, transcript reads, prompt probes, wake/summary timers, registration,

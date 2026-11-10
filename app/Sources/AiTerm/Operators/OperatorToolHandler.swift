@@ -526,10 +526,7 @@ final class OperatorToolHandler {
         if let open = run.questions.first(where: { $0.id == key }) { return Self.askAnswer(open) }
         let question = OperatorQuestion(id: key, text: text, task: taskId, askedAt: ports.now(), resolution: nil, about: about,
                                         holds: holds == false ? false : nil, choices: choices)
-        mutate(in: run.id) { state in
-            state.updateRun(id: run.id) { $0.questions.append(question) }
-            if let taskId, question.holdsTask { state.updateOperated(taskId) { $0.flags.insert(.waitingOnYou) } }
-        }
+        mutate(in: run.id) { $0.open(question, inRun: run.id) }
         return Self.askAnswer(question)
     }
 
@@ -610,9 +607,7 @@ final class OperatorToolHandler {
                 if let allowed { run.gateAllowances.append(allowed) }
             }
             // The row stops waiting on you once no open question holds it.
-            if let taskId = question.task, state.run(id: run.id)?.holds(task: taskId) == false {
-                state.updateOperated(taskId) { $0.flags.remove(.waitingOnYou) }
-            }
+            if let taskId = question.task { state.release(taskId, unlessHeldIn: run.id) }
         }
         return Self.questionAnswer(question)
     }

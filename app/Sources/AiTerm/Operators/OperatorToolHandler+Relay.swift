@@ -97,14 +97,13 @@ extension OperatorToolHandler {
         let question = OperatorQuestion(id: key, text: worker.text, task: task.id, askedAt: ports.now(), holds: holds == false ? false : nil,
                                         choices: choices, relayedFrom: worker.tab, history: history)
         mutate(in: run.id) { state in
+            state.open(question, inRun: run.id)
             state.updateRun(id: run.id) { run in
-                run.questions.append(question)
                 if let round, let i = run.challenges.firstIndex(where: { $0.id == round }) {
                     run.challenges[i].stage = .acted
                     run.challenges[i].result = key
                 }
             }
-            if question.holdsTask { state.updateOperated(task.id) { $0.flags.insert(.waitingOnYou) } }
         }
         return Self.relayAnswer(question, task: task.operated?.key ?? task.title)
     }

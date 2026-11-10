@@ -50,10 +50,7 @@ public enum TaskEndChange {
             operated.publication?.mergeRefusal = nil
             operated.publication?.conditionsHeld = nil
             // A commit end has no review: the task was accepted before it went into review, and is again.
-            if end == .commit, operated.state == .inReview {
-                operated.state = .accepted
-                operated.peopleReview?.ended = true
-            }
+            if end == .commit { OperatedTransitions.record(.endReviewOnCommitEnd, on: &operated) }
             if leaving { operated.publication?.leftForYou = true } else if handedBack { operated.publication?.leftForYou = false }
         }
         guard let left else { return }

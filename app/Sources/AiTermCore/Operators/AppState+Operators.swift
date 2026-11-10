@@ -56,4 +56,18 @@ public extension AppState {
         guard let i = runs.firstIndex(where: { $0.id == id }) else { return }
         change(&runs[i])
     }
+
+    /// Opens `question` in the run `id`: a task it holds (`OperatorQuestion.holdsTask`) waits on you while it is open.
+    /// Every question opens here, so a task's flag says what its open questions hold (`OperatorRun.holds(task:)`).
+    mutating func open(_ question: OperatorQuestion, inRun id: UUID) {
+        updateRun(id: id) { $0.questions.append(question) }
+        if let task = question.task, question.holdsTask { updateOperated(task) { $0.flags.insert(.waitingOnYou) } }
+    }
+
+    /// Stops `task` waiting on you once no open question of the run `id` holds it: what every place that closes a
+    /// question calls after closing it.
+    mutating func release(_ task: UUID, unlessHeldIn id: UUID) {
+        guard run(id: id)?.holds(task: task) == false else { return }
+        updateOperated(task) { $0.flags.remove(.waitingOnYou) }
+    }
 }

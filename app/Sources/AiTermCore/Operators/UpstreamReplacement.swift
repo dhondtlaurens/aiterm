@@ -24,10 +24,7 @@ public enum UpstreamReplacement {
             throw .merged("\(operated.key) is merged already; a new commit needs a new task.")
         }
         if let earlier = operated.acceptance?.resultSHA, OperatedTransitions.sameCommit(earlier, acceptance.resultSHA) { return [] }
-        operated.acceptance = acceptance
-        operated.acceptanceWorktreeFingerprint = nil
-        operated.state = .accepted
-        OperatedTransitions.settle(&operated)
+        OperatedTransitions.record(.reaccept(acceptance), on: &operated)
         state.tasks[index].operated = operated
         return revokeDependents(of: id, newSHA: acceptance.resultSHA, in: &state)
     }
@@ -50,9 +47,7 @@ public enum UpstreamReplacement {
                         continue
                     case .accepted, .noChange:
                         if let newSHA, operated.acceptance?.prerequisiteSHAs.contains(newSHA) == true { continue }
-                        operated.acceptance = nil
-                        operated.acceptanceWorktreeFingerprint = nil
-                        operated.state = .working
+                        OperatedTransitions.record(.revoke, on: &operated)
                     case .working, .inReview, .blocked, .failed, .published:
                         break
                     }

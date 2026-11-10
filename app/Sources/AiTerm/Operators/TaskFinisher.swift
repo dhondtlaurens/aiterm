@@ -762,7 +762,7 @@ final class TaskFinisher {
                 publication.waitingReason = nil
                 publication.leftForYou = false
                 task.publication = publication
-                task.state = .published
+                OperatedTransitions.record(.publish, on: &task)
             }
         }
         _ = store.flush()
@@ -892,12 +892,7 @@ final class TaskFinisher {
         }
         let merges = operated.end == .merge
         store.mutate { state in
-            state.updateOperated(id) { task in
-                var review = task.peopleReview ?? PeopleReview()
-                review.ended = true
-                task.peopleReview = review
-                task.state = merges ? .accepted : .published
-            }
+            state.updateOperated(id) { OperatedTransitions.record(.endReview(merges: merges), on: &$0) }
         }
         _ = store.flush()
         return merges ? nil : Result(operated.publication, result: .published, reason: nil)
@@ -910,21 +905,13 @@ final class TaskFinisher {
         case .published(let publication) where forReview:
             // Its request is open as a draft: people review it now, and nothing ends until the review does.
             store.mutate { state in
-                state.updateOperated(id) { task in
-                    task.state = .inReview
-                    var review = task.peopleReview ?? PeopleReview()
-                    if review.startedAt == nil { review.startedAt = now() }
-                    task.peopleReview = review
-                }
+                state.updateOperated(id) { OperatedTransitions.record(.enterReview(at: now()), on: &$0) }
             }
             _ = store.flush()
             return Result(publication, result: .inReview, reason: Self.inReviewReason)
         case .published(let publication):
             // The end is carried out on the host already: the state follows whatever the save does.
-            store.mutate { state in
-                guard let index = state.tasks.firstIndex(where: { $0.id == id }) else { return }
-                state.tasks[index].operated?.state = .published
-            }
+            store.mutate { $0.updateOperated(id) { OperatedTransitions.record(.publish, on: &$0) } }
             _ = store.flush()
             return Result(publication, result: .published, reason: nil)
         case .waiting(let publication, let why):

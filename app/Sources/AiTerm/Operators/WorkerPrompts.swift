@@ -162,11 +162,8 @@ final class WorkerPrompts {
                 let number = (state.run(id: run.id)?.questions.filter { $0.id.hasPrefix(prefix) }.count ?? 0) + 1
                 let question = OperatorQuestion(id: prefix + String(number), text: Self.promptText(kind, agent: worker.agent), task: id,
                                                 askedAt: now, resolution: nil, tab: worker.key)
-                state.updateRun(id: run.id) { $0.questions.append(question) }
-                state.updateOperated(id) {
-                    $0.flags.insert(.waitingOnYou)
-                    $0.flags.remove(.possiblyStalled)
-                }
+                state.open(question, inRun: run.id)
+                state.updateOperated(id) { $0.flags.remove(.possiblyStalled) }
             }
         }
         probing[tab.sessionId] = lastProbe
@@ -187,9 +184,7 @@ final class WorkerPrompts {
             state.updateRun(id: run) { run in
                 if let i = run.questions.firstIndex(where: { $0.id == question.id }) { run.questions[i].resolution = "Answered in its window." }
             }
-            if state.run(id: run)?.holds(task: task) == false {
-                state.updateOperated(task) { $0.flags.remove(.waitingOnYou) }
-            }
+            state.release(task, unlessHeldIn: run)
         }
         // The last open question may be what kept the broadcast from completing.
         changed(run)
