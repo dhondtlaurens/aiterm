@@ -564,15 +564,16 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     /// The task's worker tabs as its line lists them, the first worker as `main`; nil when it has no extra tab.
     private static func tabLines(_ item: TaskItem, _ facts: TaskLiveFacts) -> [TabLine]? {
         guard !facts.tabs.isEmpty else { return nil }
-        var lines = [TabLine(key: WorkerTab.firstKey, agent: item.agent, model: item.model, live: facts.status.map { LiveState($0, quiet: facts.quiet) },
+        var lines = [TabLine(key: TabReference.first.name, agent: item.agent, model: item.model, live: facts.status.map { LiveState($0, quiet: facts.quiet) },
                         opening: facts.opening, closed: facts.status == nil && !facts.opening, liveModel: facts.liveModel, liveReasoning: facts.liveReasoning, slashCommands: SlashCommandLine.lines(facts.slashCommands))]
             + facts.tabs.map { TabLine(key: $0.key, agent: $0.agent, model: $0.model, live: $0.status.map { [quiet = $0.quiet] in LiveState($0, quiet: quiet) }, opening: $0.opening,
                                        closed: $0.closed, liveModel: $0.liveModel, liveReasoning: $0.liveReasoning,
                                        slashCommands: SlashCommandLine.lines($0.slashCommands)) }
         for i in lines.indices {
             let extra = item.operated?.extraTabs.first { $0.key == lines[i].key }
-            lines[i].reasoning = extra?.reasoning ?? (lines[i].key == WorkerTab.firstKey ? item.reasoning : nil)
-            lines[i].requestedLaunch = lines[i].key == WorkerTab.firstKey ? item.operated?.requestedLaunch : extra?.requestedLaunch
+            let first = TabReference(lines[i].key) == .first
+            lines[i].reasoning = extra?.reasoning ?? (first ? item.reasoning : nil)
+            lines[i].requestedLaunch = first ? item.operated?.requestedLaunch : extra?.requestedLaunch
         }
         return lines
     }

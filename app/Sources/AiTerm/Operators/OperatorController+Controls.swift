@@ -106,11 +106,11 @@ extension OperatorController {
         if operated?.takenOver == true { throw ActionUnavailable("You took that task over: nothing is answered for it.") }
         if let operated, operated.isFinished, question.holdsTask { throw ActionUnavailable("That question asks nothing once its task finished.") }
         guard question.channel == .here else {
-            throw ActionUnavailable(question.id.hasPrefix(OperatorQuestion.gatePrefix)
+            throw ActionUnavailable(question.kind == .gate
                 ? "Answer it in the Operator’s chat." : "Answer it in its worker’s window.")
         }
         guard question.answer == nil else { throw ActionUnavailable("Already answered: wait for the Operator, or answer again in its chat.") }
-        if question.about == OperatorQuestion.fixRounds, let task = question.task {
+        if question.kind == .fixRounds, let task = question.task {
             guard let choice = BroadcastBoard.FixRoundsAnswer.allCases.first(where: { $0.title == answer }) else {
                 throw ActionUnavailable("Its answers are One More Round and Accept As It Is.")
             }
@@ -208,7 +208,7 @@ extension OperatorController {
     /// A worker of a broadcast you paused that is at work and was neither told nor tried yet — its window listed only
     /// after Pause, its launch having passed its last check before it — is told to stop now, behind the notes queued.
     func pauseLateWorkers() {
-        for run in workspace.state.runs where run.intent == .paused && !run.hasEnded {
+        for run in workspace.state.runs where run.youAsked == .pause && !run.hasEnded {
             let tried = pauseAttempted[run.id] ?? [], now = ports.now()
             let late = Self.pauseTargets(of: run.id, in: workspace.state, sessions: live.sessions, now: now)
                 .filter { !tried.contains($0) && !run.pausedWorkers.contains($0) }
@@ -235,7 +235,7 @@ extension OperatorController {
     /// is looked at again right before its note (`steerable`): one you stopped or took over meanwhile, or the note did not
     /// reach, is dropped again. A worker whose turn ended with nothing running has stopped already and is told nothing.
     func signalPause(_ id: UUID) async {
-        guard let run = self.run(id: id), run.intent == .paused, !run.hasEnded, let daemon = daemon() else { return }
+        guard let run = self.run(id: id), run.youAsked == .pause, !run.hasEnded, let daemon = daemon() else { return }
         let tried = pauseAttempted[id] ?? []
         let workers = Self.pauseTargets(of: id, in: workspace.state, sessions: live.sessions, now: ports.now())
             .filter { !tried.contains($0) && !run.pausedWorkers.contains($0) }
@@ -427,7 +427,7 @@ extension OperatorController {
     /// added tabs of your own). The recorded ids are cleared once each run is handled.
     func closeEndedOperatorWindows() {
         guard let daemon = daemon() else { return }
-        let ended = runs.filter { $0.intent == .stopped }.map(\.id)
+        let ended = runs.filter { $0.youAsked == .stop }.map(\.id)
         guard !ended.isEmpty else { return }
         closingEnded = Task {
             for id in ended {

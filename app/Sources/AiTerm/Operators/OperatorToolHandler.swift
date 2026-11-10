@@ -569,7 +569,7 @@ final class OperatorToolHandler {
         let key = try call.string("key"), summary = try call.string("summary")
         guard var question = run.questions.first(where: { $0.id == key }) else { throw ToolRefusal("No question \(key) in this broadcast.") }
         // A merge on the host is the person's to decide, so the Operator closes that one once they have answered.
-        guard !question.id.hasPrefix(OperatorQuestion.promptPrefix) else {
+        guard question.kind != .prompt else {
             throw ToolRefusal("\(key) is a worker’s prompt: AiTerm closes its question itself once the worker leaves the prompt. If it looks stale, record it with report_snag.")
         }
         if let value = call.arguments["withdrawn"], value != .null, value.boolValue == nil {
@@ -578,7 +578,7 @@ final class OperatorToolHandler {
         guard question.resolution == nil else { return Self.questionAnswer(question) }
         let withdrawn = call.optionalBool("withdrawn") == true
         if withdrawn {
-            guard !question.id.hasPrefix(OperatorQuestion.mergedOnHostPrefix) else {
+            guard question.kind != .mergedOnHost else {
                 throw ToolRefusal("\(key) is a question about a merge on the host: only the person decides it. It cannot be withdrawn.")
             }
             guard question.answeredInWindow == nil else {

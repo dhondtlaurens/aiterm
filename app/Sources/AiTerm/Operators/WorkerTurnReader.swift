@@ -114,7 +114,7 @@ final class WorkerTurnReader {
 
     /// An answer clears only the addressed worker's ended turn.
     func messaged(_ task: UUID, tab: String? = nil) {
-        let id = WorkerID(task: task, tab: tab == WorkerTab.firstKey ? nil : tab)
+        let id = WorkerID(task: task, tab: TabReference(tab).key)
         guard var reading = workerReadings[id] else { messagedWhileReading.insert(id); return }
         guard !reading.messaged else { return }
         reading.messaged = true

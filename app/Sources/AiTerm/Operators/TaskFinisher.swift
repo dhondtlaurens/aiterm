@@ -309,7 +309,7 @@ final class TaskFinisher {
     /// Whether the accepted commit is still to be pushed: not on origin by AiTerm's record, and the task's end not done.
     static func stillToPush(_ operated: OperatedTask) -> Bool {
         let publication = operated.publication
-        return operated.state != .published && publication?.merged != true && publication?.leftForYou != true
+        return operated.state != .published && publication?.mergeOutcome != .merged && publication?.leftForYou != true
             && publication?.pushedSHA != operated.acceptance?.resultSHA
     }
 
@@ -327,7 +327,7 @@ final class TaskFinisher {
         stopWatching(id)
         guard let operated = store.state.task(id: id)?.operated, operated.end == .merge, operated.state == .accepted,
               let publication = operated.publication, publication.mergeRequestNumber != nil,
-              !publication.merged, publication.mergedSHA == nil, publication.problem == nil else { return }
+              !publication.wasMerged, publication.problem == nil else { return }
         store.mutate { $0.updateOperated(id) { $0.publication?.problem = why } }
         _ = store.flush()
     }
@@ -360,8 +360,8 @@ final class TaskFinisher {
         guard let operated = store.state.task(id: id)?.operated, operated.end == .merge, operated.state == .accepted,
               !operated.takenOver, !operated.flags.contains(.upstreamReplaced),
               let publication = operated.publication, publication.mergeRequestNumber != nil,
-              !publication.merged, publication.mergedSHA == nil, publication.problem == nil,
-              let run = store.state.run(id: operated.runId), run.intent == nil,
+              !publication.wasMerged, publication.problem == nil,
+              let run = store.state.run(id: operated.runId), run.youAsked == nil,
               // Accepted again while its people review goes on: its next finish_task pushes it back into review, not to a merge.
               !TaskPublisher.Context.entersReview(operated, run: run)
         else { return false }
@@ -465,8 +465,7 @@ final class TaskFinisher {
         // ended, the commit read as merged or not): a fetch that fails changes nothing.
         var fetched: LandingCheck?, offline: String?
         if operatorCall, first.operated.end.merges, [.accepted, .inReview].contains(first.operated.state),
-           let sha = first.operated.acceptance?.resultSHA, first.operated.publication?.merged != true,
-           first.operated.publication?.mergedSHA == nil {
+           let sha = first.operated.acceptance?.resultSHA, first.operated.publication?.wasMerged != true {
             let ownership = first.operated.ownership
             var check = await Self.landingFetched(of: sha, in: first.project.path, git: git)
             if case .unknown(let why, let note) = check {
@@ -499,9 +498,9 @@ final class TaskFinisher {
         let task = first.task, operated = first.operated, project = first.project
         // What is done is answered from the record, whatever the host's connection is now.
         if operated.publication?.leftForYou == true { return Result(operated.publication, result: .leftForYou, reason: nil) }
-        if operated.state == .published || operated.publication?.merged == true {
+        if operated.state == .published || operated.publication?.mergeOutcome == .merged {
             // A draft published before its request could be assigned: this call tries again.
-            if operated.publication?.assigning == true, operated.publication?.merged != true { return await assignAgain(first) }
+            if operated.publication?.assigning == true, operated.publication?.mergeOutcome != .merged { return await assignAgain(first) }
             return apply(.published(operated.publication ?? TaskPublication()), to: id)
         }
         if let refused = Self.watchMayNotPush(operated, operatorCall: operatorCall) { return refused }
@@ -732,7 +731,7 @@ final class TaskFinisher {
     private func finishLanded(_ first: Context, fetched: LandingCheck?) async -> Result? {
         let id = first.task.id, operated = first.operated
         guard operated.end.merges, operated.state == .accepted, let sha = operated.acceptance?.resultSHA,
-              operated.publication?.merged != true, operated.publication?.mergedSHA == nil else { return nil }
+              operated.publication?.wasMerged != true else { return nil }
         let target: String, landing: Repository.Landing
         switch fetched {
         case .landed(let branch, let found)?: (target, landing) = (branch, found)
@@ -875,7 +874,7 @@ final class TaskFinisher {
     /// a watch refused for that is suspended, not stopped, and picked up when the broadcast runs again.
     private func isSuspended(_ id: UUID) -> Bool {
         guard let operated = store.state.task(id: id)?.operated, let run = store.state.run(id: operated.runId) else { return false }
-        return run.intent != nil || !(run.state == .active || run.state == .complete)
+        return run.youAsked != nil || !(run.state == .active || run.state == .complete)
     }
 
     /// What `finish_task` answers once a task went into review.
@@ -921,7 +920,7 @@ final class TaskFinisher {
             return Result(publication, result: .waitingToMerge, reason: why)
         case .blocked(let publication, let why):
             // Merged on the host with commits nobody accepted: yours to decide, never polled again.
-            if publication.mergedSHA != nil, !publication.merged { mergedOnHost(id, why) }
+            if publication.mergeOutcome == .mergedWithAnotherHead { mergedOnHost(id, why) }
             return Result(publication, result: .blocked, reason: why)
         }
     }

@@ -128,6 +128,16 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     /// Its problem is a hold for the Operator (`isHold`).
     public var holdsForOperator: Bool { problem.map(Self.isHold) ?? false }
 
+    /// What became of its request's merge, read from `merged` and `mergedSHA` and never saved: not merged; merged at the
+    /// accepted commit, by AiTerm, on the host before AiTerm's answer came, or found already in its target (`landedSHA`);
+    /// or merged on the host with a head nobody accepted, which nothing stacked on it builds on.
+    public enum MergeOutcome: Sendable { case notMerged, merged, mergedWithAnotherHead }
+
+    public var mergeOutcome: MergeOutcome { merged ? .merged : mergedSHA != nil ? .mergedWithAnotherHead : .notMerged }
+
+    /// Merged either way (`mergeOutcome`): nothing of it is published again, and it is never accepted again.
+    public var wasMerged: Bool { mergeOutcome != .notMerged }
+
     public init(pushedSHA: String? = nil, mergeRequestURL: String? = nil, mergeRequestNumber: Int? = nil,
                 targetBranch: String? = nil, waitingSince: Date? = nil, readySince: Date? = nil, merged: Bool = false,
                 mergedSHA: String? = nil, mergedHead: String? = nil, problem: String? = nil, conditionsHeld: String? = nil,
@@ -562,6 +572,18 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
         self.answeredHereAt = answeredHereAt; self.relayedFrom = relayedFrom; self.history = history
     }
 
+    /// What the question is, read from its key and what it is about and never saved: a worker's prompt (`promptPrefix`), a
+    /// merge on the host (`mergedOnHostPrefix`), a command the Oracle stopped (`gatePrefix`), a task out of its review's
+    /// fix rounds (`about` `fixRounds`), or one the Operator asked or relayed.
+    public enum Kind: Sendable { case prompt, mergedOnHost, gate, fixRounds, asked }
+
+    public var kind: Kind {
+        if id.hasPrefix(Self.promptPrefix) { return .prompt }
+        if id.hasPrefix(Self.mergedOnHostPrefix) { return .mergedOnHost }
+        if id.hasPrefix(Self.gatePrefix) { return .gate }
+        return about == Self.fixRounds ? .fixRounds : .asked
+    }
+
     /// Who asks the person: AiTerm for its own keys (`aitermPrefixes`), a worker when the Operator relayed its question,
     /// else the Operator.
     public enum Asker: String, Sendable { case theOperator, worker, aiterm }
@@ -574,7 +596,7 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// Operator's chat), `here`, in AiTerm, for the rest.
     public enum Channel: String, Sendable { case here, there }
     public var channel: Channel {
-        id.hasPrefix(Self.promptPrefix) || id.hasPrefix(Self.gatePrefix) ? .there : .here
+        kind == .prompt || kind == .gate ? .there : .here
     }
 
     /// Whether the question holds its task while open: the task waits on you, isn't ready to accept and isn't watched
@@ -586,7 +608,7 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     }
 
     /// Recorded under one of AiTerm's own keys.
-    public var isAiTerms: Bool { Self.aitermPrefixes.contains(where: id.hasPrefix) }
+    public var isAiTerms: Bool { [.prompt, .mergedOnHost, .gate].contains(kind) }
 
     /// What the person answered in AiTerm, whichever place they answered it: in its block (`answeredHere`), or for a
     /// `fixRounds` question on its card or in its block (`answeredOnCard`), by its link's title. Nil until then.
@@ -815,6 +837,19 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     /// Whether a finish_task's yes is a merge's (`askedMerge`).
     public var asksMerge: Bool { askedMerge ?? (askedSHA != nil) }
 
+    /// What the record is, read from its tool, kind and round and never saved: a critique the Operator answers or acts
+    /// on, a veto only a yes lets act, or one of a relayed question's Oracle rounds, from 1 (a round saved before rounds
+    /// were numbered is the first).
+    public enum Role: Equatable, Sendable { case critique, veto, relayRound(Int) }
+
+    public var role: Role {
+        if tool == OperatorTool.relayQuestion.rawValue { return .relayRound(round ?? 1) }
+        return kind == .veto ? .veto : .critique
+    }
+
+    /// A relay's round (`role`); nil for any other record.
+    public var relayRound: Int? { if case .relayRound(let round) = role { round } else { nil } }
+
     /// Synthesised but for `kind`, which a record saved before vetoes lacks: it reads as a critique.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -863,7 +898,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     /// What you asked for, how its work is reviewed, and what done looks like.
     public var prompt: String
     public var state: OperatorRunState
-    /// `.paused` or `.stopped` when you said so; persisted, and never undone by reconciliation.
+    /// `.paused` or `.stopped` when you said so; persisted, and never undone by reconciliation. Read as `youAsked`.
     public var intent: OperatorRunState?
     /// The last submitted plan revision, 0 while none is. New and changed tasks go into the open
     /// one, `openRevision`; `submit_plan` closes it and releases its tasks (`PlanRevision`).
@@ -1101,6 +1136,18 @@ extension OperatedTask {
 }
 
 public extension OperatorRun {
+    /// What you asked of the broadcast, from `intent`, which is saved as a run state: to pause it, or to stop it. Nil while
+    /// you asked neither.
+    enum Asked: Sendable { case pause, stop }
+
+    var youAsked: Asked? {
+        switch intent {
+        case .paused?: .pause
+        case .stopped?: .stop
+        default: nil
+        }
+    }
+
     /// Whether an open question holds `task` (`OperatorQuestion.holdsTask`): what keeps it waiting on you. Every place
     /// that closes a question releases its task by this, so a question that doesn't hold never keeps the task waiting,
     /// and one that holds never loses it while another closes.

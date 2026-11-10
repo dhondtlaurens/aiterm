@@ -2,13 +2,13 @@ import Foundation
 
 public extension OperatorRun {
     /// Ended, or being ended: stopped, or asked to stop.
-    var hasEnded: Bool { state == .stopped || intent == .stopped }
+    var hasEnded: Bool { state == .stopped || youAsked == .stop }
 
     /// Paused by you, its window closed, or being paused: what its header and board say as paused.
-    var isPaused: Bool { state == .paused || state == .operatorOffline || intent == .paused }
+    var isPaused: Bool { state == .paused || state == .operatorOffline || youAsked == .pause }
 
     /// Paused by you, its window open or not: its workers were told to stop, and a task whose workers did is `paused`.
-    var isPausedByYou: Bool { state == .paused || intent == .paused }
+    var isPausedByYou: Bool { state == .paused || youAsked == .pause }
 
     /// Closing is enabled, and the broadcast ended or completed with its summary written or given up. End needs no summary.
     var closingIsDue: Bool {

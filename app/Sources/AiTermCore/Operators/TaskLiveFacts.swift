@@ -147,7 +147,7 @@ public extension TaskLiveFacts {
         var facts: [UUID: TaskLiveFacts] = [:]
         let workersByTask = WorkerSessions(sessions)
         for task in state.tasks(inRun: run) {
-            let open = questions.filter { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix(OperatorQuestion.promptPrefix) }
+            let open = questions.filter { $0.task == task.id && $0.resolution == nil && $0.kind == .prompt }
             let workers = task.workerTabs(in: workersByTask, now: now), tab = workers[0].session, prompt = open.first { $0.tab == nil }?.text
             let extra = workers.dropFirst().compactMap { worker in
                 worker.key.map { key in

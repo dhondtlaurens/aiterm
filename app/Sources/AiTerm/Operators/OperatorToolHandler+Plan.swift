@@ -25,7 +25,7 @@ extension OperatorToolHandler {
         if let existing = existingTask(key, in: run) { return Self.taskAnswer(existing, created: false) }
         // The broadcast as it is now, not as the call began: a pause or an end since is the person's.
         guard let current = state.run(id: run.id), !current.hasEnded else { throw ToolRefusal.ended }
-        if current.intent == .paused { throw ToolRefusal("The person paused this broadcast. Wait until they resume it.") }
+        if current.youAsked == .pause { throw ToolRefusal("The person paused this broadcast. Wait until they resume it.") }
         let draft = try self.draft(call, in: current, connected: connected, delivery: delivery)
         // Past the first plan, the backlog grows by a quarter of it on the Operator's word, then by the Oracle's yes (spec §4.1).
         switch vettedCalls.contains(Self.invocation(call)) ? .free : backlogVerdict(current) {

@@ -143,8 +143,8 @@ public struct TaskPublisher: Sendable {
         guard let operated = task.operated else { return .refused(PublicationGuard.notOperated) }
         var publication = operated.publication ?? TaskPublication()
         // A repeat of what is done answers what was done, whatever has changed since.
-        if operated.state == .published || publication.merged { return .published(publication) }
-        if publication.mergedSHA != nil {
+        if operated.state == .published || publication.mergeOutcome == .merged { return .published(publication) }
+        if publication.mergeOutcome == .mergedWithAnotherHead {
             return .blocked(publication, publication.problem ?? Self.mergedUnaccepted(operated.key, publication))
         }
         if operated.end == .mergeLocal {
@@ -159,9 +159,9 @@ public struct TaskPublisher: Sendable {
         // A request already opened is acted on only in the repository it was opened in: origin may name another now.
         if let why = PublicationGuard.otherRepository(publication, repository: host.repository) { return .refused(why) }
         let sha = acceptance.resultSHA
-        let parentMerged = context.parent?.operated?.publication?.merged == true
+        let parentMerged = context.parent?.operated?.publication?.mergeOutcome == .merged
         // Nothing builds on a parent merged outside its accepted publication.
-        if let parent = context.parent?.operated, !parentMerged, parent.publication?.mergedSHA != nil {
+        if let parent = context.parent?.operated, parent.publication?.mergeOutcome == .mergedWithAnotherHead {
             let reason = parent.publication?.problem ?? "\(parent.key) was merged on the host with commits that weren't accepted"
             return try await blocked(publication, "\(reason): AiTerm publishes nothing on top of it.", record)
         }

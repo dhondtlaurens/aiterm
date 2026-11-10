@@ -57,6 +57,29 @@ public struct WorkerTab: Equatable, Sendable {
     }
 }
 
+/// Which of a task's worker tabs a field names: its first worker, or an extra tab by its key. Each field keeps its own
+/// encoding, nil or `main` (`WorkerTab.firstKey`) for the first worker, and is read through this.
+public enum TabReference: Hashable, Sendable {
+    case first, extra(String)
+
+    /// From a key or a name: nil and `main` are the first worker, a key no extra tab may take (`open_tab`).
+    public init(_ key: String?) {
+        guard let key, key != WorkerTab.firstKey else { self = .first; return }
+        self = .extra(key)
+    }
+
+    /// The name `run_status` and the Operator's tools give it: `main` for the first worker.
+    public var name: String { if case .extra(let key) = self { key } else { WorkerTab.firstKey } }
+
+    /// Its key, nil for the first worker: as `WorkerTab.key`, an extra tab's question and a worker's reading keep it.
+    public var key: String? { if case .extra(let key) = self { key } else { nil } }
+}
+
+public extension WorkerTab {
+    /// Which tab it is (`TabReference`).
+    var reference: TabReference { TabReference(key) }
+}
+
 /// An immutable view for one observation pass. Parse each session's task tag once, retaining daemon order.
 /// Build it again for the next pass; it carries no cache invalidation or mutable session ownership.
 public struct WorkerSessions: Sendable {
@@ -89,8 +112,10 @@ public extension TaskItem {
     /// when the task has none of that key.
     func workerTab(_ key: String?, in sessions: [SessionInfo]) -> WorkerTab? {
         let tabs = workerTabs(in: sessions)
-        guard let key, key != WorkerTab.firstKey else { return tabs[0] }
-        return tabs.first { $0.key == key }
+        switch TabReference(key) {
+        case .first: return tabs[0]
+        case .extra(let key): return tabs.first { $0.key == key }
+        }
     }
 
     /// Whether its result waits for the Operator to accept it, its workers as `sessions` list them as of `now`: working,
@@ -121,7 +146,7 @@ public extension TaskItem {
         var asking: [(rank: Int, place: Int, session: SessionInfo)] = []
         for (place, tab) in tabs.enumerated() {
             guard let session = tab.session else { continue }
-            let key = tab.key ?? WorkerTab.firstKey
+            let key = tab.reference.name
             var ranks = requests.filter { $0.taskId == id && $0.tab == key }.map(\.kind.rank)
             if session.state == .needsInput { ranks.append(BroadcastRequest.Kind.permission.rank) }
             if let rank = ranks.min() { asking.append((rank, place, session)) }

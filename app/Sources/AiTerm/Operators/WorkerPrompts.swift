@@ -170,11 +170,11 @@ final class WorkerPrompts {
     }
 
     private func mayRecordPrompt(_ task: TaskItem, in run: OperatorRun, tab: SessionInfo, source: Source) -> Bool {
-        guard let operated = task.operated, run.intent != .stopped else { return false }
+        guard let operated = task.operated, run.youAsked != .stop else { return false }
         if source == .delivery || tab.state == .needsInput {
             return [.working, .blocked, .inReview].contains(operated.state) && ![.complete, .stopped].contains(run.state)
         }
-        return operated.state == .working && run.state == .active && run.intent == nil
+        return operated.state == .working && run.state == .active && run.youAsked == nil
     }
 
     /// Mark the tab's question answered and clear waiting-on-you once no open question holds its task.

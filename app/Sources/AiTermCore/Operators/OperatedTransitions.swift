@@ -279,7 +279,7 @@ public enum OperatedTransitions {
     public static func isReopenable(_ task: OperatedTask) -> Bool {
         guard task.state == .accepted else { return false }
         let publication = task.publication
-        if publication?.merged == true || publication?.mergedSHA != nil || publication?.leftForYou == true { return false }
+        if publication?.wasMerged == true || publication?.leftForYou == true { return false }
         guard let pushed = publication?.pushedSHA, let accepted = task.acceptance?.resultSHA else { return true }
         return !sameCommit(pushed, accepted) || publication?.mergeRequestNumber != nil
     }

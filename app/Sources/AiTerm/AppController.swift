@@ -521,7 +521,7 @@ final class AppController {
     @discardableResult
     func choose(task id: UUID, tab key: String) -> Task<Void, Never>? {
         if let task = state.task(id: id),
-           let session = task.workerTabs(in: live.sessions).first(where: { ($0.key ?? WorkerTab.firstKey) == key })?.session {
+           let session = task.workerTabs(in: live.sessions).first(where: { $0.reference.name == key })?.session {
             return bringTab(task: id, sessionId: session.sessionId)
         }
         return choose(task: id)

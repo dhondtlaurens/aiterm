@@ -20,7 +20,7 @@ public enum UpstreamReplacement {
         guard operated.state == .accepted || operated.state == .published || operated.state == .inReview else {
             throw .notAccepted("\(operated.key) isn't accepted; mark it accepted instead.")
         }
-        guard operated.publication?.merged != true, operated.publication?.mergedSHA == nil else {
+        guard operated.publication?.wasMerged != true else {
             throw .merged("\(operated.key) is merged already; a new commit needs a new task.")
         }
         if let earlier = operated.acceptance?.resultSHA, OperatedTransitions.sameCommit(earlier, acceptance.resultSHA) { return [] }

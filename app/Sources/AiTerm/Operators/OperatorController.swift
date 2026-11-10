@@ -698,7 +698,7 @@ final class OperatorController {
         reattached = true
         let open = runs.filter { !$0.hasEnded }.map { ($0.id, folder(of: $0.id)) }
         // Runs you ended: a revocation that failed before is tried again while their token file is there.
-        let ended = runs.filter { $0.intent == .stopped }.map { ($0.id, folder(of: $0.id)) }
+        let ended = runs.filter { $0.youAsked == .stop }.map { ($0.id, folder(of: $0.id)) }
         registering = Task {
             for (id, folder) in open {
                 guard let token = await BackgroundWork.run({ OperatorCommand.existingToken(in: folder) }) else { continue }
@@ -801,7 +801,7 @@ final class OperatorController {
     /// so AiTerm stops waiting for it. A pause of yours stays a pause.
     private func operatorWindowClosed(_ id: UUID) {
         if giveUpOnSummary(id, windowGone: true) { runChanged(id) }
-        guard let run = run(id: id), run.intent == nil, run.state == .planning || run.state == .active else { return }
+        guard let run = run(id: id), run.youAsked == nil, run.state == .planning || run.state == .active else { return }
         mutateRun(id) { $0.state = .operatorOffline }
     }
 

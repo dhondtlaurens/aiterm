@@ -79,7 +79,7 @@ public struct StallWatch: Equatable, Sendable {
     /// A sign of life at `now` on one tab's clock: the first worker's for nil or `WorkerTab.firstKey`, else the extra tab's
     /// of that key. One tab's sign never restarts another's.
     public mutating func noteSign(of task: UUID, tab key: String? = nil, at now: Date) {
-        if let key, key != WorkerTab.firstKey { noteSign(of: Tab(task: task, key: key), at: now) }
+        if case .extra(let key) = TabReference(key) { noteSign(of: Tab(task: task, key: key), at: now) }
         else { lastSign[task] = max(lastSign[task] ?? now, now) }
     }
 

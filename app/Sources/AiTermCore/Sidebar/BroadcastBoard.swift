@@ -447,16 +447,16 @@ public struct BroadcastBoard: Equatable, Sendable {
 
     /// Who asks, or where a question answered there waits.
     private static func from(_ question: OperatorQuestion) -> String {
-        if question.id.hasPrefix(OperatorQuestion.promptPrefix) {
-            guard let tab = question.tab, tab != WorkerTab.firstKey else { return "Waits in its worker’s window" }
+        if question.kind == .prompt {
+            guard case .extra(let tab) = TabReference(question.tab) else { return "Waits in its worker’s window" }
             return "Waits in its \(tab) tab"
         }
-        if question.id.hasPrefix(OperatorQuestion.gatePrefix) { return "Waits in the Operator’s chat" }
+        if question.kind == .gate { return "Waits in the Operator’s chat" }
         switch question.asker {
         case .aiterm: return "AiTerm asks"
         case .theOperator: return "The Operator asks"
         case .worker:
-            let tab = question.relayedFrom.flatMap { $0 == WorkerTab.firstKey ? nil : $0 }
+            let tab = question.relayedFrom.flatMap { TabReference($0).key }
             return (tab.map { "Its \($0) tab asks" } ?? "Its worker asks") + " · relayed by the Operator"
         }
     }
@@ -480,11 +480,11 @@ public struct BroadcastBoard: Equatable, Sendable {
 
     /// How a question is answered: there, by one link, or here, with its choices and a field.
     private static func answer(_ question: OperatorQuestion) -> ListedQuestion.Answer {
-        if question.id.hasPrefix(OperatorQuestion.promptPrefix), let task = question.task {
-            return .window(task: task, tab: question.tab ?? WorkerTab.firstKey)
+        if question.kind == .prompt, let task = question.task {
+            return .window(task: task, tab: TabReference(question.tab).name)
         }
-        if question.id.hasPrefix(OperatorQuestion.gatePrefix) { return .chat }
-        if question.about == OperatorQuestion.fixRounds { return .here(choices: FixRoundsAnswer.allCases.map(\.title), field: false) }
+        if question.kind == .gate { return .chat }
+        if question.kind == .fixRounds { return .here(choices: FixRoundsAnswer.allCases.map(\.title), field: false) }
         return .here(choices: question.choices ?? [], field: true)
     }
 
@@ -614,8 +614,8 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// The card's question for you (`CardQuestion`): on a finished task only one that never held it, as that one still asks.
     private static func question(on task: UUID, _ operated: OperatedTask, run: OperatorRun) -> CardQuestion? {
         run.questions
-            .filter { $0.task == task && $0.resolution == nil && !$0.id.hasPrefix(OperatorQuestion.promptPrefix)
-                && $0.about != OperatorQuestion.fixRounds && !(operated.isFinished && $0.holdsTask) }
+            .filter { $0.task == task && $0.resolution == nil && $0.kind != .prompt && $0.about != OperatorQuestion.fixRounds
+                && !(operated.isFinished && $0.holdsTask) }
             .min { $0.askedAt < $1.askedAt }
             .map { CardQuestion(key: $0.id, text: $0.text, holds: $0.holdsTask, asker: $0.asker) }
     }
@@ -666,7 +666,7 @@ public struct BroadcastBoard: Equatable, Sendable {
 
     /// One worker tab's line: what it does and its mark.
     private static func tabLine(of worker: WorkerTab, task: UUID) -> TabLine {
-        let key = worker.key ?? WorkerTab.firstKey
+        let key = worker.reference.name
         let opens = worker.session.map { Opens.tab(task: task, sessionId: $0.sessionId) } ?? .nothing
         if worker.isOpening { return TabLine(key: key, agent: worker.agent, line: OperatorLine("opening"), status: .working, opens: .nothing) }
         if let tests = worker.session?.testActivity, worker.session?.state != .needsInput,
@@ -763,6 +763,6 @@ public struct BroadcastBoard: Equatable, Sendable {
 public extension OperatorRun {
     /// The open question asking you about `task`'s fix rounds (`OperatorQuestion.fixRounds`), which its card answers.
     func fixRoundsQuestion(on task: UUID) -> OperatorQuestion? {
-        questions.first { $0.task == task && $0.about == OperatorQuestion.fixRounds && $0.resolution == nil }
+        questions.first { $0.task == task && $0.kind == .fixRounds && $0.resolution == nil }
     }
 }

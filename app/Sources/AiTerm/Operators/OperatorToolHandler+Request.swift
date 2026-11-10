@@ -75,7 +75,7 @@ extension OperatorToolHandler {
             throw ToolRefusal("\(operated.key) has no merge request yet: finish_task opens it.")
         }
         let reference = publication.mergeRequestURL.map { CodeHost(webURL: $0).reference(number) } ?? "#\(number)"
-        if publication.merged || publication.mergedSHA != nil { throw ToolRefusal("\(reference) is merged: there is no pipeline of it to retry.") }
+        if publication.wasMerged { throw ToolRefusal("\(reference) is merged: there is no pipeline of it to retry.") }
         // Two calls at once would both find it failed and retry it twice.
         let flight = WriteInFlight(kind: .pipelineRetry, run: run.id, key: task.id.uuidString)
         guard writesInFlight.insert(flight).inserted else {
