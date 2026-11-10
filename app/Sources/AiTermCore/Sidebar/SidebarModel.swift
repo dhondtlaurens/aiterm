@@ -523,12 +523,12 @@ public enum SidebarModel {
     /// tabs, so it says `ready for the Operator` once every worker ended its turn and `Operator watching · 2 tabs`
     /// with several open. A queued task (`TaskRow.queued`) has no tabs yet: its planned agent is its avatar.
     static func taskRow(_ task: TaskItem, tabs: Tabs, operated: OperatedLookup, branchByCwd: [String: String],
-                        diffByTask: [UUID: DiffStat]) -> TaskRow {
+                        diffByTask: [UUID: DiffStat], now: Date = Date()) -> TaskRow {
         let own = tabs.byTask[task.id] ?? []
         let run = task.operated.flatMap { operated.runs[$0.runId] }
         let line = run.flatMap { run in
             OperatorLine.task(task, run: run, acting: operated.acting[task.id], requests: operated.requests[run.id] ?? [],
-                              tasks: operated.tasks, sessions: own, turn: operated.turns[task.id])
+                              tasks: operated.tasks, sessions: own, turn: operated.turns[task.id], now: now)
         }
         let queued = line != nil && task.isQueuedByOperator
         let status = aggregate(tabs: own)

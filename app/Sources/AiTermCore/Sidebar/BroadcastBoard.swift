@@ -343,13 +343,13 @@ public struct BroadcastBoard: Equatable, Sendable {
 
     /// The board of `run` as `state` has it. `acting` is what the Operator is doing now, as
     /// `OperatorController.acting` says it; `requests` are the broadcast's open requests (`OperatorRequests`);
-    /// `sessions` the tabs as iTerm2 lists them, which the band reads as its row does; `liveModels` what each task's
+    /// `sessions` the tabs as iTerm2 lists them, which the band reads as its row does, as of `now`; `liveModels` what each task's
     /// Claude worker runs now (`liveModels(of:state:sessions:)`), which the cards' tooltips say; `modelLabels` the names
     /// the cards give the models, a model with none named by its id.
     public static func make(run: OperatorRun, state: AppState, acting: OperatorActs, requests: [BroadcastRequest],
-                            sessions: [SessionInfo] = [], liveModels: [UUID: LiveModel] = [:],
+                            sessions: [SessionInfo] = [], now: Date = Date(), liveModels: [UUID: LiveModel] = [:],
                             modelLabels: ModelLabels = [:]) -> BroadcastBoard {
-        build(run: run, state: state, acting: acting, requests: requests, sessions: sessions, liveModels: liveModels,
+        build(run: run, state: state, acting: acting, requests: requests, sessions: sessions, now: now, liveModels: liveModels,
               modelLabels: modelLabels, keepsHanded: false)
     }
 
@@ -368,7 +368,7 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// The board, `keepsHanded` keeping the tasks End handed to you (`handedOnEnd`) In progress and counted, as the
     /// Shelf reads an ended broadcast.
     private static func build(run: OperatorRun, state: AppState, acting: OperatorActs, requests: [BroadcastRequest],
-                              sessions: [SessionInfo], liveModels: [UUID: LiveModel], modelLabels: ModelLabels,
+                              sessions: [SessionInfo], now: Date, liveModels: [UUID: LiveModel], modelLabels: ModelLabels,
                               keepsHanded: Bool) -> BroadcastBoard {
         let tasks = state.tasks(inRun: run.id)
         let byId = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -385,7 +385,7 @@ public struct BroadcastBoard: Equatable, Sendable {
             let handed = keepsHanded && Self.handedOnEnd(operated)
             guard operated.state != .stopped || handed else { return nil }
             var card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId, sessions: sessions,
-                                 live: liveModels[task.id], turn: acting.turns[task.id], labels: modelLabels,
+                                 now: now, live: liveModels[task.id], turn: acting.turns[task.id], labels: modelLabels,
                                  project: projects.count > 1 ? names[task.projectId] : nil)
             // Relayed, it is a record of yours, which the card shows as its question instead.
             let relayed = run.questions.contains { $0.task == task.id && $0.resolution == nil && $0.relayedFrom != nil }
@@ -403,7 +403,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                  empty: Self.empty(column, planned: !tasks.isEmpty || !removed.isEmpty))
         }
         let band = OperatorLine.broadcast(run, tasks: tasks, acting: acting.broadcast(run.id), requests: requests,
-                                          ready: SidebarModel.readyForAcceptance(tasks, sessions: sessions))
+                                          ready: SidebarModel.readyForAcceptance(tasks, sessions: sessions, now: now))
         return BroadcastBoard(
             runId: run.id, title: run.name, band: band,
             progress: progress(of: run, tasks: tasks, band: band, keepsHanded: keepsHanded),
@@ -501,7 +501,8 @@ public struct BroadcastBoard: Equatable, Sendable {
         var all = state
         let driven = state.tasks(inRun: run.id) + state.archive.map(\.task).filter { $0.operated?.runId == run.id }
         all.tasks = driven.enumerated().sorted { ($0.element.createdAt, $0.offset) < ($1.element.createdAt, $1.offset) }.map(\.element)
-        var board = build(run: run, state: all, acting: .none, requests: [], sessions: [], liveModels: [:], modelLabels: modelLabels, keepsHanded: true)
+        var board = build(run: run, state: all, acting: .none, requests: [], sessions: [], now: Date(), liveModels: [:], modelLabels: modelLabels,
+                          keepsHanded: true)
         board.columns = board.columns.map { lane in
             var lane = lane
             lane.cards = lane.cards.map { card in
@@ -558,7 +559,7 @@ public struct BroadcastBoard: Equatable, Sendable {
     // MARK: - A card
 
     private static func card(_ task: TaskItem, _ operated: OperatedTask, run: OperatorRun, acting: OperatorAct?,
-                             requests: [BroadcastRequest], tasks: [UUID: TaskItem], sessions: [SessionInfo], live: LiveModel?,
+                             requests: [BroadcastRequest], tasks: [UUID: TaskItem], sessions: [SessionInfo], now: Date, live: LiveModel?,
                              turn: WorkerTurn.Ending?, labels: ModelLabels, project: String?) -> Card {
         let takenOver = operated.takenOver
         let closes = run.taskSettings.closeWhenDone == true && operated.reachedItsEnd
@@ -572,7 +573,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         } else if let fixRounds, !asks {
             OperatorLine("out of fix rounds", look: .needsYou, tooltip: fixRounds.text)
         } else {
-            OperatorLine.task(task, run: run, acting: acting, requests: requests, tasks: tasks, sessions: sessions, turn: turn)
+            OperatorLine.task(task, run: run, acting: acting, requests: requests, tasks: tasks, sessions: sessions, turn: turn, now: now)
         }
         let mr: (reference: String, host: CodeHost, title: String?)? = task.mr.map { ($0.reference, $0.host, $0.title) }
             ?? operated.publication.flatMap { publication in

@@ -117,31 +117,31 @@ public extension SidebarModel {
     /// project's are (`taskRow`), from the same tabs, branches and diffs. `acting` is what the Operator is doing
     /// now, as `OperatorController.acting` says it; `sessions` the tabs as iTerm2 lists them.
     static func broadcastSection(state: AppState, sessions: [SessionInfo], branchByCwd: [String: String] = [:],
-                                 diffByTask: [UUID: DiffStat] = [:], acting: OperatorActs = .none) -> BroadcastSection? {
+                                 diffByTask: [UUID: DiffStat] = [:], acting: OperatorActs = .none, now: Date = Date()) -> BroadcastSection? {
         guard let run = state.activeRun else { return nil }
         let tasks = state.tasks(inRun: run.id), requests = OperatorRequests.open(run: run, state: state)
-        let header = broadcastRow(run, state: state, tasks: tasks, requests: requests, acting: acting, sessions: sessions)
+        let header = broadcastRow(run, state: state, tasks: tasks, requests: requests, acting: acting, sessions: sessions, now: now)
         let tabs = Tabs(sessions), operated = OperatedLookup(state: state, acting: acting.tasks, turns: acting.turns)
-        let rows = tasks.map { taskRow($0, tabs: tabs, operated: operated, branchByCwd: branchByCwd, diffByTask: diffByTask) }
+        let rows = tasks.map { taskRow($0, tabs: tabs, operated: operated, branchByCwd: branchByCwd, diffByTask: diffByTask, now: now) }
         return BroadcastSection(header: header,
-                                operatorRow: operatorRow(run, tasks: tasks, acting: acting, requests: requests, sessions: sessions),
+                                operatorRow: operatorRow(run, tasks: tasks, acting: acting, requests: requests, sessions: sessions, now: now),
                                 tasks: rows.filter { !$0.queued } + rows.filter(\.queued),
                                 folded: state.foldedRuns.contains(run.id))
     }
 
     /// The broadcast as OPERATOR says it: `AppState.activeRun`'s, or nil while there is none. `sessions` tell a task whose
-    /// workers are done (`readyForAcceptance`), which its line reads.
-    static func broadcastRow(state: AppState, acting: OperatorActs = .none, sessions: [SessionInfo] = []) -> BroadcastRow? {
+    /// workers are done as of `now` (`readyForAcceptance`), which its line reads.
+    static func broadcastRow(state: AppState, acting: OperatorActs = .none, sessions: [SessionInfo] = [], now: Date = Date()) -> BroadcastRow? {
         guard let run = state.activeRun else { return nil }
         return broadcastRow(run, state: state, tasks: state.tasks(inRun: run.id), requests: OperatorRequests.open(run: run, state: state),
-                            acting: acting, sessions: sessions)
+                            acting: acting, sessions: sessions, now: now)
     }
 
     /// The header of `run`, `tasks` its tasks and `requests` its open requests, as the section has them already.
     private static func broadcastRow(_ run: OperatorRun, state: AppState, tasks: [TaskItem], requests: [BroadcastRequest],
-                                     acting: OperatorActs, sessions: [SessionInfo]) -> BroadcastRow {
+                                     acting: OperatorActs, sessions: [SessionInfo], now: Date) -> BroadcastRow {
         let line = OperatorLine.broadcast(run, tasks: tasks, acting: acting.broadcast(run.id), requests: requests,
-                                          ready: readyForAcceptance(tasks, sessions: sessions))
+                                          ready: readyForAcceptance(tasks, sessions: sessions, now: now))
         let projects = run.projectIds.compactMap(state.project(id:))
         return BroadcastRow(id: run.id, title: run.name, progress: BroadcastBoard.count(of: run, tasks: tasks),
                             projectsHelp: projects.map(\.name).sentenceList, line: line,
@@ -159,7 +159,7 @@ public extension SidebarModel {
     /// Its mark follows the line: amber when it asks, spinning while it acts or works, dashed while background
     /// work runs, the completed check as soon as the broadcast is complete, else the idle ring.
     static func operatorRow(_ run: OperatorRun, tasks: [TaskItem], acting: OperatorActs, requests: [BroadcastRequest],
-                            sessions: [SessionInfo]) -> OperatorRow {
+                            sessions: [SessionInfo], now: Date = Date()) -> OperatorRow {
         let tab = run.operatorSessionId.flatMap { id in sessions.first { $0.sessionId == id } } ?? operatorTab(of: run.id, in: sessions)
         let questions = requests.filter { $0.runId == run.id && $0.kind == .question }
         let about: String? = switch questions.count {
@@ -171,7 +171,7 @@ public extension SidebarModel {
         let background = tab.map { backgroundJobs(of: [$0]).map(\.text) } ?? []
         // Paused by you: the tasks whose line says `pausing`, a worker still at work.
         let pausing = run.isPausedByYou ? tasks.filter { task in
-            OperatorLine.task(task, run: run, acting: nil, requests: requests, sessions: sessions) == .pausing
+            OperatorLine.task(task, run: run, acting: nil, requests: requests, sessions: sessions, now: now) == .pausing
         }.count : 0
         let line = OperatorLine.session(acting: acting.broadcast(run.id), working: tab?.state == .working,
                                         asking: !questions.isEmpty || tab?.state == .needsInput, about: about,
@@ -199,10 +199,10 @@ public extension SidebarModel {
         sessions.filter { $0.taskUUID == run }.min { ($0.tabIndex, $0.sessionId) < ($1.tabIndex, $1.sessionId) }
     }
 
-    /// The tasks of `tasks` whose workers, as `sessions` list them, all ended their turn: each waits for the
-    /// Operator to accept it.
-    static func readyForAcceptance(_ tasks: [TaskItem], sessions: [SessionInfo]) -> Set<UUID> {
+    /// The tasks of `tasks` whose workers, as `sessions` list them as of `now`, all ended their turn: each waits for the
+    /// Operator to accept it. A first worker still launching is at work (`TaskItem.isReadyForAcceptance(in:now:)`).
+    static func readyForAcceptance(_ tasks: [TaskItem], sessions: [SessionInfo], now: Date) -> Set<UUID> {
         guard !sessions.isEmpty else { return [] }
-        return Set(tasks.filter { $0.isReadyForAcceptance(in: sessions) }.map(\.id))
+        return Set(tasks.filter { $0.isReadyForAcceptance(in: sessions, now: now) }.map(\.id))
     }
 }

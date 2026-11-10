@@ -46,6 +46,15 @@ public struct WorkerTab: Equatable, Sendable {
     /// An extra tab that opened and is listed no more: closed, and never opened again. A first worker is never closed
     /// here; its window comes back on your click.
     public var isClosed: Bool { key != nil && session == nil && !isOpening }
+
+    /// This tab as its tab alone says it, a first worker's launch not counted: what `TaskItem.workerTabs(in:)` gives with
+    /// no time. A pass matches its tabs once, as of its time; what readiness and a pause leave aside reads them so.
+    public var asListed: WorkerTab {
+        guard key == nil, isOpening else { return self }
+        var tab = self
+        tab.isOpening = false
+        return tab
+    }
 }
 
 /// An immutable view for one observation pass. Parse each session's task tag once, retaining daemon order.
@@ -84,15 +93,17 @@ public extension TaskItem {
         return tabs.first { $0.key == key }
     }
 
-    /// Whether its result waits for the Operator to accept it, its workers as `sessions` list them: working, and
-    /// every worker ended its turn with nothing left running in the background (`RunStatus.isReadyForAcceptance`).
-    /// A question it waits on you for (`waitingOnYou`) holds it too, as `run_status` says, and so does a worker whose
-    /// turn an API error ended (`SessionInfo.stoppedOn`): it did not finish.
-    func isReadyForAcceptance(in sessions: [SessionInfo]) -> Bool {
-        return isReadyForAcceptance(tabs: workerTabs(in: sessions))
+    /// Whether its result waits for the Operator to accept it, its workers as `sessions` list them as of `now`: working,
+    /// and every worker ended its turn with nothing left running in the background (`RunStatus.isReadyForAcceptance`). A
+    /// first worker still launching is at work (`workerTabs(in:now:)`), as `run_status` counts it. A question it waits on
+    /// you for (`waitingOnYou`) holds it too, as `run_status` says, and so does a worker whose turn an API error ended
+    /// (`SessionInfo.stoppedOn`): it did not finish.
+    func isReadyForAcceptance(in sessions: [SessionInfo], now: Date) -> Bool {
+        return isReadyForAcceptance(tabs: workerTabs(in: sessions, now: now))
     }
 
-    /// `isReadyForAcceptance(in:)` from its worker tabs (`workerTabs(in:)`), for a caller that has them already.
+    /// `isReadyForAcceptance(in:now:)` from its worker tabs as of a time (`workerTabs(in:now:)`), for a caller that has
+    /// them already.
     internal func isReadyForAcceptance(tabs: [WorkerTab]) -> Bool {
         guard let operated, !operated.flags.contains(.waitingOnYou), tabs.allSatisfy({ $0.session?.stoppedOn == nil }) else { return false }
         let workers = tabs.map(\.status)
@@ -136,7 +147,8 @@ public extension TaskItem {
         }
     }
 
-    /// A shared per-pass session view for callers observing several tasks.
+    /// A shared per-pass session view for callers observing several tasks: given `now`, the pass's one live projection
+    /// of the task, which run_status (`TaskLiveFacts.of`) and the turn reader read.
     func workerTabs(in sessions: WorkerSessions, now: Date? = nil) -> [WorkerTab] {
         workerTabs(in: sessions.sessions(for: id), now: now)
     }

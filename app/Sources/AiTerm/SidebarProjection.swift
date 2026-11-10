@@ -141,13 +141,15 @@ final class SidebarProjection {
             let runs = Dictionary(next.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             if runs != self.runs { self.runs = runs }
         }
+        // One time for the whole derivation: the group and the board count a worker still launching alike.
+        let now = Date()
         let broadcast = SidebarModel.broadcastSection(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,
-                                                      diffByTask: next.diffByTask, acting: next.acting)
+                                                      diffByTask: next.diffByTask, acting: next.acting, now: now)
         let broadcastChanged = broadcast != self.broadcast
         if broadcastChanged { self.broadcast = broadcast }
         let board = !next.boardShown ? nil : state.activeRun.map { run in
             BroadcastBoard.make(run: run, state: state, acting: next.acting,
-                                requests: OperatorRequests.open(run: run, state: state), sessions: next.sessions,
+                                requests: OperatorRequests.open(run: run, state: state), sessions: next.sessions, now: now,
                                 liveModels: next.liveModels, modelLabels: next.modelLabels)
         }
         if board != self.board { self.board = board }
