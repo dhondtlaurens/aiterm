@@ -265,6 +265,30 @@ import Testing
         #expect(!possiblyStalled(world, task))
     }
 
+    /// FE Sprint 84, fe-1801-review-3: an extra tab whose session sticks at working while its transcript stays still is
+    /// doubted on its own line, as a first worker is, and its task is uncertain, whatever its first worker does. The
+    /// Operator's `run_status` call says so too, not only the waker's own reading.
+    @Test func aQuietExtraTabReadsWorkingQuestionedBesideABusyFirstWorker() async throws {
+        let (world, run, _) = try makeWorld(.inReview, extraTab: true)
+        try writeTranscript(world, writtenAgo: 0)
+        try writeTranscript(world, writtenAgo: 0, agent: .codex, conversation: "conv-r")
+        clock.advance(by: 180)
+        try writeTranscript(world, writtenAgo: 30)
+        await tick(world)
+        let tabs = try #require(try line(world, run).tabs)
+        #expect(tabs.map(\.live) == [.working, .workingQuiet])
+        #expect(try uncertain(world, run) == ["PLUTO-1"])
+        let status = try #require(await world.call(run.id, "run_status").value)
+        #expect(status["tasks"]?.arrayValue?.first?["tabs"]?.arrayValue?.map { $0["live"] } == ["working", "working?"])
+        #expect(status["obligations"]?["uncertain"] == ["PLUTO-1"])
+
+        // Its transcript growing again ends the doubt.
+        try writeTranscript(world, writtenAgo: 10, agent: .codex, conversation: "conv-r")
+        await tick(world)
+        #expect(try #require(try line(world, run).tabs).map(\.live) == [.working, .working])
+        #expect(try uncertain(world, run).isEmpty)
+    }
+
     /// A task you took over is yours: its worker's quiet is not the Operator's to doubt.
     @Test func aTakenOverTaskIsNotJudged() async throws {
         let (world, run, task) = try makeWorld(.working)

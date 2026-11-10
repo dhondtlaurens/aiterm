@@ -74,6 +74,12 @@ your recorded answers. Accepted evidence belongs to a specific commit; a moved b
 acceptance. Retrying publication resumes saved steps and discovers an existing request rather than
 blindly creating another.
 
+A worker tab whose session says working while its transcript has not grown for a while, and no call
+it started still runs, reads `working?` on its `run_status` line, and its task is listed under
+`uncertain`, in any task state but taken over or not started. Each tab is judged on its own: the
+first worker and every `open_tab` tab. Cleanup still waits on a `working?` tab, since AiTerm never
+closes a window under a turn it only doubts.
+
 An ended worker turn is reported as changed after acceptance when its commit moved or its
 uncommitted content differs from the content recorded at acceptance. An unchanged untracked
 plan stays quiet, including after a local merge and restart. Older saved acceptances have no
@@ -218,7 +224,10 @@ branch from origin; a fetch that fails is said, and nothing is done. A local mer
 origin out of reach doesn't stop it: whether its commit is merged already is read from the checkout
 and origin as last fetched, the Oracle still judges a new merge, and the answer says origin couldn't
 be read. Only `finish_task` pushes: a merge watch that finds the task accepted again on a commit not
-pushed yet pushes nothing, stops with that reason, and wakes the Operator naming the task.
+pushed yet pushes nothing, stops with that reason, and wakes the Operator naming the task. Only
+`finish_task` ends a review: a task accepted again while its people review goes on is not watched,
+since its next `finish_task` pushes it back into review, and a watch that finds its task in review
+changes nothing and ends without a word; the review's own news wakes the Operator.
 
 A task's branch starts at origin's default branch, fetched first; in a local-merge broadcast, at the
 local default branch, where the tasks before it merged. Its diff base is the commit it started at.

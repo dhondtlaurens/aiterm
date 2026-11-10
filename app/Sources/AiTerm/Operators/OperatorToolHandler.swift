@@ -167,6 +167,8 @@ final class OperatorToolHandler {
     var extraTurnReadings: @MainActor () -> [UUID: [String: WorkerTurnReader.Reading]] = { [:] }
     /// The tasks whose working worker's transcript went quiet (`WorkerQuietWatch.quiet`).
     var quietTasks: @MainActor () -> Set<UUID> = { [] }
+    /// The extra tabs whose transcript went quiet while they say working, their keys by task (`WorkerQuietWatch.quietExtraTabs`).
+    var quietTabs: @MainActor () -> [UUID: Set<String>] = { [:] }
     /// Said once `message_task` delivered to a task's first worker: what its last turn left is answered (spec §J).
     var onMessaged: @MainActor (UUID, String?) -> Void = { _, _ in }
     /// Reads the addressed worker's screen after delivery or a refusal that suggests a prompt.
@@ -414,7 +416,7 @@ final class OperatorToolHandler {
     func currentStatus(of run: OperatorRun, hostThreads: [UUID: [String: Bool]]) -> RunStatus? {
         var status = OperatorController.status(of: run.id, state: state, sessions: live.sessions, revision: 0,
                                   usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turnReadings(), extraTurns: extraTurnReadings(),
-                                  quiet: quietTasks(), hostThreads: hostThreads, now: ports.now())
+                                  quiet: quietTasks(), quietTabs: quietTabs(), hostThreads: hostThreads, now: ports.now())
         for (agent, reading) in [("claude", live.usage.claude), ("codex", live.usage.codex)] {
             var telemetry = RunStatus.UsageTelemetry(lastKnown: reading, now: ports.now())
             if let kind = AgentKind(rawValue: agent), live.usageUnavailable.contains(kind), reading?.retrievalFailure == nil {

@@ -361,7 +361,9 @@ final class TaskFinisher {
               !operated.takenOver, !operated.flags.contains(.upstreamReplaced),
               let publication = operated.publication, publication.mergeRequestNumber != nil,
               !publication.merged, publication.mergedSHA == nil, publication.problem == nil,
-              let run = store.state.run(id: operated.runId), run.intent == nil
+              let run = store.state.run(id: operated.runId), run.intent == nil,
+              // Accepted again while its people review goes on: its next finish_task pushes it back into review, not to a merge.
+              !TaskPublisher.Context.entersReview(operated, run: run)
         else { return false }
         return run.state == .active || run.state == .complete
     }
@@ -485,8 +487,9 @@ final class TaskFinisher {
             first = fresh
         }
         // A task in review: this finish_task ends the review (spec §5). A draft end is then published; a merge end
-        // goes on to its merge.
+        // goes on to its merge. Only the Operator's own call ends it: a merge watch's poll changes nothing.
         if first.operated.state == .inReview {
+            guard operatorCall else { return Result(first.operated.publication, result: .inReview, reason: nil) }
             if let ended = endReview(first) { return ended }
             guard let fresh = context(of: id) else { return Result(result: .refused, reason: PublicationGuard.gone) }
             first = fresh
@@ -944,7 +947,8 @@ final class TaskFinisher {
     /// - refused for anything else (the branch moved, the task changed hands, gone), the reason is
     ///   recorded as the problem and the operator told once (`watchStopped`);
     /// - three failures in a row to reach the host end it as a stuck one, the last reason recorded;
-    /// - merged, blocked or out of time, the operator is told (`changed`).
+    /// - merged, blocked or out of time, the operator is told (`changed`);
+    /// - back in people review, it ends quietly: the review watcher has the word, and only finish_task ends a review.
     /// A watch stopped meanwhile (`stopWatching`, `disarm`) says nothing. Nothing is watched that is not
     /// watchable now — a poll that answers after a Pause does not start a watch again. The entry is
     /// cleared when the poll ends — unless `stopWatching` replaced it meanwhile with a newer one.
@@ -964,6 +968,10 @@ final class TaskFinisher {
                 case .waitingToMerge:
                     failures = 0
                     continue
+                case .inReview:
+                    // People review it: nothing merges until the Operator ends the review, and the review watcher wakes
+                    // it on the review's news, so the watch ends without a word.
+                    return
                 case .refused:
                     guard !self.isSuspended(id), self.store.state.task(id: id)?.operated != nil else { return }
                     var why = result.reason ?? PublicationGuard.changedMidway

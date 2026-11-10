@@ -298,6 +298,7 @@ final class OperatorController {
         tools.turnReadings = { [weak self] in self?.turns.readings ?? [:] }
         tools.extraTurnReadings = { [weak self] in self?.turns.extraReadings ?? [:] }
         tools.quietTasks = { [weak self] in self?.quiet.quiet ?? [] }
+        tools.quietTabs = { [weak self] in self?.quiet.quietExtraTabs ?? [:] }
         tools.onMessaged = { [weak self] task, tab in self?.turns.messaged(task, tab: tab) }
         tools.onMessageResult = { [weak self] task, tab in
             // Reading a screen must not delay the delivery result or its replay cache.
@@ -378,7 +379,8 @@ final class OperatorController {
     /// The run as `run_status` would show it now, numbered 0: the waker compares content.
     func status(of run: OperatorRun) -> RunStatus? {
         Self.status(of: run.id, state: workspace.state, sessions: live.sessions, revision: 0,
-                    usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turns.readings, extraTurns: turns.extraReadings, quiet: quiet.quiet, now: ports.now())
+                    usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turns.readings, extraTurns: turns.extraReadings, quiet: quiet.quiet,
+                    quietTabs: quiet.quietExtraTabs, now: ports.now())
     }
 
     /// `run_status`'s snapshot: the run from the workspace, each task's live facts from its worker's tab and what its
@@ -387,9 +389,10 @@ final class OperatorController {
     static func status(of run: UUID, state: AppState, sessions: [SessionInfo], revision: Int,
                        usage: [AgentKind: Int] = [:], turns: [UUID: WorkerTurnReader.Reading],
                        extraTurns: [UUID: [String: WorkerTurnReader.Reading]] = [:], quiet: Set<UUID> = [],
-                       hostThreads: [UUID: [String: Bool]] = [:], now: Date = Date()) -> RunStatus? {
+                       quietTabs: [UUID: Set<String>] = [:], hostThreads: [UUID: [String: Bool]] = [:], now: Date = Date()) -> RunStatus? {
         RunStatus.build(state: state, run: run, revision: revision,
-                        live: liveFacts(of: run, state: state, sessions: sessions, turns: turns, extraTurns: extraTurns, quiet: quiet, now: now),
+                        live: liveFacts(of: run, state: state, sessions: sessions, turns: turns, extraTurns: extraTurns, quiet: quiet,
+                                        quietTabs: quietTabs, now: now),
                         runLive: RunLiveFacts(weeklyUsage: usage), hostThreads: hostThreads, now: now)
     }
 
@@ -402,7 +405,7 @@ final class OperatorController {
     /// its turn not ended.
     static func liveFacts(of run: UUID, state: AppState, sessions: [SessionInfo],
                           turns: [UUID: WorkerTurnReader.Reading], extraTurns: [UUID: [String: WorkerTurnReader.Reading]] = [:],
-                          quiet: Set<UUID> = [], now: Date = Date()) -> [UUID: TaskLiveFacts] {
+                          quiet: Set<UUID> = [], quietTabs: [UUID: Set<String>] = [:], now: Date = Date()) -> [UUID: TaskLiveFacts] {
         let questions = state.run(id: run)?.questions ?? []
         var facts: [UUID: TaskLiveFacts] = [:]
         let workersByTask = WorkerSessions(sessions)
@@ -420,7 +423,8 @@ final class OperatorController {
                                              opening: worker.isOpening, closed: worker.isClosed, waitingPrompt: prompt,
                                              liveModel: worker.session?.liveModel, liveReasoning: worker.session?.liveReasoning,
                                              slashCommands: worker.session?.slashCommands ?? [],
-                                             lastMessage: ended ? read?.lastMessage : nil, turnUnread: ended && read == nil)
+                                             lastMessage: ended ? read?.lastMessage : nil, turnUnread: ended && read == nil,
+                                             quiet: prompt == nil && quietTabs[task.id]?.contains(key) == true)
                 }
             }
             if tab != nil || prompt != nil || !extra.isEmpty || workers[0].isOpening {
