@@ -187,6 +187,7 @@ final class WindowReconciler {
         defer { passing = false }
         repeat {
             passAgain = false
+            WorkMeter.note(.reconcilerPass)
             let state = self.state
             let rows = state.tasks.map(\.id) + state.terminals.map(\.id)
             // A failure is the row's: one that went takes its cell with it, and one whose row has a

@@ -147,6 +147,7 @@ final class WorkerTurnReader {
 
     private func read(_ task: TaskItem, _ worker: WorkerTab, id: WorkerID) -> Task<Void, Never> {
         let operated = task.operated!, tab = worker.session!
+        WorkMeter.note(.turnRead)
         nextReadOrder += 1
         let order = nextReadOrder
         let state = tab.state, session = tab.sessionId, previous = workerReadings[id], request = UUID()

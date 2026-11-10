@@ -1,5 +1,6 @@
 import Foundation
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 /// The profile, broadcasts and tasks the Operators suites build on: one project, one run, and
 /// tasks made by key, so a test reads as the plan it sets up.
@@ -17,41 +18,36 @@ enum OperatorFixtures {
     }
 
     static func project(id: UUID = projectId, path: String = "/tmp/shop") -> Project {
-        Project(id: id, name: "Shop", path: path, provider: .git, remoteUrl: nil, addedAt: epoch, collapsed: false)
+        .make(id: id, path: path, addedAt: epoch)
     }
 
     /// A current structured run with explicit Agents rows, task settings and an optional goal.
     static func run(id: UUID = runId, state: OperatorRunState = .active, oracle: Bool = true, slices: Slices = .none,
                     planRevision: Int = 1, agents: [AgentChoice] = OperatorFixtures.agents, taskSettings: TaskSettings = TaskSettings(review: nil, end: .commit, closeWhenDone: false),
                     goal: BroadcastGoal? = nil) -> OperatorRun {
-        OperatorRun(id: id, name: "Sprint 42", profile: profile(oracle: oracle, slices: slices), projectIds: [projectId],
-                    prompt: "Implement the sprint.", state: state,
-                    planRevision: planRevision, createdAt: epoch, agents: agents, taskSettings: taskSettings, goal: goal)
+        .make(id: id, profile: profile(oracle: oracle, slices: slices), projects: [projectId], state: state,
+              planRevision: planRevision, createdAt: epoch, agents: agents, taskSettings: taskSettings, goal: goal)
     }
 
     /// The Agents rows of a run set up with them: Claude on Opus, Codex on Astra.
-    static let agents = [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high"),
-                         AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")]
+    static let agents = Build.agents
     static let taskSettings = TaskSettings(review: "An adversarial review with /code-review. After 3 rounds of fixes, ask me.",
                                            end: .draftMR)
     static let goal = BroadcastGoal(text: "Every page of the sprint ships.", extraRounds: 2)
 
     static func operated(_ key: String, _ state: OperatedState = .queued, run: UUID = runId, revision: Int = 1,
                          end: TaskEnd = .commit, dependsOn: [TaskDependency] = [], launched: Bool? = nil) -> OperatedTask {
-        let started = launched ?? ![.planned, .queued].contains(state)
-        return OperatedTask(runId: run, key: key, state: state, end: end, brief: "Do \(key)", dependsOn: dependsOn,
-                            stackedOn: dependsOn.first { $0.kind == .code }?.task, revision: revision,
-                            launch: started ? LaunchAttempt(number: 1, requestedAt: epoch) : nil)
+        .make(run: run, key: key, state: state, end: end, brief: "Do \(key)", dependsOn: dependsOn, revision: revision,
+              launched: launched ?? ![.planned, .queued].contains(state), launchedAt: epoch)
     }
 
     static func task(_ key: String, _ state: OperatedState = .queued, id: UUID = UUID(), run: UUID = runId,
                      revision: Int = 1, end: TaskEnd = .commit, dependsOn: [TaskDependency] = [],
                      launched: Bool? = nil, project: UUID = projectId) -> TaskItem {
-        TaskItem(id: id, projectId: project, title: key, branch: "feat/\(key.lowercased())",
-                 worktreePath: "/tmp/shop/.worktrees/\(key.lowercased())", baseBranch: "main", jira: nil,
-                 agent: .claude, model: "opus", reasoning: "high", firstPrompt: "Do \(key)", appendTicket: false,
-                 createdAt: epoch, windowId: nil,
-                 operated: operated(key, state, run: run, revision: revision, end: end, dependsOn: dependsOn, launched: launched))
+        .make(id: id, project: project, title: key, branch: "feat/\(key.lowercased())",
+              worktreePath: "/tmp/shop/.worktrees/\(key.lowercased())", model: "opus", reasoning: "high", firstPrompt: "Do \(key)",
+              createdAt: epoch,
+              operated: operated(key, state, run: run, revision: revision, end: end, dependsOn: dependsOn, launched: launched))
     }
 
     /// A workspace with the project, `run` and `tasks`.

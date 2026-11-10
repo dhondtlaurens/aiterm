@@ -16,22 +16,19 @@ enum OperatorServiceFixtures {
     }
 
     static func project(path: String = "/tmp/aiterm-operators-none", name: String = "Shop", jira: [JiraProjectRef] = []) -> Project {
-        Project(id: UUID(), name: name, path: path, provider: .git, remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 0),
-                collapsed: false, jiraProjects: jira)
+        .make(name: name, path: path, jiraProjects: jira)
     }
 
     /// A legacy run, unless given the Agents rows, task settings or a goal: then a run set up with those steps.
     static func run(_ profile: OperatorProfile = profile(), projects: [Project], state: OperatorRunState = .planning,
                     planRevision: Int = 0, id: UUID = UUID(), agents: [AgentChoice] = OperatorServiceFixtures.agents, taskSettings: TaskSettings = TaskSettings(review: nil, end: .commit, closeWhenDone: false),
                     goal: BroadcastGoal? = nil) -> OperatorRun {
-        OperatorRun(id: id, name: "Sprint 42", profile: profile, projectIds: projects.map(\.id), prompt: "Implement the sprint.",
-                    state: state, planRevision: planRevision, createdAt: Date(timeIntervalSince1970: 0), agents: agents,
-                    taskSettings: taskSettings, goal: goal)
+        .make(id: id, profile: profile, projects: projects.map(\.id), state: state, planRevision: planRevision, agents: agents,
+              taskSettings: taskSettings, goal: goal)
     }
 
     /// Agents rows on the scratch ports' model lists: Claude's first model, then Codex's.
-    static let agents = [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high"),
-                         AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")]
+    static let agents = Build.agents
     static let taskSettings = TaskSettings(review: "An adversarial review with /code-review. After 3 rounds of fixes, ask me.",
                                            end: .draftMR)
     static let goal = BroadcastGoal(text: "Every page of the sprint ships.", extraRounds: 2)
@@ -39,12 +36,9 @@ enum OperatorServiceFixtures {
     static func task(in run: OperatorRun, project: Project, key: String, state: OperatedState = .planned, agent: AgentKind = .claude,
                      worktree: String = "", branch: String? = nil, revision: Int = 1, dependsOn: [TaskDependency] = [],
                      end: TaskEnd = .commit) -> TaskItem {
-        var task = TaskItem(id: UUID(), projectId: project.id, title: "Task \(key)", branch: branch ?? "feat/\(key.lowercased())",
-                            worktreePath: worktree, baseBranch: "", jira: nil, agent: agent, model: "m", reasoning: nil,
-                            firstPrompt: "Do \(key).", appendTicket: false, createdAt: Date(timeIntervalSince1970: 0), windowId: nil)
-        task.operated = OperatedTask(runId: run.id, key: key, state: state, end: end, brief: "Do \(key).", dependsOn: dependsOn,
-                                     stackedOn: dependsOn.first { $0.kind == .code }?.task, revision: revision)
-        return task
+        .make(project: project.id, title: "Task \(key)", branch: branch ?? "feat/\(key.lowercased())", worktreePath: worktree,
+              baseBranch: "", agent: agent, firstPrompt: "Do \(key).",
+              operated: .make(run: run.id, key: key, state: state, end: end, dependsOn: dependsOn, revision: revision))
     }
 
     static func state(projects: [Project], runs: [OperatorRun], tasks: [TaskItem] = []) -> AppState {
@@ -58,10 +52,7 @@ enum OperatorServiceFixtures {
     /// A tab tagged with `tag`: a task's id, or a run's for the operator's own tab.
     static func session(_ id: String, window: String = "w1", tag: UUID, agent: SessionAgent = .claude, state: SessionState = .idle,
                         conversation: String? = nil, cwd: String = "/") -> SessionInfo {
-        var session = SessionInfo(sessionId: id, windowId: window, tabIndex: 0, taskId: tag.uuidString, projectId: nil, agent: agent,
-                                  model: nil, state: state, title: "", cwd: cwd)
-        session.conversationId = conversation
-        return session
+        .make(id, window: window, task: tag, agent: agent, state: state, cwd: cwd, conversation: conversation)
     }
 
     /// Each agent's model list in Settings › Agents, as the scratch ports give it.
@@ -116,7 +107,7 @@ extension OperatorPorts {
     /// hermetic git, wake lines with no wait.
     @MainActor static func scratch(notifications: RecordingNotifications = RecordingNotifications(),
                                    git: any GitRunning = GitRunner.hermetic()) -> OperatorPorts {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-operators-\(UUID().uuidString)")
+        let home = ScratchFolder.path("aiterm-operators-")
         var ports = OperatorPorts(home: home, git: git, notifications: notifications, wakeCoalesce: .zero)
         // Nothing is published but through a test's own fake host, and no merge watch waits for real.
         ports.publisher = { _ in throw MergeRequestSearch.Unavailable.notConnected(.gitLab) }
@@ -148,8 +139,7 @@ extension WorkspaceStore {
     /// A loaded workspace holding `state`, saved to a file nothing else uses: a broadcast's start
     /// waits for its run to be on disk.
     static func saving(_ state: AppState) throws -> WorkspaceStore {
-        let store = WorkspaceStore(file: StateStore(url: FileManager.default.temporaryDirectory
-            .appendingPathComponent("aiterm-operators-state-\(UUID().uuidString).json")))
+        let store = WorkspaceStore(file: StateStore(url: ScratchFolder.path("aiterm-operators-state-", suffix: ".json")))
         try store.load()
         store.mutate { $0 = state }
         return store

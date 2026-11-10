@@ -244,6 +244,13 @@ final class FakeMergeHost: MergeRequestPublishing {
         return script.withLock { $0.approvals }
     }
 
-    /// Not logged: a lookup of who the token is changes nothing on the host.
-    func currentUser() async throws -> String { script.withLock { $0.me } }
+    /// Not logged: a lookup of who the token is changes nothing on the host. Counted in `userLookups`, for a budget.
+    func currentUser() async throws -> String {
+        lookups.withLock { $0 += 1 }
+        return script.withLock { $0.me }
+    }
+
+    private let lookups = Mutex(0)
+    /// How many times `currentUser` was asked, which `log` leaves out.
+    var userLookups: Int { lookups.withLock { $0 } }
 }

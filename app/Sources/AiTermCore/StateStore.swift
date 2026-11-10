@@ -43,6 +43,7 @@ public final class StateStore: Sendable {
     }
 
     public func save(_ state: AppState) throws {
+        WorkMeter.note(.stateSave)
         try validate(state)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

@@ -46,6 +46,7 @@ public enum OperatorRequests {
     /// recorded. A task you took over contributes none, and an ended run has none. A finished task's leftovers ask nothing,
     /// except a question that doesn't hold it: that one asks until the Operator resolves or withdraws it.
     public static func open(run: OperatorRun, state: AppState) -> [BroadcastRequest] {
+        WorkMeter.note(.requests)
         guard !run.hasEnded else { return [] }
         let tasks = state.tasks(inRun: run.id)
         // Taken over or finished: what is left open on it asks nothing, but for a finished task's question that never held it.
