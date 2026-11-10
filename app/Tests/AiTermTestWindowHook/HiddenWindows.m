@@ -20,6 +20,21 @@
 
 static char keptVisibleKey;
 
+// Implemented in AiTermTestSupport. Linking it here keeps the process guard installed before tests.
+extern void AiTermTestCheckBlocking(void);
+
+@implementation NSTask (AiTermTestBlocking)
++ (void)load {
+    Class concreteTask = [[NSTask new] class];
+    method_exchangeImplementations(class_getInstanceMethod(concreteTask, @selector(launchAndReturnError:)),
+                                   class_getInstanceMethod(self, @selector(aiTermTest_launchAndReturnError:)));
+}
+- (BOOL)aiTermTest_launchAndReturnError:(NSError **)error {
+    AiTermTestCheckBlocking();
+    return [self aiTermTest_launchAndReturnError:error];
+}
+@end
+
 void AiTermTestKeepWindowVisible(NSWindow *window) {
     objc_setAssociatedObject(window, &keptVisibleKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }

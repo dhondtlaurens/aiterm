@@ -225,7 +225,7 @@ import Synchronization
 
     // -- the merge check ---------------------------------------------------------------------
     /// A new broadcast's merge check is given the review prompt and the task's verdicts, not the Review and Done text.
-    @Test func aNewBroadcastsMergeCheckReadsTheReviewPromptAndTheVerdicts() async throws {
+    @Test(.blocking) func aNewBroadcastsMergeCheckReadsTheReviewPromptAndTheVerdicts() async throws {
         let prompts = OperatorMergeTests.Prompts()
         let m = try OperatorMergeTests().merging(answer: nil, runner: .answering("YES", receivePrompt: { prompts.append($0) }))
         m.world.workspace.mutate { state in

@@ -2,13 +2,14 @@ import Foundation
 import Observation
 import Synchronization
 import Testing
+@testable import AiTermTestSupport
 @testable import AiTermCore
 @testable import AiTerm
 
 /// "Pull main" from a project's context menu: a toast says what it did, a banner why it could not.
-extension AppControllerTests {
+@MainActor @Suite(.blocking) struct PullDefaultControllerTests {
     @Test func pullDefaultSaysWhatItPulled() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let remote = fixture.root.appendingPathComponent("remote.git").path, other = fixture.root.appendingPathComponent("other").path
         try fixture.git.run(["init", "-q", "--bare", "-b", "main", remote], in: fixture.root.path)
@@ -31,7 +32,7 @@ extension AppControllerTests {
 
     /// The project's Pull item greys while its pull runs: its own row hears of it, and no other.
     @Test func aPullGreysItsOwnProjectsPullAlone() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller, other = UUID()
         let ownHeard = Mutex(false), otherHeard = Mutex(false)
@@ -48,7 +49,7 @@ extension AppControllerTests {
     }
 
     @Test func pullDefaultReportsWhyItCouldNot() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
 
         await fixture.controller.projects.pullDefault(project: fixture.project)?.value
@@ -61,7 +62,7 @@ extension AppControllerTests {
 
     /// Diverged, the banner says by how much and offers the rebase; the rebase says what it left.
     @Test func pullDefaultOffersToRebaseADivergedBranch() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let remote = fixture.root.appendingPathComponent("remote.git").path, other = fixture.root.appendingPathComponent("other").path
         let repo = fixture.repo.path
@@ -97,7 +98,7 @@ extension AppControllerTests {
 
     /// The banner's Rebase while a pull of the same branch runs does nothing, and the banner stays.
     @Test func rebaseWaitsForAPullInFlight() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let banner = OperationIssue(title: "Couldn’t pull the default branch.", actions: [.rebaseDefault(fixture.project.id)])
         fixture.controller.notices.report(banner)
@@ -110,7 +111,7 @@ extension AppControllerTests {
 
     /// A rebase that hits a conflict aborts, and the banner says it was left as it was.
     @Test func aRebaseThatConflictsSaysSo() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let remote = fixture.root.appendingPathComponent("remote.git").path, other = fixture.root.appendingPathComponent("other").path
         let repo = fixture.repo.path
@@ -143,7 +144,7 @@ extension AppControllerTests {
 
     /// A project removed while its pull runs gets neither a toast nor a banner.
     @Test func aPullOnAProjectRemovedMeanwhileSaysNothing() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Remove"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove"))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
 
         let pull = fixture.controller.projects.pullDefault(project: fixture.project)

@@ -5,7 +5,7 @@ import Testing
 @testable import AiTermTestSupport
 
 @MainActor
-struct UnbornTaskCreationTests {
+@Suite(.blocking) struct UnbornTaskCreationTests {
     @Test(arguments: ["main", "master", "team/trunk"])
     func consentInitializesAndRetriesTheRealCreationFlow(branch: String) async throws {
         let fixture = try Fixture(branch: branch)

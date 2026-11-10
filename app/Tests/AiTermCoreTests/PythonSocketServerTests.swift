@@ -3,7 +3,7 @@ import Testing
 @testable import AiTermTestSupport
 
 /// The test helper hands a socket over only once a client can connect to it.
-@MainActor struct PythonSocketServerTests {
+@MainActor @Suite(.blocking) struct PythonSocketServerTests {
     /// The socket file appears at `bind`; a connect before `listen` is refused. A script that takes
     /// its time between the two is the window a test's first connect once fell into.
     @Test func startReturnsOnceTheScriptListensNotOnceItBinds() async throws {

@@ -394,7 +394,7 @@ struct BroadcastGroupFocusTests {
         let driven = OperatorUIFixtures.task("Schema", project: project.id, windowId: nil,
                                              operated: OperatorUIFixtures.operated(run: run.id, key: "a", state: .working))
         controller.workspace.mutate { state in state.append(project: project); state.tasks.append(driven) }
-        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         #expect(controller.windows.choose(.task(driven.id)) == nil)
         #expect(controller.windows.restore(.task(driven.id)) == nil)
         #expect(daemon.requests("window.createTask").isEmpty)

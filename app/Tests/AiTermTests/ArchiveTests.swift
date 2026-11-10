@@ -1,16 +1,17 @@
 import Foundation
 import Testing
+@testable import AiTermTestSupport
 @testable import AiTerm
 @testable import AiTermCore
 
-extension AppControllerTests {
+@MainActor @Suite(.blocking) struct ArchiveControllerTests {
     @Test func archivingClosesTheWindowRemovesTheWorktreeKeepsTheBranchAndMovesTheRow() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
 
         let archiving = await controller.archiver.archive(task: task)
         await archiving?.value
@@ -27,11 +28,11 @@ extension AppControllerTests {
 
     @Test func archivingADirtyWorktreeAsksAndKeepLeavesTheTaskAsItWas() async throws {
         let prompter = ScriptedPrompter(answering: "Keep Task")
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         try "wip".write(toFile: task.worktreePath + "/wip.txt", atomically: true, encoding: .utf8)
 
         await (await fixture.controller.archiver.archive(task: task))?.value
@@ -45,10 +46,10 @@ extension AppControllerTests {
     }
 
     @Test func deleteChangesAndArchiveArchivesTheDirtyWorktree() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Delete Changes and Shelve"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Delete Changes and Shelve"))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         try "wip".write(toFile: task.worktreePath + "/wip.txt", atomically: true, encoding: .utf8)
         await (await fixture.controller.archiver.archive(task: task))?.value
         #expect(fixture.controller.state.archive.map(\.id) == [task.id])
@@ -57,10 +58,10 @@ extension AppControllerTests {
 
     @Test func aDetachedWorktreeIsNotArchived() async throws {
         let prompter = ScriptedPrompter(answering: "OK")
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         try fixture.git.run(["checkout", "-q", "--detach"], in: task.worktreePath)
         await (await fixture.controller.archiver.archive(task: task))?.value
         #expect(prompter.asked.first?.message == "“Work” can’t be shelved")
@@ -73,10 +74,10 @@ extension AppControllerTests {
     @Test(arguments: ["Keep", "Delete Folder", "↩", "⎋"])
     func shelvingAnUnknownFolderKeepsItUnlessExplicitlyConfirmed(answer: String) async throws {
         let prompter = ScriptedPrompter(answering: answer)
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         try fixture.git.run(["worktree", "remove", task.worktreePath], in: fixture.repo.path)
         try FileManager.default.createDirectory(atPath: task.worktreePath, withIntermediateDirectories: true)
         let file = URL(fileURLWithPath: task.worktreePath).appendingPathComponent("unknown")
@@ -96,12 +97,12 @@ extension AppControllerTests {
         // Clean and on its branch when the archive started; its agent detached it before the window
         // went, so removing it now would lose whatever that detached head holds.
         let prompter = ScriptedPrompter(answering: "OK")
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
 
         let archiving = await controller.archiver.archive(task: task)
         try await server.received("window.close")
@@ -117,12 +118,12 @@ extension AppControllerTests {
     }
 
     @Test func aWorktreeSwitchedWhileTheWindowClosesIsArchivedOnTheBranchItIsOnNow() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         try fixture.git.run(["branch", "feat/other"], in: fixture.repo.path)
 
         let archiving = await controller.archiver.archive(task: task)
@@ -136,9 +137,9 @@ extension AppControllerTests {
     }
 
     @Test func withoutADaemonAWindowedTaskIsNotArchived() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         await (await fixture.controller.archiver.archive(task: task))?.value
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"])
         #expect(fixture.controller.remover.removal(of: task.id) == .stopped(note: "Not shelved: iTerm2 isn’t connected", worktreeRemoved: false))
@@ -146,21 +147,21 @@ extension AppControllerTests {
     }
 
     @Test func aWindowThatWillNotCloseStopsTheArchiveAndIsGivenBack() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon(failing: ["window.close": .itermUnavailable])
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         await (await fixture.controller.archiver.archive(task: task))?.value
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"])
         #expect(fixture.controller.remover.removal(of: task.id) == .stopped(note: "Not shelved: its window did not close", worktreeRemoved: false))
     }
 
     @Test func anUnreadableProjectFolderStopsTheArchiveWithNothingMoved() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         try FileManager.default.removeItem(at: fixture.repo.appendingPathComponent(".git"))
         await (await fixture.controller.archiver.archive(task: task))?.value
         #expect(fixture.controller.state.tasks.map(\.id) == [task.id])
@@ -170,12 +171,12 @@ extension AppControllerTests {
     }
 
     @Test func anArchiveThatCannotBeSavedLeavesTheWorktreeAndTheTask() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
 
         let archiving = await controller.archiver.archive(task: task)
         try await server.received("window.close")
@@ -195,11 +196,11 @@ extension AppControllerTests {
     }
 
     @Test func archivingTwiceAtOnceArchivesOnce() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         let first = await fixture.controller.archiver.archive(task: task)
         let second = await fixture.controller.archiver.archive(task: task)
         #expect(first != nil && second == nil)
@@ -211,11 +212,11 @@ extension AppControllerTests {
     @Test func aRowWaitingOnItsRemovalsRetryIsNotArchived() async throws {
         let prompter = ScriptedPrompter(answering: "Remove")
         prompter.checksTheCheckbox = true
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
         await controller.remover.confirmRemove(task: task)?.value
@@ -228,12 +229,12 @@ extension AppControllerTests {
     @Test func uncommittedWorkWrittenWhileTheWindowClosesIsAskedAboutAndKeepPutsTheTaskBack() async throws {
         // The first question is not asked: the worktree was clean when it was checked.
         let prompter = ScriptedPrompter(answering: "Keep Task")
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
 
         let archiving = await controller.archiver.archive(task: task)
         try await server.received("window.close")
@@ -250,12 +251,12 @@ extension AppControllerTests {
     }
 
     @Test func uncommittedWorkWrittenWhileTheWindowClosesIsDeletedOnDeleteChangesAndArchive() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Delete Changes and Shelve"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Delete Changes and Shelve"))
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
 
         let archiving = await controller.archiver.archive(task: task)
         try await server.received("window.close")
@@ -269,19 +270,19 @@ extension AppControllerTests {
     }
 
     @Test func restoringBringsTheWorktreeAndRowBackAndItsWindowWithItsConversations() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        var task = try fixture.addTask(windowId: "alive")
+        var task = try await fixture.addTask(windowId: "alive")
         controller.workspace.mutate { $0.tasks[0].conversations = [TaskConversation(agent: .codex, id: "conv-1")] }
         task = controller.state.tasks[0]
         await (await controller.archiver.archive(task: task))?.value
         controller.workspace.mutate { $0.updateProject(id: fixture.project.id) { $0.collapsed = true } }
         // iTerm2's windows read, so a chosen row's owed window can open: with no snapshot yet, AiTerm
         // waits for one instead.
-        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
         await controller.archiver.restore(task.id)?.value
         await controller.windows.lastRestore?.value
@@ -298,10 +299,10 @@ extension AppControllerTests {
 
     @Test func aRestoreGitRefusesSaysWhyAndLeavesTheRowArchived() async throws {
         let prompter = ScriptedPrompter(answering: "OK")
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         await (await fixture.controller.archiver.archive(task: task))?.value
         try fixture.git.run(["branch", "-D", "feat/work"], in: fixture.repo.path)
 
@@ -316,11 +317,11 @@ extension AppControllerTests {
     @Test func aProjectCannotBeRemovedWhileOneOfItsArchivedRowsIsRestoring() async throws {
         // "OK" answers "“Repo” can’t be removed yet": the refusal comes before the question.
         let prompter = ScriptedPrompter(answering: "OK")
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         await (await controller.archiver.archive(task: task))?.value
         let restoring = controller.archiver.restore(task.id)
         // The project cannot be removed while its archived row is restoring.
@@ -335,10 +336,10 @@ extension AppControllerTests {
     /// while git runs: in the archive, its `.archiving` work begun.
     @Test func aProjectCannotBeRemovedWhileOneOfItsRowsIsBeingArchived() async throws {
         let prompter = ScriptedPrompter(answering: "OK")
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         controller.workspace.mutate { $0.moveToArchive(taskId: task.id, branch: task.branch, at: Date()) }
         let begun = controller.work.begin(.archiving(windowLetGo: true), onTask: task.id)
         let token = try #require(begun)
@@ -353,10 +354,10 @@ extension AppControllerTests {
     }
 
     @Test func restoringTwiceAtOnceRestoresOnce() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         await (await fixture.controller.archiver.archive(task: task))?.value
         let first = fixture.controller.archiver.restore(task.id), second = fixture.controller.archiver.restore(task.id)
         #expect(first != nil && second == nil)
@@ -366,10 +367,10 @@ extension AppControllerTests {
 
     @Test func removingFromTheArchiveAsksRemovesQuestionAndForgetsTheRowKeepingTheBranchUnlessTicked() async throws {
         let prompter = ScriptedPrompter(answering: "Remove")
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         await (await fixture.controller.archiver.archive(task: task))?.value
 
         await (await fixture.controller.archiver.confirmRemove(archived: task.id))?.value
@@ -386,10 +387,10 @@ extension AppControllerTests {
     @Test func removingFromTheArchiveNeverTouchesWhatNowSitsInItsOldFolder() async throws {
         let prompter = ScriptedPrompter(answering: "Remove")
         prompter.checksTheCheckbox = true
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         await (await fixture.controller.archiver.archive(task: task))?.value
         try FileManager.default.createDirectory(atPath: task.worktreePath, withIntermediateDirectories: true)
         try "someone else's".write(toFile: task.worktreePath + "/f.txt", atomically: true, encoding: .utf8)
@@ -403,10 +404,10 @@ extension AppControllerTests {
     @Test func removingAnArchivedRowWhoseBranchHoldsUnmergedCommitsAsksBeforeDeletingIt() async throws {
         let prompter = ScriptedPrompter(answering: "Remove", "Delete Branch")
         prompter.checksTheCheckbox = true
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
         await (await fixture.controller.archiver.archive(task: task))?.value
@@ -422,10 +423,10 @@ extension AppControllerTests {
     @Test func decliningTheUnmergedBranchQuestionKeepsTheBranchAndStillForgetsTheRow() async throws {
         let prompter = ScriptedPrompter(answering: "Remove", "Cancel")
         prompter.checksTheCheckbox = true
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
         await (await fixture.controller.archiver.archive(task: task))?.value
@@ -439,10 +440,10 @@ extension AppControllerTests {
     @Test func aBranchGitWillNotDeleteForAnotherReasonIsSaidKeptAndTheRowStillGoes() async throws {
         let prompter = ScriptedPrompter(answering: "Remove")
         prompter.checksTheCheckbox = true
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         await (await fixture.controller.archiver.archive(task: task))?.value
         // Checked out in the project's own folder, the branch cannot be deleted — and not for want of a merge.
         try fixture.git.run(["checkout", "-q", "feat/work"], in: fixture.repo.path)
@@ -459,10 +460,10 @@ extension AppControllerTests {
     @Test func aBranchThatCannotBeDeletedAfterTheUnmergedQuestionSaysTheRemovalFailedAndLeavesTheRowArchived() async throws {
         let prompter = ScriptedPrompter(answering: "Remove", "Delete Branch")
         prompter.checksTheCheckbox = true
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
         await (await fixture.controller.archiver.archive(task: task))?.value

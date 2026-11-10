@@ -1,5 +1,7 @@
 import Dispatch
+import Foundation
 import Testing
+@testable import AiTermCore
 @testable import AiTermTestSupport
 
 /// The queue the caller runs on, by name: a worker of Swift's cooperative pool is named for it, a
@@ -34,6 +36,12 @@ private func currentQueue() -> String { String(cString: __dispatch_queue_get_lab
 /// queues "…cooperative", and the runner calling a synchronous test on that pool, as it does in
 /// parallel mode. If either changes, this fails first, and the probes above need another witness.
 @Suite struct UnmarkedTestPlacementTests {
+    @Test func anUnmarkedProcessIsReported() {
+        withKnownIssue("The process hook rejects an unmarked test") {
+            _ = try ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/true"), [])
+        }
+    }
+
     @Test func aSynchronousTestRunsOnThePool() {
         #expect(currentQueue().contains("cooperative"), "ran on \(currentQueue())")
     }

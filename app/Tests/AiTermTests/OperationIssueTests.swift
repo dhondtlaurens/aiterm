@@ -6,7 +6,7 @@ import Testing
 
 /// The banner a failed operation raises: what it says, the ways out it offers, and how long it
 /// stays. Removing a task whose branch has commits its base lacks is the case with ways out.
-extension AppControllerTests {
+@MainActor @Suite(.blocking) struct OperationIssueControllerTests {
     @Test func aBranchKeptForUnmergedWorkIsReportedWithItsWaysOut() async throws {
         let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
@@ -126,10 +126,10 @@ extension AppControllerTests {
     /// A removal that stopped with nothing deleted says so on its row only while its banner is up.
     /// Once another report takes the banner the row is a task again, not an amber note for good.
     @Test func aReportThatReplacesAnIssueClearsItsTasksStoppedNote() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         controller.remover.seedSnapshotRemoval(.stopped(note: "Not removed", worktreeRemoved: false), of: task.id)
         controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
 
@@ -141,10 +141,10 @@ extension AppControllerTests {
 
     /// The removal that fails again reports the same task: its new note must not go with its old banner.
     @Test func aRepeatedFailureForTheSameTaskKeepsItsNewNote() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
         let note = TaskRemoval.stopped(note: "Not removed", worktreeRemoved: false)
         controller.remover.seedSnapshotRemoval(note, of: task.id)
@@ -157,10 +157,10 @@ extension AppControllerTests {
 
     /// A report held back replaces nothing, so the row's note stays while it waits: it is still true.
     @Test func aHeldBackReportLeavesAStoppedNoteBe() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         let note = TaskRemoval.stopped(note: "Not removed", worktreeRemoved: false)
         controller.remover.seedSnapshotRemoval(note, of: task.id)
         controller.notices.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)]))
@@ -173,10 +173,10 @@ extension AppControllerTests {
     /// What a click failed with while a question was up is not lost: it takes the banner when the
     /// question goes, and its row note then goes with it by the usual rule.
     @Test func aHeldBackReportAppearsOnceTheQuestionIsDismissed() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         controller.remover.seedSnapshotRemoval(.stopped(note: "Not removed", worktreeRemoved: false), of: task.id)
         controller.notices.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)]))
         let failure = OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id)
@@ -223,14 +223,14 @@ extension AppControllerTests {
 
     /// A task's window restored takes down the banner that said the task was kept.
     @Test func restoringATaskTakesDownTheBannerAboutIt() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", subject: task.id))
 
-        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         await controller.windows.lastRestore?.value
 
         #expect(controller.issue == nil)
@@ -239,15 +239,15 @@ extension AppControllerTests {
     /// A failure about the task held back behind a question about it is as answered by the restore:
     /// taking the question down must not put the failure up in its place.
     @Test func restoringATaskDropsAReportAboutItHeldBehindTheBanner() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         controller.notices.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)], subject: task.id))
         controller.notices.report(OperationIssue(title: "Couldn’t reopen the window.", reason: "Busy.", subject: task.id))
 
-        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         await controller.windows.lastRestore?.value
 
         #expect(controller.issue == nil)
@@ -300,14 +300,14 @@ extension AppControllerTests {
         let prompter = ScriptedPrompter(answering: "Remove")
         prompter.checksTheCheckbox = true
         // The checkout monitor has not read the worktree gone yet: its pass is up to two seconds away.
-        let fixture = try RaceFixture(prompter: prompter, scan: { _, _, _, _, _, _, _ in
+        let fixture = try await RaceFixture(prompter: prompter, scan: { _, _, _, _, _, _, _ in
             WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [], removedTasks: [], remotes: [:])
         })
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [.stub("a", window: "alive")],
@@ -327,9 +327,9 @@ extension AppControllerTests {
     private func removedWithUnmergedBranch(answering answers: String...) async throws -> (RaceFixture, TaskItem) {
         let prompter = ScriptedPrompter(answering: answers)
         prompter.checksTheCheckbox = true
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
         await fixture.controller.remover.confirmRemove(task: task)?.value

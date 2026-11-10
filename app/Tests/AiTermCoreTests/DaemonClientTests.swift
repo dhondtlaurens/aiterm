@@ -32,7 +32,7 @@ private func nextEvent(_ box: EventBox, timeoutSeconds: Double = 2) async -> Nex
     }
 }
 
-final class DaemonClientTests {
+@Suite(.blocking) final class DaemonClientTests {
     var server: FakeSocketServer!
     var client: DaemonClient!
 

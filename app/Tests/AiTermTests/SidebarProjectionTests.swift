@@ -8,7 +8,7 @@ import Testing
 /// only when a row could have changed: not for a session event that moved a fill, a model or a
 /// title, nor for a sidebar move or a remembered choice, which the workspace saves but no row draws.
 @MainActor
-struct SidebarProjectionTests {
+@Suite(.blocking) struct SidebarProjectionTests {
     private let project = Project(id: UUID(), name: "repo", path: "/repo", provider: .gitlab, remoteUrl: nil,
                                   addedAt: Date(), collapsed: false)
     private var task: TaskItem {

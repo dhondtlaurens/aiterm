@@ -7,9 +7,9 @@ import Testing
 /// A review of a branch that is already a task's opens in that task: a tab in its window running
 /// the reviewer, and nothing on disk. Git would refuse a second worktree on the branch anyway, and
 /// with nothing created there is nothing a later removal could take from the task.
-extension AppControllerTests {
+@MainActor @Suite(.blocking) struct ReviewInTaskControllerTests {
     @Test func aReviewOfATasksBranchOpensAsATabInItsWindow() async throws {
-        let fixture = try TaskFixture(windowOpen: true, provider: .gitlab)
+        let fixture = try await TaskFixture(windowOpen: true, provider: .gitlab)
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
@@ -36,7 +36,7 @@ extension AppControllerTests {
 
     /// A review picked with a ticket gives it to a task that has none, and the reviewer reads it.
     @Test func aReviewWithATicketInATaskGivesTheTaskItsTicket() async throws {
-        let fixture = try TaskFixture(windowOpen: true, provider: .gitlab)
+        let fixture = try await TaskFixture(windowOpen: true, provider: .gitlab)
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
@@ -55,7 +55,7 @@ extension AppControllerTests {
 
     /// A task whose window is closed gets it back, with the reviewer as its first tab.
     @Test func aReviewOfATaskWithoutAWindowReopensItWithTheReviewer() async throws {
-        let fixture = try TaskFixture(windowOpen: false, provider: .gitlab)
+        let fixture = try await TaskFixture(windowOpen: false, provider: .gitlab)
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
@@ -73,7 +73,7 @@ extension AppControllerTests {
     /// The saved window id can outlive the window by a poll. iTerm2's "no such window" means it
     /// is gone, so the task gets a new one rather than the sheet an error.
     @Test func aReviewWhoseWindowJustClosedReopensIt() async throws {
-        let fixture = try TaskFixture(windowOpen: true, provider: .gitlab)
+        let fixture = try await TaskFixture(windowOpen: true, provider: .gitlab)
         let server = RecordingDaemon(failing: ["tab.create": .notFound])
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
@@ -89,7 +89,7 @@ extension AppControllerTests {
     /// `feat/work` must not open in that worktree — the reviewer would be looking at the other
     /// branch — and the worktree is not switched back under the task: the review gets its own.
     @Test func aReviewOfTheBranchADriftedTaskLeftGetsAWorktreeOfItsOwn() async throws {
-        let fixture = try TaskFixture(windowOpen: true, provider: .gitlab)
+        let fixture = try await TaskFixture(windowOpen: true, provider: .gitlab)
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
@@ -108,7 +108,7 @@ extension AppControllerTests {
 
     /// The other direction: the branch the task's worktree moved to is that task's to review in.
     @Test func aReviewOfTheBranchADriftedTaskMovedToOpensInThatTask() async throws {
-        let fixture = try TaskFixture(windowOpen: true, provider: .gitlab)
+        let fixture = try await TaskFixture(windowOpen: true, provider: .gitlab)
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
@@ -127,7 +127,7 @@ extension AppControllerTests {
     /// The sheet names the destination before anything is created. If the branch moves off the
     /// task it named, the press that would have opened it elsewhere stops and says where it goes now.
     @Test func theSheetRefusesADestinationThatMovedSinceItWasShown() async throws {
-        let fixture = try TaskFixture(windowOpen: true, provider: .gitlab)
+        let fixture = try await TaskFixture(windowOpen: true, provider: .gitlab)
         defer { fixture.cleanUp() }
         var submitted = false
         let controller = fixture.controller, projectId = fixture.project.id
@@ -152,7 +152,7 @@ extension AppControllerTests {
     /// Nothing has been created when this fails, so it is the sheet's error and the draft survives
     /// for a retry — unlike a new worktree, whose recovery the workspace owns.
     @Test func aReviewInATaskWhileDisconnectedFailsWithoutTouchingTheTask() async throws {
-        let fixture = try TaskFixture(windowOpen: true, provider: .gitlab)
+        let fixture = try await TaskFixture(windowOpen: true, provider: .gitlab)
         defer { fixture.cleanUp() }
         await #expect(throws: ActionUnavailable.self) {
             try await fixture.controller.launcher.createReview(draft: fixture.draft, project: fixture.project)

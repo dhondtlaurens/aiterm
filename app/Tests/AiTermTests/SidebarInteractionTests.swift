@@ -98,10 +98,10 @@ struct SidebarInteractionTests {
     /// ⌘⌫ reaches the list's handler rather than dying in the table: the selected task's Remove
     /// question comes up, and a plain ⌫ asks nothing.
     @Test func commandDeleteRemovesTheSelectedRow() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         controller.focus.browse(.task(task.id))
         let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 340, height: 500), key: true)
         defer { window.orderOut(nil) }
@@ -180,11 +180,11 @@ struct SidebarInteractionTests {
 
     /// ↩ on a header folds and opens it; ⌘↩ and ← → do nothing. A header shows no window and raises
     /// nothing, and ⌘⌫ on one removes nothing.
-    @Test func returnFoldsAndOpensAHeader() throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"))
+    @Test func returnFoldsAndOpensAHeader() async throws {
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller, project = fixture.project
-        let task = try fixture.addTask(windowId: "work")
+        let task = try await fixture.addTask(windowId: "work")
         let server = RecordingDaemon()
         controller.helper.setDaemonClient(server)
         #expect(task.projectId == project.id)
@@ -219,14 +219,14 @@ struct SidebarInteractionTests {
         #expect(server.requests.filter { $0.method.hasPrefix("window.") }.isEmpty, "a header raises nothing")
 
         try press(51, "\u{7F}", .command)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        turnRunLoop(0.05)
         #expect(fixture.prompter.asked.isEmpty, "⌘⌫ removes nothing from a header")
         #expect(controller.state.projects.map(\.id) == [project.id])
     }
 
     /// ↩ on an empty header, which has nothing to fold, opens its context menu instead.
-    @Test func returnOnAnEmptyHeaderOpensItsMenu() throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"))
+    @Test func returnOnAnEmptyHeaderOpensItsMenu() async throws {
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller, project = fixture.project
         controller.focus.browse(.project(project.id))
@@ -243,7 +243,7 @@ struct SidebarInteractionTests {
                                                 characters: "\r", charactersIgnoringModifiers: "\r",
                                                 isARepeat: false, keyCode: 36))
         window.sendEvent(key)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        turnRunLoop(0.05)
         #expect(asked == [project.id], "↩ asks for the header's menu")
         #expect(controller.state.project(id: project.id)?.collapsed == false)
 
@@ -264,9 +264,11 @@ struct SidebarInteractionTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let first = dir.appendingPathComponent("first"), second = dir.appendingPathComponent("second")
-        for (url, branch) in [(first, "first"), (second, "second")] {
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            try GitRunner.hermetic().run(["init", "-q", "-b", branch], in: url.path)
+        try await BackgroundWork.run {
+            for (url, branch) in [(first, "first"), (second, "second")] {
+                try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+                try GitRunner.hermetic().run(["init", "-q", "-b", branch], in: url.path)
+            }
         }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
@@ -328,7 +330,7 @@ struct SidebarInteractionTests {
 
     /// The block's button is the header's "Add Project…": it asks for a folder.
     @Test func theEmptySidebarsButtonAsksForAFolder() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let block = SidebarEmptyState(controller: fixture.controller)
         #expect(block.canAdd)

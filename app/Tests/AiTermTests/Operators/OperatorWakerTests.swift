@@ -57,7 +57,7 @@ import Testing
         }
         waker.acknowledged(withUsage(40), of: run.id)
         waker.observe(withUsage(41), of: run.id)
-        try await Task.sleep(for: .milliseconds(50))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(hand.requested == 0 && lines.isEmpty)
     }
 
@@ -68,7 +68,7 @@ import Testing
         acknowledged.run.usageTelemetry["claude"] = RunStatus.UsageTelemetry(lastKnown: nil, now: Date())
         waker.acknowledged(acknowledged, of: run.id)
         waker.observe(observed, of: run.id)
-        try await Task.sleep(for: .milliseconds(50))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(hand.requested == 0 && lines.isEmpty)
     }
 
@@ -82,7 +82,7 @@ import Testing
                                                        approvedBy: [], head: nil)
         waker.acknowledged(read, of: run.id)
         waker.observe(plain, of: run.id)
-        try await Task.sleep(for: .milliseconds(50))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(hand.requested == 0 && lines.isEmpty)
     }
 
@@ -105,7 +105,7 @@ import Testing
         waker.observe(read(SlashCommand(text: "/model claude-opus-5-5", state: .delivered, deliveredAt: 0), model: nil), of: run.id)
         waker.observe(read(SlashCommand(text: "/model claude-opus-5-5", state: .ran, deliveredAt: 0, seenAt: 1, output: "Set model"),
                            model: "claude-opus-5-5"), of: run.id)
-        try await Task.sleep(for: .milliseconds(50))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(hand.requested == 0 && lines.isEmpty)
     }
 
@@ -155,7 +155,7 @@ import Testing
     @Test func theFirstLookAtARunIsWhatItHasSeen() async throws {
         let waker = makeWaker()
         waker.observe(status(questions: 1), of: run.id)
-        try await Task.sleep(for: .milliseconds(100))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(lines.isEmpty)
     }
 
@@ -164,7 +164,7 @@ import Testing
         waker.acknowledged(status(questions: 0), of: run.id)
         op.tab?.state = .working
         waker.observe(status(questions: 1), of: run.id)
-        try await Task.sleep(for: .milliseconds(100))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(lines.isEmpty)
         op.tab?.state = .idle
         waker.operatorSessionChanged(run.id)
@@ -177,7 +177,7 @@ import Testing
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.observe(status(questions: 1), of: run.id)
         waker.acknowledged(status(questions: 1), of: run.id)
-        try await Task.sleep(for: .milliseconds(100))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(lines.isEmpty)
     }
 
@@ -215,7 +215,7 @@ import Testing
         op.awake = false
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.observe(status(questions: 1), of: run.id)
-        try await Task.sleep(for: .milliseconds(100))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(lines.isEmpty)
     }
 
@@ -230,7 +230,7 @@ import Testing
         try await daemon.received("session.deliver", count: 2)
         await waker.lastSend?.value
         waker.operatorSessionChanged(run.id)
-        try await Task.sleep(for: .milliseconds(100))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(lines.count == 2)
     }
 
@@ -253,7 +253,7 @@ import Testing
         await waker.lastSend?.value
         #expect(lines == ["[AiTerm] updates waiting, call run_status", "[AiTerm] updates waiting, call run_status"])
         // It landed: no third wait is started.
-        try await Task.sleep(for: .milliseconds(50))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(hand.requested == 2)
     }
 
@@ -273,7 +273,7 @@ import Testing
         #expect(lines.count == 2)
         waker.acknowledged(status(questions: 1), of: run.id)
         hand.releaseAll()
-        try await Task.sleep(for: .milliseconds(50))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(lines.count == 2 && hand.requested == 3)
     }
     @Test(arguments: [false, true])
@@ -400,7 +400,7 @@ import Testing
             waker.acknowledged(status(tasks, turns: ["T6": quiet, "T7": quiet, "T10": quiet]), of: run.id)
             op.tab?.state = .working
             waker.observe(status(tasks, turns: ["T6": quiet, "T7": quiet, "T10": quiet].merging(news) { $1 }), of: run.id)
-            try await Task.sleep(for: .milliseconds(100))
+            await waker.lastCoalesce?.value; await waker.lastSend?.value
             #expect(daemon.requests("session.deliver").isEmpty, "nothing is typed while the Operator works")
             op.tab?.state = .idle
             waker.operatorSessionChanged(run.id)
@@ -555,7 +555,7 @@ import Testing
         let waiting = TaskLiveFacts(status: .done, background: ["npm test"], lastMessage: "Running the tests.", commitsAhead: 1)
         waker.acknowledged(status(tasks, turns: ["PAY-2": working]), of: run.id)
         for facts in [waiting, working, waiting, working, waiting] { waker.observe(status(tasks, turns: ["PAY-2": facts]), of: run.id) }
-        try await Task.sleep(for: .milliseconds(50))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(hand.requested == 0 && lines.isEmpty)
     }
 
@@ -571,7 +571,7 @@ import Testing
         await hand.started(1)
         waker.observe(working, of: run.id)
         hand.releaseAll()
-        try await Task.sleep(for: .milliseconds(50))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(lines.isEmpty)
         // Held while the Operator works, then undone: nothing goes once it is idle either.
         op.tab?.state = .working
@@ -580,7 +580,7 @@ import Testing
         waker.observe(working, of: run.id)
         op.tab?.state = .idle
         waker.operatorSessionChanged(run.id)
-        try await Task.sleep(for: .milliseconds(50))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(lines.isEmpty)
         waker.observe(ready, of: run.id)
         await hand.release(3)
@@ -605,7 +605,7 @@ import Testing
         waker.observe(working, of: run.id)
         waker.observe(ready, of: run.id)
         await settle()
-        try await Task.sleep(for: .milliseconds(50))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(lines.count == 1, "\(lines)")
     }
 
@@ -647,7 +647,7 @@ import Testing
         let tasks = [OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .inReview)]
         func read(_ facts: TaskLiveFacts) -> RunStatus { status(tasks, turns: ["PAY-2": facts]) }
         let working = read(TaskLiveFacts(status: .working)), quiet = read(TaskLiveFacts(status: .working, quiet: true))
-        func settle() async { await waker.lastCoalesce?.value; await waker.lastSend?.value; try? await Task.sleep(for: .milliseconds(30)) }
+        func settle() async { await waker.lastCoalesce?.value; await waker.lastSend?.value }
         #expect(quiet.obligations.uncertain == ["PAY-2"])
         waker.acknowledged(working, of: run.id)
         waker.observe(quiet, of: run.id)
@@ -696,7 +696,7 @@ import Testing
         let recorded = RunStatus.build(state: OperatorServiceFixtures.state(projects: [project], runs: [run]), run: run.id, revision: 1, live: [:])!
         waker.acknowledged(plain, of: run.id)
         waker.observe(recorded, of: run.id)
-        try await Task.sleep(for: .milliseconds(50))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(hand.requested == 0 && lines.isEmpty)
     }
 
@@ -800,7 +800,7 @@ import Testing
         #expect(lines[0].contains("letter-ess may be stalled"))
         #expect(lines[0].contains("letter-ar entered review"))
         waker.observe(after, of: run.id)
-        try await Task.sleep(for: .milliseconds(20))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(lines.count == 1, "the same events are not told twice")
     }
 
@@ -821,7 +821,7 @@ import Testing
         #expect(line.contains("needs acceptance"))
         waker.observe(after, of: run.id)
         waker.operatorSessionChanged(run.id)
-        try await Task.sleep(for: .milliseconds(20))
+        await waker.lastCoalesce?.value; await waker.lastSend?.value
         #expect(lines.count == 1)
     }
 

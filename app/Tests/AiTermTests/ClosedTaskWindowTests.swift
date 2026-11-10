@@ -8,22 +8,19 @@ import Testing
 /// back; a terminal's takes its row; iTerm2 going away asks nothing, and its windows come back once it
 /// does; a close a removal makes is the removal's. Each test first delivers a connected snapshot,
 /// as the app's bootstrap does: a close before one is never asked about.
-extension AppControllerTests {
-    @MainActor final class Calls {
-        private(set) var count = 0
-        func record() { count += 1 }
-    }
+@MainActor @Suite(.blocking) struct ClosedTaskWindowControllerTests {
+
 
     @Test func closingATasksWindowAsksRemovesQuestionAndCancelReopensAndRaisesIt() async throws {
-        let clock = ManualInstant(), forward = Calls(), focus = ItermFocus()
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"), activateIterm: { focus.activate() },
+        let clock = ManualInstant(), forward = ControllerCallCounter(), focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"), activateIterm: { focus.activate() },
                                       bringForward: { forward.record() }, now: { clock.now })
         let server = RecordingDaemon()
         focus.server = server
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
 
         controller.helper.handle(.windowClosed("alive"))
@@ -50,10 +47,10 @@ extension AppControllerTests {
 
     @Test func aReviewsThreeButtonQuestionSaysOnlyRemoveDeletesItsBranch() async throws {
         let prompter = ScriptedPrompter(answering: "Cancel")
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
-        var review = try fixture.addTask(windowId: nil)
+        var review = try await fixture.addTask(windowId: nil)
         review.kind = .review
         let reviewRow = review
         controller.workspace.mutate { state in
@@ -71,12 +68,12 @@ extension AppControllerTests {
 
     @Test func answeringArchiveAfterAClosedWindowArchivesTheTask() async throws {
         let clock = ManualInstant()
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Shelve"), now: { clock.now })
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Shelve"), now: { clock.now })
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
 
         controller.helper.handle(.windowClosed("alive"))
@@ -93,12 +90,12 @@ extension AppControllerTests {
 
     @Test func answeringRemoveAfterAClosedWindowRemovesTheTask() async throws {
         let clock = ManualInstant()
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Remove"), now: { clock.now })
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove"), now: { clock.now })
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
 
         controller.helper.handle(.windowClosed("alive"))
@@ -121,12 +118,12 @@ extension AppControllerTests {
     @Test(arguments: ItermGoingAway.allCases)
     func itermGoingAwayAsksNothingAndRestoresOnceConnected(_ shape: ItermGoingAway) async throws {
         let clock = ManualInstant()
-        let fixture = try RaceFixture(now: { clock.now })
+        let fixture = try await RaceFixture(now: { clock.now })
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: "shell", createdAt: Date())
         controller.workspace.mutate { $0.terminals = [terminal] }
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true,
@@ -179,12 +176,12 @@ extension AppControllerTests {
     @Test(arguments: AfterALoneClose.allCases)
     func aLoneCloseIsAskedAboutEvenWhenITerm2GoesAwayAfterItsHold(_ after: AfterALoneClose) async throws {
         let clock = ManualInstant()
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"), now: { clock.now })
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"), now: { clock.now })
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         let second = TaskItem.stub(in: fixture.project, title: "Second", windowId: "w2")
         let third = TaskItem.stub(in: fixture.project, title: "Third", windowId: "w3")
         // Real worktrees: a restore opens only into one that is there.
@@ -224,12 +221,12 @@ extension AppControllerTests {
     /// Remove closes the window itself; its `window.closed` is the removal's, not a second question.
     @Test func theCloseARemovalMakesAsksNothingMore() async throws {
         let clock = ManualInstant()
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Remove"), now: { clock.now })
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove"), now: { clock.now })
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
 
         let removal = await controller.remover.confirmRemove(task: task)
@@ -250,12 +247,12 @@ extension AppControllerTests {
     /// cleanup's, held as a close of no task, and the cleanup forgets the task without a question.
     @Test func theCloseTheCheckoutCleanupMakesAsksNothing() async throws {
         let clock = ManualInstant()
-        let fixture = try RaceFixture(now: { clock.now })
+        let fixture = try await RaceFixture(now: { clock.now })
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
         try fixture.git.run(["worktree", "remove", task.worktreePath], in: fixture.repo.path)
 
@@ -277,12 +274,12 @@ extension AppControllerTests {
     /// asked. The daemon announces the window's close before the tab's move, as it does here.
     @Test func aTaskWhoseTabLivesOnInAnotherWindowIsNotAskedAboutAndTakesThatWindow() async throws {
         let clock = ManualInstant()
-        let fixture = try RaceFixture(now: { clock.now })
+        let fixture = try await RaceFixture(now: { clock.now })
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true,
                                                           sessions: [.stub("a", window: "alive", task: task), .stub("b", window: "other")],
                                                           usage: .empty)))
@@ -302,12 +299,12 @@ extension AppControllerTests {
     /// the hold had to go.
     @Test func quittingWhileACloseIsHeldAsksAndRestoresNothing() async throws {
         let clock = ManualInstant()
-        let fixture = try RaceFixture(now: { clock.now })
+        let fixture = try await RaceFixture(now: { clock.now })
         let server = RecordingDaemon()
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
 
         controller.helper.handle(.windowClosed("alive"))
@@ -329,11 +326,11 @@ extension AppControllerTests {
     @Test func twoClosesSecondsApartAreAskedOneAfterTheOther() async throws {
         let clock = ManualInstant()
         let prompter = ScriptedPrompter(answering: "Cancel", "Cancel")
-        let fixture = try RaceFixture(prompter: prompter, now: { clock.now })
+        let fixture = try await RaceFixture(prompter: prompter, now: { clock.now })
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(RecordingDaemon())
-        let first = try fixture.addTask(windowId: "w1")
+        let first = try await fixture.addTask(windowId: "w1")
         let second = TaskItem.stub(in: fixture.project, title: "Other", windowId: "w2")
         controller.workspace.mutate { $0.tasks.append(second) }
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true,
@@ -360,7 +357,7 @@ extension AppControllerTests {
     /// A terminal's window closed alone takes its row, as Remove Terminal would; nothing is asked.
     @Test func aTerminalsWindowClosedAloneTakesItsRow() async throws {
         let clock = ManualInstant()
-        let fixture = try RaceFixture(now: { clock.now })
+        let fixture = try await RaceFixture(now: { clock.now })
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -383,12 +380,12 @@ extension AppControllerTests {
     /// still asked about.
     @Test func aLoneCloseIsAskedAboutWhileAnotherTaskIsCreated() async throws {
         let clock = ManualInstant()
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"), now: { clock.now })
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"), now: { clock.now })
         let server = RecordingDaemon(holding: "window.createTask")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
         let create = Task { try await controller.launcher.createTask(draft: fixture.draft("New"), project: fixture.project) }
         try await server.received("window.createTask")
@@ -410,12 +407,12 @@ extension AppControllerTests {
     @Test func aRowAskedAboutIsNotRestoredWhileTheAlertIsUp() async throws {
         let clock = ManualInstant()
         let prompter = ScriptedPrompter(answering: "Remove")
-        let fixture = try RaceFixture(prompter: prompter, now: { clock.now })
+        let fixture = try await RaceFixture(prompter: prompter, now: { clock.now })
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
         prompter.whileAsking = { _ in
             controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [], usage: .empty)))
@@ -438,12 +435,12 @@ extension AppControllerTests {
     /// AiTerm restores, and a task whose removal let its window go is never given one.
     @Test func aReconnectRestoresEachRowOnceAndNeverOneBeingRemoved() async throws {
         let clock = ManualInstant()
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Remove"), now: { clock.now })
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove"), now: { clock.now })
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "a")
+        let task = try await fixture.addTask(windowId: "a")
         let early = TaskItem.stub(in: fixture.project, title: "Early", windowId: "e")
         // Leaving needs a real worktree: its removal checks it for unsaved work before closing the window.
         let leavingPath = fixture.repo.appendingPathComponent(".worktrees/leaving").path

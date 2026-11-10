@@ -86,3 +86,20 @@ extension AppController {
                   confirmsRemoval: confirmsRemoval, operatorPorts: operatorPorts ?? .scratch())
     }
 }
+
+enum ControllerSnapshots {
+    /// A connected snapshot whose tabs name none of the task's windows.
+    static let empty = DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [], usage: .empty)
+}
+
+/// What the daemon had been asked each time iTerm2 was brought forward.
+@MainActor final class ControllerItermFocus {
+    var server: RecordingDaemon?
+    private(set) var seen: [[String]] = []
+    func activate() { seen.append(server?.requests.map(\.method) ?? []) }
+}
+
+@MainActor final class ControllerCallCounter {
+    private(set) var count = 0
+    func record() { count += 1 }
+}
