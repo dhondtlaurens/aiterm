@@ -15,7 +15,8 @@ import Foundation
             let stamp = try #require(FileStamps.stamp(url.path))
             #expect(stamp.inode == (attributes[.systemFileNumber] as? NSNumber)?.uint64Value)
             #expect(stamp.size == (attributes[.size] as? NSNumber)?.uint64Value)
-            #expect(stamp.modified == attributes[.modificationDate] as? Date)
+            let modified = try #require(attributes[.modificationDate] as? Date)
+            #expect(abs(Double(stamp.modified) / 1e9 - modified.timeIntervalSince1970) < 1e-6, "nanoseconds since the epoch")
         }
         try FileManager.default.removeItem(at: file)
         #expect(FileStamps.stamp(file.path) == nil)

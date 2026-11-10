@@ -52,6 +52,6 @@ public struct Worktree: Equatable, Sendable {
         return out
     }
 
-    /// `path` with its symlinks resolved, which is how two names for one worktree are compared.
-    static func resolved(_ path: String) -> String { URL(fileURLWithPath: path).resolvingSymlinksInPath().path }
+    /// `path` as the kernel names it (`CanonicalPath`), which is how two names for one worktree are compared.
+    static func resolved(_ path: String) -> String { CanonicalPath.of(path) }
 }

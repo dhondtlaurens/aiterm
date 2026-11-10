@@ -1,9 +1,12 @@
 import Foundation
 import Synchronization
+import Darwin
 
 /// The workspace file, `state.json`, and its backup — the file as it was before the latest save, so
 /// a damaged primary can be recovered. A save validates what it writes and refuses to replace a
-/// primary it cannot read back; restoring keeps the damaged primary beside the restored one.
+/// primary it cannot read back; restoring keeps the damaged primary beside the restored one. The
+/// backup is a clone of the primary before it is replaced, not a second write of its bytes: on APFS
+/// the clone shares the primary's blocks, so a save writes one file.
 ///
 /// Sendable so the app can save off the main actor; it keeps one cache, behind a lock.
 public final class StateStore: Sendable {
@@ -51,10 +54,7 @@ public final class StateStore: Sendable {
         let data = try encoder.encode(state)
         let previous = try previousData()
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let previous {
-            WorkMeter.note(.stateWrite)
-            try previous.write(to: backupURL, options: .atomic)
-        }
+        if let previous { try keepBackup(previous) }
         WorkMeter.note(.stateWrite)
         try data.write(to: url, options: .atomic)
         remember(data, FileStamps.stamp(url.path))
@@ -70,6 +70,25 @@ public final class StateStore: Sendable {
         try data.write(to: url, options: .atomic)
         remember(data, FileStamps.stamp(url.path))
         return state
+    }
+
+    /// `previous`, what the primary holds, kept as the backup: the primary cloned beside the backup
+    /// and renamed over it, so a backup is never half there (`copyfile` copies where the volume cannot
+    /// clone). A primary the clone cannot open — its permissions changed under the store — has its
+    /// bytes written instead, as before the clone: the store already holds them.
+    private func keepBackup(_ previous: Data) throws {
+        let staging = backupURL.appendingPathExtension("staging-" + UUID().uuidString)
+        guard copyfile(url.path, staging.path, nil, copyfile_flags_t(COPYFILE_CLONE)) == 0 else {
+            unlink(staging.path)
+            WorkMeter.note(.stateWrite)
+            return try previous.write(to: backupURL, options: .atomic)
+        }
+        guard rename(staging.path, backupURL.path) == 0 else {
+            let error = CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: backupURL.path,
+                                                                NSUnderlyingErrorKey: POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)])
+            unlink(staging.path)
+            throw error
+        }
     }
 
     /// What the primary holds now, which a save keeps as the backup: the bytes this store last saw

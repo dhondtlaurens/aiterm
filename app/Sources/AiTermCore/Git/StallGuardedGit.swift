@@ -35,7 +35,7 @@ public final class StallGuardedGit: GitRunning {
     private let backoff: TimeInterval
     private let state = Mutex(State())
 
-    public convenience init(_ inner: any GitRunning) { self.init(inner, now: Date.init) }
+    public convenience init(_ inner: any GitRunning) { self.init(inner, now: MonotonicDate.now) }
 
     init(_ inner: any GitRunning, now: @escaping @Sendable () -> Date, backoff: TimeInterval = TimedOut.backoff) {
         self.inner = inner; self.now = now; self.backoff = backoff

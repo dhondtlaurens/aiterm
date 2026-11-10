@@ -32,15 +32,6 @@ public final class SerialThread: Sendable {
         worker.add(work)
     }
 
-    /// Blocks the caller until `work` has run on the thread, after what is already queued.
-    public func sync<Value: Sendable>(_ work: @escaping @Sendable () -> Value) -> Value {
-        let done = DispatchSemaphore(value: 0)
-        let box = Box<Value>()
-        worker.add { box.value = work(); done.signal() }
-        done.wait()
-        return box.value!
-    }
-
     /// The queue and its condition, shared by the owner and the thread, so the thread does not keep
     /// the owner alive.
     private final class Worker: @unchecked Sendable {
@@ -73,9 +64,6 @@ public final class SerialThread: Sendable {
             }
         }
     }
-
-    /// Written once by the job, read once after the semaphore: the semaphore orders the two.
-    private final class Box<Value>: @unchecked Sendable { var value: Value? }
 }
 
 /// One blocking call on a fresh `Thread` of its own, awaited: an admin prompt that waits on the

@@ -163,8 +163,8 @@ enum Budget {
 
     // MARK: - Saving
 
-    /// A save of the frozen workspace over the one it saved before: 2 files written, the backup — the previous save's
-    /// bytes — and the workspace. A later change that writes fewer lowers it; none may raise it.
+    /// A save of the frozen workspace over the one it saved before: 1 file written, the workspace; the backup is a clone
+    /// of the file it replaces (2 before phase 2, when the backup was written as bytes too). None may raise it.
     @Test func aSaveOverAnEarlierOneWritesItsFiles() throws {
         let state = try OperatorCurrentContractTests.load()
         let folder = try ScratchFolder.make("aiterm-budget-writes-")
@@ -174,7 +174,7 @@ enum Budget {
         let first = try Data(contentsOf: store.url)
         let meter = WorkMeter()
         try WorkMeter.$current.withValue(meter) { try store.save(state) }
-        #expect(meter[.stateWrite] == 2, "files written per save: \(meter.take())")
+        #expect(meter[.stateWrite] == 1, "files written per save: \(meter.take())")
         #expect(try Data(contentsOf: store.backupURL) == first, "the backup is the save before")
         #expect(try Data(contentsOf: store.url) == first)
     }
