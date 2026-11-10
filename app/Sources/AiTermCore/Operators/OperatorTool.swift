@@ -40,6 +40,58 @@ public enum OperatorTool: String, CaseIterable, Sendable {
 
     public var isVeto: Bool { Self.vetoes.contains { $0.tool == self } }
 
+    /// Whether a call of it only looks, or changes the run, its tasks or its records: the Operator has seen what a change
+    /// did (the tool handler's `mutating`), and the Activity tab reads a look's line muted (`ActivityLine.reads`).
+    public enum Effect: Sendable { case looks, changes }
+
+    public var effect: Effect {
+        switch self {
+        case .runStatus, .readTask, .jiraSearch, .jiraBoard, .findUser: .looks
+        case .jiraCreate, .jiraMove, .jiraLink, .jiraSprint, .jiraEdit, .jiraComment, .createTask, .updateTask, .submitPlan,
+             .reviewTask, .requestReview, .replyThread, .resolveThread, .critiqueThread, .messageTask, .openTab, .markTask,
+             .resumeTask, .retryTask, .finishTask, .updateRequest, .retryPipeline, .recordReview, .checkGoal, .askYou,
+             .relayQuestion, .resolveQuestion, .reportFind, .reportSnag, .leaveForYou, .logDecision, .writeSummary: .changes
+        }
+    }
+
+    /// It changes the run, its tasks or its records (`effect`).
+    public var isMutating: Bool { effect == .changes }
+    /// It only looks (`effect`).
+    public var isReadOnly: Bool { effect == .looks }
+
+    /// What a call of it is while it runs, as the status lines say it: an act on the task it names (the tool handler's
+    /// `act(for:on:)` says which, by the task), one of the broadcast's own acts, or none.
+    public enum ActKind: Equatable, Sendable { case none, onTask, onBroadcast(OperatorAct) }
+
+    public var actKind: ActKind {
+        switch self {
+        case .messageTask, .markTask, .finishTask, .reviewTask, .requestReview, .replyThread: .onTask
+        case .createTask, .updateTask, .submitPlan: .onBroadcast(.loadingTheConstruct)
+        case .jiraCreate, .reportFind: .onBroadcast(.filingATicket)
+        case .runStatus, .jiraSearch, .jiraMove, .jiraLink, .jiraBoard, .jiraSprint, .jiraEdit, .jiraComment, .readTask,
+             .resolveThread, .critiqueThread, .findUser, .openTab, .resumeTask, .retryTask, .updateRequest, .retryPipeline,
+             .recordReview, .checkGoal, .askYou, .relayQuestion, .resolveQuestion, .reportSnag, .leaveForYou, .logDecision,
+             .writeSummary: .none
+        }
+    }
+
+    /// How the Oracle may challenge a call of it (spec §8), with the Oracle on: never; with a critique the call answers
+    /// (`ChallengeKind.critique`); with a yes it needs to act (`ChallengeKind.veto`, `vetoes`); or in rounds of its own, a
+    /// relayed question's (`relay_question`). Which calls of a challenged tool are challenged is the tool handler's to say.
+    public enum ChallengeClass: Sendable { case never, critique, veto, relay }
+
+    public var challengeClass: ChallengeClass {
+        switch self {
+        case .submitPlan, .markTask: .critique
+        case .createTask, .finishTask, .checkGoal: .veto
+        case .relayQuestion: .relay
+        case .runStatus, .jiraSearch, .jiraCreate, .jiraMove, .jiraLink, .jiraBoard, .jiraSprint, .jiraEdit, .jiraComment,
+             .updateTask, .readTask, .reviewTask, .requestReview, .replyThread, .findUser, .resolveThread, .critiqueThread,
+             .messageTask, .openTab, .resumeTask, .retryTask, .updateRequest, .retryPipeline, .recordReview, .askYou,
+             .resolveQuestion, .reportFind, .reportSnag, .leaveForYou, .logDecision, .writeSummary: .never
+        }
+    }
+
     /// What this tool's vetoed call does with no answer from the Oracle; nil for a tool that is no veto.
     public var unanswered: Unanswered? { Self.vetoes.first { $0.tool == self }?.unanswered }
 }

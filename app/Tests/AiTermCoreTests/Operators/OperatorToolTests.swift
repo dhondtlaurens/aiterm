@@ -58,4 +58,17 @@ import Testing
             #expect(brief.contains(veto.tool.rawValue + " " + veto.unanswered.words), "\(veto.tool)")
         }
     }
+
+    /// Each tool's traits are one exhaustive answer: a tool only looks or changes something, a veto is the Oracle's yes
+    /// (`vetoes`), and the Activity tab mutes exactly the tools that look.
+    @Test func eachToolHasItsTraits() {
+        #expect(OperatorTool.allCases.filter(\.isReadOnly) == [.runStatus, .jiraSearch, .jiraBoard, .readTask, .findUser])
+        #expect(OperatorTool.allCases.allSatisfy { $0.isReadOnly != $0.isMutating })
+        #expect(OperatorTool.allCases.filter { $0.challengeClass == .veto } == OperatorTool.allCases.filter(\.isVeto))
+        #expect(OperatorTool.allCases.filter { $0.challengeClass == .critique } == [.submitPlan, .markTask])
+        #expect(OperatorTool.allCases.filter { $0.challengeClass == .relay } == [.relayQuestion])
+        #expect(OperatorTool.allCases.filter { $0.actKind == .onTask }
+                == [.reviewTask, .requestReview, .replyThread, .messageTask, .markTask, .finishTask])
+        #expect(ActivityLine.reads == Set(OperatorTool.allCases.filter(\.isReadOnly).map(\.rawValue) + ["shell_read"]))
+    }
 }
