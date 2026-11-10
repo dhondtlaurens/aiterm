@@ -17,6 +17,20 @@ extension Repository {
         return try worktrees().filter { $0.branch != nil && Worktree.resolved($0.path).hasPrefix(prefix) }
     }
 
+    /// The folders under the project's `.worktrees/` that git lists a worktree at, on disk or not. A
+    /// checkout deleted outside AiTerm keeps its record, locked, until it is cleared: git refuses that
+    /// folder to a new worktree meanwhile.
+    public func registeredWorktreeFolders() throws -> Set<String> { Self.folders(under: path, of: try worktrees()) }
+
+    /// The folders under `project`'s `.worktrees/` that `worktrees`, a listing of its repository, names.
+    static func folders(under project: String, of worktrees: [Worktree]) -> Set<String> {
+        let directory = Worktree.resolved(project + "/" + Worktree.directoryName)
+        return Set(worktrees.compactMap { worktree in
+            let url = URL(fileURLWithPath: worktree.path)
+            return Worktree.resolved(url.deletingLastPathComponent().path) == directory ? url.lastPathComponent : nil
+        })
+    }
+
     /// The reason the worktree at `worktreePath` is locked with. `nil` when it is unlocked or unknown
     /// to git, `""` when it is locked without a reason.
     func lockReason(of worktreePath: String) -> String? {

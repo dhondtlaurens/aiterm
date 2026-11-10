@@ -147,6 +147,21 @@ public struct TaskWorkflow: Sendable {
         }
     }
 
+    /// A checkout deleted outside AiTerm: git's record of it cleared — unlocked, then pruned. Its lock
+    /// keeps the record from `git worktree prune`, and git refuses its folder and its branch to every
+    /// later worktree while the record is there. Nothing is done once the folder is back. Best-effort:
+    /// the task goes either way, and Remove's own pass clears a record that is still there.
+    public func forgetDeletedCheckout(of task: TaskItem, in project: Project) async {
+        guard task.hasCheckout else { return }
+        let git = git
+        await BackgroundWork.run(on: Self.queue) {
+            guard !FileManager.default.fileExists(atPath: task.worktreePath) else { return }
+            Log.git.attempt("Forgetting the deleted checkout \(task.worktreePath)") {
+                try Repository(project.path, git: git).forgetWorktreeRecord(at: task.worktreePath)
+            }
+        }
+    }
+
     /// An archived row's branch, its worktree long gone: deleted when asked for — a review's released —
     /// as Remove does.
     public func forgetArchived(task: TaskItem, project: Project, deleteBranch: Bool) async throws -> Removed {

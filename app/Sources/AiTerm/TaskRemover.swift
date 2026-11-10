@@ -435,7 +435,7 @@ final class TaskRemover: CheckoutRemovals {
     /// back since the pass looked — and off the main actor: a `stat` on a mount that has stopped
     /// answering holds a thread of its own, not the sidebar. The task is then checked again as it
     /// is now, back on the main actor, and only a task that is still gone and still waiting is
-    /// closed.
+    /// closed. Git's record of the checkout, which its lock keeps, is cleared beside the closing.
     func forgetRemovedCheckouts(_ removed: [TaskItem]) {
         // A task still closing whose checkout came back is not closing any more.
         let gone = Set(removed.map(\.id))
@@ -448,7 +448,10 @@ final class TaskRemover: CheckoutRemovals {
                 defer { confirmations[task.id] = nil }
                 let confirmed = await ThreadWork.run { confirms(task, projectPath) }
                 guard confirmed, awaitsCleanup(task) else { return }
+                let project = workspace.state.project(id: task.projectId), workflow = workflow
+                let forgetting = project.map { project in Task { await workflow.forgetDeletedCheckout(of: task, in: project) } }
                 automaticallyForgetRemovedTask(task.id)
+                await forgetting?.value
             }
         }
     }
