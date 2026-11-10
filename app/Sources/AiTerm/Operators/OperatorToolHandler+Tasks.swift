@@ -125,7 +125,7 @@ extension OperatorToolHandler {
                 read = try await BackgroundWork.run {
                     (try git.run(["rev-parse", "HEAD"], in: path),
                      try git.run(["log", "--oneline", "\(base)..HEAD"], in: path), try git.run(["diff", "--stat", "\(base)...HEAD"], in: path),
-                     try git.run(["diff", "\(base)...HEAD"], in: path), try git.run(["status", "--porcelain"], in: path))
+                     try Self.boundedDiff(["diff", "\(base)...HEAD"], in: path, git: git), try git.run(["status", "--porcelain"], in: path))
                 }
                 working = try await BackgroundWork.run { try Self.workingDiff(in: path, git: git) }
             } catch {
@@ -166,16 +166,25 @@ extension OperatorToolHandler {
                 if let base {
                     return (head: sha, commits: try git.run(["log", "--oneline", "\(base)..\(sha)"], in: path),
                             stat: try git.run(["diff", "--stat", "\(base)...\(sha)"], in: path),
-                            diff: try git.run(["diff", "\(base)...\(sha)"], in: path), uncommitted: "")
+                            diff: try Self.boundedDiff(["diff", "\(base)...\(sha)"], in: path, git: git), uncommitted: "")
                 }
                 return (head: sha, commits: try git.run(["show", "-s", "--oneline", sha], in: path),
                         stat: try git.run(["show", "--format=", "--stat", sha], in: path),
-                        diff: try git.run(["show", "--format=", sha], in: path), uncommitted: "")
+                        diff: try Self.boundedDiff(["show", "--format=", sha], in: path, git: git), uncommitted: "")
             }
             return Self.diffReading(base: base ?? "", read: read)
         } catch {
             throw ToolRefusal("AiTerm couldn’t read \(record.key)’s saved diff from its accepted commit.")
         }
+    }
+
+    /// The most of a patch a reading keeps: far more than its answer has room for (`DiffDigest`), so
+    /// only a patch beyond it reads differently, with fewer of its files counted.
+    nonisolated static let diffReadLimit = 8 * 1024 * 1024
+
+    /// A patch as `git.run` gives it — trimmed — read no further than `diffReadLimit`.
+    nonisolated static func boundedDiff(_ args: [String], in path: String, git: any GitRunning) throws -> String {
+        try git.read(args, in: path, limit: diffReadLimit).text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func diffReading(base: String,
