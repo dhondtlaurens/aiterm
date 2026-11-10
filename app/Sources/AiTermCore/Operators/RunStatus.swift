@@ -122,7 +122,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var summaryDue: Bool
         /// Automatic cleanup for a complete broadcast with closing enabled. Separate from work completion.
         public var cleanup: Cleanup?
-        /// What every task follows (the Task step); nil for a broadcast started before it.
+        /// What every task follows (the Task step).
         public var taskSettings: TaskSettings
         /// The broadcast's goal; nil for none.
         public var goal: BroadcastGoal?
@@ -286,9 +286,10 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var liveModel: String?, liveReasoning: String?
         /// What became of the slash commands `message_task` typed into its first worker, oldest first; nil when none was.
         public var slashCommands: [SlashCommandLine]?
+        /// The test commands its workers run through AiTerm's queue, and how each stands; nil while none does.
+        public var testActivities: [TestActivity]?
         /// Why one of its workers stopped short of finishing its turn, an API error Claude Code reported: a usage limit and
         /// when it resets, or a billing or sign-in failure that waits on the person. Not ready while it says so; nil otherwise.
-        public var testActivities: [TestActivity]?
         public var stoppedOn: String?
         /// True while its first worker is still starting: launched a moment ago, it has named no conversation yet, and counts
         /// as at work whatever `live` says. Nil otherwise.

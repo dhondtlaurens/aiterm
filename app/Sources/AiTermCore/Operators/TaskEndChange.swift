@@ -69,12 +69,3 @@ public extension String {
     /// the rest.
     var capitalizingFirst: String { prefix(1).uppercased() + dropFirst() }
 }
-
-public extension OperatedTask {
-    /// Finished by reaching its end: published, accepted on a commit end, or ended with no change; not failed, stopped
-    /// or with its publication left for you. The one rule for it: the broadcast's closing closes these tasks, and the
-    /// board says which of them it kept.
-    var reachedItsEnd: Bool {
-        state == .published || state == .noChange || (state == .accepted && end == .commit && publication?.leftForYou != true)
-    }
-}

@@ -78,30 +78,8 @@ public struct BroadcastBoard: Equatable, Sendable {
         public init(current: TaskEnd, selectable: [TaskEnd]) { self.current = current; self.selectable = selectable }
     }
 
-    /// Your answer to a task out of its review's fix rounds (`OperatorRun.fixRoundsQuestion(on:)`), from its card:
-    /// each wakes the Operator with it, and the Operator resolves the question. Its question keeps the case's name
-    /// (`OperatorQuestion.answeredOnCard`), so its words can change.
-    public enum FixRoundsAnswer: String, CaseIterable, Sendable {
-        case oneMoreRound, acceptAsItIs
-
-        /// Its link on the card.
-        public var title: String {
-            switch self {
-            case .oneMoreRound: "One More Round"
-            case .acceptAsItIs: "Accept As It Is"
-            }
-        }
-
-        /// As the Operator's wake line says it: `You answered cart-drawer’s fix rounds: one more round`.
-        public var words: String {
-            switch self {
-            case .oneMoreRound: "one more round"
-            case .acceptAsItIs: "accept it as it is"
-            }
-        }
-
-        public func wakeReason(key: String) -> String { "You answered \(key)’s fix rounds: \(words)" }
-    }
+    /// Your answer to a task out of its review's fix rounds, which its question keeps (`AiTermCore.FixRoundsAnswer`).
+    public typealias FixRoundsAnswer = AiTermCore.FixRoundsAnswer
 
     /// What a task's Claude worker says it runs now (`SessionInfo.liveModel`, `.liveReasoning`), which its card's tooltip
     /// holds against the plan.

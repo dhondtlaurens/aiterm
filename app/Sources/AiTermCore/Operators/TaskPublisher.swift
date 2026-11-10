@@ -104,7 +104,7 @@ public struct TaskPublisher: Sendable {
                        record: @escaping @Sendable (TaskPublication) async throws -> Void) async throws -> String? {
         guard publication.assigning == true, !publication.merged, let number = publication.mergeRequestNumber else { return nil }
         if let why = await recheck() { return why }
-        var name = Self.said(publication.requested?.assignee)
+        var name = publication.requested?.assignee.saidAsWritten
         do {
             if name == nil { name = try await host.currentUser() }
             try await host.updateRequest(number, RequestContent(assignee: name), beforeWrite: { _ in
@@ -220,8 +220,8 @@ public struct TaskPublisher: Sendable {
             } else {
                 let draft = operated.end == .draftMR || context.forReview, asked = publication.requested
                 request = try await host.createRequest(from: branch, into: target,
-                                                       title: Self.said(asked?.title) ?? Self.title(of: task),
-                                                       description: Self.said(asked?.description) ?? Self.description(of: task, acceptance: acceptance),
+                                                       title: asked?.title.saidAsWritten ?? Self.title(of: task),
+                                                       description: asked?.description.saidAsWritten ?? Self.description(of: task, acceptance: acceptance),
                                                        draft: draft)
                 noted(.opened(draft: draft))
             }
@@ -448,11 +448,5 @@ public struct TaskPublisher: Sendable {
             lines += ["Checks run by the agent:", "```", String(acceptance.checkOutput.suffix(4000)), "```", ""]
         }
         return (lines + ["Opened by AiTerm."]).joined(separator: "\n")
-    }
-
-    /// `text` when it says something; nil for none, or only whitespace.
-    static func said(_ text: String?) -> String? {
-        guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return text
     }
 }
