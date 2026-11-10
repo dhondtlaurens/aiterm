@@ -326,7 +326,7 @@ final class MergeClock: Sendable {
         let s = try setUp(end: .merge)
         _ = await s.finisher.finish(s.task)
         s.store.mutate { $0.updateOperated(s.task) { $0.takenOver = true; $0.ownership += 1 } }
-        s.finisher.disarm(s.task, because: TaskFinisher.takenOverProblem)
+        s.finisher.disarm(s.task, because: TaskFinisher.takenOverProblem, kind: .failure)
         #expect(s.finisher.watching.isEmpty)
         #expect(operated(s)?.publication?.problem == TaskFinisher.takenOverProblem)
         s.store.mutate { $0.updateOperated(s.task) { $0.takenOver = false } }
@@ -648,7 +648,7 @@ final class MergeClock: Sendable {
         let reads = s.host.log.filter { $0.hasPrefix("readiness") }.count
         await s.ticker.tick()
         #expect(await eventually(describing: "a poll in flight") { s.host.log.filter { $0.hasPrefix("readiness") }.count > reads })
-        s.finisher.disarm(s.task, because: TaskEndChange.mergeWaitsForFinish)
+        s.finisher.disarm(s.task, because: TaskEndChange.mergeWaitsForFinish, kind: .hold)
         release.continuation.finish()
         #expect(await eventually(describing: "the poll to end") { !s.finisher.running.contains(s.task) })
         #expect(operated(s)?.publication?.problem == TaskEndChange.mergeWaitsForFinish)

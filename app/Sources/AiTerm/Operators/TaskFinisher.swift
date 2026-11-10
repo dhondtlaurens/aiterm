@@ -323,12 +323,12 @@ final class TaskFinisher {
     /// On a takeover: the watch stops, and a merge waiting is disarmed for good — its problem recorded,
     /// so neither a hand back, a Resume nor a relaunch watches it again until the operator's next
     /// `finish_task`.
-    func disarm(_ id: UUID, because why: String) {
+    func disarm(_ id: UUID, because why: String, kind: TaskPublication.ProblemKind) {
         stopWatching(id)
         guard let operated = store.state.task(id: id)?.operated, operated.end == .merge, operated.state == .accepted,
               let publication = operated.publication, publication.mergeRequestNumber != nil,
               !publication.wasMerged, publication.problem == nil else { return }
-        store.mutate { $0.updateOperated(id) { $0.publication?.problem = why } }
+        store.mutate { $0.updateOperated(id) { $0.publication?.setProblem(why, kind: kind) } }
         _ = store.flush()
     }
 
@@ -411,9 +411,10 @@ final class TaskFinisher {
 
     /// A publication's step, and what the Merge slice kept from happening left for you once (spec §5).
     private func advance(_ id: UUID, restart: Bool, noVerify: Bool, operatorCall: Bool) async -> Result {
-        let before = store.state.task(id: id)?.operated?.publication?.problem
+        let publication = store.state.task(id: id)?.operated?.publication
+        let before = publication?.problem, kind = publication?.problemOutcome
         let result = await publish(id, restart: restart, noVerify: noVerify, operatorCall: operatorCall)
-        clearFailure(before, on: id, restart: restart, after: result)
+        clearFailure(before, kind: kind, on: id, restart: restart, after: result)
         if result.result == .refused, let reason = result.reason,
            let task = store.state.task(id: id), let operated = task.operated,
            operated.state == .accepted, Self.permanent(reason) {
@@ -436,19 +437,15 @@ final class TaskFinisher {
     /// only with no problem: one recorded before such a run began (`before`) is a failure of that watch, which a run that
     /// ended published, in review or waiting to merge is past (T7: the push that landed after the hook refused one). One
     /// changed meanwhile, a hold (`TaskPublication.operatorHolds`) or a takeover's is kept.
-    private func clearFailure(_ before: String?, on id: UUID, restart: Bool, after result: Result) {
+    private func clearFailure(_ before: String?, kind: TaskPublication.ProblemKind?, on id: UUID, restart: Bool, after result: Result) {
         guard !restart, let before, [.published, .inReview, .waitingToMerge].contains(result.result),
-              !TaskPublication.isHold(before), before != Self.takenOverProblem,
+              kind != .hold, before != Self.takenOverProblem,
               store.state.task(id: id)?.operated?.publication?.problem == before else { return }
         store.mutate { $0.updateOperated(id) { $0.publication?.problem = nil } }
         _ = store.flush()
     }
 
-    private static func permanent(_ reason: String) -> Bool {
-        reason == PublicationGuard.mergeSliceOff || reason == PublishRefusal.noOrigin.localizedDescription
-            || reason.contains("no connected code host") || reason.hasSuffix(TaskPublisher.neverPushesProtected)
-            || reason.contains("branch is the default branch")
-    }
+    private static func permanent(_ reason: String) -> Bool { TaskPublication.ProblemKind(matching: reason) == .permanent }
 
     /// `sentence` in the run's Left for you, once, saved in one change with `also`.
     private func leaveForYou(_ sentence: String, in run: UUID, also: (inout AppState) -> Void = { _ in }) {
@@ -628,11 +625,12 @@ final class TaskFinisher {
     /// `opening the MR` for as long as it waits for you, and nothing watches it again: the next `finish_task` clears
     /// it (`TaskPublisher`). `hookSaid`, for a push the hook
     /// refused, is kept as `lastPushFailure` with the commit it refused, for the Oracle to judge a `noVerify` by.
-    private func recordFailure(_ why: String, on id: UUID, hookSaid: (output: String, sha: String)? = nil) {
+    private func recordFailure(_ why: String, kind: TaskPublication.ProblemKind = .failure, on id: UUID,
+                               hookSaid: (output: String, sha: String)? = nil) {
         store.mutate { state in
             state.updateOperated(id) {
                 var publication = $0.publication ?? TaskPublication()
-                publication.problem = why
+                publication.setProblem(why, kind: kind)
                 if let hookSaid { publication.lastPushFailure = hookSaid.output; publication.lastPushFailureSHA = hookSaid.sha }
                 $0.publication = publication
             }
@@ -845,7 +843,9 @@ final class TaskFinisher {
             publication.conditionsHeld = operated.publication?.conditionsHeld
             publication.conditionsEvidence = operated.publication?.conditionsEvidence
             publication.mergeRefusal = operated.publication?.mergeRefusal
-            if operated.ownership != ownership, let problem = operated.publication?.problem { publication.problem = problem }
+            if operated.ownership != ownership, let problem = operated.publication?.problem, let kind = operated.publication?.problemOutcome {
+                publication.setProblem(problem, kind: kind)
+            }
             state.tasks[index].operated?.publication = publication
             if let number = publication.mergeRequestNumber, let url = publication.mergeRequestURL {
                 state.tasks[index].mr = MergeRequestRef(iid: number, title: state.tasks[index].title, url: url)
@@ -964,7 +964,8 @@ final class TaskFinisher {
                     // The Oracle's yes no longer covers the evidence (mark_task refreshed it): the merge waits for the
                     // Operator's finish_task, which the Oracle judges, not for you.
                     if self.awaitsOracle(id, refusedFor: why) { why = PublicationGuard.oracleYesNeeded }
-                    self.recordFailure(why, on: id)
+                    // A refusal is recorded as the kind its words are, until refusals carry their kind themselves.
+                    self.recordFailure(why, kind: TaskPublication.ProblemKind(matching: why), on: id)
                     self.watchStopped(id, why)
                 case .failed:
                     failures += 1

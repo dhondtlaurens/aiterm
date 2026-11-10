@@ -153,6 +153,78 @@ import Testing
         checkpoints["after-restart"] = try restarted.controller.tools.currentStatus(of: #require(restored.runs.first)).map(JSONValue.init(encoding:))
         return .object(checkpoints)
     }
+
+    static let savedFormat = folder.deletingLastPathComponent().appendingPathComponent("operator-saved-format/state.json")
+
+    /// The frozen broadcast with a publication problem of each kind, as today's writers record them: the saved format
+    /// with phase 4's one new key, `problemKind`, beside each problem.
+    static func savedFormatState() throws -> AppState {
+        var state = try load()
+        let problems: [(key: String, problem: String, kind: TaskPublication.ProblemKind)] = [
+            ("SHOP-2", TaskEndChange.mergeWaitsForFinish, .hold), ("SHOP-3", "The pipeline failed.", .failure),
+            ("SHOP-4", PublicationGuard.mergeSliceOff, .permanent),
+        ]
+        for (key, problem, kind) in problems {
+            let id = try #require(state.tasks.first { $0.operated?.key == key }?.id)
+            state.updateOperated(id) {
+                var publication = $0.publication ?? TaskPublication()
+                publication.setProblem(problem, kind: kind)
+                $0.publication = publication
+            }
+        }
+        return state
+    }
+
+    /// The saved format after its one change (`Fixtures/operator-saved-format`, captured once, see its provenance): the
+    /// frozen broadcast with a problem of each kind saves as that file, the file saves back to its own bytes, and each
+    /// problem reads back as the kind it was written with.
+    @Test func theSavedFormatSavesAsItsFixtureAndBackToItsOwnBytes() throws {
+        let scratch = try ScratchFolder.make()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let store = StateStore(url: scratch.appendingPathComponent("state.json"))
+        try store.save(try Self.savedFormatState())
+        let saved = try Data(contentsOf: store.url)
+        guard let fixture = try? Data(contentsOf: Self.savedFormat), saved == fixture else {
+            // For reading the difference, never an update mode: the fixture was captured once.
+            let actual = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-operator-saved-format.json")
+            try saved.write(to: actual)
+            Issue.record("The saved format no longer saves as its fixture; what it saved is at \(actual.path)")
+            return
+        }
+        let loaded = try StateStore(url: Self.savedFormat).load()
+        try store.save(loaded)
+        #expect(try Data(contentsOf: store.url) == fixture, "The saved-format fixture no longer saves back to its own bytes.")
+        let kinds = Dictionary(uniqueKeysWithValues: loaded.tasks.compactMap { task in
+            task.operated.flatMap { operated in operated.publication?.problemKind.map { (operated.key, $0) } }
+        })
+        #expect(kinds == ["SHOP-2": .hold, "SHOP-3": .failure, "SHOP-4": .permanent])
+    }
+
+    /// A save from before the kind was kept, the frozen broadcast among them, loads with each problem's kind read from its
+    /// wording: the saved-format fixture with its kinds taken out reads every problem as the kind it was written with.
+    @Test func aSaveWithoutTheKindReadsEachProblemByItsWording() throws {
+        func strip(_ value: JSONValue) -> JSONValue {
+            switch value {
+            case .object(let fields): .object(fields.filter { $0.key != "problemKind" }.mapValues(strip))
+            case .array(let items): .array(items.map(strip))
+            default: value
+            }
+        }
+        let scratch = try ScratchFolder.make()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let legacy = scratch.appendingPathComponent("state.json")
+        try JSONEncoder().encode(strip(try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: Self.savedFormat)))).write(to: legacy)
+        let state = try StateStore(url: legacy).load()
+        let read = Dictionary(uniqueKeysWithValues: state.tasks.compactMap { task in
+            task.operated.flatMap { operated in operated.publication?.problemOutcome.map { (operated.key, $0) } }
+        })
+        #expect(read == ["SHOP-2": .hold, "SHOP-3": .failure, "SHOP-4": .permanent])
+        #expect(state.tasks.allSatisfy { $0.operated?.publication?.problemKind == nil })
+        let frozen = try Self.load()
+        #expect(frozen.tasks.allSatisfy { task in
+            task.operated?.publication.map { $0.problemOutcome == $0.problem.map(TaskPublication.ProblemKind.init(matching:)) } ?? true
+        })
+    }
 }
 
 /// A run and one of its tasks as the workspace file holds them, for `operatorRecordsSaveAsTheirFixtureAndLoadBackEqual`.
@@ -238,6 +310,8 @@ struct OperatorRecords: Codable, Equatable {
                                           mergeRefusal: "The Oracle said no.", lastPushFailure: "lint failed", lastPushFailureSHA: sha,
                                           landedSHA: sha)
         publication.conditionsEvidence = "checks: green"
+        // Added by decision with the plan's one saved-format change (2026-11-10, phase 4).
+        publication.setProblem("The pipeline failed.", kind: .failure)
         publication.requested = RequestContent(title: "Add the block", description: "What and why.", assignee: "someone")
         publication.assigning = true
         publication.assignee = "someone"

@@ -75,8 +75,12 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     /// The request's head commit the host merged, as the host reported it.
     public var mergedHead: String?
     /// Why the host will not merge it without someone acting — a failed pipeline, conflicts — or why
-    /// the wait ended. Cleared by the operator's next `finish_task`.
-    public var problem: String?
+    /// the wait ended. Cleared by the operator's next `finish_task`. Set, it takes the kind its wording says, which a
+    /// writer that knows better replaces (`setProblem(_:kind:)`); cleared, it has none.
+    public var problem: String? { didSet { problemKind = problem.map(ProblemKind.init(matching:)) } }
+    /// What kind of problem `problem` is, saved beside it: nil with no problem, and in a save from before the kind was
+    /// kept, which `problemOutcome` reads by the problem's wording.
+    public var problemKind: ProblemKind?
     /// The Merge slice with the Oracle on: the accepted commit the Oracle said yes for, that the conditions written in
     /// the Review and the Done hold. A merge goes ahead only while it is the commit accepted now.
     public var conditionsHeld: String?
@@ -125,8 +129,35 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         operatorHolds.contains(problem) || PublicationGuard.isOracleRefusal(problem)
     }
 
-    /// Its problem is a hold for the Operator (`isHold`).
-    public var holdsForOperator: Bool { problem.map(Self.isHold) ?? false }
+    /// What keeps a publication from going on, by what it waits for: a hold for the Operator's next finish_task
+    /// (`operatorHolds`), a failure that needs you, or a refusal nothing AiTerm does gets past (`permanent`), which leaves
+    /// the publication to you.
+    public enum ProblemKind: String, Codable, Sendable {
+        case hold, failure, permanent
+
+        /// The kind `problem`'s wording says: how a save from before kinds were kept is read, and what a writer that names
+        /// none records. A hold (`isHold`), a permanent refusal (no origin, no connected code host, the default or a
+        /// protected branch, the Merge slice off), else a failure.
+        public init(matching problem: String) {
+            if TaskPublication.isHold(problem) { self = .hold }
+            else if problem == PublicationGuard.mergeSliceOff || problem == PublishRefusal.noOrigin.localizedDescription
+                        || problem.contains("no connected code host") || problem.hasSuffix(TaskPublisher.neverPushesProtected)
+                        || problem.contains("branch is the default branch") { self = .permanent }
+            else { self = .failure }
+        }
+    }
+
+    /// The kind of its problem, nil with none: as saved, or, in a save from before kinds were kept, as its wording says.
+    public var problemOutcome: ProblemKind? { problem.map { problemKind ?? ProblemKind(matching: $0) } }
+
+    /// Records `problem` as the kind its writer knows it is.
+    public mutating func setProblem(_ problem: String, kind: ProblemKind) {
+        self.problem = problem
+        problemKind = kind
+    }
+
+    /// Its problem is a hold for the Operator (`problemOutcome`).
+    public var holdsForOperator: Bool { problemOutcome == .hold }
 
     /// What became of its request's merge, read from `merged` and `mergedSHA` and never saved: not merged; merged at the
     /// accepted commit, by AiTerm, on the host before AiTerm's answer came, or found already in its target (`landedSHA`);
@@ -146,6 +177,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         self.pushedSHA = pushedSHA; self.mergeRequestURL = mergeRequestURL; self.mergeRequestNumber = mergeRequestNumber
         self.targetBranch = targetBranch; self.waitingSince = waitingSince; self.readySince = readySince; self.merged = merged
         self.mergedSHA = mergedSHA; self.mergedHead = mergedHead; self.problem = problem; self.conditionsHeld = conditionsHeld
+        self.problemKind = problem.map(ProblemKind.init(matching:))
         self.mergeRefusal = mergeRefusal
         self.repository = repository; self.leftForYou = leftForYou; self.waitingReason = waitingReason
         self.lastPushFailure = lastPushFailure; self.lastPushFailureSHA = lastPushFailureSHA; self.landedSHA = landedSHA
@@ -1131,7 +1163,7 @@ extension OperatedTask {
 
     /// The current problem when it is a failure that needs you, not a hold for the Operator (`TaskPublication.operatorHolds`).
     public var publicationFailure: String? {
-        currentPublicationProblem.flatMap { TaskPublication.isHold($0) ? nil : $0 }
+        publication?.problemOutcome == .hold ? nil : currentPublicationProblem
     }
 }
 

@@ -15,7 +15,7 @@ extension OperatorController {
         let ownership = operated.ownership + 1
         workspace.mutate { $0.updateOperated(id) { $0.takenOver = true; $0.ownership = ownership } }
         // A merge waiting is disarmed until the operator's next finish_task, whatever is handed back or resumed.
-        finisher.disarm(id, because: TaskFinisher.takenOverProblem)
+        finisher.disarm(id, because: TaskFinisher.takenOverProblem, kind: .failure)
         waker.say("the person took over one task", to: operated.runId)
         try await setOwnership(ownership, on: id)
     }
@@ -69,7 +69,7 @@ extension OperatorController {
         guard !finisher.running.contains(id) else { throw ActionUnavailable("AiTerm is finishing \(task.title). Change its end once it’s done.") }
         workspace.mutate { TaskEndChange.apply(end, toTask: id, in: &$0) }
         finisher.stopWatching(id)
-        if end == .merge { finisher.disarm(id, because: TaskEndChange.mergeWaitsForFinish) }
+        if end == .merge { finisher.disarm(id, because: TaskEndChange.mergeWaitsForFinish, kind: .hold) }
         runChanged(run.id)
         let completed = run.state != .complete && self.run(id: run.id)?.state == .complete
         waker.say(TaskEndChange.wakeReason(key: operated.key, end: end) + (completed ? ", and the broadcast is complete" : ""), to: run.id)

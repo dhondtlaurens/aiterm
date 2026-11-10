@@ -402,7 +402,7 @@ public struct TaskPublisher: Sendable {
     private func blocked(_ publication: TaskPublication, _ why: String,
                          _ record: @Sendable (TaskPublication) async throws -> Void) async throws -> Outcome {
         var publication = publication
-        publication.problem = why
+        publication.setProblem(why, kind: .failure)
         try await record(publication)
         return .blocked(publication, why)
     }

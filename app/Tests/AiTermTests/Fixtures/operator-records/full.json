@@ -358,6 +358,7 @@
       "mergedHead" : "1111111111111111111111111111111111111111",
       "mergedSHA" : "2222222222222222222222222222222222222222",
       "problem" : "The pipeline failed.",
+      "problemKind" : "failure",
       "pushedSHA" : "1111111111111111111111111111111111111111",
       "readySince" : "2027-01-15T08:00:30Z",
       "repository" : "example.com\/pluto\/web",

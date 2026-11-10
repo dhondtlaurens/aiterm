@@ -11,6 +11,10 @@ other than its default: 44 keys on the run, 37 on the task, 23 on its publicatio
 16 on a challenge. `OperatorRecords` in `Operators/OperatorCurrentContractTests.swift` builds both;
 the test saves each and compares the bytes, then loads the file and compares the values.
 
+Phase 4 of that round added one key by decision, the plan's one saved-format change: `problemKind`, the kind
+of the publication's problem, now in `full` beside its `problem` (24 keys on its publication). `sparse` did not
+change.
+
 There is no update mode. A field added to a record is added to `full` and to its builder by a
 decision about the saved format; a difference found any other way is a regression in the coding.
 The frozen broadcast beside this folder (`operator-current/`) is older and stays untouched.
