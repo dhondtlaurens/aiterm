@@ -417,22 +417,52 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     /// The snapshot of `run` in `state` as of `now`, which the quiet review is measured against; nil for a run the workspace
     /// does not have. `hostThreads`, by task, are its request's threads as the host has them now (each one's resolution, by
     /// id), read by `run_status`: wherever the snapshot counts threads it counts these, so one answer never says a thread is
-    /// open and the review quiet. A task left out is counted as AiTerm last read it (`PeopleReview.threads`).
+    /// open and the review quiet. A task left out is counted as AiTerm last read it (`PeopleReview.threads`). It is the
+    /// task lines (`lines`) and the open obligations (`obligations`), built from the same facts.
     public static func build(state: AppState, run id: UUID, revision: Int, live: [UUID: TaskLiveFacts],
                              runLive: RunLiveFacts = RunLiveFacts(), hostThreads: [UUID: [String: Bool]] = [:],
                              now: Date = Date()) -> RunStatus? {
         WorkMeter.note(.statusBuild)
         guard let run = state.run(id: id) else { return nil }
+        let items = state.tasks(inRun: id), keys = keys(of: items)
+        return RunStatus(
+            revision: revision,
+            run: Run(id: run.id, name: run.name, state: run.state, prompt: run.prompt,
+                     planRevision: run.planRevision, openRevision: run.openRevision, firstPlanSize: run.firstPlanSize,
+                     finds: run.finds, snags: run.snags.map { SnagLine(key: $0.key, title: $0.title) }, slices: run.profile.slices, oracleIsOn: run.profile.oracle.isOn,
+                     usage: Dictionary(runLive.weeklyUsage.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
+                     agents: Agents(installed: Dictionary(runLive.agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
+                                    allowed: run.agents),
+                     jiraProjectKeys: run.jiraProjectKeys, summaryDue: run.state == .complete && run.summary == nil,
+                     taskSettings: run.taskSettings, goal: run.goal, goalCheckDue: run.goalCheckDue, roundsUsed: run.roundsUsed,
+                     cleanup: Cleanup(run)),
+            tasks: lines(of: run, items, state: state, keys: keys, live: live, hostThreads: hostThreads),
+            finished: run.finished,
+            obligations: collectObligations(of: run, items, keys: keys, live: live, hostThreads: hostThreads, now: now))
+    }
+
+    /// The open obligations of `run` in `state` as of `now`, as `build` says them, with no task line built: for a reader
+    /// that needs only what waits. Nil for a run the workspace does not have.
+    public static func openObligations(state: AppState, run id: UUID, live: [UUID: TaskLiveFacts], hostThreads: [UUID: [String: Bool]] = [:],
+                                       now: Date = Date()) -> Obligations? {
+        guard let run = state.run(id: id) else { return nil }
         let items = state.tasks(inRun: id)
-        let keys = Dictionary(items.compactMap { item in item.operated.map { (item.id, $0.key) } }, uniquingKeysWith: { first, _ in first })
-        var lines: [TaskLine] = []
-        var prompts: [String] = [], ready: [String] = [], background: [String] = [], stalled: [String] = [], uncertain: [String] = [], drift: [String] = []
-        var asks: [WorkerAsk] = [], changed: [String] = [], noCommit: [String] = [], reviewQuiet: [String] = []
-        for item in items {
-            guard let o = item.operated else { continue }
+        return collectObligations(of: run, items, keys: keys(of: items), live: live, hostThreads: hostThreads, now: now)
+    }
+
+    /// Each operated task's key, by its id: what a dependency and a question name it by.
+    private static func keys(of items: [TaskItem]) -> [UUID: String] {
+        Dictionary(items.compactMap { item in item.operated.map { (item.id, $0.key) } }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// Each operated task's line, in the run's order.
+    private static func lines(of run: OperatorRun, _ items: [TaskItem], state: AppState, keys: [UUID: String],
+                              live: [UUID: TaskLiveFacts], hostThreads: [UUID: [String: Bool]]) -> [TaskLine] {
+        items.compactMap { item -> TaskLine? in
+            guard let o = item.operated else { return nil }
             let facts = live[item.id] ?? TaskLiveFacts()
             let closes = run.taskSettings.closeWhenDone == true && o.reachedItsEnd
-            lines.append(TaskLine(
+            return TaskLine(
                 id: item.id, key: o.key, title: item.title, project: state.project(id: item.projectId)?.name ?? "",
                 agent: item.agent, model: item.model, state: o.state, end: o.end, revision: o.revision,
                 live: facts.status.map { LiveState($0, quiet: facts.quiet) }, branch: item.branch,
@@ -450,7 +480,18 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 reviewVerdicts: o.reviewVerdicts, reasoning: item.reasoning, acceptanceEvidence: o.acceptance,
                 diffBaseline: o.diffBaseSHA, requestedLaunch: o.requestedLaunch, testActivities: facts.testActivities,
                 keptReason: closes && run.closingHasRun ? o.keptReason : nil,
-                closingWait: closes && !run.closingHasRun && run.closingIsDue ? o.closingWait : nil))
+                closingWait: closes && !run.closingHasRun && run.closingIsDue ? o.closingWait : nil)
+        }
+    }
+
+    /// What waits on you or on the Operator in `run`, its tasks `items` in the run's order.
+    private static func collectObligations(of run: OperatorRun, _ items: [TaskItem], keys: [UUID: String], live: [UUID: TaskLiveFacts],
+                                           hostThreads: [UUID: [String: Bool]], now: Date) -> Obligations {
+        var prompts: [String] = [], ready: [String] = [], background: [String] = [], stalled: [String] = [], uncertain: [String] = [], drift: [String] = []
+        var asks: [WorkerAsk] = [], changed: [String] = [], noCommit: [String] = [], reviewQuiet: [String] = []
+        for item in items {
+            guard let o = item.operated else { continue }
+            let facts = live[item.id] ?? TaskLiveFacts()
             // What the first worker's ended turn left, on a task in any state but yours (spec §J): a new turn is at work.
             let turn = !o.takenOver && o.state != .stopped
             let mainAsking = turn && facts.turnEnded && WorkerTurn.endsWithQuestion(facts.lastMessage)
@@ -481,29 +522,16 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 || facts.tabs.contains(where: { $0.quiet && $0.status == .working }) { uncertain.append(o.key) }
             if o.branchDrift != nil { drift.append(o.key) }
         }
-        return RunStatus(
-            revision: revision,
-            run: Run(id: run.id, name: run.name, state: run.state, prompt: run.prompt,
-                     planRevision: run.planRevision, openRevision: run.openRevision, firstPlanSize: run.firstPlanSize,
-                     finds: run.finds, snags: run.snags.map { SnagLine(key: $0.key, title: $0.title) }, slices: run.profile.slices, oracleIsOn: run.profile.oracle.isOn,
-                     usage: Dictionary(runLive.weeklyUsage.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
-                     agents: Agents(installed: Dictionary(runLive.agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
-                                    allowed: run.agents),
-                     jiraProjectKeys: run.jiraProjectKeys, summaryDue: run.state == .complete && run.summary == nil,
-                     taskSettings: run.taskSettings, goal: run.goal, goalCheckDue: run.goalCheckDue, roundsUsed: run.roundsUsed,
-                     cleanup: Cleanup(run)),
-            tasks: lines,
-            finished: run.finished,
-            obligations: Obligations(
-                questionsWaiting: run.questions.filter { $0.resolution == nil }.map {
-                    Question(key: $0.id, text: $0.text, task: $0.task.flatMap { keys[$0] }, askedAt: $0.askedAt,
-                             answeredInWindow: $0.answeredInWindow, answeredOnCard: $0.answeredOnCard, answeredHere: $0.answeredHere,
-                             choices: $0.choices, holds: $0.task != nil && !$0.holdsTask ? false : nil,
-                             asker: $0.relayedFrom == nil ? nil : "worker", tab: $0.relayedFrom)
-                },
-                promptsWaitingOnYou: prompts, readyForAcceptance: ready, background: background, possiblyStalled: stalled, uncertain: uncertain,
-                branchDrift: drift, workerAsks: asks, changedAfterAcceptance: changed, finishedWithoutCommit: noCommit,
-                reviewQuiet: reviewQuiet))
+        return Obligations(
+            questionsWaiting: run.questions.filter { $0.resolution == nil }.map {
+                Question(key: $0.id, text: $0.text, task: $0.task.flatMap { keys[$0] }, askedAt: $0.askedAt,
+                         answeredInWindow: $0.answeredInWindow, answeredOnCard: $0.answeredOnCard, answeredHere: $0.answeredHere,
+                         choices: $0.choices, holds: $0.task != nil && !$0.holdsTask ? false : nil,
+                         asker: $0.relayedFrom == nil ? nil : "worker", tab: $0.relayedFrom)
+            },
+            promptsWaitingOnYou: prompts, readyForAcceptance: ready, background: background, possiblyStalled: stalled, uncertain: uncertain,
+            branchDrift: drift, workerAsks: asks, changedAfterAcceptance: changed, finishedWithoutCommit: noCommit,
+            reviewQuiet: reviewQuiet)
     }
 
     /// A review of yours to end, not yours: in review, not ended, not taken over, no unresolved thread, and begun at least

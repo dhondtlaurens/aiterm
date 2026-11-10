@@ -430,7 +430,8 @@ public enum SidebarModel {
 
     public static func entries(state: AppState, sessions: [SessionInfo],
                                branchByCwd: [String: String], projectBranch: [UUID: String],
-                               diffByTask: [UUID: DiffStat] = [:], acting: [UUID: OperatorAct] = [:]) -> [SidebarEntry] {
+                               diffByTask: [UUID: DiffStat] = [:], acting: [UUID: OperatorAct] = [:],
+                               pass: SidebarPass? = nil) -> [SidebarEntry] {
         // Grouped once for every row, rather than filtered per task and per terminal — and the
         // rows by project once, rather than filtered again for every project.
         let tabs = Tabs(sessions)
@@ -439,7 +440,7 @@ public enum SidebarModel {
         let rows = Rows(tasks: Dictionary(grouping: state.tasks.filter { !held.contains($0.id) }, by: \.projectId),
                         terminals: Dictionary(grouping: state.terminals, by: \.projectId),
                         held: Dictionary(grouping: state.tasks.filter { held.contains($0.id) }, by: \.projectId))
-        let operated = OperatedLookup(state: state, acting: acting)
+        let operated = OperatedLookup(state: state, acting: acting, pass: pass)
         // A row only a newer build can draw is skipped, and does not count as an end to move towards.
         let drawn = state.items.indices.filter { state.items[$0].isDrawn }
         let first = drawn.first ?? 0, last = drawn.last ?? 0
@@ -472,18 +473,21 @@ public enum SidebarModel {
     /// at no cost, while no task is driven. `acting` is what the Operator is doing to each task.
     struct OperatedLookup {
         var runs: [UUID: OperatorRun] = [:], tasks: [UUID: TaskItem] = [:], acting: [UUID: OperatorAct] = [:]
-        var requests: [UUID: [BroadcastRequest]] = [:]
+        /// What waits on you, as the notifications say it, and the tabs matched once (`SidebarPass`).
+        var pass: SidebarPass?
         /// How each task's worker ended its last turn (`OperatorActs.turns`).
         var turns: [UUID: WorkerTurn.Ending] = [:]
-        init(state: AppState, acting: [UUID: OperatorAct], turns: [UUID: WorkerTurn.Ending] = [:]) {
+        /// `pass` is the derivation's; without one, the lookup derives the requests itself, and its rows are read as of
+        /// the time it is built.
+        init(state: AppState, acting: [UUID: OperatorAct], turns: [UUID: WorkerTurn.Ending] = [:], pass: SidebarPass? = nil) {
             guard state.tasks.contains(where: { $0.operated != nil }) else { return }
             runs = Dictionary(state.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             tasks = Dictionary(state.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             self.acting = acting
             self.turns = turns
-            // What waits on you, as the notifications say it.
-            for run in runs.values { requests[run.id] = OperatorRequests.open(run: run, state: state) }
+            self.pass = pass ?? SidebarPass(state: state, sessions: [], now: Date(), matching: [])
         }
+        func requests(of run: UUID) -> [BroadcastRequest] { pass?.requests(of: run) ?? [] }
     }
 
     /// The project-only view of `entries`, for the callers that never draw a divider.
@@ -523,19 +527,22 @@ public enum SidebarModel {
     /// tabs, so it says `ready for the Operator` once every worker ended its turn and `Operator watching · 2 tabs`
     /// with several open. A queued task (`TaskRow.queued`) has no tabs yet: its planned agent is its avatar.
     static func taskRow(_ task: TaskItem, tabs: Tabs, operated: OperatedLookup, branchByCwd: [String: String],
-                        diffByTask: [UUID: DiffStat], now: Date = Date()) -> TaskRow {
+                        diffByTask: [UUID: DiffStat]) -> TaskRow {
         let own = tabs.byTask[task.id] ?? []
         let run = task.operated.flatMap { operated.runs[$0.runId] }
+        let matched = operated.pass?.tabs(of: task.id)
         let line = run.flatMap { run in
-            OperatorLine.task(task, run: run, acting: operated.acting[task.id], requests: operated.requests[run.id] ?? [],
-                              tasks: operated.tasks, sessions: own, turn: operated.turns[task.id], now: now)
+            OperatorLine.task(task, run: run, acting: operated.acting[task.id], requests: operated.requests(of: run.id),
+                              tasks: operated.tasks, sessions: own, turn: operated.turns[task.id], now: operated.pass?.now ?? Date(),
+                              tabs: matched)
         }
         let queued = line != nil && task.isQueuedByOperator
         let status = aggregate(tabs: own)
         // The review text stays useful during a pause. Check every task tab, including inherited tabs outside
         // the worker list; a worker still opening may have no session to aggregate yet.
         let pausedReview = run?.isPausedByYou == true && task.operated?.state == .inReview && line?.look == .quiet
-            && (status == .idle || status == .done) && !task.workerTabs(in: own).contains(where: \.isOpening)
+            && (status == .idle || status == .done)
+            && !(matched?.map(\.asListed) ?? task.workerTabs(in: own)).contains(where: \.isOpening)
         let paused = line == .paused || pausedReview
         var row = TaskRow(id: task.id, title: task.title, jiraKey: task.jira?.key, jiraUrl: task.jira?.url, mr: task.mr,
                        branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: task.branch, fallback: nil),
