@@ -34,6 +34,9 @@ final class TaskRemover: CheckoutRemovals {
     /// Each removed checkout being confirmed gone again before it is acted on: one at a time per task,
     /// so passes over a mount that has stopped answering do not pile up threads stuck on it.
     private var confirmations: [UUID: Task<Void, Never>] = [:]
+    /// Each confirmed-gone checkout whose git record is being cleared (`TaskWorkflow.forgetDeletedCheckout`). Apart from
+    /// `confirmations`, which a later pass must find empty to act on the task again.
+    private var recordCleanups: [UUID: Task<Void, Never>] = [:]
     /// Whether a task's checkout is gone for good, asked off the main actor just before the cleanup
     /// acts on it.
     private let confirmsRemoval: ConfirmsRemoval
@@ -104,6 +107,7 @@ final class TaskRemover: CheckoutRemovals {
     func waitForRemoval(of id: UUID) async {
         await confirmations[id]?.value
         await running[id]?.value
+        await recordCleanups[id]?.value
     }
 
     #if DEBUG
@@ -448,10 +452,14 @@ final class TaskRemover: CheckoutRemovals {
                 defer { confirmations[task.id] = nil }
                 let confirmed = await ThreadWork.run { confirms(task, projectPath) }
                 guard confirmed, awaitsCleanup(task) else { return }
-                let project = workspace.state.project(id: task.projectId), workflow = workflow
-                let forgetting = project.map { project in Task { await workflow.forgetDeletedCheckout(of: task, in: project) } }
+                if let project = workspace.state.project(id: task.projectId), recordCleanups[task.id] == nil {
+                    let workflow = workflow
+                    recordCleanups[task.id] = Task {
+                        defer { recordCleanups[task.id] = nil }
+                        await workflow.forgetDeletedCheckout(of: task, in: project)
+                    }
+                }
                 automaticallyForgetRemovedTask(task.id)
-                await forgetting?.value
             }
         }
     }
