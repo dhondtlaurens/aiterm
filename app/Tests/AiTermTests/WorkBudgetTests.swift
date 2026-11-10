@@ -159,6 +159,24 @@ enum Budget {
         #expect(restore.count == 6, "spawns per restore: \(restore)")
     }
 
+    // MARK: - Saving
+
+    /// A save of the frozen workspace over the one it saved before: 2 files written, the backup — the previous save's
+    /// bytes — and the workspace. A later change that writes fewer lowers it; none may raise it.
+    @Test func aSaveOverAnEarlierOneWritesItsFiles() throws {
+        let state = try OperatorCurrentContractTests.load()
+        let folder = try ScratchFolder.make("aiterm-budget-writes-")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = StateStore(url: folder.appendingPathComponent("state.json"))
+        try store.save(state)
+        let first = try Data(contentsOf: store.url)
+        let meter = WorkMeter()
+        try WorkMeter.$current.withValue(meter) { try store.save(state) }
+        #expect(meter[.stateWrite] == 2, "files written per save: \(meter.take())")
+        #expect(try Data(contentsOf: store.backupURL) == first, "the backup is the save before")
+        #expect(try Data(contentsOf: store.url) == first)
+    }
+
     // MARK: - Fixture timings, printed only
 
     /// The frozen workspace padded with 500 shelved tasks, saved 20 times: the median, printed. Never asserted, and no

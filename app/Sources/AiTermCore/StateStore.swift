@@ -51,7 +51,11 @@ public final class StateStore: Sendable {
         let data = try encoder.encode(state)
         let previous = try previousData()
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let previous { try previous.write(to: backupURL, options: .atomic) }
+        if let previous {
+            WorkMeter.note(.stateWrite)
+            try previous.write(to: backupURL, options: .atomic)
+        }
+        WorkMeter.note(.stateWrite)
         try data.write(to: url, options: .atomic)
         remember(data, FileStamps.stamp(url.path))
     }
