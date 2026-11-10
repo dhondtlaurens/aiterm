@@ -1,6 +1,7 @@
 # Obsessive review and refactor, round two
 
-Status: plan agreed on 2026-11-10; nothing implemented.
+Status: plan agreed on 2026-11-10. Phase 0 is implemented and green, uncommitted for review; its
+numbers are in the [record](../reviews/2026-11-10-refactor.md). Phases 1 to 9 are not started.
 
 ## Goal
 
@@ -54,6 +55,19 @@ internals: about 500 test sites await private "last task" handles in the Operato
 - **Measure, then decide:** the synchronous save on the main actor (44 `flush()` call sites) is
   only changed if phase 0 shows a real stall; that would be a new decision.
 
+### What phase 0 measured
+
+The baselines are in the record. Three of them change how later phases are weighed:
+
+- Status building is cheap: one build per session event, two per tick, three per mutating call,
+  about a millisecond each at 20 tasks. The one-snapshot-per-pass items in phases 4 and 5 are done
+  with the restructure and not for their own sake.
+- The largest repeated work is the turn reader asking for every unchanged worker's transcript again
+  on every event (nine reads per event in the frozen broadcast). Phase 5 lowers that first.
+- A synchronous save of a 312 KB workspace takes about 7 ms in a debug build. Whether that warrants
+  an async save is still the maintainer's decision; phase 2's cloned backup halves the writes
+  either way.
+
 ### Standing rules for every phase
 
 - Frozen fixtures are never regenerated or relaxed: `app/Tests/AiTermTests/Fixtures/operator-current/`,
@@ -105,7 +119,8 @@ give tests the shared builders and scratch folders that keep later churn small.
   - Transcript tail reads per `WorkerTurnReader.observe` with one idle worker.
   - Git spawns per `BranchWatch` tick, per archive and per restore.
   - Host requests per `ReviewWatcher` pass and per `run_status` at 1, 5 and 20 tasks.
-  - Saves across the frozen contract journey.
+  - Synchronous saves across the frozen contract journey: a flush that writes in its caller's own
+    task. Background saves are debounced by wall time, so their number is no deterministic count.
   - Daemon: registry sorts per tick with Claude and Codex tabs carrying telemetry (the current
     budget models shell tabs only, `daemon/tests/test_service.py:108-126`), and file opens,
     directory listings and process spawns per tick through an audit hook.
@@ -117,8 +132,6 @@ give tests the shared builders and scratch folders that keep later churn small.
   `Package.swift:16-18`.
 - **Scratch folders** under one per-process root removed at exit, with a sweep of dead roots at
   start (197,000 leaked entries in `$TMPDIR` today).
-- **Gate history:** keep per-suite timings and failing test names for about a week, as added
-  optional fields of the run record (its format is versioned and the app reads it, so add only).
 
 ### Phase 1. Daemon (after 0)
 
@@ -369,6 +382,11 @@ Brief: take the known minute out of every gate run, then document and prove the 
   skip it today).
 - Time-ordered tests use latches (`ReviewTicketFieldTests.swift:104-115`, the waker's fixed waits).
 - Measure the real number of concurrent test bodies against the documented bound.
+- Gate history: keep per-suite timings and failing test names for about a week, in a file of the
+  runner's own beside the queue's records, not in the records. Moved here from phase 0 on
+  2026-11-10: the daemon reads every retained record on each tick until phase 1 changes that, so
+  keeping records longer would raise the cost phase 1 lowers, and the runner scripts are copied by
+  the toolchain guard's fixtures, which makes this a slice of its own.
 - `scripts/release.sh` refuses without a green full gate for `HEAD`.
 - Close-out: `docs/architecture.md`, `docs/testing.md`, the READMEs and the design-system page
   follow the code; a review record with baselines and final budgets; a full gate; an adversarial
@@ -382,10 +400,10 @@ phase's brief.
 | Phase | Files | Action |
 | --- | --- | --- |
 | 0 | `app/Tests/AiTermTests/Operators/OperatorCurrentContractTests.swift`; new fixtures beside the frozen ones | Modify, create: byte round trip and default/all-set encodes |
-| 0 | `AiTermCore/Operators/RunStatus.swift`, `OperatorRequests.swift`, `WorkerTabs.swift`; `AiTerm/WindowReconciler.swift`, `Operators/WorkerTranscript.swift`, `WorkspaceStore.swift` | Modify: internal counters, following `SidebarProjection.derivations` |
+| 0 | `AiTermCore/WorkMeter.swift` | Create: a task-local meter a test binds, so tests running side by side count only their own work; nothing is counted in the app |
+| 0 | `AiTermCore/Operators/RunStatus.swift`, `OperatorRequests.swift`, `WorkerTabs.swift`, `AiTermCore/StateStore.swift`; `AiTerm/WindowReconciler.swift`, `Operators/WorkerTurnReader.swift` | Modify: one note to the meter each |
 | 0 | `app/Tests/AiTermTestSupport/` (builders, `ScratchFolder`, `Stubs.swift`, `OperatorUIFixtures.swift`); `app/Package.swift` | Create, modify: shared builders, per-process scratch root, the `@testable` note |
 | 0 | `app/Tests/AiTermTests/` and `AiTermCoreTests/` budget suites; `daemon/tests/test_service.py` | Create, modify: budgets with recorded baselines |
-| 0 | `scripts/test.sh`, `scripts/test-queue.py`, `docs/configuration.md` (the record format) | Modify: per-suite timings and failures as added optional fields |
 | 0, 9 | `docs/reviews/2026-11-10-refactor.md` | Create: baselines, then final numbers and limits |
 | 1 | `daemon/aitermd/service.py`, `resolver.py`, `claude_background.py`, `codex_sessions.py`, `test_activity.py`, `hooks_server.py`, `status.py`, `stop_failures.py`, `claude_subagents.py`, `sessions.py`, `delivery.py`, `keystrokes.py`, `iterm_bridge.py`, `rpc_params.py`, `hook_events.py`, `operator_mcp.py` | Modify |
 | 1 | `daemon/aitermd/iterm_port.py`, `screens.py`; `daemon/tests/builders.py` | Create |
@@ -403,7 +421,7 @@ phase's brief.
 | 6 | `app/Tests/AiTermTests/TaskFinisherTests.swift` (it also holds the `TaskFinisherControllerTests` suite), `app/Tests/AiTermTests/Operators/OperatorFinishReplyTests.swift`, `app/Tests/AiTermCoreTests/Operators/TaskPublisherTests.swift` | Modify |
 | 7 | `AiTerm/` shell: `WorktreeTeardown`, `TaskRemover`, `TaskArchiver`, `CreationModel`, `ReviewCreationModel`, `TaskCreationModel`, `RowFocus`, `Notices`, `SheetCoordinator`, `AppController`, `TaskLauncher`, `WindowReconciler`, `CheckoutMonitor`, `IntegrationSettingsModel`, `LatestTask`, `Operators/TickPass.swift`; `app/Tests/AiTermTests/ScratchController.swift` | Modify; create the search and hook types |
 | 8 | `AiTerm/Views/` (all), `AiTermUI/` (ring helper, Metrics tokens, modifiers), `AiTerm/Snapshots/`; `AiTermCore/Sidebar/SidebarModel.swift` (header values); `app/Tests/AiTermTests/SidebarRowRedrawTests.swift` | Modify; create shared views |
-| 9 | `app/Tests/AiTermTests/AppControllerTests.swift`; `app/Tests/AiTermTestSupport/` (git fixtures, blocking trait); `scripts/release.sh`, `scripts/test-routes.tsv` | Modify, split |
+| 9 | `app/Tests/AiTermTests/AppControllerTests.swift`; `app/Tests/AiTermTestSupport/` (git fixtures, blocking trait); `scripts/release.sh`, `scripts/test-routes.tsv`, `scripts/test.sh` (gate history) | Modify, split |
 | 9 | `docs/architecture.md`, `docs/testing.md`, `README.md`, `daemon/README.md`, `scripts/README.md`, `app/Sources/AiTermUI/README.md`, `docs/design/design-system.html`, `AGENTS.md` | Modify to match the code |
 
 ## Proof
@@ -435,11 +453,11 @@ phase's brief.
 
 Each box leaves the project working and is one or a few commits.
 
-- [ ] 0a. Saved-state byte round trip and default/all-set fixtures, on unmodified product code.
-- [ ] 0b. Swift work budgets with today's numbers; fixture timings recorded.
-- [ ] 0c. Daemon budgets: agent-path registry sorts and the audit-hook counts.
-- [ ] 0d. Shared test builders, per-process scratch root, the `@testable` note.
-- [ ] 0e. Gate history as added optional record fields; review record started with the baselines.
+- [x] 0a. Saved-state byte round trip and default/all-set fixtures, on unmodified product code.
+- [x] 0b. Swift work budgets with today's numbers; fixture timings recorded.
+- [x] 0c. Daemon budgets: agent-path registry sorts and the audit-hook counts.
+- [x] 0d. Shared test builders, per-process scratch root, the `@testable` note.
+- [x] 0e. Review record started with the baselines.
 - [ ] 1a. Deadlines on the unbounded reads; Codex Stop answered first (tests first).
 - [ ] 1b. Background reader offset and prefilter; one rollout cursor with a cap; subagent path memo.
 - [ ] 1c. Test activity: injectable directory, stamp cache, age before lock.
@@ -481,7 +499,7 @@ Each box leaves the project working and is one or a few commits.
 - [ ] 8d. Narrow header values with the redraw test; lazy Activity and Shelf; leaf reads.
 - [ ] 8e. Snapshot helpers; before and after image comparison.
 - [ ] 9a. `AppControllerTests` split; template and off-main git fixtures; blocking check; latches.
-- [ ] 9b. Concurrency measurement; release gate check; routing entries.
+- [ ] 9b. Concurrency measurement; gate history; release gate check; routing entries.
 - [ ] 9c. Docs, design-system page, review record, full gate, bundle check, adversarial review.
 
 ## Left out

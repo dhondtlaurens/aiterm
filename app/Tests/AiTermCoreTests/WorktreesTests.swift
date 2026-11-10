@@ -24,9 +24,7 @@ import Darwin
     }
 
     init() throws {
-        let raw = FileManager.default.temporaryDirectory.appendingPathComponent("wt-\(UUID().uuidString)").path
-        try FileManager.default.createDirectory(atPath: raw, withIntermediateDirectories: true)
-        repo = Self.realPath(raw)
+        repo = Self.realPath(try ScratchFolder.make("wt-").path)
         _ = try git.run(["init", "-q", "-b", "main"], in: repo)
         _ = try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"], in: repo)
     }

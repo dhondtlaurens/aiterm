@@ -1,0 +1,84 @@
+{
+  "run" : {
+    "challenges" : [
+
+    ],
+    "createdAt" : "2027-01-15T08:00:00Z",
+    "decisions" : [
+
+    ],
+    "finds" : [
+
+    ],
+    "id" : "00000000-0000-4000-8000-000000000001",
+    "jiraCreated" : {
+
+    },
+    "jiraProjectKeys" : [
+
+    ],
+    "leftForYou" : [
+
+    ],
+    "name" : "Sparse",
+    "pendingWrites" : [
+
+    ],
+    "planRevision" : 0,
+    "profile" : {
+      "instructions" : "",
+      "model" : "claude-opus-5-5",
+      "oracle" : {
+        "agent" : "codex",
+        "isOn" : true,
+        "model" : "gpt-6-astra",
+        "reasoning" : "medium"
+      },
+      "slices" : {
+        "jira" : false,
+        "merge" : false,
+        "review" : false
+      }
+    },
+    "projectIds" : [
+
+    ],
+    "prompt" : "Do the work.",
+    "questions" : [
+
+    ],
+    "snags" : [
+
+    ],
+    "state" : "planning",
+    "taskSettings" : {
+      "closeWhenDone" : true,
+      "deleteMergedBranch" : false,
+      "end" : "draftMR"
+    },
+    "threadReplies" : {
+
+    }
+  },
+  "task" : {
+    "agentPinned" : false,
+    "brief" : "Do the work.",
+    "dependsOn" : [
+
+    ],
+    "end" : "commit",
+    "firstRevision" : 1,
+    "flags" : [
+
+    ],
+    "key" : "sparse",
+    "ownership" : 0,
+    "retriesUsed" : 0,
+    "revision" : 1,
+    "runId" : "00000000-0000-4000-8000-000000000001",
+    "runtimeUsed" : 0,
+    "state" : "planned",
+    "takenOver" : false,
+    "totalRuntimeUsed" : 0
+  }
+}

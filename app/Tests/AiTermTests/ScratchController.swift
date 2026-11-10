@@ -74,7 +74,7 @@ extension AppController {
                      jiraSettings: @escaping @Sendable () -> JiraConfig? = { nil },
                      gitLabSettings: @escaping @Sendable () -> GitLabConfig? = { nil },
                      gitHubSettings: @escaping @Sendable () -> GitHubConfig? = { nil }) {
-        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-test-state-\(UUID().uuidString).json")
+        let scratch = ScratchFolder.path("aiterm-test-state-", suffix: ".json")
         self.init(store: store ?? StateStore(url: scratch), preferences: preferences, harnessHome: harnessHome,
                   claudeConfig: claudeConfig, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents, findPython: findPython,
                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,

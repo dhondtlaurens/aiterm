@@ -1,0 +1,413 @@
+{
+  "run" : {
+    "agents" : [
+      {
+        "agent" : "claude",
+        "model" : "claude-opus-5-5",
+        "reasoning" : "high"
+      },
+      {
+        "agent" : "codex",
+        "model" : "gpt-6-astra"
+      }
+    ],
+    "challenges" : [
+      {
+        "actedArguments" : "{\"task\":\"full\"}",
+        "approved" : true,
+        "askedArguments" : "{\"task\":\"full\"}",
+        "askedAt" : "2027-01-15T08:00:00Z",
+        "askedEvidence" : "checks: green",
+        "askedMerge" : true,
+        "askedSHA" : "1111111111111111111111111111111111111111",
+        "critique" : "Looks right.",
+        "id" : "challenge-1",
+        "kind" : "veto",
+        "reply" : "It stays as it is.",
+        "result" : "{\"merged\":true}",
+        "round" : 2,
+        "stage" : "acted",
+        "tool" : "finish_task",
+        "unchallengedReason" : "The Oracle was too slow."
+      }
+    ],
+    "closedAt" : "2027-01-15T08:03:20Z",
+    "completedAt" : "2027-01-15T08:01:30Z",
+    "createdAt" : "2027-01-15T08:00:00Z",
+    "decisions" : [
+      {
+        "at" : "2027-01-15T08:00:00Z",
+        "challenge" : "Why split?",
+        "key" : "decision-1",
+        "objection" : "One would do.",
+        "task" : "00000000-0000-4000-8000-000000000003",
+        "text" : "Split the task.",
+        "why" : "Two owners."
+      }
+    ],
+    "endedAt" : "2027-01-15T08:03:00Z",
+    "finds" : [
+      {
+        "key" : "find-1",
+        "ticket" : "PLUTO-9",
+        "title" : "Stale cache",
+        "why" : "Seen while testing."
+      }
+    ],
+    "finished" : [
+      {
+        "acceptedSHA" : "1111111111111111111111111111111111111111",
+        "agent" : "codex",
+        "at" : "2027-01-15T08:00:00Z",
+        "branch" : "feat\/done",
+        "branchDeleted" : true,
+        "diffBaseSHA" : "2222222222222222222222222222222222222222",
+        "end" : "merge",
+        "key" : "done",
+        "mergeRequestURL" : "https:\/\/example.com\/mr\/1",
+        "mergedSHA" : "2222222222222222222222222222222222222222",
+        "model" : "gpt-6-astra",
+        "project" : "00000000-0000-4000-8000-000000000010",
+        "reasoning" : "medium",
+        "result" : "merged",
+        "state" : "published",
+        "task" : "00000000-0000-4000-8000-000000000004",
+        "ticket" : "PLUTO-1",
+        "title" : "Done"
+      }
+    ],
+    "firstPlanSize" : 4,
+    "gateAllowances" : [
+      {
+        "command" : "git push",
+        "directory" : "\/repo"
+      }
+    ],
+    "goal" : {
+      "extraRounds" : 3,
+      "text" : "The release is verified."
+    },
+    "goalCheckDue" : true,
+    "goalChecks" : [
+      {
+        "at" : "2027-01-15T08:00:00Z",
+        "evidence" : "One check is missing.",
+        "met" : false,
+        "missing" : [
+          "Verify the release."
+        ],
+        "oracleAgreed" : true,
+        "round" : 1
+      }
+    ],
+    "goalOutcome" : "notMet",
+    "id" : "00000000-0000-4000-8000-000000000002",
+    "intent" : "paused",
+    "jiraCommented" : {
+      "comment-1" : "10042"
+    },
+    "jiraCreated" : {
+      "create-1" : "PLUTO-10"
+    },
+    "jiraProjectKeys" : [
+      "PLUTO"
+    ],
+    "jiraSprinted" : {
+      "sprint-1" : "backlog"
+    },
+    "leftForYou" : [
+      "Rotate the key."
+    ],
+    "leftForYouRecords" : {
+      "leave-1" : "Rotate the key."
+    },
+    "name" : "Full",
+    "operatorConversation" : "conversation-operator",
+    "operatorSessionId" : "session-operator",
+    "operatorWindowId" : "window-operator",
+    "pausedWorkers" : [
+      {
+        "ownership" : 1,
+        "tab" : "docs",
+        "task" : "00000000-0000-4000-8000-000000000003"
+      }
+    ],
+    "pendingWrites" : [
+      "jira_create\/create-2"
+    ],
+    "planRevision" : 3,
+    "profile" : {
+      "instructions" : "House rules.",
+      "model" : "claude-opus-5-5",
+      "oracle" : {
+        "agent" : "codex",
+        "isOn" : true,
+        "model" : "gpt-6-astra",
+        "reasoning" : "medium"
+      },
+      "reasoning" : "high",
+      "slices" : {
+        "jira" : true,
+        "merge" : true,
+        "review" : true
+      }
+    },
+    "projectIds" : [
+      "00000000-0000-4000-8000-000000000010"
+    ],
+    "prompt" : "Ship it.",
+    "questions" : [
+      {
+        "about" : "fixRounds",
+        "answeredHere" : "Short",
+        "answeredHereAt" : "2027-01-15T08:01:00Z",
+        "answeredInWindow" : "Use the short one",
+        "answeredOnCard" : "oneMoreRound",
+        "askedAt" : "2027-01-15T08:00:00Z",
+        "choices" : [
+          "Short",
+          "Long"
+        ],
+        "gate" : {
+          "command" : "git push",
+          "directory" : "\/repo"
+        },
+        "history" : [
+          {
+            "at" : "2027-01-15T08:00:00Z",
+            "kind" : "asked",
+            "text" : "Short or long?"
+          },
+          {
+            "at" : "2027-01-15T08:00:00Z",
+            "kind" : "oracle",
+            "round" : 1,
+            "text" : "Only the person knows."
+          }
+        ],
+        "holds" : false,
+        "id" : "ask-1",
+        "relayedFrom" : "main",
+        "resolution" : "The short one.",
+        "tab" : "docs",
+        "task" : "00000000-0000-4000-8000-000000000003",
+        "text" : "Which copy?",
+        "withdrawn" : true
+      }
+    ],
+    "relayCheck" : "agreeFirst",
+    "revisionAtLastCheck" : 2,
+    "roundsUsed" : 2,
+    "snags" : [
+      {
+        "actual" : "3 ahead",
+        "appVersion" : "0.45.0",
+        "at" : "2027-01-15T08:00:00Z",
+        "branch" : "feat\/full",
+        "evidence" : "git rev-list",
+        "key" : "snag-1",
+        "showed" : "2 ahead",
+        "task" : "00000000-0000-4000-8000-000000000003",
+        "taskKey" : "full",
+        "title" : "Wrong count",
+        "workaround" : "Read git."
+      }
+    ],
+    "state" : "complete",
+    "summary" : "All merged.",
+    "summaryAt" : "2027-01-15T08:02:00Z",
+    "summaryGivenUp" : true,
+    "taskSettings" : {
+      "closeWhenDone" : false,
+      "deleteMergedBranch" : true,
+      "end" : "merge",
+      "review" : "Review the diff."
+    },
+    "threadReplies" : {
+      "reply-1" : "thread-7"
+    }
+  },
+  "task" : {
+    "acceptance" : {
+      "at" : "2027-01-15T08:00:00Z",
+      "checkOutput" : "42 passed",
+      "note" : "Clean.",
+      "prerequisiteSHAs" : [
+        "2222222222222222222222222222222222222222"
+      ],
+      "resultSHA" : "1111111111111111111111111111111111111111"
+    },
+    "acceptanceWorktreeFingerprint" : "fingerprint-1",
+    "agentPinned" : true,
+    "agentReview" : {
+      "agent" : "codex",
+      "at" : "2027-01-15T08:00:40Z",
+      "failure" : "Timed out once.",
+      "findings" : "Nothing blocking.",
+      "head" : "1111111111111111111111111111111111111111",
+      "instructions" : "Read the diff.",
+      "startedAt" : "2027-01-15T08:00:00Z"
+    },
+    "blockedFrom" : "working",
+    "blockedReason" : "Its parent failed.",
+    "branchDrift" : {
+      "branch" : "feat\/elsewhere",
+      "found" : "It committed elsewhere.",
+      "sha" : "2222222222222222222222222222222222222222",
+      "source" : "lastMessage"
+    },
+    "brief" : "Add the block.",
+    "closingWait" : "agentTurn",
+    "dependsOn" : [
+      {
+        "kind" : "code",
+        "task" : "00000000-0000-4000-8000-000000000005"
+      },
+      {
+        "kind" : "order",
+        "task" : "00000000-0000-4000-8000-000000000006"
+      }
+    ],
+    "diffBaseSHA" : "2222222222222222222222222222222222222222",
+    "end" : "merge",
+    "extraTabs" : [
+      {
+        "agent" : "codex",
+        "agentPinned" : true,
+        "brief" : "Write the docs.",
+        "conversation" : "conversation-docs",
+        "failure" : "The daemon refused.",
+        "key" : "docs",
+        "launch" : {
+          "number" : 2,
+          "openedAt" : "2027-01-15T08:00:05Z",
+          "requestedAt" : "2027-01-15T08:00:00Z",
+          "workerPending" : true
+        },
+        "model" : "gpt-6-astra",
+        "modelReason" : "Cheap enough.",
+        "reasoning" : "medium",
+        "requestedLaunch" : {
+          "model" : "gpt-6-astra",
+          "reasoning" : "medium"
+        },
+        "sessionId" : "session-docs"
+      },
+      {
+        "agent" : "claude",
+        "agentPinned" : false,
+        "brief" : "Review the head.",
+        "key" : "review-1",
+        "launch" : {
+          "number" : 1,
+          "requestedAt" : "2027-01-15T08:00:00Z"
+        },
+        "model" : "claude-opus-5-5",
+        "modelReason" : "Careful.",
+        "role" : "review"
+      }
+    ],
+    "firstRevision" : 1,
+    "flags" : [
+      "possiblyStalled",
+      "uncertain",
+      "upstreamReplaced",
+      "waitingOnYou"
+    ],
+    "keptReason" : "Unsaved work in its worktree.",
+    "key" : "full",
+    "lastFailure" : "The build broke.",
+    "launch" : {
+      "number" : 3,
+      "openedAt" : "2027-01-15T08:00:04Z",
+      "requestedAt" : "2027-01-15T08:00:00Z",
+      "workerPending" : false
+    },
+    "modelReason" : "Hard change.",
+    "ownership" : 2,
+    "peopleReview" : {
+      "approvals" : [
+        "someone"
+      ],
+      "ended" : true,
+      "notes" : {
+        "thread-7" : "someone:abc"
+      },
+      "reviewers" : [
+        "someone"
+      ],
+      "startedAt" : "2027-01-15T08:00:00Z",
+      "threads" : {
+        "thread-7" : true
+      }
+    },
+    "problem" : "issue-12",
+    "publication" : {
+      "assignee" : "someone",
+      "assigning" : true,
+      "conditionsEvidence" : "checks: green",
+      "conditionsHeld" : "1111111111111111111111111111111111111111",
+      "landedSHA" : "1111111111111111111111111111111111111111",
+      "lastPushFailure" : "lint failed",
+      "lastPushFailureSHA" : "1111111111111111111111111111111111111111",
+      "leftForYou" : true,
+      "mergeRefusal" : "The Oracle said no.",
+      "mergeRequestNumber" : 2,
+      "mergeRequestURL" : "https:\/\/example.com\/mr\/2",
+      "merged" : true,
+      "mergedHead" : "1111111111111111111111111111111111111111",
+      "mergedSHA" : "2222222222222222222222222222222222222222",
+      "problem" : "The pipeline failed.",
+      "pushedSHA" : "1111111111111111111111111111111111111111",
+      "readySince" : "2027-01-15T08:00:30Z",
+      "repository" : "example.com\/pluto\/web",
+      "requested" : {
+        "assignee" : "someone",
+        "description" : "What and why.",
+        "title" : "Add the block"
+      },
+      "targetBranch" : "main",
+      "unanswered" : "1111111111111111111111111111111111111111",
+      "waitingReason" : "Waiting for checks.",
+      "waitingSince" : "2027-01-15T08:00:00Z"
+    },
+    "reopenedFrom" : "2222222222222222222222222222222222222222",
+    "requestedLaunch" : {
+      "model" : "claude-opus-5-5",
+      "reasoning" : "high"
+    },
+    "retriesUsed" : 1,
+    "reviewVerdicts" : [
+      {
+        "at" : "2027-01-15T08:00:00Z",
+        "critical" : 1,
+        "important" : 2,
+        "key" : "verdict-1",
+        "minor" : 3,
+        "passed" : false,
+        "round" : 1,
+        "rounds" : 2,
+        "sha" : "1111111111111111111111111111111111111111",
+        "summary" : "One blocker.",
+        "tab" : "review-1"
+      }
+    ],
+    "revision" : 3,
+    "runId" : "00000000-0000-4000-8000-000000000002",
+    "runtimeHead" : "1111111111111111111111111111111111111111",
+    "runtimeUsed" : 120,
+    "stackedOn" : "00000000-0000-4000-8000-000000000005",
+    "state" : "blocked",
+    "takenOver" : true,
+    "threadCritiques" : [
+      {
+        "at" : "2027-01-15T08:00:00Z",
+        "critique" : "Answer it.",
+        "head" : "1111111111111111111111111111111111111111",
+        "note" : "someone:abc",
+        "thread" : "thread-7"
+      }
+    ],
+    "totalRuntimeUsed" : 300
+  }
+}

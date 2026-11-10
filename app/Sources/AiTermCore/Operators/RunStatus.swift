@@ -517,6 +517,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     public static func build(state: AppState, run id: UUID, revision: Int, live: [UUID: TaskLiveFacts],
                              runLive: RunLiveFacts = RunLiveFacts(), hostThreads: [UUID: [String: Bool]] = [:],
                              now: Date = Date()) -> RunStatus? {
+        WorkMeter.note(.statusBuild)
         guard let run = state.run(id: id) else { return nil }
         let items = state.tasks(inRun: id)
         let keys = Dictionary(items.compactMap { item in item.operated.map { (item.id, $0.key) } }, uniquingKeysWith: { first, _ in first })

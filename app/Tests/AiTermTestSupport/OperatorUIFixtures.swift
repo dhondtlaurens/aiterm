@@ -16,18 +16,15 @@ enum OperatorUIFixtures {
                     questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [],
                     windowId: String? = "operator-window", projectIds: [UUID] = [], agents: [AgentChoice] = OperatorUIFixtures.agents,
                     taskSettings: TaskSettings = TaskSettings(review: nil, end: .commit, closeWhenDone: false), goal: BroadcastGoal? = nil) -> OperatorRun {
-        OperatorRun(id: id, name: name, profile: profile, projectIds: projectIds,
-                    prompt: "PLUTO-231 newsletter signup block in Storyblok",
-                    state: state, intent: nil, planRevision: planRevision,
-                    questions: questions, decisions: decisions,
-                    operatorConversation: nil, operatorWindowId: windowId, operatorSessionId: nil, createdAt: epoch,
-                    agents: agents, taskSettings: taskSettings, goal: goal)
+        .make(id: id, name: name, profile: profile, projects: projectIds,
+              prompt: "PLUTO-231 newsletter signup block in Storyblok", state: state, planRevision: planRevision,
+              questions: questions, decisions: decisions, windowId: windowId, createdAt: epoch,
+              agents: agents, taskSettings: taskSettings, goal: goal)
     }
 
     /// The design's broadcast set up with Agents, Task and Done: Opus 5.5 on High and gpt-6-astra on Medium, each task
     /// reviewed and ending at a draft MR, closed at the end, and a goal with two extra rounds.
-    static let agents = [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high"),
-                         AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")]
+    static let agents = Build.agents
     static let taskSettings = TaskSettings(review: "An adversarial review with /code-review. It passes with no Critical or "
                                            + "Important findings. After 3 rounds of fixes, ask me.", end: .draftMR)
     static let goal = BroadcastGoal(text: "The newsletter signup works end to end on staging.", extraRounds: 2)
@@ -54,27 +51,25 @@ enum OperatorUIFixtures {
                          dependsOn: [TaskDependency] = [], stackedOn: UUID? = nil, revision: Int = 1,
                          sha: String? = nil, takenOver: Bool = false, blockedReason: String? = nil,
                          flags: Set<OperatedFlag> = []) -> OperatedTask {
-        OperatedTask(runId: run, key: key, state: state, end: end, brief: "Do \(key).", dependsOn: dependsOn,
-                     stackedOn: stackedOn, revision: revision,
-                     acceptance: sha.map { TaskAcceptance(resultSHA: $0, prerequisiteSHAs: [], checkOutput: "tests green",
-                                                          note: nil, at: epoch) },
-                     publication: nil, takenOver: takenOver, ownership: 0, launch: nil, retriesUsed: 0, runtimeUsed: 0,
-                     blockedReason: blockedReason, flags: flags)
+        var operated = OperatedTask.make(run: run, key: key, state: state, end: end, dependsOn: dependsOn, revision: revision,
+                                         acceptance: sha.map { TaskAcceptance(resultSHA: $0, prerequisiteSHAs: [], checkOutput: "tests green",
+                                                                              note: nil, at: epoch) },
+                                         takenOver: takenOver, blockedReason: blockedReason, flags: flags)
+        // As given, not taken from a `code` dependency: the design's cards stack tasks the plan does not list.
+        operated.stackedOn = stackedOn
+        return operated
     }
 
     static func task(_ title: String, id: UUID = UUID(), jira: String? = nil, agent: AgentKind = .claude,
                      project: UUID, windowId: String? = nil, operated: OperatedTask?) -> TaskItem {
-        var task = TaskItem(id: id, projectId: project, title: title, branch: "feat/\(id.uuidString.prefix(8))",
-                            worktreePath: "/r/.worktrees/\(id.uuidString.prefix(8))", baseBranch: "main",
-                            jira: jira.map { JiraRef(key: $0, summary: title, url: "https://jira.example/browse/\($0)") },
-                            agent: agent, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                            createdAt: epoch, windowId: windowId)
-        task.operated = operated
-        return task
+        .make(id: id, project: project, title: title, branch: "feat/\(id.uuidString.prefix(8))",
+              worktreePath: "/r/.worktrees/\(id.uuidString.prefix(8))",
+              jira: jira.map { JiraRef(key: $0, summary: title, url: "https://jira.example/browse/\($0)") },
+              agent: agent, createdAt: epoch, windowId: windowId, operated: operated)
     }
 
     static func project(_ name: String) -> Project {
-        Project(id: UUID(), name: name, path: "/r/\(name)", provider: .gitlab, remoteUrl: nil, addedAt: epoch, collapsed: false)
+        .make(name: name, path: "/r/\(name)", provider: .gitlab, addedAt: epoch)
     }
 
     static func question(_ text: String, id: String = UUID().uuidString, task: UUID? = nil, tab: String? = nil) -> OperatorQuestion {
@@ -90,7 +85,6 @@ enum OperatorUIFixtures {
     /// One of `task`'s tabs as iTerm2 lists it: its first worker with no `key`, an extra tab with one.
     static func tab(_ id: String, of task: TaskItem, _ state: SessionState, index: Int = 0, key: String? = nil,
                     agent: SessionAgent = .claude, active: Bool = false) -> SessionInfo {
-        SessionInfo(sessionId: id, windowId: "w-\(task.id)", tabIndex: index, taskId: task.id.uuidString, projectId: nil,
-                    agent: agent, model: nil, state: state, title: "", cwd: "/", active: active, tabKey: key)
+        .make(id, window: "w-\(task.id)", tabIndex: index, task: task.id, agent: agent, state: state, tabKey: key, active: active)
     }
 }

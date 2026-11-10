@@ -124,6 +124,7 @@ public extension TaskItem {
     /// named no conversation yet, while its launch is under way (`isLaunching`), is opening: Codex reads idle until its
     /// first hook, half a minute in, and that is no ended turn. Without `now` it is taken as its tab says.
     func workerTabs(in sessions: [SessionInfo], now: Date? = nil) -> [WorkerTab] {
+        WorkMeter.note(.workerTabs)
         let worker = firstWorker(in: sessions), conversation = worker?.conversationId ?? firstWorkerConversation?.id
         let first = WorkerTab(key: nil, agent: worker?.agent.agentKind ?? agent, model: model, session: worker,
                               isOpening: conversation == nil && isLaunching(worker, now: now), conversation: conversation)

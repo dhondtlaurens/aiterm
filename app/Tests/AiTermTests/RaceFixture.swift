@@ -15,7 +15,8 @@ struct RaceFixture {
     let controller: AppController
 
     /// `scan` replaces the checkout monitor's reading of the disk, for a test that needs a pass that
-    /// has not seen a change yet. The root is resolved with `realpath(3)`: git reports the physical
+    /// has not seen a change yet. `controllerGit` is the git the controller runs, for a test that counts what it
+    /// spawns; the fixture's own setup always runs `git`. The root is resolved with `realpath(3)`: git reports the physical
     /// path of a repository under `/var/folders`, and adding the unresolved one adds it as "the
     /// repository around" that path.
     init(prompter: ScriptedPrompter? = nil, activateIterm: @escaping @MainActor () -> Void = {},
@@ -24,7 +25,7 @@ struct RaceFixture {
          now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }, scan: CheckoutMonitor.Scanner? = nil,
          checkoutPollInterval: Duration = .seconds(2),
          confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval = TaskRemover.diskConfirmsRemoval,
-         provider: Provider = .git, remoteUrl: String? = nil) throws {
+         provider: Provider = .git, remoteUrl: String? = nil, controllerGit: (any GitRunning)? = nil) throws {
         let raw = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
         try FileManager.default.createDirectory(atPath: raw, withIntermediateDirectories: true)
         root = URL(fileURLWithPath: realpath(raw, nil).map { defer { free($0) }; return String(cString: $0) } ?? raw)
@@ -39,7 +40,7 @@ struct RaceFixture {
         controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(), prompter: prompter,
                                    activateIterm: activateIterm, launchIterm: launchIterm, itermRunning: itermRunning,
                                    bringForward: bringForward, checkoutPollInterval: checkoutPollInterval, now: now,
-                                   scan: scan ?? {
+                                   git: controllerGit ?? GitRunner.hermetic(), scan: scan ?? {
                                        WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5,
                                                          defaultBranches: $6)
                                    }, confirmsRemoval: confirmsRemoval)

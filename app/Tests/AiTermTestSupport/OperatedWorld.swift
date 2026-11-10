@@ -10,8 +10,7 @@ struct OperatedWorld {
     let createdAt = Date(timeIntervalSince1970: 1_800_000_000)
 
     init(projectPath: String = "/tmp/operated-world", remoteUrl: String = "git@git.example.net:web/acme-web.git") {
-        project = Project(id: UUID(), name: "acme-web", path: projectPath, provider: .gitlab,
-                          remoteUrl: remoteUrl, addedAt: createdAt, collapsed: false)
+        project = .make(name: "acme-web", path: projectPath, provider: .gitlab, remoteUrl: remoteUrl, addedAt: createdAt)
         state.append(project: project)
     }
 
@@ -27,10 +26,8 @@ struct OperatedWorld {
                          agents: [AgentChoice] = OperatorUIFixtures.agents, taskSettings: TaskSettings = TaskSettings(review: nil, end: .commit, closeWhenDone: false), goal: BroadcastGoal? = nil) -> UUID {
         var profile = Self.profile
         profile.slices = slices
-        let run = OperatorRun(id: UUID(), name: "Sprint 42", profile: profile, projectIds: [project.id],
-                              prompt: "Implement the sprint.", state: runState,
-                              planRevision: 1, createdAt: createdAt.addingTimeInterval(age), agents: agents,
-                              taskSettings: taskSettings, goal: goal)
+        let run = OperatorRun.make(profile: profile, projects: [project.id], state: runState,
+                                   createdAt: createdAt.addingTimeInterval(age), agents: agents, taskSettings: taskSettings, goal: goal)
         state.runs.append(run)
         return run.id
     }
@@ -42,19 +39,15 @@ struct OperatedWorld {
                           dependsOn: [TaskDependency] = [], branch: String? = nil, acceptedSHA: String? = nil) -> UUID {
         let id = UUID()
         let branchName = branch ?? "feat/" + BranchNaming.slug(key)
-        var task = TaskItem(id: id, projectId: project.id, title: key, branch: branchName,
-                            worktreePath: project.path + "/.worktrees/" + BranchNaming.worktreeSlug(branch: branchName),
-                            baseBranch: "main", jira: nil, agent: .claude, model: "claude-opus-5-5", reasoning: nil,
-                            firstPrompt: "Do \(key).", appendTicket: false, createdAt: createdAt, windowId: nil)
         let acceptance = acceptedSHA.map {
             TaskAcceptance(resultSHA: $0, prerequisiteSHAs: [], checkOutput: "12 passed", note: nil, at: createdAt)
         }
-        let launched = ![.planned, .queued].contains(taskState)
-        task.operated = OperatedTask(runId: run, key: key, state: taskState, end: end, brief: "Do \(key).",
-                                     dependsOn: dependsOn, stackedOn: dependsOn.first { $0.kind == .code }?.task,
-                                     revision: 1, acceptance: acceptance,
-                                     launch: launched ? LaunchAttempt(number: 1, requestedAt: createdAt) : nil)
-        state.tasks.append(task)
+        let operated = OperatedTask.make(run: run, key: key, state: taskState, end: end, dependsOn: dependsOn,
+                                         acceptance: acceptance, launched: ![.planned, .queued].contains(taskState),
+                                         launchedAt: createdAt)
+        state.tasks.append(.make(id: id, project: project.id, title: key, branch: branchName,
+                                 worktreePath: project.path + "/.worktrees/" + BranchNaming.worktreeSlug(branch: branchName),
+                                 model: "claude-opus-5-5", firstPrompt: "Do \(key).", createdAt: createdAt, operated: operated))
         return id
     }
 

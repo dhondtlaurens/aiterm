@@ -13,9 +13,10 @@ let package = Package(
         .executableTarget(name: "AiTerm", dependencies: ["AiTermCore", "AiTermUI"], path: "Sources/AiTerm",
                           exclude: ["Resources"]),
         // Fakes and fixtures the Core and app tests share: test targets cannot share a source file, so
-        // they live in a library the tests import. It uses only what Core makes public — no
-        // `@testable` — so a plain release build still compiles, and it stays below the app: what
-        // needs `AiTerm` (ScriptedPrompter, the controller's test init) lives in `AiTermTests`.
+        // they live in a library the tests import. Its model builders (`Builders.swift`) reach Core's
+        // internal initialisers through `@testable`, so it builds only where the tests do: the app is
+        // built as `--product AiTerm` (build-app.sh), which never compiles it. It stays below the app:
+        // what needs `AiTerm` (ScriptedPrompter, the controller's test init) lives in `AiTermTests`.
         .target(name: "AiTermTestSupport", dependencies: ["AiTermCore", "AiTermTestWindowHook"], path: "Tests/AiTermTestSupport"),
         // Hides every window the test process orders in, so a run does not draw over the person's
         // apps. Only AiTermTestSupport depends on it: it is never linked into the app.
