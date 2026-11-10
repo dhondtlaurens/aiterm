@@ -98,13 +98,14 @@ extension Repository {
 
     /// A review's branch made ready to check out: fetched, then fast-forwarded when behind origin,
     /// kept when ahead, refused when diverged, checked out elsewhere, or on neither side. Whether the
-    /// checkout must create it from origin's, and whether origin has it.
-    private func prepareReviewBranch(_ branch: String) throws -> (fromOrigin: Bool, onOrigin: Bool) {
+    /// checkout must create it from origin's, and whether origin has it. `listed` is a listing of the
+    /// worktrees the caller already has; a fetch changes none.
+    private func prepareReviewBranch(_ branch: String, listed: [Worktree]? = nil) throws -> (fromOrigin: Bool, onOrigin: Bool) {
         let hasOrigin = try hasOrigin
         if hasOrigin { Log.git.attempt("Fetching \(branch) before adding a review", level: .default) { try fetchFromOrigin(branch) } }
         let local = sha("refs/heads/" + branch)
         let remote = hasOrigin ? sha("refs/remotes/origin/" + branch) : nil
-        if let holder = try worktrees().first(where: { $0.branch == branch }) {
+        if let holder = try (listed ?? worktrees()).first(where: { $0.branch == branch }) {
             throw try refusal(of: branch, checkedOutAt: holder.path)
         }
         switch (local, remote) {
@@ -169,7 +170,7 @@ extension Repository {
     /// checkout.
     public func hasUnsavedWork(at worktreePath: String) throws -> Bool {
         guard FileManager.default.fileExists(atPath: worktreePath), try worktree(at: worktreePath) != nil else { return false }
-        return try !git.run(["status", "--porcelain", "--ignore-submodules=none"], in: worktreePath).isEmpty
+        return try !isClean(at: worktreePath, untracked: true)
     }
 
     /// The worktree at `worktreePath` removed, and then `deleteBranch` with it when one is named —
@@ -263,12 +264,18 @@ extension Repository {
     /// git gave up on — and is adopted; anything else there is refused and left as it is. The branch
     /// comes from origin's when the local one has gone; a review's is brought up to origin's first, as
     /// creating a review does.
+    ///
+    /// The worktrees are listed once. Only clearing a missing checkout's record lists them again:
+    /// `prune` may take other records with it.
     public func restoreWorktree(at worktreePath: String, branch: String, kind: TaskKind) throws {
         let lockReason = kind == .review ? Worktree.reviewLockReason : Worktree.taskLockReason
-        if !FileManager.default.fileExists(atPath: worktreePath), try worktree(at: worktreePath) != nil {
+        let wanted = Worktree.resolved(worktreePath)
+        var listed = try worktrees()
+        if !FileManager.default.fileExists(atPath: worktreePath), listed.contains(where: { Worktree.resolved($0.path) == wanted }) {
             try forgetWorktreeRecord(at: worktreePath)
+            listed = try worktrees()
         }
-        if let existing = try worktree(at: worktreePath) {
+        if let existing = listed.first(where: { Worktree.resolved($0.path) == wanted }) {
             guard existing.branch == branch else { throw WorktreeError.pathTaken(worktreePath) }
             _ = try? git.run(["worktree", "unlock", worktreePath], in: path, timeout: GitRunner.checkoutTimeout)
             try git.run(["worktree", "lock", "--reason", lockReason, worktreePath], in: path, timeout: GitRunner.checkoutTimeout)
@@ -277,10 +284,10 @@ extension Repository {
         guard !FileManager.default.fileExists(atPath: worktreePath) else { throw WorktreeError.pathTaken(worktreePath) }
         let fromOrigin: Bool, onOrigin: Bool
         if kind == .review {
-            do { (fromOrigin, onOrigin) = try prepareReviewBranch(branch) }
+            do { (fromOrigin, onOrigin) = try prepareReviewBranch(branch, listed: listed) }
             catch WorktreeError.branchNotOnOrigin { throw WorktreeError.branchGone(branch) }
         } else {
-            if let holder = try worktrees().first(where: { $0.branch == branch }) {
+            if let holder = listed.first(where: { $0.branch == branch }) {
                 throw WorktreeError.branchInUse(branch, at: holder.path)
             }
             fromOrigin = sha("refs/heads/" + branch) == nil

@@ -131,8 +131,9 @@ enum Budget {
     /// controller's own git, the checkout monitor's scan reading nothing.
     ///
     /// Shelve: 9 spawns, `worktree list` five times (three before and two after the `status --porcelain` that looks for
-    /// unsaved work), then `worktree unlock`, `worktree remove` and `worktree prune`. Restore: 6 spawns, of which 3 `worktree list`, then 2 `rev-parse` and `worktree add`. A later
-    /// change that lists the worktrees once per step lowers these numbers; none may raise them.
+    /// unsaved work), then `worktree unlock`, `worktree remove` and `worktree prune`. Restore: 4 spawns, one `worktree
+    /// list`, then 2 `rev-parse` and `worktree add` (6 before phase 2 listed the worktrees once per restore, 3 `worktree
+    /// list`). A later change that lists the worktrees once per Shelve lowers that number; none may raise them.
     @Test func shelvingAndRestoringATaskSpawnsGit() async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let fixture = try RaceFixture(scan: Budget.noScan, controllerGit: git)
@@ -156,7 +157,8 @@ enum Budget {
         #expect(controller.state.tasks.map(\.id) == [task.id], "restored")
 
         #expect(shelve.count == 9, "spawns per Shelve: \(shelve)")
-        #expect(restore.count == 6, "spawns per restore: \(restore)")
+        #expect(restore.count == 4, "spawns per restore: \(restore)")
+        #expect(restore.filter { $0 == "worktree list" }.count == 1, "\(restore)")
     }
 
     // MARK: - Saving

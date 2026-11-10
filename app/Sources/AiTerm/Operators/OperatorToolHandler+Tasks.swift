@@ -123,7 +123,7 @@ extension OperatorToolHandler {
             do {
                 base = try await diffBase(of: task, in: run)
                 read = try await BackgroundWork.run {
-                    (try git.run(["rev-parse", "HEAD"], in: path),
+                    (try Repository(path, git: git).head(),
                      try git.run(["log", "--oneline", "\(base)..HEAD"], in: path), try git.run(["diff", "--stat", "\(base)...HEAD"], in: path),
                      try Self.boundedDiff(["diff", "\(base)...HEAD"], in: path, git: git), try git.run(["status", "--porcelain"], in: path))
                 }
