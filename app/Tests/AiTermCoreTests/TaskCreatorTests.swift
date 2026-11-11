@@ -238,6 +238,20 @@ import Foundation
         #expect(paths == ["login", "login-2", "login-3"].map { repo + "/.worktrees/" + $0 })
     }
 
+    /// A checkout deleted outside AiTerm leaves git's record of it, locked as a task's: git refuses a
+    /// new worktree at that path until the record is cleared, so the folder counts as taken.
+    @Test func aFolderGitStillListsIsTakenAfterItWasDeletedOutsideAiTerm() throws {
+        var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
+        d.setTitle("Login"); d.setBranch("feat/login")
+        let first = try TaskCreator.create(draft: d, project: project, git: git).task
+        try FileManager.default.removeItem(atPath: first.worktreePath)
+        d.setBranch("fix/login")
+        let second = try TaskCreator.create(draft: d, project: project, git: git).task
+        #expect(second.worktreePath == repo + "/.worktrees/login-2")
+        #expect(try Repository(repo, git: git).registeredWorktreeFolders() == ["login", "login-2"])
+        #expect(BranchNaming.unused("login", in: repo, registered: try Repository(repo, git: git).registeredWorktreeFolders()) == "login-3")
+    }
+
     /// The rule create and the sheet's preview share.
     @Test func anUnusedSlugSkipsEveryDirectoryAlreadyThere() throws {
         #expect(BranchNaming.unused("login", in: repo) == "login")

@@ -21,6 +21,8 @@ public final class WorkMeter: Sendable {
         case turnRead
         /// `StateStore.save`: the workspace encoded and written by the caller itself, as a flush does.
         case stateSave
+        /// One file a `StateStore` writes the bytes of: the workspace, or its backup.
+        case stateWrite
     }
 
     @TaskLocal public static var current: WorkMeter?

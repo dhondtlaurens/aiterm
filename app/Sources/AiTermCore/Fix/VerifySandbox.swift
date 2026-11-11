@@ -15,20 +15,12 @@ enum VerifySandbox {
     static let executable = "/usr/bin/sandbox-exec"
     static var isAvailable: Bool { FileManager.default.isExecutableFile(atPath: executable) }
 
-    /// The path as the kernel sees it, which is what a sandbox profile matches: `/private/var/…`,
-    /// where Foundation's `resolvingSymlinksInPath` deliberately says `/var/…` and so would leave
-    /// the profile naming a path nothing ever has. A path that does not exist is returned as given.
-    static func realPath(_ path: String) -> String {
-        guard let resolved = realpath(path, nil) else { return path }
-        defer { free(resolved) }
-        return String(cString: resolved)
-    }
-
     static func profile(writableRoot: String) -> String {
         func quoted(_ path: String) -> String {
             "\"" + path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
         }
-        let temporary = realPath(NSTemporaryDirectory())
+        // As the kernel names it, which is what a sandbox profile matches (`CanonicalPath`).
+        let temporary = CanonicalPath.of(NSTemporaryDirectory())
         return """
         (version 1)(allow default)(deny network*)(deny file-write*)
         (deny mach-lookup (global-name "com.apple.coreservices.launchservicesd") (global-name "com.apple.lsd.mapdb")
@@ -45,7 +37,7 @@ enum VerifySandbox {
         guard isAvailable else { return }
         let output: ProcessOutput
         do {
-            output = try await AgentProcess.run(executable, ["-p", profile(writableRoot: realPath(clone)), "/bin/zsh", "-lc", command],
+            output = try await AgentProcess.run(executable, ["-p", profile(writableRoot: CanonicalPath.of(clone)), "/bin/zsh", "-lc", command],
                                                 environment: [:], in: clone, timeout: timeout)
         } catch {
             throw .verifyFailed(command, status: -1)

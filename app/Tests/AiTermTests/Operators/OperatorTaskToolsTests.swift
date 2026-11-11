@@ -58,6 +58,34 @@ import Testing
         #expect(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value?["uncommitted"] == "")
     }
 
+    /// A patch past the reading's bound is cut, and a cut patch never reads as complete: one lockfile of more than
+    /// `diffReadLimit` bytes, summarised in a line whose counts stop where the read did, says it is truncated, and so
+    /// does the reply.
+    @Test func aPatchPastTheReadingsBoundSaysItIsCut() async throws {
+        let (world, run, task) = try makeWorld()
+        let line = String(repeating: "x", count: 99) + "\n"
+        let lines = OperatorToolHandler.diffReadLimit / line.utf8.count + 1_000
+        try String(repeating: line, count: lines).write(toFile: task.worktreePath + "/yarn.lock", atomically: true, encoding: .utf8)
+        try git.run(["add", "yarn.lock"], in: task.worktreePath)
+        try git.run(["commit", "-q", "-m", "Add yarn.lock"], in: task.worktreePath)
+        let diff = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value)
+        let lockfile = try #require(diff["files"]?.arrayValue?.first { $0["path"] == "yarn.lock" })
+        #expect(lockfile["truncated"] == true, "\(lockfile)")
+        #expect(diff["truncated"] == true)
+    }
+
+    /// Below the bound a bounded read is what `run` gave, to the byte: the reply is built from the same text.
+    @Test func aPatchBelowTheBoundReadsAsRunReadIt() throws {
+        let (_, _, task) = try makeWorld()
+        try "\n  indented first line\nlast line  \n\n".write(toFile: task.worktreePath + "/spaced.txt", atomically: true, encoding: .utf8)
+        try git.run(["add", "spaced.txt"], in: task.worktreePath)
+        try git.run(["commit", "-q", "-m", "Add spaced.txt"], in: task.worktreePath)
+        for args in [["show", "--format=", "HEAD"], ["diff", "HEAD~1...HEAD"]] {
+            let read = try OperatorToolHandler.boundedDiff(args, in: task.worktreePath, git: git)
+            #expect(read.text == (try git.run(args, in: task.worktreePath)) && !read.truncated, "\(args)")
+        }
+    }
+
     @Test func aBranchGitCannotReadIsRefusedInAiTermsWords() async throws {
         let (world, run, task) = try makeWorld()
         world.workspace.mutate { state in if let i = state.tasks.firstIndex(where: { $0.id == task.id }) { state.tasks[i].baseBranch = "no-such-base" } }

@@ -35,7 +35,7 @@ public final class StallGuardedGit: GitRunning {
     private let backoff: TimeInterval
     private let state = Mutex(State())
 
-    public convenience init(_ inner: any GitRunning) { self.init(inner, now: Date.init) }
+    public convenience init(_ inner: any GitRunning) { self.init(inner, now: MonotonicDate.now) }
 
     init(_ inner: any GitRunning, now: @escaping @Sendable () -> Date, backoff: TimeInterval = TimedOut.backoff) {
         self.inner = inner; self.now = now; self.backoff = backoff
@@ -63,6 +63,16 @@ public final class StallGuardedGit: GitRunning {
     }
 
     public func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        try guarded(args, in: dir) { try inner.run(args, in: dir, timeout: timeout, environment: environment) }
+    }
+
+    public func output(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String],
+                       limit: Int) throws -> GitOutput {
+        try guarded(args, in: dir) { try inner.output(args, in: dir, timeout: timeout, environment: environment, limit: limit) }
+    }
+
+    /// `body`, git run in `dir`, unless `dir`'s project is stalled; a timeout in it stalls the project.
+    private func guarded<Value>(_ args: [String], in dir: String, _ body: () throws -> Value) throws -> Value {
         let project = state.withLock { state -> String in
             state.owners.first { dir == $0.folder || dir.hasPrefix($0.folder + "/") }?.project ?? Self.folder(dir)
         }
@@ -71,7 +81,7 @@ public final class StallGuardedGit: GitRunning {
             let ago = Int(now().timeIntervalSince(stall.at))
             throw GitError(args: args, code: 15, stderr: "git was not run: \(stall.error.stderr) in \(project) \(ago) s ago", timedOut: true)
         }
-        do { return try inner.run(args, in: dir, timeout: timeout, environment: environment) }
+        do { return try body() }
         catch {
             guard let stall = TimedOut(error, at: now()) else { throw error }
             state.withLock { state in

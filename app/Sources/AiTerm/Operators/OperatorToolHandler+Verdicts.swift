@@ -20,7 +20,7 @@ extension OperatorToolHandler {
         guard summary.rangeOfCharacter(from: .newlines) == nil else { throw ToolRefusal("summary must be one line.") }
         let ref = try call.string("sha")
         // A ref such as HEAD or main would record whatever it names now, not the commit the tab reviewed.
-        guard (4...64).contains(ref.count), ref.allSatisfy(\.isHexDigit) else {
+        guard CommitId.isAbbreviation(ref) else {
             throw ToolRefusal(Self.notASHA)
         }
         guard task.hasCheckout else { throw ToolRefusal("\(operated.key) has no worktree in which to check its branch.") }

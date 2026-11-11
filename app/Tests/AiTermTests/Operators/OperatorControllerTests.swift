@@ -28,7 +28,7 @@ import Testing
         #expect(run.planRevision == 0)
         let folder = OperatorCommand.runFolder(id, home: world.ports.home)
         let trust = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: world.ports.claudeConfig.globalJSON(home: world.ports.home)))
-        #expect(trust["projects"]?[VerifySandbox.realPath(folder.path)]?["hasTrustDialogAccepted"] == true)
+        #expect(trust["projects"]?[CanonicalPath.of(folder.path)]?["hasTrustDialogAccepted"] == true)
         #expect(!FileManager.default.fileExists(atPath: ClaudeConfig().globalJSON(home: world.ports.home).path))
         let register = try #require(world.daemon.requests("operator.register").first)
         #expect(register.params["runId"] as? String == id.uuidString)

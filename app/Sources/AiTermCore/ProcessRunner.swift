@@ -3,18 +3,22 @@ import Foundation
 import Darwin
 #endif
 
-/// What a finished child process said. `timedOut` means it was stopped at its deadline.
+/// What a finished child process said. `timedOut` means it was stopped at its deadline;
+/// `stdoutTruncated`, that it printed more than the run's `limit` and only the first `limit` bytes are
+/// in `stdout`.
 public struct ProcessOutput: Equatable, Sendable {
     public var status: Int32
     public var stdout: String
     public var stderr: String
     public var timedOut: Bool
+    public var stdoutTruncated: Bool
 
-    public init(status: Int32, stdout: String, stderr: String, timedOut: Bool) {
+    public init(status: Int32, stdout: String, stderr: String, timedOut: Bool, stdoutTruncated: Bool = false) {
         self.status = status
         self.stdout = stdout
         self.stderr = stderr
         self.timedOut = timedOut
+        self.stdoutTruncated = stdoutTruncated
     }
 }
 
@@ -30,7 +34,9 @@ public struct ProcessOutput: Equatable, Sendable {
 /// drain and every caller waits forever. A real thread is always available.
 ///
 /// With a `timeout`, a child still running at the deadline is sent SIGTERM and, if it ignores
-/// that, SIGKILL — which the kernel always delivers.
+/// that, SIGKILL — which the kernel always delivers. With a `limit`, only the first `limit` bytes of
+/// standard output are kept, and the output says whether more was dropped; the pipe is still read to
+/// its end, so the child never blocks on it.
 ///
 /// The child's exit, not its pipes' EOF, ends the run: a grandchild can hold them open long after
 /// the child is gone — an rc file's `eval "$(tool init)"`, `ssh` under git, a `curl | sh` — and a
@@ -61,7 +67,7 @@ public enum ProcessRunner {
     }
 
     public static func run(_ executable: URL, _ arguments: [String], environment: [String: String]? = nil,
-                           in directory: URL? = nil, timeout: TimeInterval? = nil) throws -> ProcessOutput {
+                           in directory: URL? = nil, timeout: TimeInterval? = nil, limit: Int? = nil) throws -> ProcessOutput {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -76,7 +82,7 @@ public enum ProcessRunner {
         try process.run()
 
         let drained = DispatchGroup()
-        let stdout = drain(out, group: drained), stderr = drain(err, group: drained)
+        let stdout = drain(out, limit: limit ?? Int.max, group: drained), stderr = drain(err, limit: Int.max, group: drained)
         var timedOut = false
         if let timeout {
             if exited.wait(timeout: .now() + max(0, timeout)) == .timedOut {
@@ -92,12 +98,13 @@ public enum ProcessRunner {
         }
         _ = drained.wait(timeout: .now() + drainGrace)
         process.waitUntilExit()
-        return ProcessOutput(status: process.terminationStatus, stdout: stdout.text(), stderr: stderr.text(), timedOut: timedOut)
+        return ProcessOutput(status: process.terminationStatus, stdout: stdout.text(), stderr: stderr.text(), timedOut: timedOut,
+                             stdoutTruncated: stdout.truncated)
     }
 
-    private static func drain(_ pipe: Pipe, group: DispatchGroup) -> PipeDrain {
+    private static func drain(_ pipe: Pipe, limit: Int, group: DispatchGroup) -> PipeDrain {
         group.enter()
-        return PipeDrain(fd: pipe.fileHandleForReading.fileDescriptor, limit: Int.max) {
+        return PipeDrain(fd: pipe.fileHandleForReading.fileDescriptor, limit: limit) {
             try? pipe.fileHandleForReading.close()
             group.leave()
         }

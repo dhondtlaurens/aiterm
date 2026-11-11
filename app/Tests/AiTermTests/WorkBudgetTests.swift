@@ -120,8 +120,9 @@ enum Budget {
     /// controller's own git, the checkout monitor's scan reading nothing.
     ///
     /// Shelve: 9 spawns, `worktree list` five times (three before and two after the `status --porcelain` that looks for
-    /// unsaved work), then `worktree unlock`, `worktree remove` and `worktree prune`. Restore: 6 spawns, of which 3 `worktree list`, then 2 `rev-parse` and `worktree add`. A later
-    /// change that lists the worktrees once per step lowers these numbers; none may raise them.
+    /// unsaved work), then `worktree unlock`, `worktree remove` and `worktree prune`. Restore: 4 spawns, one `worktree
+    /// list`, then 2 `rev-parse` and `worktree add` (6 before phase 2 listed the worktrees once per restore, 3 `worktree
+    /// list`). A later change that lists the worktrees once per Shelve lowers that number; none may raise them.
     @Test func shelvingAndRestoringATaskSpawnsGit() async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let fixture = try RaceFixture(scan: Budget.noScan, controllerGit: git)
@@ -145,7 +146,26 @@ enum Budget {
         #expect(controller.state.tasks.map(\.id) == [task.id], "restored")
 
         #expect(shelve.count == 9, "spawns per Shelve: \(shelve)")
-        #expect(restore.count == 6, "spawns per restore: \(restore)")
+        #expect(restore.count == 4, "spawns per restore: \(restore)")
+        #expect(restore.filter { $0 == "worktree list" }.count == 1, "\(restore)")
+    }
+
+    // MARK: - Saving
+
+    /// A save of the frozen workspace over the one it saved before: 1 file written, the workspace; the backup is a clone
+    /// of the file it replaces (2 before phase 2, when the backup was written as bytes too). None may raise it.
+    @Test func aSaveOverAnEarlierOneWritesItsFiles() throws {
+        let state = try OperatorCurrentContractTests.load()
+        let folder = try ScratchFolder.make("aiterm-budget-writes-")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = StateStore(url: folder.appendingPathComponent("state.json"))
+        try store.save(state)
+        let first = try Data(contentsOf: store.url)
+        let meter = WorkMeter()
+        try WorkMeter.$current.withValue(meter) { try store.save(state) }
+        #expect(meter[.stateWrite] == 1, "files written per save: \(meter.take())")
+        #expect(try Data(contentsOf: store.backupURL) == first, "the backup is the save before")
+        #expect(try Data(contentsOf: store.url) == first)
     }
 
     // MARK: - Fixture timings, printed only

@@ -30,21 +30,7 @@ public struct DiffStat: Equatable, Sendable {
 public final class DiffStatResolver: Sendable {
     private struct Entry { var value: DiffStat?; var at: Date }
     /// What an untracked file counted as, and the `lstat` of the file it was counted from.
-    private struct Counted { var stamp: Stamp; var lines: Int? }
-    /// What a rewrite of a file changes: the modification time to the nanosecond, the size, the
-    /// inode, which a file replaced rather than edited has a new one of, and the change time, which
-    /// a rewrite that puts the old modification time back (`touch -r`, an unpacked archive) still
-    /// moves and no one can set.
-    private struct Stamp: Equatable {
-        /// Both times in nanoseconds since the epoch.
-        var modified: Int, changed: Int, size: Int, inode: UInt64
-
-        init(_ info: stat) {
-            modified = info.st_mtimespec.tv_sec * 1_000_000_000 + info.st_mtimespec.tv_nsec
-            changed = info.st_ctimespec.tv_sec * 1_000_000_000 + info.st_ctimespec.tv_nsec
-            size = Int(info.st_size); inode = UInt64(info.st_ino)
-        }
-    }
+    private struct Counted { var stamp: FileStamps.Stamp; var lines: Int? }
     /// A merge-base, `nil` when the base could not be found, and the refs it was computed from, as
     /// they stood just before.
     private struct MergeBase { var refs: FileStamps; var commit: String? }
@@ -80,11 +66,11 @@ public final class DiffStatResolver: Sendable {
     /// stray dump or build artifact that escaped `.gitignore`.
     static let untrackedByteLimit = 1 << 20
 
-    public convenience init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, ttl: TimeInterval = 5) {
+    public convenience init(git: any GitRunning, now: @escaping @Sendable () -> Date = MonotonicDate.now, ttl: TimeInterval = 5) {
         self.init(git: git, now: now, ttl: ttl, untrackedCap: .standard)
     }
 
-    init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, ttl: TimeInterval = 5, untrackedCap: UntrackedCap,
+    init(git: any GitRunning, now: @escaping @Sendable () -> Date = MonotonicDate.now, ttl: TimeInterval = 5, untrackedCap: UntrackedCap,
          failureBackoff: TimeInterval = TimedOut.backoff,
          contents: @escaping @Sendable (_ path: String, _ size: Int) -> Data? = DiffStatResolver.contents(of:size:)) {
         self.git = git; self.now = now; self.ttl = ttl; self.cap = untrackedCap; self.failureBackoff = failureBackoff
@@ -234,9 +220,9 @@ public final class DiffStatResolver: Sendable {
             guard info.st_mode & S_IFMT == S_IFREG, size <= Self.untrackedByteLimit else { continue }
             guard bytes + size <= cap.bytes else { break }
             bytes += size
-            let stamp = Stamp(info)
+            let stamp = FileStamps.Stamp(info)
             // The stamp is from before the read, so a file that changes during it is read again next time.
-            let result = before[path].flatMap { $0.stamp == stamp ? $0 : nil }
+            let result = before[path].flatMap { $0.stamp.isSameWrite(as: stamp) ? $0 : nil }
                 ?? Counted(stamp: stamp, lines: contents(file, size).flatMap(Self.lineCount))
             after[path] = result
             total += result.lines ?? 0

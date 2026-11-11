@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// Claude's user-level paths. The live value comes from the login shell, never Finder's
 /// environment. Defaults and test homes do not start a shell.
@@ -9,9 +10,24 @@ public struct ClaudeConfig: Sendable {
 
     private init(value: @escaping @Sendable () -> String?) { self.value = value }
 
-    /// Resolved lazily off the main actor by the first reader, then fixed for this app launch.
-    public static let loginShell = ClaudeConfig(value: { loginValue })
-    private static let loginValue = LoginShellLocator.shared.current()?.claudeConfigDirectory
+    /// Resolved lazily off the main actor by the first reader, then fixed for this app launch once a
+    /// login shell has answered.
+    public static let loginShell = loginShell(LoginShellLocator.shared)
+
+    /// `locator`'s answer, asked by the first reader and kept once a shell has given one. A shell that
+    /// failed or ran out of time said nothing about `CLAUDE_CONFIG_DIR`: kept, it would fix the
+    /// directory to `~/.claude` for the whole launch, so the next reader asks again.
+    static func loginShell(_ locator: LoginShellLocator) -> ClaudeConfig {
+        let kept = Kept()
+        return ClaudeConfig(value: {
+            if let value = kept.value.withLock({ $0 }) { return value }
+            guard let answers = locator.current() else { return nil }
+            kept.value.withLock { $0 = .some(answers.claudeConfigDirectory) }
+            return answers.claudeConfigDirectory
+        })
+    }
+
+    private final class Kept: Sendable { let value = Mutex<String??>(nil) }
 
     private var override: String? { value().nonEmpty }
 
