@@ -390,6 +390,9 @@ import Testing
         let (world, run, _) = try pausingWorld(daemon: RecordingDaemon(holding: "session.deliver"))
         try world.controller.pause(run: run.id)
         try await world.daemon.received("session.deliver")
+        // Nothing runs but the held pause batch (its notes and the queue's wait for them): what Resume queues is counted
+        // on top of it.
+        await world.settled(leaving: 2)
         let pausing = world.ports.work.running
         let resuming = Task { try await world.controller.resume(run: run.id) }
         // Resume has queued its carry-ons behind the held pause note.
