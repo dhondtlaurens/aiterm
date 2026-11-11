@@ -82,10 +82,11 @@ final class WorkerTurnReader {
         return !run.hasEnded
     }
 
-    /// The tabs changed, or a reconcile tick came: each first worker whose turn ended since it was last read is read, and
+    /// The tabs changed, or a reconcile tick came (`fullRead`, every ended turn's transcript read in full, whatever its
+    /// stamp says: `TranscriptLocator`): each first worker whose turn ended since it was last read is read, and
     /// what a worker at work again, or gone, had left is dropped. A first worker still opening (`TaskItem.workerTabs(in:now:)`:
     /// launched, no conversation named yet) is at work whatever its tab says, so its idle is read once its launch is over.
-    func observe() {
+    func observe(fullRead: Bool = false) {
         let sessions = live.sessions, now = ports.now()
         let workersByTask = WorkerSessions(sessions)
         var dropped = false
@@ -114,7 +115,8 @@ final class WorkerTurnReader {
                 // Even without a working hook, a new reply in the same idle conversation is a new turn.
                 // The background read compares reply identity before asking git again. A read under way for an unchanged
                 // turn is left to finish.
-                if changed || worker.inFlight == nil { read(task, tab, operated, &worker, id: id) }
+                // A turn that ended, or a basis that changed, is read in full.
+                if changed || worker.inFlight == nil { read(task, tab, operated, &worker, id: id, fullRead: fullRead || changed) }
             }
         }
         // A worker no task lists any more: all of it goes, and a read under way for it lands nowhere.
@@ -136,7 +138,8 @@ final class WorkerTurnReader {
     }
 
     /// Reads the turn `worker` ended, as `record` asks it: the read replaces one under way.
-    private func read(_ task: TaskItem, _ worker: WorkerTab, _ operated: OperatedTask, _ record: inout Worker, id: WorkerID) {
+    private func read(_ task: TaskItem, _ worker: WorkerTab, _ operated: OperatedTask, _ record: inout Worker, id: WorkerID,
+                      fullRead: Bool) {
         let tab = worker.session!
         nextReadOrder += 1
         let order = nextReadOrder
@@ -153,8 +156,9 @@ final class WorkerTurnReader {
         record.inFlight = ports.work.start { [weak self] in
             guard !Task.isCancelled else { return }
             let (read, tailRead) = await BackgroundWork.run { () -> (Reading?, Bool) in
-                let found = conversation.map { transcripts.reply(agent: agent, conversation: $0) }
-                let reply = found?.reply, tailRead = found?.read ?? false
+                let found = conversation.map { transcripts.reply(agent: agent, conversation: $0, fullRead: fullRead) }
+                // A full read counts as one whether or not the file was there to read.
+                let reply = found?.reply, tailRead = fullRead || found?.read == true
                 if let previous, previous.basis == basis, previous.replyIdentity == reply?.identity { return (nil, tailRead) }
                 let message = reply?.text
                 guard let worktree else {
@@ -176,7 +180,8 @@ final class WorkerTurnReader {
                                 changedAfterAcceptance: changed, atReopenedCommit: atReopened,
                                 conversation: conversation, replyIdentity: reply?.identity), true)
             }
-            // Read: its transcript's tail, or git asked about its branch. An unchanged turn costs neither.
+            // Read: its transcript's tail, in full or past the stamp, or git asked about its branch. An unchanged turn between
+            // ticks costs neither.
             if tailRead { WorkMeter.note(.turnRead) }
             // Read fresh: the worker may have started its next turn, or ended it again, and the task may have been accepted
             // again or reopened, while git was asked.

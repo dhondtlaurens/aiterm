@@ -96,7 +96,7 @@ final class OperatorWindows {
         let conversation = run.operatorConversation, cannotResume = Self.cannotResume
         // A fresh Operator is told where the broadcast stands; a resumed one remembers.
         let fresh = conversation == nil
-            ? OperatorCommand.freshStartMessage(for: run, status: statuses.status(of: run.id).flatMap { try? String(decoding: $0.json(), as: UTF8.self) } ?? "{}")
+            ? OperatorCommand.freshStartMessage(for: run, status: statuses.snapshot(of: run.id).flatMap { try? String(decoding: $0.json(), as: UTF8.self) } ?? "{}")
             : nil
         let prepared = try await BackgroundWork.run {
             if let conversation, transcripts.file(agent: .claude, conversation: conversation) == nil {

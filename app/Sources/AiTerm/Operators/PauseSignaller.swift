@@ -24,6 +24,8 @@ final class PauseSignaller {
     private let turns: WorkerTurnReader
     /// The notes being typed into each broadcast's workers, by run: each new batch waits for the one before it.
     private var signalling: [UUID: Task<Void, Never>] = [:]
+    /// Each batch not finished yet, by its own key: what `stop` cancels. A batch cancelled types nothing more.
+    private var batches: [UUID: () -> Void] = [:]
     /// The workers this pause has tried to tell to stop, by run, told or not: none is tried twice while it lasts, so a
     /// worker whose window is listed only after Pause is told once it is (`pauseLateWorkers`), and one that refused is
     /// not asked again on every change of the tabs.
@@ -41,9 +43,11 @@ final class PauseSignaller {
 
     func start() { isStopped = false }
 
-    /// The notes still to be typed are not: each batch ends with the note under way.
+    /// The notes still to be typed are not: each batch ends with the note under way, and types nothing after a Start.
     func stop() {
         isStopped = true
+        for cancel in batches.values { cancel() }
+        batches = [:]
         for notes in signalling.values { notes.cancel() }
         signalling = [:]
     }
@@ -89,11 +93,13 @@ final class PauseSignaller {
     /// `work`, once every note queued before it for broadcast `id` is typed.
     @discardableResult
     private func queue<Value: Sendable>(_ id: UUID, _ work: @escaping @MainActor () async -> Value) -> Task<Value, Never> {
-        let before = signalling[id]
-        let task = ports.work.start {
+        let before = signalling[id], key = UUID()
+        let task = ports.work.start { [weak self] in
             await before?.value
+            defer { self?.batches[key] = nil }
             return await work()
         }
+        batches[key] = { task.cancel() }
         signalling[id] = ports.work.start { _ = await task.value }
         return task
     }
@@ -104,7 +110,7 @@ final class PauseSignaller {
     /// is looked at again right before its note (`steerable`): one you stopped or took over meanwhile, or the note did not
     /// reach, is dropped again. A worker whose turn ended with nothing running has stopped already and is told nothing.
     private func signalPause(_ id: UUID) async {
-        guard let run = run(id), run.youAsked == .pause, !run.hasEnded, let daemon = daemon() else { return }
+        guard !Task.isCancelled, let run = run(id), run.youAsked == .pause, !run.hasEnded, let daemon = daemon() else { return }
         let tried = attempted[id] ?? []
         let workers = Self.pauseTargets(of: id, in: workspace.state, sessions: live.sessions, now: ports.now())
             .filter { !tried.contains($0) && !run.pausedWorkers.contains($0) }
@@ -115,8 +121,8 @@ final class PauseSignaller {
         // logged by the store and tried again with the next change; the notes still go.
         _ = workspace.flush()
         for worker in workers {
-            // Ended meanwhile, its tasks yours, or AiTerm's Operators stopped: told nothing more.
-            guard !isStopped, self.run(id)?.hasEnded == false else { break }
+            // Ended meanwhile, its tasks yours, or AiTerm's Operators stopped since the batch began: told nothing more.
+            guard !Task.isCancelled, !isStopped, self.run(id)?.hasEnded == false else { break }
             guard let place = steerable(worker, in: id) else {
                 mutateRun(id) { $0.pausedWorkers.removeAll { $0 == worker } }
                 continue
@@ -162,10 +168,10 @@ final class PauseSignaller {
     /// stops the rest. Each worker told is answered (`WorkerTurnReader.messaged`), so the turn the pause ended never reads
     /// as ready for the Operator. Returns how many could not be told.
     private func signalCarryOn(_ id: UUID) async -> Int {
-        guard let daemon = daemon() else { return run(id)?.pausedWorkers.count ?? 0 }
+        guard !Task.isCancelled, let daemon = daemon() else { return run(id)?.pausedWorkers.count ?? 0 }
         var missed = 0
         for worker in run(id)?.pausedWorkers ?? [] {
-            guard !isStopped, self.run(id)?.hasEnded == false else { break }
+            guard !Task.isCancelled, !isStopped, self.run(id)?.hasEnded == false else { break }
             defer { mutateRun(id) { $0.pausedWorkers.removeAll { $0 == worker } } }
             guard let place = steerable(worker, in: id) else { continue }
             let delivery = try? await daemon.deliver(sessionId: place.sessionId, text: Self.carryOnNote,

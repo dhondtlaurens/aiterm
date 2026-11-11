@@ -498,3 +498,100 @@ extension WorkerTurnReaderTests {
         #expect(diff["commits"] == "" && diff["files"] == .array([]))
     }
 }
+
+// -- the stamp gate (phase 5, review round 1): what it sees, and the tick's full read for what it cannot -----------------
+
+extension WorkerTurnReaderTests {
+    /// A reply line as Claude writes it.
+    func replyLine(_ text: String) throws -> Data {
+        let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": .string(text)]]]]
+        return try JSONEncoder().encode(record) + Data("\n".utf8)
+    }
+
+    /// The worker's tab reports something that is not its turn ending: its context fill.
+    func contextMoved(_ world: OperatorWorld, _ task: TaskItem, to percent: Int) async throws {
+        var tab = try #require(world.live.sessions.first { $0.taskUUID == task.id })
+        tab.contextPercent = percent
+        world.live.handle(.sessionChanged(tab))
+        world.controller.handle(.sessionChanged(tab))
+        await world.settled()
+    }
+
+    /// A conversation file that is a link: what is read is its target, so the target is what is stamped, and a reply
+    /// appended to it is read on the next change.
+    @Test func aReplyAppendedToALinkedTranscriptIsRead() async throws {
+        let (world, _, task, _) = try makeWorld(worker: .idle)
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = ScratchFolder.path("aiterm-linked-transcript-", suffix: ".jsonl")
+        try replyLine("First.").write(to: target)
+        try FileManager.default.createSymbolicLink(at: folder.appendingPathComponent("conv-1.jsonl"), withDestinationURL: target)
+        world.controller.turns.observe()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "First.")
+        let handle = try FileHandle(forWritingTo: target)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: try replyLine("Second."))
+        try handle.close()
+        try await contextMoved(world, task, to: 40)
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Second.")
+    }
+
+    /// A transcript replaced by another file of the same length, its date put back: another file, so read again.
+    @Test func aTranscriptReplacedAtTheSameLengthAndDateIsRead() async throws {
+        let (world, _, task, _) = try makeWorld(worker: .idle)
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("conv-1.jsonl")
+        try replyLine("Wired A.").write(to: file, options: .atomic)
+        let written = Date(timeIntervalSince1970: 1_800_000_000)
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        world.controller.turns.observe()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired A.")
+        try replyLine("Wired B.").write(to: file, options: .atomic)
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        try await contextMoved(world, task, to: 40)
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.")
+    }
+
+    /// A transcript that could not be read is not taken for one with no reply: once it can be, it is read.
+    @Test func aTranscriptThatCouldNotBeReadIsReadOnceItCan() async throws {
+        let (world, _, task, _) = try makeWorld(worker: .idle)
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("conv-1.jsonl")
+        try replyLine("Ready for review.").write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path) }
+        world.controller.turns.observe()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == nil, "unreadable")
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+        try await contextMoved(world, task, to: 40)
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Ready for review.")
+    }
+
+    /// What no stat can tell apart — the same file rewritten in place at the same length, its date put back — is read on
+    /// the next reconcile tick, which reads every ended turn's transcript in full.
+    @Test func aChangeTheStampCannotSeeIsReadOnTheNextTick() async throws {
+        let (world, _, task, _) = try makeWorld(worker: .idle)
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("conv-1.jsonl")
+        try replyLine("Wired A.").write(to: file)
+        let written = Date(timeIntervalSince1970: 1_800_000_000)
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        world.controller.turns.observe()
+        await world.settled()
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.write(contentsOf: try replyLine("Wired B."))
+        try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        try await contextMoved(world, task, to: 40)
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired A.", "the stamp is the same")
+        world.controller.reconcileTick()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.")
+    }
+}

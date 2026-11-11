@@ -95,8 +95,9 @@ final class TabsListing {
 
 /// What `run_status` would answer now, gathered the one way every reader builds it (`OperatorController.status`): the
 /// run from the workspace, each task's live facts from its tabs as of now, what its workers' last turns left
-/// (`WorkerTurnReader`), which of them went quiet (`WorkerQuietWatch`), and the agents' weekly use with its telemetry.
-/// The handler's `run_status` and its looks around a change, the waker, the watchdog and the quiet check all read it.
+/// (`WorkerTurnReader`), which of them went quiet (`WorkerQuietWatch`), and the agents' weekly use. The waker, the
+/// watchdog, the quiet check and a fresh Operator's first message read its `snapshot`; the handler's `run_status` and its
+/// looks around a change read its `status`, the snapshot with each agent's usage telemetry.
 @MainActor
 final class RunStatusSource {
     private let workspace: WorkspaceStore
@@ -113,14 +114,23 @@ final class RunStatusSource {
         self.quiet = quiet
     }
 
-    /// The run's status numbered 0. `hostThreads`: each task's request's threads as the host has them now, which
-    /// run_status reads first; every other caller counts them as AiTerm last read them.
+    /// The run's snapshot numbered 0, as the waker, the watchdog, the quiet check and a fresh Operator's first message
+    /// read it: each agent's weekly use only while its week runs, and no usage telemetry. `hostThreads`: each task's
+    /// request's threads as the host has them now, which run_status reads first; every other caller counts them as AiTerm
+    /// last read them.
+    func snapshot(of run: UUID, hostThreads: [UUID: [String: Bool]] = [:]) -> RunStatus? {
+        let now = ports.now()
+        return OperatorController.status(of: run, state: workspace.state, sessions: live.sessions, revision: 0,
+                                         usage: SidebarModel.weeklyUsage(live.usage, now: now), turns: turns.readings,
+                                         extraTurns: turns.extraReadings, quiet: quiet.quiet, quietTabs: quiet.quietExtraTabs,
+                                         hostThreads: hostThreads, now: now)
+    }
+
+    /// The snapshot as `run_status` answers it and the handler compares it: each agent's last known reading with its
+    /// telemetry (`RunStatus.UsageTelemetry`).
     func status(of run: UUID, hostThreads: [UUID: [String: Bool]] = [:]) -> RunStatus? {
         let now = ports.now()
-        var status = OperatorController.status(of: run, state: workspace.state, sessions: live.sessions, revision: 0,
-                                               usage: SidebarModel.weeklyUsage(live.usage, now: now), turns: turns.readings,
-                                               extraTurns: turns.extraReadings, quiet: quiet.quiet, quietTabs: quiet.quietExtraTabs,
-                                               hostThreads: hostThreads, now: now)
+        var status = snapshot(of: run, hostThreads: hostThreads)
         for (agent, reading) in [("claude", live.usage.claude), ("codex", live.usage.codex)] {
             var telemetry = RunStatus.UsageTelemetry(lastKnown: reading, now: now)
             if let kind = AgentKind(rawValue: agent), live.usageUnavailable.contains(kind), reading?.retrievalFailure == nil {
@@ -293,9 +303,6 @@ final class OperatorController {
                                   transcripts: transcripts, statuses: statuses, listing: listing)
         tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, waker: waker, tabs: tabs,
                                     transcripts: transcripts, turns: turns, quiet: quiet, prompts: prompts, statuses: statuses)
-        profileSaved = NotificationCenter.default.addObserver(forName: OperatorProfileStore.didSave, object: nil, queue: .main) { [weak tools] _ in
-            MainActor.assumeIsolated { tools?.refreshOracleSettings() }
-        }
         finisher = TaskFinisher(store: workspace, git: ports.git, connect: ports.publisher, now: clock.now,
                                 sleep: { try await clock.sleep(.merge, .seconds($0)) })
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
@@ -361,6 +368,16 @@ final class OperatorController {
                                               joinOnly: call.joinOnly)
         }
         notices.onIssueChanged { [weak self] old, new in self?.bannerChanged(from: old, to: new) }
+        hearProfileSaves()
+    }
+
+    /// Settings › Operator saved: the Oracle's settings are read again at once. Heard from the controller's making until
+    /// `stop()`, and again from `start()`.
+    private func hearProfileSaves() {
+        guard profileSaved == nil else { return }
+        profileSaved = NotificationCenter.default.addObserver(forName: OperatorProfileStore.didSave, object: nil, queue: .main) { [weak tools] _ in
+            MainActor.assumeIsolated { tools?.refreshOracleSettings() }
+        }
     }
 
     /// Adds `handler` to what hears that what the Operator is doing changed (`acting`: its acts, what its workers'
@@ -408,8 +425,8 @@ final class OperatorController {
         SidebarModel.operatorTab(of: run, in: sessions)
     }
 
-    /// The run as `run_status` would show it now, numbered 0 (`RunStatusSource`): the waker compares content.
-    func status(of run: OperatorRun) -> RunStatus? { statuses.status(of: run.id) }
+    /// The run as `run_status` would show it now, numbered 0 (`RunStatusSource.snapshot`): the waker compares content.
+    func status(of run: OperatorRun) -> RunStatus? { statuses.snapshot(of: run.id) }
 
     /// `run_status`'s snapshot: the run from the workspace, each task's live facts from its worker's tab and what its
     /// worker's last ended turn left (`WorkerTurnReader.readings`). `usage` is each agent's weekly percent
@@ -871,8 +888,9 @@ final class OperatorController {
         }
         applyStallFlags()
         quiet.refresh()
-        // A first worker whose launch is over, still idle, has its turn read now (`TaskItem.workerTabs(in:now:)`).
-        turns.observe()
+        // A first worker whose launch is over, still idle, has its turn read now (`TaskItem.workerTabs(in:now:)`); every
+        // ended turn's transcript is read in full, whatever its stamp says.
+        turns.observe(fullRead: true)
         branchWatch.poll()
         // A prompt whose tab left it without an event, or a menu no hook announced.
         probePrompts(.reconcile)
@@ -926,6 +944,7 @@ final class OperatorController {
     func start() {
         guard loop == nil else { return }
         isStopped = false
+        hearProfileSaves()
         prompts.start()
         signaller.start()
         waker.start()

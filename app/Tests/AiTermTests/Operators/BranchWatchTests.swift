@@ -356,8 +356,10 @@ import Testing
     }
 
     /// An idle worker's transcript is read again only once it was written since the last read (`TranscriptLocator.reply`,
-    /// its date and its length): a tick that finds it as it was reads what it read before, and one after it changed
-    /// reads it afresh.
+    /// which file it is, its length and its date): the branch watch's own pass that finds it as it was reads what it read
+    /// before. What its stamp cannot tell apart, the same file rewritten in place at the same length with its date put
+    /// back, the reconcile tick reads in full (the turn reader's `fullRead`), and the branch watch has the new reply from
+    /// it; one whose date moved is read on any pass.
     @Test func anUnchangedTranscriptIsReadOnceAndAChangedOneAgain() async throws {
         let (world, _, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-4")
         func offBranch(_ branch: String) throws -> String {
@@ -365,6 +367,10 @@ import Testing
             try git.run(["worktree", "add", "-q", "-b", branch, elsewhere], in: worktree)
             try git.run(["commit", "--allow-empty", "-q", "-m", "work on \(branch)"], in: elsewhere)
             return try git.run(["rev-parse", "HEAD"], in: elsewhere)
+        }
+        func pass() async {
+            world.controller.branchWatch.poll()
+            await world.settled()
         }
         let file = world.ports.home.appendingPathComponent(".claude/projects/-wt/conv-4.jsonl")
         let first = try offBranch("feat/first")
@@ -375,17 +381,24 @@ import Testing
         await tick(world)
         #expect(world.task(task.id)?.operated?.branchDrift?.sha == first)
 
-        // Rewritten at the same length with its date put back: as far as the watch can tell, unchanged, so it is not
-        // read again.
+        // Rewritten in place at the same length with its date put back: as far as a stat can tell, unchanged, so the
+        // branch watch's own pass does not read it again.
         let second = try offBranch("feat/later")
         try saveReply("Committed \(second) on feat/later.", conversation: "conv-4", in: world)
         try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
-        await tick(world)
+        await pass()
         #expect(world.task(task.id)?.operated?.branchDrift?.sha == first, "read once")
 
-        try FileManager.default.setAttributes([.modificationDate: written.addingTimeInterval(60)], ofItemAtPath: file.path)
+        // The tick reads every ended turn's transcript in full: the next pass has the new reply.
         await tick(world)
-        #expect(world.task(task.id)?.operated?.branchDrift?.sha == second, "read again once written")
+        await pass()
+        #expect(world.task(task.id)?.operated?.branchDrift?.sha == second, "read in full on the tick")
+
+        let third = try offBranch("feat/third")
+        try saveReply("Committed \(third) on feat/third.", conversation: "conv-4", in: world)
+        try FileManager.default.setAttributes([.modificationDate: written.addingTimeInterval(60)], ofItemAtPath: file.path)
+        await pass()
+        #expect(world.task(task.id)?.operated?.branchDrift?.sha == third, "read again once written")
     }
 
     /// A worker's last reply, in its Claude conversation file under the scratch home.
@@ -434,5 +447,28 @@ extension BranchWatchTests {
         try saveReply("Superseded \(old), current commit \(current).", conversation: "conv-amended", in: world)
         await tick(world)
         #expect(world.task(task.id)?.operated?.branchDrift == nil)
+    }
+}
+
+extension BranchWatchTests {
+    /// A lookup git could not finish is no answer (phase 5, review round 1): the next pass, with the same message, head
+    /// and refs, looks the commit up again and finds the drift.
+    @Test func aLookupGitCouldNotFinishIsTriedAgainOnTheNextPass() async throws {
+        let git = TimingOutGitRunner(["for-each-ref", "--contains"], times: 1)
+        let (world, _, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-1", adjust: { $0.git = git })
+        defer { world.controller.stop() }
+        let elsewhere = try GitFixture.folder("op-drift-tmp-") + "/other"
+        try self.git.run(["worktree", "add", "-q", "-b", "feat/my-own", elsewhere], in: worktree)
+        try self.git.run(["commit", "--allow-empty", "-q", "-m", "the fix"], in: elsewhere)
+        let sha = try self.git.run(["rev-parse", "HEAD"], in: elsewhere)
+        try saveReply("Done. Committed \(sha) on feat/my-own.", conversation: "conv-1", in: world)
+        world.controller.turns.observe()
+        await world.settled()
+        world.controller.branchWatch.poll()
+        await world.settled()
+        #expect(world.task(task.id)?.operated?.branchDrift == nil, "git timed out: nothing is said of the commit yet")
+        world.controller.branchWatch.poll()
+        await world.settled()
+        #expect(world.task(task.id)?.operated?.branchDrift?.sha == sha, "looked up again, and found")
     }
 }

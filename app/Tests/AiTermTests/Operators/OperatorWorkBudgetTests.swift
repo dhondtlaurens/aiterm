@@ -100,8 +100,9 @@ import Testing
     }
 
     /// One reconcile tick of the frozen broadcast, its tabs known, with what it starts let finish: 1 `RunStatus.build`,
-    /// the tick's one snapshot for the waker, the watchdog and the quiet check (`observeRuns`); and no worker turn read,
-    /// none of the done workers' and extra tabs' transcripts written since. Phase 0 counted 2 builds, the quiet check
+    /// the tick's one snapshot for the waker, the watchdog and the quiet check (`observeRuns`); and 9 worker turn reads,
+    /// the three done workers' and six done extra tabs' transcripts read in full, whatever their stamps say: the tick is
+    /// where a change no stat can see is read (`TranscriptLocator`). Phase 0 counted 2 builds, the quiet check
     /// (`checkQuiet`) building the same status again, and 9 reads. None may raise either.
     @Test func aReconcileTickBuildsTheStatus() async throws {
         let frozen = try Frozen()
@@ -114,7 +115,7 @@ import Testing
         }
 
         #expect(work[.statusBuild] == 1, "status builds per reconcile tick: \(work)")
-        #expect(work[.turnRead, default: 0] == 0, "turn reads per reconcile tick: \(work)")
+        #expect(work[.turnRead] == 9, "turn reads per reconcile tick: \(work)")
     }
 
     /// One mutating tool call, `ask_you` about the working task as the journey asks it, with what it starts let finish:

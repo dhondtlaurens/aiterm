@@ -44,10 +44,16 @@ enum WorkerTranscript {
     static func lastMessage(in file: URL, agent: AgentKind) -> String? { lastReply(in: file, agent: agent)?.text }
 
     /// The full assistant record identifies the reply even when its text repeats in a later turn.
-    static func lastReply(in file: URL, agent: AgentKind) -> Reply? {
+    static func lastReply(in file: URL, agent: AgentKind) -> Reply? { readReply(in: file, agent: agent)?.reply }
+
+    /// What reading a file's tail found: its newest reply, nil when it has none.
+    struct TailRead: Sendable { let reply: Reply? }
+
+    /// The file's tail as read (`TailRead`); nil when the file could not be read at all.
+    static func readReply(in file: URL, agent: AgentKind) -> TailRead? {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { try? handle.close() }
-        let size = (try? handle.seekToEnd()) ?? 0
+        guard let size = try? handle.seekToEnd() else { return nil }
         let start = size > UInt64(tailBytes) ? size - UInt64(tailBytes) : 0
         guard (try? handle.seek(toOffset: start)) != nil, let data = try? handle.readToEnd() else { return nil }
         var lines = String(decoding: data, as: UTF8.self).split(separator: "\n")
@@ -57,9 +63,9 @@ enum WorkerTranscript {
         for line in lines.reversed() {
             guard let record = try? decoder.decode(JSONValue.self, from: Data(line.utf8)),
                   let text = agent == .codex ? codexReply(record) : claudeReply(record), !text.isEmpty else { continue }
-            return Reply(text: text, identity: line.hashValue)
+            return TailRead(reply: Reply(text: text, identity: line.hashValue))
         }
-        return nil
+        return TailRead(reply: nil)
     }
 
     /// The tool calls a conversation started and has no result for yet, as far as its file was read: a call that runs
@@ -193,12 +199,18 @@ extension WorkerTranscript.OpenCalls {
 /// session, so a file found is used again while it is still there, and looked up afresh once it is not. Under the
 /// `home` and the Claude folder (`ClaudeConfig`) AiTerm is set to. The newest reply in each is kept with its file's stamp
 /// too, for the turn reader and the branch watch alike (`reply`). Blocking: read off the main actor.
+///
+/// What the stamp cannot tell apart: the same file rewritten in place, at the same length, its date put back to the
+/// second it had (a stat sees the same device, file number, length and date). A reader that must not miss that reads
+/// the file in full (`reply(fullRead:)`): the turn reader does on every reconcile tick, and whenever a worker's turn
+/// ends or its task's basis changes.
 final class TranscriptLocator: Sendable {
     let home: URL
     let claudeConfig: ClaudeConfig
     private let found = Mutex<[String: URL]>([:])
-    /// A file as last read: when it was written and how long it was.
-    private struct Stamp: Equatable { let modified: Date, size: UInt64 }
+    /// The file as last read, a link followed to the file it names: which file it is (its device and file number), when
+    /// it was written and how long it was.
+    private struct Stamp: Equatable { let device: Int, file: UInt64, modified: Date, size: UInt64 }
     /// Each conversation's newest reply as last read, with its file's stamp then, by conversation id and agent.
     private struct Kept { let stamp: Stamp, reply: WorkerTranscript.Reply? }
     private let replies = Mutex<[String: Kept]>([:])
@@ -223,15 +235,21 @@ final class TranscriptLocator: Sendable {
     func lastReply(agent: AgentKind, conversation: String) -> WorkerTranscript.Reply? { reply(agent: agent, conversation: conversation).reply }
 
     /// The conversation's newest reply (`WorkerTranscript.lastReply(in:agent:)`), its file's tail read again only once the
-    /// file was written since any reader last read it: `read` says whether this one did. A file not found has no reply.
-    func reply(agent: AgentKind, conversation: String) -> (reply: WorkerTranscript.Reply?, read: Bool) {
-        guard let file = file(agent: agent, conversation: conversation) else { return (nil, false) }
+    /// file is another or was written since any reader last read it, or always with `fullRead`: `read` says whether this
+    /// one did. A link is followed: what is read is what is stamped. A file not found has no reply, and one that could not
+    /// be read is kept as nothing, so the next ask reads it.
+    func reply(agent: AgentKind, conversation: String, fullRead: Bool = false) -> (reply: WorkerTranscript.Reply?, read: Bool) {
+        guard let found = file(agent: agent, conversation: conversation) else { return (nil, false) }
+        let file = found.resolvingSymlinksInPath()
         let key = agent.rawValue + "/" + conversation, stamp = Self.stamp(of: file)
-        if let stamp, let kept = replies.withLock({ $0[key] }), kept.stamp == stamp { return (kept.reply, false) }
+        if !fullRead, let stamp, let kept = replies.withLock({ $0[key] }), kept.stamp == stamp { return (kept.reply, false) }
         // Stamped before the read: a write in between is read again next time, never missed.
-        let reply = WorkerTranscript.lastReply(in: file, agent: agent)
-        replies.withLock { $0[key] = stamp.map { Kept(stamp: $0, reply: reply) } }
-        return (reply, true)
+        guard let read = WorkerTranscript.readReply(in: file, agent: agent) else {
+            replies.withLock { $0[key] = nil }
+            return (nil, true)
+        }
+        replies.withLock { $0[key] = stamp.map { Kept(stamp: $0, reply: read.reply) } }
+        return (read.reply, true)
     }
 
     /// Lets go of the replies kept for conversations not in `open`, by conversation id.
@@ -241,7 +259,8 @@ final class TranscriptLocator: Sendable {
 
     private static func stamp(of file: URL) -> Stamp? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
+              let device = attributes[.systemNumber] as? NSNumber, let number = attributes[.systemFileNumber] as? NSNumber,
               let modified = attributes[.modificationDate] as? Date, let size = attributes[.size] as? NSNumber else { return nil }
-        return Stamp(modified: modified, size: size.uint64Value)
+        return Stamp(device: device.intValue, file: number.uint64Value, modified: modified, size: size.uint64Value)
     }
 }

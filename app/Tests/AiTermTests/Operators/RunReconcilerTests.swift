@@ -978,3 +978,41 @@ import Testing
         world.controller.stop()
     }
 }
+
+extension RunReconcilerTests {
+    /// Start Fresh's first message (`first-message.md`) is what it was before the status builder was shared (phase 5,
+    /// review round 1): where the broadcast stands as the controller's snapshot showed it — each agent's weekly use only
+    /// while its week runs, and no usage telemetry — built here the way `main` built it. With no usage reading, and with
+    /// readings whose week has reset.
+    @Test(arguments: [false, true]) func startFreshsFirstMessageIsTheSnapshotItWasBefore(expiredReadings: Bool) async throws {
+        let project = OperatorServiceFixtures.project()
+        var run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
+        run.operatorConversation = "c-gone"
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working, worktree: "/tmp/aiterm-wt")
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        if expiredReadings {
+            let reset = Int(clock.now.timeIntervalSince1970) - 60
+            world.live.usage = UsageSnapshot(
+                claude: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 91, resetsAt: reset), spend: nil, updatedAt: reset - 600),
+                codex: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 47, resetsAt: reset), spend: nil, updatedAt: reset - 600))
+        }
+        world.show([OperatorServiceFixtures.session("op", tag: run.id, conversation: "c-gone")])
+        world.show([])
+        world.controller.mutateRun(run.id) { $0.operatorConversation = nil }
+        // As `main` built it: the controller's snapshot of the run, numbered 0, with the weekly use of the weeks not reset.
+        let now = clock.now, state = world.state
+        let snapshot = OperatorController.status(of: run.id, state: state, sessions: world.live.sessions, revision: 0,
+                                                 usage: SidebarModel.weeklyUsage(world.live.usage, now: now),
+                                                 turns: world.controller.turns.readings, extraTurns: world.controller.turns.extraReadings,
+                                                 quiet: world.controller.quiet.quiet, quietTabs: world.controller.quiet.quietExtraTabs, now: now)
+        let expected = OperatorCommand.freshStartMessage(
+            for: try #require(state.run(id: run.id)),
+            status: snapshot.flatMap { try? String(decoding: $0.json(), as: UTF8.self) } ?? "{}")
+
+        try await world.controller.startFresh(run: run.id)
+
+        let folder = OperatorCommand.runFolder(run.id, home: world.ports.home)
+        let first = try Data(contentsOf: folder.appendingPathComponent(OperatorCommand.firstMessageFile))
+        #expect(first == Data(expected.utf8), "\(String(decoding: first, as: UTF8.self))")
+    }
+}

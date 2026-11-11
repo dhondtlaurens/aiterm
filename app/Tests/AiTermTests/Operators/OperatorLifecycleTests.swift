@@ -85,6 +85,20 @@ extension RunControlsTests {
         await world.settled()
         #expect(notes(world) == ["w2: pause"], "no note after Stop")
     }
+
+    /// A batch of notes from before a Stop types nothing after the Start that follows it (phase 5, review round 1): pause,
+    /// its first note held, Stop, Start, the note let go.
+    @Test func aBatchOfNotesFromBeforeAStopTypesNothingAfterAStart() async throws {
+        let (world, run, _) = try pausingWorld(daemon: RecordingDaemon(holding: "session.deliver"))
+        try world.controller.pause(run: run.id)
+        try await world.daemon.received("session.deliver")
+        world.controller.stop()
+        world.controller.start()
+        defer { world.controller.stop() }
+        world.daemon.release()
+        await world.settled()
+        #expect(notes(world) == ["w2: pause"], "no note after Stop, nor after the Start that followed it")
+    }
 }
 
 extension OperatorLifecycleTests {
@@ -128,5 +142,23 @@ extension OperatorLifecycleTests {
         world.daemon.release()
         await world.settled()
         #expect(world.daemon.requests("operator.revoke").isEmpty, "no token revoked after Stop")
+    }
+}
+
+extension OperatorLifecycleTests {
+    /// After a Stop and a Start, a setting saved in Settings › Operator reaches the broadcast as it did before the Stop,
+    /// without waiting for a tool call or a tick (phase 5, review round 1).
+    @Test func afterAStopAndAStartASavedOracleSettingReachesTheBroadcast() async throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: true), projects: [project], state: .active,
+                                              planRevision: 1)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        world.controller.stop()
+        world.controller.start()
+        defer { world.controller.stop() }
+        var profile = run.profile
+        profile.oracle.isOn = false
+        try OperatorProfileStore.save(profile, world.ports.preferences)
+        await eventually(describing: "the saved setting heard") { world.run(run.id)?.profile.oracle.isOn == false }
     }
 }
