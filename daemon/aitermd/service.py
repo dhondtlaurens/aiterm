@@ -380,18 +380,18 @@ class Service:
         with _logged("reading the screens for trust prompts"):
             changed += await self._apply_trust_prompts(screens)
         with _logged("reading the Codex rollouts"):
-            changed += await self._apply_codex_rollouts(threads)
+            changed += await self.observe_codex(threads)
         with _logged("releasing dead subagents"):
             changed += self.status.release_dead_subagents(await self._subagent_tails(self.status.subagent_transcripts()))
         with _logged("reading Claude background shells"):
-            changed += await self._apply_background_shells(sessions)
+            changed += await self.observe_background(sessions)
         with _logged("reading what became of the slash commands"):
             changed += await self._apply_slash_commands()
         with _logged("reading when the limits that stopped sessions reset"):
             changed += await self._apply_limit_resets()
         with _logged("reading worktree test activity"):
             captured = [replace(s) for s in sessions]
-            reading = await self._off_loop("the test activity read", lambda: self.test_activity.read(captured), None)
+            reading = await self.run_check("the test activity read", lambda: self.test_activity.read(captured), None)
             if reading is not None:
                 changed += self.test_activity.apply(self.registry, reading)
 
@@ -411,7 +411,7 @@ class Service:
             return readings
 
         unavailable: dict[str, ClaudeSessionFile | None] = {}
-        readings = await self._off_loop("the Claude file read", read, unavailable)
+        readings = await self.run_check("the Claude file read", read, unavailable)
         if files.root != root:
             return {}
         return {sid: value for sid, value in readings.items()
@@ -467,7 +467,7 @@ class Service:
                 changed += self.status.apply_trust_prompt(sid, shows_trust_prompt(s.agent, screen))
         return changed
 
-    async def _apply_codex_rollouts(self, threads: dict[str, str]) -> list[str]:
+    async def observe_codex(self, threads: dict[str, str]) -> list[str]:
         """The sessions whose context fill their Codex rollouts changed, and the rollouts'
         caches pruned to the threads still running. A rollout grows without bound and a hung mount can
         stall its read, so it is read on a worker thread: everything that touches the caches runs there."""
@@ -488,7 +488,7 @@ class Service:
             return readings
 
         none: dict[str, CodexReading | None] = {}
-        readings = await self._off_loop(CODEX_READ, read, none)
+        readings = await self.run_check(CODEX_READ, read, none)
         changed: list[str] = []
         for session_id, thread_id in threads.items():
             # A hook or a replacement process may have changed the binding during the read.
@@ -509,9 +509,9 @@ class Service:
         if not paths:
             return {}
         read = self.subagent_transcripts.read_all
-        return await self._off_loop("the subagent transcript read", lambda: read(paths), {})
+        return await self.run_check("the subagent transcript read", lambda: read(paths), {})
 
-    async def _apply_background_shells(self, sessions: list[SessionInfo]) -> list[str]:
+    async def observe_background(self, sessions: list[SessionInfo]) -> list[str]:
         # Capture before I/O; a late reply belongs to this exact process/conversation and turn owner.
         captured = {s.session_id: (s.agent, s.job_pid, s.conversation_id, s.transcript, self.status.turn(s.session_id))
                     for s in sessions if s.agent == "claude"}
@@ -523,7 +523,7 @@ class Service:
                       for sid, (_, _, _, _, owner) in captured.items()
                       if owner is not None and owner.shell_snapshot_valid and owner.shell_snapshot is not None}
         unavailable: dict[str, ShellReading | None] = {}
-        readings = await self._off_loop("the Claude background read", lambda: read(requests, recoveries), unavailable)
+        readings = await self.run_check("the Claude background read", lambda: read(requests, recoveries), unavailable)
         changed: list[str] = []
         for sid, (agent, pid, conversation, path, owner) in captured.items():
             session = self.registry.get(sid)
@@ -542,7 +542,7 @@ class Service:
         looked for in is read on a worker thread, on from where it was typed; a read that cannot answer changes nothing."""
         now, read = self.clock(), self.slash_commands.reader.read_all
         starts = self.slash_commands.starts(now)
-        records = await self._off_loop("the slash command read", lambda: read(starts), None) if starts else {}
+        records = await self.run_check("the slash command read", lambda: read(starts), None) if starts else {}
         return [] if records is None else self.slash_commands.apply(records, now)
 
     async def _apply_limit_resets(self) -> list[str]:
@@ -557,7 +557,7 @@ class Service:
             return []
         paths = {transcript for _, transcript in stopped.values() if transcript}
         none: dict[str, int | None] = {}
-        resets = await self._off_loop("the usage limit read", lambda: {path: limit_resets_at(path) for path in paths}, none)
+        resets = await self.run_check("the usage limit read", lambda: {path: limit_resets_at(path) for path in paths}, none)
         changed: list[str] = []
         for session_id, (stopped_on, transcript) in stopped.items():
             # A hook may have moved the session on during the read.
@@ -567,7 +567,19 @@ class Service:
                 changed += [session_id] if self.registry.set_stopped_on(session_id, replace(stopped_on, resets_at=resets_at)) else []
         return changed
 
-    async def _off_loop(self, name: str, work: Callable[[], T], nothing: T) -> T:
+    async def settle_reads(self) -> None:
+        """Wait for this service's outstanding reads, then release their completed handles.
+
+        Tests release their own latches before calling this; it never inspects the test queue.
+        """
+        checks = dict(self._checks)
+        if checks:
+            await asyncio.gather(*(asyncio.shield(check) for check in checks.values()), return_exceptions=True)
+        for name, check in checks.items():
+            if self._checks.get(name) is check and check.done():
+                del self._checks[name]
+
+    async def run_check(self, name: str, work: Callable[[], T], nothing: T) -> T:
         """`work`, run on a worker thread. It answers `nothing` if it has not finished within
         OFF_LOOP_CHECK_SECONDS, if it raises, or if the run an earlier tick started is still stuck."""
         running = self._checks.get(name)
@@ -617,7 +629,7 @@ class Service:
             except Exception as error:  # noqa: BLE001 - distinguish a failed retrieval from absent telemetry
                 return UsageReadFailure(str(error), int(self.clock()))
 
-        found = await self._off_loop(CODEX_READ, read, None)
+        found = await self.run_check(CODEX_READ, read, None)
         if isinstance(found, UsageReadFailure):
             if self.usage.failed("codex", found.message, found.at):
                 await self.publisher.usage_changed()

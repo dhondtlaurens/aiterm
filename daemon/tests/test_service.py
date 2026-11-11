@@ -177,8 +177,8 @@ async def test_background_read_cannot_attach_to_replaced_identity(make_service, 
             svc.registry.apply_snapshot([])
         return reading
 
-    monkeypatch.setattr(svc, "_off_loop", replace_during_read)
-    assert await svc._apply_background_shells(svc.registry.all()) == []
+    monkeypatch.setattr(svc, "run_check", replace_during_read)
+    assert await svc.observe_background(svc.registry.all()) == []
     session = svc.registry.get(sid)
     assert session is None or session.display_work is None or session.display_work.shells is None
 
@@ -1434,7 +1434,7 @@ async def test_a_stopped_child_waits_out_a_transcript_read_that_hangs(stack, tmp
         assert svc.registry.get(sid).state == "working"
     finally:
         release.set()
-    await wait_until(lambda: all(check.done() for check in svc._checks.values()))
+    await svc.settle_reads()
     await svc.tick()
     assert svc.registry.get(sid).state == "done"
 
@@ -2090,7 +2090,7 @@ async def test_an_off_loop_check_that_raises_answers_what_it_was_given_for_nothi
         raise ValueError("boom")
 
     with caplog.at_level("ERROR", logger="aitermd.service"):
-        assert await svc._off_loop("a check", broken, "nothing") == "nothing"
+        assert await svc.run_check("a check", broken, "nothing") == "nothing"
     assert any("a check" in rec.getMessage() for rec in caplog.records)
 
 
@@ -2105,11 +2105,10 @@ async def test_an_off_loop_check_that_fails_after_the_tick_gave_up_on_it_is_not_
         raise ValueError("too late for anyone")
 
     with caplog.at_level("WARNING", logger="aitermd.service"):
-        assert await svc._off_loop("a check", late_failure, "nothing") == "nothing"
+        assert await svc.run_check("a check", late_failure, "nothing") == "nothing"
         release.set()
-        await wait_until(lambda: svc._checks["a check"].done())
+        await svc.settle_reads()
         await asyncio.sleep(0.01)
-    svc._checks.clear()
     gc.collect()
     await asyncio.sleep(0.01)
     assert handled == [], "Future exception was never retrieved"
@@ -2127,7 +2126,7 @@ async def test_an_off_loop_check_that_hangs_does_not_hold_the_process_open(make_
         release.wait(5)
 
     try:
-        await svc._off_loop("a check", hung, None)
+        await svc.run_check("a check", hung, None)
         assert threads[0].daemon, "a non-daemon worker is joined when the interpreter exits"
     finally:
         release.set()
@@ -2247,7 +2246,7 @@ async def test_a_codex_context_read_that_timed_out_holds_back_both_reads_until_i
         assert calls == {"context": 1, "limits": 1}
     finally:
         release.set()
-    await asyncio.wait_for(asyncio.shield(svc._checks[service.CODEX_READ]), 2)
+    await asyncio.wait_for(svc.settle_reads(), 2)
 
     await svc.tick()
 
@@ -2346,8 +2345,8 @@ async def test_codex_rollout_cannot_change_a_replacement_thread(stack, monkeypat
         svc.resolver.bind(sid, "codex", "new-thread", "SessionStart")
         return {"old-thread": (90, "old-version")}
 
-    monkeypatch.setattr(svc, "_off_loop", replaced_during_read)
-    assert await svc._apply_codex_rollouts({sid: "old-thread"}) == []
+    monkeypatch.setattr(svc, "run_check", replaced_during_read)
+    assert await svc.observe_codex({sid: "old-thread"}) == []
     session = svc.registry.get(sid)
     assert (session.context_percent, session.cli_version) == (None, None)
 
