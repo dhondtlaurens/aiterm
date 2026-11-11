@@ -40,7 +40,7 @@ extension OperatorToolHandler {
             let base = try repository.taskDiffBase(stackedOn: stacked, baseBranch: named, savedBase: saved) ?? named
             return (base, fetching ? key : nil)
         }
-        if let fetched { diffBaseFetches[fetched] = now }
+        if let fetched { recordDiffFetch(fetched, at: now) }
         return base
     }
 
@@ -232,8 +232,7 @@ extension OperatorToolHandler {
     func replayedMessage(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> JSONValue? {
         guard call.operatorTool == .messageTask else { return nil }
         let task = try self.task(call, in: run), text = try call.string("text"), now = ports.now()
-        deliveredMessages = deliveredMessages.filter { now.timeIntervalSince($0.value.at) < Self.messageReplayWindow }
-        return deliveredMessages[MessageKey(task: task.id, tab: Self.tabKey(call), text: text)]?.answer
+        return replayedDelivery(MessageKey(task: task.id, tab: Self.tabKey(call), text: text), at: now)
     }
 
     /// The extra tab the call's `tab` names; nil for the first worker, named or not.
@@ -258,10 +257,9 @@ extension OperatorToolHandler {
         defer { release() }
         try await requestStillOpen(task, operated, by: "message_task", in: run.id)
         let key = MessageKey(task: task.id, tab: worker.key, text: text), now = ports.now()
-        deliveredMessages = deliveredMessages.filter { now.timeIntervalSince($0.value.at) < Self.messageReplayWindow }
-        if let recorded = deliveredMessages[key] { return recorded.answer }
-        guard sendingMessages.insert(key).inserted else { throw ToolRefusal("This message is still being delivered; call again for its result.") }
-        defer { sendingMessages.remove(key) }
+        if let recorded = replayedDelivery(key, at: now) { return recorded }
+        guard beginMessage(key) else { throw ToolRefusal("This message is still being delivered; call again for its result.") }
+        defer { endMessage(key) }
         guard let tab = worker.session, !worker.isOpening else { throw ToolRefusal(Self.noAgent(in: worker, of: task)) }
         guard let daemon = daemon() else { throw ToolRefusal("AiTerm’s helper isn’t connected; try again in a moment.") }
         let delivery = try await daemon.deliver(sessionId: tab.sessionId, text: text, ownership: operated.ownership, wake: false,
@@ -276,7 +274,7 @@ extension OperatorToolHandler {
             prompts.afterMessage(task.id, tab: worker.key)
         }
         let answer = JSONValue.object(fields)
-        if delivery.result == .delivered { deliveredMessages[key] = (ports.now(), answer) }
+        if delivery.result == .delivered { recordDelivery(answer, for: key) }
         return answer
     }
 
@@ -303,7 +301,7 @@ extension OperatorToolHandler {
               OperatedTransitions.sameCommit(pushed, accepted) else { return }
         let reference = publication.mergeRequestURL.map { CodeHost(webURL: $0).reference(number) } ?? "#\(number)"
         let limit = ports.hostTimeout, branch = task.branch
-        let answer = await Self.within(limit) { [self] in
+        let answer = await BackgroundWork.within(limit) { [self] in
             let host = try await reviewHost(of: task, request: publication)
             return try await host.existingRequest(from: branch)
         }
@@ -313,9 +311,7 @@ extension OperatorToolHandler {
                 throw ToolRefusal("\(reference) is no longer open on the host: AiTerm steers an accepted task only while its request is open.")
             }
         case .failure(let error):
-            var why = error is NoAnswer ? "the host did not answer in \(Int(limit.components.seconds)) seconds"
-                : (error as? ToolRefusal)?.message ?? error.localizedDescription
-            while why.hasSuffix(".") { why.removeLast() }
+            let why = Self.hostFailure(error, limit: limit, trimmingPeriods: true)
             throw ToolRefusal("AiTerm couldn’t read \(reference) on the host to see that it is still open: \(why). Try again in a moment.")
         }
         guard let fresh = state.run(id: runId), let current = state.task(id: task.id) else {
@@ -352,7 +348,9 @@ extension OperatorToolHandler {
     /// The operator's outcome (spec §6, §8). Accepted needs the commit its branch is on, unmoved, and the
     /// worker's check output; the same outcome for the same commit returns what was recorded.
     func markTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
-        let task = try self.task(call, in: run), outcome = try call.string("outcome")
+        let task = try self.task(call, in: run)
+        _ = try call.string("outcome")
+        let outcome = call.markOutcome
         // A repeat of what was recorded changes nothing, so it answers even while paused or taken over.
         if let operated = task.operated, try await isRepeat(of: outcome, call, operated, in: task) { return Self.taskAnswer(task, created: false) }
         try recheck(task)
@@ -361,7 +359,7 @@ extension OperatorToolHandler {
         var acceptedBase: String?
         var acceptedFingerprint: String?
         switch outcome {
-        case "accepted":
+        case .accepted?:
             let given = try call.string("sha"), check = try call.string("checkOutput")
             let sha = try await commit(given, in: task)
             try recheck(task)
@@ -413,21 +411,21 @@ extension OperatorToolHandler {
                 return try reacceptReopened(task, as: acceptance, branchHead: tip, diffBase: acceptedBase, fingerprint: acceptedFingerprint)
             }
             action = .accept(acceptance, branchHead: tip)
-        case "noChange":
+        case .noChange?:
             action = .noChange(note: call.optionalString("note"))
-        case "blocked", "failed":
+        case .blocked?, .failed?:
             let reason = try call.string("note")
-            action = outcome == "blocked" ? .block(reason: reason) : .fail(reason: reason)
+            action = outcome == .blocked ? .block(reason: reason) : .fail(reason: reason)
         default:
             throw ToolRefusal("mark_task’s outcome is accepted, noChange, blocked or failed.")
         }
         try apply(action, to: task) { state in
-            guard outcome == "accepted" else { return }
+            guard outcome == .accepted else { return }
             Self.keepDiffBase(acceptedBase, of: task.id, in: &state)
             state.updateOperated(task.id) { $0.acceptanceWorktreeFingerprint = acceptedFingerprint }
         }
         // Its result holds each code parent's accepted commit (`upstreamRefusal` said so): the flag is done with.
-        if outcome == "accepted" { mutate(in: run.id) { $0.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) } } }
+        if outcome == .accepted { mutate(in: run.id) { $0.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) } } }
         let marked = state.task(id: task.id) ?? task
         return Self.taskAnswer(marked, created: false)
     }
@@ -440,15 +438,15 @@ extension OperatorToolHandler {
     }
 
     /// Whether `outcome` is what the task already records: the same commit accepted, no change, or the same reason.
-    private func isRepeat(of outcome: String, _ call: ToolCall, _ operated: OperatedTask, in task: TaskItem) async throws -> Bool {
+    private func isRepeat(of outcome: ToolCall.MarkOutcome?, _ call: ToolCall, _ operated: OperatedTask, in task: TaskItem) async throws -> Bool {
         switch outcome {
-        case "accepted":
+        case .accepted?:
             guard [.accepted, .published, .inReview].contains(operated.state), let given = call.optionalString("sha") else { return false }
             return operated.acceptance?.resultSHA == (try await commit(given, in: task))
                 && operated.acceptance?.checkOutput == call.optionalString("checkOutput")
                 && operated.acceptance?.note == call.optionalString("note")
-        case "noChange": return operated.state == .noChange
-        case "blocked", "failed": return operated.state.rawValue == outcome && operated.blockedReason == call.optionalString("note")
+        case .noChange?: return operated.state == .noChange
+        case .blocked?, .failed?: return operated.state.rawValue == outcome?.rawValue && operated.blockedReason == call.optionalString("note")
         default: return false
         }
     }

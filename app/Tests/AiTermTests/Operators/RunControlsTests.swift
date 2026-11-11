@@ -619,14 +619,14 @@ import Testing
             state.runs.append(other)
             state.updateRun(id: other.id) { $0.challenges = [ChallengeRecord(id: "theirs", tool: "submit_plan", askedAt: Date(timeIntervalSince1970: 0))] }
         }
-        let gate = OracleGate(), jobs = world.controller.tools.oracleJobs
+        let gate = OracleGate(), tools = world.controller.tools
         for (key, id) in [("mine", run.id), ("theirs", other.id)] {
-            jobs.start(.challenge(key), run: id, task: nil, runner: .answering("Late.", gate: gate),
+            tools.startOracleJob(.challenge(key), run: id, task: nil, runner: .answering("Late.", gate: gate),
                        opinion: run.profile.oracle, prompt: key, folder: world.ports.home, projects: [], acting: { _ in })
         }
         try await world.controller.end(run: run.id)
-        #expect(!jobs.contains(.challenge("mine")) && jobs.contains(.challenge("theirs")))
-        jobs.cancel()
+        #expect(!tools.isOracleRunning(.challenge("mine")) && tools.isOracleRunning(.challenge("theirs")))
+        tools.cancelOracleJobs()
         await gate.open()
         await world.ports.work.settled()
     }

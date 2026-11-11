@@ -302,7 +302,7 @@ import Testing
         world.controller.tools.record(OperatorRequest(requestId: "r1", runId: ended.id.uuidString, tool: "run_status", arguments: [:]),
                                       answer: .result(["ok": true]), outcome: .ok)
         try await world.controller.forget(run: ended.id)
-        await world.controller.tools.lastRecording?.value
+        await world.ports.work.settled()
         #expect(world.state.runs.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: folder.path))
     }

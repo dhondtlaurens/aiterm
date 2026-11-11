@@ -339,30 +339,28 @@ import Testing
 
     @Test func independentlyDispatchedReviewRequestsPreserveBothReviewers() async throws {
         let gate = HeldGate()
-        let connections = AsyncStream<Void>.makeStream()
+        let connections = OperatorMergeTests.Prompts()
         let r = try await reviewed(.inReview, slices: Slices(review: true)) { ports in
             let publisher = ports.publisher
             ports.publisher = { connection in
-                connections.continuation.yield(())
+                connections.append("connected")
                 return try publisher(connection)
             }
         }
         r.host.update { $0.onCall = { if $0.hasPrefix("reviewers 12 jan") { await gate.wait() } } }
         let tools = r.world.controller.tools
-        func dispatch(_ reviewer: String) -> Task<Void, Never>? {
+        func dispatch(_ reviewer: String) {
             tools.handle(OperatorRequest(requestId: reviewer, runId: r.run.id.uuidString, tool: "request_review",
                                          arguments: ["task": "A", "reviewers": [.string(reviewer)]]))
-            return tools.lastReply
         }
-        var connected = connections.stream.makeAsyncIterator()
-        let first = dispatch("jan")
-        _ = await connected.next()
-        await gate.started()
-        let second = dispatch("sara")
-        _ = await connected.next()
+        dispatch("jan")
+        await eventually { connections.list.count == 1 }
+        let entered = await BackgroundWork.within(.seconds(TestDeadline.seconds), cancelling: false) { await gate.started(); return true }
+        #expect((try? entered.get()) == true)
+        dispatch("sara")
+        await eventually { connections.list.count == 2 }
         await gate.release()
-        await first?.value
-        await second?.value
+        await r.world.ports.work.settled()
         #expect(Set(r.host.reviewers) == ["jan", "sara"])
         #expect(Set(r.world.task(r.task.id)?.operated?.peopleReview?.reviewers ?? []) == ["jan", "sara"])
         #expect(r.host.log == ["ready 12", "reviewers 12 jan", "ready 12", "reviewers 12 sara"])
@@ -371,32 +369,30 @@ import Testing
     @Test(arguments: [true, false])
     func aWaitingReviewRequestRechecksCancellationAndOwnership(_ cancelled: Bool) async throws {
         let gate = HeldGate()
-        let connections = AsyncStream<Void>.makeStream()
+        let connections = OperatorMergeTests.Prompts()
         let r = try await reviewed(.inReview, slices: Slices(review: true)) { ports in
             let publisher = ports.publisher
             ports.publisher = { connection in
-                connections.continuation.yield(())
+                connections.append("connected")
                 return try publisher(connection)
             }
         }
         r.host.update { $0.onCall = { if $0.hasPrefix("reviewers 12 jan") { await gate.wait() } } }
         let tools = r.world.controller.tools
-        func dispatch(_ name: String) -> Task<Void, Never>? {
+        func dispatch(_ name: String) -> Task<Void, Never> {
             tools.handle(OperatorRequest(requestId: name, runId: r.run.id.uuidString, tool: "request_review",
                                          arguments: ["task": "A", "reviewers": [.string(name)]]))
-            return tools.lastReply
         }
-        var connected = connections.stream.makeAsyncIterator()
-        let first = dispatch("jan")
-        _ = await connected.next()
-        await gate.started()
+        _ = dispatch("jan")
+        await eventually { connections.list.count == 1 }
+        let entered = await BackgroundWork.within(.seconds(TestDeadline.seconds), cancelling: false) { await gate.started(); return true }
+        #expect((try? entered.get()) == true)
         let second = dispatch("sara")
-        _ = await connected.next()
-        if cancelled { second?.cancel() }
+        await eventually { connections.list.count == 2 }
+        if cancelled { second.cancel() }
         else { r.world.workspace.mutate { $0.updateOperated(r.task.id) { $0.ownership += 1 } } }
         await gate.release()
-        await first?.value
-        await second?.value
+        await r.world.ports.work.settled()
         #expect(!r.host.reviewers.contains("sara"))
         let savedReviewers = r.world.task(r.task.id)?.operated?.peopleReview?.reviewers ?? []
         #expect(!savedReviewers.contains("sara"))
@@ -766,6 +762,13 @@ extension OperatorReviewTests {
         let answer = try #require(await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d64"]).value)
         #expect(answer["critique"] == "FIX: the target is not checked." && answer["recorded"] == false && answer["head"] == .string(r.sha))
         let prompt = try #require(prompts.list.first)
+        // Main 51f83d77's complete thread construction, before the job owner was shared.
+        let detail = ReviewThreadDetail(id: "d64", path: "app/redirect.ts", line: 42, notes: [
+            ReviewThreadDetail.Note(author: "aikido-bot", body: "Open redirect: the target comes from the query string."),
+            ReviewThreadDetail.Note(author: "aikido-bot", body: Self.finding.lastBody)])
+        let expectedPrompt = ChallengeLaunch.threadPrompt(task: "A", request: "!64", brief: r.task.operated?.brief ?? "",
+                                                          branch: r.task.branch, worktree: r.task.worktreePath, head: r.sha, thread: detail)
+        #expect(prompt == expectedPrompt)
         #expect(prompt.contains(Self.finding.lastBody) && prompt.contains("aikido-bot") && prompt.contains(r.task.worktreePath))
         #expect(prompt.contains("Open redirect: the target comes from the query string.") && prompt.contains("app/redirect.ts:42"))
         #expect(prompt.contains("Thread d64 on !64"))
@@ -883,5 +886,24 @@ extension OperatorReviewTests {
         r.world.controller.reviewWatcher.poll()
         await r.world.settled()
         #expect(r.host.userLookups - users == 2, "asked again after the failed lookup")
+    }
+}
+
+
+extension OperatorReviewTests {
+    /// Main 51f83d77's three call sites differ only in whether their surrounding sentence supplies punctuation.
+    @Test func theSharedHostFailureSentenceKeepsBothCurrentPunctuationRules() {
+        let errors: [any Error] = [BackgroundWork.NoAnswer(), ToolRefusal(""), ToolRefusal("."), ToolRefusal("..."),
+                                   ToolRefusal("Try again..."), ToolRefusal("Why?"), GitLabError.network("lost."),
+                                   GitHubError.badResponse(503), URLError(.timedOut)]
+        let limit = Duration.seconds(5)
+        for error in errors {
+            let current = error is BackgroundWork.NoAnswer ? "the host did not answer in \(Int(limit.components.seconds)) seconds"
+                : (error as? ToolRefusal)?.message ?? error.localizedDescription
+            var punctuated = current
+            while punctuated.hasSuffix(".") { punctuated.removeLast() }
+            #expect(OperatorToolHandler.hostFailure(error, limit: limit) == current)
+            #expect(OperatorToolHandler.hostFailure(error, limit: limit, trimmingPeriods: true) == punctuated)
+        }
     }
 }

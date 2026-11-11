@@ -179,7 +179,13 @@ import Testing
         let answers = ["IMPORTANT: The brief answers it.\nVERDICT: ANSWER", "MINOR: Say which screen.\nVERDICT: ANSWER"]
         let (world, run, task) = try makeWorld(check: .agreeFirst, runner: .answeringInTurn(answers, prompts: prompts))
         try await endTurn(world, run, task)
+        // Main 51f83d77's first-round construction; the later challenge record is not in run_status.
+        let current = try #require(world.run(run.id))
+        let status = OperatorToolHandler.json(try JSONValue(encoding: #require(world.controller.tools.currentStatus(of: current))))
+        let expectedPrompt = ChallengeLaunch.relayPrompt(task: task.operated?.key ?? task.title, question: Self.t6Question,
+                                                         lastMessage: Self.t6, brief: task.operated?.brief ?? "", run: status, discussion: [])
         let id = try #require(await relay(world, run).value?["challengeId"]?.stringValue)
+        #expect(await prompts.all.first == expectedPrompt)
         let made = await relay(world, run, ["challengeId": .string(id), "challengeReply": "The brief names one screen only."])
         #expect(made.value?["question"] == "pay-236-bulk", "only a minor point left: agreed")
         let said = await prompts.all

@@ -11,9 +11,6 @@ extension OperatorToolHandler {
         case state(MergeRequestState), note(String)
     }
 
-    /// The host, Jira or the Oracle did not answer within the limit (`within`).
-    struct NoAnswer: Error {}
-
     /// Fills `mergeRequest`, or `mergeRequestNote`, on every task of `status` that has a request, asking the hosts together.
     func fillMergeRequests(_ status: inout RunStatus) async {
         // One task each, started together: every host answers or times out inside the same few seconds.
@@ -34,44 +31,18 @@ extension OperatorToolHandler {
         }
     }
 
-    /// The host's view of `task`'s request: nil when it has none. A reading under `hostCache` old is the last one; one that
-    /// failed is not kept, so the next call asks again.
-    func hostState(of task: TaskItem) async -> HostReading? {
-        guard let publication = task.operated?.publication, let number = publication.mergeRequestNumber,
-              let url = publication.mergeRequestURL else { return nil }
-        let key = HostReadKey(project: task.projectId, repository: publication.repository, url: url,
-                              number: number, acceptedSHA: task.operated?.acceptance?.resultSHA)
-        if let kept = hostStates[key], ports.now().timeIntervalSince(kept.at) < ports.hostCache { return .state(kept.state) }
-        if let pending = hostReads[key] { return await pending.task.value }
-        let id = UUID()
-        let reading = Task { await self.readHost(task, publication: publication, number: number, url: url) }
-        hostReads[key] = HostRead(id: id, task: reading)
-        let answer = await reading.value
-        // A stop may have discarded this job and a resumed caller started another one for the same request.
-        if hostReads[key]?.id == id {
-            hostReads[key] = nil
-            if case .state(let value) = answer {
-                let now = ports.now()
-                hostStates = hostStates.filter { now.timeIntervalSince($0.value.at) < ports.hostCache }
-                hostStates[key] = (now, value)
-            }
-        }
-        return answer
-    }
-
-    private func readHost(_ task: TaskItem, publication: TaskPublication, number: Int, url: String) async -> HostReading {
+    func readHost(_ task: TaskItem, publication: TaskPublication, number: Int, url: String) async -> HostReading {
         let request = MergeRequest(iid: number, title: task.title, sourceBranch: task.branch, targetBranch: publication.targetBranch ?? "",
                                    author: nil, state: "opened", draft: false, url: url)
         let limit = ports.hostTimeout
-        let answer = await Self.within(limit) { [self] in
+        let answer = await BackgroundWork.within(limit) { [self] in
             let host = try await reviewHost(of: task, request: publication)
             return try await host.state(of: request)
         }
         switch answer {
         case .success(let state): return .state(state)
         case .failure(let error):
-            let why = error is NoAnswer ? "the host did not answer in \(Int(limit.components.seconds)) seconds"
-                : (error as? ToolRefusal)?.message ?? error.localizedDescription
+            let why = Self.hostFailure(error, limit: limit)
             return .note("AiTerm couldn’t read its \(CodeHost(webURL: url).reference(number)) on the host: \(why)")
         }
     }
@@ -102,7 +73,7 @@ extension OperatorToolHandler {
 
     private func readThreads(_ task: TaskItem, publication: TaskPublication, number: Int) async -> ThreadsReading {
         let limit = ports.hostTimeout
-        let answer = await Self.within(limit) { [self] in
+        let answer = await BackgroundWork.within(limit) { [self] in
             let host = try await reviewHost(of: task, request: publication)
             return try await host.threads(of: number)
         }
@@ -110,36 +81,16 @@ extension OperatorToolHandler {
         case .success(let threads):
             return .read(Dictionary(threads.map { ($0.id, $0.resolved) }, uniquingKeysWith: { first, _ in first }))
         case .failure(let error):
-            var why = error is NoAnswer ? "the host did not answer in \(Int(limit.components.seconds)) seconds"
-                : (error as? ToolRefusal)?.message ?? error.localizedDescription
-            while why.hasSuffix(".") { why.removeLast() }
+            let why = Self.hostFailure(error, limit: limit, trimmingPeriods: true)
             return .note("AiTerm couldn’t read its threads on the host now: \(why); these counts are from its last read.")
         }
     }
 
-    func cancelHostReads() {
-        for reading in hostReads.values { reading.task.cancel() }
-        hostReads.removeAll()
-        hostStates.removeAll()
-    }
-
-    /// `work`, or `NoAnswer` when it has not ended within `limit`. The race is between two tasks started here, not a task
-    /// group, so a host call that ignores cancellation is left behind instead of holding the answer up. The loser is
-    /// cancelled, `work` too unless `cancelling` is false: a wait that must go on after the answer (an Oracle's critique).
-    static func within<Value: Sendable>(_ limit: Duration, cancelling: Bool = true,
-                                        _ work: @escaping @MainActor @Sendable () async throws -> Value) async -> Result<Value, any Error> {
-        let (finished, report) = AsyncStream<Result<Value, any Error>>.makeStream()
-        let working = Task { @MainActor in
-            do { report.yield(.success(try await work())) } catch { report.yield(.failure(error)) }
-        }
-        let timer = Task {
-            try await Task.sleep(for: limit)
-            report.yield(.failure(NoAnswer()))
-        }
-        var first: Result<Value, any Error> = .failure(NoAnswer())
-        for await result in finished { first = result; break }
-        if cancelling { working.cancel() }
-        timer.cancel()
-        return first
+    /// Some surrounding sentences supply their own punctuation; the request-state note does not.
+    static func hostFailure(_ error: any Error, limit: Duration, trimmingPeriods: Bool = false) -> String {
+        var why = error is BackgroundWork.NoAnswer ? "the host did not answer in \(Int(limit.components.seconds)) seconds"
+            : (error as? ToolRefusal)?.message ?? error.localizedDescription
+        if trimmingPeriods { while why.hasSuffix(".") { why.removeLast() } }
+        return why
     }
 }

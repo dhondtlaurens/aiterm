@@ -250,7 +250,7 @@ final class TaskFinisher {
     private func wait(for id: UUID, restart: Bool, noVerify: Bool, budget: Duration) async -> Result {
         let flight = start(id, restart: restart, noVerify: noVerify, operatorCall: true)
         listening[id, default: 0] += 1
-        let answered = await OperatorToolHandler.within(budget, cancelling: false) { await flight.task.value }
+        let answered = await BackgroundWork.within(budget, cancelling: false) { await flight.task.value }
         listening[id, default: 1] -= 1
         if listening[id] == 0 { listening[id] = nil }
         // It may have ended in the turn the budget ran out: then its answer is this call's.

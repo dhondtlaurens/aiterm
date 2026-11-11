@@ -88,7 +88,7 @@ import Testing
 
     /// `work`'s answer if it comes within 20 seconds, which is far past the shortened budget; nil when it doesn't.
     func promptly(_ work: @escaping @MainActor @Sendable () async -> ToolAnswer) async -> ToolAnswer? {
-        try? await OperatorToolHandler.within(.seconds(20), cancelling: false) { await work() }.get()
+        try? await BackgroundWork.within(.seconds(20), cancelling: false) { await work() }.get()
     }
 
     /// The wake lines typed into the Operator's tab, once the waker has sent what it holds.

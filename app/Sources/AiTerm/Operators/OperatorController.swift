@@ -308,7 +308,7 @@ final class OperatorController {
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         workspace.onChange { [weak self] in
             // A task taken over, stopped or moved on: what its worker's turn left is read again or dropped first.
-            if let self { tools.oracleJobs.retain(in: self.workspace.state) }
+            if let self { tools.retainOracleJobs(in: self.workspace.state) }
             self?.turns.observe()
             self?.quiet.observe()
             self?.observeRuns()
@@ -511,7 +511,7 @@ final class OperatorController {
         guard let start = launches[id] else { return LaunchReport(id, in: workspace.state, starting: starter.starting.contains(id)) }
         let outcome: WorkerStarter.Outcome?
         if let budget {
-            if case .success(let ended) = await OperatorToolHandler.within(budget, cancelling: false, { await start.value }) {
+            if case .success(let ended) = await BackgroundWork.within(budget, cancelling: false, { await start.value }) {
                 outcome = ended
             } else {
                 outcome = nil

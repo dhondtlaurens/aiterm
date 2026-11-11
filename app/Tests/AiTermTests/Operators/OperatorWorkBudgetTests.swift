@@ -330,3 +330,30 @@ import Testing
         #expect(warm.origins == count, "origin reads per warm run_status over \(count)")
     }
 }
+
+
+extension OperatorWorkBudgetTests {
+    /// Baseline for phase 6's settings synchronization: one redundant profile read on an ordinary tool call.
+    @Test func aToolCallReadsOracleSettings() async throws {
+        let (world, run, _) = try OperatorServiceFixtures.oneWorkingTask()
+        defer { world.controller.stop() }
+        let work = try await Budget.metered {
+            #expect(await world.call(run.id, "ask_you", ["key": "q", "question": "Which locale?"]).message == nil)
+            await world.ports.work.settled()
+        }
+        #expect(work[.oracleSettingsRead] == 1)
+    }
+
+    /// Baseline: the gate fetches for landing, then the finisher fetches for the same landing again.
+    @Test func aJudgedMergeFetchesItsLandingCheck() async throws {
+        let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
+        let m = try OperatorMergeTests().merging(answer: "YES") { $0.git = git }
+        defer { m.world.controller.stop() }
+        let mark = git.calls.count
+        let answer = await m.world.call(m.run.id, "finish_task", ["task": "A"])
+        #expect(answer.value?["result"] == "waitingToMerge")
+        await m.world.ports.work.settled()
+        let fetches = git.calls.dropFirst(mark).filter { $0.args.contains("fetch") }.map(\.args)
+        #expect(fetches.count == 2, "landing-check fetches in a judged merge: \(fetches)")
+    }
+}

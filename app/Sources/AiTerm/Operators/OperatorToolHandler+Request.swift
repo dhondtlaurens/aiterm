@@ -78,10 +78,10 @@ extension OperatorToolHandler {
         if publication.wasMerged { throw ToolRefusal("\(reference) is merged: there is no pipeline of it to retry.") }
         // Two calls at once would both find it failed and retry it twice.
         let flight = WriteInFlight(kind: .pipelineRetry, run: run.id, key: task.id.uuidString)
-        guard writesInFlight.insert(flight).inserted else {
+        guard beginWrite(flight) else {
             throw ToolRefusal("AiTerm is retrying \(reference)’s pipeline now: call retry_pipeline again for what it found.")
         }
-        defer { writesInFlight.remove(flight) }
+        defer { endWrite(flight) }
         let host = try await reviewHost(of: task, request: publication)
         let check = writeCheck(task, number: number, in: run.id, review: false)
         let key = operated.key, branch = task.branch

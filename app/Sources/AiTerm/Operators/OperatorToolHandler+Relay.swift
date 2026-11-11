@@ -125,7 +125,7 @@ extension OperatorToolHandler {
         let runner = ports.secondOpinion, folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path) + (task.hasCheckout ? [task.worktreePath] : [])
         let consulting = OperatorActivity(run: run.id, task: task.id, act: .consultingTheOracle)
-        let challenge = oracleJobs.start(.challenge(id), run: run.id, task: task.id, runner: runner, opinion: opinion,
+        let challenge = startOracleJob(.challenge(id), run: run.id, task: task.id, runner: runner, opinion: opinion,
                                          prompt: prompt, folder: folder, projects: projects,
                                          acting: { [weak self] on in self?.onActing(consulting, on) }) { [weak self] verdict in
             guard let self, state.run(id: run.id)?.challenges.first(where: { $0.id == id })?.stage == .running else { return }
@@ -136,7 +136,7 @@ extension OperatorToolHandler {
                 }
             }
         }
-        let answered = try? await Self.within(ports.challengeReplyBudget, cancelling: false) { await challenge.value }.get()
+        let answered = try? await BackgroundWork.within(ports.challengeReplyBudget, cancelling: false) { await challenge.value }.get()
         // While the Oracle read, the person may have answered the worker in its tab, or the task changed hands or finished.
         if answered != nil { try stillAsks(worker, call, task: task, in: run) }
         switch answered {
@@ -203,7 +203,7 @@ extension OperatorToolHandler {
         let discussion = discussion(before: kept, worker: worker, in: run)
         let number = kept.relayRound ?? 1
         switch kept.stage {
-        case .running where oracleJobs.contains(.challenge(id)):
+        case .running where isOracleRunning(.challenge(id)):
             return Self.relayPending(id)
         case .running, .unchallenged:
             // Lost with AiTerm's restart, or the Oracle couldn't answer: it never holds the question up.

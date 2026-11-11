@@ -236,7 +236,7 @@ extension OperatorController {
         }
         defer { runChanged(id) }
         finisher.stopWatching(inRun: id)
-        tools.oracleJobs.cancel(inRun: id)
+        tools.cancelOracleJobs(inRun: id)
         waker.forget(id)
         // No start pass follows: nothing waited on a slot the ended broadcast held, as there is no cap.
         guard let daemon = daemon() else { return }
@@ -266,7 +266,7 @@ extension OperatorController {
             state.foldedRuns.remove(id)
         }
         let folder = self.folder(of: id)
-        await tools.lastRecording?.value
+        await tools.recordingsSettled()
         try await BackgroundWork.run {
             guard FileManager.default.fileExists(atPath: folder.path) else { return }
             try FileManager.default.removeItem(at: folder)

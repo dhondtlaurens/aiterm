@@ -21,8 +21,8 @@ extension OperatorToolHandler {
         let jira = try jiraWrite(in: run, otherwise: "Create the Jira ticket “\(summary)” in \(projectKey)")
         // Another call with this key is creating now: this one would make the ticket twice.
         let flight = WriteInFlight(kind: .jiraCreate, run: run.id, key: callKey)
-        guard writesInFlight.insert(flight).inserted else { throw ToolRefusal("jira_create with this key is still running: call it again for its ticket.") }
-        defer { writesInFlight.remove(flight) }
+        guard beginWrite(flight) else { throw ToolRefusal("jira_create with this key is still running: call it again for its ticket.") }
+        defer { endWrite(flight) }
         // The ticket carries the call's label: a create whose answer was lost is found by it, not made again.
         let label = Self.createLabel(run: run.id, key: callKey), pending = "jira_create_v2/\(callKey)"
         if state.run(id: run.id)?.pendingWrites.contains("jira_create/\(callKey)") == true {
@@ -106,9 +106,9 @@ extension OperatorToolHandler {
         for key in run.jiraProjectKeys.map({ $0.uppercased() }) where !projects.contains(key) { projects.append(key) }
         guard !projects.isEmpty else { throw outOfScope("", of: run) }
         let budget = ports.jiraSearchBudget
-        switch await Self.within(budget, { try await Self.readBoards(of: projects, with: jira) }) {
+        switch await BackgroundWork.within(budget, { try await Self.readBoards(of: projects, with: jira) }) {
         case .success(let answer): return answer
-        case .failure(let error) where error is NoAnswer:
+        case .failure(let error) where error is BackgroundWork.NoAnswer:
             throw ToolRefusal("Jira didn’t answer within \(Int(budget.components.seconds)) s; call jira_board again.")
         case .failure(let error): throw error
         }
@@ -157,7 +157,7 @@ extension OperatorToolHandler {
         let runId = run.id, projects = run.jiraProjectKeys, moved = tickets
         let budget = ports.jiraSearchBudget
         // Jira's boards and sprints are read first: the move is checked again after them, right before it is sent.
-        let outcome = await Self.within(budget) { [self] in
+        let outcome = await BackgroundWork.within(budget) { [self] in
             if case .sprint(let id) = target {
                 guard try await Self.sprintIsOnABoard(id, of: projects, with: jira) else {
                     throw ToolRefusal("Sprint \(id) isn’t an active or future sprint on a board of this broadcast’s Jira projects: \(projects.joined(separator: ", ")).")
@@ -176,7 +176,7 @@ extension OperatorToolHandler {
         }
         switch outcome {
         case .success: return ["sprint": .string(target.label), "tickets": .array(tickets.map(JSONValue.string)), "sprinted": true]
-        case .failure(let error) where error is NoAnswer:
+        case .failure(let error) where error is BackgroundWork.NoAnswer:
             throw ToolRefusal("Jira didn’t answer within \(Int(budget.components.seconds)) s, so the tickets may or may not have moved; call jira_sprint again with the same key, which is safe to repeat.")
         case .failure(let error): throw error
         }
@@ -214,8 +214,8 @@ extension OperatorToolHandler {
         let runId = run.id
         // Another call with this key is posting now: this one would post it twice.
         let flight = WriteInFlight(kind: .jiraComment, run: runId, key: callKey)
-        guard writesInFlight.insert(flight).inserted else { throw ToolRefusal("jira_comment with this key is still posting: call it again for its result.") }
-        defer { writesInFlight.remove(flight) }
+        guard beginWrite(flight) else { throw ToolRefusal("jira_comment with this key is still posting: call it again for its result.") }
+        defer { endWrite(flight) }
         let tag = Self.createLabel(run: runId, key: callKey), pending = "jira_comment/\(callKey)"
         if state.run(id: runId)?.pendingWrites.contains(pending) == true, let found = try await jira.findComment(key: ticket, tag: tag) {
             settle(pending, in: runId) { $0.jiraCommented[callKey] = found }
@@ -338,8 +338,8 @@ extension OperatorToolHandler {
         guard ports.jira() != nil else { return .notFiled(Self.notConnected) }
         // Another call is filing this find now: it is that call's to say.
         let flight = WriteInFlight(kind: .find, run: runId, key: key)
-        guard writesInFlight.insert(flight).inserted else { return .notAttempted }
-        defer { writesInFlight.remove(flight) }
+        guard beginWrite(flight) else { return .notAttempted }
+        defer { endWrite(flight) }
         do {
             try jiraWritable(runId)
             // Finds and explicit jira_create calls have separate idempotency keys.
