@@ -66,6 +66,23 @@ import Synchronization
 
     // MARK: Opening and finding
 
+    /// A node id is global: another repository can have the same pull-request number.
+    @Test(arguments: [("octocat/hello", "octocat/hello"), ("OCTOCAT/HELLO", "octocat/hello"),
+                      ("octocat/hello", "OCTOCAT/HELLO"), ("octocat/hello", "someone/else")])
+    func aThreadDetailBelongsToTheBoundRepositoryIgnoringCase(_ remote: String, _ repository: String) async throws {
+        let answer = #"{"data":{"node":{"id":"TH","path":"a.swift","line":4,"originalLine":3,"pullRequest":{"number":88,"repository":{"nameWithOwner":"\#(repository)"}},"comments":{"nodes":[{"body":"Keep this text.","author":{"login":"sam"}}]}}}}"#
+        let (client, stub) = makeClient { _ in (200, Data(answer.utf8)) }
+        if repository == "someone/else" {
+            await #expect(throws: GitHubError.refused("thread TH is not on pull request #88")) {
+                _ = try await client.threadDetail(repo: remote, number: 88, thread: "TH")
+            }
+        } else {
+            #expect(try await client.threadDetail(repo: remote, number: 88, thread: "TH") ==
+                ReviewThreadDetail(id: "TH", path: "a.swift", line: 4, notes: [.init(author: "sam", body: "Keep this text.")]))
+        }
+        #expect(stub.requests.count == 1)
+    }
+
     /// Snag !62 ("Aikido findings 2026-11"), on GitHub: the title and body are the pull request's, the assignee its issue's.
     @Test func anOpenPullRequestIsRetitledRedescribedAndReassigned() async throws {
         let (client, stub) = makeClient { request in
@@ -163,7 +180,7 @@ import Synchronization
 
     /// critique_thread's read: the thread by its node id, its file, line and comments; one of another pull request is refused.
     @Test func aReviewThreadIsReadWholeAndOnlyFromItsOwnPullRequest() async throws {
-        let answer = #"{"data":{"node":{"id":"PRRT_64","path":"app/redirect.ts","line":42,"originalLine":40,"pullRequest":{"number":88},"#
+        let answer = #"{"data":{"node":{"id":"PRRT_64","path":"app/redirect.ts","line":42,"originalLine":40,"pullRequest":{"number":88,"repository":{"nameWithOwner":"octocat/hello"}},"#
             + #""comments":{"nodes":[{"body":"Open redirect.","author":{"login":"aikido-bot"}},{"body":"Still open.","author":{"login":"jan"}}]}}}}"#
         let (client, stub) = makeClient { _ in (200, Data(answer.utf8)) }
         let detail = try await client.threadDetail(repo: "octocat/hello", number: 88, thread: "PRRT_64")

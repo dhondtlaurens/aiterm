@@ -20,6 +20,39 @@ import Foundation
         return (GitHubClient(config: config, session: stub.session), stub)
     }
 
+    /// Today's interpolation remains the reference. Encoding is character-wise, so the complete
+    /// allowed alphabet and each character at either end and inside a name cover valid names.
+    @Test func repositoryPathsKeepTodaysConstructionForEveryAllowedCharacter() throws {
+        func today(_ repo: String) -> URL? { HTTPJSON.url("https://api.github.com/repos/\(repo)/pulls/87") }
+        let alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
+        let names = [alphabet, "hello", "Some-Repo_1.2"] + alphabet.flatMap { ["\($0)x", "x\($0)x", "x\($0)"] }
+        for name in names {
+            for repo in ["octocat/\(name)", "\(name)/hello"] {
+                #expect(HTTPJSON.url(GitHubClient.api + GitHubClient.repositoryPath(repo) + "/pulls/87") == today(repo))
+            }
+        }
+        // These are all the differing rows in this table, each outside GitHub's name alphabet.
+        let changed = [
+            ("owner/repo%2Fpart", "owner/repo%2Fpart", "owner/repo%252Fpart"),
+            ("owner/repo+part", "owner/repo+part", "owner/repo%2Bpart"),
+            ("owner/repo#part", "owner/repo#part", "owner/repo%23part"),
+            ("owner/repo?part", "owner/repo?part", "owner/repo%3Fpart"),
+        ]
+        for (repo, old, encoded) in changed {
+            #expect(today(repo)?.absoluteString == "https://api.github.com/repos/\(old)/pulls/87")
+            let path = GitHubClient.api + GitHubClient.repositoryPath(repo) + "/pulls/87"
+            #expect(HTTPJSON.url(path)?.absoluteString == "https://api.github.com/repos/\(encoded)/pulls/87")
+        }
+    }
+
+    @Test(arguments: [("owner/repo%2Fpart", "owner/repo%252Fpart"), ("owner/repo+part", "owner/repo%2Bpart"),
+                      ("owner/repo#part", "owner/repo%23part"), ("owner/repo?part", "owner/repo%3Fpart")])
+    func aRepositorySegmentIsEncodedInTheSentRequest(_ repo: String, _ encoded: String) async throws {
+        let (client, stub) = makeClient { _ in (404, Data()) }
+        #expect(try await client.pullRequests(repo: repo, search: "#87").isEmpty)
+        #expect(stub.requests.map { $0.url?.absoluteString } == ["https://api.github.com/repos/\(encoded)/pulls/87"])
+    }
+
     @Test func theListIsOpenPullsNewestFirstWithTheToken() async throws {
         let body = try JSONSerialization.data(withJSONObject: [pull(87)])
         let (client, stub) = makeClient { _ in (200, body) }
