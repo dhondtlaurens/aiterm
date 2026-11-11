@@ -74,7 +74,7 @@ extension OperatorToolHandler {
 
         // Awaited however long it takes: the hook waits `OperatorTiming.gateTimeout`, past the Oracle's own limit.
         let consulting = OperatorActivity(run: run.id, task: task?.id, act: .consultingTheOracle)
-        let job = startOracleJob(.gate(UUID()), run: run.id, task: task?.id, runner: ports.secondOpinion, opinion: opinion,
+        let job = startOracleJob(.gate(UUID()), run: run.id, runner: ports.secondOpinion, opinion: opinion,
                                    prompt: prompt, folder: folder, projects: projects, capped: false, keepCancelled: true,
                                    acting: { [weak self] on in self?.onActing(consulting, on) })
         let verdict = await job.value

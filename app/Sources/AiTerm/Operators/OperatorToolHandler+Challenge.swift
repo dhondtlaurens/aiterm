@@ -222,7 +222,7 @@ extension OperatorToolHandler {
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
         let consulting = OperatorActivity(run: run.id, task: call.optionalString("task").flatMap { state.task(inRun: run.id, named: $0)?.id },
                                           act: .consultingTheOracle)
-        let challenge = startOracleJob(.challenge(id), run: run.id, task: consulting.task, runner: runner, opinion: opinion,
+        let challenge = startOracleJob(.challenge(id), run: run.id, runner: runner, opinion: opinion,
                                          prompt: prompt, folder: folder, projects: projects,
                                          acting: { [weak self] on in self?.onActing(consulting, on) }) { [weak self] verdict in
             guard let self else { return }

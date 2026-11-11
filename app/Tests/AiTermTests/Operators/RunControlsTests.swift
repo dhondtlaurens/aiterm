@@ -621,7 +621,7 @@ import Testing
         }
         let gate = OracleGate(), tools = world.controller.tools
         for (key, id) in [("mine", run.id), ("theirs", other.id)] {
-            tools.startOracleJob(.challenge(key), run: id, task: nil, runner: .answering("Late.", gate: gate),
+            tools.startOracleJob(.challenge(key), run: id, runner: .answering("Late.", gate: gate),
                        opinion: run.profile.oracle, prompt: key, folder: world.ports.home, projects: [], acting: { _ in })
         }
         try await world.controller.end(run: run.id)

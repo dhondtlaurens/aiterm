@@ -255,15 +255,15 @@ final class OperatorToolHandler {
     func endMessage(_ key: MessageKey) { sendingMessages.remove(key) }
     func recordDelivery(_ answer: JSONValue, for key: MessageKey) { deliveredMessages[key] = (ports.now(), answer) }
     func cancelOracleJobs(inRun run: UUID? = nil) { oracleJobs.cancel(inRun: run) }
-    func retainOracleJobs(in state: AppState) { oracleJobs.retain(in: state) }
+    func cancelOracleChallenges(_ ids: [String]) { oracleJobs.cancelChallenges(ids) }
     func isOracleRunning(_ key: OracleJobs.Key) -> Bool { oracleJobs.contains(key) }
     func runningOracle(_ key: OracleJobs.Key) -> Task<SecondOpinionRunner.Verdict?, Never>? { oracleJobs.running(key) }
     @discardableResult
-    func startOracleJob(_ key: OracleJobs.Key, run: UUID, task: UUID?, runner: SecondOpinionRunner, opinion: OracleSetting,
+    func startOracleJob(_ key: OracleJobs.Key, run: UUID, runner: SecondOpinionRunner, opinion: OracleSetting,
                         prompt: String, folder: URL, projects: [String], capped: Bool = true, keepCancelled: Bool = false,
                         acting: @escaping @MainActor (Bool) -> Void,
                         settle: @escaping @MainActor (SecondOpinionRunner.Verdict) -> Void = { _ in }) -> Task<SecondOpinionRunner.Verdict?, Never> {
-        oracleJobs.start(key, run: run, task: task, runner: runner, opinion: opinion, prompt: prompt, folder: folder,
+        oracleJobs.start(key, run: run, runner: runner, opinion: opinion, prompt: prompt, folder: folder,
                          projects: projects, capped: capped, keepCancelled: keepCancelled, acting: acting, settle: settle)
     }
 

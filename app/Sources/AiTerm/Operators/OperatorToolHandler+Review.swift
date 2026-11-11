@@ -266,7 +266,7 @@ extension OperatorToolHandler {
         let runner = ports.secondOpinion, folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
         let consulting = OperatorActivity(run: run.id, task: task.id, act: .consultingTheOracle)
-        return startOracleJob(.critique(key), run: run.id, task: task.id, runner: runner, opinion: opinion,
+        return startOracleJob(.critique(key), run: run.id, runner: runner, opinion: opinion,
                                 prompt: prompt, folder: folder, projects: projects,
                                 acting: { [weak self] on in self?.onActing(consulting, on) }) { [weak self] capped in
             guard let self else { return }

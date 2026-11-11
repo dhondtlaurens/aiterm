@@ -535,7 +535,8 @@ Each box leaves the project working and is one or a few commits.
 - [x] 5e. Per-key records; the listing-wait value; batched mutations; typed errors.
 - [x] 5f. Window owner and pause signaller; branch-watch and review-watch caches; closed wake reasons. The shelved
   board's one derivation is dropped: no budget counts it (record).
-- [x] 6a. One Oracle-job owner, cancelled on Stop and End (test first).
+- [x] 6a. One Oracle-job owner, cancelled on Stop and End (test first). Review round 1 restores main’s
+  settings-save policy (non-acted challenge/relay jobs only); task/workspace removal cancels no Oracle job.
 - [x] 6b. Handler on tool traits; private tables; `mark_task` enum; sentence and timeout helpers.
 - [x] 6c. Concurrent `run_status` host reads; settings sync sites. Status-build skipping dropped: its probe leaves
   the primed call at 3 and the frozen journey at 47, so its code is left out. "A judged merge reuses the gate's

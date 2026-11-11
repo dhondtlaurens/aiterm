@@ -125,7 +125,7 @@ extension OperatorToolHandler {
         let runner = ports.secondOpinion, folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path) + (task.hasCheckout ? [task.worktreePath] : [])
         let consulting = OperatorActivity(run: run.id, task: task.id, act: .consultingTheOracle)
-        let challenge = startOracleJob(.challenge(id), run: run.id, task: task.id, runner: runner, opinion: opinion,
+        let challenge = startOracleJob(.challenge(id), run: run.id, runner: runner, opinion: opinion,
                                          prompt: prompt, folder: folder, projects: projects,
                                          acting: { [weak self] on in self?.onActing(consulting, on) }) { [weak self] verdict in
             guard let self, state.run(id: run.id)?.challenges.first(where: { $0.id == id })?.stage == .running else { return }

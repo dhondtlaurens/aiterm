@@ -14,7 +14,7 @@ extension OperatorToolHandler {
         guard !runs.isEmpty else { return }
         for run in runs {
             advanceOracleGeneration(run.id)
-            cancelOracleJobs(inRun: run.id)
+            cancelOracleChallenges(run.challenges.filter { $0.stage != .acted }.map(\.id))
         }
         workspace.mutate { state in
             for run in runs {

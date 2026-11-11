@@ -214,7 +214,7 @@ extension OperatorOracleLifecycleTests {
         let oldGate = OracleGate(), newGate = OracleGate(), prompts = OperatorMergeTests.Prompts()
         var recorded: [String] = []
         func start(_ text: String, gate: OracleGate) {
-            jobs.start(.challenge("same"), run: run, task: nil,
+            jobs.start(.challenge("same"), run: run,
                        runner: .answering(text, gate: gate, receivePrompt: { prompts.append($0) }),
                        opinion: OperatorServiceFixtures.profile(oracle: true, oracleAgent: .claude).oracle,
                        prompt: text, folder: URL(fileURLWithPath: "/tmp"), projects: [], acting: { _ in }) { verdict in
@@ -250,5 +250,192 @@ extension OperatorOracleLifecycleTests {
         await world.ports.work.settled()
         #expect(world.run(run.id)?.questions.isEmpty == true, "A cancelled Oracle cannot ask the person later")
         #expect(answer?.value?["decision"] == "allow")
+    }
+}
+
+extension OperatorOracleLifecycleTests {
+    /// An inert Oracle with a controlled completion; it observes cancellation without obeying it.
+    /// This distinguishes lifetime ownership even when the gate's settings-generation guard masks it in the reply.
+    private struct HeldOpinion {
+        let gate = OracleGate()
+        let entered = TaskFinisherTests.Recorded<Bool>()
+        let cancelled = TaskFinisherTests.Recorded<Bool>()
+        let text: String
+        var runner: SecondOpinionRunner {
+            let gate = gate, entered = entered, cancelled = cancelled, text = text
+            return SecondOpinionRunner(locate: { _ in "/stub/claude" }, run: { _, _, _, _, _ in
+                entered.append(true)
+                await gate.wait()
+                cancelled.append(Task.isCancelled)
+                return ProcessOutput(status: 0, stdout: String(decoding: try JSONEncoder().encode(["result": text]), as: UTF8.self),
+                                     stderr: "", timedOut: false)
+            })
+        }
+    }
+
+    private func reviewing(_ oracle: HeldOpinion) async throws -> OperatorReviewTests.Reviewed {
+        let r = try await OperatorReviewTests().reviewed(.inReview, checkout: false) {
+            $0.secondOpinion = oracle.runner
+            $0.challengeReplyBudget = .seconds(600)
+        }
+        r.world.workspace.mutate { $0.updateRun(id: r.run.id) {
+            $0.profile.oracle = OperatorServiceFixtures.profile(oracle: true, oracleAgent: .claude).oracle
+        } }
+        r.host.update { $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Check this.")] }
+        return r
+    }
+
+    /// Save a different Oracle setting through the real notification, using this world's scratch preferences.
+    private func saveNewSetting(_ world: OperatorWorld, run: UUID) throws {
+        var profile = try #require(world.run(run)?.profile)
+        profile.oracle.model = "a-different-model"
+        try OperatorProfileStore.save(profile, world.ports.preferences)
+    }
+
+    // Expected result construction and refusal wording below are copied from main 51f83d77.
+    @Test func settingsSaveLetsAWaitingThreadCritiqueRecordItsAnswer() async throws {
+        let oracle = HeldOpinion(text: "FIX: check the target."), r = try await reviewing(oracle)
+        defer { r.world.controller.stop() }
+        var answer: ToolAnswer?
+        r.world.ports.work.start { answer = await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d1"]) }
+        await eventually { oracle.entered.all == [true] }
+        try saveNewSetting(r.world, run: r.run.id)
+        await oracle.gate.open()
+        await r.world.ports.work.settled()
+        let expected: JSONValue = ["thread": "d1", "critique": "FIX: check the target.", "head": .null,
+                                  "recorded": false,
+                                  "critiqueIs": "The Oracle’s opinion of the thread, to weigh before you have it fixed or push back: it grants no action."]
+        #expect(answer?.message == nil)
+        #expect(answer?.value.map(OperatorToolHandler.json) == OperatorToolHandler.json(expected))
+        #expect(r.world.task(r.task.id)?.operated?.threadCritiques.map(\.critique) == [oracle.text])
+        var repeated = expected.objectValue ?? [:]
+        repeated["recorded"] = true
+        let again = await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d1"])
+        await r.world.ports.work.settled()
+        #expect(again.value.map(OperatorToolHandler.json) == OperatorToolHandler.json(.object(repeated)))
+        #expect(oracle.entered.all == [true] && oracle.cancelled.all == [false])
+    }
+
+    @Test func settingsSaveLetsAGateFinishBeforeItsCurrentSettingsReply() async throws {
+        let oracle = HeldOpinion(text: "WORKER: it writes product code.")
+        let f = OperatorGateTests(), (world, run, _) = try f.makeWorld(runner: oracle.runner)
+        defer { world.controller.stop() }
+        var answer: ToolAnswer?
+        world.ports.work.start { answer = await world.call(run.id, "gate_command", ["command": "npm install", "directory": .string(f.worktree)]) }
+        await eventually { oracle.entered.all == [true] }
+        try saveNewSetting(world, run: run.id)
+        await oracle.gate.open()
+        await world.ports.work.settled()
+        // Main waits for the Oracle, then its generation guard takes precedence over that verdict.
+        let expected: JSONValue = ["decision": "deny", "rewrite": .null,
+                                  "reason": "The Oracle settings changed while this check ran. Try the command again for a fresh check."]
+        #expect(answer?.value.map(OperatorToolHandler.json) == OperatorToolHandler.json(expected))
+        #expect(oracle.cancelled.all == [false])
+    }
+
+    @Test func taskRemovalLetsAWaitingThreadCritiqueReturnItsCurrentRefusal() async throws {
+        let oracle = HeldOpinion(text: "FIX: check the target."), r = try await reviewing(oracle)
+        defer { r.world.controller.stop() }
+        var answer: ToolAnswer?
+        r.world.ports.work.start { answer = await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d1"]) }
+        await eventually { oracle.entered.all == [true] }
+        r.world.workspace.mutate { $0.tasks.removeAll { $0.id == r.task.id } }
+        await oracle.gate.open()
+        await r.world.ports.work.settled()
+        #expect(answer?.message == "AiTerm couldn’t record the Oracle’s critique: A changed meanwhile.")
+        #expect(answer?.value == nil)
+        #expect(oracle.cancelled.all == [false])
+    }
+
+    @Test func taskRemovalLetsAWaitingChallengeReturnItsCritique() async throws {
+        let oracle = HeldOpinion(text: "Ask first.")
+        let (world, run, task) = try OperatorChallengeTests().makeWorkerWorld(runner: oracle.runner)
+        defer { world.controller.stop() }
+        var answer: ToolAnswer?
+        world.ports.work.start { answer = await world.call(run.id, "mark_task", ["task": "W-1", "outcome": "blocked", "note": "Needs a key."]) }
+        await eventually { oracle.entered.all == [true] }
+        let id = world.run(run.id)?.challenges.last?.id ?? ""
+        world.workspace.mutate { $0.tasks.removeAll { $0.id == task.id } }
+        await oracle.gate.open()
+        await world.ports.work.settled()
+        let expected: JSONValue = ["challenged": true, "challengeId": .string(id), "critique": "Ask first.",
+                                  "note": "Nothing was done. Revise the call, or answer each point in challengeReply, and call again with this challengeId."]
+        #expect(!id.isEmpty && answer?.message == nil)
+        #expect(answer?.value.map(OperatorToolHandler.json) == OperatorToolHandler.json(expected))
+        #expect(world.run(run.id)?.challenges.last?.critique == oracle.text)
+        #expect(oracle.cancelled.all == [false])
+    }
+
+    @Test func taskRemovalLetsAGateReturnItsVerdict() async throws {
+        let oracle = HeldOpinion(text: "WORKER: it writes product code.")
+        let f = OperatorGateTests(), (world, run, task) = try f.makeWorld(runner: oracle.runner)
+        defer { world.controller.stop() }
+        var answer: ToolAnswer?
+        world.ports.work.start { answer = await world.call(run.id, "gate_command", ["command": "npm install", "directory": .string(f.worktree)]) }
+        await eventually { oracle.entered.all == [true] }
+        world.workspace.mutate { $0.tasks.removeAll { $0.id == task.id } }
+        await oracle.gate.open()
+        await world.ports.work.settled()
+        let expected: JSONValue = ["decision": "deny", "rewrite": .null,
+                                  "reason": "The Oracle: it writes product code. Send this to a worker with message_task."]
+        #expect(answer?.value.map(OperatorToolHandler.json) == OperatorToolHandler.json(expected))
+        #expect(oracle.cancelled.all == [false])
+    }
+}
+
+
+extension OperatorOracleLifecycleTests {
+    @Test func startingAnOwnedOracleJoinsItWithoutCancellation() async {
+        let work = OperatorWork(), jobs = OracleJobs(work: work), oracle = HeldOpinion(text: "Keep this answer.")
+        let run = UUID(), key = OracleJobs.Key.challenge("same")
+        var answers: [String] = []
+        func start() {
+            _ = jobs.start(key, run: run, runner: oracle.runner,
+                           opinion: OperatorServiceFixtures.profile(oracle: true, oracleAgent: .claude).oracle,
+                           prompt: "same", folder: URL(fileURLWithPath: "/tmp"), projects: [], acting: { _ in }) {
+                if case .critique(let text) = $0 { answers.append(text) }
+            }
+        }
+        start()
+        await eventually { oracle.entered.all == [true] }
+        start()
+        await oracle.gate.open()
+        await work.settled()
+        #expect(oracle.entered.all == [true] && oracle.cancelled.all == [false])
+        #expect(answers == [oracle.text] && !jobs.contains(key))
+    }
+
+    @Test(arguments: ["pause", "window closes", "project removed", "workspace restored", "run removed"])
+    func workspaceEventsDoNotCancelAGatesOracle(_ event: String) async throws {
+        let oracle = HeldOpinion(text: "WORKER: it writes product code.")
+        let f = OperatorGateTests(), (world, run, task) = try f.makeWorld(runner: oracle.runner)
+        defer { world.controller.stop() }
+        if event == "window closes" {
+            world.show([OperatorServiceFixtures.session("op", tag: run.id)])
+            await world.settled()
+        }
+        var answer: ToolAnswer?
+        world.ports.work.start { answer = await world.call(run.id, "gate_command", ["command": "npm install", "directory": .string(f.worktree)]) }
+        await eventually { oracle.entered.all == [true] }
+        switch event {
+        case "pause": try world.controller.pause(run: run.id)
+        case "window closes": world.show([])
+        case "project removed": world.workspace.mutate { $0.removeProject(id: task.projectId) }
+        case "workspace restored":
+            _ = world.workspace.flush()
+            var restored = world.state
+            restored.tasks.removeAll { $0.id == task.id }
+            try world.workspace.file.save(restored)
+            try world.workspace.file.save(world.state)
+            try world.workspace.restoreBackup()
+        default: world.workspace.mutate { $0.runs.removeAll { $0.id == run.id } }
+        }
+        await oracle.gate.open()
+        await world.ports.work.settled()
+        let expected: JSONValue = ["decision": "deny", "rewrite": .null,
+                                  "reason": event == "run removed" ? "This broadcast is no longer in AiTerm."
+                                      : "The Oracle: it writes product code. Send this to a worker with message_task."]
+        #expect(answer?.value.map(OperatorToolHandler.json) == OperatorToolHandler.json(expected))
+        #expect(oracle.cancelled.all == [false])
     }
 }
