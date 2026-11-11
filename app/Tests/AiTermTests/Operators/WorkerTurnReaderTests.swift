@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
@@ -629,5 +630,69 @@ extension WorkerTurnReaderTests {
         await world.settled()
         #expect((world.task(busy.id)?.operated?.totalRuntimeUsed ?? 0) > counted, "the sibling's work was counted on the tick")
         #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.")
+    }
+}
+
+/// A gate a read's thread waits at until the test lets it go, once: the first read to reach it is held, every later one
+/// passes (phase 5, review round 3).
+final class FirstReadHold: Sendable {
+    private let release = DispatchSemaphore(value: 0)
+    private let state = Mutex<(arrived: Bool, used: Bool)>((false, false))
+    var arrived: Bool { state.withLock { $0.arrived } }
+
+    /// Holds the first stamp-only read until `letGo`; a full read, and every read after the first, passes.
+    func hold(fullRead: Bool) {
+        guard !fullRead, state.withLock({ state -> Bool in
+            guard !state.used else { return false }
+            state.used = true
+            state.arrived = true
+            return true
+        }) else { return }
+        release.wait()
+    }
+
+    func letGo() { release.signal() }
+}
+
+extension WorkerTurnReaderTests {
+    /// A read that a newer one replaced keeps nothing (phase 5, review round 3): a stamp-only read of reply A held between
+    /// its read and what it keeps, the file rewritten in place to B with its stamp put back, the tick's full read reads B
+    /// and applies it; the older read let go after it keeps nothing and applies nothing, and the next change still reads B.
+    @Test func aReadANewerOneReplacedKeepsNothingWhenItEndsLast() async throws {
+        let (world, _, task, _) = try makeWorld(worker: .idle)
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("conv-1.jsonl")
+        try replyLine("Wired 0.").write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_800_000_000)], ofItemAtPath: file.path)
+        world.controller.turns.observe()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired 0.")
+
+        let hold = FirstReadHold()
+        world.controller.transcripts.holdBeforeKeeping { hold.hold(fullRead: $0) }
+        defer { world.controller.transcripts.holdBeforeKeeping(nil) }
+        // A, written a minute later: a stamp-only read reads it, and is held before it keeps it.
+        let written = Date(timeIntervalSince1970: 1_800_000_060)
+        try replyLine("Wired A.").write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        var tab = try #require(world.live.sessions.first { $0.taskUUID == task.id })
+        tab.contextPercent = 40
+        world.live.handle(.sessionChanged(tab))
+        world.controller.handle(.sessionChanged(tab))
+        await eventually(describing: "the stamp-only read held") { hold.arrived }
+        // B, in place at the same length, its date put back: the tick's full read reads it, keeps it and applies it.
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.write(contentsOf: try replyLine("Wired B."))
+        try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        world.controller.reconcileTick()
+        await eventually(describing: "B applied") { world.controller.turns.readings[task.id]?.lastMessage == "Wired B." }
+        // A ends last.
+        hold.letGo()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.", "the older read applies nothing")
+        try await contextMoved(world, task, to: 50)
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.", "the older read kept nothing")
     }
 }

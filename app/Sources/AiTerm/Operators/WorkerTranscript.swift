@@ -213,7 +213,16 @@ final class TranscriptLocator: Sendable {
     private struct Stamp: Equatable { let device: Int, file: UInt64, modified: Date, size: UInt64 }
     /// Each conversation's newest reply as last read, with its file's stamp then, by conversation id and agent.
     private struct Kept { let stamp: Stamp, reply: WorkerTranscript.Reply? }
-    private let replies = Mutex<[String: Kept]>([:])
+    /// What is kept, and the newest read begun of each conversation's file, numbered: only that read keeps what it found,
+    /// so a read that a newer one overtook — the turn reader's and the branch watch's reads overlap — keeps nothing, and
+    /// never puts an older reply back. One lock for both: a read is told it is the newest and keeps in one step.
+    private struct Replies {
+        var kept: [String: Kept] = [:]
+        var begun: [String: Int] = [:]
+    }
+    private let replies = Mutex(Replies())
+    /// What runs between a read and what it keeps, for a test to hold a read there (`holdBeforeKeeping`); nothing in the app.
+    private let beforeKeeping = Mutex<(@Sendable (_ fullRead: Bool) -> Void)?>(nil)
 
     init(home: URL, claudeConfig: ClaudeConfig) {
         self.home = home
@@ -242,19 +251,33 @@ final class TranscriptLocator: Sendable {
         guard let found = file(agent: agent, conversation: conversation) else { return (nil, false) }
         let file = found.resolvingSymlinksInPath()
         let key = agent.rawValue + "/" + conversation, stamp = Self.stamp(of: file)
-        if !fullRead, let stamp, let kept = replies.withLock({ $0[key] }), kept.stamp == stamp { return (kept.reply, false) }
-        // Stamped before the read: a write in between is read again next time, never missed.
-        guard let read = WorkerTranscript.readReply(in: file, agent: agent) else {
-            replies.withLock { $0[key] = nil }
-            return (nil, true)
+        if !fullRead, let stamp, let kept = replies.withLock({ $0.kept[key] }), kept.stamp == stamp { return (kept.reply, false) }
+        let number = replies.withLock { replies in
+            let number = replies.begun[key, default: 0] + 1
+            replies.begun[key] = number
+            return number
         }
-        replies.withLock { $0[key] = stamp.map { Kept(stamp: $0, reply: read.reply) } }
-        return (read.reply, true)
+        // Stamped before the read: a write in between is read again next time, never missed.
+        let read = WorkerTranscript.readReply(in: file, agent: agent)
+        beforeKeeping.withLock { $0 }?(fullRead)
+        replies.withLock { replies in
+            // Overtaken by a newer read of the same file: that one keeps what it found, and this keeps nothing.
+            guard replies.begun[key] == number else { return }
+            replies.kept[key] = read.flatMap { read in stamp.map { Kept(stamp: $0, reply: read.reply) } }
+        }
+        return (read?.reply, true)
     }
+
+    /// For a test: `hold` runs on each read of a file's tail after it is read and before what it found is kept.
+    func holdBeforeKeeping(_ hold: (@Sendable (_ fullRead: Bool) -> Void)?) { beforeKeeping.withLock { $0 = hold } }
 
     /// Lets go of the replies kept for conversations not in `open`, by conversation id.
     func keepReplies(of open: Set<String>) {
-        replies.withLock { kept in kept = kept.filter { open.contains(String($0.key.drop { $0 != "/" }.dropFirst())) } }
+        replies.withLock { replies in
+            func isOpen(_ key: String) -> Bool { open.contains(String(key.drop { $0 != "/" }.dropFirst())) }
+            replies.kept = replies.kept.filter { isOpen($0.key) }
+            replies.begun = replies.begun.filter { isOpen($0.key) }
+        }
     }
 
     private static func stamp(of file: URL) -> Stamp? {
