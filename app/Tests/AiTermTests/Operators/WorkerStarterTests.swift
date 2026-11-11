@@ -86,7 +86,8 @@ import Testing
         state.lastModelByAgent[.codex] = "gpt-6-astra"
         // Codex's default, as create_task finds it: the Settings card on this Mac, else the remembered model.
         let fallback = try #require(run.agents.first { $0.agent == .codex })
-        let world = try OperatorWorld(state) { $0.weeklyUsage = { [.claude: 84, .codex: 12] } }
+        let world = try OperatorWorld(state)
+        world.useWeekly([.claude: 84, .codex: 12])
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-7", state: .queued, agent: .claude)
         world.workspace.mutate { $0.tasks.append(task) }
         world.controller.startReadyTasks()
@@ -107,7 +108,8 @@ import Testing
     @Test func aPinnedTaskStaysOnItsAgent() async throws {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-start-"))
         let run = OperatorServiceFixtures.run(projects: [project], state: .active)
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { $0.weeklyUsage = { [.claude: 84] } }
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        world.useWeekly([.claude: 84])
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-8", state: .queued, agent: .claude)
         task.operated?.agentPinned = true
         world.workspace.mutate { $0.tasks.append(task) }
@@ -311,9 +313,8 @@ extension WorkerStarterTests {
         let planned = AgentChoice(agent: .claude, model: "claude-named", reasoning: "high")
         let other = AgentChoice(agent: .codex, model: "gpt-6-mini", reasoning: "low")
         run.agents = otherAllowed ? [planned, other, AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "high")] : [planned]
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) {
-            $0.weeklyUsage = { [.claude: 84, .codex: 12] }
-        }
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        world.useWeekly([.claude: 84, .codex: 12])
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "ROW", state: .queued, agent: planned.agent)
         task.model = planned.model; task.reasoning = planned.reasoning
         task.operated?.agentPinned = pinned

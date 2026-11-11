@@ -41,7 +41,7 @@ import Testing
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { ports in
             ModelSettings.save(ModelPreference(model: "claude-opus-5-5", reasoning: "high"), for: .claude,
-                               defaults: ports.preferences!)
+                               defaults: ports.preferences)
             ports.agentModels = { _ in [AgentModel(id: "claude-opus-5-5", label: "Opus", detail: nil,
                                                    efforts: ["medium", "high"], defaultEffort: "medium")] }
         }

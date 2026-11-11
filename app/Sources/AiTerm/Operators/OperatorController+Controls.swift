@@ -340,13 +340,14 @@ extension OperatorController {
     /// an agent mid-turn is never interrupted but finishes it. Its second opinions are cancelled, its
     /// Operator is no longer woken, its token is revoked and its window closed, each only logged when it
     /// fails (an attach does both again). Every task that started stays, its worktree and MR untouched, and
-    /// the "+" returns.
+    /// the "+" returns. Once it has done all that, it is a change to the run like any other (`runChanged`).
     func end(run id: UUID) async throws {
         guard let run = self.run(id: id), run.state != .stopped else { return }
         let now = ports.now()
         let ending = try savedOrTakenBack("The end couldn’t be saved, so the broadcast was left as it was.") { state in
             Self.applyEnd(id, at: now, to: &state)
         }
+        defer { runChanged(id) }
         finisher.stopWatching(inRun: id)
         for challenge in run.challenges { tools.runningChallenges[challenge.id]?.cancel() }
         waker.forget(id)

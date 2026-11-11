@@ -61,7 +61,7 @@ import Testing
     func replacementTabsUseFrozenRowsDespiteDifferentSettingsDefaults(model: String?) async throws {
         let (world, run, task) = try makeWorld(adjust: { ports in
             ModelSettings.save(ModelPreference(model: "claude-opus-5-5", reasoning: "medium"), for: .claude,
-                               defaults: ports.preferences!)
+                               defaults: ports.preferences)
             ports.agentModels = { _ in [AgentModel(id: "claude-opus-5-5", label: "Opus", detail: nil,
                                                    efforts: ["medium", "high"], defaultEffort: "medium")] }
         })

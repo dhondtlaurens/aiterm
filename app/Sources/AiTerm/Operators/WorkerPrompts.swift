@@ -15,15 +15,17 @@ final class WorkerPrompts {
     private var messageProbes: [UUID: Task<Void, Never>] = [:]
     private var generation = 0
     private var isStopped = false
-    var tabsKnown: @MainActor () -> Bool = { false }
+    /// Whether a tab not listed is a tab closed (`TabsListing`).
+    private let listing: TabsListing
     var changed: @MainActor (UUID) -> Void = { _ in }
 
     init(workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts,
-         daemon: @escaping @MainActor () -> (any DaemonCommands)?) {
+         daemon: @escaping @MainActor () -> (any DaemonCommands)?, listing: TabsListing) {
         self.workspace = workspace
         self.live = live
         self.ports = ports
         self.daemon = daemon
+        self.listing = listing
     }
 
     func start() { isStopped = false }
@@ -101,7 +103,7 @@ final class WorkerPrompts {
         let tab = worker.session
         guard let tab else {
             // No tab listed yet is not an answer; a known closed tab has no prompt left to answer.
-            if let open, tabsKnown() { resolvePrompt(open, in: run.id, task: id) }
+            if let open, listing.known { resolvePrompt(open, in: run.id, task: id) }
             return
         }
         let previous = promptState.updateValue(tab.state, forKey: tab.sessionId)

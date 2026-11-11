@@ -5,7 +5,8 @@ extension OperatorToolHandler {
     /// Only Oracle preferences follow Settings during a broadcast. Autonomy remains the person's
     /// original grant. Repository pipeline, review and commit checks remain the finisher's own gates.
     func refreshOracleSettings() {
-        guard let defaults = ports.preferences, let profile = OperatorProfileStore.saved(defaults) else { return }
+        let defaults = ports.preferences
+        guard let profile = OperatorProfileStore.saved(defaults) else { return }
         let revision = OperatorProfileStore.oracleRevision(defaults)
         let changed = lastOracleRevision.map { $0 != revision } ?? false
         lastOracleRevision = revision

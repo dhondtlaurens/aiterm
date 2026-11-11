@@ -58,10 +58,10 @@ extension AppController {
         let codeHost = controller.ports.codeHost
         let installed = ModelChoice.pair.filter(controller.tools.installedAgents.contains)
         // UserDefaults is thread-safe, though not marked Sendable.
-        nonisolated(unsafe) let preferences = controller.ports.preferences ?? .standard
+        nonisolated(unsafe) let preferences = controller.ports.preferences
         Task { [weak self] in
             let context = await BackgroundWork.run {
-                NewBroadcastContext.read(profile: profile?(),
+                NewBroadcastContext.read(profile: profile(),
                                          installed: installed, models: models, remembered: remembered, preferences: preferences)
             }
             guard let self, self.canPresentNewBroadcast else { return }
@@ -278,11 +278,7 @@ extension AppController {
     @discardableResult
     func endNow(_ run: OperatorRun) async -> Bool {
         let controller = operatorController
-        return await attemptNow("Couldn’t end “\(run.name)”") {
-            try await controller.end(run: run.id)
-            // End Broadcast does not pass through runChanged, so it triggers cleanup here.
-            controller.onRunChanged(run.id)
-        }
+        return await attemptNow("Couldn’t end “\(run.name)”") { try await controller.end(run: run.id) }
     }
 
     /// The broadcast's chat — its Operator's window — brought forward as its row's click brings it: raised

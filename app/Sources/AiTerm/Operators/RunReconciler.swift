@@ -16,12 +16,11 @@ final class RunReconciler {
     private let starter: WorkerStarter
     private let tabs: TabOpener
     private let waker: OperatorWaker
+    /// A watched branch's progress is read before its no-commit limit is decided (`waitsForProgress`).
+    private let branchWatch: BranchWatch
+    /// Whether a connected snapshot has come since the helper attached: until then, a tab not listed is not a tab gone.
+    private let listing: TabsListing
     private let ports: OperatorPorts
-    /// Whether a connected snapshot has come since the helper attached (the controller's `tabsKnown`): until then, a
-    /// tab not listed is not a tab gone.
-    var tabsKnown: @MainActor () -> Bool = { false }
-    /// A watched branch's progress is read before its no-commit limit is decided.
-    var waitsForProgress: @MainActor (TaskItem) -> Bool = { _ in false }
     /// When the last tick counted runtime; nil until the first tick after AiTerm starts, which only
     /// sets it, so the time AiTerm was not running is not counted.
     private var lastCounted: Date?
@@ -29,13 +28,21 @@ final class RunReconciler {
     /// AiTerm started) is counted a minute from here at the soonest, so a slow iTerm2 has listed its window.
     private var firstSynced: Date?
 
-    init(workspace: WorkspaceStore, live: LiveSessions, starter: WorkerStarter, tabs: TabOpener, waker: OperatorWaker, ports: OperatorPorts) {
+    init(workspace: WorkspaceStore, live: LiveSessions, starter: WorkerStarter, tabs: TabOpener, waker: OperatorWaker,
+         branchWatch: BranchWatch, listing: TabsListing, ports: OperatorPorts) {
         self.workspace = workspace
         self.live = live
         self.starter = starter
         self.tabs = tabs
         self.waker = waker
+        self.branchWatch = branchWatch
+        self.listing = listing
         self.ports = ports
+    }
+
+    /// Whether the task's no-commit limit waits for the branch watch's read: it has a head recorded and is watched.
+    private func waitsForProgress(_ task: TaskItem) -> Bool {
+        task.operated?.runtimeHead != nil && branchWatch.isWatched(task)
     }
 
     private var state: AppState { workspace.state }
@@ -43,7 +50,7 @@ final class RunReconciler {
     /// One pass. The runs whose state it changed or in which it blocked a task, for their scheduling and completion.
     @discardableResult
     func tick() -> Set<UUID> {
-        guard tabsKnown() else { return [] }
+        guard listing.known else { return [] }
         let sessions = live.sessions, now = ports.now()
         firstSynced = firstSynced ?? now
         var changed: Set<UUID> = []
@@ -154,7 +161,7 @@ final class RunReconciler {
 
     /// The branch read finished: decide its limit with fresh progress, without counting time again.
     func checkLimits(for task: UUID) -> Set<UUID> {
-        guard tabsKnown() else { return [] }
+        guard listing.known else { return [] }
         return applyLimits(elapsed: 0, sessions: live.sessions, checkedTask: task)
     }
 

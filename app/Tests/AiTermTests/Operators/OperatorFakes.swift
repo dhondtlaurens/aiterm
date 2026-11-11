@@ -188,6 +188,14 @@ final class OperatorWorld {
     }
 
     var state: AppState { workspace.state }
+    /// Each agent's weekly use in percent, as the helper's usage feed reports it, its week not reset: what a task's launch
+    /// reads to start on the other agent.
+    func useWeekly(_ percents: [AgentKind: Int]) {
+        func usage(_ agent: AgentKind) -> Usage? {
+            percents[agent].map { Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: $0, resetsAt: nil), spend: nil, updatedAt: 0) }
+        }
+        live.usage = UsageSnapshot(claude: usage(.claude), codex: usage(.codex))
+    }
     /// Returns once the work the Operator's owners started has ended, the work that work started included
     /// (`OperatorWork.settled`).
     func settled(leaving count: Int = 0, sourceLocation: SourceLocation = #_sourceLocation) async {

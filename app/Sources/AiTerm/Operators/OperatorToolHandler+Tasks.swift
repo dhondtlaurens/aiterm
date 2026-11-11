@@ -255,12 +255,13 @@ extension OperatorToolHandler {
         let delivery = try await daemon.deliver(sessionId: tab.sessionId, text: text, ownership: operated.ownership, wake: false,
                                                 worktree: task.worktreePath)
         // Its worker has the Operator's word: what its last turn asked or left is answered (spec §J).
-        if delivery.result == .delivered { onMessaged(task.id, worker.key) }
+        if delivery.result == .delivered { turns.messaged(task.id, tab: worker.key) }
         var fields: [String: JSONValue] = ["result": .string(delivery.result.rawValue), "reason": delivery.reason.map(JSONValue.string) ?? .null]
         // Steered, an accepted task is at work again; accepting it on its commit or another says what came of it.
         if delivery.result == .delivered, operated.state == .accepted, reopen(task) { fields["reopened"] = true }
         if delivery.result == .delivered || delivery.code == .prompt || delivery.code == .unrecognisedScreen {
-            onMessageResult(task.id, worker.key)
+            // Reading a screen must not delay the delivery result or its replay cache.
+            prompts.afterMessage(task.id, tab: worker.key)
         }
         let answer = JSONValue.object(fields)
         if delivery.result == .delivered { deliveredMessages[key] = (ports.now(), answer) }

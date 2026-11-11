@@ -162,17 +162,15 @@ final class OperatorToolHandler {
     var onCall: @MainActor (UUID) -> Void = { _ in }
     /// Said after an operator's own change to its run: what may start now starts.
     var onChange: @MainActor (UUID) -> Void = { _ in }
-    /// What each task's worker's last ended turn left (`WorkerTurnReader.readings`), which `run_status` shows.
-    var turnReadings: @MainActor () -> [UUID: WorkerTurnReader.Reading] = { [:] }
-    var extraTurnReadings: @MainActor () -> [UUID: [String: WorkerTurnReader.Reading]] = { [:] }
-    /// The tasks whose working worker's transcript went quiet (`WorkerQuietWatch.quiet`).
-    var quietTasks: @MainActor () -> Set<UUID> = { [] }
-    /// The extra tabs whose transcript went quiet while they say working, their keys by task (`WorkerQuietWatch.quietExtraTabs`).
-    var quietTabs: @MainActor () -> [UUID: Set<String>] = { [:] }
-    /// Said once `message_task` delivered to a task's first worker: what its last turn left is answered (spec §J).
-    var onMessaged: @MainActor (UUID, String?) -> Void = { _, _ in }
-    /// Reads the addressed worker's screen after delivery or a refusal that suggests a prompt.
-    var onMessageResult: @MainActor (UUID, String?) -> Void = { _, _ in }
+    /// What each worker's last ended turn left (`WorkerTurnReader.readings`), which `relay_question` passes on; a
+    /// message delivered answers it (spec §J).
+    let turns: WorkerTurnReader
+    /// Which workers went quiet while they say working (`WorkerQuietWatch`).
+    let quiet: WorkerQuietWatch
+    /// Reads the addressed worker's screen after a delivery or a refusal that suggests a prompt.
+    let prompts: WorkerPrompts
+    /// What `run_status` would answer now (`RunStatusSource`).
+    let statuses: RunStatusSource
     /// Carries out a task's recorded end (G10), past the push hooks when told (`noVerify`), opening its request with the
     /// Operator's content when given, within the call's reply budget: the controller's `TaskFinisher`.
     var finish: @MainActor (UUID, TaskFinisher.Call) async -> TaskFinisher.Result = { _, _ in
@@ -244,7 +242,8 @@ final class OperatorToolHandler {
     static func isMutating(_ call: ToolCall) -> Bool { call.operatorTool.map(mutating.contains) ?? false }
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
-         waker: OperatorWaker, tabs: TabOpener, transcripts: TranscriptLocator) {
+         waker: OperatorWaker, tabs: TabOpener, transcripts: TranscriptLocator, turns: WorkerTurnReader, quiet: WorkerQuietWatch,
+         prompts: WorkerPrompts, statuses: RunStatusSource) {
         self.workspace = workspace
         self.live = live
         self.daemon = daemon
@@ -252,6 +251,10 @@ final class OperatorToolHandler {
         self.waker = waker
         self.tabs = tabs
         self.transcripts = transcripts
+        self.turns = turns
+        self.quiet = quiet
+        self.prompts = prompts
+        self.statuses = statuses
     }
 
     var state: AppState { workspace.state }
@@ -414,19 +417,7 @@ final class OperatorToolHandler {
     /// `hostThreads`: each task's request's threads as the host has them now, which run_status reads first (`readThreads`);
     /// every other caller counts them as AiTerm last read them.
     func currentStatus(of run: OperatorRun, hostThreads: [UUID: [String: Bool]]) -> RunStatus? {
-        var status = OperatorController.status(of: run.id, state: state, sessions: live.sessions, revision: 0,
-                                  usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()), turns: turnReadings(), extraTurns: extraTurnReadings(),
-                                  quiet: quietTasks(), quietTabs: quietTabs(), hostThreads: hostThreads, now: ports.now())
-        for (agent, reading) in [("claude", live.usage.claude), ("codex", live.usage.codex)] {
-            var telemetry = RunStatus.UsageTelemetry(lastKnown: reading, now: ports.now())
-            if let kind = AgentKind(rawValue: agent), live.usageUnavailable.contains(kind), reading?.retrievalFailure == nil {
-                telemetry.availability = "unavailable"
-                telemetry.note = "The helper has no current provider report. Any value shown is last known; its age and reset time still apply. No retrieval failure or limit is confirmed."
-            }
-            status?.run.usageTelemetry[agent] = telemetry
-            if let percent = reading?.sevenDay?.usedPercent { status?.run.usage[agent] = percent }
-        }
-        return status
+        statuses.status(of: run.id, hostThreads: hostThreads)
     }
 
     /// The task an operator names in `key`, in this run.
@@ -470,7 +461,7 @@ final class OperatorToolHandler {
     func deliveryStatus() async -> [AgentKind: AgentDelivery]? {
         guard let daemon = daemon(), let verdicts = try? await daemon.deliveryPolicy() else { return nil }
         let agents = ModelChoice.pair.filter(installedAgents.contains), versions = ports.installedVersions
-        let installed = await BackgroundWork.run { versions?(agents) ?? [:] }
+        let installed = await BackgroundWork.run { versions(agents) }
         return Dictionary(agents.map { ($0, AgentDelivery.of($0, verdict: verdicts[$0], installed: installed[$0])) }, uniquingKeysWith: { first, _ in first })
     }
 

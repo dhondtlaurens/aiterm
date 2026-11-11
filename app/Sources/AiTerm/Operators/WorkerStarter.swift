@@ -320,7 +320,7 @@ final class WorkerStarter {
     private func launchChoice(for task: TaskItem, operated: OperatedTask, attempt: LaunchAttempt) -> LaunchChoice {
         let keep = LaunchChoice(agent: task.agent, model: task.model, reasoning: task.reasoning, switchedFrom: nil, percent: 0)
         guard attempt.number == 1, operated.retriesUsed == 0 else { return keep }
-        let weekly = ports.weeklyUsage?() ?? [:], installed = ports.installedAgents?() ?? Set(AgentKind.allCases)
+        let weekly = SidebarModel.weeklyUsage(live.usage, now: ports.now()), installed = ports.installedAgents()
         guard let run = state.run(id: operated.runId) else { return keep }
         let planned = AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)
         let row = ModelChoice.launchChoice(planned: planned, pinned: operated.agentPinned, weekly: weekly,
