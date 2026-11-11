@@ -40,12 +40,12 @@ public enum LocalMerge {
     /// is taken back with `merge --abort`, and a hook is told apart from a conflict by the paths left unmerged.
     /// Never pushes.
     public static func merge(sha: String, into defaultBranch: String, in repo: Repository) async throws -> String {
-        try await BackgroundWork.run(on: TaskWorkflow.queue) { try mergeNow(sha: sha, into: defaultBranch, in: repo) }
+        try await BackgroundWork.run(on: GitLanes.shared.lane(for: repo.path)) { try mergeNow(sha: sha, into: defaultBranch, in: repo) }
     }
 
     private static func mergeNow(sha: String, into defaultBranch: String, in repo: Repository) throws -> String {
         let git = repo.git, path = repo.path
-        guard sha.count >= 40, sha.allSatisfy(\.isHexDigit) else { throw Refusal.invalidCommit(sha) }
+        guard CommitId.isMergeable(sha) else { throw Refusal.invalidCommit(sha) }
         // `symbolic-ref --quiet` exits 1 on a detached HEAD.
         let current = try git.ask(["symbolic-ref", "--quiet", "--short", "HEAD"], in: path, none: [1])
         // Exact ref names: on a case-insensitive disk a checked-out `Main` is another branch than `main`.
@@ -53,10 +53,10 @@ public enum LocalMerge {
             throw Refusal.notOnDefaultBranch(path, current: current, defaultBranch: defaultBranch)
         }
         // Untracked files stay where they are; git refuses itself to overwrite one.
-        guard try git.run(["status", "--porcelain", "--untracked-files=no", "--ignore-submodules=none"], in: path).isEmpty else {
+        guard try repo.isClean(untracked: false) else {
             throw Refusal.uncommittedChanges(path)
         }
-        if try repo.isAncestor(sha, of: "HEAD") { return try git.run(["rev-parse", "HEAD"], in: path) }
+        if try repo.isAncestor(sha, of: "HEAD") { return try repo.head() }
         do {
             // Hooks may run the project's checks, so the merge gets a checkout's deadline.
             try git.run(["merge", "--no-ff", "--no-edit", "--quiet", sha], in: path, timeout: GitRunner.checkoutTimeout)
@@ -70,7 +70,7 @@ public enum LocalMerge {
             if !conflicted.isEmpty { throw Refusal.conflicted(sha: sha, defaultBranch: defaultBranch) }
             throw Refusal.hookStopped(defaultBranch: defaultBranch, output: firstLine(of: error))
         }
-        return try git.run(["rev-parse", "HEAD"], in: path)
+        return try repo.head()
     }
 
     /// The first line a stopped merge printed, its hook's words: stderr first, else stdout.

@@ -267,6 +267,23 @@ extension AppControllerTests {
         #expect(controller.toastState.toast?.message == "Task closed because its worktree was removed.")
     }
 
+    /// A checkout deleted outside AiTerm keeps git's record of it, locked as a task's, and git then
+    /// refuses that folder and that branch to every later worktree. The cleanup that closes the task
+    /// clears the record too.
+    @Test func theCleanupForgetsGitsLockedRecordOfADeletedCheckout() async throws {
+        let fixture = try TaskFixture(windowOpen: false, pollInterval: .seconds(3600))
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller, path = fixture.task.worktreePath
+        try fixture.git.run(["worktree", "lock", "--reason", Worktree.taskLockReason, path], in: fixture.repo.path)
+        try FileManager.default.removeItem(atPath: path)
+
+        controller.remover.forgetRemovedCheckouts([fixture.task])
+        await controller.remover.waitForRemoval(of: fixture.task.id)
+        #expect(controller.state.tasks.isEmpty)
+        #expect(!(try fixture.git.run(["worktree", "list", "--porcelain"], in: fixture.repo.path)).contains(path))
+        #expect(throws: Never.self) { try fixture.git.run(["worktree", "add", "-q", path, fixture.task.branch], in: fixture.repo.path) }
+    }
+
     @Test func deletedCheckoutKeepsWindowIdentityWhileDaemonIsUnavailable() async throws {
         let fixture = try TaskFixture(windowOpen: true)
         defer { fixture.cleanUp() }

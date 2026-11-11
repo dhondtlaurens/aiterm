@@ -72,7 +72,7 @@ extension Repository {
     /// Where `sha` already is in `branch` (`Landing`): `finish_task` records a merge end whose accepted commit got there
     /// outside it as merged. Nil when it is in neither, and for a commit or a ref git does not have. Nothing is fetched.
     public func landing(of sha: String, in branch: String) throws -> Landing? {
-        guard Self.isCommitId(sha), !branch.isEmpty, !branch.hasPrefix("-") else { return nil }
+        guard CommitId.isFull(sha), !branch.isEmpty, !branch.hasPrefix("-") else { return nil }
         // A ref that does not exist is a `fatal:` (128) from `--is-ancestor`, as `isMerged` reads it: not there.
         func holds(_ ref: String) throws -> Bool {
             try git.ask(["merge-base", "--is-ancestor", sha, ref], in: path, none: [1, 128]) != nil
@@ -104,7 +104,7 @@ extension Repository {
     /// `finish_task` past a hook that failed on the environment, which the Oracle judges (spec §B).
     public func push(_ sha: String, as branch: String, defaultBranch: String, noVerify: Bool = false) throws {
         // A commit id only: a ref name, an option or `a:b` would change what the refspec says.
-        guard Self.isCommitId(sha) else { throw PublishRefusal.invalidCommit(sha) }
+        guard CommitId.isFull(sha) else { throw PublishRefusal.invalidCommit(sha) }
         guard !branch.isEmpty, !branch.hasPrefix("-"), branch != "@" else { throw PublishRefusal.invalidBranch(branch) }
         guard !defaultBranch.isEmpty, !Self.shortBranch(defaultBranch).isEmpty else { throw PublishRefusal.unknownDefaultBranch }
         let name = Self.shortBranch(branch), fallback = Self.shortBranch(defaultBranch)
@@ -168,34 +168,15 @@ extension Repository {
         if let branchCommit, branchCommit == headCommit { throw PublishRefusal.atDefaultCommit(branch) }
     }
 
-    /// Whether two remote URLs name the same host and path, whatever the scheme, user, port, a
-    /// trailing `.git` or slash, or case: `https://host/a/b.git` and `git@host:a/b`. A local path
-    /// has no host.
+    /// Whether two remote URLs name the same host and path (`RemoteURL.location`), whatever the scheme,
+    /// user, port, a trailing `.git` or slash, or case: `https://host/a/b.git` and `git@host:a/b`. A
+    /// local path has no host.
     static func sameLocation(_ a: String, _ b: String) -> Bool {
         func parts(_ url: String) -> (host: String, path: String) {
-            var rest = url, host = ""
-            if let scheme = rest.range(of: "://") {
-                rest = String(rest[scheme.upperBound...])
-                if url.hasPrefix("file:") { rest = rest.hasPrefix("/") ? rest : "/" + rest }
-                else if let slash = rest.firstIndex(of: "/") { host = String(rest[..<slash]); rest = String(rest[slash...]) }
-                else { host = rest; rest = "" }
-            } else if let colon = rest.firstIndex(of: ":"), !rest[..<colon].contains("/") {
-                // scp-like `user@host:path`
-                host = String(rest[..<colon]); rest = String(rest[rest.index(after: colon)...])
-            }
-            if let at = host.lastIndex(of: "@") { host = String(host[host.index(after: at)...]) }
-            if let colon = host.lastIndex(of: ":") { host = String(host[..<colon]) }
-            while rest.hasSuffix("/") { rest.removeLast() }
-            if rest.hasSuffix(".git") { rest.removeLast(4) }
-            while rest.hasPrefix("/") && !host.isEmpty { rest.removeFirst() }
-            return (folded(host), folded(rest))
+            let location = RemoteURL.location(of: url)
+            return (folded(location.host), folded(location.path))
         }
         return parts(a) == parts(b)
-    }
-
-    /// A full object name: 40 hex digits (SHA-1) or 64 (SHA-256).
-    private static func isCommitId(_ text: String) -> Bool {
-        (text.utf8.count == 40 || text.utf8.count == 64) && text.utf8.allSatisfy { ($0 >= 48 && $0 <= 57) || ($0 >= 97 && $0 <= 102) || ($0 >= 65 && $0 <= 70) }
     }
 
     /// `name` without a leading `refs/heads/`: `refs/heads/main` names the default branch's own ref.

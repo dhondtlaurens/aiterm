@@ -130,7 +130,7 @@ import Testing
                                  branch: "main", recreateRebase: false, retry: .createReview)
         let clone = try FixClone.make(for: request, git: git)
         defer { clone.remove() }
-        #expect(clone.path.hasPrefix(VerifySandbox.realPath(NSTemporaryDirectory())) && (clone.path as NSString).lastPathComponent.hasPrefix(FixClone.prefix))
+        #expect(clone.path.hasPrefix(CanonicalPath.of(NSTemporaryDirectory())) && (clone.path as NSString).lastPathComponent.hasPrefix(FixClone.prefix))
         let with = try spawns()
         #expect(with.first == without.first && with.expired == without.expired, "\(with) with a clone, \(without) without")
         #expect(without.first == 45 && without.expired == 12)

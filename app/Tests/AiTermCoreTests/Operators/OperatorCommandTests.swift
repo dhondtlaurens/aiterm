@@ -55,7 +55,7 @@ import Foundation
         #expect(file.path.hasPrefix(home.path + "/"), "every profile in this test stays inside its temporary home")
         let state = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
         let projects = try #require(state["projects"] as? [String: [String: Any]])
-        #expect(Set(projects.keys) == [VerifySandbox.realPath(prepared.folder.path)])
+        #expect(Set(projects.keys) == [CanonicalPath.of(prepared.folder.path)])
         #expect(projects.values.first?["hasTrustDialogAccepted"] as? Bool == true)
         #expect(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int == 0o600)
         if configPath != nil { #expect(!FileManager.default.fileExists(atPath: ClaudeConfig().globalJSON(home: home).path)) }
@@ -67,7 +67,7 @@ import Foundation
         try fm.createDirectory(at: home, withIntermediateDirectories: true)
         let runFolder = OperatorCommand.runFolder(F.runId, home: home)
         try fm.createDirectory(at: runFolder, withIntermediateDirectories: true)
-        let folder = VerifySandbox.realPath(runFolder.path)
+        let folder = CanonicalPath.of(runFolder.path)
         let original: JSONValue = ["theme": "light", "future": ["keep": [1, true, nil]], "projects": .object([
             "/other": ["hasTrustDialogAccepted": false, "allowedTools": ["Read"]],
             folder: ["hasTrustDialogAccepted": false, "allowedTools": ["Grep"], "future": 42],
@@ -99,7 +99,7 @@ import Foundation
         let folder = OperatorCommand.runFolder(F.runId, home: home), file = ClaudeConfig().globalJSON(home: home)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
         let bytes = value == "bad-record"
-            ? try JSONEncoder().encode(JSONValue.object(["projects": .object([VerifySandbox.realPath(folder.path): []])]))
+            ? try JSONEncoder().encode(JSONValue.object(["projects": .object([CanonicalPath.of(folder.path): []])]))
             : Data(value.utf8)
         try bytes.write(to: file)
         #expect(throws: HarnessDriverError.self) {
@@ -172,7 +172,7 @@ import Foundation
         let state = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: ClaudeConfig().globalJSON(home: home)))
         #expect(state["projects"]?.objectValue?.count == folders.count)
         for folder in folders {
-            #expect(state["projects"]?[VerifySandbox.realPath(folder.path)]?["hasTrustDialogAccepted"] == true)
+            #expect(state["projects"]?[CanonicalPath.of(folder.path)]?["hasTrustDialogAccepted"] == true)
         }
     }
 
