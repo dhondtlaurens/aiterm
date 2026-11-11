@@ -158,9 +158,10 @@ final class RunReconciler {
     }
 
     /// Spec §8's limits. Each tick adds the time since the last one to every working task of an active
-    /// run any of whose worker tabs is busy (`WorkerTab.status`: an extra tab still opening is), once however many
-    /// are, and which neither waits on you nor is taken over: at most two intervals' worth, so a Mac asleep is
-    /// not work, saved with the task. A worker idle at its prompt is not at work:
+    /// run any of whose worker tabs is busy (`WorkerTab.status` as of now: an extra tab still opening is, and so is a first
+    /// worker whose launch is under way), once however many are, and which neither waits on you nor is taken over: at most
+    /// two intervals' worth, so a Mac asleep is not work, saved with the task. A worker idle at its prompt, its launch over,
+    /// is not at work:
     /// its turn ended, and its result waits for review. A task past 90 minutes without a commit or four hours
     /// total, or failed with no retry left, is blocked with the reason, which the notifier then tells you — never
     /// for its runtime while it waits for acceptance. The no-commit decision waits for the branch read.
@@ -170,26 +171,27 @@ final class RunReconciler {
         let step = TimeInterval(interval.seconds) + TimeInterval(interval.attoseconds) / 1e18
         let elapsed = lastCounted.map { min(max(0, now.timeIntervalSince($0)), 2 * step) } ?? 0
         lastCounted = now
-        return applyLimits(elapsed: elapsed, sessions: sessions)
+        return applyLimits(elapsed: elapsed, sessions: sessions, now: now)
     }
 
     /// The branch read finished: decide its limit with fresh progress, without counting time again.
     func checkLimits(for task: UUID) -> Set<UUID> {
         guard listing.known else { return [] }
-        return applyLimits(elapsed: 0, sessions: live.sessions, checkedTask: task)
+        return applyLimits(elapsed: 0, sessions: live.sessions, now: ports.now(), checkedTask: task)
     }
 
     /// Count work and apply limits, either on a tick or for the task whose branch read finished.
-    private func applyLimits(elapsed: TimeInterval, sessions: [SessionInfo], checkedTask: UUID? = nil) -> Set<UUID> {
+    private func applyLimits(elapsed: TimeInterval, sessions: [SessionInfo], now: Date, checkedTask: UUID? = nil) -> Set<UUID> {
         var blocked: [UUID] = []
         let workersByTask = WorkerSessions(sessions)
         workspace.mutate { state in
             for task in state.tasks where checkedTask == nil || task.id == checkedTask {
                 guard let operated = task.operated, let run = state.run(id: operated.runId), run.state == .active, run.youAsked == nil
                 else { continue }
-                // Each tab as it says itself, a first worker's launch not counted, unlike the row and run_status: counted as
-                // work here, a relaunched window would put a finished task back under its runtime limit.
-                let workers = task.workerTabs(in: workersByTask).map(\.status)
+                // Each tab as the pass's live projection reads it as of now, as run_status, the row line and the board read it: a
+                // first worker whose launch is under way is at work, so it counts runtime and is not ready for acceptance,
+                // and a relaunched window puts a finished task back under its runtime limit until its launch is over.
+                let workers = task.workerTabs(in: workersByTask, now: now).map(\.status)
                 if elapsed > 0, workers.contains(.working), operated.state == .working, !operated.takenOver,
                    !operated.flags.contains(.waitingOnYou) {
                     state.updateOperated(task.id) {

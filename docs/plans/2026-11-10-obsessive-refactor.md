@@ -518,8 +518,8 @@ Each box leaves the project working and is one or a few commits.
 - [ ] 3c. `find_user`, symlinked catalogue stamps (tests first); listing and user reuse.
 - [ ] 3d. Jira on `JSONValue`; Fix state; dead code; small shared helpers.
 - [x] 4a. Tool traits and exhaustive Activity lines (test first for `update_request`).
-- [x] 4b. One live projection and one readiness predicate (test first for the launch window). The reconciler keeps
-  reading tabs as they list themselves: given the launch window it would block a relaunched finished task (record).
+- [x] 4b. One live projection and one readiness predicate (test first for the launch window). The reconciler reads
+  through it too since phase 5, on the maintainer's decision of 2026-11-11, which accepted the changed blocking (record).
 - [x] 4c. Requests and tabs once per refresh; `RunStatus.build` split.
 - [x] 4d. Transition table covers every edge; one question writer.
 - [x] 4e. Computed views: question kind, tab reference, merge outcome, record role, run intent.

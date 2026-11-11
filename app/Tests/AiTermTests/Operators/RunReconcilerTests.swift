@@ -473,14 +473,18 @@ import Testing
 
     /// Only a busy worker's time counts: one idle at its prompt, its turn over, waits for review or acceptance, and
     /// is never blocked for its runtime, even one already past it. Once it works again the limit holds.
+    /// Its launch over (`OperatorTiming.firstWorkerOpening` since its window showed), a worker idle at its prompt is not at
+    /// work: it counts no runtime, and a finished task waits for acceptance, never blocked for its runtime. Once at work
+    /// again, past its limit, it is.
     @Test func anIdleWorkerCountsNoRuntimeAndIsNeverBlockedWhileItWaitsForAcceptance() throws {
         let project = OperatorServiceFixtures.project()
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
+        let launched = clock.now.addingTimeInterval(-OperatorTiming.firstWorkerOpening - 60)
         var fresh = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-23", state: .working, worktree: "/tmp/aiterm-wt")
-        fresh.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
+        fresh.operated?.launch = LaunchAttempt(number: 1, requestedAt: launched, openedAt: launched)
         fresh.operated?.runtimeUsed = 10 * 60
         var spent = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-24", state: .working, worktree: "/tmp/aiterm-wt2")
-        spent.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
+        spent.operated?.launch = LaunchAttempt(number: 1, requestedAt: launched, openedAt: launched)
         spent.operated?.runtimeUsed = 95 * 60
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [fresh, spent]))
         world.show([OperatorServiceFixtures.session("op", tag: run.id),
@@ -502,12 +506,52 @@ import Testing
         #expect(world.task(spent.id)?.operated?.state == .blocked)
     }
 
-    /// Only time with a worker at work counts: a task with no tab (its window closed, a relaunch pending) uses none.
+    /// The reconciler reads a worker as `run_status`, the row line and the board do: through the pass's live projection as
+    /// of now, with the launch window (`TaskItem.workerTabs(in:now:)`). A first worker whose window was relaunched less
+    /// than `OperatorTiming.firstWorkerOpening` ago, naming no conversation yet, is launching whatever its tab says: it is
+    /// at work and not ready for acceptance. So it counts runtime, and a finished task over its limit is blocked for it
+    /// during the window, where it waited for acceptance before (phase 4 left this; the maintainer accepted the change on
+    /// 2026-11-11). Once the window is over it waits for acceptance again, counting nothing.
+    @Test func aRelaunchedWindowCountsAsLaunchingForTheLimitsDuringItsLaunchWindow() throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
+        var fresh = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-23", state: .working, worktree: "/tmp/aiterm-wt")
+        fresh.operated?.launch = LaunchAttempt(number: 2, requestedAt: clock.now, openedAt: clock.now)
+        fresh.operated?.runtimeUsed = 10 * 60
+        var spent = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-24", state: .working, worktree: "/tmp/aiterm-wt2")
+        spent.operated?.launch = LaunchAttempt(number: 2, requestedAt: clock.now, openedAt: clock.now)
+        spent.operated?.runtimeUsed = 95 * 60
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [fresh, spent]))
+        world.show([OperatorServiceFixtures.session("op", tag: run.id),
+                    OperatorServiceFixtures.session("w1", window: "w9", tag: fresh.id, state: .idle),
+                    OperatorServiceFixtures.session("w2", window: "w8", tag: spent.id, state: .done)])
+        world.controller.reconcileTick()
+        clock.advance(by: 50)
+        world.controller.reconcileTick()
+        #expect(world.task(fresh.id)?.operated?.runtimeUsed == 10 * 60 + 50.0, "launching: at work")
+        let blocked = try #require(world.task(spent.id)?.operated)
+        #expect(blocked.state == .blocked && blocked.blockedReason == "Worked 90 minutes without a new commit.",
+                "launching, so not waiting for acceptance: blocked for its runtime")
+
+        // Its window's launch over, an idle worker counts nothing again.
+        clock.advance(by: OperatorTiming.firstWorkerOpening)
+        world.controller.reconcileTick()
+        let counted = try #require(world.task(fresh.id)?.operated?.runtimeUsed)
+        clock.advance(by: 50)
+        world.controller.reconcileTick()
+        #expect(world.task(fresh.id)?.operated?.runtimeUsed == counted, "launch over: idle, not at work")
+        #expect(world.task(fresh.id)?.operated?.state == .working)
+    }
+
+    /// Only time with a worker at work counts: a task with no tab (its window closed, a relaunch pending) uses none, once its
+    /// launch is over. During its launch window a first worker not listed yet is launching, as `run_status` reads it, and
+    /// counts (`aRelaunchedWindowCountsAsLaunchingForTheLimitsDuringItsLaunchWindow`).
     @Test func aWorkingTaskWithNoWorkerTabCountsNoRuntime() throws {
         let project = OperatorServiceFixtures.project()
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-22", state: .working, worktree: "/tmp/aiterm-wt")
-        task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
+        let launched = clock.now.addingTimeInterval(-OperatorTiming.firstWorkerOpening - 60)
+        task.operated?.launch = LaunchAttempt(number: 1, requestedAt: launched, openedAt: launched)
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         world.show([OperatorServiceFixtures.session("op", tag: run.id)])
         world.controller.reconcileTick()
