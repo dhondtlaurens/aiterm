@@ -4,8 +4,8 @@ import AiTermCore
 /// Watches that each worker commits on its task branch (`BranchDrift`), on every reconcile tick: the
 /// worktree's HEAD is read, and once a worker tab (`WorkerTab`) is idle at its prompt or done, the SHAs its
 /// last message names are looked up in the repository. A transcript is read again only once it was written
-/// since it was last read (`WorkerTranscript.modified`): an idle tab's is the same 512 KB tail every tick
-/// otherwise. What it finds is kept on the task, shown in `run_status`, and a newly found drift wakes the
+/// since it was last read, by this watch or the turn reader (`TranscriptLocator.reply`): an idle tab's is the same
+/// 512 KB tail every tick otherwise. What it finds is kept on the task, shown in `run_status`, and a newly found drift wakes the
 /// Operator once: `[AiTerm] PAY-2 committed off its task branch, call run_status`. A task taken over, not
 /// at work, or in a broadcast paused or ended, is not read. A changed task-branch head resets its
 /// no-commit clock. The checked callback decides limits after each read, including one with no progress.
@@ -17,9 +17,6 @@ final class BranchWatch {
     private let waker: OperatorWaker
     private let transcripts: TranscriptLocator
     private let pass: TickPass
-    /// Each conversation's last message as last read, by conversation id, with when its transcript was written then.
-    private var lastMessages: [String: Read] = [:]
-    private struct Read: Sendable { let modified: Date, message: String? }
     /// A fresh read finished, including one with no progress or an unreadable head.
     var checked: @MainActor (UUID) -> Void = { _ in }
 
@@ -44,8 +41,7 @@ final class BranchWatch {
 
     /// One pass over every watched task, unless the last is still reading.
     func poll() {
-        let open = Set(live.sessions.compactMap(\.conversationId))
-        lastMessages = lastMessages.filter { open.contains($0.key) }
+        transcripts.keepReplies(of: Set(live.sessions.compactMap(\.conversationId)))
         pass.run(state.tasks.filter(isWatched).map(\.id)) { [weak self] in await self?.check($0) }
     }
 
@@ -60,25 +56,16 @@ final class BranchWatch {
                   let conversation = tab.conversation else { return nil }
             return (tab.agent, conversation)
         }
-        let git = ports.git, transcripts = self.transcripts, known = lastMessages, worktree = task.worktreePath
+        let git = ports.git, transcripts = self.transcripts, worktree = task.worktreePath
         let branch = task.branch, base = task.baseBranch
         let reading = await BackgroundWork.run {
-            var read: [String: Read] = [:]
             let named: [BranchDrift.Named]? = conversations.isEmpty ? nil : conversations.flatMap { conversation -> [BranchDrift.Named] in
-                guard let file = transcripts.file(agent: conversation.agent, conversation: conversation.id) else { return [] }
-                let modified = WorkerTranscript.modified(file), message: String?
-                if let modified, let kept = known[conversation.id], kept.modified == modified {
-                    message = kept.message
-                } else {
-                    message = WorkerTranscript.lastMessage(in: file, agent: conversation.agent)
-                    if let modified { read[conversation.id] = Read(modified: modified, message: message) }
-                }
+                let message = transcripts.reply(agent: conversation.agent, conversation: conversation.id).reply?.text
                 return message.map { Self.named(in: $0, branch: branch, base: base, worktree: worktree, git: git) } ?? []
             }
-            return (head: Self.head(in: worktree, git: git), named: named, read: read)
+            return (head: Self.head(in: worktree, git: git), named: named)
         }
         guard !Task.isCancelled else { return }
-        lastMessages.merge(reading.read) { _, new in new }
         // Read fresh: git was asked meanwhile.
         guard let current = state.task(id: id), isWatched(current), current.worktreePath == worktree, current.branch == branch,
               let fresh = current.operated, fresh.ownership == operated.ownership else { return }

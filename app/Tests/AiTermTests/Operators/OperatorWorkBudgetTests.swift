@@ -80,9 +80,9 @@ import Testing
 
     /// One `session.changed` for the working worker that moves only its context fill, with what it starts let finish:
     /// 1 `RunStatus.build`, the session handling's look at the open run for the waker and the watchdog (`observeRuns`);
-    /// and 9 worker turn reads, one for each of the three done workers and six done extra tabs, read again though none
-    /// of them changed (each finds the same reply and builds nothing more). A later change that reads no turn that did
-    /// not change lowers the reads; none may raise either number.
+    /// and no worker turn read: the three done workers and six done extra tabs are asked about again, but none of their
+    /// transcripts was written since it was last read (`TranscriptLocator.reply`), so neither a transcript's tail nor git
+    /// is read. Phase 0 counted 9 reads, one for each, read again though none of them changed. None may raise either.
     @Test func aSessionEventBuildsTheStatus() async throws {
         let frozen = try Frozen()
         defer { frozen.world.controller.stop() }
@@ -96,13 +96,13 @@ import Testing
         }
 
         #expect(work[.statusBuild] == 1, "status builds per session event: \(work)")
-        #expect(work[.turnRead] == 9, "turn reads per session event: \(work)")
+        #expect(work[.turnRead, default: 0] == 0, "turn reads per session event: \(work)")
     }
 
-    /// One reconcile tick of the frozen broadcast, its tabs known, with what it starts let finish: 2 `RunStatus.build`s,
-    /// the tick's look for the waker and the watchdog (`observeRuns`) and the quiet check's (`checkQuiet`), which build
-    /// the same status twice; and 9 worker turn reads, the done workers' and extra tabs' again. A later change that builds
-    /// the status once per tick, or reads no unchanged turn, lowers them; none may raise either.
+    /// One reconcile tick of the frozen broadcast, its tabs known, with what it starts let finish: 1 `RunStatus.build`,
+    /// the tick's one snapshot for the waker, the watchdog and the quiet check (`observeRuns`); and no worker turn read,
+    /// none of the done workers' and extra tabs' transcripts written since. Phase 0 counted 2 builds, the quiet check
+    /// (`checkQuiet`) building the same status again, and 9 reads. None may raise either.
     @Test func aReconcileTickBuildsTheStatus() async throws {
         let frozen = try Frozen()
         defer { frozen.world.controller.stop() }
@@ -113,8 +113,8 @@ import Testing
             await Budget.settle(frozen.world.controller)
         }
 
-        #expect(work[.statusBuild] == 2, "status builds per reconcile tick: \(work)")
-        #expect(work[.turnRead] == 9, "turn reads per reconcile tick: \(work)")
+        #expect(work[.statusBuild] == 1, "status builds per reconcile tick: \(work)")
+        #expect(work[.turnRead, default: 0] == 0, "turn reads per reconcile tick: \(work)")
     }
 
     /// One mutating tool call, `ask_you` about the working task as the journey asks it, with what it starts let finish:
@@ -154,16 +154,18 @@ import Testing
 
     // MARK: - Worker turn reads
 
-    /// One task working in its own worktree, its worker idle at its prompt with its turn ended and read, as
-    /// `WorkerTurnReaderTests` builds it. Five workspace changes that touch no task (the sidebar's frame), each let
-    /// finish: 5 turn reads, one per change, though nothing about the worker changed. Five session events for its tab
-    /// that move only its context fill: 5 more. A later change that reads a turn only when it could have changed lowers
-    /// both; none may raise them.
-    @Test func anIdleWorkersEndedTurnIsReadAgainOnEveryChange() async throws {
+    /// One task working in its own worktree, its worker idle at its prompt with its turn ended and read, its reply in its
+    /// transcript, as `WorkerTurnReaderTests` builds it. Five workspace changes that touch no task (the sidebar's frame), each let
+    /// finish: no turn read, its transcript not written since it was read. Five session events for its tab that move
+    /// only its context fill: none either. Phase 0 counted 5 and 5, one read per change though nothing about the worker
+    /// changed. None may raise them. Its transcript written again, with a new reply, the next session event reads it: 1.
+    @Test func anIdleWorkersEndedTurnIsReadOnlyOnceItsTranscriptChanged() async throws {
         let (world, _, task, _) = try WorkerTurnReaderTests().makeWorld(worker: .idle)
         defer { world.controller.stop() }
+        try BranchWatchTests().saveReply("Wired it.", conversation: "conv-1", in: world)
+        world.controller.turns.observe()
         await Budget.settle(world.controller)
-        #expect(world.controller.turns.readings[task.id] != nil, "its turn is read")
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired it.", "its turn is read")
 
         let changes = await Budget.metered {
             for n in 1...5 {
@@ -181,8 +183,18 @@ import Testing
             }
         }
 
-        #expect(changes[.turnRead] == 5, "turn reads per 5 no-op workspace changes: \(changes)")
-        #expect(events[.turnRead] == 5, "turn reads per 5 session events: \(events)")
+        try BranchWatchTests().saveReply("Wired it, and tested it.", conversation: "conv-1", in: world)
+        let written = await Budget.metered {
+            tab.contextPercent = 70
+            world.live.handle(.sessionChanged(tab))
+            world.controller.handle(.sessionChanged(tab))
+            await Budget.settle(world.controller)
+        }
+
+        #expect(changes[.turnRead, default: 0] == 0, "turn reads per 5 no-op workspace changes: \(changes)")
+        #expect(events[.turnRead, default: 0] == 0, "turn reads per 5 session events: \(events)")
+        #expect(written[.turnRead] == 1, "turn reads once its transcript changed: \(written)")
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired it, and tested it.")
     }
 
     // MARK: - Git per BranchWatch pass

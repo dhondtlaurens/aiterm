@@ -812,14 +812,16 @@ final class OperatorController {
         tools.refreshOracleSettings()
         // The code hosts are read whether or not iTerm2's tabs are known: a wake waits for the Operator's tab.
         reviewWatcher.poll()
-        // Time alone can make a review quiet (spec §K): what `run_status` would show is read again on every tick.
-        observeRuns()
         // A summary overdue while AiTerm was not running, or whose wait went with it, is given up on here.
         for run in runs where run.state == .complete {
             if giveUpOnSummary(run.id) { runChanged(run.id) }
         }
         // iTerm2 unreachable: no listing comes to try a launch it cut off again, so one that stays cut off is given up here.
-        guard tabsKnown else { return starter.checkLaunches(sessions: nil, now: ports.now()) }
+        // Time alone can make a review quiet (spec §K): what `run_status` would show is read again on every tick.
+        guard tabsKnown else {
+            observeRuns()
+            return starter.checkLaunches(sessions: nil, now: ports.now())
+        }
         let offline = Set(runs.filter { $0.state == .operatorOffline }.map(\.id))
         for id in reconciler.tick() {
             runChanged(id)
@@ -834,7 +836,9 @@ final class OperatorController {
         // A prompt whose tab left it without an event, or a menu no hook announced.
         probePrompts(.reconcile)
         startReadyTasks()
-        checkQuiet()
+        // Time alone can make a review quiet (spec §K): what `run_status` would show is read again on every tick, once, for
+        // the waker, the watchdog and the quiet check alike.
+        checkQuiet(observeRuns())
     }
 
     /// Each Operator whose turn just ended: its quiet time starts again (`OperatorWatchdog`), however short the turn was.
@@ -844,11 +848,12 @@ final class OperatorController {
         operatorsWorking = working
     }
 
-    /// Each broadcast's quiet time (`OperatorWatchdog`): its Operator in its own turn, or its tab not listed, is not quiet.
-    private func checkQuiet() {
+    /// Each broadcast's quiet time (`OperatorWatchdog`), from the tick's snapshot of each open run (`observeRuns`): its
+    /// Operator in its own turn, or its tab not listed, is not quiet.
+    private func checkQuiet(_ statuses: [UUID: RunStatus]) {
         let sessions = live.sessions
         for run in runs {
-            guard !run.hasEnded, let status = status(of: run) else { watchdog.forget(run.id); continue }
+            guard !run.hasEnded, let status = statuses[run.id] else { watchdog.forget(run.id); continue }
             let tab = Self.operatorTab(of: run.id, in: sessions)
             watchdog.check(run.id, status: status, state: run.state, operatorWorking: tab == nil || tab?.state == .working)
         }
@@ -994,12 +999,17 @@ final class OperatorController {
         }
     }
 
-    /// What each open run's `run_status` would show now, for the waker.
-    private func observeRuns() {
+    /// What each open run's `run_status` would show now, built once and handed to the waker and the watchdog. The
+    /// snapshots, by run.
+    @discardableResult
+    private func observeRuns() -> [UUID: RunStatus] {
+        var statuses: [UUID: RunStatus] = [:]
         for run in runs where !run.hasEnded {
             guard let status = status(of: run) else { continue }
+            statuses[run.id] = status
             waker.observe(status, of: run.id)
             watchdog.observe(status, of: run.id)
         }
+        return statuses
     }
 }

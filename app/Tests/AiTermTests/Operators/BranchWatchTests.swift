@@ -355,8 +355,9 @@ import Testing
         #expect(drift.source == .lastMessage && drift.sha == sha && drift.branch == "feat/tests-elsewhere")
     }
 
-    /// An idle worker's transcript is read again only once it was written since the last pass: a tick that finds it
-    /// as it was reads what it read before, and one after it changed reads it afresh.
+    /// An idle worker's transcript is read again only once it was written since the last read (`TranscriptLocator.reply`,
+    /// its date and its length): a tick that finds it as it was reads what it read before, and one after it changed
+    /// reads it afresh.
     @Test func anUnchangedTranscriptIsReadOnceAndAChangedOneAgain() async throws {
         let (world, _, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-4")
         func offBranch(_ branch: String) throws -> String {
@@ -374,9 +375,10 @@ import Testing
         await tick(world)
         #expect(world.task(task.id)?.operated?.branchDrift?.sha == first)
 
-        // Rewritten with its date put back: as far as the watch can tell, unchanged, so it is not read again.
-        let second = try offBranch("feat/second")
-        try saveReply("Committed \(second) on feat/second.", conversation: "conv-4", in: world)
+        // Rewritten at the same length with its date put back: as far as the watch can tell, unchanged, so it is not
+        // read again.
+        let second = try offBranch("feat/later")
+        try saveReply("Committed \(second) on feat/later.", conversation: "conv-4", in: world)
         try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
         await tick(world)
         #expect(world.task(task.id)?.operated?.branchDrift?.sha == first, "read once")

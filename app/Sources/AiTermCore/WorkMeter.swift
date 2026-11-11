@@ -16,7 +16,8 @@ public final class WorkMeter: Sendable {
         case workerTabs
         /// `WindowReconciler.pass`: one comparison of the rows with the windows.
         case reconcilerPass
-        /// `WorkerTurnReader`: one read of a worker's transcript tail and branch asked for.
+        /// `WorkerTurnReader`: one worker's turn read: its transcript's tail read, or git asked about its branch. A turn
+        /// whose transcript was not written since it was last read, and whose reply is the same, costs neither.
         case turnRead
         /// `StateStore.save`: the workspace encoded and written by the caller itself, as a flush does.
         case stateSave

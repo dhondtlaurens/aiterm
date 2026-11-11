@@ -191,11 +191,17 @@ extension WorkerTranscript.OpenCalls {
 /// Where each worker conversation's transcript is, found once and kept for the Operator's readers (`BranchWatch`,
 /// `WorkerTurnReader`, `WorkerQuietWatch`, `read_task`): a lookup lists Claude's project folders or walks every Codex
 /// session, so a file found is used again while it is still there, and looked up afresh once it is not. Under the
-/// `home` and the Claude folder (`ClaudeConfig`) AiTerm is set to. Blocking: read off the main actor.
+/// `home` and the Claude folder (`ClaudeConfig`) AiTerm is set to. The newest reply in each is kept with its file's stamp
+/// too, for the turn reader and the branch watch alike (`reply`). Blocking: read off the main actor.
 final class TranscriptLocator: Sendable {
     let home: URL
     let claudeConfig: ClaudeConfig
     private let found = Mutex<[String: URL]>([:])
+    /// A file as last read: when it was written and how long it was.
+    private struct Stamp: Equatable { let modified: Date, size: UInt64 }
+    /// Each conversation's newest reply as last read, with its file's stamp then, by conversation id and agent.
+    private struct Kept { let stamp: Stamp, reply: WorkerTranscript.Reply? }
+    private let replies = Mutex<[String: Kept]>([:])
 
     init(home: URL, claudeConfig: ClaudeConfig) {
         self.home = home
@@ -214,7 +220,28 @@ final class TranscriptLocator: Sendable {
     /// The worker's last message in its conversation's file (`WorkerTranscript.lastMessage(in:agent:)`).
     func lastMessage(agent: AgentKind, conversation: String) -> String? { lastReply(agent: agent, conversation: conversation)?.text }
 
-    func lastReply(agent: AgentKind, conversation: String) -> WorkerTranscript.Reply? {
-        file(agent: agent, conversation: conversation).flatMap { WorkerTranscript.lastReply(in: $0, agent: agent) }
+    func lastReply(agent: AgentKind, conversation: String) -> WorkerTranscript.Reply? { reply(agent: agent, conversation: conversation).reply }
+
+    /// The conversation's newest reply (`WorkerTranscript.lastReply(in:agent:)`), its file's tail read again only once the
+    /// file was written since any reader last read it: `read` says whether this one did. A file not found has no reply.
+    func reply(agent: AgentKind, conversation: String) -> (reply: WorkerTranscript.Reply?, read: Bool) {
+        guard let file = file(agent: agent, conversation: conversation) else { return (nil, false) }
+        let key = agent.rawValue + "/" + conversation, stamp = Self.stamp(of: file)
+        if let stamp, let kept = replies.withLock({ $0[key] }), kept.stamp == stamp { return (kept.reply, false) }
+        // Stamped before the read: a write in between is read again next time, never missed.
+        let reply = WorkerTranscript.lastReply(in: file, agent: agent)
+        replies.withLock { $0[key] = stamp.map { Kept(stamp: $0, reply: reply) } }
+        return (reply, true)
+    }
+
+    /// Lets go of the replies kept for conversations not in `open`, by conversation id.
+    func keepReplies(of open: Set<String>) {
+        replies.withLock { kept in kept = kept.filter { open.contains(String($0.key.drop { $0 != "/" }.dropFirst())) } }
+    }
+
+    private static func stamp(of file: URL) -> Stamp? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
+              let modified = attributes[.modificationDate] as? Date, let size = attributes[.size] as? NSNumber else { return nil }
+        return Stamp(modified: modified, size: size.uint64Value)
     }
 }

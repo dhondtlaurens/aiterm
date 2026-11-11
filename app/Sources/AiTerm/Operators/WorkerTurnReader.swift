@@ -6,7 +6,8 @@ import AiTermCore
 /// working task's branch has past where its work starts and whether an accepted, inReview or published one moved on from
 /// its accepted commit. A turn's end is read once: when its session's state changed since the last read, or the task was
 /// accepted again or reopened since (its `Basis`), when what was read is dropped at once and read again. Git and the
-/// transcript are read off the main thread. What it read is `run_status`'s `TaskLiveFacts` (`TaskLiveFacts.of`)
+/// transcript are read off the main thread, the transcript's tail only once its file was written since it was last
+/// read (`TranscriptLocator.reply`), and git only once its reply changed. What it read is `run_status`'s `TaskLiveFacts` (`TaskLiveFacts.of`)
 /// until the worker's next turn starts, or until `message_task` reaches it. A task you took over, not started yet or
 /// stopped, or in an ended broadcast, is not read.
 @MainActor
@@ -118,7 +119,6 @@ final class WorkerTurnReader {
 
     private func read(_ task: TaskItem, _ worker: WorkerTab, id: WorkerID) {
         let operated = task.operated!, tab = worker.session!
-        WorkMeter.note(.turnRead)
         nextReadOrder += 1
         let order = nextReadOrder
         let state = tab.state, session = tab.sessionId, previous = workerReadings[id], request = UUID()
@@ -133,13 +133,14 @@ final class WorkerTurnReader {
         inFlight[id]?.cancel()
         inFlight[id] = ports.work.start { [weak self] in
             guard !Task.isCancelled else { return }
-            let read = await BackgroundWork.run {
-                let reply = conversation.flatMap { transcripts.lastReply(agent: agent, conversation: $0) }
-                if let previous, previous.basis == basis, previous.replyIdentity == reply?.identity { return nil as Reading? }
+            let (read, tailRead) = await BackgroundWork.run { () -> (Reading?, Bool) in
+                let found = conversation.map { transcripts.reply(agent: agent, conversation: $0) }
+                let reply = found?.reply, tailRead = found?.read ?? false
+                if let previous, previous.basis == basis, previous.replyIdentity == reply?.identity { return (nil, tailRead) }
                 let message = reply?.text
                 guard let worktree else {
-                    return Reading(session: session, state: state, basis: basis, lastMessage: message, commitsAhead: nil,
-                                   changedAfterAcceptance: false, conversation: conversation, replyIdentity: reply?.identity)
+                    return (Reading(session: session, state: state, basis: basis, lastMessage: message, commitsAhead: nil,
+                                    changedAfterAcceptance: false, conversation: conversation, replyIdentity: reply?.identity), tailRead)
                 }
                 let ahead = counts
                     ? Repository(worktree, git: git).commitsAhead(reopenedFrom: reopenedFrom, stackedOn: parent, baseBranch: baseBranch, savedBase: savedBase)
@@ -152,10 +153,12 @@ final class WorkerTurnReader {
                         fingerprint: basis.fingerprint.flatMap { _ in try? Repository(worktree, git: git).worktreeFingerprint() },
                         acceptedFingerprint: basis.fingerprint)
                 } ?? false
-                return Reading(session: session, state: state, basis: basis, lastMessage: message, commitsAhead: ahead,
-                               changedAfterAcceptance: changed, atReopenedCommit: atReopened,
-                               conversation: conversation, replyIdentity: reply?.identity)
+                return (Reading(session: session, state: state, basis: basis, lastMessage: message, commitsAhead: ahead,
+                                changedAfterAcceptance: changed, atReopenedCommit: atReopened,
+                                conversation: conversation, replyIdentity: reply?.identity), true)
             }
+            // Read: its transcript's tail, or git asked about its branch. An unchanged turn costs neither.
+            if tailRead { WorkMeter.note(.turnRead) }
             // Read fresh: the worker may have started its next turn, or ended it again, and the task may have been accepted
             // again or reopened, while git was asked.
             guard !Task.isCancelled, let self, self.asked[id] == request else { return }
