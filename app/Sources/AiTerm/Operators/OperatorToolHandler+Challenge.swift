@@ -31,7 +31,7 @@ extension OperatorToolHandler {
     private func mergeAwaitingOracle(_ call: ToolCall, in run: OperatorRun) -> TaskItem? {
         guard call.operatorTool == .finishTask, run.profile.slices.merge, PublicationGuard.runRefusal(run) == nil,
               let task = try? task(call, in: run), let operated = task.operated, operated.end.merges, !operated.takenOver,
-              let sha = operated.acceptance?.resultSHA, operated.publication?.merged != true,
+              let sha = operated.acceptance?.resultSHA, operated.publication?.mergeOutcome != .merged,
               operated.publication?.conditionsHeld != sha
                 || operated.publication?.conditionsEvidence != mergeEvidenceIdentity(of: task, in: run) else { return nil }
         switch operated.state {
@@ -149,7 +149,7 @@ extension OperatorToolHandler {
                     throw ToolRefusal("Challenge \(id) has already acted on \(call.tool). Call again without challengeId for another change.")
                 }
                 return answer
-            case _ where kept.kind == .veto:
+            case _ where kept.role == .veto:
                 return try await vetoAnswer(call, kept, in: run)
             case .running where runningChallenges[id] != nil:
                 return Self.pendingAnswer(id)

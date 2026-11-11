@@ -36,6 +36,7 @@ import Foundation
         #expect(line("resume_task", task: cart) == "Put Cart drawer back to work")
         #expect(line("retry_task", task: cart) == "Queued Cart drawer again")
         #expect(line("finish_task", task: cart) == "Finished Cart drawer")
+        #expect(line("update_request", ["title": "Cart drawer"], task: cart) == "Changed Cart drawer’s request")
         #expect(line("record_review", ["passed": true], task: cart) == "Recorded Cart drawer’s review: passed")
         #expect(line("record_review", ["passed": false], task: cart) == "Recorded Cart drawer’s review: not passed")
         #expect(line("check_goal", ["met": true]) == "Checked the goal: met")
@@ -132,6 +133,17 @@ import Foundation
         #expect(line("mark_task", ["outcome": "accepted", "challengeReply": "The check is flaky"], task: cart)
                 == "Marked Cart drawer accepted · kept despite the Oracle")
         #expect(line("mark_task", ["outcome": "accepted", "challengeReply": ""], task: cart) == "Marked Cart drawer accepted")
+    }
+
+    /// Every tool has a sentence of its own: none reads as its raw name, done or asked.
+    @Test func everyToolHasASentence() {
+        for tool in OperatorTool.allCases {
+            #expect(line(tool.rawValue, task: cart) != tool.rawValue, "\(tool.rawValue)")
+            #expect(ActivityLine.line(tool: tool.rawValue, arguments: .object([:]), task: cart, outcome: .refused) != tool.rawValue,
+                    "\(tool.rawValue)")
+        }
+        #expect(ActivityLine.line(tool: "update_request", arguments: .object([:]), task: cart, outcome: .refused)
+                == "change Cart drawer’s request")
     }
 
     @Test func readsAreTheToolsThatOnlyLook() {

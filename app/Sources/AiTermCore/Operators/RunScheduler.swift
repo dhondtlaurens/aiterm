@@ -55,7 +55,7 @@ public enum RunScheduler {
             guard let o = task.operated, o.state == .queued, !o.takenOver, seen.insert(task.id).inserted else { return false }
             return o.dependsOn.allSatisfy { dependency in
                 guard let operated = byId[dependency.task]?.operated,
-                      operated.publication?.mergedSHA == nil || operated.publication?.merged == true else { return false }
+                      operated.publication?.mergeOutcome != .mergedWithAnotherHead else { return false }
                 let parent = operated.state
                 switch dependency.kind {
                 case .order: return [.accepted, .noChange, .published].contains(parent)
@@ -99,7 +99,7 @@ extension RunScheduler {
         // A foreign merge holds its children even though the parent still has an acceptance.
         for task in state.tasks where task.operated?.state == .queued {
             guard let parent = task.operated?.dependsOn.compactMap({ state.task(id: $0.task)?.operated }).first(where: {
-                $0.publication?.mergedSHA != nil && $0.publication?.merged != true
+                $0.publication?.mergeOutcome == .mergedWithAnotherHead
             }) else { continue }
             let reason = parent.publication?.problem ?? "\(parent.key) was merged on the host outside its accepted publication"
             _ = try? OperatedTransitions.apply(.block(reason: reason), toTask: task.id, in: &state, by: .aiterm)

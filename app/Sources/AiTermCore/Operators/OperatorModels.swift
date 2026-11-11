@@ -13,9 +13,6 @@ public enum TaskEnd: String, Codable, CaseIterable, Sendable { case commit, draf
 /// A task's workflow state (spec §8), separate from its session's live status.
 public enum OperatedState: String, Codable, CaseIterable, Sendable {
     case planned, queued, working, inReview, blocked, failed, accepted, noChange, published, stopped
-
-    /// Not yet ended: what Stop can still stop. `inReview` waits on a review of its request.
-    public var isOpen: Bool { [.planned, .queued, .working, .inReview, .blocked, .failed].contains(self) }
 }
 
 /// `order`: start after the parent ends well. `code`: also branch from the parent's accepted SHA.
@@ -75,8 +72,12 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     /// The request's head commit the host merged, as the host reported it.
     public var mergedHead: String?
     /// Why the host will not merge it without someone acting — a failed pipeline, conflicts — or why
-    /// the wait ended. Cleared by the operator's next `finish_task`.
-    public var problem: String?
+    /// the wait ended. Cleared by the operator's next `finish_task`. Set, it takes the kind its wording says, which a
+    /// writer that knows better replaces (`setProblem(_:kind:)`); cleared, it has none.
+    public var problem: String? { didSet { problemKind = problem.map(ProblemKind.init(matching:)) } }
+    /// What kind of problem `problem` is, saved beside it: nil with no problem, and in a save from before the kind was
+    /// kept, which `problemOutcome` reads by the problem's wording.
+    public var problemKind: ProblemKind?
     /// The Merge slice with the Oracle on: the accepted commit the Oracle said yes for, that the conditions written in
     /// the Review and the Done hold. A merge goes ahead only while it is the commit accepted now.
     public var conditionsHeld: String?
@@ -125,8 +126,45 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         operatorHolds.contains(problem) || PublicationGuard.isOracleRefusal(problem)
     }
 
-    /// Its problem is a hold for the Operator (`isHold`).
-    public var holdsForOperator: Bool { problem.map(Self.isHold) ?? false }
+    /// What keeps a publication from going on, by what it waits for: a hold for the Operator's next finish_task
+    /// (`operatorHolds`), a failure that needs you, or a refusal nothing AiTerm does gets past (`permanent`), which leaves
+    /// the publication to you.
+    public enum ProblemKind: String, Codable, Sendable {
+        case hold, failure, permanent
+
+        /// The kind `problem`'s wording says: how a save from before kinds were kept is read, and what a writer that names
+        /// none records. A hold (`isHold`), a permanent refusal (no origin, no connected code host, the default or a
+        /// protected branch, the Merge slice off), else a failure.
+        public init(matching problem: String) {
+            if TaskPublication.isHold(problem) { self = .hold }
+            else if problem == PublicationGuard.mergeSliceOff || problem == PublishRefusal.noOrigin.localizedDescription
+                        || problem.contains("no connected code host") || problem.hasSuffix(TaskPublisher.neverPushesProtected)
+                        || problem.contains("branch is the default branch") { self = .permanent }
+            else { self = .failure }
+        }
+    }
+
+    /// The kind of its problem, nil with none: as saved, or, in a save from before kinds were kept, as its wording says.
+    public var problemOutcome: ProblemKind? { problem.map { problemKind ?? ProblemKind(matching: $0) } }
+
+    /// Records `problem` as the kind its writer knows it is.
+    public mutating func setProblem(_ problem: String, kind: ProblemKind) {
+        self.problem = problem
+        problemKind = kind
+    }
+
+    /// Its problem is a hold for the Operator (`problemOutcome`).
+    public var holdsForOperator: Bool { problemOutcome == .hold }
+
+    /// What became of its request's merge, read from `merged` and `mergedSHA` and never saved: not merged; merged at the
+    /// accepted commit, by AiTerm, on the host before AiTerm's answer came, or found already in its target (`landedSHA`);
+    /// or merged on the host with a head nobody accepted, which nothing stacked on it builds on.
+    public enum MergeOutcome: Sendable { case notMerged, merged, mergedWithAnotherHead }
+
+    public var mergeOutcome: MergeOutcome { merged ? .merged : mergedSHA != nil ? .mergedWithAnotherHead : .notMerged }
+
+    /// Merged either way (`mergeOutcome`): nothing of it is published again, and it is never accepted again.
+    public var wasMerged: Bool { mergeOutcome != .notMerged }
 
     public init(pushedSHA: String? = nil, mergeRequestURL: String? = nil, mergeRequestNumber: Int? = nil,
                 targetBranch: String? = nil, waitingSince: Date? = nil, readySince: Date? = nil, merged: Bool = false,
@@ -136,6 +174,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         self.pushedSHA = pushedSHA; self.mergeRequestURL = mergeRequestURL; self.mergeRequestNumber = mergeRequestNumber
         self.targetBranch = targetBranch; self.waitingSince = waitingSince; self.readySince = readySince; self.merged = merged
         self.mergedSHA = mergedSHA; self.mergedHead = mergedHead; self.problem = problem; self.conditionsHeld = conditionsHeld
+        self.problemKind = problem.map(ProblemKind.init(matching:))
         self.mergeRefusal = mergeRefusal
         self.repository = repository; self.leftForYou = leftForYou; self.waitingReason = waitingReason
         self.lastPushFailure = lastPushFailure; self.lastPushFailureSHA = lastPushFailureSHA; self.landedSHA = landedSHA
@@ -189,8 +228,9 @@ public struct ExtraTab: Codable, Equatable, Sendable {
     /// The conversation its agent last named (`SessionInfo.conversationId`): read once its tab is closed, and never taken
     /// for the first worker's (`TaskItem.firstWorkerConversation`).
     public var conversation: String?
-    /// More work on the task, or a review of its branch head (`open_tab`'s `role`).
-    public var role: TabRole
+    /// More work on the task, or a review of its branch head (`open_tab`'s `role`). Work, its default, is left out of the
+    /// save.
+    @OmittedWhenDefault<SavedDefaults.Work> public var role: TabRole
 
     public init(key: String, agent: AgentKind, model: String, reasoning: String?, modelReason: String, brief: String,
                 agentPinned: Bool = false, launch: LaunchAttempt, sessionId: String? = nil, failure: String? = nil,
@@ -198,47 +238,6 @@ public struct ExtraTab: Codable, Equatable, Sendable {
         self.key = key; self.agent = agent; self.model = model; self.reasoning = reasoning; self.modelReason = modelReason
         self.brief = brief; self.agentPinned = agentPinned; self.launch = launch; self.sessionId = sessionId; self.failure = failure
         self.conversation = conversation; self.role = role
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case requestedLaunch
-        case key, agent, model, reasoning, modelReason, brief, agentPinned, launch, sessionId, failure, conversation, role
-    }
-
-    /// Work tabs omit their default role in the current saved format.
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        key = try c.decode(String.self, forKey: .key)
-        agent = try c.decode(AgentKind.self, forKey: .agent)
-        model = try c.decode(String.self, forKey: .model)
-        reasoning = try c.decodeIfPresent(String.self, forKey: .reasoning)
-        requestedLaunch = try c.decodeIfPresent(LaunchRequest.self, forKey: .requestedLaunch)
-        modelReason = try c.decode(String.self, forKey: .modelReason)
-        brief = try c.decode(String.self, forKey: .brief)
-        agentPinned = try c.decode(Bool.self, forKey: .agentPinned)
-        launch = try c.decode(LaunchAttempt.self, forKey: .launch)
-        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
-        failure = try c.decodeIfPresent(String.self, forKey: .failure)
-        conversation = try c.decodeIfPresent(String.self, forKey: .conversation)
-        role = try c.decodeIfPresent(TabRole.self, forKey: .role) ?? .work
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(key, forKey: .key)
-        try c.encode(agent, forKey: .agent)
-        try c.encode(model, forKey: .model)
-        try c.encodeIfPresent(reasoning, forKey: .reasoning)
-        try c.encodeIfPresent(requestedLaunch, forKey: .requestedLaunch)
-        try c.encode(modelReason, forKey: .modelReason)
-        try c.encode(brief, forKey: .brief)
-        try c.encode(agentPinned, forKey: .agentPinned)
-        try c.encode(launch, forKey: .launch)
-        try c.encodeIfPresent(sessionId, forKey: .sessionId)
-        try c.encodeIfPresent(failure, forKey: .failure)
-        try c.encodeIfPresent(conversation, forKey: .conversation)
-        // Work is the omitted default role.
-        if role != .work { try c.encode(role, forKey: .role) }
     }
 }
 
@@ -527,7 +526,7 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// the question: the Operator checks whether it is answered and calls `resolve_question`. Nil for any other question.
     public var answeredInWindow: String?
     /// For a `fixRounds` question, your answer from the task's card, by its case (`oneMoreRound`, `acceptAsItIs`:
-    /// `BroadcastBoard.FixRoundsAnswer`). AiTerm writes it once and never closes the question: the Operator resolves
+    /// `FixRoundsAnswer`). AiTerm writes it once and never closes the question: the Operator resolves
     /// it, as with an answer in its chat. Nil until answered there, and for any other question.
     public var answeredOnCard: String?
     /// True when the Operator withdrew the question; `resolution` is its reason, not the person's answer.
@@ -562,6 +561,18 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
         self.answeredHereAt = answeredHereAt; self.relayedFrom = relayedFrom; self.history = history
     }
 
+    /// What the question is, read from its key and what it is about and never saved: a worker's prompt (`promptPrefix`), a
+    /// merge on the host (`mergedOnHostPrefix`), a command the Oracle stopped (`gatePrefix`), a task out of its review's
+    /// fix rounds (`about` `fixRounds`), or one the Operator asked or relayed.
+    public enum Kind: Sendable { case prompt, mergedOnHost, gate, fixRounds, asked }
+
+    public var kind: Kind {
+        if id.hasPrefix(Self.promptPrefix) { return .prompt }
+        if id.hasPrefix(Self.mergedOnHostPrefix) { return .mergedOnHost }
+        if id.hasPrefix(Self.gatePrefix) { return .gate }
+        return about == Self.fixRounds ? .fixRounds : .asked
+    }
+
     /// Who asks the person: AiTerm for its own keys (`aitermPrefixes`), a worker when the Operator relayed its question,
     /// else the Operator.
     public enum Asker: String, Sendable { case theOperator, worker, aiterm }
@@ -574,7 +585,7 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// Operator's chat), `here`, in AiTerm, for the rest.
     public enum Channel: String, Sendable { case here, there }
     public var channel: Channel {
-        id.hasPrefix(Self.promptPrefix) || id.hasPrefix(Self.gatePrefix) ? .there : .here
+        kind == .prompt || kind == .gate ? .there : .here
     }
 
     /// Whether the question holds its task while open: the task waits on you, isn't ready to accept and isn't watched
@@ -586,12 +597,12 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     }
 
     /// Recorded under one of AiTerm's own keys.
-    public var isAiTerms: Bool { Self.aitermPrefixes.contains(where: id.hasPrefix) }
+    public var isAiTerms: Bool { [.prompt, .mergedOnHost, .gate].contains(kind) }
 
     /// What the person answered in AiTerm, whichever place they answered it: in its block (`answeredHere`), or for a
     /// `fixRounds` question on its card or in its block (`answeredOnCard`), by its link's title. Nil until then.
     public var answer: String? {
-        answeredHere ?? answeredOnCard.flatMap(BroadcastBoard.FixRoundsAnswer.init(rawValue:))?.title
+        answeredHere ?? answeredOnCard.flatMap(FixRoundsAnswer.init(rawValue:))?.title
     }
 
     /// `about` for a task out of its review's fix rounds.
@@ -604,6 +615,31 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     /// The Operator may instead withdraw a stopped command it no longer needs, without allowing it.
     public static let promptPrefix = "prompt-", mergedOnHostPrefix = "merged-on-host-", gatePrefix = "gate-"
     public static let aitermPrefixes = [promptPrefix, mergedOnHostPrefix, gatePrefix]
+}
+
+/// Your answer to a task out of its review's fix rounds (`OperatorRun.fixRoundsQuestion(on:)`), from its card:
+/// each wakes the Operator with it, and the Operator resolves the question. Its question keeps the case's name
+/// (`OperatorQuestion.answeredOnCard`), so its words can change.
+public enum FixRoundsAnswer: String, CaseIterable, Sendable {
+    case oneMoreRound, acceptAsItIs
+
+    /// Its link on the card.
+    public var title: String {
+        switch self {
+        case .oneMoreRound: "One More Round"
+        case .acceptAsItIs: "Accept As It Is"
+        }
+    }
+
+    /// As the Operator's wake line says it: `You answered cart-drawer’s fix rounds: one more round`.
+    public var words: String {
+        switch self {
+        case .oneMoreRound: "one more round"
+        case .acceptAsItIs: "accept it as it is"
+        }
+    }
+
+    public func wakeReason(key: String) -> String { "You answered \(key)’s fix rounds: \(words)" }
 }
 
 /// One step of how a worker's question reached the person (`OperatorQuestion.history`).
@@ -766,7 +802,7 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var tool: String
     /// A critique, or a veto; a record saved before vetoes is a critique.
-    public var kind: ChallengeKind
+    @Defaulted<SavedDefaults.Critique> public var kind: ChallengeKind
     public var stage: ChallengeStage
     /// The Oracle's critique, once it gave one; for a veto, the Oracle's reason.
     public var critique: String?
@@ -807,34 +843,21 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
         self.askedAt = askedAt; self.askedEvidence = askedEvidence; self.round = round
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case askedEvidence, round, reply
-        case id, tool, kind, stage, critique, approved, askedArguments, askedSHA, askedMerge, unchallengedReason, actedArguments, result, askedAt
-    }
-
     /// Whether a finish_task's yes is a merge's (`askedMerge`).
     public var asksMerge: Bool { askedMerge ?? (askedSHA != nil) }
 
-    /// Synthesised but for `kind`, which a record saved before vetoes lacks: it reads as a critique.
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
-        tool = try c.decode(String.self, forKey: .tool)
-        kind = try c.decodeIfPresent(ChallengeKind.self, forKey: .kind) ?? .critique
-        stage = try c.decode(ChallengeStage.self, forKey: .stage)
-        critique = try c.decodeIfPresent(String.self, forKey: .critique)
-        approved = try c.decodeIfPresent(Bool.self, forKey: .approved)
-        askedArguments = try c.decodeIfPresent(String.self, forKey: .askedArguments)
-        askedSHA = try c.decodeIfPresent(String.self, forKey: .askedSHA)
-        askedEvidence = try c.decodeIfPresent(String.self, forKey: .askedEvidence)
-        askedMerge = try c.decodeIfPresent(Bool.self, forKey: .askedMerge)
-        unchallengedReason = try c.decodeIfPresent(String.self, forKey: .unchallengedReason)
-        actedArguments = try c.decodeIfPresent(String.self, forKey: .actedArguments)
-        result = try c.decodeIfPresent(String.self, forKey: .result)
-        askedAt = try c.decode(Date.self, forKey: .askedAt)
-        round = try c.decodeIfPresent(Int.self, forKey: .round)
-        reply = try c.decodeIfPresent(String.self, forKey: .reply)
+    /// What the record is, read from its tool, kind and round and never saved: a critique the Operator answers or acts
+    /// on, a veto only a yes lets act, or one of a relayed question's Oracle rounds, from 1 (a round saved before rounds
+    /// were numbered is the first).
+    public enum Role: Equatable, Sendable { case critique, veto, relayRound(Int) }
+
+    public var role: Role {
+        if tool == OperatorTool.relayQuestion.rawValue { return .relayRound(round ?? 1) }
+        return kind == .veto ? .veto : .critique
     }
+
+    /// A relay's round (`role`); nil for any other record.
+    public var relayRound: Int? { if case .relayRound(let round) = role { round } else { nil } }
 }
 
 /// A worker your Pause told to stop: its task, its tab (nil for the first worker, else the extra tab's key) and the
@@ -850,50 +873,54 @@ public struct PausedWorker: Codable, Hashable, Sendable {
     }
 }
 
-/// A broadcast, "run" in code (spec §4, §5). The app is its only writer.
+/// A broadcast, "run" in code (spec §4, §5). The app is its only writer. Its lists may be missing from a save and read
+/// as empty (`Defaulted`, `OmittedWhenDefault`); a run without a profile or a prompt (round 1's, with its persona) fails,
+/// and `AppState` keeps it whole without showing it.
 public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     public var id: UUID
     public var name: String
     /// Settings › Operator as it was when the broadcast started: a change there applies to the next one.
     public var profile: OperatorProfile
     /// The run's scope: every task belongs to one of these projects.
-    public var projectIds: [UUID]
+    @Defaulted<SavedDefaults.None<UUID>> public var projectIds: [UUID]
     /// The Jira projects its tickets are in, by key.
-    public var jiraProjectKeys: [String]
+    @Defaulted<SavedDefaults.None<String>> public var jiraProjectKeys: [String]
     /// What you asked for, how its work is reviewed, and what done looks like.
     public var prompt: String
     public var state: OperatorRunState
-    /// `.paused` or `.stopped` when you said so; persisted, and never undone by reconciliation.
+    /// `.paused` or `.stopped` when you said so; persisted, and never undone by reconciliation. Read as `youAsked`.
     public var intent: OperatorRunState?
     /// The last submitted plan revision, 0 while none is. New and changed tasks go into the open
     /// one, `openRevision`; `submit_plan` closes it and releases its tasks (`PlanRevision`).
     public var planRevision: Int
     /// How many tasks the first submitted plan had: what the backlog's growth is measured against.
     public var firstPlanSize: Int?
-    public var questions: [OperatorQuestion], decisions: [OperatorDecision]
+    @Defaulted<SavedDefaults.None<OperatorQuestion>> public var questions: [OperatorQuestion]
+    @Defaulted<SavedDefaults.None<OperatorDecision>> public var decisions: [OperatorDecision]
     /// The off-brief finds, for the Operator's summary; and what the slices kept the Operator from doing.
-    public var finds: [OffBriefFind], leftForYou: [String]
+    @Defaulted<SavedDefaults.None<OffBriefFind>> public var finds: [OffBriefFind]
+    @Defaulted<SavedDefaults.None<String>> public var leftForYou: [String]
     /// What AiTerm got wrong that the Operator worked around, kept beside the summary (`report_snag`).
-    public var snags: [OperatorSnag]
+    @Defaulted<SavedDefaults.None<OperatorSnag>> public var snags: [OperatorSnag]
     /// What each `leave_for_you` call recorded, by the key the Operator gave it: the same key again records nothing.
     /// Left out of the save while empty.
-    public var leftForYouRecords: [String: String] = [:]
+    @OmittedWhenDefault<SavedDefaults.NoEntries> public var leftForYouRecords: [String: String] = [:]
     /// The tickets `jira_create` made, by the key the Operator gave the call: the same key again returns the ticket.
-    public var jiraCreated: [String: String]
+    @Defaulted<SavedDefaults.NoEntries> public var jiraCreated: [String: String]
     /// Where each `jira_sprint` call put its tickets, by the key the Operator gave it (a sprint's id, or `backlog`): the same
     /// key again moves nothing. Left out of the save while empty.
-    public var jiraSprinted: [String: String] = [:]
+    @OmittedWhenDefault<SavedDefaults.NoEntries> public var jiraSprinted: [String: String] = [:]
     /// The id of the comment each `jira_comment` call posted, by the key the Operator gave it: the same key again posts
     /// nothing. Left out of the save while empty.
-    public var jiraCommented: [String: String] = [:]
+    @OmittedWhenDefault<SavedDefaults.NoEntries> public var jiraCommented: [String: String] = [:]
     /// The review threads `reply_thread` answered, by the key the Operator gave the call: the same key again posts nothing.
-    public var threadReplies: [String: String]
+    @Defaulted<SavedDefaults.NoEntries> public var threadReplies: [String: String]
     /// The writes sent and not yet known to have landed, as `jira_create/<key>` and `reply_thread/<key>`: saved before
     /// the request goes, cleared once its answer is recorded or it is known to have failed. A retry of one still here
     /// may find the first one done.
-    public var pendingWrites: [String]
+    @Defaulted<SavedDefaults.None<String>> public var pendingWrites: [String]
     /// The Oracle's challenges of this run's calls, the ones acted on kept with their answer.
-    public var challenges: [ChallengeRecord]
+    @Defaulted<SavedDefaults.None<ChallengeRecord>> public var challenges: [ChallengeRecord]
     /// The Operator's Claude conversation, for `claude --resume`.
     public var operatorConversation: String?, operatorWindowId: String?, operatorSessionId: String?
     public var createdAt: Date
@@ -902,34 +929,34 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     /// When the plan was done: every task finished, and the run `.complete`. Cleared when a new plan reopens it.
     public var completedAt: Date?
     /// AiTerm stopped waiting for a summary (`OperatorTiming.summaryWait`): it is not coming.
-    public var summaryGivenUp = false
+    @OmittedWhenDefault<SavedDefaults.False> public var summaryGivenUp = false
     /// When the broadcast ended, for the Shelf.
     public var endedAt: Date?
     /// The commands the person allowed after the Oracle stopped them (`resolve_question` with `allow`): each passes the
     /// gate once, on the exact command and directory, and is used up (spec §A.3).
-    public var gateAllowances: [GateRequest] = []
+    @OmittedWhenDefault<SavedDefaults.None<GateRequest>> public var gateAllowances: [GateRequest] = []
     /// The only combinations its workers, tabs and reviewers start on.
-    public var agents: [AgentChoice]
+    @OmittedWhenDefault<SavedDefaults.None<AgentChoice>> public var agents: [AgentChoice]
     /// The task policy, frozen as the broadcast starts.
     public var taskSettings: TaskSettings
     /// The Done step's goal; nil for none.
     public var goal: BroadcastGoal?
     /// Every task is finished and the goal is still to check: the run stays `.active` until `check_goal` answers.
-    public var goalCheckDue = false
+    @OmittedWhenDefault<SavedDefaults.False> public var goalCheckDue = false
     /// The extra rounds a goal check has used.
-    public var roundsUsed = 0
+    @OmittedWhenDefault<SavedDefaults.Zero> public var roundsUsed = 0
     /// Each `check_goal` that acted, oldest first.
-    public var goalChecks: [GoalCheck] = []
+    @OmittedWhenDefault<SavedDefaults.None<GoalCheck>> public var goalChecks: [GoalCheck] = []
     public var goalOutcome: GoalOutcome?
     /// The plan revision when the last goal check was answered: a later submitted one makes another check due.
     public var revisionAtLastCheck: Int?
     /// The tasks closed and removed at the broadcast's end, as their cards read.
-    public var finished: [FinishedTaskRecord] = []
+    @OmittedWhenDefault<SavedDefaults.None<FinishedTaskRecord>> public var finished: [FinishedTaskRecord] = []
     /// When the closing last ran.
     public var closedAt: Date?
     /// The workers your Pause told to stop, saved before the note is typed, so Resume tells each to carry on, even
     /// after a restart. Left out of the save while empty.
-    public var pausedWorkers: [PausedWorker] = []
+    @OmittedWhenDefault<SavedDefaults.None<PausedWorker>> public var pausedWorkers: [PausedWorker] = []
     /// How hard the Oracle checks a worker's question before it is relayed to you, as the Done step's Worker questions set
     /// it; nil, as every broadcast saved before it, is Challenged once (`relayCheckOrDefault`).
     public var relayCheck: RelayCheck?
@@ -960,65 +987,6 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         self.agents = agents; self.taskSettings = taskSettings; self.goal = goal
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case id, name, profile, projectIds, jiraProjectKeys, prompt, state, intent, planRevision
-        case firstPlanSize, questions, decisions, finds, snags, leftForYou, leftForYouRecords, challenges, operatorConversation, operatorWindowId
-        case operatorSessionId, jiraCreated, jiraSprinted, jiraCommented, threadReplies, pendingWrites, createdAt
-        case summary, summaryAt, completedAt, summaryGivenUp, endedAt, gateAllowances
-        case agents, taskSettings, goal, goalCheckDue, roundsUsed, goalChecks, goalOutcome, revisionAtLastCheck, finished, closedAt, pausedWorkers
-        case relayCheck
-    }
-
-    /// The lists may be missing and read as empty. A run without a profile or a prompt (round 1's,
-    /// with its persona) fails, and `AppState` keeps it whole without showing it.
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(UUID.self, forKey: .id)
-        name = try c.decode(String.self, forKey: .name)
-        profile = try c.decode(OperatorProfile.self, forKey: .profile)
-        projectIds = try c.decodeIfPresent([UUID].self, forKey: .projectIds) ?? []
-        jiraProjectKeys = try c.decodeIfPresent([String].self, forKey: .jiraProjectKeys) ?? []
-        prompt = try c.decode(String.self, forKey: .prompt)
-        state = try c.decode(OperatorRunState.self, forKey: .state)
-        intent = try c.decodeIfPresent(OperatorRunState.self, forKey: .intent)
-        planRevision = try c.decode(Int.self, forKey: .planRevision)
-        firstPlanSize = try c.decodeIfPresent(Int.self, forKey: .firstPlanSize)
-        questions = try c.decodeIfPresent([OperatorQuestion].self, forKey: .questions) ?? []
-        decisions = try c.decodeIfPresent([OperatorDecision].self, forKey: .decisions) ?? []
-        finds = try c.decodeIfPresent([OffBriefFind].self, forKey: .finds) ?? []
-        snags = try c.decodeIfPresent([OperatorSnag].self, forKey: .snags) ?? []
-        leftForYou = try c.decodeIfPresent([String].self, forKey: .leftForYou) ?? []
-        leftForYouRecords = try c.decodeIfPresent([String: String].self, forKey: .leftForYouRecords) ?? [:]
-        challenges = try c.decodeIfPresent([ChallengeRecord].self, forKey: .challenges) ?? []
-        operatorConversation = try c.decodeIfPresent(String.self, forKey: .operatorConversation)
-        operatorWindowId = try c.decodeIfPresent(String.self, forKey: .operatorWindowId)
-        operatorSessionId = try c.decodeIfPresent(String.self, forKey: .operatorSessionId)
-        jiraCreated = try c.decodeIfPresent([String: String].self, forKey: .jiraCreated) ?? [:]
-        jiraSprinted = try c.decodeIfPresent([String: String].self, forKey: .jiraSprinted) ?? [:]
-        jiraCommented = try c.decodeIfPresent([String: String].self, forKey: .jiraCommented) ?? [:]
-        threadReplies = try c.decodeIfPresent([String: String].self, forKey: .threadReplies) ?? [:]
-        pendingWrites = try c.decodeIfPresent([String].self, forKey: .pendingWrites) ?? []
-        createdAt = try c.decode(Date.self, forKey: .createdAt)
-        summary = try c.decodeIfPresent(String.self, forKey: .summary)
-        summaryAt = try c.decodeIfPresent(Date.self, forKey: .summaryAt)
-        completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
-        summaryGivenUp = try c.decodeIfPresent(Bool.self, forKey: .summaryGivenUp) ?? false
-        endedAt = try c.decodeIfPresent(Date.self, forKey: .endedAt)
-        gateAllowances = try c.decodeIfPresent([GateRequest].self, forKey: .gateAllowances) ?? []
-        agents = try c.decodeIfPresent([AgentChoice].self, forKey: .agents) ?? []
-        taskSettings = try c.decode(TaskSettings.self, forKey: .taskSettings)
-        goal = try c.decodeIfPresent(BroadcastGoal.self, forKey: .goal)
-        goalCheckDue = try c.decodeIfPresent(Bool.self, forKey: .goalCheckDue) ?? false
-        roundsUsed = try c.decodeIfPresent(Int.self, forKey: .roundsUsed) ?? 0
-        goalChecks = try c.decodeIfPresent([GoalCheck].self, forKey: .goalChecks) ?? []
-        goalOutcome = try c.decodeIfPresent(GoalOutcome.self, forKey: .goalOutcome)
-        revisionAtLastCheck = try c.decodeIfPresent(Int.self, forKey: .revisionAtLastCheck)
-        finished = try c.decodeIfPresent([FinishedTaskRecord].self, forKey: .finished) ?? []
-        closedAt = try c.decodeIfPresent(Date.self, forKey: .closedAt)
-        pausedWorkers = try c.decodeIfPresent([PausedWorker].self, forKey: .pausedWorkers) ?? []
-        relayCheck = try c.decodeIfPresent(RelayCheck.self, forKey: .relayCheck)
-    }
-
     /// A new plan on a finished run: the summary, its time, the completion and the give-up belonged to the old
     /// one. The end time stays, since only an ended run has one.
     public mutating func reopen() {
@@ -1027,65 +995,6 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
 
     /// The revision `create_task` and `update_task` add to: the one after the last submitted.
     public var openRevision: Int { planRevision + 1 }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(id, forKey: .id)
-        try c.encode(name, forKey: .name)
-        try c.encode(profile, forKey: .profile)
-        try c.encode(projectIds, forKey: .projectIds)
-        try c.encode(jiraProjectKeys, forKey: .jiraProjectKeys)
-        try c.encode(prompt, forKey: .prompt)
-        try c.encode(state, forKey: .state)
-        try c.encodeIfPresent(intent, forKey: .intent)
-        try c.encode(planRevision, forKey: .planRevision)
-        try c.encodeIfPresent(firstPlanSize, forKey: .firstPlanSize)
-        try c.encode(questions, forKey: .questions)
-        try c.encode(decisions, forKey: .decisions)
-        try c.encode(finds, forKey: .finds)
-        try c.encode(snags, forKey: .snags)
-        try c.encode(leftForYou, forKey: .leftForYou)
-        if !leftForYouRecords.isEmpty { try c.encode(leftForYouRecords, forKey: .leftForYouRecords) }
-        try c.encode(challenges, forKey: .challenges)
-        try c.encodeIfPresent(operatorConversation, forKey: .operatorConversation)
-        try c.encodeIfPresent(operatorWindowId, forKey: .operatorWindowId)
-        try c.encodeIfPresent(operatorSessionId, forKey: .operatorSessionId)
-        try c.encode(jiraCreated, forKey: .jiraCreated)
-        if !jiraSprinted.isEmpty { try c.encode(jiraSprinted, forKey: .jiraSprinted) }
-        if !jiraCommented.isEmpty { try c.encode(jiraCommented, forKey: .jiraCommented) }
-        try c.encode(threadReplies, forKey: .threadReplies)
-        try c.encode(pendingWrites, forKey: .pendingWrites)
-        try c.encode(createdAt, forKey: .createdAt)
-        try c.encodeIfPresent(summary, forKey: .summary)
-        try c.encodeIfPresent(summaryAt, forKey: .summaryAt)
-        try c.encodeIfPresent(completedAt, forKey: .completedAt)
-        if summaryGivenUp { try c.encode(true, forKey: .summaryGivenUp) }
-        try c.encodeIfPresent(endedAt, forKey: .endedAt)
-        // Left out while there are none, so a run without one saves as it did before.
-        if !gateAllowances.isEmpty { try c.encode(gateAllowances, forKey: .gateAllowances) }
-        // Each left out while empty or nil, as a run started before them saved.
-        if !agents.isEmpty { try c.encode(agents, forKey: .agents) }
-        try c.encode(taskSettings, forKey: .taskSettings)
-        try c.encodeIfPresent(goal, forKey: .goal)
-        if goalCheckDue { try c.encode(true, forKey: .goalCheckDue) }
-        if roundsUsed != 0 { try c.encode(roundsUsed, forKey: .roundsUsed) }
-        if !goalChecks.isEmpty { try c.encode(goalChecks, forKey: .goalChecks) }
-        try c.encodeIfPresent(goalOutcome, forKey: .goalOutcome)
-        try c.encodeIfPresent(revisionAtLastCheck, forKey: .revisionAtLastCheck)
-        if !finished.isEmpty { try c.encode(finished, forKey: .finished) }
-        try c.encodeIfPresent(closedAt, forKey: .closedAt)
-        if !pausedWorkers.isEmpty { try c.encode(pausedWorkers, forKey: .pausedWorkers) }
-        try c.encodeIfPresent(relayCheck, forKey: .relayCheck)
-    }
-}
-
-public extension OperatedTask {
-    /// The ends a task reaches by being done: no change needed, published, stopped, or accepted with
-    /// nothing left to publish (a commit end, or a publication left for you).
-    var isFinished: Bool {
-        state == .noChange || state == .published || state == .stopped
-            || (state == .accepted && (end == .commit || publication?.leftForYou == true))
-    }
 }
 
 extension OperatedTask {
@@ -1096,11 +1005,23 @@ extension OperatedTask {
 
     /// The current problem when it is a failure that needs you, not a hold for the Operator (`TaskPublication.operatorHolds`).
     public var publicationFailure: String? {
-        currentPublicationProblem.flatMap { TaskPublication.isHold($0) ? nil : $0 }
+        publication?.problemOutcome == .hold ? nil : currentPublicationProblem
     }
 }
 
 public extension OperatorRun {
+    /// What you asked of the broadcast, from `intent`, which is saved as a run state: to pause it, or to stop it. Nil while
+    /// you asked neither.
+    enum Asked: Sendable { case pause, stop }
+
+    var youAsked: Asked? {
+        switch intent {
+        case .paused?: .pause
+        case .stopped?: .stop
+        default: nil
+        }
+    }
+
     /// Whether an open question holds `task` (`OperatorQuestion.holdsTask`): what keeps it waiting on you. Every place
     /// that closes a question releases its task by this, so a question that doesn't hold never keeps the task waiting,
     /// and one that holds never loses it while another closes.

@@ -9,7 +9,7 @@ extension OperatorToolHandler {
     /// first call did, even once the task moved on; with other arguments it is refused.
     func openTab(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let task = try self.task(call, in: run), key = try call.string("key")
-        guard key != WorkerTab.firstKey else {
+        guard TabReference(key) != .first else {
             throw ToolRefusal("The key \(key) names \(task.operated?.key ?? task.title)’s first worker in run_status. Call open_tab with another key.")
         }
         let role: TabRole

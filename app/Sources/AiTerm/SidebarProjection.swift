@@ -141,18 +141,22 @@ final class SidebarProjection {
             let runs = Dictionary(next.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             if runs != self.runs { self.runs = runs }
         }
+        // The requests and the live broadcast's worker tabs, derived once for the group, the rows and the board, as of one
+        // time: they count a worker still launching alike.
+        let pass = SidebarPass(state: state, sessions: next.sessions, now: Date())
         let broadcast = SidebarModel.broadcastSection(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,
-                                                      diffByTask: next.diffByTask, acting: next.acting)
+                                                      diffByTask: next.diffByTask, acting: next.acting, pass: pass)
         let broadcastChanged = broadcast != self.broadcast
         if broadcastChanged { self.broadcast = broadcast }
         let board = !next.boardShown ? nil : state.activeRun.map { run in
             BroadcastBoard.make(run: run, state: state, acting: next.acting,
-                                requests: OperatorRequests.open(run: run, state: state), sessions: next.sessions,
+                                requests: pass.requests(of: run.id), sessions: next.sessions, pass: pass,
                                 liveModels: next.liveModels, modelLabels: next.modelLabels)
         }
         if board != self.board { self.board = board }
         let entries = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,
-                                           projectBranch: next.projectBranch, diffByTask: next.diffByTask, acting: next.acting.tasks)
+                                           projectBranch: next.projectBranch, diffByTask: next.diffByTask, acting: next.acting.tasks,
+                                           pass: pass)
         // Rebuilt only when their own list changed, since most derivations are for a status; and
         // written only when the lookup differs, which a reordered list leaves as it was.
         if next.tasks != previous?.tasks {

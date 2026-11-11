@@ -66,11 +66,11 @@ enum Budget {
     /// One derivation of the sidebar's rows (`SidebarProjection.refresh`) for the frozen broadcast — 4 tasks, 6 extra
     /// tabs, the run active — after its working worker's tab went to needs-input, a status a row draws.
     ///
-    /// Board closed: 3 `OperatorRequests.open` and 5 `TaskItem.workerTabs`. The broadcast's group derives the requests for
-    /// its header, and the operated-row lookup (`SidebarModel.OperatedLookup`) derives them again each time it is built,
-    /// once for the group's task rows and once for the projects' entries. Board open: 4 and 18, the board deriving the
-    /// requests a fourth time and matching worker tabs 13 more times for its 4 cards. A later change that derives each
-    /// once per refresh lowers these numbers; none may raise them.
+    /// 1 `OperatorRequests.open` and 4 `TaskItem.workerTabs`, board closed or open: the derivation's pass (`SidebarPass`)
+    /// derives the live run's requests once and matches each of its 4 tasks' worker tabs once, and the group's header, its
+    /// rows, the projects' entries and the board read them. Before it (phase 0): 3 and 5 with the board closed, the header
+    /// and the operated-row lookup, built twice, deriving the requests each; 4 and 18 open, the board deriving them again
+    /// and matching worker tabs 13 more times for its 4 cards. None may raise them.
     @Test(arguments: [false, true]) func aSidebarRefreshDerivesTheRequestsAndTheWorkerTabs(boardShown: Bool) async throws {
         let state = try OperatorCurrentContractTests.load()
         let workspace = WorkspaceStore.holding(state)
@@ -91,8 +91,8 @@ enum Budget {
         let work = await Budget.metered { rows.refresh() }
 
         #expect(rows.derivations == start + 1, "one derivation")
-        #expect(work[.requests] == (boardShown ? 4 : 3), "requests per refresh: \(work)")
-        #expect(work[.workerTabs] == (boardShown ? 18 : 5), "worker-tab matches per refresh: \(work)")
+        #expect(work[.requests] == 1, "requests per refresh: \(work)")
+        #expect(work[.workerTabs] == 4, "worker-tab matches per refresh: \(work)")
     }
 
     // MARK: - The window lock

@@ -396,4 +396,76 @@ import Foundation
         #expect(!OperatedTransitions.sameCommit("", ""))
         #expect(!OperatedTransitions.sameCommit("4f2a91d", head))
     }
+
+    // MARK: Edges AiTerm records
+
+    /// Each edge AiTerm records after the fact writes exactly the fields it names, as the places that wrote them by hand
+    /// did: the rest of the task is as it was.
+    @Test func eachRecordedEdgeWritesWhatItNames() {
+        let at = F.epoch, later = F.epoch.addingTimeInterval(60)
+        func recorded(_ edge: OperatedEdge, on task: OperatedTask) -> OperatedTask {
+            var task = task
+            OperatedTransitions.record(edge, on: &task)
+            return task
+        }
+        var accepted = F.operated("A", .accepted)
+        accepted.acceptance = TaskAcceptance(resultSHA: head, prerequisiteSHAs: [], checkOutput: "green", note: nil, at: at)
+        accepted.acceptanceWorktreeFingerprint = "tree-1"
+        accepted.flags = [.possiblyStalled, .waitingOnYou, .upstreamReplaced]
+        accepted.blockedReason = "earlier"
+
+        var published = accepted
+        published.state = .published
+        #expect(recorded(.publish, on: accepted) == published)
+
+        var inReview = accepted
+        inReview.state = .inReview
+        inReview.peopleReview = PeopleReview(startedAt: at)
+        #expect(recorded(.enterReview(at: at), on: accepted) == inReview)
+        #expect(recorded(.enterReview(at: later), on: inReview) == inReview, "a review begun keeps its start")
+
+        var ended = inReview
+        ended.peopleReview?.ended = true
+        ended.state = .accepted
+        #expect(recorded(.endReview(merges: true), on: inReview) == ended)
+        ended.state = .published
+        #expect(recorded(.endReview(merges: false), on: inReview) == ended)
+        var fresh = accepted
+        fresh.peopleReview = PeopleReview(ended: true)
+        #expect(recorded(.endReview(merges: true), on: accepted) == fresh, "a review never begun is ended all the same")
+
+        var commitEnd = inReview
+        commitEnd.state = .accepted
+        commitEnd.peopleReview?.ended = true
+        #expect(recorded(.endReviewOnCommitEnd, on: inReview) == commitEnd)
+        #expect(recorded(.endReviewOnCommitEnd, on: accepted) == accepted, "only a task in review has one to end")
+
+        let again = TaskAcceptance(resultSHA: "9b3e07d", prerequisiteSHAs: [], checkOutput: "green", note: nil, at: later)
+        var reaccepted = inReview
+        reaccepted.acceptance = again
+        reaccepted.acceptanceWorktreeFingerprint = nil
+        reaccepted.state = .accepted
+        reaccepted.blockedReason = nil
+        reaccepted.flags = [.upstreamReplaced]
+        #expect(recorded(.reaccept(again), on: inReview) == reaccepted)
+
+        var revoked = accepted
+        revoked.acceptance = nil
+        revoked.acceptanceWorktreeFingerprint = nil
+        revoked.state = .working
+        #expect(recorded(.revoke, on: accepted) == revoked)
+
+        var queued = F.operated("B", .queued)
+        queued.blockedReason = "waits for A"
+        var claimed = queued
+        claimed.state = .working
+        claimed.launch = LaunchAttempt(number: 1, requestedAt: at)
+        claimed.blockedReason = nil
+        claimed.runtimeUsed = 30
+        var unclaimed = claimed
+        unclaimed.state = .queued
+        unclaimed.launch = nil
+        unclaimed.blockedReason = "waits for A"
+        #expect(recorded(.unclaim(to: queued), on: claimed) == unclaimed, "its runtime is the claim's, as before")
+    }
 }

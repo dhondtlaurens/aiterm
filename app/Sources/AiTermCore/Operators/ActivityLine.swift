@@ -4,7 +4,10 @@ import Foundation
 public enum ActivityLine {
     /// The tools that only look: the tab reads their lines muted. `shell_read` is a shell command the gate let run as a
     /// plain read (spec §A.1), and `shell` any other one it judged: both are the gate's own lines, never a tool's.
-    public static let reads: Set<String> = ["run_status", "read_task", "jira_search", "jira_board", "find_user", "shell_read"]
+    public static let reads: Set<String> = Set(OperatorTool.allCases.filter(\.isReadOnly).map(\.rawValue)).union([shellRead])
+
+    /// The gate's own tool names for a shell command it let run as a plain read, and for any other one it judged.
+    private static let shellRead = "shell_read", shell = "shell"
 
     /// The line for `tool` called with `arguments`: `task` is the task it was about, when AiTerm found one. A call
     /// that went through, or was answered from the first, says what was done (`Finished Cart drawer`); one that was
@@ -15,70 +18,74 @@ public enum ActivityLine {
         let named = task?.title ?? text("task")
         // Each tool's words twice: what was done, then what was asked.
         let words: (done: String, asked: String)
-        switch tool {
-        case "run_status": words = ("Checked the broadcast’s status", "check the broadcast’s status")
-        case "jira_search": words = ("Searched Jira: \(text("jql"))", "search Jira: \(text("jql"))")
-        case "jira_create": words = ("Filed “\(text("summary"))” in \(text("project"))", "file “\(text("summary"))” in \(text("project"))")
-        case "jira_move": words = ("Moved \(text("key")) to \(text("status"))", "move \(text("key")) to \(text("status"))")
-        case "jira_link": words = ("Linked \(text("key")) to \(text("to"))", "link \(text("key")) to \(text("to"))")
-        case "jira_board": words = ("Read the Jira boards and sprints", "read the Jira boards and sprints")
-        case "jira_sprint":
-            let tickets = (arguments["tickets"]?.arrayValue ?? []).compactMap(\.stringValue).joined(separator: ", ")
-            let sprint = arguments["sprint"]?.intValue.map(String.init) ?? text("sprint")
-            if sprint.lowercased() == "backlog" { words = ("Moved \(cut(tickets)) to the backlog", "move \(cut(tickets)) to the backlog") }
-            else { words = ("Put \(cut(tickets)) in sprint \(sprint)", "put \(cut(tickets)) in sprint \(sprint)") }
-        case "jira_edit": words = ("Edited \(text("ticket"))", "edit \(text("ticket"))")
-        case "jira_comment": words = ("Commented on \(text("ticket"))", "comment on \(text("ticket"))")
-        case "create_task": words = ("Added \(text("title")) to the plan", "add \(text("title")) to the plan")
-        case "update_task": words = ("Changed \(named)’s plan", "change \(named)’s plan")
-        case "submit_plan": words = ("Submitted the plan", "submit the plan")
-        case "read_task":
-            let what = arguments["what"]?.stringValue.map(cut) ?? "work"
-            words = ("Read \(named)’s \(what)", "read \(named)’s \(what)")
-        case "review_task": words = ("Asked for an agent review of \(named)", "ask for an agent review of \(named)")
-        case "request_review": words = ("Asked people to review \(named)", "ask people to review \(named)")
-        case "reply_thread": words = ("Replied in a review thread on \(named)", "reply in a review thread on \(named)")
-        case "resolve_thread": words = ("Resolved a review thread on \(named)", "resolve a review thread on \(named)")
-        case "critique_thread": words = ("Asked the Oracle about a review thread on \(named)", "ask the Oracle about a review thread on \(named)")
-        case "find_user": words = ("Looked up “\(text("query"))”", "look up “\(text("query"))”")
-        case "message_task": words = ("Told \(named)’s worker: \(text("text"))", "tell \(named)’s worker: \(text("text"))")
-        case "open_tab": words = ("Opened another tab on \(named)", "open another tab on \(named)")
-        case "mark_task": words = ("Marked \(named) \(text("outcome"))", "mark \(named) \(text("outcome"))")
-        case "resume_task": words = ("Put \(named) back to work", "put \(named) back to work")
-        case "retry_task": words = ("Queued \(named) again", "queue \(named) again")
-        case "finish_task": words = ("Finished \(named)", "finish \(named)")
-        case "retry_pipeline": words = ("Retried \(named)’s failed pipeline", "retry \(named)’s failed pipeline")
-        case "record_review":
-            let verdict = arguments["passed"] == true ? "passed" : "not passed"
-            words = ("Recorded \(named)’s review: \(verdict)", "record \(named)’s review: \(verdict)")
-        case "check_goal":
-            let verdict = arguments["met"] == true ? "met" : "not met"
-            words = ("Checked the goal: \(verdict)", "check the goal: \(verdict)")
-        case "ask_you": words = ("Asked you: \(text("question"))", "ask you: \(text("question"))")
-        case "relay_question": words = ("Passed on \(named)’s worker’s question to you", "pass on \(named)’s worker’s question to you")
-        case "resolve_question":
-            if arguments["withdrawn"] == true {
-                words = ("Withdrew question: \(text("summary"))", "withdraw question: \(text("summary"))")
-            } else {
-                words = ("Noted your answer: \(text("summary"))", "note your answer: \(text("summary"))")
-            }
-        case "report_find": words = ("Noted a find: \(text("title"))", "note a find: \(text("title"))")
-        case "report_snag": words = ("Noted a snag in AiTerm: \(text("title"))", "note a snag in AiTerm: \(text("title"))")
-        case "leave_for_you": words = ("Left for you: \(text("text"))", "leave for you: \(text("text"))")
-        case "log_decision": words = ("Decided: \(text("text"))", "decide: \(text("text"))")
-        case "write_summary": words = ("Wrote the summary", "write the summary")
-        case "shell_read": words = ("Read `\(text("command"))`", "read `\(text("command"))`")
-        case "shell": words = ("Ran `\(text("command"))`", "run `\(text("command"))`")
-        default: words = (tool, tool)
-        }
+        if let known = OperatorTool(rawValue: tool) { words = Self.words(known, arguments: arguments, named: named) }
+        else if tool == shellRead { words = ("Read `\(text("command"))`", "read `\(text("command"))`") }
+        else if tool == shell { words = ("Ran `\(text("command"))`", "run `\(text("command"))`") }
+        else { words = (tool, tool) }
         switch outcome {
         // A shell command did not go through because the Oracle stopped it (spec §A.3).
-        case .challenged where tool == "shell": return "The Oracle stopped `\(text("command"))`"
+        case .challenged where tool == shell: return "The Oracle stopped `\(text("command"))`"
         case .challenged, .refused, .failed: return words.asked
         case .repeated: return words.done
         case .ok:
             let kept = !(arguments["challengeReply"]?.stringValue ?? "").isEmpty
             return kept ? words.done + " · kept despite the Oracle" : words.done
+        }
+    }
+
+    /// What a call of `tool` did, and what it asked, in that order: every tool has its own words.
+    private static func words(_ tool: OperatorTool, arguments: JSONValue, named: String) -> (done: String, asked: String) {
+        func text(_ key: String) -> String { cut(arguments[key]?.stringValue ?? "") }
+        switch tool {
+        case .runStatus: return ("Checked the broadcast’s status", "check the broadcast’s status")
+        case .jiraSearch: return ("Searched Jira: \(text("jql"))", "search Jira: \(text("jql"))")
+        case .jiraCreate: return ("Filed “\(text("summary"))” in \(text("project"))", "file “\(text("summary"))” in \(text("project"))")
+        case .jiraMove: return ("Moved \(text("key")) to \(text("status"))", "move \(text("key")) to \(text("status"))")
+        case .jiraLink: return ("Linked \(text("key")) to \(text("to"))", "link \(text("key")) to \(text("to"))")
+        case .jiraBoard: return ("Read the Jira boards and sprints", "read the Jira boards and sprints")
+        case .jiraSprint:
+            let tickets = (arguments["tickets"]?.arrayValue ?? []).compactMap(\.stringValue).joined(separator: ", ")
+            let sprint = arguments["sprint"]?.intValue.map(String.init) ?? text("sprint")
+            if sprint.lowercased() == "backlog" { return ("Moved \(cut(tickets)) to the backlog", "move \(cut(tickets)) to the backlog") }
+            return ("Put \(cut(tickets)) in sprint \(sprint)", "put \(cut(tickets)) in sprint \(sprint)")
+        case .jiraEdit: return ("Edited \(text("ticket"))", "edit \(text("ticket"))")
+        case .jiraComment: return ("Commented on \(text("ticket"))", "comment on \(text("ticket"))")
+        case .createTask: return ("Added \(text("title")) to the plan", "add \(text("title")) to the plan")
+        case .updateTask: return ("Changed \(named)’s plan", "change \(named)’s plan")
+        case .submitPlan: return ("Submitted the plan", "submit the plan")
+        case .readTask:
+            let what = arguments["what"]?.stringValue.map(cut) ?? "work"
+            return ("Read \(named)’s \(what)", "read \(named)’s \(what)")
+        case .reviewTask: return ("Asked for an agent review of \(named)", "ask for an agent review of \(named)")
+        case .requestReview: return ("Asked people to review \(named)", "ask people to review \(named)")
+        case .replyThread: return ("Replied in a review thread on \(named)", "reply in a review thread on \(named)")
+        case .resolveThread: return ("Resolved a review thread on \(named)", "resolve a review thread on \(named)")
+        case .critiqueThread: return ("Asked the Oracle about a review thread on \(named)", "ask the Oracle about a review thread on \(named)")
+        case .findUser: return ("Looked up “\(text("query"))”", "look up “\(text("query"))”")
+        case .messageTask: return ("Told \(named)’s worker: \(text("text"))", "tell \(named)’s worker: \(text("text"))")
+        case .openTab: return ("Opened another tab on \(named)", "open another tab on \(named)")
+        case .markTask: return ("Marked \(named) \(text("outcome"))", "mark \(named) \(text("outcome"))")
+        case .resumeTask: return ("Put \(named) back to work", "put \(named) back to work")
+        case .retryTask: return ("Queued \(named) again", "queue \(named) again")
+        case .finishTask: return ("Finished \(named)", "finish \(named)")
+        case .updateRequest: return ("Changed \(named)’s request", "change \(named)’s request")
+        case .retryPipeline: return ("Retried \(named)’s failed pipeline", "retry \(named)’s failed pipeline")
+        case .recordReview:
+            let verdict = arguments["passed"] == true ? "passed" : "not passed"
+            return ("Recorded \(named)’s review: \(verdict)", "record \(named)’s review: \(verdict)")
+        case .checkGoal:
+            let verdict = arguments["met"] == true ? "met" : "not met"
+            return ("Checked the goal: \(verdict)", "check the goal: \(verdict)")
+        case .askYou: return ("Asked you: \(text("question"))", "ask you: \(text("question"))")
+        case .relayQuestion: return ("Passed on \(named)’s worker’s question to you", "pass on \(named)’s worker’s question to you")
+        case .resolveQuestion:
+            if arguments["withdrawn"] == true { return ("Withdrew question: \(text("summary"))", "withdraw question: \(text("summary"))") }
+            return ("Noted your answer: \(text("summary"))", "note your answer: \(text("summary"))")
+        case .reportFind: return ("Noted a find: \(text("title"))", "note a find: \(text("title"))")
+        case .reportSnag: return ("Noted a snag in AiTerm: \(text("title"))", "note a snag in AiTerm: \(text("title"))")
+        case .leaveForYou: return ("Left for you: \(text("text"))", "leave for you: \(text("text"))")
+        case .logDecision: return ("Decided: \(text("text"))", "decide: \(text("text"))")
+        case .writeSummary: return ("Wrote the summary", "write the summary")
         }
     }
 

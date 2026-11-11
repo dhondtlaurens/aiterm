@@ -55,7 +55,7 @@ extension OperatorToolHandler {
     func worker(_ call: ToolCall, of task: TaskItem) throws(ToolRefusal) -> WorkerTab {
         let key = call.optionalString("tab")
         if let tab = task.workerTab(key, in: live.sessions) { return tab }
-        let keys = [WorkerTab.firstKey] + workerTabs(of: task).compactMap(\.key)
+        let keys = workerTabs(of: task).map(\.reference.name)
         throw ToolRefusal("\(task.operated?.key ?? task.title) has no tab \(key ?? ""). Its tabs are \(keys.joined(separator: ", ")).")
     }
 
@@ -85,7 +85,7 @@ extension OperatorToolHandler {
         switch reading {
         case .lastMessage:
             let worker = try self.worker(call, of: task)
-            var context: [String: JSONValue] = ["task": .string(key), "tab": .string(worker.key ?? WorkerTab.firstKey),
+            var context: [String: JSONValue] = ["task": .string(key), "tab": .string(worker.reference.name),
                                               "sessionId": worker.session.map { .string($0.sessionId) } ?? .null,
                                               "agent": .string(worker.agent.rawValue)]
             guard let conversation = worker.conversation else {
@@ -141,8 +141,8 @@ extension OperatorToolHandler {
             guard let daemon = daemon() else { throw ToolRefusal("AiTerm’s helper isn’t connected; try again in a moment.") }
             let details: PromptDetails
             do { details = try await daemon.promptDetails(sessionId: tab.sessionId) }
-            catch { throw ToolRefusal("AiTerm couldn’t read \(key)/\(worker.key ?? WorkerTab.firstKey)’s prompt (session \(tab.sessionId)): \(error.localizedDescription)") }
-            var answer: JSONValue = ["task": .string(key), "tab": .string(worker.key ?? WorkerTab.firstKey),
+            catch { throw ToolRefusal("AiTerm couldn’t read \(key)/\(worker.reference.name)’s prompt (session \(tab.sessionId)): \(error.localizedDescription)") }
+            var answer: JSONValue = ["task": .string(key), "tab": .string(worker.reference.name),
                 "sessionId": .string(tab.sessionId), "prompt": details.kind.map { .string($0.rawValue) } ?? .null,
                 "promptText": details.text.map(JSONValue.string) ?? .null]
             if details.kind != nil, details.text?.isEmpty != false {
@@ -237,7 +237,7 @@ extension OperatorToolHandler {
     }
 
     /// The extra tab the call's `tab` names; nil for the first worker, named or not.
-    static func tabKey(_ call: ToolCall) -> String? { call.optionalString("tab").flatMap { $0 == WorkerTab.firstKey ? nil : $0 } }
+    static func tabKey(_ call: ToolCall) -> String? { TabReference(call.optionalString("tab")).key }
 
     /// Delivered by the daemon's rules (spec §7.1) with the task's ownership generation, so a send begun
     /// before a takeover cannot land after it. Never retried here: the result says what happened. To the first
@@ -563,8 +563,8 @@ extension OperatorToolHandler {
 
     /// Work moves only in an active or complete broadcast (spec §9).
     func acceptsWork(_ run: OperatorRun) throws(ToolRefusal) {
-        if run.intent == .stopped { throw ToolRefusal("This broadcast was stopped; its tools no longer act.") }
-        if run.intent == .paused { throw ToolRefusal("The person paused this broadcast. Wait until they resume it.") }
+        if run.youAsked == .stop { throw ToolRefusal("This broadcast was stopped; its tools no longer act.") }
+        if run.youAsked == .pause { throw ToolRefusal("The person paused this broadcast. Wait until they resume it.") }
         switch run.state {
         case .active, .complete: return
         case .planning: throw ToolRefusal("This broadcast’s plan isn’t under way yet.")

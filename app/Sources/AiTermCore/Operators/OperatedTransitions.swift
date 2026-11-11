@@ -30,6 +30,29 @@ public enum OperatedAction: Equatable, Sendable {
     case stop
 }
 
+/// An edge of spec §8's table AiTerm records once it happened, on the host, in git or in its own launch: never refused,
+/// as there is nothing left to refuse. Each writes exactly the fields it names (`OperatedTransitions.record`).
+public enum OperatedEdge: Equatable, Sendable {
+    /// A publication's end carried out on the host: `published`.
+    case publish
+    /// Its request opened as a draft for people's review: `inReview`, its review begun `at` unless it had begun already.
+    case enterReview(at: Date)
+    /// `finish_task` ended its review: `accepted` for a merge end (`merges`), which goes on to its merge, else
+    /// `published`, the review ended.
+    case endReview(merges: Bool)
+    /// Its end was changed to commit, which has no review: in review, it is accepted again, as it was before its review
+    /// began, and its review is ended.
+    case endReviewOnCommitEnd
+    /// Accepted again on another commit (`UpstreamReplacement.reaccept`): `accepted` on `acceptance`, its content
+    /// baseline dropped and what an end settles cleared (`OperatedTransitions.settle`).
+    case reaccept(TaskAcceptance)
+    /// A code parent was accepted again on another commit: an accepted or no-change dependent goes back to `working`,
+    /// its acceptance and its content baseline dropped (`UpstreamReplacement.revokeDependents`).
+    case revoke
+    /// A launch claim taken back (`WorkerStarter`): the state, launch and block reason of `before`, the task as it was.
+    case unclaim(to: OperatedTask)
+}
+
 /// What a transition depends on beyond the task itself, gathered by the caller from the run.
 public struct OperatedContext: Equatable, Sendable {
     public var runState: OperatorRunState
@@ -193,6 +216,41 @@ public enum OperatedTransitions {
         return next
     }
 
+    /// `edge` recorded on `task`: the fields it names, written as it says, and nothing else.
+    public static func record(_ edge: OperatedEdge, on task: inout OperatedTask) {
+        switch edge {
+        case .publish:
+            task.state = .published
+        case .enterReview(let at):
+            task.state = .inReview
+            var review = task.peopleReview ?? PeopleReview()
+            if review.startedAt == nil { review.startedAt = at }
+            task.peopleReview = review
+        case .endReview(let merges):
+            var review = task.peopleReview ?? PeopleReview()
+            review.ended = true
+            task.peopleReview = review
+            task.state = merges ? .accepted : .published
+        case .endReviewOnCommitEnd:
+            guard task.state == .inReview else { return }
+            task.state = .accepted
+            task.peopleReview?.ended = true
+        case .reaccept(let acceptance):
+            task.acceptance = acceptance
+            task.acceptanceWorktreeFingerprint = nil
+            task.state = .accepted
+            settle(&task)
+        case .revoke:
+            task.acceptance = nil
+            task.acceptanceWorktreeFingerprint = nil
+            task.state = .working
+        case .unclaim(let before):
+            task.state = before.state
+            task.launch = before.launch
+            task.blockedReason = before.blockedReason
+        }
+    }
+
     /// A task over its limits, and why — what AiTerm blocks it with (spec §8): a failure with no
     /// retry left, or a working task past its runtime. Nil while it is within all three, and never for its
     /// runtime while it is `readyForAcceptance`: its worker finished, and the work waits for review.
@@ -221,7 +279,7 @@ public enum OperatedTransitions {
     public static func isReopenable(_ task: OperatedTask) -> Bool {
         guard task.state == .accepted else { return false }
         let publication = task.publication
-        if publication?.merged == true || publication?.mergedSHA != nil || publication?.leftForYou == true { return false }
+        if publication?.wasMerged == true || publication?.leftForYou == true { return false }
         guard let pushed = publication?.pushedSHA, let accepted = task.acceptance?.resultSHA else { return true }
         return !sameCommit(pushed, accepted) || publication?.mergeRequestNumber != nil
     }

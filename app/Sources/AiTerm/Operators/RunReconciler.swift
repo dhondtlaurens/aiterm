@@ -78,7 +78,7 @@ final class RunReconciler {
         let next: OperatorRunState
         switch (run.state, alive) {
         case (.planning, false), (.active, false): next = .operatorOffline
-        case (.operatorOffline, true) where run.intent == nil: next = Self.resumedState(of: run)
+        case (.operatorOffline, true) where run.youAsked == nil: next = Self.resumedState(of: run)
         default: return false
         }
         workspace.mutate { $0.updateRun(id: run.id) { $0.state = next } }
@@ -168,8 +168,10 @@ final class RunReconciler {
         let workersByTask = WorkerSessions(sessions)
         workspace.mutate { state in
             for task in state.tasks where checkedTask == nil || task.id == checkedTask {
-                guard let operated = task.operated, let run = state.run(id: operated.runId), run.state == .active, run.intent == nil
+                guard let operated = task.operated, let run = state.run(id: operated.runId), run.state == .active, run.youAsked == nil
                 else { continue }
+                // Each tab as it says itself, a first worker's launch not counted, unlike the row and run_status: counted as
+                // work here, a relaunched window would put a finished task back under its runtime limit.
                 let workers = task.workerTabs(in: workersByTask).map(\.status)
                 if elapsed > 0, workers.contains(.working), operated.state == .working, !operated.takenOver,
                    !operated.flags.contains(.waitingOnYou) {

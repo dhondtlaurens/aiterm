@@ -132,10 +132,7 @@ extension OperatorToolHandler {
         let said = why.isEmpty ? "." : ": " + why
         let question = OperatorQuestion(id: key, text: "The Oracle stopped `\(request.command)` in \(request.directory)\(said)", task: task,
                                         askedAt: ports.now(), gate: request)
-        mutate(in: id) { state in
-            state.updateRun(id: id) { $0.questions.append(question) }
-            if let task { state.updateOperated(task) { $0.flags.insert(.waitingOnYou) } }
-        }
+        mutate(in: id) { $0.open(question, inRun: id) }
         return key
     }
 
