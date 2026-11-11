@@ -59,7 +59,12 @@ filter, even when no Swift suite was selected; daemon does not accept Swift argu
 release tickets. A queued run selects again after admission. Per-run metadata records the run's
 own queue/result state; a missing completion never becomes success. Leave other runs alone.
 
-`test-swift-toolchain.sh` proves the pin and runner behavior. `test-test-select.sh` guards fixture
+Completed runs retain suite timings, failing test names, the tested commit and clean-tree state for
+seven days in `<lock>.history.jsonl` (normally `/tmp/aiterm-test.lock.history.jsonl`). Gate duration
+excludes queue wait. This runner-owned file is beside the activity records; their schema and
+retention are unchanged. Output capture ends with the command, even if a grandchild keeps stdout open.
+
+`test-swift-toolchain.sh` proves the pin, history and runner behavior. `test-test-select.sh` guards fixture
 readers and routing. `test.sh` creates `daemon/.venv` with the `dev` extra when needed, runs pytest,
 then its own venv's mypy/ruff over implementation, tests and tools. `PYTEST` can override the pytest
 executable; lint still uses the repository venv.

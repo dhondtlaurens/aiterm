@@ -228,6 +228,7 @@ swift_test() {
     shift 3
     local log rc runs passed tests suite
     log="$TEST_LOGS/$label.log"
+    print -r -- "Gate pass: $label"
 
     set +e
     # Hundreds of main-actor fixture setups can otherwise queue ahead of a test's awaited work.

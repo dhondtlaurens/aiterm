@@ -10,6 +10,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import runpy
 import signal
 import subprocess
 import sys
@@ -148,6 +149,7 @@ def main() -> None:
         signal.signal(signum, lambda caught, _frame: sys.exit(128 + caught))
     lock, suite, root, *command = sys.argv[1:]
     root = os.path.realpath(root)
+    history = runpy.run_path(str(Path(__file__).with_name("test-history.py")))
     directory = Path(lock + ".runs")
     directory.mkdir(parents=True, exist_ok=True)
     prune(directory)
@@ -175,12 +177,24 @@ def main() -> None:
             "AITERM_TEST_LOCK_HELD": "1", "AITERM_TEST_WAITED": str(int(waited)),
             "AITERM_TEST_LOCK_FD": str(descriptor), "AITERM_TEST_RUN_ID": run_id,
         }
-        child = subprocess.Popen(command, env=environment, pass_fds=(descriptor, activity_fd))
+        before = history["source"](root)
+        full_gate = history["is_full"](suite, root, command, dict(os.environ))
+        began = time.monotonic()
+        child = subprocess.Popen(command, env=environment, pass_fds=(descriptor, activity_fd),
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
         record.update(state="running", pid=child.pid, started_at=time.time())
         publish(path, record)
-        result = child.wait()
+        result, output = history["wait"](child)
         exit_code = result if result >= 0 else 128 - result
         record.update(state="completed", finished_at=time.time(), exit_code=exit_code)
+        entry = record | {"duration_seconds": time.monotonic() - began, "before": before,
+                          "after": history["source"](root), "full_gate": full_gate} | history["results"](output)
+        try:
+            history["append"](Path(lock + ".history.jsonl"), entry)
+        except (OSError, ValueError) as error:
+            print(f"Could not retain gate history: {error}", file=sys.stderr)
+            exit_code = exit_code or 1
+            record["exit_code"] = exit_code
         publish(path, record)
         raise SystemExit(exit_code)
     except SystemExit as error:
