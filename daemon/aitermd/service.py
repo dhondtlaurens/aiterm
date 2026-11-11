@@ -40,10 +40,6 @@ POLL_SECONDS = 2.0
 # How long a tick waits for a check it runs on a worker thread: the subagent transcripts, the Codex
 # rollouts.
 OFF_LOOP_CHECK_SECONDS = 1.0
-# Both of a tick's Codex reads -- the account's rate limits and the sessions' context fill -- run
-# under this one off-loop name. They share CodexSessionFiles' caches, which nothing locks, so a read
-# still stuck from an earlier tick holds back the other kind as well, rather than race it on a
-# second worker thread.
 
 T = TypeVar("T")
 

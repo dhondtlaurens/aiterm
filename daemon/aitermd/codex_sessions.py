@@ -26,6 +26,8 @@ _TOKEN_COUNT = b'"token_count"'
 _SESSION_META = b'"session_meta"'
 
 
+# Account usage and thread corroboration share this off-loop name: their reader caches
+# are not locked, so an outstanding read must hold back both kinds of work.
 CODEX_READ = "the Codex rollout read"
 READ_BYTES = 8 * 1024 * 1024
 
@@ -54,8 +56,9 @@ class _RolloutCursor(JsonlCursor):
         for line in lines:
             if not any(marker in line for marker in (_SESSION_META, b'"task_started"', b'"task_complete"', b'"turn_aborted"')):
                 continue
-            meta = version and _SESSION_META in line
-            boundary = turn and any(marker in line for marker in (b'"task_started"', b'"task_complete"', b'"turn_aborted"'))
+            meta = version and self.version_error is None and _SESSION_META in line
+            boundary = (turn and self.turn_error is None
+                        and any(marker in line for marker in (b'"task_started"', b'"task_complete"', b'"turn_aborted"')))
             if not meta and not boundary:
                 continue
             try:
@@ -151,8 +154,9 @@ class CodexSessionFiles:
             cursor = self._rollout(path, thread_id, stat)
         except OSError:
             return self._previous_version(path, stat)
-        if cursor.version_error is not None:
-            raise cursor.version_error
+        error, cursor.version_error = cursor.version_error, None
+        if error is not None:
+            raise error
         return cursor.version
 
     def _previous_version(self, path: Path, stat: os.stat_result) -> str | None:
@@ -169,8 +173,9 @@ class CodexSessionFiles:
             cursor = self._rollout(path, thread_id, path.stat())
         except OSError:
             return None
-        if cursor.turn_error is not None:
-            raise cursor.turn_error
+        error, cursor.turn_error = cursor.turn_error, None
+        if error is not None:
+            raise error
         return cursor.latest
 
     def reading(self, thread_id: str) -> CodexReading:
@@ -207,12 +212,14 @@ class CodexSessionFiles:
                 log.exception("reading the Codex turn boundary of thread %s failed", thread_id)
                 turn = None
             return CodexReading(context, version, turn)
-        if cursor.version_error is not None:
-            log.error("reading the Codex version of thread %s failed", thread_id, exc_info=cursor.version_error)
-        if cursor.turn_error is not None:
-            log.error("reading the Codex turn boundary of thread %s failed", thread_id, exc_info=cursor.turn_error)
-        return CodexReading(context, cursor.version if cursor.version_error is None else None,
-                            cursor.latest if cursor.turn_error is None else None)
+        version_error, turn_error = cursor.version_error, cursor.turn_error
+        cursor.version_error = cursor.turn_error = None
+        if version_error is not None:
+            log.error("reading the Codex version of thread %s failed", thread_id, exc_info=version_error)
+        if turn_error is not None:
+            log.error("reading the Codex turn boundary of thread %s failed", thread_id, exc_info=turn_error)
+        return CodexReading(context, cursor.version if version_error is None else None,
+                            cursor.latest if turn_error is None else None)
 
     def _rollout(self, path: Path, thread_id: str, st: os.stat_result) -> _RolloutCursor:
         stamp = (st.st_dev, st.st_ino, st.st_mtime_ns, st.st_ctime_ns, st.st_size)
@@ -270,8 +277,9 @@ class CodexSessionFiles:
                 if not chunk:
                     cursor.partial = partial
         cursor.offset, cursor.stamp = offset, None if short else stamp
-        if cursor.version_error is None and cursor.turn_error is None:
-            self._rollouts[path] = cursor
+        # Main advances through the complete batch before parsing it. A decoder failure
+        # reports once, then exposes only the facts parsed before it until more bytes arrive.
+        self._rollouts[path] = cursor
         return cursor
 
     def _read_context(self, path: Path) -> int | None:
