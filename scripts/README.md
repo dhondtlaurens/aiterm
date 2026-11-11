@@ -111,8 +111,11 @@ scripts/release.sh <version>
 version, signature and Applications link. Layout is in `dmg-settings.py`.
 
 `release.sh` publishes externally: it requires clean pushed `main`, the expected GitHub origin,
-logged-in `gh`, a newer version, the release certificate and Python 3.11+. It redraws the README
-picture and commits and pushes it to `main` when it changed.
+logged-in `gh`, a newer version, the release certificate and Python 3.11+. It requires a recorded
+green `scripts/test.sh all` for the exact clean `HEAD` in the last seven days before contacting
+external services. It redraws the README picture and commits and pushes it to `main` when it
+changed; that new commit needs its own full gate before retrying the release.
 It stamps the built bundle, creates/pushes the version tag, uploads the DMG to a draft, then
-publishes. The development bundle marker is refused. Complete the full gate first. Signing setup, version numbering and interrupted-release recovery live in
+publishes. The development bundle marker is refused. Signing setup, version numbering and
+interrupted-release recovery live in
 [releasing](../docs/workflow/release.md). A build/test command never implies permission to release.
