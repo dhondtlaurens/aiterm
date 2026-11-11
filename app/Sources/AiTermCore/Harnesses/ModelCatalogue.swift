@@ -57,7 +57,7 @@ public final class ModelCatalogue: Sendable {
         let cli = listing.launchesCLI ? executable ?? runner.locate(harness.executable) : nil
         if listing.launchesCLI, cli == nil { return fallback(agent, failure: .unavailable) }
         // Stamped before the read, so a file that changes while it runs is read again next time.
-        let stamps = FileStamps(listing.sources(home: home, executable: cli))
+        let stamps = FileStamps(listing.sources(home: home, executable: cli), followingSymlinks: true)
         let (cached, read) = state.withLock { state -> ([AgentModel]?, Int) in
             state.reads += 1
             guard !refreshing, let entry = state.entries[agent], entry.stamps == stamps else { return (nil, state.reads) }

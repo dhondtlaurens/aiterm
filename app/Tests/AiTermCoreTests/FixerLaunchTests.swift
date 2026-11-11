@@ -18,11 +18,11 @@ final class FixerLaunchTests {
     }
     deinit { try? FileManager.default.removeItem(atPath: dir) }
 
-    private func look(_ agent: FixerAgent, in clone: FixClone? = nil, request: FixRequest? = nil) throws -> HeadlessInvocation {
-        try FixerLaunch.look(agent, model: "m", reasoning: nil, clone: clone ?? self.clone, request: request ?? self.request, sessionID: "S")
+    private func look(in clone: FixClone? = nil, request: FixRequest? = nil) -> HeadlessInvocation {
+        FixerLaunch.look(model: "m", reasoning: nil, clone: clone ?? self.clone, request: request ?? self.request, sessionID: "S")
     }
-    private func apply(_ agent: FixerAgent, in clone: FixClone? = nil, proposal: FixProposal? = nil) throws -> HeadlessInvocation {
-        try FixerLaunch.apply(agent, model: "m", reasoning: nil, clone: clone ?? self.clone, proposal: proposal ?? self.proposal, sessionID: "S")
+    private func apply(in clone: FixClone? = nil, proposal: FixProposal? = nil) -> HeadlessInvocation {
+        FixerLaunch.apply(model: "m", reasoning: nil, clone: clone ?? self.clone, proposal: proposal ?? self.proposal, sessionID: "S")
     }
     private func output(_ stdout: String, status: Int32 = 0, timedOut: Bool = false) -> ProcessOutput {
         ProcessOutput(status: status, stdout: stdout, stderr: "", timedOut: timedOut)
@@ -34,7 +34,7 @@ final class FixerLaunchTests {
     // -- Claude --
 
     @Test func claudeLooksReadOnlyWithItsHooksOffAndASchema() throws {
-        let inv = try FixerLaunch.look(.claude, model: "sonnet", reasoning: "high", clone: clone, request: request, sessionID: "S")
+        let inv = FixerLaunch.look(model: "sonnet", reasoning: "high", clone: clone, request: request, sessionID: "S")
         #expect(inv.executable == "claude")
         #expect(inv.arguments.starts(with: ["-p"]))
         #expect(inv.arguments.contains("--session-id") && inv.arguments.contains("S"))
@@ -50,7 +50,7 @@ final class FixerLaunchTests {
     }
 
     @Test func claudeAppliesByResumingWithEditsAndNoPush() throws {
-        let inv = try FixerLaunch.apply(.claude, model: "sonnet", reasoning: nil, clone: clone, proposal: proposal, sessionID: "S")
+        let inv = FixerLaunch.apply(model: "sonnet", reasoning: nil, clone: clone, proposal: proposal, sessionID: "S")
         #expect(inv.arguments.containsSequence(["--resume", "S"]))
         #expect(inv.arguments.contains("Bash(git:*)"))
         #expect(inv.arguments.contains("Bash(git push:*)"))
@@ -59,7 +59,7 @@ final class FixerLaunchTests {
 
     /// Edit and Write are rules for the clone's own path (`//` is Claude's absolute form), never bare.
     @Test func claudesEditsAreConfinedToTheClone() throws {
-        let inv = try apply(.claude)
+        let inv = apply()
         #expect(!inv.arguments.contains("Edit") && !inv.arguments.contains("Write"), "a bare Edit or Write reaches every file")
         #expect(inv.arguments.contains("Edit(/\(clone.path)/**)") && inv.arguments.contains("Write(/\(clone.path)/**)"))
         #expect(inv.arguments.contains { $0.hasPrefix("Edit(//") })
@@ -67,7 +67,7 @@ final class FixerLaunchTests {
 
     @Test(arguments: [true, false])
     func claudeRunsOnItsOwnTerms(_ applying: Bool) throws {
-        let inv = try applying ? apply(.claude) : look(.claude)
+        let inv = applying ? apply() : look()
         #expect(inv.arguments.contains("--strict-mcp-config"))
         #expect(inv.arguments.containsSequence(["--setting-sources", "user"]), "the clone's own settings are not read")
         let settings = try #require(value(after: "--settings", in: inv.arguments))
@@ -79,7 +79,7 @@ final class FixerLaunchTests {
 
     @Test(arguments: [true, false])
     func claudeGetsTheRulesAsASystemPromptAndTheProblemAsThePrompt(_ applying: Bool) throws {
-        let inv = try applying ? apply(.claude) : look(.claude)
+        let inv = applying ? apply() : look()
         #expect(value(after: "--append-system-prompt", in: inv.arguments) == FixerPrompt.instructions)
         let prompt = inv.arguments[1]
         #expect(!prompt.contains("Never push"), "the rules are not in the prompt")
@@ -87,29 +87,29 @@ final class FixerLaunchTests {
     }
 
     /// An empty model is the agent's own default: neither it nor the reasoning is passed, in either
-    /// run of either agent — `--model ""` would fail every fix for someone with no default set.
-    @Test(arguments: [FixerAgent.claude], [true, false])
-    func anEmptyModelLeavesTheAgentToItsOwnDefault(_ agent: FixerAgent, _ applying: Bool) throws {
+    /// run — `--model ""` would fail every fix for someone with no default set.
+    @Test(arguments: [true, false])
+    func anEmptyModelLeavesTheAgentToItsOwnDefault(_ applying: Bool) throws {
         let inv = applying
-            ? try FixerLaunch.apply(agent, model: "", reasoning: "high", clone: clone, proposal: proposal, sessionID: "S")
-            : try FixerLaunch.look(agent, model: "", reasoning: "high", clone: clone, request: request, sessionID: "S")
+            ? FixerLaunch.apply(model: "", reasoning: "high", clone: clone, proposal: proposal, sessionID: "S")
+            : FixerLaunch.look(model: "", reasoning: "high", clone: clone, request: request, sessionID: "S")
         #expect(!inv.arguments.contains("--model") && !inv.arguments.contains("-m"))
         #expect(!inv.arguments.contains("--effort") && !inv.arguments.contains { $0.hasPrefix("model_reasoning_effort") })
         #expect(!inv.arguments.contains(""))
     }
 
-    /// A model given is passed with its reasoning, in either run of either agent.
-    @Test(arguments: [FixerAgent.claude], [true, false])
-    func aModelIsPassedWithItsReasoning(_ agent: FixerAgent, _ applying: Bool) throws {
+    /// A model given is passed with its reasoning, in either run.
+    @Test(arguments: [true, false])
+    func aModelIsPassedWithItsReasoning(_ applying: Bool) throws {
         let inv = applying
-            ? try FixerLaunch.apply(agent, model: "m1", reasoning: "high", clone: clone, proposal: proposal, sessionID: "S")
-            : try FixerLaunch.look(agent, model: "m1", reasoning: "high", clone: clone, request: request, sessionID: "S")
+            ? FixerLaunch.apply(model: "m1", reasoning: "high", clone: clone, proposal: proposal, sessionID: "S")
+            : FixerLaunch.look(model: "m1", reasoning: "high", clone: clone, request: request, sessionID: "S")
         #expect(inv.arguments.containsSequence(["--model", "m1", "--effort", "high"]))
     }
 
     // -- the prompts --
 
-    /// Codex's API refuses a schema that is not strict (spikes): every property required, none extra.
+    /// The schema is strict: every property required, none extra.
     @Test(arguments: ["look", "apply"])
     func theSchemasAreStrict(_ name: String) throws {
         let schema = name == "look" ? FixerPrompt.lookSchema : FixerPrompt.applySchema
@@ -163,14 +163,14 @@ final class FixerLaunchTests {
 
     @Test func claudesStructuredAnswerIsRead() throws {
         let out = output(#"{"type":"result","session_id":"S","structured_output":{"outcome":"none","reason":"r"}}"#)
-        let inv = try look(.claude)
+        let inv = look()
         let (answer, session) = try FixerLaunch.lookAnswer(.claude, output: out, invocation: inv)
         #expect(answer.outcome == "none" && session == "S")
     }
 
     @Test func anAnswerGivenAsAStringIsReadToo() throws {
         let out = output(#"{"session_id":"S","structured_output":"{\"outcome\":\"applied\",\"summary\":\"done\"}"}"#)
-        let answer = try FixerLaunch.applyAnswer(.claude, output: out, invocation: try apply(.claude))
+        let answer = try FixerLaunch.applyAnswer(.claude, output: out, invocation: apply())
         #expect(answer.outcome == "applied" && answer.summary == "done")
     }
 
@@ -202,7 +202,7 @@ final class FixerLaunchTests {
 
     @Test(arguments: ["I think the fix is to rebase.", "", #"{"type":"result"}"#, "{ not json"])
     func proseOrEmptyIsUnreadable(_ stdout: String) throws {
-        let inv = try look(.claude)
+        let inv = look()
         #expect(throws: FixRefusal.unreadableAnswer(.claude)) {
             try FixerLaunch.lookAnswer(.claude, output: output(stdout), invocation: inv)
         }
@@ -210,7 +210,7 @@ final class FixerLaunchTests {
 
     @Test(arguments: [FixerAgent.claude])
     func aTimeoutAndANonZeroExitAreTheirOwnRefusals(_ agent: FixerAgent) throws {
-        let inv = try look(agent)
+        let inv = look()
         #expect(throws: FixRefusal.timedOut(agent)) {
             try FixerLaunch.lookAnswer(agent, output: output("", status: 15, timedOut: true), invocation: inv)
         }

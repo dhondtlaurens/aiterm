@@ -360,28 +360,8 @@ extension OperatorToolHandler {
     /// Whether a write that failed may still have been carried out: its answer lost on the way back (a dropped
     /// connection, a timeout, a server error, an answer that did not read). A refusal for what was asked made nothing.
     static func mayHaveLanded(_ error: Error) -> Bool {
-        switch error {
-        case is ToolRefusal: return false
-        case let error as GitHubError:
-            switch error {
-            case .unauthorized, .forbidden, .repoNotFound, .refused: return false
-            case .badResponse(let status): return status >= 500
-            case .network, .decoding: return true
-            }
-        case let error as GitLabError:
-            switch error {
-            case .unauthorized, .projectNotFound, .noAPI, .noUser: return false
-            case .badResponse(let status): return status >= 500
-            case .network, .decoding: return true
-            }
-        case let error as JiraError:
-            switch error {
-            case .badResponse(let status): return status >= 500
-            case .network, .decoding: return true
-            default: return false
-            }
-        default: return true
-        }
+        if error is ToolRefusal { return false }
+        return (error as? any HostFailure)?.outcomeUnknown ?? true
     }
 
     /// The people on the task's code host who match `query`: a read, which needs no slice.

@@ -1,6 +1,11 @@
 import Foundation
 
 extension JiraClient {
+    /// Typed write bodies retain the existing JSONSerialization encoder and its escaping policy.
+    func send(method: String, path: String, json: JSONValue) async throws -> Data {
+        try await send(method: method, path: path, json: JSONSerialization.data(withJSONObject: json.foundationValue))
+    }
+
     /// Sends already encoded JSON, preserving the caller's encoder. Search uses read errors;
     /// writes keep Jira's refusal details, including for an empty successful response.
     func send(method: String, path: String, json: Data, write: Bool = true) async throws -> Data {
@@ -26,7 +31,9 @@ extension JiraClient {
 
     /// Reads needed to prepare a write retain write refusal details as well.
     func writeDecode<Response: Decodable>(_ type: Response.Type, _ request: URLRequest) async throws -> Response {
-        try decode(type, data: await writeSend(request))
+        try await HTTPJSON.preparingWrite(JiraError.self) {
+            try decode(type, data: await writeSend(request))
+        }
     }
 
     /// A refusal keeps Jira's own words: its 400s and 404s say which field or which ticket.

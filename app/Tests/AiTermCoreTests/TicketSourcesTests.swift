@@ -28,7 +28,7 @@ import Foundation
     @Test func issuesBecomeTicketsKeyedByNumber() async throws {
         let stub = StubSession { _ in (200, self.json([self.issue(55, title: "Opt-in Entire", labels: ["priority::medium", "enhancement"],
                                                                   updated: "2026-11-02T10:00:00.000Z")])) }
-        let found = try await GitLabClient(config: config, session: stub.session).issues(project: "ai/agentflow", search: "")
+        let found = try await GitLabClient(config: config, project: "ai/agentflow", session: stub.session).issues(search: "")
         let ticket = try #require(found.first)
         #expect(ticket.key == "#55")
         #expect(ticket.status == "enhancement")
@@ -44,7 +44,7 @@ import Foundation
     @Test(arguments: ["#53", "53"])
     func aNumberIsThatIssue(_ query: String) async throws {
         let stub = StubSession { _ in (200, self.json(self.issue(53, title: "Constraints", labels: [], updated: "2026-05-17T10:00:00Z"))) }
-        let found = try await GitLabClient(config: config, session: stub.session).issues(project: "ai/agentflow", search: query)
+        let found = try await GitLabClient(config: config, project: "ai/agentflow", session: stub.session).issues(search: query)
         #expect(found.map(\.key) == ["#53"])
         #expect(found.first?.status == nil)
         #expect(stub.lastRequest?.url?.path.hasSuffix("/issues/53") == true)
@@ -54,15 +54,15 @@ import Foundation
     @Test(arguments: [403, 404])
     func issuesOffIsNoIssues(_ status: Int) async throws {
         let stub = StubSession { _ in (status, Data("{}".utf8)) }
-        let found = try await GitLabClient(config: config, session: stub.session).issues(project: "jarvis/jarvis", search: "")
+        let found = try await GitLabClient(config: config, project: "jarvis/jarvis", session: stub.session).issues(search: "")
         #expect(found.isEmpty)
     }
 
     /// A token GitLab no longer accepts is a failure the picker shows, not a project without issues.
     @Test func anExpiredTokenIsAnError() async {
         let stub = StubSession { _ in (401, Data("{}".utf8)) }
-        let client = GitLabClient(config: config, session: stub.session)
-        await #expect(throws: GitLabError.unauthorized) { try await client.issues(project: "ai/agentflow", search: "") }
+        let client = GitLabClient(config: config, project: "ai/agentflow", session: stub.session)
+        await #expect(throws: GitLabError.unauthorized) { try await client.issues(search: "") }
     }
 
     @Test func anIssuesLabelsChooseTheBranchType() {
@@ -148,9 +148,9 @@ import Foundation
 
     // -- a ticket's merge requests --------------------------------------------------------------
 
-    private func publisher(_ handler: @escaping StubURLProtocol.Handler) -> (GitLabPublisher, StubSession) {
+    private func publisher(_ handler: @escaping StubURLProtocol.Handler) -> (GitLabClient, StubSession) {
         let stub = StubSession(handler: handler)
-        return (GitLabPublisher(client: GitLabClient(config: config, session: stub.session), project: "jarvis/jarvis"), stub)
+        return (GitLabClient(config: config, project: "jarvis/jarvis", session: stub.session), stub)
     }
 
     private let jiraTicket = JiraTicket(key: "JVS-5744", summary: "switches", description: nil, issueType: nil, status: "Review", url: "u")
@@ -209,12 +209,13 @@ import Foundation
         let stub = StubSession { request in
             (200, request.url!.path.hasSuffix("closed_by") ? closingData : relatedData)
         }
-        let repository = GitLabPublisher(client: GitLabClient(config: config, session: stub.session), project: "ai/agentflow")
+        let repository = GitLabClient(config: config, project: "ai/agentflow", session: stub.session)
         let issue = JiraTicket(key: "#53", summary: "Constraints", description: nil, issueType: nil, status: nil, url: "u",
                                source: .gitLab(project: "ai/agentflow"))
         let found = try await TicketMergeRequests.requests(for: issue, in: repository)
         #expect(found.requests.map(\.iid) == [29])
         #expect(found.complete)
+        #expect(stub.requests.count == 2) // concurrency would still make these same two requests; dropped.
     }
 
     @Test func aRequestNamesItsTicket() {
@@ -232,7 +233,7 @@ import Foundation
     /// An MR picked from the list carries its description, where `Closes #53` is.
     @Test func thePickersRequestsCarryTheirDescription() async throws {
         let stub = StubSession { _ in (200, self.json([self.request(29, title: "feat", branch: "x", description: "Closes #53")])) }
-        let found = try await GitLabClient(config: config, session: stub.session).mergeRequests(project: "ai/agentflow", search: "")
+        let found = try await GitLabClient(config: config, project: "ai/agentflow", session: stub.session).mergeRequests(search: "")
         #expect(found.first?.description == "Closes #53")
     }
 

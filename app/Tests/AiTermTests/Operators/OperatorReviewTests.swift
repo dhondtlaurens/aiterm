@@ -5,6 +5,57 @@ import Testing
 @testable import AiTermTestSupport
 
 @MainActor @Suite(.blocking) struct OperatorReviewTests {
+    @Test func failureBeforeAHostWriteDoesNotHoldItsOutcomeOpen() async {
+        let stub = StubSession { _ in (200, Data(#"{"draft":true}"#.utf8)) }
+        let client = GitHubClient(config: GitHubConfig(token: "stub"), repo: "owner/repo", session: stub.session)
+        do {
+            try await client.markReady(1)
+            Issue.record("Missing node id must stop the write")
+        } catch {
+            #expect(!OperatorToolHandler.mayHaveLanded(error))
+            #expect(error.localizedDescription == GitHubError.decoding.localizedDescription)
+        }
+        #expect(stub.requests.map(\.httpMethod) == ["GET"])
+    }
+
+    /// The current switch is the reference for every existing host error, including edge statuses.
+    @Test func hostFailureClassificationKeepsTheCurrentRule() {
+        let errors: [any Error] = [
+            GitHubError.unauthorized, GitHubError.forbidden, GitHubError.repoNotFound("r"), GitHubError.refused("no"),
+            GitHubError.network("lost"), GitHubError.decoding,
+            GitLabError.unauthorized, GitLabError.projectNotFound("r"), GitLabError.noAPI("h"), GitLabError.noUser("u"),
+            GitLabError.network("lost"), GitLabError.decoding,
+            JiraError.unauthorized, JiraError.network("lost"), JiraError.decoding,
+            JiraError.refused(status: 503, detail: "no"), JiraError.unconfinedQuery,
+        ] + [0, 199, 200, 400, 429, 499, 500, 599, 600].flatMap { status -> [any Error] in
+            [GitHubError.badResponse(status), GitLabError.badResponse(status), JiraError.badResponse(status)]
+        }
+        func current(_ error: any Error) -> Bool {
+            switch error {
+            case let error as GitHubError:
+                switch error {
+                case .unauthorized, .forbidden, .repoNotFound, .refused, .notSent: return false
+                case .badResponse(let status): return status >= 500
+                case .network, .decoding: return true
+                }
+            case let error as GitLabError:
+                switch error {
+                case .unauthorized, .projectNotFound, .noAPI, .noUser, .notSent: return false
+                case .badResponse(let status): return status >= 500
+                case .network, .decoding: return true
+                }
+            case let error as JiraError:
+                switch error {
+                case .badResponse(let status): return status >= 500
+                case .network, .decoding: return true
+                default: return false
+                }
+            default: return true
+            }
+        }
+        for error in errors { #expect(OperatorToolHandler.mayHaveLanded(error) == current(error)) }
+    }
+
     let project = OperatorServiceFixtures.project()
 
     // MARK: - Reviews, by an agent (base) and by people (the Review slice), spec §3.1 and §5

@@ -7,6 +7,49 @@ import Foundation
     struct Payload: Decodable, Equatable { var fullName: String }
     let url = URL(string: "https://example.com/thing")!
 
+    @Test(arguments: [URLError.badURL, .unsupportedURL, .cannotFindHost, .dnsLookupFailed,
+                      .cannotConnectToHost, .appTransportSecurityRequiresSecureConnection,
+                      .timedOut, .networkConnectionLost, .badServerResponse])
+    func transportMappingKeepsTheCurrentUncertainOutcomeEvenForConnectFailures(_ code: URLError.Code) {
+        let failure = HTTPJSON.Failure.transport(URLError(code))
+        let errors: [any HostFailure] = [GitHubClient.error(for: failure, notFound: .repoNotFound("r")),
+                                        GitLabClient.error(for: failure, notFound: .projectNotFound("r")),
+                                        JiraClient.error(for: failure)]
+        for error in errors { #expect(error.outcomeUnknown) }
+        #expect(errors[0].localizedDescription == GitHubError.network(URLError(code).localizedDescription).localizedDescription)
+        #expect(errors[1].localizedDescription == GitLabError.network(URLError(code).localizedDescription).localizedDescription)
+        #expect(errors[2].localizedDescription == JiraError.network(URLError(code).localizedDescription).localizedDescription)
+    }
+
+    @Test(arguments: ["GitHub", "GitLab", "Jira"])
+    func aPreparationFailureKeepsItsSentenceAndClosesItsOutcome(_ host: String) async {
+        let stub = StubSession { _ in (503, Data()) }
+        let expected: any HostFailure
+        switch host {
+        case "GitHub": expected = GitHubError.badResponse(503)
+        case "GitLab": expected = GitLabError.badResponse(503)
+        default: expected = JiraError.badResponse(503)
+        }
+        do {
+            switch host {
+            case "GitHub":
+                try await GitHubClient(config: GitHubConfig(token: "stub"), repo: "owner/repo", session: stub.session)
+                    .markReady(1)
+            case "GitLab":
+                try await GitLabClient(config: GitLabConfig(hostURL: url, token: "stub"), project: "owner/repo", session: stub.session)
+                    .markReady(1)
+            default:
+                _ = try await JiraClient(config: JiraConfig(siteURL: url, email: "stub", token: "stub"), session: stub.session)
+                    .transition(key: "PAY-1", to: "Done")
+            }
+            Issue.record("A failed preparation must stop the write")
+        } catch {
+            #expect((error as? any HostFailure)?.outcomeUnknown == false)
+            #expect(error.localizedDescription == expected.localizedDescription)
+        }
+        #expect(stub.requests.map(\.httpMethod) == ["GET"])
+    }
+
     /// Credentials survive same-origin hops and stop at the first different origin, for both
     /// buffered requests and streamed downloads.
     @Test(arguments: ["https://example.com/moved", "https://example.com:443/moved",
