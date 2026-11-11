@@ -138,4 +138,20 @@ import Testing
         #expect(sheet.context.defaults[.codex] == AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium"),
                 "no default saved: the first model the list has, at its default reasoning")
     }
+
+    /// The tools' traits (`OperatorTool`) say what the handler's own tables say, until the handler reads the traits.
+    @Test func theToolTraitsAgreeWithTheHandlersTables() {
+        #expect(OperatorToolHandler.mutating == Set(OperatorTool.allCases.filter(\.isMutating)))
+        #expect(OperatorToolHandler.actsOnTask == Set(OperatorTool.allCases.filter { $0.actKind == .onTask }))
+        let onBroadcast = OperatorTool.allCases.compactMap { tool -> (OperatorTool, OperatorAct)? in
+            if case .onBroadcast(let act) = tool.actKind { (tool, act) } else { nil }
+        }
+        #expect(OperatorToolHandler.actsOnBroadcast == Dictionary(uniqueKeysWithValues: onBroadcast))
+        let everything: JSONValue = ["outcome": "accepted", "noVerify": true]
+        for tool in OperatorTool.allCases {
+            let challenged = OperatorToolHandler.isChallenged(ToolCall(tool: tool.rawValue, arguments: everything), oracleIsOn: true,
+                                                              backlog: .needsOracle, merges: true)
+            #expect(challenged == [.critique, .veto].contains(tool.challengeClass), "\(tool)")
+        }
+    }
 }

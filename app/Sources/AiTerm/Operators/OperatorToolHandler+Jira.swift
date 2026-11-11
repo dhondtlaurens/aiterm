@@ -66,7 +66,7 @@ extension OperatorToolHandler {
     func jiraWritable(_ runId: UUID) throws(ToolRefusal) {
         guard let run = state.run(id: runId) else { throw ToolRefusal("This broadcast is no longer in AiTerm.") }
         guard run.profile.slices.jira else { throw ToolRefusal(WriteSlice.jira.off) }
-        if run.state == .planning, run.intent == nil { return }
+        if run.state == .planning, run.youAsked == nil { return }
         try acceptsWork(run)
     }
 

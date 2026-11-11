@@ -512,13 +512,15 @@ Each box leaves the project working and is one or a few commits.
 - [ ] 3b. Clients bound to their repository; forwarding removed; access narrowed; path encoding.
 - [ ] 3c. `find_user`, symlinked catalogue stamps (tests first); listing and user reuse.
 - [ ] 3d. Jira on `JSONValue`; Fix state; dead code; small shared helpers.
-- [ ] 4a. Tool traits and exhaustive Activity lines (test first for `update_request`).
-- [ ] 4b. One live projection and one readiness predicate (test first for the launch window).
-- [ ] 4c. Requests and tabs once per refresh; `RunStatus.build` split.
-- [ ] 4d. Transition table covers every edge; one question writer.
-- [ ] 4e. Computed views: question kind, tab reference, merge outcome, record role, run intent.
-- [ ] 4f. Persisted publication outcome kind with its migration read and new fixture.
-- [ ] 4g. Synthesized Codable with the two wrappers; housekeeping moves.
+- [x] 4a. Tool traits and exhaustive Activity lines (test first for `update_request`).
+- [x] 4b. One live projection and one readiness predicate (test first for the launch window). The reconciler keeps
+  reading tabs as they list themselves: given the launch window it would block a relaunched finished task (record).
+- [x] 4c. Requests and tabs once per refresh; `RunStatus.build` split.
+- [x] 4d. Transition table covers every edge; one question writer.
+- [x] 4e. Computed views: question kind, tab reference, merge outcome, record role, run intent.
+- [x] 4f. Persisted publication outcome kind with its migration read and new fixture.
+- [x] 4g. Synthesized Codable with the two wrappers; housekeeping moves. Dropped for `OperatedTask`, whose
+  `firstRevision` default and unknown-flag rule neither wrapper expresses: it keeps its hand-written coder (record).
 - [ ] 5a. Settle seam; suites moved to it; `last*` handles private.
 - [ ] 5b. Stop cancels everything it owns (test first); observer removed.
 - [ ] 5c. Gated, shared transcript reads; one status builder and one snapshot per pass.

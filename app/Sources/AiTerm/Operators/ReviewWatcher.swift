@@ -31,7 +31,7 @@ final class ReviewWatcher {
     /// and that you have neither paused nor ended.
     func isWatched(_ task: TaskItem) -> Bool {
         guard let operated = task.operated, operated.state == .inReview, !operated.takenOver,
-              operated.publication?.mergeRequestNumber != nil, let run = state.run(id: operated.runId), run.intent == nil
+              operated.publication?.mergeRequestNumber != nil, let run = state.run(id: operated.runId), run.youAsked == nil
         else { return false }
         return run.state == .active || run.state == .complete
     }

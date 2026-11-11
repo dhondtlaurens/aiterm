@@ -78,30 +78,8 @@ public struct BroadcastBoard: Equatable, Sendable {
         public init(current: TaskEnd, selectable: [TaskEnd]) { self.current = current; self.selectable = selectable }
     }
 
-    /// Your answer to a task out of its review's fix rounds (`OperatorRun.fixRoundsQuestion(on:)`), from its card:
-    /// each wakes the Operator with it, and the Operator resolves the question. Its question keeps the case's name
-    /// (`OperatorQuestion.answeredOnCard`), so its words can change.
-    public enum FixRoundsAnswer: String, CaseIterable, Sendable {
-        case oneMoreRound, acceptAsItIs
-
-        /// Its link on the card.
-        public var title: String {
-            switch self {
-            case .oneMoreRound: "One More Round"
-            case .acceptAsItIs: "Accept As It Is"
-            }
-        }
-
-        /// As the Operator's wake line says it: `You answered cart-drawer’s fix rounds: one more round`.
-        public var words: String {
-            switch self {
-            case .oneMoreRound: "one more round"
-            case .acceptAsItIs: "accept it as it is"
-            }
-        }
-
-        public func wakeReason(key: String) -> String { "You answered \(key)’s fix rounds: \(words)" }
-    }
+    /// Your answer to a task out of its review's fix rounds, which its question keeps (`AiTermCore.FixRoundsAnswer`).
+    public typealias FixRoundsAnswer = AiTermCore.FixRoundsAnswer
 
     /// What a task's Claude worker says it runs now (`SessionInfo.liveModel`, `.liveReasoning`), which its card's tooltip
     /// holds against the plan.
@@ -343,14 +321,16 @@ public struct BroadcastBoard: Equatable, Sendable {
 
     /// The board of `run` as `state` has it. `acting` is what the Operator is doing now, as
     /// `OperatorController.acting` says it; `requests` are the broadcast's open requests (`OperatorRequests`);
-    /// `sessions` the tabs as iTerm2 lists them, which the band reads as its row does; `liveModels` what each task's
+    /// `sessions` the tabs as iTerm2 lists them, which the band reads as its row does, as of `now`; `liveModels` what each task's
     /// Claude worker runs now (`liveModels(of:state:sessions:)`), which the cards' tooltips say; `modelLabels` the names
-    /// the cards give the models, a model with none named by its id.
+    /// the cards give the models, a model with none named by its id. `pass` is the sidebar derivation's (`SidebarPass`),
+    /// whose tabs the board reads instead of matching them again; without one it matches them as of `now`.
     public static func make(run: OperatorRun, state: AppState, acting: OperatorActs, requests: [BroadcastRequest],
-                            sessions: [SessionInfo] = [], liveModels: [UUID: LiveModel] = [:],
-                            modelLabels: ModelLabels = [:]) -> BroadcastBoard {
-        build(run: run, state: state, acting: acting, requests: requests, sessions: sessions, liveModels: liveModels,
-              modelLabels: modelLabels, keepsHanded: false)
+                            sessions: [SessionInfo] = [], now: Date = Date(), pass: SidebarPass? = nil,
+                            liveModels: [UUID: LiveModel] = [:], modelLabels: ModelLabels = [:]) -> BroadcastBoard {
+        let pass = pass ?? SidebarPass(state: state, sessions: sessions, now: now, matching: state.tasks(inRun: run.id))
+        return build(run: run, state: state, acting: acting, requests: requests, sessions: sessions, pass: pass, liveModels: liveModels,
+                     modelLabels: modelLabels, keepsHanded: false)
     }
 
     /// What the first worker of each of `run`'s tasks says it runs now, a Claude's alone (`SessionInfo.liveModel`), by
@@ -368,7 +348,7 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// The board, `keepsHanded` keeping the tasks End handed to you (`handedOnEnd`) In progress and counted, as the
     /// Shelf reads an ended broadcast.
     private static func build(run: OperatorRun, state: AppState, acting: OperatorActs, requests: [BroadcastRequest],
-                              sessions: [SessionInfo], liveModels: [UUID: LiveModel], modelLabels: ModelLabels,
+                              sessions: [SessionInfo], pass: SidebarPass, liveModels: [UUID: LiveModel], modelLabels: ModelLabels,
                               keepsHanded: Bool) -> BroadcastBoard {
         let tasks = state.tasks(inRun: run.id)
         let byId = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -384,14 +364,16 @@ public struct BroadcastBoard: Equatable, Sendable {
             guard let operated = task.operated else { return nil }
             let handed = keepsHanded && Self.handedOnEnd(operated)
             guard operated.state != .stopped || handed else { return nil }
+            // Its tabs, matched once for the board as of the pass's time: its line, its tab lines and its column read them.
+            let tabs = pass.tabs(of: task.id) ?? task.workerTabs(in: sessions, now: pass.now)
             var card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId, sessions: sessions,
-                                 live: liveModels[task.id], turn: acting.turns[task.id], labels: modelLabels,
+                                 tabs: tabs, now: pass.now, live: liveModels[task.id], turn: acting.turns[task.id], labels: modelLabels,
                                  project: projects.count > 1 ? names[task.projectId] : nil)
             // Relayed, it is a record of yours, which the card shows as its question instead.
             let relayed = run.questions.contains { $0.task == task.id && $0.resolution == nil && $0.relayedFrom != nil }
             if !operated.takenOver, !relayed { card.workerAsks = acting.asks[task.id] }
             // A task is in review while one of its review tabs is open.
-            let reviewing = OperatorLine.isInReview(operated, tabs: task.workerTabs(in: sessions))
+            let reviewing = OperatorLine.isInReview(operated, tabs: tabs.map(\.asListed))
             return (handed ? .inProgress : Self.column(of: operated, hasReview: hasReview, reviewing: reviewing), card, task.agent)
         }
         let removed = Self.removed(of: run, tasks: tasks).map { record in
@@ -403,7 +385,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                  empty: Self.empty(column, planned: !tasks.isEmpty || !removed.isEmpty))
         }
         let band = OperatorLine.broadcast(run, tasks: tasks, acting: acting.broadcast(run.id), requests: requests,
-                                          ready: SidebarModel.readyForAcceptance(tasks, sessions: sessions))
+                                          ready: SidebarModel.readyForAcceptance(tasks, sessions: sessions, pass: pass))
         return BroadcastBoard(
             runId: run.id, title: run.name, band: band,
             progress: progress(of: run, tasks: tasks, band: band, keepsHanded: keepsHanded),
@@ -443,16 +425,16 @@ public struct BroadcastBoard: Equatable, Sendable {
 
     /// Who asks, or where a question answered there waits.
     private static func from(_ question: OperatorQuestion) -> String {
-        if question.id.hasPrefix(OperatorQuestion.promptPrefix) {
-            guard let tab = question.tab, tab != WorkerTab.firstKey else { return "Waits in its worker’s window" }
+        if question.kind == .prompt {
+            guard case .extra(let tab) = TabReference(question.tab) else { return "Waits in its worker’s window" }
             return "Waits in its \(tab) tab"
         }
-        if question.id.hasPrefix(OperatorQuestion.gatePrefix) { return "Waits in the Operator’s chat" }
+        if question.kind == .gate { return "Waits in the Operator’s chat" }
         switch question.asker {
         case .aiterm: return "AiTerm asks"
         case .theOperator: return "The Operator asks"
         case .worker:
-            let tab = question.relayedFrom.flatMap { $0 == WorkerTab.firstKey ? nil : $0 }
+            let tab = question.relayedFrom.flatMap { TabReference($0).key }
             return (tab.map { "Its \($0) tab asks" } ?? "Its worker asks") + " · relayed by the Operator"
         }
     }
@@ -476,11 +458,11 @@ public struct BroadcastBoard: Equatable, Sendable {
 
     /// How a question is answered: there, by one link, or here, with its choices and a field.
     private static func answer(_ question: OperatorQuestion) -> ListedQuestion.Answer {
-        if question.id.hasPrefix(OperatorQuestion.promptPrefix), let task = question.task {
-            return .window(task: task, tab: question.tab ?? WorkerTab.firstKey)
+        if question.kind == .prompt, let task = question.task {
+            return .window(task: task, tab: TabReference(question.tab).name)
         }
-        if question.id.hasPrefix(OperatorQuestion.gatePrefix) { return .chat }
-        if question.about == OperatorQuestion.fixRounds { return .here(choices: FixRoundsAnswer.allCases.map(\.title), field: false) }
+        if question.kind == .gate { return .chat }
+        if question.kind == .fixRounds { return .here(choices: FixRoundsAnswer.allCases.map(\.title), field: false) }
         return .here(choices: question.choices ?? [], field: true)
     }
 
@@ -501,7 +483,9 @@ public struct BroadcastBoard: Equatable, Sendable {
         var all = state
         let driven = state.tasks(inRun: run.id) + state.archive.map(\.task).filter { $0.operated?.runId == run.id }
         all.tasks = driven.enumerated().sorted { ($0.element.createdAt, $0.offset) < ($1.element.createdAt, $1.offset) }.map(\.element)
-        var board = build(run: run, state: all, acting: .none, requests: [], sessions: [], liveModels: [:], modelLabels: modelLabels, keepsHanded: true)
+        let pass = SidebarPass(state: all, sessions: [], now: Date(), matching: [])
+        var board = build(run: run, state: all, acting: .none, requests: [], sessions: [], pass: pass, liveModels: [:], modelLabels: modelLabels,
+                          keepsHanded: true)
         board.columns = board.columns.map { lane in
             var lane = lane
             lane.cards = lane.cards.map { card in
@@ -558,7 +542,8 @@ public struct BroadcastBoard: Equatable, Sendable {
     // MARK: - A card
 
     private static func card(_ task: TaskItem, _ operated: OperatedTask, run: OperatorRun, acting: OperatorAct?,
-                             requests: [BroadcastRequest], tasks: [UUID: TaskItem], sessions: [SessionInfo], live: LiveModel?,
+                             requests: [BroadcastRequest], tasks: [UUID: TaskItem], sessions: [SessionInfo], tabs workers: [WorkerTab],
+                             now: Date, live: LiveModel?,
                              turn: WorkerTurn.Ending?, labels: ModelLabels, project: String?) -> Card {
         let takenOver = operated.takenOver
         let closes = run.taskSettings.closeWhenDone == true && operated.reachedItsEnd
@@ -572,7 +557,8 @@ public struct BroadcastBoard: Equatable, Sendable {
         } else if let fixRounds, !asks {
             OperatorLine("out of fix rounds", look: .needsYou, tooltip: fixRounds.text)
         } else {
-            OperatorLine.task(task, run: run, acting: acting, requests: requests, tasks: tasks, sessions: sessions, turn: turn)
+            OperatorLine.task(task, run: run, acting: acting, requests: requests, tasks: tasks, sessions: sessions, turn: turn, now: now,
+                              tabs: workers)
         }
         let mr: (reference: String, host: CodeHost, title: String?)? = task.mr.map { ($0.reference, $0.host, $0.title) }
             ?? operated.publication.flatMap { publication in
@@ -581,7 +567,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                     return (host.reference(number), host, nil)
                 }
             }
-        let tabs = tabs(of: task, sessions: sessions, labels: labels)
+        let tabs = tabs(of: task, workers: workers.map(\.asListed), labels: labels)
         let question = takenOver ? nil : self.question(on: task.id, operated, run: run)
         return Card(id: task.id, title: task.title, agent: task.agent,
                     ticket: task.jira?.key, ticketSummary: task.jira?.summary,
@@ -606,8 +592,8 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// The card's question for you (`CardQuestion`): on a finished task only one that never held it, as that one still asks.
     private static func question(on task: UUID, _ operated: OperatedTask, run: OperatorRun) -> CardQuestion? {
         run.questions
-            .filter { $0.task == task && $0.resolution == nil && !$0.id.hasPrefix(OperatorQuestion.promptPrefix)
-                && $0.about != OperatorQuestion.fixRounds && !(operated.isFinished && $0.holdsTask) }
+            .filter { $0.task == task && $0.resolution == nil && $0.kind != .prompt && $0.about != OperatorQuestion.fixRounds
+                && !(operated.isFinished && $0.holdsTask) }
             .min { $0.askedAt < $1.askedAt }
             .map { CardQuestion(key: $0.id, text: $0.text, holds: $0.holdsTask, asker: $0.asker) }
     }
@@ -641,10 +627,9 @@ public struct BroadcastBoard: Equatable, Sendable {
         return lead + (found.isEmpty ? "didn’t pass." : "still found " + found.sentenceList + ".")
     }
 
-    /// A card's tab lines, as `sessions` list its worker tabs; none for a task with one. With `labels`, each tab's model
-    /// and reasoning under its key.
-    private static func tabs(of task: TaskItem, sessions: [SessionInfo], labels: ModelLabels?) -> [TabLine] {
-        let workers = task.workerTabs(in: sessions)
+    /// A card's tab lines, from its worker tabs each as its tab says it (`WorkerTab.asListed`); none for a task with one.
+    /// With `labels`, each tab's model and reasoning under its key.
+    private static func tabs(of task: TaskItem, workers: [WorkerTab], labels: ModelLabels?) -> [TabLine] {
         guard workers.count > 1 else { return [] }
         let extra = Dictionary((task.operated?.extraTabs ?? []).map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
         return workers.map { worker in
@@ -659,7 +644,7 @@ public struct BroadcastBoard: Equatable, Sendable {
 
     /// One worker tab's line: what it does and its mark.
     private static func tabLine(of worker: WorkerTab, task: UUID) -> TabLine {
-        let key = worker.key ?? WorkerTab.firstKey
+        let key = worker.reference.name
         let opens = worker.session.map { Opens.tab(task: task, sessionId: $0.sessionId) } ?? .nothing
         if worker.isOpening { return TabLine(key: key, agent: worker.agent, line: OperatorLine("opening"), status: .working, opens: .nothing) }
         if let tests = worker.session?.testActivity, worker.session?.state != .needsInput,
@@ -756,6 +741,6 @@ public struct BroadcastBoard: Equatable, Sendable {
 public extension OperatorRun {
     /// The open question asking you about `task`'s fix rounds (`OperatorQuestion.fixRounds`), which its card answers.
     func fixRoundsQuestion(on task: UUID) -> OperatorQuestion? {
-        questions.first { $0.task == task && $0.about == OperatorQuestion.fixRounds && $0.resolution == nil }
+        questions.first { $0.task == task && $0.kind == .fixRounds && $0.resolution == nil }
     }
 }

@@ -39,7 +39,7 @@ final class BranchWatch {
     /// in a broadcast that runs and that you have neither paused nor ended.
     func isWatched(_ task: TaskItem) -> Bool {
         guard let operated = task.operated, [.working, .inReview].contains(operated.state), !operated.takenOver,
-              task.hasCheckout, let run = state.run(id: operated.runId), run.intent == nil else { return false }
+              task.hasCheckout, let run = state.run(id: operated.runId), run.youAsked == nil else { return false }
         return run.state == .active || run.state == .complete
     }
 

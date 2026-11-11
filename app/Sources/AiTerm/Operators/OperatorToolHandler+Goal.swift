@@ -69,7 +69,7 @@ extension OperatorToolHandler {
         let reads = tasks.map { task, operated in
             (path: task.hasCheckout ? task.worktreePath : nil, sha: operated.acceptance?.resultSHA,
              base: RunScheduler.baseCommit(for: task.id, in: state) ?? task.baseBranch,
-             merge: operated.publication?.merged == true ? operated.publication?.mergedSHA : nil)
+             merge: operated.publication?.mergeOutcome == .merged ? operated.publication?.mergedSHA : nil)
         }
         let stats = await withTaskGroup(of: (Int, String?).self) { group in
             for (i, read) in reads.enumerated() {
@@ -104,9 +104,11 @@ extension OperatorToolHandler {
         if let sha = publication.mergedSHA { record["mergedSHA"] = .string(sha) }
         if let url = publication.mergeRequestURL {
             var request: [String: JSONValue] = ["url": .string(url)]
-            if publication.merged { request["state"] = "merged" }
-            else if publication.mergedSHA != nil { request["state"] = "mergedWithAnotherHead" }
-            else if publication.leftForYou { request["state"] = "leftForYou" }
+            switch publication.mergeOutcome {
+            case .merged: request["state"] = "merged"
+            case .mergedWithAnotherHead: request["state"] = "mergedWithAnotherHead"
+            case .notMerged: if publication.leftForYou { request["state"] = "leftForYou" }
+            }
             record["request"] = .object(request)
         }
         return record.isEmpty ? nil : .object(record)

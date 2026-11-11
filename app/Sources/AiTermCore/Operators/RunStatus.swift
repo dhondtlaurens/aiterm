@@ -1,101 +1,5 @@
 import Foundation
 
-/// What AiTerm knows of a task's session beyond `state.json`: its live status, its tabs, a prompt
-/// waiting on you, and what its last turn left. Gathered by the caller from the daemon snapshot and
-/// git; `RunStatus` only arranges it.
-public struct TaskLiveFacts: Equatable, Sendable {
-    /// An extra worker tab the Operator added (`open_tab`), as `WorkerTab` counts it.
-    public struct Tab: Equatable, Sendable {
-        public var key: String, agent: AgentKind, model: String
-        /// Its tab's live status; nil while none is listed.
-        public var status: SessionState?
-        /// Asked for, its agent not shown yet (`WorkerTab.isOpening`): at work.
-        public var opening: Bool
-        /// Opened and listed no more (`WorkerTab.isClosed`): never opened again.
-        public var closed: Bool
-        /// The prompt it waits on you with, if any.
-        public var waitingPrompt: String?
-        /// The model and effort it runs now, and what became of the slash commands sent to it: `TaskLiveFacts`'s, for this tab.
-        public var liveModel: String?, liveReasoning: String?
-        public var slashCommands: [SlashCommand]
-        public var lastMessage: String?
-        public var turnUnread: Bool
-        /// Its session says working but its transcript went quiet, as `TaskLiveFacts.quiet` says of the first worker: its line
-        /// reads `working?` and its task is uncertain.
-        public var quiet: Bool
-        public init(key: String, agent: AgentKind, model: String, status: SessionState? = nil, opening: Bool = false, closed: Bool = false,
-                    waitingPrompt: String? = nil, liveModel: String? = nil, liveReasoning: String? = nil, slashCommands: [SlashCommand] = [],
-                    lastMessage: String? = nil, turnUnread: Bool = false, quiet: Bool = false) {
-            self.key = key; self.agent = agent; self.model = model; self.status = status; self.opening = opening; self.closed = closed
-            self.waitingPrompt = waitingPrompt
-            self.liveModel = liveModel; self.liveReasoning = liveReasoning; self.slashCommands = slashCommands
-            self.lastMessage = lastMessage; self.turnUnread = turnUnread; self.quiet = quiet
-        }
-        /// What it counts as: `WorkerTab.status`.
-        public var counted: SessionState? { opening ? .working : status }
-    }
-
-    /// The first worker's live status.
-    public var status: SessionState?
-    /// Its first worker's launch is under way and it has named no conversation yet (`WorkerTab.isOpening`): at work,
-    /// whatever its tab says.
-    public var opening: Bool
-    /// The classified prompt that waits on you in the first worker, `permission` or `unknown` (spec §7.2), if any.
-    public var waitingPrompt: String?
-    /// The task's extra worker tabs, in the order asked for.
-    public var tabs: [Tab]
-    /// What its workers left running in the background (`WorkerTab.background`): what one that ended its turn left, and
-    /// the subagents that hold one at working after its turn ended.
-    public var background: [String]
-    /// The prompt you typed into one of its workers yourself, for the turn it started (`SessionInfo.yourPrompt`).
-    public var yourPrompt: String?
-    /// What its first worker's ended turn left (spec §J), read once each turn ends and only while that worker is idle at its
-    /// prompt or done: its last message, and how many commits its branch has past where its work starts (a working task's
-    /// only, `Repository.commitsAhead`; nil while unknown).
-    public var lastMessage: String?, commitsAhead: Int?
-    /// A reopened working task's HEAD is still the commit it was accepted on (`OperatedTask.reopenedFrom`): no new commit,
-    /// and that one to accept again.
-    public var atReopenedCommit: Bool
-    /// An accepted, inReview or published task's worktree moved on from its accepted commit (`WorkerTurn.changedAfterAcceptance`).
-    public var changedAfterAcceptance: Bool
-    /// Its first worker ended its turn and AiTerm is still reading it: not ready, nor a quiet review, until what the turn
-    /// left is known.
-    public var turnUnread: Bool
-    /// Its first worker's session says working but its transcript has not grown for `OperatorTiming.liveQuietMinutes`, and
-    /// no tool call it started still runs (`StallWatch.isQuietWhileWorking`): the line reads `working?` and the task is uncertain.
-    public var quiet: Bool
-    /// The model and effort its first worker runs now, as Claude Code itself reported them (`SessionInfo.model`,
-    /// `.reasoning`): changed once a /model or /effort has run, never by delivering one, and never a subagent's. Nil while
-    /// it hasn't said.
-    public var liveModel: String?, liveReasoning: String?
-    /// What became of the slash commands `message_task` typed into its first worker (`SessionInfo.slashCommands`).
-    public var slashCommands: [SlashCommand]
-    /// What ended one of its workers' turns short, as a sentence (`StoppedOn.reason`): a usage limit and when it resets,
-    /// or a billing or sign-in failure. Nil while none is.
-    public var stoppedOn: String?
-    public var testActivities: [TestActivity]
-
-    public init(status: SessionState? = nil, waitingPrompt: String? = nil,
-                tabs: [Tab] = [], background: [String] = [], yourPrompt: String? = nil, lastMessage: String? = nil,
-                commitsAhead: Int? = nil, atReopenedCommit: Bool = false, changedAfterAcceptance: Bool = false, turnUnread: Bool = false,
-                quiet: Bool = false, liveModel: String? = nil, liveReasoning: String? = nil, slashCommands: [SlashCommand] = [],
-                stoppedOn: String? = nil, opening: Bool = false, testActivities: [TestActivity] = []) {
-        self.status = status; self.waitingPrompt = waitingPrompt; self.opening = opening
-        self.tabs = tabs; self.background = background; self.yourPrompt = yourPrompt
-        self.lastMessage = lastMessage; self.commitsAhead = commitsAhead; self.atReopenedCommit = atReopenedCommit
-        self.changedAfterAcceptance = changedAfterAcceptance
-        self.turnUnread = turnUnread; self.quiet = quiet
-        self.liveModel = liveModel; self.liveReasoning = liveReasoning; self.slashCommands = slashCommands
-        self.stoppedOn = stoppedOn
-        self.testActivities = testActivities
-    }
-
-    /// Its first worker is idle at its prompt or done: what its turn left is its final word.
-    var turnEnded: Bool { counted?.turnEnded == true }
-    /// What its first worker counts as: `WorkerTab.status`.
-    var counted: SessionState? { opening ? .working : status }
-}
-
 /// What AiTerm knows beyond `state.json` that belongs to the whole broadcast rather than one task:
 /// each agent's weekly usage, in percent, for the agents whose window is still open, and what each
 /// installed agent may run. Gathered by the caller from the sidebar's usage readings and Settings ›
@@ -218,7 +122,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var summaryDue: Bool
         /// Automatic cleanup for a complete broadcast with closing enabled. Separate from work completion.
         public var cleanup: Cleanup?
-        /// What every task follows (the Task step); nil for a broadcast started before it.
+        /// What every task follows (the Task step).
         public var taskSettings: TaskSettings
         /// The broadcast's goal; nil for none.
         public var goal: BroadcastGoal?
@@ -382,9 +286,10 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var liveModel: String?, liveReasoning: String?
         /// What became of the slash commands `message_task` typed into its first worker, oldest first; nil when none was.
         public var slashCommands: [SlashCommandLine]?
+        /// The test commands its workers run through AiTerm's queue, and how each stands; nil while none does.
+        public var testActivities: [TestActivity]?
         /// Why one of its workers stopped short of finishing its turn, an API error Claude Code reported: a usage limit and
         /// when it resets, or a billing or sign-in failure that waits on the person. Not ready while it says so; nil otherwise.
-        public var testActivities: [TestActivity]?
         public var stoppedOn: String?
         /// True while its first worker is still starting: launched a moment ago, it has named no conversation yet, and counts
         /// as at work whatever `live` says. Nil otherwise.
@@ -513,22 +418,52 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     /// The snapshot of `run` in `state` as of `now`, which the quiet review is measured against; nil for a run the workspace
     /// does not have. `hostThreads`, by task, are its request's threads as the host has them now (each one's resolution, by
     /// id), read by `run_status`: wherever the snapshot counts threads it counts these, so one answer never says a thread is
-    /// open and the review quiet. A task left out is counted as AiTerm last read it (`PeopleReview.threads`).
+    /// open and the review quiet. A task left out is counted as AiTerm last read it (`PeopleReview.threads`). It is the
+    /// task lines (`lines`) and the open obligations (`obligations`), built from the same facts.
     public static func build(state: AppState, run id: UUID, revision: Int, live: [UUID: TaskLiveFacts],
                              runLive: RunLiveFacts = RunLiveFacts(), hostThreads: [UUID: [String: Bool]] = [:],
                              now: Date = Date()) -> RunStatus? {
         WorkMeter.note(.statusBuild)
         guard let run = state.run(id: id) else { return nil }
+        let items = state.tasks(inRun: id), keys = keys(of: items)
+        return RunStatus(
+            revision: revision,
+            run: Run(id: run.id, name: run.name, state: run.state, prompt: run.prompt,
+                     planRevision: run.planRevision, openRevision: run.openRevision, firstPlanSize: run.firstPlanSize,
+                     finds: run.finds, snags: run.snags.map { SnagLine(key: $0.key, title: $0.title) }, slices: run.profile.slices, oracleIsOn: run.profile.oracle.isOn,
+                     usage: Dictionary(runLive.weeklyUsage.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
+                     agents: Agents(installed: Dictionary(runLive.agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
+                                    allowed: run.agents),
+                     jiraProjectKeys: run.jiraProjectKeys, summaryDue: run.state == .complete && run.summary == nil,
+                     taskSettings: run.taskSettings, goal: run.goal, goalCheckDue: run.goalCheckDue, roundsUsed: run.roundsUsed,
+                     cleanup: Cleanup(run)),
+            tasks: lines(of: run, items, state: state, keys: keys, live: live, hostThreads: hostThreads),
+            finished: run.finished,
+            obligations: collectObligations(of: run, items, keys: keys, live: live, hostThreads: hostThreads, now: now))
+    }
+
+    /// The open obligations of `run` in `state` as of `now`, as `build` says them, with no task line built: for a reader
+    /// that needs only what waits. Nil for a run the workspace does not have.
+    public static func openObligations(state: AppState, run id: UUID, live: [UUID: TaskLiveFacts], hostThreads: [UUID: [String: Bool]] = [:],
+                                       now: Date = Date()) -> Obligations? {
+        guard let run = state.run(id: id) else { return nil }
         let items = state.tasks(inRun: id)
-        let keys = Dictionary(items.compactMap { item in item.operated.map { (item.id, $0.key) } }, uniquingKeysWith: { first, _ in first })
-        var lines: [TaskLine] = []
-        var prompts: [String] = [], ready: [String] = [], background: [String] = [], stalled: [String] = [], uncertain: [String] = [], drift: [String] = []
-        var asks: [WorkerAsk] = [], changed: [String] = [], noCommit: [String] = [], reviewQuiet: [String] = []
-        for item in items {
-            guard let o = item.operated else { continue }
+        return collectObligations(of: run, items, keys: keys(of: items), live: live, hostThreads: hostThreads, now: now)
+    }
+
+    /// Each operated task's key, by its id: what a dependency and a question name it by.
+    private static func keys(of items: [TaskItem]) -> [UUID: String] {
+        Dictionary(items.compactMap { item in item.operated.map { (item.id, $0.key) } }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// Each operated task's line, in the run's order.
+    private static func lines(of run: OperatorRun, _ items: [TaskItem], state: AppState, keys: [UUID: String],
+                              live: [UUID: TaskLiveFacts], hostThreads: [UUID: [String: Bool]]) -> [TaskLine] {
+        items.compactMap { item -> TaskLine? in
+            guard let o = item.operated else { return nil }
             let facts = live[item.id] ?? TaskLiveFacts()
             let closes = run.taskSettings.closeWhenDone == true && o.reachedItsEnd
-            lines.append(TaskLine(
+            return TaskLine(
                 id: item.id, key: o.key, title: item.title, project: state.project(id: item.projectId)?.name ?? "",
                 agent: item.agent, model: item.model, state: o.state, end: o.end, revision: o.revision,
                 live: facts.status.map { LiveState($0, quiet: facts.quiet) }, branch: item.branch,
@@ -546,7 +481,18 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 reviewVerdicts: o.reviewVerdicts, reasoning: item.reasoning, acceptanceEvidence: o.acceptance,
                 diffBaseline: o.diffBaseSHA, requestedLaunch: o.requestedLaunch, testActivities: facts.testActivities,
                 keptReason: closes && run.closingHasRun ? o.keptReason : nil,
-                closingWait: closes && !run.closingHasRun && run.closingIsDue ? o.closingWait : nil))
+                closingWait: closes && !run.closingHasRun && run.closingIsDue ? o.closingWait : nil)
+        }
+    }
+
+    /// What waits on you or on the Operator in `run`, its tasks `items` in the run's order.
+    private static func collectObligations(of run: OperatorRun, _ items: [TaskItem], keys: [UUID: String], live: [UUID: TaskLiveFacts],
+                                           hostThreads: [UUID: [String: Bool]], now: Date) -> Obligations {
+        var prompts: [String] = [], ready: [String] = [], background: [String] = [], stalled: [String] = [], uncertain: [String] = [], drift: [String] = []
+        var asks: [WorkerAsk] = [], changed: [String] = [], noCommit: [String] = [], reviewQuiet: [String] = []
+        for item in items {
+            guard let o = item.operated else { continue }
+            let facts = live[item.id] ?? TaskLiveFacts()
             // What the first worker's ended turn left, on a task in any state but yours (spec §J): a new turn is at work.
             let turn = !o.takenOver && o.state != .stopped
             let mainAsking = turn && facts.turnEnded && WorkerTurn.endsWithQuestion(facts.lastMessage)
@@ -577,29 +523,16 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 || facts.tabs.contains(where: { $0.quiet && $0.status == .working }) { uncertain.append(o.key) }
             if o.branchDrift != nil { drift.append(o.key) }
         }
-        return RunStatus(
-            revision: revision,
-            run: Run(id: run.id, name: run.name, state: run.state, prompt: run.prompt,
-                     planRevision: run.planRevision, openRevision: run.openRevision, firstPlanSize: run.firstPlanSize,
-                     finds: run.finds, snags: run.snags.map { SnagLine(key: $0.key, title: $0.title) }, slices: run.profile.slices, oracleIsOn: run.profile.oracle.isOn,
-                     usage: Dictionary(runLive.weeklyUsage.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
-                     agents: Agents(installed: Dictionary(runLive.agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
-                                    allowed: run.agents),
-                     jiraProjectKeys: run.jiraProjectKeys, summaryDue: run.state == .complete && run.summary == nil,
-                     taskSettings: run.taskSettings, goal: run.goal, goalCheckDue: run.goalCheckDue, roundsUsed: run.roundsUsed,
-                     cleanup: Cleanup(run)),
-            tasks: lines,
-            finished: run.finished,
-            obligations: Obligations(
-                questionsWaiting: run.questions.filter { $0.resolution == nil }.map {
-                    Question(key: $0.id, text: $0.text, task: $0.task.flatMap { keys[$0] }, askedAt: $0.askedAt,
-                             answeredInWindow: $0.answeredInWindow, answeredOnCard: $0.answeredOnCard, answeredHere: $0.answeredHere,
-                             choices: $0.choices, holds: $0.task != nil && !$0.holdsTask ? false : nil,
-                             asker: $0.relayedFrom == nil ? nil : "worker", tab: $0.relayedFrom)
-                },
-                promptsWaitingOnYou: prompts, readyForAcceptance: ready, background: background, possiblyStalled: stalled, uncertain: uncertain,
-                branchDrift: drift, workerAsks: asks, changedAfterAcceptance: changed, finishedWithoutCommit: noCommit,
-                reviewQuiet: reviewQuiet))
+        return Obligations(
+            questionsWaiting: run.questions.filter { $0.resolution == nil }.map {
+                Question(key: $0.id, text: $0.text, task: $0.task.flatMap { keys[$0] }, askedAt: $0.askedAt,
+                         answeredInWindow: $0.answeredInWindow, answeredOnCard: $0.answeredOnCard, answeredHere: $0.answeredHere,
+                         choices: $0.choices, holds: $0.task != nil && !$0.holdsTask ? false : nil,
+                         asker: $0.relayedFrom == nil ? nil : "worker", tab: $0.relayedFrom)
+            },
+            promptsWaitingOnYou: prompts, readyForAcceptance: ready, background: background, possiblyStalled: stalled, uncertain: uncertain,
+            branchDrift: drift, workerAsks: asks, changedAfterAcceptance: changed, finishedWithoutCommit: noCommit,
+            reviewQuiet: reviewQuiet)
     }
 
     /// A review of yours to end, not yours: in review, not ended, not taken over, no unresolved thread, and begun at least
@@ -632,15 +565,16 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     /// The task's worker tabs as its line lists them, the first worker as `main`; nil when it has no extra tab.
     private static func tabLines(_ item: TaskItem, _ facts: TaskLiveFacts) -> [TabLine]? {
         guard !facts.tabs.isEmpty else { return nil }
-        var lines = [TabLine(key: WorkerTab.firstKey, agent: item.agent, model: item.model, live: facts.status.map { LiveState($0, quiet: facts.quiet) },
+        var lines = [TabLine(key: TabReference.first.name, agent: item.agent, model: item.model, live: facts.status.map { LiveState($0, quiet: facts.quiet) },
                         opening: facts.opening, closed: facts.status == nil && !facts.opening, liveModel: facts.liveModel, liveReasoning: facts.liveReasoning, slashCommands: SlashCommandLine.lines(facts.slashCommands))]
             + facts.tabs.map { TabLine(key: $0.key, agent: $0.agent, model: $0.model, live: $0.status.map { [quiet = $0.quiet] in LiveState($0, quiet: quiet) }, opening: $0.opening,
                                        closed: $0.closed, liveModel: $0.liveModel, liveReasoning: $0.liveReasoning,
                                        slashCommands: SlashCommandLine.lines($0.slashCommands)) }
         for i in lines.indices {
             let extra = item.operated?.extraTabs.first { $0.key == lines[i].key }
-            lines[i].reasoning = extra?.reasoning ?? (lines[i].key == WorkerTab.firstKey ? item.reasoning : nil)
-            lines[i].requestedLaunch = lines[i].key == WorkerTab.firstKey ? item.operated?.requestedLaunch : extra?.requestedLaunch
+            let first = TabReference(lines[i].key) == .first
+            lines[i].reasoning = extra?.reasoning ?? (first ? item.reasoning : nil)
+            lines[i].requestedLaunch = first ? item.operated?.requestedLaunch : extra?.requestedLaunch
         }
         return lines
     }

@@ -9,8 +9,8 @@ extension OperatorToolHandler {
     /// is the same however often it is made.
     func updateRequest(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let task = try self.task(call, in: run)
-        let edit = RequestContent(title: Self.said(call.optionalString("title")), description: Self.said(call.optionalString("description")),
-                                  assignee: Self.said(call.optionalString("assignee")))
+        let edit = RequestContent(title: call.optionalString("title").saidAsWritten, description: call.optionalString("description").saidAsWritten,
+                                  assignee: call.optionalString("assignee").saidAsWritten)
         guard !edit.isEmpty else { throw ToolRefusal("Give the title, description or assignee to change.") }
         let operated = try notTakenOver(task)
         try acceptsWork(run)
@@ -75,7 +75,7 @@ extension OperatorToolHandler {
             throw ToolRefusal("\(operated.key) has no merge request yet: finish_task opens it.")
         }
         let reference = publication.mergeRequestURL.map { CodeHost(webURL: $0).reference(number) } ?? "#\(number)"
-        if publication.merged || publication.mergedSHA != nil { throw ToolRefusal("\(reference) is merged: there is no pipeline of it to retry.") }
+        if publication.wasMerged { throw ToolRefusal("\(reference) is merged: there is no pipeline of it to retry.") }
         // Two calls at once would both find it failed and retry it twice.
         let flight = WriteInFlight(kind: .pipelineRetry, run: run.id, key: task.id.uuidString)
         guard writesInFlight.insert(flight).inserted else {
@@ -105,11 +105,5 @@ extension OperatorToolHandler {
         case .retried(let what):
             return ["task": .string(key), "mergeRequest": publication.mergeRequestURL.map(JSONValue.string) ?? .null, "retried": .string(what)]
         }
-    }
-
-    /// `text` when it says something; nil for none, or only whitespace.
-    private static func said(_ text: String?) -> String? {
-        guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return text
     }
 }
