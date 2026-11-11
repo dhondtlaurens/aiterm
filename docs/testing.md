@@ -24,6 +24,13 @@ for routing probes. Reader/toolchain guards prove routing and the pinned compile
 requires closing results from its test hosts, and a filtered run must execute at least one test;
 process exit alone is not a green result. Intentional known issues are labelled by Swift Testing.
 
+The runner retains completed runs' suite timings and failing test names for seven days in
+`<AITERM_TEST_LOCK>.history.jsonl`, normally `/tmp/aiterm-test.lock.history.jsonl`. Duration excludes
+queue wait. The history sits beside the queue's activity records, which keep their existing schema
+and retention; the daemon does not read the history. The supervisor inherits both output streams
+directly and collects history from result files after the command exits. Optional history I/O
+failures warn without changing the gate verdict or activity record.
+
 ## What belongs where
 
 | Tests | Requirement and distinct detection |

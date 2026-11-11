@@ -7,7 +7,7 @@ import Testing
 /// The banner's Fix for Pull main: what it draws in each of a session's states (banner states 1–5
 /// of the picked design), decided without rendering, and the whole run through a controller — a
 /// pull refused, the Fix offered, its proposal applied, and the pull run again.
-@MainActor @Suite(.serialized) struct BannerFixTests {
+@MainActor @Suite(.serialized, .blocking) struct BannerFixTests {
     let project = UUID()
     let proposal = FixProposal(headline: "Rebase main, keeping both new scripts.", why: "w", steps: ["s"], moves: ["main"],
                                drops: [], verify: nil)
@@ -103,7 +103,7 @@ import Testing
     /// again — still diverged here, since the stub's fix moves nothing, so the new failure names
     /// where the branch as it was is kept.
     @Test func aFixThatLandsPullsAgainAndAFailedPullNamesTheBackup() async throws {
-        let fixture = try RaceFixture.diverged()
+        let fixture = try await RaceFixture.diverged()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.fixPipeline = { _ in .stub(look: .fix(proposal)) }
@@ -125,7 +125,7 @@ import Testing
 
     /// A pull that succeeds after the fix says so, and where the old commits are.
     @Test func aPullAfterTheFixSaysWhereTheOldCommitsAre() async throws {
-        let fixture = try RaceFixture.diverged()
+        let fixture = try await RaceFixture.diverged()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.fixPipeline = { _ in .stub(look: .fix(proposal)) }
@@ -148,7 +148,7 @@ import Testing
     /// A pull after a fix that cannot start — another pull of the branch is running — still says
     /// where the branch as it was is kept.
     @Test func aPullAfterTheFixThatCannotStartNamesTheBackup() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let running = fixture.controller.projects.pullDefault(project: fixture.project)
         let landing = FixLanding(branch: "main", old: "a", new: "b")
@@ -160,7 +160,7 @@ import Testing
 
     /// The banner's session follows Help with problems: Off makes one that offers nothing.
     @Test func theBannersSessionFollowsHelpWithProblems() async throws {
-        let fixture = try RaceFixture.diverged()
+        let fixture = try await RaceFixture.diverged()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.agents.helpWithProblems.isOn = false
         await fixture.controller.projects.pullDefault(project: fixture.project)?.value
@@ -170,7 +170,7 @@ import Testing
     /// A fix that landed on a branch that is no longer the project's default pulls nothing — that
     /// pull was for the old one — and the toast says where the branch as it was is kept.
     @Test func aFixForABranchNoLongerTheDefaultPullsNothing() async throws {
-        let fixture = try RaceFixture.diverged()
+        let fixture = try await RaceFixture.diverged()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         var pipeline = FixPipeline.stub(look: .fix(proposal))
@@ -189,7 +189,7 @@ import Testing
     /// Two projects: while A's fix holds the banner, B's refusal waits; once A's fix lands it comes
     /// up with a Fix of its own, and A's pull, run again, leaves it be.
     @Test func anotherProjectsIssueWaitsForTheFixAndIsLeftAlone() async throws {
-        let fixture = try RaceFixture.diverged()
+        let fixture = try await RaceFixture.diverged()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.fixPipeline = { _ in .stub(look: .fix(proposal)) }
@@ -220,7 +220,7 @@ import Testing
 
     /// Quitting stops a Look: its agent's process group would outlive the app.
     @Test func shutdownStopsALook() async throws {
-        let fixture = try RaceFixture.diverged()
+        let fixture = try await RaceFixture.diverged()
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         controller.fixPipeline = { _ in .stub(look: .none("n"), slowLook: true) }

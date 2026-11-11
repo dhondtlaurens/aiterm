@@ -3,7 +3,7 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-@Suite struct MergedBranchCheckTests {
+@Suite(.blocking) struct MergedBranchCheckTests {
     @Test func aSymbolicLocalRefNeverDeletesItsTarget() async throws {
         let git = GitRunner.hermetic()
         let path = try GitFixture.makeRepo(prefix: "close-symbolic", git: git)

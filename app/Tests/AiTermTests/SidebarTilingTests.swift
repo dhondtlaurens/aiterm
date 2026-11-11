@@ -134,10 +134,10 @@ struct SidebarTilingTests {
     /// A workspace with a task window, a terminal window and a task whose window is closed,
     /// connected to a daemon that records what it is asked and holds back the replies to `holding`.
     private func tiledWorkspace(holding: String? = nil) async throws -> (RaceFixture, RecordingDaemon, NSWindow, TaskItem, TerminalItem) {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon(holding: holding)
         let controller = fixture.controller
-        let task = try fixture.addTask(windowId: "task-window")
+        let task = try await fixture.addTask(windowId: "task-window")
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Terminal", windowId: "terminal-window",
                                     createdAt: Date())
         let closed = TaskItem(id: UUID(), projectId: fixture.project.id, title: "Closed", branch: "main",

@@ -4,10 +4,13 @@ import AiTermCore
 extension GitFixture {
     /// A repository on `main` whose origin is a bare repository beside it, holding `main`; and
     /// `branch`, checked out, one commit ahead, which origin does not have yet. The commit is returned.
-    static func withOrigin(branch: String, git: any GitRunning = GitRunner.hermetic()) throws -> (path: String, origin: String, sha: String) {
+    static func withOrigin(branch: String, git explicit: (any GitRunning)? = nil) throws -> (path: String, origin: String, sha: String) {
+        let git = explicit ?? GitRunner.hermetic()
         let origin = try folder("origin-")
         try git.run(["init", "--bare", "-q", "--initial-branch=main", origin], in: "/")
-        let path = try makeRepo(prefix: "publish-", git: git)
+        let path: String
+        if let explicit { path = try makeRepo(prefix: "publish-", git: explicit) }
+        else { path = try makeRepo(prefix: "publish-") }
         try git.run(["remote", "add", "origin", origin], in: path)
         try git.run(["push", "-q", "origin", "main"], in: path)
         try git.run(["switch", "-q", "-c", branch], in: path)

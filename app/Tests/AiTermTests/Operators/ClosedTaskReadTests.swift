@@ -4,7 +4,7 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-@MainActor @Suite struct ClosedTaskReadTests {
+@MainActor @Suite(.blocking) struct ClosedTaskReadTests {
     @Test(arguments: [false, true]) func closedDiffUsesTheSavedBaseOrTheOldRecordsCommitPatch(old: Bool) async throws {
         let git = GitRunner.hermetic()
         let path = try GitFixture.makeRepo(prefix: "closed-diff", git: git)

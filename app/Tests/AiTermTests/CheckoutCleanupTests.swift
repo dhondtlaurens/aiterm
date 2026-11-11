@@ -5,13 +5,13 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-extension AppControllerTests {
+@MainActor @Suite(.blocking) struct CheckoutCleanupControllerTests {
     /// Remove asks before deleting a folder git no longer lists: it may hold files AiTerm did not
     /// make. Keep, the default and ⎋, keeps it and the task.
     @Test(arguments: ["Keep", "Delete Folder", "↩", "⎋"])
     func removingAnUnknownFolderKeepsItUnlessExplicitlyConfirmed(answer: String) async throws {
         let prompt = ScriptedPrompter(answering: ["Remove", answer])
-        let fixture = try TaskFixture(windowOpen: false, prompter: prompt, pollInterval: .seconds(3600))
+        let fixture = try await TaskFixture(windowOpen: false, prompter: prompt, pollInterval: .seconds(3600))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
         try FileManager.default.createDirectory(atPath: fixture.task.worktreePath, withIntermediateDirectories: true)
@@ -27,7 +27,7 @@ extension AppControllerTests {
     /// the window closes. (AiTerm's own Remove closes the window first; see below.)
     @Test(arguments: [false, true])
     func diffRemainsUntilRemovalCompletesOrFails(closeFails: Bool) async throws {
-        let fixture = try TaskFixture(windowOpen: true)
+        let fixture = try await TaskFixture(windowOpen: true)
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let changedFile = URL(fileURLWithPath: fixture.task.worktreePath).appendingPathComponent("change.txt")
@@ -73,7 +73,7 @@ extension AppControllerTests {
     /// up halfway. The row stays until the removal is done.
     @Test func removingATaskClosesItsWindowBeforeDeletingItsWorktree() async throws {
         let prompter = ScriptedPrompter(answering: "Remove")
-        let fixture = try TaskFixture(windowOpen: true, prompter: prompter)
+        let fixture = try await TaskFixture(windowOpen: true, prompter: prompter)
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let server = RecordingDaemon(holding: "window.close")
@@ -102,7 +102,7 @@ extension AppControllerTests {
     /// The row's going is saved before "Task removed." says so: a removal whose save fails says
     /// nothing of the kind, and the workspace locks with the save's error instead.
     @Test func aRemovalWhoseSaveFailsDoesNotSayItWasRemoved() async throws {
-        let fixture = try TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"))
+        let fixture = try await TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"))
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let server = RecordingDaemon(holding: "window.close")
@@ -125,7 +125,7 @@ extension AppControllerTests {
 
     /// A window that will not close keeps its worktree: nothing was deleted, so nothing is half done.
     @Test func aWindowThatWillNotCloseKeepsTheWorktree() async throws {
-        let fixture = try TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"))
+        let fixture = try await TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"))
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let server = RecordingDaemon(failing: ["window.close": "temporary_failure"])
@@ -149,7 +149,7 @@ extension AppControllerTests {
     @Test func returnAndEscapeBothKeepATaskWithUnsavedWork() async throws {
         for key in ["↩", "⎋"] {
             let prompter = ScriptedPrompter(answering: "Remove", key)
-            let fixture = try TaskFixture(windowOpen: true, prompter: prompter)
+            let fixture = try await TaskFixture(windowOpen: true, prompter: prompter)
             defer { fixture.cleanUp() }
             let controller = fixture.controller
             let server = RecordingDaemon()
@@ -173,7 +173,7 @@ extension AppControllerTests {
     /// Deleting the unsaved work closes the window first too, once the question is answered.
     @Test func deletingUnsavedWorkClosesTheWindowBeforeTheWorktree() async throws {
         let prompter = ScriptedPrompter(answering: "Remove", "Delete Changes and Remove")
-        let fixture = try TaskFixture(windowOpen: true, prompter: prompter)
+        let fixture = try await TaskFixture(windowOpen: true, prompter: prompter)
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let server = RecordingDaemon(holding: "window.close")
@@ -196,7 +196,7 @@ extension AppControllerTests {
     /// window let go: the row stays windowless while the removal closes it, and its `window.closed`
     /// clears nothing.
     @Test func aSnapshotDuringTheCloseDoesNotReattachTheWindow() async throws {
-        let fixture = try TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"))
+        let fixture = try await TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"))
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let server = RecordingDaemon(holding: "window.close")
@@ -220,7 +220,7 @@ extension AppControllerTests {
     /// Unsaved work written once the check has passed is only found after the window has gone. Kept
     /// then, the task is a task again, owed its window — which comes back like any other.
     @Test func keepingATaskWhoseWindowAlreadyClosedBringsItsWindowBack() async throws {
-        let fixture = try TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove", "Keep Task"))
+        let fixture = try await TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove", "Keep Task"))
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let server = RecordingDaemon(holding: "window.close")
@@ -249,7 +249,7 @@ extension AppControllerTests {
     /// The cleanup's own close is announced as `window.closed` before the daemon answers it, which now
     /// leaves the row windowless rather than gone: the row is still that close's to forget.
     @Test func aCleanupWhoseWindowsCloseArrivesFirstStillForgetsTheTask() async throws {
-        let fixture = try TaskFixture(windowOpen: true)
+        let fixture = try await TaskFixture(windowOpen: true)
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let server = RecordingDaemon(holding: "window.close")
@@ -271,7 +271,7 @@ extension AppControllerTests {
     /// refuses that folder and that branch to every later worktree. The cleanup that closes the task
     /// clears the record too.
     @Test func theCleanupForgetsGitsLockedRecordOfADeletedCheckout() async throws {
-        let fixture = try TaskFixture(windowOpen: false, pollInterval: .seconds(3600))
+        let fixture = try await TaskFixture(windowOpen: false, pollInterval: .seconds(3600))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller, path = fixture.task.worktreePath
         try fixture.git.run(["worktree", "lock", "--reason", Worktree.taskLockReason, path], in: fixture.repo.path)
@@ -285,7 +285,7 @@ extension AppControllerTests {
     }
 
     @Test func deletedCheckoutKeepsWindowIdentityWhileDaemonIsUnavailable() async throws {
-        let fixture = try TaskFixture(windowOpen: true)
+        let fixture = try await TaskFixture(windowOpen: true)
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
@@ -303,7 +303,7 @@ extension AppControllerTests {
 
     @Test(arguments: [SessionState.working, .needsInput])
     func aRemovedTaskWaitsForItsTurnToEnd(active: SessionState) async throws {
-        let fixture = try TaskFixture(windowOpen: true)
+        let fixture = try await TaskFixture(windowOpen: true)
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let server = RecordingDaemon()
@@ -329,7 +329,7 @@ extension AppControllerTests {
     /// rather than flickering back to "Worktree missing" between tries.
     @Test(arguments: ["temporary_failure", .notFound] as [DaemonError.Code])
     func checkoutCleanupRetriesFailedWindowCloseAndAcceptsAlreadyClosedWindow(errorCode: DaemonError.Code) async throws {
-        let fixture = try TaskFixture(windowOpen: true)
+        let fixture = try await TaskFixture(windowOpen: true)
         let server = RecordingDaemon(failing: ["window.close": errorCode])
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -354,7 +354,7 @@ extension AppControllerTests {
 
     /// Closing stops once the checkout comes back: the row is only missing no more.
     @Test func aCheckoutThatComesBackStopsClosing() async throws {
-        let fixture = try TaskFixture(windowOpen: true)
+        let fixture = try await TaskFixture(windowOpen: true)
         let server = RecordingDaemon(failing: ["window.close": "temporary_failure"])
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -376,7 +376,7 @@ extension AppControllerTests {
     /// A checkout the pass found gone is confirmed gone once more before its task is closed: one
     /// that came back in between is left be.
     @Test func aCheckoutThatCameBackBeforeTheCleanupActsIsNotForgotten() async throws {
-        let fixture = try TaskFixture(windowOpen: true)
+        let fixture = try await TaskFixture(windowOpen: true)
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let server = RecordingDaemon()
@@ -396,7 +396,7 @@ extension AppControllerTests {
     /// it. Once it answers, the task is closed as it would have been.
     @Test func aConfirmationThatNeverAnswersLeavesTheMainActorFree() async throws {
         let answer = DispatchSemaphore(value: 0), asked = Mutex(0)
-        let fixture = try TaskFixture(windowOpen: true, confirmsRemoval: { _, _ in
+        let fixture = try await TaskFixture(windowOpen: true, confirmsRemoval: { _, _ in
             asked.withLock { $0 += 1 }
             answer.wait()
             return true
@@ -427,7 +427,7 @@ extension AppControllerTests {
     /// the confirmation that answers after it finds nothing left to close.
     @Test func thePersonsRemoveRunsWhileAConfirmationHangs() async throws {
         let answer = DispatchSemaphore(value: 0), asked = Mutex(0)
-        let fixture = try TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"),
+        let fixture = try await TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"),
                                           confirmsRemoval: { _, _ in
                                               asked.withLock { $0 += 1 }
                                               answer.wait()
@@ -455,7 +455,7 @@ extension AppControllerTests {
     }
 
     @Test func checkoutMonitorDetectsDeletionWithoutSessionChangesAndStopsOnShutdown() async throws {
-        let fixture = try TaskFixture(windowOpen: true, pollInterval: .milliseconds(10))
+        let fixture = try await TaskFixture(windowOpen: true, pollInterval: .milliseconds(10))
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -480,7 +480,7 @@ extension AppControllerTests {
 
     @Test(arguments: [false, true])
     func filesystemRefreshRemovesDeletedCheckoutWithoutHook(windowOpen: Bool) async throws {
-        let fixture = try TaskFixture(windowOpen: windowOpen)
+        let fixture = try await TaskFixture(windowOpen: windowOpen)
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -502,7 +502,7 @@ extension AppControllerTests {
     @Test(arguments: ["existing", "project-unavailable", "parent-unavailable", "permission-denied"])
     func filesystemRefreshRetainsUnconfirmedDeletion(scenario: String) async throws {
         // No window: a disconnected daemon must not mask a broken filesystem guard.
-        let fixture = try TaskFixture(windowOpen: false)
+        let fixture = try await TaskFixture(windowOpen: false)
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let parent = fixture.repo.appendingPathComponent(".worktrees")
@@ -534,9 +534,9 @@ extension RecordingDaemon {
 
 /// What a task row shows while it is being removed, and once the removal stops: the row says it is
 /// going for as long as it is, and a removal that stops says why on the row it left.
-extension AppControllerTests {
+extension CheckoutCleanupControllerTests {
     @Test func aRemovalShowsOnItsRowUntilTheRowGoes() async throws {
-        let fixture = try TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"))
+        let fixture = try await TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"))
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let server = RecordingDaemon(holding: "window.close")
@@ -555,7 +555,7 @@ extension AppControllerTests {
     }
 
     @Test func aWindowThatWillNotCloseSaysSoOnTheRow() async throws {
-        let fixture = try TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"))
+        let fixture = try await TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"))
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         defer { controller.shutdown() }
@@ -568,7 +568,7 @@ extension AppControllerTests {
     }
 
     @Test func keepingATaskWithUnsavedWorkEndsItsRemoval() async throws {
-        let fixture = try TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove", "Keep Task"))
+        let fixture = try await TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove", "Keep Task"))
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         defer { controller.shutdown() }
@@ -584,7 +584,7 @@ extension AppControllerTests {
 
     /// A checkout deleted outside AiTerm: its row says it is closing while its window closes.
     @Test func aCheckoutDeletedElsewhereShowsClosingWhileItsWindowCloses() async throws {
-        let fixture = try TaskFixture(windowOpen: true)
+        let fixture = try await TaskFixture(windowOpen: true)
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let server = RecordingDaemon(holding: "window.close")
