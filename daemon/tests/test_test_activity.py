@@ -304,13 +304,17 @@ def test_empty_activity_resolves_no_session_directories(tmp_path, monkeypatch):
 
 
 def test_an_expired_record_without_a_sidecar_needs_no_kernel_probe(tmp_path, monkeypatch):
-    from aitermd import test_activity
-
     folder = tmp_path / "runs"
     record(folder, "1", tmp_path / "wt", "completed", finished_at=15)
     reader = TestActivityReader(folder, clock=lambda: 1000)
-    calls, original = [], test_activity._live
-    monkeypatch.setattr(test_activity, "_live", lambda path: calls.append(path) or original(path))
+    calls, original = [], os.open
+
+    def open_lock(path, *args, **kwargs):
+        if str(path).endswith(".lock"):
+            calls.append(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", open_lock)
     assert reader.read().activities == {}
     assert reader.read().activities == {}
     assert calls == []  # Before the age check: one kernel probe per expired record on every tick.

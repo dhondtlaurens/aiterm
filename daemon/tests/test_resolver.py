@@ -107,3 +107,58 @@ async def test_a_stuck_pid_scan_has_a_deadline_and_no_overlapping_retry(world, m
         assert calls == ["conv"]
     finally:
         release.set()
+
+
+@pytest.mark.parametrize("late_error", [False, True])
+async def test_an_abandoned_scan_keeps_indexed_pid_evidence_and_reports_a_late_error(world, monkeypatch, late_error):
+    import asyncio
+    import threading
+    from aitermd import resolver as module
+
+    import logging
+    logged, errors = asyncio.Event(), []
+
+    class Capture(logging.Handler):
+        def emit(self, record):
+            errors.append(record)
+            logged.set()
+
+    logger, capture = logging.getLogger("aitermd.resolver"), Capture()
+    logger.addHandler(capture)
+    resolver, _, files = world
+    claude_file(files, 101, "indexed")
+    assert files.read(101) is not None
+    monkeypatch.setattr(module, "SCAN_SECONDS", 0.02)
+    loop = asyncio.get_running_loop()
+    entered, release, finished = asyncio.Event(), threading.Event(), asyncio.Event()
+
+    def slow(session_id):
+        loop.call_soon_threadsafe(entered.set)
+        try:
+            release.wait(5)
+            if late_error:
+                raise ValueError("late scan error")
+            return None
+        finally:
+            loop.call_soon_threadsafe(finished.set)
+
+    monkeypatch.setattr(files, "pid_for_session", slow)
+    pending = asyncio.create_task(resolver.resolve_directly("claude", "unknown"))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        assert await asyncio.wait_for(pending, 2) is None
+        if not late_error:
+            assert await resolver.resolve_directly("claude", "indexed") == "a"
+            assert await resolver.resolve_directly("claude", "another-unknown") is None
+    finally:
+        release.set()
+        try:
+            await asyncio.wait_for(finished.wait(), 2)
+            await resolver.settle_reads()
+            await asyncio.gather(pending, return_exceptions=True)
+            if late_error:
+                await asyncio.wait_for(logged.wait(), 2)
+        finally:
+            logger.removeHandler(capture)
+    if late_error:
+        assert any(rec.exc_info and str(rec.exc_info[1]) == "late scan error" for rec in errors)

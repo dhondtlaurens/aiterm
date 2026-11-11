@@ -11,7 +11,7 @@ from typing import Generic, TypeVar
 from .claude_background import BackgroundTranscripts, ShellReading
 from .claude_sessions import ClaudeSessionFile, ClaudeSessionFiles
 from .claude_subagents import SubagentTranscripts, TranscriptTail
-from .codex_sessions import CodexReading, CodexSessionFiles
+from .codex_sessions import CODEX_READ, CodexReading, CodexSessionFiles
 from .iterm_port import ItermPort
 from .models import HARNESS_BY_AGENT, SessionInfo
 from .resolver import SessionResolver
@@ -135,7 +135,7 @@ class CorroboratingReaders:
                     changed += self.status.apply_codex_rollout(sid, *turn)
             return changed
 
-        return ReadPlan("the Codex rollout read", read, {}, apply)
+        return ReadPlan(CODEX_READ, read, {}, apply)
 
     def subagents(self, reader: SubagentTranscripts) -> ReadPlan[dict[str, TranscriptTail | None]]:
         paths = self.status.subagent_transcripts()

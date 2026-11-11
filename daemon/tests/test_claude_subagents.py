@@ -176,4 +176,6 @@ def test_a_nested_transcript_path_is_remembered_but_a_missing_target_is_retried(
     nested.write_text('{}\n')
     assert reader.read(str(requested)) is not None
     reader.read_all([])
-    assert reader._real_paths == {}
+    searches.clear()
+    assert reader.read(str(requested)) is not None
+    assert searches == [f"*/{requested.name}"]

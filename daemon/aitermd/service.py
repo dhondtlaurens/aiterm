@@ -11,7 +11,7 @@ from . import protocol
 from .claude_sessions import ClaudeSessionFiles
 from .claude_subagents import SubagentTranscripts
 from .claude_background import BackgroundTranscripts
-from .codex_sessions import CodexSessionFiles
+from .codex_sessions import CODEX_READ, CodexSessionFiles
 from .connection import ItermSupervisor
 from .corroboration import CorroboratingReaders, ReadPlan, logged as _logged
 from .delivery import NOT_CHECKED, Deliverer, Verdict, read_policy
@@ -44,7 +44,6 @@ OFF_LOOP_CHECK_SECONDS = 1.0
 # under this one off-loop name. They share CodexSessionFiles' caches, which nothing locks, so a read
 # still stuck from an earlier tick holds back the other kind as well, rather than race it on a
 # second worker thread.
-CODEX_READ = "the Codex rollout read"
 
 T = TypeVar("T")
 

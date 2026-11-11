@@ -44,6 +44,11 @@ class ClaudeSessionFiles:
         self._index[path] = entry
         return entry[1]
 
+    def known_pid(self, session_id: str) -> int | None:
+        """Last successful index evidence, without I/O while the resolver's worker is unavailable."""
+        return next((cached.pid for path, (_, cached) in tuple(self._index.items())
+                     if path.parent == self.root and cached is not None and cached.session_id == session_id), None)
+
     def indexed_pid(self, session_id: str) -> int | None:
         """The pid of a conversation already read by a tick or an earlier post, with just that one
         file checked again: most posts name one. None for a renamed, removed or unknown one."""

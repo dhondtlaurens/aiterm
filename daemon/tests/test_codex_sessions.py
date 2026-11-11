@@ -255,7 +255,8 @@ def test_a_rewritten_rollout_is_read_again_from_its_start(tmp_path):
     path.write_text(json.dumps(versioned("thread-4", "0.160.0")) + "\n")
     assert files.cli_version("thread-4") == "0.160.0"
     files.retain(set())
-    assert files._rollouts == {}
+    path.write_text(json.dumps(versioned("thread-4", "0.159.0")) + "\n")
+    assert files.cli_version("thread-4") == "0.159.0"
 
 
 @pytest.mark.parametrize("reading", ["context", "limits"])
@@ -353,6 +354,7 @@ def test_rate_limit_permission_failure_is_distinct_from_no_report(tmp_path, monk
     ("resume_middle", ("0.161.0", ("done", 101.0))),
     ("abort_head", ("0.161.0", None)),
     ("edge_partial", ("0.160.0", ("done", 101.0))),
+    ("edge_complete", ("0.161.0", ("done", 101.0))),
     ("rewrite", ("0.161.0", ("done", 101.0))),
 ])
 def test_large_rollout_answers_match_the_before_refactor_reference(tmp_path, case, expected):
@@ -369,11 +371,16 @@ def test_large_rollout_answers_match_the_before_refactor_reference(tmp_path, cas
     elif case == "meta_head":
         tail = encode(boundary)
     elif case == "resume_middle":
-        padding = padding[:len(padding) // 2] + encode(versioned("t", "0.161.0")) + padding[len(padding) // 2:]
+        padding = chatter * 4096 + encode(versioned("t", "0.161.0")) + chatter * 8192
         tail = encode(boundary)
     elif case == "abort_head":
         head += encode(boundary) + encode({"type": "event_msg", "payload": {"type": "turn_aborted"}})
         tail = encode(versioned("t", "0.161.0"))
+    elif case == "edge_complete":
+        resumed = versioned("t", "0.161.0")
+        resumed["payload"]["padding"] = "x" * (8 * 1024 * 1024 + 100)
+        padding = encode(resumed)
+        tail = encode(boundary) + chatter
     elif case == "edge_partial":
         head += encode(boundary)
         padding = '{"type":"response_item","text":"' + "x" * (8 * 1024 * 1024 + 100)
@@ -385,6 +392,11 @@ def test_large_rollout_answers_match_the_before_refactor_reference(tmp_path, cas
         assert files.cli_version("t") == "9.999.0"
         path.unlink()  # A replaced inode must discard its old cursor.
     path.write_text(head + padding + tail)
+    if case == "resume_middle":
+        assert (head + padding + tail).index(encode(versioned("t", "0.161.0"))) < path.stat().st_size - 8 * 1024 * 1024
+    if case == "edge_complete":
+        start = path.stat().st_size - 8 * 1024 * 1024
+        assert len(head) < start < len(head + padding) < path.stat().st_size
     assert (files.cli_version("t"), files.turn_state("t")) == expected
     if case == "edge_partial":
         with path.open("a") as stream:
@@ -444,12 +456,18 @@ def test_large_rollout_first_sight_read_budget(tmp_path, monkeypatch, head_fallb
 
 def test_one_thread_read_looks_up_its_path_once(tmp_path, monkeypatch):
     path = write_rollout(tmp_path, "t", [versioned("t", "0.160.0"), token_count(30, 100)])
-    files, lookups = CodexSessionFiles(tmp_path), []
-    lookup = files._path_for
-    monkeypatch.setattr(files, "_path_for", lambda thread: lookups.append(thread) or lookup(thread))
+    files, checked = CodexSessionFiles(tmp_path), []
     assert files.reading("t") == (30, "0.160.0", None)
-    assert lookups == ["t"]  # Before: context, version and boundary each looked it up.
-    assert path.exists()
+    original = type(path).is_file
+
+    def is_file(candidate):
+        if candidate == path:
+            checked.append(candidate)
+        return original(candidate)
+
+    monkeypatch.setattr(type(path), "is_file", is_file)
+    assert files.reading("t") == (30, "0.160.0", None)
+    assert checked == [path]  # Before: three known-path checks, one for each field.
 
 
 def test_a_failed_combined_cursor_read_retries_without_a_file_change(tmp_path, monkeypatch):
@@ -465,30 +483,37 @@ def test_a_failed_combined_cursor_read_retries_without_a_file_change(tmp_path, m
     with monkeypatch.context() as patch:
         patch.setattr(type(path), "open", unavailable)
         assert files.cli_version("t") is None
-        assert not files._rollouts
     assert files.cli_version("t") == "0.160.0"
 
 
 def test_a_failed_context_does_not_discard_the_other_corroboration(tmp_path, monkeypatch):
+    broken = '{"type":"event_msg","payload":{"type":"token_count","parser_error":true}}'
     write_rollout(tmp_path, "t", [versioned("t", "0.160.0"),
-        {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_complete"}}])
-    files = CodexSessionFiles(tmp_path)
+        {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_complete"}}, broken])
+    original = json.loads
 
-    def broken(path):
-        raise ValueError("context unavailable")
+    def decode(line, *args, **kwargs):
+        raw = line.encode() if isinstance(line, str) else line
+        if b'"parser_error"' in raw:
+            raise RecursionError("context parser unavailable")
+        return original(line, *args, **kwargs)
 
-    monkeypatch.setattr(files, "_read_context", broken)
-    assert files.reading("t") == (None, "0.160.0", ("done", 101.0))
+    monkeypatch.setattr(json, "loads", decode)
+    assert CodexSessionFiles(tmp_path).reading("t") == (None, "0.160.0", ("done", 101.0))
 
 
 def test_history_refresh_still_stamps_every_candidate_before_picking_three(tmp_path, monkeypatch):
-    from aitermd import codex_sessions
-
     for index in range(100):
         write_rollout(tmp_path, f"t{index}", [{"type": "response_item"}])
     clock, stamped = Clock(), []
-    original = codex_sessions._mtime
-    monkeypatch.setattr(codex_sessions, "_mtime", lambda path: stamped.append(path) or original(path))
+    original = type(tmp_path).stat
+
+    def stat(path, *args, **kwargs):
+        if path.name.startswith("rollout-"):
+            stamped.append(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(type(tmp_path), "stat", stat)
     files = CodexSessionFiles(tmp_path, clock=clock)
     assert files.rate_limits() is None
     assert len(stamped) == 100
@@ -538,3 +563,138 @@ def test_a_short_rollout_read_is_retried_without_a_stamp_change(tmp_path, monkey
         patch.setattr(type(path), "open", short)
         assert files.cli_version("t") is None
     assert files.cli_version("t") == "0.160.0"
+
+
+def test_a_rollout_created_after_the_tick_listing_matches_the_reference(tmp_path):
+    files = CodexSessionFiles(tmp_path, clock=lambda: 0)
+    files.begin_tick()
+    assert files.rate_limits() is None
+    write_rollout(tmp_path, "late", [versioned("late", "0.160.0"), token_count(50, 100),
+        {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_started"}}],
+        day=datetime.now().strftime("%Y/%m/%d"))
+    assert files.reading("late") == (None, "0.160.0", ("working", 101.0))
+    files.begin_tick()
+    assert files.reading("late") == (50, "0.160.0", ("working", 101.0))
+
+
+@pytest.mark.parametrize("broken,expected", [
+    ("session_meta", (50, None, ("working", 101.0))),
+    ("task_started", (50, "0.160.0", None)),
+])
+def test_rollout_parse_failures_leave_the_other_readings_available(tmp_path, monkeypatch, broken, expected):
+    original = json.loads
+
+    def decode(line, *args, **kwargs):
+        raw = line.encode() if isinstance(line, str) else line
+        if b'"nested"' in raw:
+            raise RecursionError("parser nesting limit")
+        return original(line, *args, **kwargs)
+
+    monkeypatch.setattr(json, "loads", decode)
+    nested = "[" * 3000 + "0" + "]" * 3000
+    bad = ('{"type":"session_meta","payload":{"id":"t","nested":' + nested + '}}' if broken == "session_meta"
+           else '{"type":"event_msg","payload":{"type":"task_started","nested":' + nested + '}}')
+    write_rollout(tmp_path, "t", [versioned("t", "0.160.0"),
+        {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_started"}},
+        bad, token_count(50, 100)])
+    files = CodexSessionFiles(tmp_path)
+    for _ in range(2):
+        assert files.reading("t") == expected
+
+
+def test_a_version_stat_failure_after_the_path_check_returns_no_version(tmp_path, monkeypatch):
+    path = write_rollout(tmp_path, "t", [versioned("t", "0.160.0")])
+    files = CodexSessionFiles(tmp_path)
+    assert files.cli_version("t") == "0.160.0"
+    original = type(path).stat
+    is_file = type(path).is_file
+    monkeypatch.setattr(type(path), "is_file", lambda candidate: True if candidate == path else is_file(candidate))
+
+    def stat(candidate, *args, **kwargs):
+        if candidate == path:
+            raise PermissionError("stat unavailable after successful file check")
+        return original(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(type(path), "stat", stat)
+    assert files.cli_version("t") is None
+
+
+def test_a_short_rollout_read_keeps_the_last_complete_boundary(tmp_path, monkeypatch):
+    path = write_rollout(tmp_path, "t", [versioned("t", "0.160.0"),
+        {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_started"}}])
+    files = CodexSessionFiles(tmp_path)
+    assert files.turn_state("t") == ("working", 101.0)
+    with path.open("a") as stream:
+        stream.write(json.dumps({"type": "event_msg", "timestamp": "1970-01-01T00:01:42Z",
+                                 "payload": {"type": "task_complete"}}) + "\n")
+    original = type(path).open
+
+    class ShortRead:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            self.stream.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.stream.__exit__(*args)
+
+        def __getattr__(self, name):
+            return getattr(self.stream, name)
+
+        def read(self, size):
+            return self.stream.read(min(size, 10))
+
+    def short(candidate, *args, **kwargs):
+        stream = original(candidate, *args, **kwargs)
+        return ShortRead(stream) if candidate == path else stream
+
+    with monkeypatch.context() as patch:
+        patch.setattr(type(path), "open", short)
+        assert files.turn_state("t") == ("working", 101.0)
+    assert files.turn_state("t") == ("done", 102.0)
+
+
+@pytest.mark.parametrize("case,main_answer,expected", [
+    # The first and last rows share the Operator-approved exception: an unneeded old
+    # metadata parser failure does not invalidate the version already available in the tail.
+    ("both_tail", (50, None, ("done", 101.0)), (50, "0.161.0", ("done", 101.0))),
+    ("need_version", (50, None, ("done", 101.0)), (50, None, ("done", 101.0))),
+    ("need_boundary", (50, "0.161.0", None), (50, "0.161.0", None)),
+    ("boundary_fallback_only", (50, None, ("done", 101.0)), (50, "0.161.0", ("done", 101.0))),
+])
+def test_prefix_parser_reference_rows(tmp_path, monkeypatch, case, main_answer, expected):
+    """Main answers captured by its independent field reads; the approved policy differs explicitly."""
+    bad_meta = '{"type":"session_meta","payload":{"id":"t","unparseable":true}}'
+    bad_turn = '{"type":"event_msg","payload":{"type":"task_complete","unparseable":true}}'
+    done = {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_complete"}}
+    chatter = json.dumps({"type": "response_item", "payload": {"text": "x" * 1024}}) + "\n"
+    head = bad_turn if case == "need_boundary" else bad_meta
+    if case == "boundary_fallback_only":
+        head += "\n" + json.dumps(done)
+    tail = [token_count(50, 100)]
+    if case != "need_version":
+        tail.append(versioned("t", "0.161.0"))
+    if case not in ("need_boundary", "boundary_fallback_only"):
+        tail.append(done)
+    path = write_rollout(tmp_path, "t", [])
+    path.write_text(head + "\n" + chatter * 8192 + "".join(json.dumps(record) + "\n" for record in tail))
+    assert len(head) < path.stat().st_size - 8 * 1024 * 1024
+    original = json.loads
+    failed_prefix_parses = []
+
+    def decode(line, *args, **kwargs):
+        raw = line.encode() if isinstance(line, str) else line
+        if b'"unparseable"' in raw:
+            failed_prefix_parses.append(line)
+            raise RecursionError("unsupported old record")
+        return original(line, *args, **kwargs)
+
+    monkeypatch.setattr(json, "loads", decode)
+    assert CodexSessionFiles(tmp_path).reading("t") == expected
+    assert bool(failed_prefix_parses) == (case in ("need_version", "need_boundary"))
+    if case in ("need_version", "need_boundary"):
+        assert expected == main_answer
+    else:
+        assert main_answer == (50, None, ("done", 101.0))

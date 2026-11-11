@@ -34,6 +34,16 @@ class SessionResolver:
         self._generation = 0
         self._scan: asyncio.Future[int | None] | None = None
 
+    @staticmethod
+    def _scan_finished(done: asyncio.Future[int | None]) -> None:
+        if not done.cancelled() and (error := done.exception()) is not None:
+            log.error("the Claude pid scan failed", exc_info=error)
+
+    async def settle_reads(self) -> None:
+        """Drain the resolver's own worker after a test releases its read latch."""
+        if self._scan is not None:
+            await asyncio.gather(asyncio.shield(self._scan), return_exceptions=True)
+
     async def resolve_with_evidence(self, agent: AgentKind, session_id: str | None, cwd: str | None,
                               iterm_session_id: str | None = None) -> tuple[str | None, str | None]:
         """The placed tab and the directly evidenced tab, from one lookup. Hooks use the
@@ -63,19 +73,19 @@ class SessionResolver:
                 pid = None
                 while True:
                     if self._scan is not None and not self._scan.done():
+                        pid = self.claude_files.known_pid(session_id)
                         break
                     root = self.claude_files.root
                     scan = self._scan = run_detached(
                         lambda: self.claude_files.indexed_pid(session_id) or self.claude_files.pid_for_session(session_id))
-                    scan.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+                    scan.add_done_callback(self._scan_finished)
                     done, _ = await asyncio.wait({scan}, timeout=max(0, deadline - asyncio.get_running_loop().time()))
                     if not done:
                         break
                     try:
                         pid = scan.result()
-                    except Exception:  # unavailable evidence leaves placement to other signals
-                        log.exception("the Claude pid scan failed")
-                        break
+                    except Exception:  # noqa: BLE001 - the completion callback reports the failure
+                        break  # The completion callback reports failures, including abandoned scans.
                     if root == self.claude_files.root:
                         break
                     pid = None

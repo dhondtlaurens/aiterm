@@ -2497,21 +2497,23 @@ async def test_tick_bounds_file_reads_and_does_not_overlap_a_stuck_reader(make_s
     svc = make_service()
     _, sid = await svc.iterm.create_window("/wt", "worker", {}, Frame(0, 0, 10, 10))
     await svc.iterm.user_runs(sid, "claude", job_pid=710)
-    release, entered = threading.Event(), threading.Event()
+    release, entered = threading.Event(), asyncio.Event()
+    loop = asyncio.get_running_loop()
     calls = []
 
     def stuck(*args):
         calls.append(args)
-        entered.set()
+        loop.call_soon_threadsafe(entered.set)
         release.wait(5)
         raise OSError("mount gone")
 
     target, method = (svc.claude_files, "read") if reader == "claude" else (svc.test_activity, "read")
     monkeypatch.setattr(target, method, stuck)
     try:
-        await asyncio.wait_for(svc.tick(), 0.3)
-        assert entered.is_set()
-        await asyncio.wait_for(svc.tick(), 0.3)
+        tick = asyncio.create_task(svc.tick())
+        await asyncio.wait_for(entered.wait(), 2)
+        await asyncio.wait_for(tick, 2)
+        await asyncio.wait_for(svc.tick(), 2)
         assert len(calls) == 1
     finally:
         release.set()
