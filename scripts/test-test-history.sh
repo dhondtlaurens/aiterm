@@ -7,11 +7,9 @@ trap 'rm -rf "$scratch"' EXIT
 "${PYTHON:-python3}" - "$ROOT/scripts/test-history.py" "$scratch" <<'PY'
 import json
 import contextlib
-import io
 import os
 from pathlib import Path
 import runpy
-import signal
 import subprocess
 import sys
 import time
@@ -102,46 +100,30 @@ assert [(item["name"], item["seconds"]) for item in parsed["suites"]] == [
     ("One", 1.25), ("Known", 0.02), ("pytest", 18.32), ("SnapshotTests", 2.5)]
 assert parsed["suites"][-1]["pass"] == "snapshots"
 assert parsed["failing_tests"] == ["broken(x:)", "route fixture", "tests/test_example.py::test_nope"]
-# A grandchild holding the output pipe must not add its lifetime to the gate's duration.
-release = Path(sys.argv[2]) / "stdout.release"
-worker_pid = Path(sys.argv[2]) / "stdout.pid"
-worker_exit = Path(sys.argv[2]) / "stdout.exit"
-worker = """
-import os, sys, time
-from pathlib import Path
-release, pid, status = map(Path, sys.argv[1:])
-pid.write_text(str(os.getpid()))
-while not release.exists(): time.sleep(0.01)
-status.write_text('0')
-"""
-parent = """
-import subprocess, sys
-subprocess.Popen([sys.executable, '-c', sys.argv[1], *sys.argv[2:]])
-print('✘ Test heldStdout() failed after 0.010 seconds.', flush=True)
-raise SystemExit(17)
-"""
-child = subprocess.Popen([sys.executable, "-c", parent, worker, str(release), str(worker_pid), str(worker_exit)],
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
-def expired(_signum, _frame):
-    raise AssertionError("history waited for a grandchild's stdout instead of the command's exit")
-signal.signal(signal.SIGALRM, expired)
-signal.alarm(5)
-try:
-    forwarded = io.BytesIO()
-    stream = io.TextIOWrapper(forwarded, encoding="utf-8")
-    with contextlib.redirect_stdout(stream):
-        code, output = history["wait"](child)
-    stream.flush()
-    assert forwarded.getvalue().decode() == output
-finally:
-    signal.alarm(0)
-    release.touch()
-    child.wait(timeout=5)
-assert code == 17 and "heldStdout()" in output
-until = time.monotonic() + 5
-while not worker_exit.exists() and time.monotonic() < until:
-    time.sleep(0.01)
-assert worker_pid.exists() and worker_exit.read_text() == "0"
-print("Gate history: timings, failures, retention, clean exact HEAD, full-run eligibility and inherited stdout passed.")
+# Result files are read only after the command exits; the supervisor never relays output.
+from types import SimpleNamespace
+reports = Path(sys.argv[2]) / "reports"
+reports.mkdir()
+(reports / "main.log").write_text("✔ Suite Main passed after 1.25 seconds.\n✘ Test broken() failed after 0.01 seconds.\n")
+(reports / "snapshots.log").write_text("✔ Suite Images passed after 2.5 seconds.\n")
+os.environ["AITERM_TEST_PYTEST_REPORT"] = str(reports / "daemon.json")
+history["pytest_sessionstart"](None)
+history["pytest_runtest_logreport"](SimpleNamespace(failed=True, nodeid="tests/test_one.py::test_nope[x]"))
+history["pytest_runtest_logreport"](SimpleNamespace(failed=False, nodeid="tests/test_one.py::test_yes"))
+history["pytest_sessionfinish"](None, 1)
+collected = history["collect"](reports)
+assert [(item["name"], item["pass"]) for item in collected["suites"]] == [
+    ("Main", "main"), ("Images", "snapshots"), ("pytest", "daemon")]
+assert collected["suites"][-1]["result"] == "failed"
+assert collected["failing_tests"] == ["broken()", "tests/test_one.py::test_nope[x]"]
+# A reporting I/O error warns without throwing out of pytest's session-finish hook.
+import io
+warnings = io.StringIO()
+os.environ["AITERM_TEST_PYTEST_REPORT"] = str(reports)
+with contextlib.redirect_stderr(warnings):
+    history["pytest_sessionfinish"](None, 0)
+assert "Warning: could not retain pytest history" in warnings.getvalue()
+assert history["collect"](reports / "not-selected") == {"suites": [], "failing_tests": []}
+print("Gate history: timings, failures, retention, clean exact HEAD, full-run eligibility and optional result-file collection passed.")
 PY
 zsh -n "$ROOT/scripts/release.sh"

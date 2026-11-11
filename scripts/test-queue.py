@@ -12,6 +12,8 @@ import json
 import os
 import runpy
 import signal
+import shutil
+import tempfile
 import subprocess
 import sys
 import time
@@ -149,7 +151,13 @@ def main() -> None:
         signal.signal(signum, lambda caught, _frame: sys.exit(128 + caught))
     lock, suite, root, *command = sys.argv[1:]
     root = os.path.realpath(root)
-    history = runpy.run_path(str(Path(__file__).with_name("test-history.py")))
+    history = None
+    reports: str | None = None
+    try:
+        history = runpy.run_path(str(Path(__file__).with_name("test-history.py")))
+        reports = tempfile.mkdtemp(prefix="aiterm-test-history-")
+    except Exception as error:
+        print(f"Warning: could not prepare gate history: {error}", file=sys.stderr)
     directory = Path(lock + ".runs")
     directory.mkdir(parents=True, exist_ok=True)
     prune(directory)
@@ -177,25 +185,30 @@ def main() -> None:
             "AITERM_TEST_LOCK_HELD": "1", "AITERM_TEST_WAITED": str(int(waited)),
             "AITERM_TEST_LOCK_FD": str(descriptor), "AITERM_TEST_RUN_ID": run_id,
         }
-        before = history["source"](root)
-        full_gate = history["is_full"](suite, root, command, dict(os.environ))
+        before = None
+        full_gate = False
+        if history is not None and reports is not None:
+            environment["AITERM_TEST_REPORT_DIR"] = reports
+            try:
+                before = history["source"](root)
+                full_gate = history["is_full"](suite, root, command, dict(os.environ))
+            except Exception as error:
+                print(f"Warning: could not identify gate source: {error}", file=sys.stderr)
         began = time.monotonic()
-        child = subprocess.Popen(command, env=environment, pass_fds=(descriptor, activity_fd),
-                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
+        child = subprocess.Popen(command, env=environment, pass_fds=(descriptor, activity_fd))
         record.update(state="running", pid=child.pid, started_at=time.time())
         publish(path, record)
-        result, output = history["wait"](child)
+        result = child.wait()
         exit_code = result if result >= 0 else 128 - result
         record.update(state="completed", finished_at=time.time(), exit_code=exit_code)
-        entry = record | {"duration_seconds": time.monotonic() - began, "before": before,
-                          "after": history["source"](root), "full_gate": full_gate} | history["results"](output)
-        try:
-            history["append"](Path(lock + ".history.jsonl"), entry)
-        except (OSError, ValueError) as error:
-            print(f"Could not retain gate history: {error}", file=sys.stderr)
-            exit_code = exit_code or 1
-            record["exit_code"] = exit_code
         publish(path, record)
+        if history is not None and reports is not None and before is not None:
+            try:
+                entry = record | {"duration_seconds": time.monotonic() - began, "before": before,
+                                  "after": history["source"](root), "full_gate": full_gate} | history["collect"](Path(reports))
+                history["append"](Path(lock + ".history.jsonl"), entry)
+            except Exception as error:
+                print(f"Warning: could not retain gate history: {error}", file=sys.stderr)
         raise SystemExit(exit_code)
     except SystemExit as error:
         if child is None:
@@ -205,6 +218,9 @@ def main() -> None:
         # this supervisor is interrupted. A missing final result must never become a success.
         raise
     finally:
+        # A killed supervisor must leave live children and their report paths alone.
+        if reports is not None and (child is None or child.poll() is not None):
+            shutil.rmtree(reports, ignore_errors=True)
         if descriptor is not None:
             os.close(descriptor)
         os.close(activity_fd)

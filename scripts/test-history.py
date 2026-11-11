@@ -6,43 +6,58 @@ import fcntl
 import json
 import os
 import re
-import select
 import subprocess
 import sys
 import time
-import tempfile
 from pathlib import Path
 
 RETENTION = 7 * 86400
 
 
-def wait(child: subprocess.Popen[bytes]) -> tuple[int, str]:
-    """Tee the child, stopping at its exit even if a grandchild keeps stdout open."""
-    assert child.stdout is not None
-    descriptor = child.stdout.fileno()
-    os.set_blocking(descriptor, False)
-    with tempfile.TemporaryFile() as log:
-        def drain() -> bool:
-            try:
-                chunk = os.read(descriptor, 65536)
-            except BlockingIOError:
-                return False
-            if not chunk:
-                return False
-            log.write(chunk)
-            sys.stdout.buffer.write(chunk)
-            sys.stdout.buffer.flush()
-            return True
+# Loaded as a pytest plugin only by the gate. Reporting never owns stdout or stderr.
+_pytest_started = 0.0
+_pytest_failures: set[str] = set()
 
-        while child.poll() is None:
-            if select.select([descriptor], [], [], 0.1)[0] and not drain():
-                break
-        result = child.wait()
-        while drain():
-            pass
-        child.stdout.close()
-        log.seek(0)
-        return result, log.read().decode("utf-8", errors="replace")
+
+def pytest_sessionstart(session) -> None:
+    global _pytest_started
+    _pytest_started = time.monotonic()
+    _pytest_failures.clear()
+
+
+def pytest_runtest_logreport(report) -> None:
+    if report.failed:
+        _pytest_failures.add(report.nodeid)
+
+
+def pytest_sessionfinish(session, exitstatus) -> None:
+    report = os.environ.get("AITERM_TEST_PYTEST_REPORT")
+    if not report:
+        return
+    result = {"suites": [{"pass": "daemon", "name": "pytest", "result": "passed" if exitstatus == 0 else "failed",
+                           "seconds": time.monotonic() - _pytest_started}],
+              "failing_tests": sorted(_pytest_failures)}
+    try:
+        Path(report).write_text(json.dumps(result))
+    except OSError as error:
+        print(f"Warning: could not retain pytest history: {error}", file=sys.stderr)
+
+
+def collect(directory: Path) -> dict[str, object]:
+    suites: list[dict[str, object]] = []
+    failures: set[str] = set()
+    for label in ("main", "snapshots"):
+        path = directory / (label + ".log")
+        if path.exists():
+            parsed = results("Gate pass: " + label + "\n" + path.read_text(errors="replace"))
+            suites.extend(parsed["suites"])
+            failures.update(parsed["failing_tests"])
+    daemon = directory / "daemon.json"
+    if daemon.exists():
+        parsed = json.loads(daemon.read_text())
+        suites.extend(parsed["suites"])
+        failures.update(parsed["failing_tests"])
+    return {"suites": suites, "failing_tests": sorted(failures)}
 
 
 def source(root: str) -> dict[str, object]:
