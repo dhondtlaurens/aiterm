@@ -498,7 +498,9 @@ Each box leaves the project working and is one or a few commits.
 - [x] 0d. Shared test builders, per-process scratch root, the `@testable` note.
 - [x] 0e. Review record started with the baselines.
 - [x] 1a. Deadlines on the unbounded reads; Codex Stop answered first (tests first).
-- [ ] 1b. Background reader offset and prefilter; one rollout cursor with a cap; subagent path memo.
+- [x] 1b. One rollout cursor with a tail window and exact head fallback; subagent path memo.
+  Background offset and prefilter dropped: restore has no byte checkpoint, and skipping pre-marker lines
+  changes gap evidence; its first-read byte and parse budgets do not move (record).
 - [ ] 1c. Test activity: injectable directory, stamp cache, age before lock.
 - [ ] 1d. Readers own plan and apply; `Service` runs the fixed list; test seams.
 - [ ] 1e. Port and screens modules, strict typing, auth patch at connect.

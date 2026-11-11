@@ -154,3 +154,29 @@ def test_a_tail_ending_in_a_record_without_a_time_ends_at_its_write(tmp_path):
     assert SubagentTranscripts().read(path).ended_at == 1_900_000_000
     path = write(tmp_path / "agent-c2.jsonl", PROMPT, ASSISTANT)
     assert SubagentTranscripts().read(path).ended_at is None
+
+
+def test_a_nested_transcript_path_is_remembered_but_a_missing_target_is_retried(tmp_path, monkeypatch):
+    from aitermd.claude_subagents import SubagentTranscripts
+
+    requested = tmp_path / "agent-a.jsonl"
+    nested = tmp_path / "run" / requested.name
+    nested.parent.mkdir()
+    nested.write_text('{}\n')
+    reader = SubagentTranscripts()
+    assert reader.read(str(requested)) is not None
+    searches, original = [], type(requested).glob
+
+    def glob(path, pattern):
+        searches.append(pattern)
+        return original(path, pattern)
+
+    monkeypatch.setattr(type(requested), "glob", glob)
+    assert reader.read(str(requested)) is not None
+    assert searches == []  # Before: one nested-path search on every read.
+    nested.unlink()
+    assert reader.read(str(requested)) is None
+    nested.write_text('{}\n')
+    assert reader.read(str(requested)) is not None
+    reader.read_all([])
+    assert reader._real_paths == {}

@@ -288,7 +288,7 @@ def test_a_rewritten_rollout_is_read_again_from_its_start(tmp_path):
     path.write_text(json.dumps(versioned("thread-4", "0.160.0")) + "\n")
     assert files.cli_version("thread-4") == "0.160.0"
     files.retain(set())
-    assert files._versions == {}
+    assert files._rollouts == {}
 
 
 @pytest.mark.parametrize("reading", ["context", "limits"])
@@ -376,3 +376,127 @@ def test_rate_limit_permission_failure_is_distinct_from_no_report(tmp_path, monk
     monkeypatch.setattr(files, "_read_rate_limits", denied)
     with pytest.raises(PermissionError, match="unreadable"):
         files.rate_limits()
+
+
+# Captured against 6838b8f3 before the cursor consolidation. Each row is > 8 MiB.
+@pytest.mark.parametrize("case,expected", [
+    ("inside", ("0.161.0", ("done", 101.0))),
+    ("boundary_head", ("0.161.0", ("done", 101.0))),
+    ("meta_head", ("0.160.0", ("done", 101.0))),
+    ("resume_middle", ("0.161.0", ("done", 101.0))),
+    ("abort_head", ("0.161.0", None)),
+    ("edge_partial", ("0.160.0", ("done", 101.0))),
+    ("rewrite", ("0.161.0", ("done", 101.0))),
+])
+def test_large_rollout_answers_match_the_before_refactor_reference(tmp_path, case, expected):
+    boundary = {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_complete"}}
+    chatter = json.dumps({"type": "response_item", "payload": {"text": "x" * 1024}}) + "\n"
+    padding = chatter * 8192
+    def encode(value):
+        return json.dumps(value) + "\n"
+    head = encode(versioned("t", "0.160.0"))
+    tail = encode(versioned("t", "0.161.0")) + encode(boundary)
+    if case == "boundary_head":
+        head += encode(boundary)
+        tail = encode(versioned("t", "0.161.0"))
+    elif case == "meta_head":
+        tail = encode(boundary)
+    elif case == "resume_middle":
+        padding = padding[:len(padding) // 2] + encode(versioned("t", "0.161.0")) + padding[len(padding) // 2:]
+        tail = encode(boundary)
+    elif case == "abort_head":
+        head += encode(boundary) + encode({"type": "event_msg", "payload": {"type": "turn_aborted"}})
+        tail = encode(versioned("t", "0.161.0"))
+    elif case == "edge_partial":
+        head += encode(boundary)
+        padding = '{"type":"response_item","text":"' + "x" * (8 * 1024 * 1024 + 100)
+        tail = ""
+    path = write_rollout(tmp_path, "t", [])
+    files = CodexSessionFiles(tmp_path)
+    if case == "rewrite":
+        path.write_text(encode(versioned("t", "9.999.0")))
+        assert files.cli_version("t") == "9.999.0"
+        path.unlink()  # A replaced inode must discard its old cursor.
+    path.write_text(head + padding + tail)
+    assert (files.cli_version("t"), files.turn_state("t")) == expected
+    if case == "edge_partial":
+        with path.open("a") as stream:
+            stream.write('"}\n' + encode(versioned("t", "0.162.0")))
+        assert files.cli_version("t") == "0.162.0"
+        assert files.turn_state("t") == expected[1]
+
+
+@pytest.mark.parametrize("head_fallback", [False, True])
+def test_large_rollout_first_sight_read_budget(tmp_path, monkeypatch, head_fallback):
+    from aitermd.codex_sessions import READ_BYTES
+
+    chatter = json.dumps({"type": "response_item", "payload": {"text": "x" * 1024}}) + "\n"
+    boundary = {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_complete"}}
+    path = write_rollout(tmp_path, "t", [])
+    meta_line = json.dumps(versioned("t", "0.160.0")) + "\n"
+    path.write_text((meta_line if head_fallback else "") + chatter * 8192
+                    + ("" if head_fallback else meta_line) + json.dumps(boundary) + "\n")
+    opened, read_bytes = [], []
+    original = type(path).open
+
+    class Counted:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            self.stream.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.stream.__exit__(*args)
+
+        def read(self, *args):
+            value = self.stream.read(*args)
+            read_bytes.append(len(value))
+            return value
+
+        def __getattr__(self, name):
+            return getattr(self.stream, name)
+
+    def counted(candidate, *args, **kwargs):
+        stream = original(candidate, *args, **kwargs)
+        if candidate == path:
+            opened.append(candidate)
+            return Counted(stream)
+        return stream
+
+    monkeypatch.setattr(type(path), "open", counted)
+    files = CodexSessionFiles(tmp_path)
+    assert files.cli_version("t") == "0.160.0"
+    assert files.turn_state("t") == ("done", 101.0)
+    # Baseline: two opens and twice the size, for both shapes.
+    assert len(opened) == 1
+    assert sum(read_bytes) == (path.stat().st_size if head_fallback else READ_BYTES)
+    assert READ_BYTES == 8 * 1024 * 1024
+
+
+def test_one_thread_read_looks_up_its_path_once(tmp_path, monkeypatch):
+    path = write_rollout(tmp_path, "t", [versioned("t", "0.160.0"), token_count(30, 100)])
+    files, lookups = CodexSessionFiles(tmp_path), []
+    lookup = files._path_for
+    monkeypatch.setattr(files, "_path_for", lambda thread: lookups.append(thread) or lookup(thread))
+    assert files.reading("t") == (30, "0.160.0", None)
+    assert lookups == ["t"]  # Before: context, version and boundary each looked it up.
+    assert path.exists()
+
+
+def test_a_failed_combined_cursor_read_retries_without_a_file_change(tmp_path, monkeypatch):
+    path = write_rollout(tmp_path, "t", [versioned("t", "0.160.0")])
+    files = CodexSessionFiles(tmp_path)
+    original = type(path).open
+
+    def unavailable(candidate, *args, **kwargs):
+        if candidate == path:
+            raise OSError("unavailable")
+        return original(candidate, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(type(path), "open", unavailable)
+        assert files.cli_version("t") is None
+        assert not files._rollouts
+    assert files.cli_version("t") == "0.160.0"

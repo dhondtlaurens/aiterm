@@ -2183,9 +2183,9 @@ async def test_codex_rollouts_are_read_off_the_event_loop(stack):
         def _note(self, what):
             reader.setdefault(what, set()).add(threading.get_ident())
 
-        def context_percent(self, session_id):
+        def reading(self, session_id):
             self._note("context")
-            return super().context_percent(session_id)
+            return super().reading(session_id)
 
         def rate_limits(self):
             self._note("limits")
@@ -2220,11 +2220,11 @@ async def test_a_codex_context_read_that_timed_out_holds_back_both_reads_until_i
     calls = {"context": 0, "limits": 0}
 
     class FirstReadHangs(CodexSessionFiles):
-        def context_percent(self, session_id):
+        def reading(self, session_id):
             calls["context"] += 1
             if calls["context"] == 1:
                 release.wait(5)
-            return super().context_percent(session_id)
+            return super().reading(session_id)
 
         def rate_limits(self):
             calls["limits"] += 1

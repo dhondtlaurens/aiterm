@@ -213,3 +213,20 @@ def test_a_later_complete_stop_recovers_from_a_gap_without_replaying_the_file(tm
     # status engine still checks its native IDs and filters tasks not listed by that Stop.
     recovered = reader.read_all({"session": (str(path), 100)}, {"session": 111})["session"]
     assert recovered is not None and recovered.tasks[0].job.task_id == "job1"
+
+
+def test_restore_background_transcript_read_budget(tmp_path, monkeypatch):
+    """Restore has no historical byte checkpoint; keep the measured cost explicit when dropped."""
+    path = tmp_path / "restored.jsonl"
+    history = [record("assistant", [{"type": "text", "text": "old output"}], at=90)] * 1000
+    write(path, history + launch())
+    from aitermd import claude_background
+    from types import SimpleNamespace
+
+    parsed = []
+    original = json.loads
+    monkeypatch.setattr(claude_background, "json", SimpleNamespace(loads=lambda line: parsed.append(line) or original(line)))
+    result = read(BackgroundTranscripts(), path)
+    assert result.tasks[0].job.task_id == "job1"
+    assert len(parsed) == 1002
+    assert sum(len(line) + 1 for line in parsed) == path.stat().st_size

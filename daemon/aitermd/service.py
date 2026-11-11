@@ -13,7 +13,7 @@ from . import protocol
 from .claude_sessions import ClaudeSessionFile, ClaudeSessionFiles
 from .claude_subagents import SubagentTranscripts, TranscriptTail
 from .claude_background import BackgroundTranscripts, ShellReading
-from .codex_sessions import CodexSessionFiles
+from .codex_sessions import CodexReading, CodexSessionFiles
 from .connection import ItermSupervisor
 from .delivery import NOT_CHECKED, Deliverer, Verdict, read_policy
 from .hook_router import HookRouter
@@ -26,7 +26,7 @@ from .publisher import Publisher
 from .resolver import SessionResolver
 from .rpc_params import frame_param, guard, optional_param, param, require_iterm
 from .rpc_server import RpcError, RpcServer
-from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo, State
+from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
 from .sessions import SessionRegistry, SnapshotDiff
 from .slash_commands import SlashCommands
 from .status import StatusEngine, shows_trust_prompt
@@ -482,23 +482,19 @@ class Service:
                 log.exception("reading the Codex %s of thread %s failed", what, thread_id)
                 return None
 
-        def read() -> dict[str, tuple[int | None, str | None, tuple[State, float] | None]]:
-            readings: dict[str, tuple[int | None, str | None, tuple[State, float] | None]] = {}
-            for thread_id in set(threads.values()):
-                readings[thread_id] = (attempt(files.context_percent, "context", thread_id),
-                                       attempt(files.cli_version, "version", thread_id),
-                                       attempt(files.turn_state, "turn boundary", thread_id))
+        def read() -> dict[str, CodexReading | None]:
+            readings = {thread_id: attempt(files.reading, "rollout", thread_id) for thread_id in set(threads.values())}
             files.retain(set(threads.values()))
             return readings
 
-        none: dict[str, tuple[int | None, str | None, tuple[State, float] | None]] = {}
+        none: dict[str, CodexReading | None] = {}
         readings = await self._off_loop(CODEX_READ, read, none)
         changed: list[str] = []
         for session_id, thread_id in threads.items():
             # A hook or a replacement process may have changed the binding during the read.
             if self.resolver.codex_thread(session_id) != thread_id:
                 continue
-            context, version, turn = readings.get(thread_id, (None, None, None))
+            context, version, turn = (readings.get(thread_id) or CodexReading(None, None, None))
             # The running Codex's version, which delivery is held against (delivery.Verdict).
             self.registry.set_cli_version(session_id, version)
             changed += self.status.apply_metadata(session_id, context=context)

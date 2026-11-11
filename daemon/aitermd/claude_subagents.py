@@ -77,7 +77,7 @@ def _ending(records: Iterator[Any]) -> dict[str, Any] | None:
 
 
 # A transcript as last read, keyed by its stamp: only a file Claude has appended to since is read again.
-_Entry = tuple[tuple[int, int], TranscriptTail]
+_Entry = tuple[tuple[str, int, int, int, int], TranscriptTail]
 
 
 class SubagentTranscripts:
@@ -87,11 +87,13 @@ class SubagentTranscripts:
 
     def __init__(self) -> None:
         self._cache: dict[str, _Entry] = {}
+        self._real_paths: dict[str, str] = {}
 
     def read_all(self, paths: Collection[str]) -> dict[str, TranscriptTail | None]:
         """Each of `paths`, read: None for one that cannot be found or read. The cache keeps only those read."""
         tails = {path: self.read(path) for path in paths}
         self._cache = {path: entry for path, entry in self._cache.items() if tails.get(path) is not None}
+        self._real_paths = {path: real for path, real in self._real_paths.items() if tails.get(path) is not None}
         return tails
 
     def read(self, path: str) -> TranscriptTail | None:
@@ -102,27 +104,34 @@ class SubagentTranscripts:
             return None
         real, stat = st
         stamp = (stat.st_mtime_ns, stat.st_size)
-        if (cached := self._cache.get(path)) is not None and cached[0] == stamp:
+        identity = (real, stat.st_ino, stat.st_ctime_ns, *stamp)
+        if (cached := self._cache.get(path)) is not None and cached[0] == identity:
             return cached[1]
         try:
             ending = _ending(records_newest_first(Path(real), TAIL_BYTES, discard_boundary=True))
         except OSError:
             return None
         tail = TranscriptTail(stamp, stat.st_mtime, None if ending is None else iso_seconds(ending.get("timestamp")) or stat.st_mtime)
-        self._cache[path] = (stamp, tail)
+        self._cache[path] = (identity, tail)
         return tail
 
-    @staticmethod
-    def _stat(path: str) -> tuple[str, os.stat_result] | None:
+    def _stat(self, path: str) -> tuple[str, os.stat_result] | None:
         try:
             return path, os.stat(path)
         except (OSError, ValueError):
             pass
+        if real := self._real_paths.get(path):
+            try:
+                return real, os.stat(real)
+            except (OSError, ValueError):
+                self._real_paths.pop(path, None)
         try:
             p = Path(path)
             for pattern in (f"*/{p.name}", f"*/*/{p.name}"):
                 for candidate in p.parent.glob(pattern):
-                    return str(candidate), candidate.stat()
+                    stat = candidate.stat()
+                    self._real_paths[path] = str(candidate)
+                    return str(candidate), stat
         except (OSError, ValueError):
             pass
         return None
