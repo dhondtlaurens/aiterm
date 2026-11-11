@@ -33,12 +33,16 @@ final class WorkerTurnReader {
         var asked: UUID?
         var requestedBasis: Basis?
         var inFlight: Task<Void, Never>?
+        /// Whether the read under way reads the transcript in full: one that does not gives way to a full read asked for
+        /// meanwhile, which would otherwise be lost to it (`observe(fullRead:)`).
+        var inFlightFull = false
 
         /// Nothing more is read for its turn until it ends again: what it had left, and a read under way, go.
         mutating func atWork() -> Bool {
             messagedWhileReading = false
             asked = nil
             inFlight = nil
+            inFlightFull = false
             defer { reading = nil }
             return reading != nil
         }
@@ -69,6 +73,7 @@ final class WorkerTurnReader {
         for id in workers.keys {
             workers[id]?.inFlight?.cancel()
             workers[id]?.inFlight = nil
+            workers[id]?.inFlightFull = false
             workers[id]?.asked = nil
             workers[id]?.requestedBasis = nil
             workers[id]?.seen = nil
@@ -114,9 +119,11 @@ final class WorkerTurnReader {
                 worker.seen = identity
                 // Even without a working hook, a new reply in the same idle conversation is a new turn.
                 // The background read compares reply identity before asking git again. A read under way for an unchanged
-                // turn is left to finish.
+                // turn is left to finish, unless a full read is asked for and it is not one: the full read takes its place.
                 // A turn that ended, or a basis that changed, is read in full.
-                if changed || worker.inFlight == nil { read(task, tab, operated, &worker, id: id, fullRead: fullRead || changed) }
+                if changed || worker.inFlight == nil || (fullRead && !worker.inFlightFull) {
+                    read(task, tab, operated, &worker, id: id, fullRead: fullRead || changed)
+                }
             }
         }
         // A worker no task lists any more: all of it goes, and a read under way for it lands nowhere.
@@ -153,6 +160,7 @@ final class WorkerTurnReader {
         record.requestedBasis = basis
         // A read under way for this worker is for a turn this one replaces.
         record.inFlight?.cancel()
+        record.inFlightFull = fullRead
         record.inFlight = ports.work.start { [weak self] in
             guard !Task.isCancelled else { return }
             let (read, tailRead) = await BackgroundWork.run { () -> (Reading?, Bool) in
@@ -187,6 +195,7 @@ final class WorkerTurnReader {
             // again or reopened, while git was asked.
             guard !Task.isCancelled, let self, self.workers[id]?.asked == request else { return }
             self.workers[id]?.inFlight = nil
+            self.workers[id]?.inFlightFull = false
             guard var reading = read,
                   self.workers[id]?.seen == Seen(session: session, state: state, conversation: conversation),
                   let current = self.workspace.state.task(id: id.task), self.isRead(current), current.operated.map(Basis.init) == basis,

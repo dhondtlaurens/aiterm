@@ -118,6 +118,37 @@ import Testing
         #expect(work[.turnRead] == 9, "turn reads per reconcile tick: \(work)")
     }
 
+    /// A reconcile tick a reconcile interval after the last, with one task's worker idle, its turn ended and read, and a
+    /// sibling task at work whose time the tick counts, which changes the workspace before the tick reads the ended turns:
+    /// 1 worker turn read, the idle worker's transcript read in full once, not lost to the read that change started
+    /// (phase 5, review round 2). The frozen broadcast's tick (above) counts no time, its clock held.
+    @Test func aReconcileTickWithABusySiblingReadsTheIdleTurnInFullOnce() async throws {
+        let clock = TestClock.operators()
+        let fixture = WorkerTurnReaderTests()
+        let (world, run, task, _) = try fixture.makeWorld(worker: .idle, clock: clock)
+        defer { world.controller.stop() }
+        let project = try #require(world.state.projects.first)
+        var busy = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-2", state: .working, worktree: "/tmp/aiterm-wt-busy")
+        busy.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now.addingTimeInterval(-3600),
+                                              openedAt: clock.now.addingTimeInterval(-3600))
+        world.workspace.mutate { $0.tasks.append(busy) }
+        world.show(fixture.sessions(run, task, .idle) + [OperatorServiceFixtures.session("w2", window: "w10", tag: busy.id, state: .working,
+                                                                                          conversation: "conv-busy")])
+        try BranchWatchTests().saveReply("Wired it.", conversation: "conv-1", in: world)
+        world.controller.reconcileTick()
+        await Budget.settle(world.controller)
+        let counted = world.task(busy.id)?.operated?.totalRuntimeUsed ?? 0
+        clock.advance(by: OperatorTiming.reconcileInterval)
+
+        let work = await Budget.metered {
+            world.controller.reconcileTick()
+            await Budget.settle(world.controller)
+        }
+
+        #expect((world.task(busy.id)?.operated?.totalRuntimeUsed ?? 0) > counted, "the sibling's time counted")
+        #expect(work[.turnRead] == 1, "turn reads per reconcile tick with a busy sibling: \(work)")
+    }
+
     /// One mutating tool call, `ask_you` about the working task as the journey asks it, with what it starts let finish:
     /// 3 `RunStatus.build`s, the handler's look before and after the call to tell whether it changed what `run_status`
     /// shows, and the waker's look at the changed workspace. A later change that builds the status once per call lowers

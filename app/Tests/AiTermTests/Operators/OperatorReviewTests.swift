@@ -793,3 +793,44 @@ extension OperatorReviewTests {
         #expect(prompts.list.isEmpty)
     }
 }
+
+extension OperatorReviewTests {
+    /// A second task in review, on the same repository: !13.
+    func withASecondTask(_ r: Reviewed) async {
+        r.world.workspace.mutate { state in
+            var task = r.task
+            task.id = UUID()
+            task.title = "Task A1"
+            task.operated?.key = "A1"
+            task.operated?.publication?.mergeRequestNumber = 13
+            state.tasks.append(task)
+        }
+        await r.world.settled()
+    }
+
+    /// A pass keeps a project's host only once it was found (phase 5, review round 2): git failing to read the origin for
+    /// one task is tried again for the next of the same project, whose review is read.
+    @Test func aHostThatCouldNotBeFoundForOneTaskIsLookedForAgainForTheNext() async throws {
+        let git = FailingOnceGit()
+        let r = try await reviewed(.inReview, adjust: { $0.git = git })
+        await withASecondTask(r)
+        let logged = r.host.log.count
+        git.failNext(["remote", "get-url"])
+        r.world.controller.reviewWatcher.poll()
+        await r.world.settled()
+        #expect(git.failed == 1)
+        #expect(r.host.log.count - logged == 2, "one task's threads and approvals read: \(Array(r.host.log.dropFirst(logged)))")
+    }
+
+    /// A pass keeps the token's user only once the host named it: a lookup that failed for one task is asked again for the
+    /// next, so its notes are told apart from AiTerm's own.
+    @Test func aUserLookupThatFailedForOneTaskIsAskedAgainForTheNext() async throws {
+        let r = try await reviewed(.inReview)
+        await withASecondTask(r)
+        let users = r.host.userLookups
+        r.host.update { $0.userFailures = 1 }
+        r.world.controller.reviewWatcher.poll()
+        await r.world.settled()
+        #expect(r.host.userLookups - users == 2, "asked again after the failed lookup")
+    }
+}

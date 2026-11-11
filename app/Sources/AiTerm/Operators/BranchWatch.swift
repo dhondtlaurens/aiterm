@@ -141,8 +141,9 @@ final class BranchWatch {
     }
 
     /// `named`, and whether git answered every question it was asked (`complete`): a lookup git could not finish may
-    /// leave a commit out, or say less of one, and is not an answer to keep. The default branch's own lookup
-    /// (`Repository.defaultBranch`) says nothing of a failure, and is not told apart.
+    /// leave a commit out, or say less of one, and is not an answer to keep. That covers the default branch's lookup too
+    /// (`Repository.detectDefaultBranch`): git failing there is read as the fallback default for this pass, and kept as
+    /// nothing.
     nonisolated static func lookUp(in message: String, branch: String, base: String, worktree: String,
                                    git: any GitRunning) -> (named: [BranchDrift.Named], complete: Bool) {
         var complete = true
@@ -160,7 +161,12 @@ final class BranchWatch {
         var priorHeads: Set<String>?
         func bases() -> [String] {
             if let baseRefs { return baseRefs }
-            let names = [base.isEmpty ? nil : base, Repository(worktree, git: git).defaultBranch()].compactMap { $0 }
+            let detected: String
+            do { detected = try Repository(worktree, git: git).detectDefaultBranch() ?? Repository.fallbackDefaultBranch } catch {
+                complete = false
+                detected = Repository.fallbackDefaultBranch
+            }
+            let names = [base.isEmpty ? nil : base, detected].compactMap { $0 }
             let refs = Array(Set(names.flatMap { ["refs/heads/" + $0, "refs/remotes/origin/" + $0] })).sorted()
             baseRefs = refs
             return refs

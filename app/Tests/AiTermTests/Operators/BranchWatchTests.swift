@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
@@ -470,5 +471,58 @@ extension BranchWatchTests {
         world.controller.branchWatch.poll()
         await world.settled()
         #expect(world.task(task.id)?.operated?.branchDrift?.sha == sha, "looked up again, and found")
+    }
+}
+
+extension BranchWatchTests {
+    /// The default branch git could not name is no answer either (phase 5, review round 2): a commit on the default
+    /// branch, `develop`, read once while git fails to name it and so taken for off its bases, is looked up again on the
+    /// next pass and is no drift.
+    @Test func aLookupThatCouldNotNameTheDefaultBranchIsTriedAgain() async throws {
+        let git = FailingOnceGit()
+        let (world, _, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-1", adjust: { $0.git = git })
+        defer { world.controller.stop() }
+        let elsewhere = try GitFixture.folder("op-drift-tmp-") + "/develop"
+        try self.git.run(["worktree", "add", "-q", "-b", "develop", elsewhere], in: worktree)
+        try self.git.run(["commit", "--allow-empty", "-q", "-m", "on develop"], in: elsewhere)
+        let sha = try self.git.run(["rev-parse", "HEAD"], in: elsewhere)
+        try self.git.run(["update-ref", "refs/remotes/origin/develop", sha], in: worktree)
+        try self.git.run(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop"], in: worktree)
+        try saveReply("Done. Committed \(sha) on develop.", conversation: "conv-1", in: world)
+        world.controller.turns.observe()
+        await world.settled()
+        git.failNext(["for-each-ref", "--format=%(refname) %(symref)"])
+        world.controller.branchWatch.poll()
+        await world.settled()
+        #expect(git.failed == 1, "the default branch's lookup failed once")
+        #expect(world.task(task.id)?.operated?.branchDrift?.sha == sha, "taken for off its bases while the default branch was unknown")
+        world.controller.branchWatch.poll()
+        await world.settled()
+        #expect(world.task(task.id)?.operated?.branchDrift == nil, "looked up again: on the default branch")
+    }
+}
+
+/// Git that fails the next command starting with the words a test names, once, as a git killed at its deadline does, and
+/// runs every other.
+final class FailingOnceGit: GitRunning {
+    private let inner: any GitRunning = GitRunner.hermetic()
+    private let armed = Mutex<[String]?>(nil)
+    private let failures = Mutex(0)
+    /// How many commands it failed.
+    var failed: Int { failures.withLock { $0 } }
+
+    func failNext(_ prefix: [String]) { armed.withLock { $0 = prefix } }
+
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        let fails = armed.withLock { armed -> Bool in
+            guard let words = armed, args.starts(with: words) else { return false }
+            armed = nil
+            return true
+        }
+        if fails {
+            failures.withLock { $0 += 1 }
+            throw GitError(args: args, code: 15, stderr: "git \(args.first ?? "") timed out after \(timeout) s", timedOut: true)
+        }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }
 }

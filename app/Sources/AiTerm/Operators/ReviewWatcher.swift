@@ -42,11 +42,12 @@ final class ReviewWatcher {
         pass.run(state.tasks.filter(isWatched).map(\.id)) { [weak self] in await self?.check($0, hosts: hosts) }
     }
 
-    /// One pass's code hosts, by project path: each found once, and its token's user looked up once, the first time a task
-    /// of the project needs them. The connection is fresh each pass: Settings may name another host or token user since.
+    /// One pass's code hosts, by project path: each kept once found, and its token's user once the host named it, the first
+    /// time a task of the project needs them; a lookup that failed is not kept, so the project's next task asks again. The
+    /// connection is fresh each pass: Settings may name another host or token user since.
     @MainActor private final class Hosts {
-        var found: [String: Result<any MergeRequestPublishing, CodeHostCheck.Failure>] = [:]
-        var users: [String: String?] = [:]
+        var found: [String: any MergeRequestPublishing] = [:]
+        var users: [String: String] = [:]
     }
 
     func stop() { pass.cancel() }
@@ -56,14 +57,13 @@ final class ReviewWatcher {
               let project = state.project(id: task.projectId) else { return }
         let threads: [ReviewThread], approvals: [String]?, own: String?
         do {
-            let found: Result<any MergeRequestPublishing, CodeHostCheck.Failure>
+            let host: any MergeRequestPublishing
             if let known = hosts.found[project.path] {
-                found = known
+                host = known
             } else {
-                do { found = .success(try await ports.codeHost.host(of: project)) } catch { found = .failure(error) }
-                hosts.found[project.path] = found
+                host = try await ports.codeHost.host(of: project)
+                hosts.found[project.path] = host
             }
-            let host = try found.get()
             // Another repository's request of the same number is not this one: origin changed since it was opened.
             if let publication = task.operated?.publication, let why = PublicationGuard.otherRepository(publication, repository: host.repository) {
                 Log.network.error("Not reading the review of \(task.operated?.key ?? task.title, privacy: .public): \(why, privacy: .public)")
@@ -76,7 +76,7 @@ final class ReviewWatcher {
                 own = user
             } else {
                 own = try? await host.currentUser()
-                hosts.users[project.path] = own
+                if let own { hosts.users[project.path] = own }
             }
         } catch {
             Log.network.error("Reading the review of \(task.operated?.key ?? task.title, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")

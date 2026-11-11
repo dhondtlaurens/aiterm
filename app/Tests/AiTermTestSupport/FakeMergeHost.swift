@@ -49,6 +49,8 @@ final class FakeMergeHost: MergeRequestPublishing {
         var reviewError: (any Error)?
         /// The username the token acts as.
         var me = "aiterm"
+        /// The next this many lookups of the token's user fail, as a host that did not answer.
+        var userFailures = 0
         /// The repository the host is bound to: the project's origin as it resolves now.
         var repository = FakeMergeHost.repository
         /// Awaited after a Review slice call is logged, with its line: a test holds a call in flight with it.
@@ -247,7 +249,13 @@ final class FakeMergeHost: MergeRequestPublishing {
     /// Not logged: a lookup of who the token is changes nothing on the host. Counted in `userLookups`, for a budget.
     func currentUser() async throws -> String {
         lookups.withLock { $0 += 1 }
-        return script.withLock { $0.me }
+        return try script.withLock { script in
+            guard script.userFailures == 0 else {
+                script.userFailures -= 1
+                throw URLError(.timedOut)
+            }
+            return script.me
+        }
     }
 
     private let lookups = Mutex(0)

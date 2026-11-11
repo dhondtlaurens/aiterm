@@ -595,3 +595,39 @@ extension WorkerTurnReaderTests {
         #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.")
     }
 }
+
+extension WorkerTurnReaderTests {
+    /// The tick's full read is not lost to a read already under way (phase 5, review round 2): a sibling task at work has
+    /// its runtime counted on each tick, and that change reads the idle worker's turn past its stamp before the tick's full
+    /// read comes; the full read takes its place, and a change no stat can see is read within the tick.
+    @Test func aChangeTheStampCannotSeeIsReadOnTheNextTickWhileASiblingWorks() async throws {
+        let clock = TestClock.operators()
+        let (world, run, task, _) = try makeWorld(worker: .idle, clock: clock)
+        let project = try #require(world.state.projects.first)
+        var busy = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-2", state: .working, worktree: "/tmp/aiterm-wt-busy")
+        busy.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now.addingTimeInterval(-3600),
+                                              openedAt: clock.now.addingTimeInterval(-3600))
+        world.workspace.mutate { $0.tasks.append(busy) }
+        world.show(sessions(run, task, .idle) + [OperatorServiceFixtures.session("w2", window: "w10", tag: busy.id, state: .working,
+                                                                                  conversation: "conv-busy")])
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("conv-1.jsonl")
+        try replyLine("Wired A.").write(to: file)
+        let written = Date(timeIntervalSince1970: 1_800_000_000)
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        world.controller.reconcileTick()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired A.")
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.write(contentsOf: try replyLine("Wired B."))
+        try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        let counted = world.task(busy.id)?.operated?.totalRuntimeUsed ?? 0
+        clock.advance(by: OperatorTiming.reconcileInterval)
+        world.controller.reconcileTick()
+        await world.settled()
+        #expect((world.task(busy.id)?.operated?.totalRuntimeUsed ?? 0) > counted, "the sibling's work was counted on the tick")
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.")
+    }
+}
