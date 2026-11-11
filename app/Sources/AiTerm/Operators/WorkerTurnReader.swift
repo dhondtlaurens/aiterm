@@ -129,6 +129,8 @@ final class WorkerTurnReader {
         let basis = Basis(operated), accepted = basis.accepted
         asked[id] = request
         requestedBasis[id] = basis
+        // A read under way for this worker is for a turn this one replaces.
+        inFlight[id]?.cancel()
         inFlight[id] = ports.work.start { [weak self] in
             guard !Task.isCancelled else { return }
             let read = await BackgroundWork.run {

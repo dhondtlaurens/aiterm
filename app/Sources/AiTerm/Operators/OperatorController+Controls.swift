@@ -246,8 +246,8 @@ extension OperatorController {
         // logged by the store and tried again with the next change; the notes still go.
         _ = workspace.flush()
         for worker in workers {
-            // Ended meanwhile: its tasks are yours, told nothing more.
-            guard self.run(id: id)?.hasEnded == false else { break }
+            // Ended meanwhile, its tasks yours, or AiTerm's Operators stopped: told nothing more.
+            guard !isStopped, self.run(id: id)?.hasEnded == false else { break }
             guard let place = steerable(worker, in: id) else {
                 mutateRun(id) { $0.pausedWorkers.removeAll { $0 == worker } }
                 continue
@@ -299,7 +299,7 @@ extension OperatorController {
         guard let daemon = daemon() else { return run(id: id)?.pausedWorkers.count ?? 0 }
         var missed = 0
         for worker in run(id: id)?.pausedWorkers ?? [] {
-            guard self.run(id: id)?.hasEnded == false else { break }
+            guard !isStopped, self.run(id: id)?.hasEnded == false else { break }
             defer { mutateRun(id) { $0.pausedWorkers.removeAll { $0 == worker } } }
             guard let place = steerable(worker, in: id) else { continue }
             let delivery = try? await daemon.deliver(sessionId: place.sessionId, text: Self.carryOnNote,
@@ -429,8 +429,10 @@ extension OperatorController {
         guard let daemon = daemon() else { return }
         let ended = runs.filter { $0.youAsked == .stop }.map(\.id)
         guard !ended.isEmpty else { return }
-        ports.work.start { [self] in
+        closing?.cancel()
+        closing = ports.work.start { [self] in
             for id in ended {
+                guard !Task.isCancelled else { return }
                 await closeOperatorWindowIfOnlyItsOperator(id, daemon: daemon)
                 mutateRun(id) { $0.operatorWindowId = nil; $0.operatorSessionId = nil }
             }

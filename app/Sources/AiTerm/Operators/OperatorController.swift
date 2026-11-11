@@ -120,7 +120,7 @@ final class OperatorController {
     /// Where the workers' and the Operator's conversations are, shared by every reader of them.
     @ObservationIgnored let transcripts: TranscriptLocator
     @ObservationIgnored private var loop: PollLoop?
-    @ObservationIgnored private var isStopped = false
+    @ObservationIgnored private(set) var isStopped = false
     /// An attach whose first connected snapshot is still to come: it reconciles and sets ownership again.
     @ObservationIgnored private var reattached = false
     /// When each working task last showed a sign of life (spec §8, *possibly stalled*): any change the
@@ -159,8 +159,13 @@ final class OperatorController {
     /// When each broadcast's operator window was last opened by `reopenOperatorWindow`, until its tab is
     /// listed: a click in the gap before iTerm2 lists it (or past `launchAdoptAfter`) opens no second one.
     @ObservationIgnored var reopenedOperator: [UUID: Date] = [:]
-    /// The re-registration of the runs' tokens under way, which `stop()` cancels.
+    /// The re-registration of the runs' tokens under way: a later attach's replaces it, and `stop()` cancels it.
     @ObservationIgnored private var registering: Task<Void, Never>?
+    /// The close of ended broadcasts' operator windows after an attach (`closeEndedOperatorWindows`): a later attach's
+    /// replaces it, and `stop()` cancels it.
+    @ObservationIgnored var closing: Task<Void, Never>?
+    /// What hears Settings › Operator saved, so the Oracle's settings are read again: removed by `stop()`.
+    @ObservationIgnored private var profileSaved: (any NSObjectProtocol)?
     /// Whether `live.sessions` is iTerm2's whole list — a connected snapshot has come since the helper
     /// attached and iTerm2 has not gone — so a tab missing from it is a tab closed.
     @ObservationIgnored private(set) var tabsKnown = false
@@ -236,7 +241,7 @@ final class OperatorController {
         self.transcripts = transcripts
         tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, waker: waker, tabs: tabs,
                                     transcripts: transcripts)
-        NotificationCenter.default.addObserver(forName: OperatorProfileStore.didSave, object: nil, queue: .main) { [weak tools] _ in
+        profileSaved = NotificationCenter.default.addObserver(forName: OperatorProfileStore.didSave, object: nil, queue: .main) { [weak tools] _ in
             MainActor.assumeIsolated { tools?.refreshOracleSettings() }
         }
         starter = WorkerStarter(workspace: workspace, live: live, daemon: daemon, taskFrame: taskFrame, ports: ports)
@@ -691,6 +696,7 @@ final class OperatorController {
         let open = runs.filter { !$0.hasEnded }.map { ($0.id, folder(of: $0.id)) }
         // Runs you ended: a revocation that failed before is tried again while their token file is there.
         let ended = runs.filter { $0.youAsked == .stop }.map { ($0.id, folder(of: $0.id)) }
+        registering?.cancel()
         registering = ports.work.start {
             for (id, folder) in open {
                 guard let token = await BackgroundWork.run({ OperatorCommand.existingToken(in: folder) }) else { continue }
@@ -932,8 +938,9 @@ final class OperatorController {
         workspace.mutate { $0.open(question, inRun: run.id) }
     }
 
-    /// Ends the runtime's polling, transcript reads, prompt probes, wake/summary timers, registration,
-    /// merge watches and Oracle checks. Late callbacks cannot start another scheduling pass.
+    /// Ends the runtime's polling, transcript reads, prompt probes, wake/summary timers, registration, the notes Pause and
+    /// Resume type, the close of ended broadcasts' windows, merge watches and Oracle checks, and stops hearing Settings ›
+    /// Operator's saves. Late callbacks cannot start another scheduling pass.
     func stop() {
         isStopped = true
         starter.stop()
@@ -944,6 +951,12 @@ final class OperatorController {
         resending = nil
         registering?.cancel()
         registering = nil
+        closing?.cancel()
+        closing = nil
+        for notes in signalling.values { notes.cancel() }
+        signalling = [:]
+        if let profileSaved { NotificationCenter.default.removeObserver(profileSaved) }
+        profileSaved = nil
         for wait in summaryWaits.values { wait.cancel() }
         summaryWaits = [:]
         prompts.stop()
