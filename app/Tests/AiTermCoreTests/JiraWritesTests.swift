@@ -7,6 +7,24 @@ import Foundation
 @Suite struct JiraWritesTests {
     let config = JiraConfig(siteURL: URL(string: "https://example.atlassian.net")!, email: "me@example.com", token: "tok")
 
+    /// Two edits as the token's user, then a save and another edit: every edit still writes.
+    @Test func theTokensAccountIsKeptUntilSettingsSaves() async throws {
+        try await HostUserMemo.$current.withValue(HostUserMemo.Cache()) { () async throws -> Void in
+            let config = JiraConfig(siteURL: URL(string: "https://memo.example.invalid")!, email: "stub@example.invalid", token: UUID().uuidString)
+            let stub = StubSession { request in
+                request.url?.path == "/rest/api/3/myself" ? (200, Data(#"{"accountId":"me"}"#.utf8)) : (204, Data())
+            }
+            let first = JiraClient(config: config, session: stub.session), second = JiraClient(config: config, session: stub.session)
+            try await first.edit(key: "PAY-1", fields: JiraEdit(assignee: .me))
+            try await second.edit(key: "PAY-2", fields: JiraEdit(assignee: .me))
+            #expect(stub.requests.count == 3) // 4 before, 3 after: one user read plus two writes.
+            #expect(JiraSettings.save(config, store: MemorySecretStore(), defaults: ScratchDefaults.make()))
+            try await second.edit(key: "PAY-3", fields: JiraEdit(assignee: .me))
+            #expect(stub.requests.count == 5) // 6 before, 5 after: save forces another user read.
+            #expect(stub.requests.filter { $0.httpMethod == "PUT" }.count == 3)
+        }
+    }
+
     func body(_ request: URLRequest?) throws -> [String: Any] {
         try #require(JSONSerialization.jsonObject(with: request?.httpBody ?? Data()) as? [String: Any])
     }
@@ -27,7 +45,7 @@ import Foundation
         let description = try #require(fields["description"] as? [String: Any])
         #expect(description["type"] as? String == "doc" && description["version"] as? Int == 1)
         // The description reads back through ADFText as it was written.
-        #expect(ADFText.plain(description) == "It leaks.\n\nSecond line one\nSecond line two")
+        #expect(ADFText.plain(try JSONDecoder().decode(JSONValue.self, from: JSONSerialization.data(withJSONObject: description))) == "It leaks.\n\nSecond line one\nSecond line two")
     }
 
     @Test func createWithoutADescriptionOrParentSendsNeither() async throws {
@@ -166,7 +184,8 @@ import Foundation
         #expect((fields["fixVersions"] as? [[String: String]]) == [["name": "1.4"], ["name": "1.5"]])
         #expect(fields["assignee"] == nil && fields["labels"] == nil, "labels are operations, not a replacement")
         let description = try #require(fields["description"] as? [String: Any])
-        #expect(description["type"] as? String == "doc" && ADFText.plain(description) == "First.\n\nSecond")
+        let typedDescription = try JSONDecoder().decode(JSONValue.self, from: JSONSerialization.data(withJSONObject: description))
+        #expect(description["type"] as? String == "doc" && ADFText.plain(typedDescription) == "First.\n\nSecond")
         let update = try #require(sent["update"] as? [String: Any])
         let labels = try #require(update["labels"] as? [[String: String]])
         #expect(labels == [["add": "web"], ["add": "urgent"], ["remove": "old"]])
@@ -205,13 +224,15 @@ import Foundation
     }
 
     @Test func assigneeMeUsesMyself() async throws {
-        let stub = StubSession { request in
-            request.url?.path == "/rest/api/3/myself" ? (200, Data(#"{"accountId":"acc-me","displayName":"Me"}"#.utf8)) : (204, Data())
+        try await HostUserMemo.$current.withValue(HostUserMemo.Cache()) { () async throws -> Void in
+            let stub = StubSession { request in
+                request.url?.path == "/rest/api/3/myself" ? (200, Data(#"{"accountId":"acc-me","displayName":"Me"}"#.utf8)) : (204, Data())
+            }
+            try await JiraClient(config: config, session: stub.session).edit(key: "PAY-9", fields: JiraEdit(assignee: .me))
+            #expect(stub.requests.map { ($0.httpMethod ?? "") + " " + ($0.url?.path ?? "") } == ["GET /rest/api/3/myself", "PUT /rest/api/3/issue/PAY-9"])
+            let fields = try #require(try body(stub.lastRequest)["fields"] as? [String: Any])
+            #expect((fields["assignee"] as? [String: String]) == ["accountId": "acc-me"])
         }
-        try await JiraClient(config: config, session: stub.session).edit(key: "PAY-9", fields: JiraEdit(assignee: .me))
-        #expect(stub.requests.map { ($0.httpMethod ?? "") + " " + ($0.url?.path ?? "") } == ["GET /rest/api/3/myself", "PUT /rest/api/3/issue/PAY-9"])
-        let fields = try #require(try body(stub.lastRequest)["fields"] as? [String: Any])
-        #expect((fields["assignee"] as? [String: String]) == ["accountId": "acc-me"])
     }
 
     @Test func noAssigneeSendsANullAccount() async throws {
@@ -305,12 +326,14 @@ import Foundation
     }
 
     @Test func anEditStopsWhenItsLastCheckRefuses() async throws {
-        struct Paused: Error {}
-        let stub = StubSession { _ in (200, Data(#"{"accountId":"acc-me"}"#.utf8)) }
-        await #expect(throws: Paused.self) {
-            try await JiraClient(config: config, session: stub.session).edit(key: "PAY-9", fields: JiraEdit(assignee: .me), beforeWrite: { throw Paused() })
+        try await HostUserMemo.$current.withValue(HostUserMemo.Cache()) { () async throws -> Void in
+            struct Paused: Error {}
+            let stub = StubSession { _ in (200, Data(#"{"accountId":"acc-me"}"#.utf8)) }
+            await #expect(throws: Paused.self) {
+                try await JiraClient(config: config, session: stub.session).edit(key: "PAY-9", fields: JiraEdit(assignee: .me), beforeWrite: { throw Paused() })
+            }
+            #expect(stub.requests.map { $0.httpMethod ?? "" } == ["GET"], "read, then nothing put")
         }
-        #expect(stub.requests.map { $0.httpMethod ?? "" } == ["GET"], "read, then nothing put")
     }
 
     @Test func aCommentIsSentAsADF() async throws {
@@ -321,7 +344,7 @@ import Foundation
         #expect(request.httpMethod == "POST" && request.url?.path == "/rest/api/3/issue/PAY-9/comment")
         let document = try #require(try body(request)["body"] as? [String: Any])
         #expect(document["type"] as? String == "doc" && document["version"] as? Int == 1)
-        #expect(ADFText.plain(document) == "Shipped in 1.4.\n\nSee the MR.")
+        #expect(ADFText.plain(try JSONDecoder().decode(JSONValue.self, from: JSONSerialization.data(withJSONObject: document))) == "Shipped in 1.4.\n\nSee the MR.")
     }
 
     @Test func aBlankCommentOrAKeyThatIsNoKeyNeverReachesTheNetwork() async throws {

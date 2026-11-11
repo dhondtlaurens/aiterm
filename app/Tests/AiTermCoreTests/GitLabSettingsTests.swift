@@ -4,6 +4,18 @@ import Foundation
 @testable import AiTermTestSupport
 
 @Suite struct GitLabSettingsTests {
+    @Test func credentialsAreTrimmedWhenSavedAndLoaded() {
+        let store = MemorySecretStore(), defaults = ScratchDefaults.make()
+        let config = GitLabConfig(hostURL: URL(string: "https://stub.invalid")!, token: "  secret\n")
+        #expect(GitLabSettings.save(config, store: store, defaults: defaults))
+        #expect(store.get("gitlab.token") == "secret")
+        #expect(GitLabSettings.load(store: store, defaults: defaults)?.token == "secret")
+        store.set("gitlab.token", "  legacy\n")
+        #expect(GitLabSettings.load(store: store, defaults: defaults)?.token == "legacy")
+        store.set("gitlab.token", " \n")
+        #expect(GitLabSettings.load(store: store, defaults: defaults) == nil)
+    }
+
     @Test func testSaveAndLoadSplitSecretFromDefaults() {
         let store = MemorySecretStore(), defaults = ScratchDefaults.make()
         #expect(GitLabSettings.load(store: store, defaults: defaults) == nil)

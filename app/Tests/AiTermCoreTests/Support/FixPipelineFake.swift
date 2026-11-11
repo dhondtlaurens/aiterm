@@ -11,7 +11,6 @@ extension FixPipeline {
     static func fake(git: any GitRunning, root: String,
                      look answer: @escaping @Sendable (FixClone) throws -> FixLookAnswer,
                      apply work: @escaping @Sendable (FixClone) throws -> Void) -> FixPipeline {
-        let before = Mutex<[String: String]>([:])
         let project = Mutex<String>("")
         return FixPipeline(
             prepare: { request throws(FixRefusal) in
@@ -21,13 +20,14 @@ extension FixPipeline {
             look: { agent, clone, request throws(FixRefusal) in
                 do {
                     let tips = try clone.branchTips()
-                    before.withLock { $0 = tips }
-                    return (try FixLook(validating: try answer(clone), request: request, localOnly: try clone.localOnly(), agent: agent), "S")
+                    return (try FixLook(validating: try answer(clone), request: request, localOnly: try clone.localOnly(), agent: agent), FixLookSession(id: "S", before: tips))
                 } catch let refusal as FixRefusal { throw refusal } catch { throw .cloneFailed("\(error)") }
             },
-            apply: { _, clone, proposal, _ throws(FixRefusal) in
+            apply: { _, clone, proposal, session throws(FixRefusal) in
+                defer { session.finish() }
+                guard let tips = session.tips else { throw .checkFailed("Couldn’t check the fix: its branches were not read before it was made, so nothing was changed.") }
                 do { try work(clone) } catch { throw .cloneFailed("\(error)") }
-                return try FixGuard.check(clone, proposal: proposal, before: before.withLock { $0 })
+                return try FixGuard.check(clone, proposal: proposal, before: tips)
             },
             land: { clone, checked throws(FixRefusal) in
                 let path = project.withLock { $0 }

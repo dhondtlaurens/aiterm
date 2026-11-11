@@ -192,9 +192,9 @@ extension CreationModel where Kind == ReviewCreation {
     /// keystroke on the main actor, so a connection changed in Settings meanwhile applies from the
     /// next sheet. Which host is searched is Core's to say (`MergeRequestSearch`); why none can be
     /// is the sheet's search error, on every search.
-    static func searcher(gitLab: GitLabConfig?, gitHub: GitHubConfig? = nil, remote: RemoteInfo) -> @MainActor (String) async throws -> [MergeRequest] {
+    static func searcher(gitLab: GitLabConfig?, gitHub: GitHubConfig? = nil, remote: RemoteInfo, session: URLSession = .shared) -> @MainActor (String) async throws -> [MergeRequest] {
         let source = Result(catching: { () throws(MergeRequestSearch.Unavailable) -> any MergeRequestSearching in
-            try MergeRequestSearch.source(for: remote, gitLab: gitLab, gitHub: gitHub)
+            try MergeRequestSearch.source(for: remote, gitLab: gitLab, gitHub: gitHub, session: session)
         })
         return { text in
             switch source {

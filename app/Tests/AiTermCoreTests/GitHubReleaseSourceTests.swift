@@ -40,7 +40,7 @@ import Testing
     }
 
     @Test func aPageOfOnlyDraftsIsNoRelease() async {
-        await #expect(throws: UpdateError.noRelease(.gitHub)) {
+        await #expect(throws: UpdateError.noRelease) {
             _ = try await self.source { _ in (200, self.page([self.release("v0.6.0", draft: true)])) }.0.latest()
         }
     }
@@ -49,28 +49,28 @@ import Testing
         let list = page([release("nightly"), release("v0.5.0", asset: false), release("v0.4.0")])
         let (src, _) = source { _ in (200, list) }
         #expect(try await src.latest().version == ReleaseVersion("0.4.0")!)
-        await #expect(throws: UpdateError.missingAsset(.gitHub, "0.5.0")) {
+        await #expect(throws: UpdateError.missingAsset("0.5.0")) {
             _ = try await self.source { _ in (200, self.page([self.release("v0.5.0", asset: false)])) }.0.latest()
         }
-        await #expect(throws: UpdateError.unreadableTag(.gitHub, "nightly")) {
+        await #expect(throws: UpdateError.unreadableTag("nightly")) {
             _ = try await self.source { _ in (200, self.page([self.release("nightly")])) }.0.latest()
         }
     }
 
     @Test func emptyAndGarbagePages() async {
-        await #expect(throws: UpdateError.noRelease(.gitHub)) { _ = try await self.source { _ in (200, Data("[]".utf8)) }.0.latest() }
-        await #expect(throws: UpdateError.badResponse(.gitHub, 200)) { _ = try await self.source { _ in (200, Data("<html>".utf8)) }.0.latest() }
+        await #expect(throws: UpdateError.noRelease) { _ = try await self.source { _ in (200, Data("[]".utf8)) }.0.latest() }
+        await #expect(throws: UpdateError.badResponse(200)) { _ = try await self.source { _ in (200, Data("<html>".utf8)) }.0.latest() }
     }
 
     @Test func statusCodesMapToErrors() async {
-        for (status, error) in [(404, UpdateError.projectNotFound(.gitHub, "octocat/hello")), (403, .rateLimited),
-                                (429, .rateLimited), (500, .badResponse(.gitHub, 500))] {
+        for (status, error) in [(404, UpdateError.projectNotFound("octocat/hello")), (403, .rateLimited),
+                                (429, .rateLimited), (500, .badResponse(500))] {
             await #expect(throws: error) { _ = try await self.source { _ in (status, Data()) }.0.latest() }
         }
     }
 
     @Test func downloadWritesTheImageWithNoCredential() async throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let dir = ScratchFolder.path("release-source-")
         defer { try? FileManager.default.removeItem(at: dir) }
         let (src, stub) = source { _ in (200, Data("dmg-bytes".utf8)) }
         let asset = URL(string: "https://github.com/octocat/hello/releases/download/v0.3.0/AiTerm-0.3.0.dmg")!
@@ -84,9 +84,9 @@ import Testing
     }
 
     @Test func aMissingImageIsABadResponseNotAMissingRepository() async {
-        await #expect(throws: UpdateError.badResponse(.gitHub, 404)) {
+        await #expect(throws: UpdateError.badResponse(404)) {
             let release = Release(version: ReleaseVersion("0.3.0")!, assetURL: URL(string: "https://github.com/x/AiTerm-0.3.0.dmg")!)
-            try await self.source { _ in (404, Data()) }.0.download(release, to: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+            try await self.source { _ in (404, Data()) }.0.download(release, to: ScratchFolder.path("release-source-"))
         }
     }
 }

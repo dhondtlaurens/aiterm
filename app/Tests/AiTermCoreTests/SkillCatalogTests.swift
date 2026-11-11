@@ -1,17 +1,31 @@
 import Testing
+import AiTermTestSupport
 import Foundation
 @testable import AiTermCore
 
 @Suite struct SkillCatalogTests {
     func tempDir() -> URL {
-        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("skillcat-" + UUID().uuidString)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+        try! ScratchFolder.make("skillcat-")
     }
 
     func write(_ text: String, to url: URL) {
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    @Test func aSymlinkedSkillManifestIsStampedThroughItsTarget() throws {
+        let home = tempDir(), store = tempDir()
+        let target = store.appendingPathComponent("shared.md")
+        let manifest = home.appendingPathComponent(".claude/skills/alpha/SKILL.md")
+        write("---\ndescription: First\n---\n", to: target)
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: manifest, withDestinationURL: target)
+        func detail() -> String? { SkillCatalog.discover(agent: .claude, projectPath: nil, home: home).first { $0.name == "alpha" }?.detail }
+        #expect(detail() == "First")
+        write("---\ndescription: Second\n---\n", to: target)
+        #expect(detail() == "Second")
+        try FileManager.default.removeItem(at: target)
+        #expect(detail() == nil)
     }
 
     @Test func testFrontmatterDescription() {
