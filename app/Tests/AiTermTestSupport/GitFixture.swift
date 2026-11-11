@@ -1,14 +1,23 @@
 import Foundation
+import Synchronization
 import AiTermCore
 
 /// The repositories the git tests start from, made with hermetic git (``HermeticGit``).
 enum GitFixture {
     // One seed per test host. Copies own their objects and refs: no shared alternates or hardlinks.
-    private static let template: Result<String, Error> = Result {
-        let path = try folder("git-template-")
-        try initRepo(at: path, git: GitRunner.hermetic())
-        return path
+    final class Template: Sendable {
+        private let cached = Mutex<String?>(nil)
+
+        func path(build: () throws -> String) throws -> String {
+            try cached.withLock { value in
+                if let value { return value }
+                let path = try build()
+                value = path
+                return path
+            }
+        }
     }
+    private static let template = Template()
 
     /// A fresh folder in the temporary directory, named from `prefix`. Its real path, because git
     /// reports `/private/var/…` where Foundation says `/var/…`, and the two must agree.
@@ -22,7 +31,12 @@ enum GitFixture {
             return try initRepo(at: folder, branch: branch, refFormat: refFormat, git: GitRunner.hermetic())
         }
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(atPath: template.get() + "/.git", toPath: folder + "/.git")
+        let seed = try template.path {
+            let path = try self.folder("git-template-")
+            try initRepo(at: path, git: GitRunner.hermetic())
+            return path
+        }
+        try FileManager.default.copyItem(atPath: seed + "/.git", toPath: folder + "/.git")
     }
 
     /// An explicit runner keeps owning setup too, for tests of a git fault or a spawn count.

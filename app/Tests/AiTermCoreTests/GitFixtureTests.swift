@@ -27,6 +27,18 @@ import Testing
         #expect(try git.run(["fsck", "--no-dangling"], in: b).isEmpty)
     }
 
+    @Test func aFailedTemplateBuildCanBeRetriedAndOnlySuccessIsCached() throws {
+        enum Transient: Error, Equatable { case timeout }
+        let template = GitFixture.Template()
+        var attempts = 0
+        #expect(throws: Transient.timeout) {
+            try template.path { attempts += 1; throw Transient.timeout }
+        }
+        #expect(try template.path { attempts += 1; return "seed" } == "seed")
+        #expect(try template.path { attempts += 1; return "unexpected rebuild" } == "seed")
+        #expect(attempts == 2)
+    }
+
     @Test func anExplicitRunnerStillOwnsFixtureSetup() throws {
         let git = CountingGitRunner()
         let path = try GitFixture.makeRepo(prefix: "explicit-", git: git)

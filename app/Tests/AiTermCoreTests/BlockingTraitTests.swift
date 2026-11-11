@@ -36,9 +36,11 @@ private func currentQueue() -> String { String(cString: __dispatch_queue_get_lab
 /// queues "…cooperative", and the runner calling a synchronous test on that pool, as it does in
 /// parallel mode. If either changes, this fails first, and the probes above need another witness.
 @Suite struct UnmarkedTestPlacementTests {
-    @Test func anUnmarkedProcessIsReported() {
-        withKnownIssue("The process hook rejects an unmarked test") {
+    @Test func anUnmarkedProcessIsReported() throws {
+        try withKnownIssue("The process hook rejects an unmarked test") {
             _ = try ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/true"), [])
+        } matching: { issue in
+            issue.description.contains("Process work in a test requires @Suite(.blocking) or @Test(.blocking)")
         }
     }
 
