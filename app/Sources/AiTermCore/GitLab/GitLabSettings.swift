@@ -14,6 +14,7 @@ public enum GitLabSettings {
     public static func save(_ cfg: GitLabConfig?, store: SecretStore = Keychain.shared, defaults: UserDefaults = .standard) -> Bool {
         guard store.set("gitlab.token", cfg?.token.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
         defaults.set(cfg?.hostURL.absoluteString, forKey: "gitlab.host")
+        HostUserMemo.invalidate(.gitLab)
         return true
     }
 }

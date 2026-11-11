@@ -15,6 +15,22 @@ import Foundation
                 "base": ["ref": "main", "repo": ["full_name": "octocat/hello"]]]
     }
 
+    /// Fixed workload: two repository clients sharing one host/token, then a successful save.
+    @Test func theTokensUserIsKeptAcrossRepositoriesUntilSettingsSaves() async throws {
+        try await HostUserMemo.$current.withValue(HostUserMemo.Cache()) { () async throws -> Void in
+            let config = GitHubConfig(token: UUID().uuidString)
+            let stub = StubSession { _ in (200, Data(#"{"login":"sam"}"#.utf8)) }
+            let first = GitHubClient(config: config, repo: "owner/one", session: stub.session)
+            let second = GitHubClient(config: config, repo: "owner/two", session: stub.session)
+            #expect(try await first.currentUser() == "sam")
+            #expect(try await second.currentUser() == "sam")
+            #expect(stub.requests.count == 1) // 2 before, 1 after.
+            #expect(GitHubSettings.save(config, store: MemorySecretStore()))
+            #expect(try await second.currentUser() == "sam")
+            #expect(stub.requests.count == 2) // 3 before, 2 after, including the required fresh read after save.
+        }
+    }
+
     private func makeClient(repo: String = "octocat/hello", _ handler: @escaping StubURLProtocol.Handler) -> (client: GitHubClient, stub: StubSession) {
         let stub = StubSession(handler: handler)
         return (GitHubClient(config: config, repo: repo, session: stub.session), stub)

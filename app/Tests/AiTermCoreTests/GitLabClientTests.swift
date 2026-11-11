@@ -10,6 +10,22 @@ import Foundation
                              "author": ["name": "Sam Rivera"],
                              "web_url": "https://git.example.net/web/acme-web/-/merge_requests/4"]
 
+    /// Fixed workload: two repository clients sharing one host/token, then a successful save.
+    @Test func theTokensUserIsKeptAcrossRepositoriesUntilSettingsSaves() async throws {
+        try await HostUserMemo.$current.withValue(HostUserMemo.Cache()) { () async throws -> Void in
+            let config = GitLabConfig(hostURL: URL(string: "https://memo.example.invalid")!, token: UUID().uuidString)
+            let stub = StubSession { _ in (200, Data(#"{"username":"sam"}"#.utf8)) }
+            let first = GitLabClient(config: config, project: "owner/one", session: stub.session)
+            let second = GitLabClient(config: config, project: "owner/two", session: stub.session)
+            #expect(try await first.currentUser() == "sam")
+            #expect(try await second.currentUser() == "sam")
+            #expect(stub.requests.count == 1) // 2 before, 1 after.
+            #expect(GitLabSettings.save(config, store: MemorySecretStore(), defaults: ScratchDefaults.make()))
+            #expect(try await second.currentUser() == "sam")
+            #expect(stub.requests.count == 2) // 3 before, 2 after, including the required fresh read after save.
+        }
+    }
+
     private func makeClient(project: String = "web/acme-web", _ handler: @escaping StubURLProtocol.Handler) -> (client: GitLabClient, stub: StubSession) {
         let stub = StubSession(handler: handler)
         return (GitLabClient(config: config, project: project, session: stub.session), stub)

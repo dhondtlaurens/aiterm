@@ -13,6 +13,7 @@ public enum JiraSettings {
         guard store.set("jira.token", cfg?.token.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
         defaults.set(cfg?.siteURL.absoluteString, forKey: "jira.site")
         defaults.set(cfg?.email.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "jira.email")
+        HostUserMemo.invalidate(.jira)
         return true
     }
 }

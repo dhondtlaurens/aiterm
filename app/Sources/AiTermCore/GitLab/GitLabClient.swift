@@ -54,7 +54,11 @@ public struct GitLabClient: HostRepository {
         return base
     }
 
-    public func currentUser() async throws -> String { try await Self.testConnection(config: config, session: session) }
+    public func currentUser() async throws -> String {
+        try await HostUserMemo.user(.gitLab, host: Self.base(config.hostURL), token: config.token) {
+            try await Self.testConnection(config: config, session: session)
+        }
+    }
     public func openRequests(pages: Int) async throws -> (requests: [MergeRequest], complete: Bool) {
         try await openMergeRequests(pages: pages)
     }

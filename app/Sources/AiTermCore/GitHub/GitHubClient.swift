@@ -33,6 +33,7 @@ public struct GitHubClient: HostRepository {
     let config: GitHubConfig, session: URLSession
     let repo: String
     private let boundPath: String
+    private let listing = OpenPullListing()
     public init(config: GitHubConfig, repo: String, session: URLSession = .shared) {
         self.config = config; self.session = session; self.repo = repo
         boundPath = Self.repositoryPath(repo)
@@ -50,7 +51,11 @@ public struct GitHubClient: HostRepository {
         "/repos/" + repo.components(separatedBy: "/").map(HTTPJSON.pathSegment).joined(separator: "/")
     }
 
-    public func currentUser() async throws -> String { try await Self.testConnection(config: config, session: session) }
+    public func currentUser() async throws -> String {
+        try await HostUserMemo.user(.gitHub, host: Self.api, token: config.token) {
+            try await Self.testConnection(config: config, session: session)
+        }
+    }
     public func openRequests(pages: Int) async throws -> (requests: [MergeRequest], complete: Bool) {
         try await openPullRequests(pages: pages)
     }
@@ -70,10 +75,12 @@ public struct GitHubClient: HostRepository {
             do { return [try await get(PullPayload.self, path: base + "/\(number)", notFound: .repoNotFound(repo)).mergeRequest] }
             catch GitHubError.repoNotFound { return [] }
         }
-        let query = [URLQueryItem(name: "state", value: "open"), URLQueryItem(name: "sort", value: "updated"),
-                     URLQueryItem(name: "direction", value: "desc"), URLQueryItem(name: "per_page", value: String(Self.readLimit))]
-        let open = try await get([Lenient<PullPayload>].self, path: base, query: query, notFound: .repoNotFound(repo))
-            .compactMap { $0.value?.mergeRequest }
+        let open = try await listing.read {
+            let query = [URLQueryItem(name: "state", value: "open"), URLQueryItem(name: "sort", value: "updated"),
+                         URLQueryItem(name: "direction", value: "desc"), URLQueryItem(name: "per_page", value: String(Self.readLimit))]
+            return try await get([Lenient<PullPayload>].self, path: base, query: query, notFound: .repoNotFound(repo))
+                .compactMap { $0.value?.mergeRequest }
+        }
         let matching = text.isEmpty ? open : open.filter { pull in
             [pull.title, pull.sourceBranch, pull.author ?? ""].contains { $0.range(of: text, options: .caseInsensitive) != nil }
         }
@@ -830,5 +837,19 @@ public extension GitHubError {
         case .badResponse(let status): return HTTPJSON.Failure.status(status).outcomeUnknown
         case .unauthorized, .forbidden, .repoNotFound, .refused, .notSent: return false
         }
+    }
+}
+
+/// One successful open listing for the lifetime of the client captured by a sheet's searcher.
+/// The caller owns its read and cancellation; overlapping cold reads are not coalesced.
+private actor OpenPullListing {
+    private var known: [MergeRequest]?
+
+    func read(_ load: @Sendable () async throws -> [MergeRequest]) async throws -> [MergeRequest] {
+        if let known { try Task.checkCancellation(); return known }
+        let read = try await load()
+        if let known { return known }
+        known = read
+        return read
     }
 }

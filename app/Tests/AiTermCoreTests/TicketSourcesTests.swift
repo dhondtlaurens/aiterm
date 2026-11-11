@@ -215,6 +215,7 @@ import Foundation
         let found = try await TicketMergeRequests.requests(for: issue, in: repository)
         #expect(found.requests.map(\.iid) == [29])
         #expect(found.complete)
+        #expect(stub.requests.count == 2) // concurrency would still make these same two requests; dropped.
     }
 
     @Test func aRequestNamesItsTicket() {
