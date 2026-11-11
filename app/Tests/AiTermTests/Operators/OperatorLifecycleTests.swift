@@ -46,19 +46,19 @@ import Testing
 extension OperatorWakerTests {
     @Test func stoppingDropsCoalescedNewsAndRestartOnlySendsFreshNews() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
-        waker.say("reconnected", to: run.id)
+        waker.say(.reconnected, to: run.id)
         await hand.started(1)
         waker.stop()
         hand.releaseAll()
         await work.settled()
-        waker.say("broadcast complete", to: run.id)
+        waker.say(.broadcastComplete, to: run.id)
         waker.operatorSessionChanged(run.id)
         #expect(lines.isEmpty)
         waker.start()
-        waker.say("operation complete", to: run.id)
+        waker.say(.resumed, to: run.id)
         await hand.release(2)
         await work.settled()
-        #expect(lines == ["[AiTerm] operation complete, call run_status"])
+        #expect(lines == ["[AiTerm] resumed, call run_status"])
     }
 }
 

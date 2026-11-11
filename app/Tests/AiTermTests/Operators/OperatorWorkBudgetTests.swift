@@ -205,9 +205,9 @@ import Testing
     ///
     /// First pass: 9 spawns. 7 look up the one commit the message names (`rev-parse --verify`, `merge-base
     /// --is-ancestor`, `for-each-ref --contains`, `reflog show`, `cherry`, the default branch's `for-each-ref` and
-    /// `rev-parse --verify`) and 2 read the head (`rev-parse HEAD`, `symbolic-ref`). Second, nothing changed: the same
-    /// 9, the transcript not read again but its commit looked up again. A later change that keeps an unchanged
-    /// message's lookup lowers the second; none may raise either.
+    /// `rev-parse --verify`), 1 reads the head and its branch (`rev-parse HEAD --symbolic-full-name HEAD`) and 1 the refs
+    /// (`for-each-ref`). Second, nothing changed: 2, the head and the refs, the message's lookup kept for its words, the
+    /// head and the refs (phase 0 counted 9, the head read in two and the commit looked up again). None may raise either.
     @Test func aBranchWatchPassSpawnsGit() async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let fixture = BranchWatchTests()
@@ -231,7 +231,7 @@ import Testing
 
         #expect(world.task(task.id)?.operated?.branchDrift?.sha == sha, "the drift is found")
         #expect(first.count == 9, "spawns on the first pass: \(first)")
-        #expect(second.count == 9, "spawns on a pass that finds nothing new: \(second)")
+        #expect(second.count == 2, "spawns on a pass that finds nothing new: \(second)")
     }
 
     // MARK: - Host requests
@@ -254,10 +254,10 @@ import Testing
         return reviewed
     }
 
-    /// One `ReviewWatcher` pass, as the reconcile tick starts it, over `count` tasks in review, let finish: per task, 2
-    /// logged host requests (`threads`, `approvals`), 1 unlogged lookup of the token's user, and 1 `git remote get-url`
-    /// to find the host. A later change that finds the host once per pass, or asks less, lowers these numbers; none may
-    /// raise them.
+    /// One `ReviewWatcher` pass, as the reconcile tick starts it, over `count` tasks in review on one repository, let
+    /// finish: per task, 2 logged host requests (`threads`, `approvals`); per pass, 1 unlogged lookup of the token's user
+    /// and 1 `git remote get-url` to find the host, the project's host found once. Phase 0 counted the lookup and the
+    /// origin read once per task: 1 and 5 each. None may raise these numbers.
     @Test(arguments: [1, 5]) func aReviewWatcherPassAsksTheHost(count: Int) async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let r = try await inReview(count, git: git)
@@ -269,8 +269,8 @@ import Testing
 
         let requests = Array(r.host.log.dropFirst(logged)), spawned = Budget.commands(git, since: mark)
         #expect(requests.count == 2 * count, "host requests per pass over \(count): \(requests)")
-        #expect(r.host.userLookups - users == count, "user lookups per pass over \(count)")
-        #expect(spawned.filter { $0 == "remote get-url" }.count == count, "origin reads per pass over \(count): \(spawned)")
+        #expect(r.host.userLookups - users == 1, "user lookups per pass over \(count)")
+        #expect(spawned.filter { $0 == "remote get-url" }.count == 1, "origin reads per pass over \(count): \(spawned)")
     }
 
     /// One `run_status` call over `count` tasks in people's review, the host's readings not kept yet, let finish: per

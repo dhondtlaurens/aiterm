@@ -99,7 +99,7 @@ final class RunReconciler {
         default: return false
         }
         workspace.mutate { $0.updateRun(id: run.id) { $0.state = next } }
-        if next != .operatorOffline { waker.say("reconnected", to: run.id) }
+        if next != .operatorOffline { waker.say(.reconnected, to: run.id) }
         return true
     }
 

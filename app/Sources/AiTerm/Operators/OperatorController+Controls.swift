@@ -16,7 +16,7 @@ extension OperatorController {
         workspace.mutate { $0.updateOperated(id) { $0.takenOver = true; $0.ownership = ownership } }
         // A merge waiting is disarmed until the operator's next finish_task, whatever is handed back or resumed.
         finisher.disarm(id, because: TaskFinisher.takenOverProblem, kind: .failure)
-        waker.say("the person took over one task", to: operated.runId)
+        waker.say(.tookOver, to: operated.runId)
         try await setOwnership(ownership, on: id)
     }
 
@@ -26,7 +26,7 @@ extension OperatorController {
     func handBack(task id: UUID) async throws {
         guard let operated = workspace.state.task(id: id)?.operated, operated.takenOver else { return }
         workspace.mutate { $0.updateOperated(id) { $0.takenOver = false } }
-        waker.say("one task is handed back", to: operated.runId)
+        waker.say(.handedBack, to: operated.runId)
         runChanged(operated.runId)
         try await setOwnership(operated.ownership, on: id)
     }
@@ -72,7 +72,7 @@ extension OperatorController {
         if end == .merge { finisher.disarm(id, because: TaskEndChange.mergeWaitsForFinish, kind: .hold) }
         runChanged(run.id)
         let completed = run.state != .complete && self.run(id: run.id)?.state == .complete
-        waker.say(TaskEndChange.wakeReason(key: operated.key, end: end) + (completed ? ", and the broadcast is complete" : ""), to: run.id)
+        waker.say(.endChanged(key: operated.key, end: end, completed: completed), to: run.id)
     }
 
     /// One More Round or Accept As It Is, on the card of a task out of its review's fix rounds: recorded on its question
@@ -88,7 +88,7 @@ extension OperatorController {
         mutateRun(run.id) { run in
             if let i = run.questions.firstIndex(where: { $0.id == question.id }) { run.questions[i].answeredOnCard = answer.rawValue }
         }
-        waker.say(answer.wakeReason(key: operated.key), to: run.id)
+        waker.say(.fixRoundsAnswered(answer, key: operated.key), to: run.id)
     }
 
     /// Your answer to a question in its block under Waiting on you (D1a): recorded once on the question (`answeredHere`),
@@ -122,7 +122,7 @@ extension OperatorController {
             run.questions[i].answeredHere = answer
             run.questions[i].answeredHereAt = now
         }
-        waker.say(Self.answeredReason(task: operated?.key), to: run.id)
+        waker.say(.answered(key: operated?.key), to: run.id)
     }
 
     /// The Operator's wake line for an answer in AiTerm: `the person answered letter-tee-two's question in AiTerm`, the
@@ -178,12 +178,6 @@ extension OperatorController {
     }
 
     // -- a broadcast -----------------------------------------------------------------------------
-    /// What Pause types into a worker at work, or one whose ended turn left work running that will wake it.
-    static let pauseNote = "[AiTerm] The person paused this broadcast. Finish the step you are on, then end your turn "
-        + "without starting anything new. If background work wakes you before you hear more, end your turn again. "
-        + "You will be told when to carry on."
-    /// What Resume types into each worker Pause told to stop.
-    static let carryOnNote = "[AiTerm] The broadcast is resumed. Carry on with your task where you left off."
     /// Resume's wake reason when a worker Pause stopped could not be told to carry on, in place of `resumed`: one reason,
     /// so the line says it rather than `updates waiting`. Plain: a wake line names no task.
     static let resumedMissingCarryOn = "resumed; paused workers missed the carry-on note, steer them with message_task"
@@ -192,7 +186,7 @@ extension OperatorController {
     /// that cannot be saved is taken back, so the broadcast never reads as paused for what the file would not hold. A
     /// delivery already in flight is not cancelled — the daemon offers no way to — it ends as the daemon's rules end it.
     /// Then each worker still at work, or whose ended turn left work running, is told to wrap up and stop
-    /// (`pauseNote`), behind any notes a Resume is still typing (`signalPause`).
+    /// (`PauseSignaller.pauseNote`), behind any notes a Resume is still typing.
     func pause(run id: UUID) throws {
         guard let run = self.run(id: id), [.planning, .active, .operatorOffline].contains(run.state) else {
             throw ActionUnavailable("Only a broadcast under way can be paused.")
@@ -201,113 +195,7 @@ extension OperatorController {
             state.updateRun(id: id) { $0.intent = .paused; $0.state = .paused }
         }
         finisher.stopWatching(inRun: id)
-        pauseAttempted[id] = []
-        queueSignalling(id) { [weak self] in await self?.signalPause(id) }
-    }
-
-    /// A worker of a broadcast you paused that is at work and was neither told nor tried yet — its window listed only
-    /// after Pause, its launch having passed its last check before it — is told to stop now, behind the notes queued.
-    func pauseLateWorkers() {
-        for run in workspace.state.runs where run.youAsked == .pause && !run.hasEnded {
-            let tried = pauseAttempted[run.id] ?? [], now = ports.now()
-            let late = Self.pauseTargets(of: run.id, in: workspace.state, sessions: live.sessions, now: now)
-                .filter { !tried.contains($0) && !run.pausedWorkers.contains($0) }
-            guard !late.isEmpty else { continue }
-            queueSignalling(run.id) { [weak self] in await self?.signalPause(run.id) }
-        }
-    }
-
-    /// `work`, once every note queued before it for broadcast `id` is typed.
-    @discardableResult
-    func queueSignalling<Value: Sendable>(_ id: UUID, _ work: @escaping @MainActor () async -> Value) -> Task<Value, Never> {
-        let before = signalling[id]
-        let task = ports.work.start {
-            await before?.value
-            return await work()
-        }
-        signalling[id] = ports.work.start { _ = await task.value }
-        return task
-    }
-
-    /// The pause note to every worker of the broadcast's driven working tasks that is at work, or whose ended turn left
-    /// work running, and that this pause has not tried yet (`pauseAttempted`) nor told already: each recorded on the run,
-    /// with its task's ownership, before anything is typed, so a Resume after a restart still tells it to carry on. Each
-    /// is looked at again right before its note (`steerable`): one you stopped or took over meanwhile, or the note did not
-    /// reach, is dropped again. A worker whose turn ended with nothing running has stopped already and is told nothing.
-    func signalPause(_ id: UUID) async {
-        guard let run = self.run(id: id), run.youAsked == .pause, !run.hasEnded, let daemon = daemon() else { return }
-        let tried = pauseAttempted[id] ?? []
-        let workers = Self.pauseTargets(of: id, in: workspace.state, sessions: live.sessions, now: ports.now())
-            .filter { !tried.contains($0) && !run.pausedWorkers.contains($0) }
-        guard !workers.isEmpty else { return }
-        pauseAttempted[id, default: []].formUnion(workers)
-        mutateRun(id) { $0.pausedWorkers += workers }
-        // On disk before the first note goes: a restart mid-way still tells each to carry on. A save that fails is
-        // logged by the store and tried again with the next change; the notes still go.
-        _ = workspace.flush()
-        for worker in workers {
-            // Ended meanwhile, its tasks yours, or AiTerm's Operators stopped: told nothing more.
-            guard !isStopped, self.run(id: id)?.hasEnded == false else { break }
-            guard let place = steerable(worker, in: id) else {
-                mutateRun(id) { $0.pausedWorkers.removeAll { $0 == worker } }
-                continue
-            }
-            let delivery = try? await daemon.deliver(sessionId: place.sessionId, text: Self.pauseNote,
-                                                     ownership: worker.ownership, wake: false, worktree: place.worktree)
-            if delivery?.result != .delivered {
-                Log.daemon.info("The pause note did not reach a worker of task \(worker.task.uuidString, privacy: .public): \(delivery?.reason ?? "no helper", privacy: .public)")
-                mutateRun(id) { $0.pausedWorkers.removeAll { $0 == worker } }
-                // Not ready yet — its screen shows no input box, could not be read, or iTerm2 is away: tried again as its
-                // tabs change (`pauseLateWorkers`). A prompt open waits on you, and is not asked again.
-                if let code = delivery?.code, Self.notReadyYet.contains(code) { pauseAttempted[id]?.remove(worker) }
-            }
-        }
-    }
-
-    /// Why a note could not be typed that passes as the tab settles: its agent still drawing its screen, or iTerm2 away.
-    static let notReadyYet: Set<DeliveryCode> = [.unrecognisedScreen, .screenUnread, .itermDisconnected]
-
-    /// The workers a pause tells to stop: those of the broadcast's driven working tasks at work, or whose ended turn
-    /// left work running (`WorkerTab.isStillAtWork`), the ones that keep their task `pausing`. As of `now`, a first worker
-    /// whose launch is under way counts as at work: its first prompt is on its way, though Codex reads idle until its first
-    /// hook. One whose window iTerm2 does not list yet is told once it is (`pauseLateWorkers`).
-    static func pauseTargets(of id: UUID, in state: AppState, sessions: [SessionInfo], now: Date) -> [PausedWorker] {
-        state.tasks(inRun: id).flatMap { task -> [PausedWorker] in
-            guard let operated = task.operated, !operated.takenOver, operated.state == .working else { return [] }
-            // An agent to type into: an extra tab still listed as the shell its command is typed into waits for its agent.
-            return task.workerTabs(in: sessions, now: now).filter { $0.session?.agent.agentKind != nil && $0.isStillAtWork }.map { tab in
-                PausedWorker(task: task.id, tab: tab.key, ownership: operated.ownership)
-            }
-        }
-    }
-
-    /// Where `worker` is typed into while broadcast `id` may still steer it: its task still the broadcast's, not taken
-    /// over, working, at the ownership it was paused with, its tab listed. Nil once any of that changed.
-    func steerable(_ worker: PausedWorker, in id: UUID) -> (sessionId: String, worktree: String)? {
-        guard let task = workspace.state.task(id: worker.task), let operated = task.operated, operated.runId == id,
-              !operated.takenOver, operated.state == .working, operated.ownership == worker.ownership,
-              let session = task.workerTab(worker.tab, in: live.sessions)?.session else { return nil }
-        return (session.sessionId, task.worktreePath)
-    }
-
-    /// The carry-on note to each worker Pause told to stop, in the order they were stopped, once the notes before it are
-    /// typed. Each is let go from the run as it is handled; one that is no longer the broadcast's to steer — its task
-    /// taken over, stopped or moved on, its ownership changed, its tab gone — is let go without a word. An End meanwhile
-    /// stops the rest. Each worker told is answered (`WorkerTurnReader.messaged`), so the turn the pause ended never reads
-    /// as ready for the Operator. Returns how many could not be told.
-    func signalCarryOn(_ id: UUID) async -> Int {
-        guard let daemon = daemon() else { return run(id: id)?.pausedWorkers.count ?? 0 }
-        var missed = 0
-        for worker in run(id: id)?.pausedWorkers ?? [] {
-            guard !isStopped, self.run(id: id)?.hasEnded == false else { break }
-            defer { mutateRun(id) { $0.pausedWorkers.removeAll { $0 == worker } } }
-            guard let place = steerable(worker, in: id) else { continue }
-            let delivery = try? await daemon.deliver(sessionId: place.sessionId, text: Self.carryOnNote,
-                                                     ownership: worker.ownership, wake: false, worktree: place.worktree)
-            guard delivery?.result == .delivered else { missed += 1; continue }
-            turns.messaged(worker.task, tab: worker.tab)
-        }
-        return missed
+        signaller.paused(id)
     }
 
     /// Resume (spec §9), from paused or offline: an operator still there is kept and woken; one gone is
@@ -323,13 +211,12 @@ extension OperatorController {
         // The workers the pause stopped are told to carry on first, while the broadcast still reads paused: its news is
         // held and its tools refuse, so the Operator neither hears of nor accepts a turn the pause cut short before that
         // worker has its note. Paused, the broadcast offers no Pause, so none comes in between.
-        let missed = await queueSignalling(id) { [weak self] in await self?.signalCarryOn(id) ?? 0 }.value
-        pauseAttempted[id] = nil
+        let missed = await signaller.resumed(id)
         guard let current = self.run(id: id), !current.hasEnded else { return }
         if current.state == .paused || current.state == .operatorOffline {
             mutateRun(id) { $0.intent = nil; $0.state = RunReconciler.resumedState(of: $0) }
         }
-        waker.say(missed > 0 ? Self.resumedMissingCarryOn : "resumed", to: id)
+        waker.say(missed > 0 ? .resumedMissingCarryOn : .resumed, to: id)
         runChanged(id)
     }
 
@@ -362,9 +249,8 @@ extension OperatorController {
         }
         // The notes being typed stop at the end, and their new ownership is set first, so the helper holds back the
         // Enter of one mid-paste: none is sent once the tasks are yours.
-        await signalling[id]?.value
-        pauseAttempted[id] = nil
-        await closeOperatorWindowIfOnlyItsOperator(id, daemon: daemon)
+        await signaller.ended(id)
+        await windows.closeIfOnlyItsOperator(id, daemon: daemon)
     }
 
     /// Remove on the Shelf: an ended broadcast forgotten — saved first, one that cannot be saved taken back and
@@ -421,38 +307,6 @@ extension OperatorController {
         return OperatorAlerts.endBroadcast(run, unstarted: ending.dropped.count, running: ending.handed.count)
     }
 
-    /// The first connected snapshot after the helper attaches (spec §9): an ended broadcast whose operator
-    /// tab is listed — one an end could not close, as no helper was there — has its window closed, once the
-    /// snapshot shows it holds nothing else. No tab listed, nothing is closed: a recorded window id proves
-    /// nothing about what a window holds now (iTerm2 restores windows under saved ids, and you may have
-    /// added tabs of your own). The recorded ids are cleared once each run is handled.
-    func closeEndedOperatorWindows() {
-        guard let daemon = daemon() else { return }
-        let ended = runs.filter { $0.youAsked == .stop }.map(\.id)
-        guard !ended.isEmpty else { return }
-        closing?.cancel()
-        closing = ports.work.start { [self] in
-            for id in ended {
-                guard !Task.isCancelled else { return }
-                await closeOperatorWindowIfOnlyItsOperator(id, daemon: daemon)
-                mutateRun(id) { $0.operatorWindowId = nil; $0.operatorSessionId = nil }
-            }
-        }
-    }
-
-    /// Closes the window of the run's operator tab as the listed tabs show it, and only when every tab in
-    /// it is the run's own: the daemon's close takes the whole window, force and all, and there is no
-    /// closing of one tab. A window that holds other tabs is left, and said in the log; with the tabs not
-    /// known, or none listed for the run, nothing is closed. Never a recorded window id.
-    private func closeOperatorWindowIfOnlyItsOperator(_ id: UUID, daemon: any DaemonCommands) async {
-        guard tabsKnown, let tab = operatorTab(of: id) else { return }
-        guard live.sessions.allSatisfy({ $0.windowId != tab.windowId || $0.taskUUID == id }) else {
-            Log.daemon.info("The window of the ended broadcast \(id.uuidString, privacy: .public) holds other tabs too, so it is left open")
-            return
-        }
-        await Log.daemon.attempt("Closing the window of the ended broadcast \(id.uuidString)") { try await daemon.closeWindowIfOpen(tab.windowId) }
-    }
-
     func rename(run id: UUID, to name: String) throws {
         guard run(id: id) != nil else { throw ActionUnavailable("This broadcast is no longer in AiTerm.") }
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -507,7 +361,7 @@ extension OperatorController {
             if run.state == .operatorOffline { try await resume(run: id, background: background) }
             else { _ = try await reopenOperatorWindow(id, background: background) }
         } catch {
-            if (error as? ActionUnavailable)?.kind == .conversationGone { reopenFailed.insert(id) }
+            if (error as? ActionUnavailable)?.kind == .conversationGone { windows.conversationGone(id) }
             if !background || !reopenFailed.contains(id) {
                 notices.report(OperationIssue(title: "Couldn’t reopen the Operator’s window.", error: error))
             }
@@ -523,95 +377,17 @@ extension OperatorController {
         guard let run = self.run(id: id), !hasEnded(id) else { throw ActionUnavailable("This broadcast has ended.") }
         guard operatorTab(of: id) == nil else { throw ActionUnavailable("The Operator’s window is still open. Close it first.") }
         if run.operatorConversation != nil { mutateRun(id) { $0.operatorConversation = nil } }
-        reopenFailed.remove(id)
+        windows.startedFresh(id)
         if run.state == .operatorOffline { try await resume(run: id) }
         else { _ = try await reopenOperatorWindow(id) }
     }
 
-    /// Why a reopening opened nothing: the conversation it would continue is not on this Mac any more.
-    static let cannotResume = "Its conversation can’t be resumed."
-
-    /// The operator's window opened again, in front: its conversation resumed under the same frozen
-    /// profile, or — with no conversation to resume — a fresh operator, briefed with the broadcast and
-    /// where it stands (`OperatorCommand.freshStartMessage`; `prepare` writes `first-message.md` only for a
-    /// fresh start). A conversation whose file is gone from Claude's folder is refused (`cannotResume`): Start
-    /// Fresh lets it go. The run folder is written afresh with its token kept. Nothing when its window is
-    /// open, is being opened, or was opened a moment ago and iTerm2 has not listed its tab yet; refused
-    /// while iTerm2's tabs are not known, as a tab not listed then is not a tab closed. A broadcast ended
-    /// meanwhile (an await passed) is left ended: the token registered is revoked and the window opened is
-    /// closed. Says whether it opened one, or left it to a reopening already under way (or within its
-    /// wait): a caller that goes on to change the broadcast waits for that one instead. `background`
-    /// opens it behind what is in front.
-    @discardableResult
-    func reopenOperatorWindow(_ id: UUID, background: Bool = false) async throws -> OperatorReopening {
-        guard let run = self.run(id: id) else { throw ActionUnavailable("This broadcast is no longer in AiTerm.") }
-        guard !hasEnded(id) else { throw ActionUnavailable("This broadcast has ended.") }
-        guard operatorTab(of: id) == nil else { return .done }
-        guard !reopeningOperator.contains(id) else { return .underway }
-        guard let daemon = daemon(), tabsKnown else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
-        if reopenedOperator[id]?.waits(at: ports.now()) == true { return .underway }
-        reopeningOperator.insert(id)
-        defer { reopeningOperator.remove(id) }
-        let projects = run.projectIds.compactMap(workspace.state.project(id:)), home = ports.home, folder = self.folder(of: id)
-        let transcripts = self.transcripts, claudeConfig = ports.claudeConfig
-        let conversation = run.operatorConversation, cannotResume = Self.cannotResume
-        // A fresh Operator is told where the broadcast stands; a resumed one remembers.
-        let fresh = conversation == nil
-            ? OperatorCommand.freshStartMessage(for: run, status: status(of: run).flatMap { try? String(decoding: $0.json(), as: UTF8.self) } ?? "{}")
-            : nil
-        let prepared = try await BackgroundWork.run {
-            if let conversation, transcripts.file(agent: .claude, conversation: conversation) == nil {
-                throw ActionUnavailable(cannotResume, kind: .conversationGone)
-            }
-            let token = OperatorCommand.existingToken(in: folder) ?? OperatorCommand.makeToken()
-            return try OperatorCommand.prepare(run: run, projects: projects, home: home, claudeConfig: claudeConfig, token: token,
-                                               resuming: conversation, firstMessage: fresh)
-        }
-        // Ended while the folder was written: prepare made its token file again, and nothing was registered.
-        guard !hasEnded(id) else {
-            let file = folder.appendingPathComponent(OperatorCommand.tokenFile)
-            await Log.workspace.attempt("Removing the token file of a broadcast ended while its operator reopened") {
-                try await BackgroundWork.run { try FileManager.default.removeItem(at: file) }
-            }
-            return .done
-        }
-        try await daemon.registerOperator(runId: id.uuidString, token: prepared.token)
-        // Ended while the token was registered: no window is opened for it, and the token goes again.
-        guard !hasEnded(id) else {
-            await revokeAfterEnd(id, window: nil, daemon: daemon)
-            return .done
-        }
-        let window: String
-        do {
-            window = try await daemon.createTaskWindow(taskId: id.uuidString, cwd: prepared.folder.path, title: run.name,
-                                                       agentCommand: prepared.command, frame: taskFrame(), background: background)
-        } catch {
-            if hasEnded(id) { await revokeAfterEnd(id, window: nil, daemon: daemon) }
-            throw error
-        }
-        guard !hasEnded(id) else {
-            await revokeAfterEnd(id, window: window, daemon: daemon)
-            return .done
-        }
-        reopenedOperator[id] = ListingWait(since: ports.now())
-        reopenFailed.remove(id)
-        mutateRun(id) { $0.operatorWindowId = window }
-        return .done
-    }
-
     func hasEnded(_ id: UUID) -> Bool { run(id: id)?.hasEnded ?? true }
 
-    /// What an end that came while the operator opened or reopened could not undo itself: the token
-    /// registered after its revoke goes again, and the window opened after its close is closed.
-    func revokeAfterEnd(_ id: UUID, window: String?, daemon: any DaemonCommands) async {
-        await Log.daemon.attempt("Revoking the token of broadcast \(id.uuidString) ended while its operator opened") {
-            try await daemon.revokeOperator(runId: id.uuidString)
-        }
-        if let window {
-            await Log.daemon.attempt("Closing the window of broadcast \(id.uuidString) ended while its operator opened") {
-                try await daemon.closeWindowIfOpen(window)
-            }
-        }
+    /// The Operator's window opened again (`OperatorWindows.reopen`).
+    @discardableResult
+    func reopenOperatorWindow(_ id: UUID, background: Bool = false) async throws -> OperatorReopening {
+        try await windows.reopen(id, background: background)
     }
 
     // -- taking a change back ---------------------------------------------------------------------

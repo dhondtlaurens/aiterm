@@ -129,14 +129,14 @@ final class OperatorWaker {
         acknowledged(after, of: run)
     }
 
-    /// A fixed reason to wake it — `reconnected`, `broadcast complete` — which is the line when it is the only news
-    /// and plain (`isPlain`). `colon` joins it to the call with a colon, after news about one task:
+    /// A fixed reason to wake it (`WakeReason`) — `reconnected`, `broadcast complete` — which is the line when it is the
+    /// only news and plain (`isPlain`), joined to the call with a colon after news about one task:
     /// `[AiTerm] <reason>: call run_status`.
-    func say(_ reason: String, to run: UUID, unlessAcknowledged status: RunStatus? = nil, colon: Bool = false) {
+    func say(_ reason: WakeReason, to run: UUID, unlessAcknowledged status: RunStatus? = nil) {
         guard !isStopped else { return }
         let wake = state(for: run)
         if let status, Self.content(status) == wake.acknowledgedStatus { return }
-        wake.reasons[Reason(text: reason, colon: colon)] = UUID()
+        wake.reasons[Reason(text: reason.text, colon: reason.colon)] = UUID()
         // A reason stands for an update already counted, except news in an outstanding delivery:
         // that snapshot cannot have said this reason, so it must leave at least one update behind.
         wake.updates = max(wake.updates, sent(wake) + 1)
@@ -546,6 +546,80 @@ final class OperatorWaker {
             guard !Task.isCancelled, let self else { return }
             wake.retrying = nil
             send(run, wake)
+        }
+    }
+}
+
+/// Every reason AiTerm wakes an Operator for besides the news in `run_status` (`OperatorWaker.say`): a closed set, so a
+/// line's words are only ever these. A reason that names a task names it by its key, as its line says it: spoken for a
+/// line to be plain (`OperatorWaker.taskReference`), or as written for one the generic line stands in for (`text`
+/// not `isPlain`). `colon` joins it to the call with a colon, after news about one task.
+enum WakeReason: Hashable, Sendable {
+    /// AiTerm's helper attached again, or the Operator came back from offline; with a goal check still due.
+    case reconnected, reconnectedWithGoalCheckDue
+    /// Every task is done and the broadcast's goal is still to check (`BroadcastCompletion.goalCheckIsDue`).
+    case goalCheckDue
+    case broadcastComplete
+    case resumed
+    /// Resume could not tell a worker Pause stopped to carry on.
+    case resumedMissingCarryOn
+    case tookOver, handedBack
+    /// A launch ended with no worker confirmed in its window.
+    case uncertain
+    case stalled(several: Bool)
+    case committedOffBranch
+    case merged, cannotMerge
+    case mergeWatchStopped
+    /// Tasks whose work stacks on one accepted again.
+    case needRebasing(several: Bool)
+    /// A `finish_task` whose publication outlived its call ended.
+    case finishEnded(key: String)
+    /// A task accepted again on a commit only its `finish_task` pushes.
+    case unpushed(key: String)
+    case reviewFeedback(key: String)
+    /// You changed a task's end on its card; `completed`, and that completed the broadcast.
+    case endChanged(key: String, end: TaskEnd, completed: Bool)
+    case fixRoundsAnswered(FixRoundsAnswer, key: String)
+    /// You answered a question in AiTerm, on a task or none.
+    case answered(key: String?)
+    /// The broadcast went quiet with nobody at work (`OperatorWatchdog`).
+    case quiet
+
+    /// The reason's words.
+    @MainActor var text: String {
+        switch self {
+        case .reconnected: "reconnected"
+        case .reconnectedWithGoalCheckDue: "reconnected, and " + OperatorController.goalCheckReason
+        case .goalCheckDue: OperatorController.goalCheckReason
+        case .broadcastComplete: "broadcast complete"
+        case .resumed: "resumed"
+        case .resumedMissingCarryOn: OperatorController.resumedMissingCarryOn
+        case .tookOver: "the person took over one task"
+        case .handedBack: "one task is handed back"
+        case .uncertain: "one task is uncertain, no worker confirmed in its window"
+        case .stalled(let several): several ? "some tasks may be stalled" : "one task may be stalled"
+        case .committedOffBranch: "one task committed off its task branch"
+        case .merged: "one task merged"
+        case .cannotMerge: "one task can’t merge"
+        case .mergeWatchStopped: "one task’s merge watch stopped"
+        case .needRebasing(let several):
+            several ? "some tasks need rebasing: another was accepted again" : "one task needs rebasing: another was accepted again"
+        case .finishEnded(let key): "\(OperatorWaker.taskReference(key))'s finish_task ended"
+        case .unpushed(let key): OperatorController.unpushedReason(key: key)
+        case .reviewFeedback(let key): "\(OperatorWaker.taskReference(key)) has review feedback"
+        case .endChanged(let key, let end, let completed):
+            TaskEndChange.wakeReason(key: key, end: end) + (completed ? ", and the broadcast is complete" : "")
+        case .fixRoundsAnswered(let answer, let key): answer.wakeReason(key: key)
+        case .answered(let key): OperatorController.answeredReason(task: key)
+        case .quiet: OperatorWatchdog.reason
+        }
+    }
+
+    /// Whether the line joins the reason to the call with a colon: news about one task, named.
+    var colon: Bool {
+        switch self {
+        case .finishEnded, .unpushed, .reviewFeedback, .mergeWatchStopped: true
+        default: false
         }
     }
 }

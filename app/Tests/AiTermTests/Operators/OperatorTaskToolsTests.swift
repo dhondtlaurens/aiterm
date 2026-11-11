@@ -412,7 +412,7 @@ import Testing
         #expect(await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "noChange"]).message
                 == "The person paused this broadcast. Wait until they resume it.")
         // Nothing of the Operator's is typed; AiTerm's own pause note may go to a worker still starting.
-        #expect(world.daemon.requests("session.deliver").allSatisfy { $0.params["text"] as? String == OperatorController.pauseNote })
+        #expect(world.daemon.requests("session.deliver").allSatisfy { $0.params["text"] as? String == PauseSignaller.pauseNote })
     }
 }
 

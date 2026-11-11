@@ -238,7 +238,7 @@ import Testing
 
     @Test func aReasonIsTheLineWhenItIsTheOnlyNews() async throws {
         let waker = makeWaker()
-        waker.say("reconnected", to: run.id)
+        waker.say(.reconnected, to: run.id)
         try await daemon.received("session.deliver")
         #expect(lines == ["[AiTerm] reconnected, call run_status"])
     }
@@ -307,10 +307,10 @@ import Testing
         let held = RecordingDaemon(holding: "session.deliver"), hand = HandSleeper()
         let waker = OperatorWaker(daemon: { held }, session: { [op] _ in op.tab }, awake: { _ in true },
                                   coalesce: .zero, sleep: { await hand.sleep($0) }, work: work)
-        waker.say("reconnected", to: run.id)
+        waker.say(.reconnected, to: run.id)
         await hand.release(1)
         try await held.received("session.deliver")
-        waker.say("operation complete", to: run.id)
+        waker.say(.broadcastComplete, to: run.id)
         await hand.release(2)
         // The coalescing pass ended while the first delivery is still held.
         await work.settled(leaving: 1)
@@ -318,7 +318,7 @@ import Testing
         await eventually { held.requests("session.deliver").count == 2 }
         await work.settled()
         #expect(held.requests("session.deliver").compactMap { $0.params["text"] as? String } == [
-            "[AiTerm] reconnected, call run_status", "[AiTerm] operation complete, call run_status"
+            "[AiTerm] reconnected, call run_status", "[AiTerm] broadcast complete, call run_status"
         ])
     }
 
@@ -326,12 +326,12 @@ import Testing
         let held = RecordingDaemon(holding: "session.deliver"), hand = HandSleeper()
         let waker = OperatorWaker(daemon: { held }, session: { [op] _ in op.tab }, awake: { _ in true },
                                   coalesce: .zero, sleep: { await hand.sleep($0) }, work: work)
-        waker.say("operation complete", to: run.id)
+        waker.say(.broadcastComplete, to: run.id)
         await hand.release(1)
         try await held.received("session.deliver")
 
         waker.forget(run.id)
-        waker.say("reconnected", to: run.id)
+        waker.say(.reconnected, to: run.id)
         await hand.release(2)
         await work.settled(leaving: 1)
         waker.operatorSessionChanged(run.id)
@@ -342,7 +342,7 @@ import Testing
         try await held.received("session.deliver", count: 2)
         await work.settled()
         #expect(held.requests("session.deliver").compactMap { $0.params["text"] as? String } == [
-            "[AiTerm] operation complete, call run_status", "[AiTerm] reconnected, call run_status"
+            "[AiTerm] broadcast complete, call run_status", "[AiTerm] reconnected, call run_status"
         ])
         waker.operatorSessionChanged(run.id)
         await work.settled()
@@ -711,27 +711,56 @@ import Testing
         #expect(OperatorWaker.reviewQuietReason == "one task is in review with nothing waiting")
     }
 
-    /// Every literal reason the Operator's services say is plain, so it is the line and not the generic one: each
-    /// `waker.say` call's quoted text up to its `to:`, over as many lines as the call takes, read from every source in
-    /// `Sources/AiTerm/Operators`. A reason with an interpolation is not read.
-    @Test func everyReasonTheServicesSayIsPlain() throws {
-        let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/AiTerm/Operators")
-        let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "swift" }
-        #expect(files.count >= 20, "the services' sources, read from \(folder.path)")
-        let literal = try Regex(#""([^"\\\n]*)""#), label = try Regex(#",\s*to:"#)
-        var reasons: [String] = []
-        for file in files {
-            var rest = try String(contentsOf: file, encoding: .utf8)[...]
-            while let call = rest.range(of: "waker.say(") {
-                rest = rest[call.upperBound...]
-                let reason = rest.firstMatch(of: label).map { rest[..<$0.range.lowerBound] } ?? rest
-                reasons += reason.matches(of: literal).compactMap { $0.output[1].substring.map(String.init) }
-            }
+    /// The reasons AiTerm wakes an Operator for are a closed set (`WakeReason`), each said as it was before the set was
+    /// closed, and plain — so that it is the line, not the generic one — unless it names a task by its key as written.
+    /// This replaces the test that read every `waker.say` call's quoted words out of the services' sources.
+    @Test func everyWakeReasonIsSaidAsItWasAndPlainUnlessItNamesATaskAsWritten() {
+        let reasons: [WakeReason] = [
+            .reconnected, .reconnectedWithGoalCheckDue, .goalCheckDue, .broadcastComplete, .resumed, .resumedMissingCarryOn,
+            .tookOver, .handedBack, .uncertain, .stalled(several: false), .stalled(several: true), .committedOffBranch, .merged,
+            .cannotMerge, .mergeWatchStopped, .needRebasing(several: false), .needRebasing(several: true), .finishEnded(key: "PAY-2"),
+            .unpushed(key: "PAY-2"), .reviewFeedback(key: "PAY-2"), .endChanged(key: "PAY-2", end: .draftMR, completed: false),
+            .endChanged(key: "PAY-2", end: .merge, completed: true), .fixRoundsAnswered(.oneMoreRound, key: "PAY-2"),
+            .answered(key: "PAY-2"), .answered(key: nil), .quiet,
+        ]
+        for reason in reasons {
+            let said = Self.said(reason)
+            #expect(reason.text == said.text)
+            #expect(reason.colon == said.colon, "\(said.text)")
+            #expect(OperatorWaker.isPlain(reason.text) == said.plain, "\(said.text)")
         }
-        #expect(reasons.count >= 16, "\(reasons)")
-        for reason in reasons { #expect(OperatorWaker.isPlain(reason), "\(reason)") }
+    }
+
+    /// Each reason's words, its colon and whether it is plain, as the services said it before the set was closed: one case
+    /// each, so a reason added is added here too.
+    static func said(_ reason: WakeReason) -> (text: String, colon: Bool, plain: Bool) {
+        switch reason {
+        case .reconnected: ("reconnected", false, true)
+        case .reconnectedWithGoalCheckDue: ("reconnected, and every task is done: check the goal with check_goal", false, true)
+        case .goalCheckDue: ("every task is done: check the goal with check_goal", false, true)
+        case .broadcastComplete: ("broadcast complete", false, true)
+        case .resumed: ("resumed", false, true)
+        case .resumedMissingCarryOn: ("resumed; paused workers missed the carry-on note, steer them with message_task", false, true)
+        case .tookOver: ("the person took over one task", false, true)
+        case .handedBack: ("one task is handed back", false, true)
+        case .uncertain: ("one task is uncertain, no worker confirmed in its window", false, true)
+        case .stalled(let several): (several ? "some tasks may be stalled" : "one task may be stalled", false, true)
+        case .committedOffBranch: ("one task committed off its task branch", false, true)
+        case .merged: ("one task merged", false, true)
+        case .cannotMerge: ("one task can’t merge", false, true)
+        case .mergeWatchStopped: ("one task’s merge watch stopped", true, true)
+        case .needRebasing(let several):
+            (several ? "some tasks need rebasing: another was accepted again" : "one task needs rebasing: another was accepted again", false, true)
+        case .finishEnded(let key): ("\(OperatorWaker.taskReference(key))'s finish_task ended", true, true)
+        case .unpushed(let key): ("\(OperatorWaker.taskReference(key)) has an accepted commit to push", true, true)
+        case .reviewFeedback(let key): ("\(OperatorWaker.taskReference(key)) has review feedback", true, true)
+        case .endChanged(let key, let end, let completed):
+            ("You changed \(key)’s end to \(end.displayName)" + (completed ? ", and the broadcast is complete" : ""), false, false)
+        case .fixRoundsAnswered(let answer, let key): ("You answered \(key)’s fix rounds: \(answer.words)", false, false)
+        case .answered(let key):
+            ("the person answered \(key.map { OperatorWaker.taskReference($0) + "'s question" } ?? "one question") in AiTerm", false, true)
+        case .quiet: ("nothing has moved for ten minutes", false, true)
+        }
     }
 
     // -- what a wake line may carry ----------------------------------------------------------------

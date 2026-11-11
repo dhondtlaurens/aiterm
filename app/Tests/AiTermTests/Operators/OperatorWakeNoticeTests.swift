@@ -25,7 +25,7 @@ import Testing
 
     /// Wakes the Operator once, and waits for the daemon's answer.
     func wake(_ world: OperatorWorld, _ run: OperatorRun, count: Int = 1) async throws {
-        world.controller.waker.say("reconnected", to: run.id)
+        world.controller.waker.say(.reconnected, to: run.id)
         try await world.daemon.received("session.deliver", count: count)
         await world.settled()
     }

@@ -192,37 +192,23 @@ final class OperatorController {
     @ObservationIgnored private var launches: [UUID: Task<WorkerStarter.Outcome, Never>] = [:]
     /// Each complete broadcast's wait for its summary, by run, while it waits: one per completion.
     @ObservationIgnored private(set) var summaryWaits: [UUID: Task<Void, Never>] = [:]
-    /// The notes Pause and Resume type into a broadcast's workers, by run: each new batch waits for the one before it,
-    /// so the workers read them in the order you pressed the controls (`queueSignalling`).
-    @ObservationIgnored var signalling: [UUID: Task<Void, Never>] = [:]
-    /// The workers this pause has tried to tell to stop, by run, told or not: none is tried twice while it lasts, so a
-    /// worker whose window is listed only after Pause is told once it is (`pauseLateWorkers`), and one that refused is
-    /// not asked again on every change of the tabs.
-    @ObservationIgnored var pauseAttempted: [UUID: Set<PausedWorker>] = [:]
+    /// The notes Pause and Resume type into a broadcast's workers (`PauseSignaller`).
+    @ObservationIgnored let signaller: PauseSignaller
+    /// The Operator's window as AiTerm reopens and closes it (`OperatorWindows`).
+    @ObservationIgnored let windows: OperatorWindows
     /// The broadcast whose board a notification's click asked for (spec §10.3): the sidebar presents
     /// it and sets this back to nil. Observed, so the click reaches a sidebar already on screen.
     var presentBoard: UUID?
     /// The question the board was last asked to show (`BoardFocus`): a notification's click, the Operator row's, or a
     /// card's Answer…. Observed, so a board already up scrolls to it.
     var boardFocus: BoardFocus?
-    /// The broadcasts whose Operator's window could not be reopened behind the board, its conversation
-    /// gone (spec §13): the board's footer says so and offers Start Fresh. Cleared by a reopening that
-    /// opens one, and by Start Fresh. Observed, so the board open in front of it changes at once.
-    var reopenFailed: Set<UUID> = []
+    /// The broadcasts whose Operator's window could not be reopened, its conversation gone (`OperatorWindows`).
+    var reopenFailed: Set<UUID> { windows.reopenFailed }
     /// The Operator's wake line refused for anything but a prompt waiting on you: the sidebar's Notice. Taken
     /// down once the Operator calls `run_status`, a later wake line is delivered, or its broadcast is forgotten.
     var wakeNotice: OperatorWakeNotice?
-    /// The broadcasts whose operator window is being opened now (`reopenOperatorWindow`, D16): a second
-    /// click on the row meanwhile opens no second operator.
-    @ObservationIgnored var reopeningOperator: Set<UUID> = []
-    /// When each broadcast's operator window was last opened by `reopenOperatorWindow`, until its tab is
-    /// listed: a click in the gap before iTerm2 lists it (or past `launchAdoptAfter`) opens no second one.
-    @ObservationIgnored var reopenedOperator: [UUID: ListingWait] = [:]
     /// The re-registration of the runs' tokens under way: a later attach's replaces it, and `stop()` cancels it.
     @ObservationIgnored private var registering: Task<Void, Never>?
-    /// The close of ended broadcasts' operator windows after an attach (`closeEndedOperatorWindows`): a later attach's
-    /// replaces it, and `stop()` cancels it.
-    @ObservationIgnored var closing: Task<Void, Never>?
     /// What hears Settings › Operator saved, so the Oracle's settings are read again: removed by `stop()`.
     @ObservationIgnored private var profileSaved: (any NSObjectProtocol)?
     /// Whether `live.sessions` is iTerm2's whole list, shared with the owners that read it (`TabsListing`).
@@ -302,6 +288,9 @@ final class OperatorController {
         reviewWatcher = ReviewWatcher(workspace: workspace, ports: ports, waker: waker)
         reconciler = RunReconciler(workspace: workspace, live: live, starter: starter, tabs: tabs, waker: waker,
                                    branchWatch: branchWatch, listing: listing, ports: ports)
+        signaller = PauseSignaller(workspace: workspace, live: live, ports: ports, daemon: daemon, turns: turns)
+        windows = OperatorWindows(workspace: workspace, live: live, ports: ports, daemon: daemon, taskFrame: taskFrame,
+                                  transcripts: transcripts, statuses: statuses, listing: listing)
         tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, waker: waker, tabs: tabs,
                                     transcripts: transcripts, turns: turns, quiet: quiet, prompts: prompts, statuses: statuses)
         profileSaved = NotificationCenter.default.addObserver(forName: OperatorProfileStore.didSave, object: nil, queue: .main) { [weak tools] _ in
@@ -336,7 +325,7 @@ final class OperatorController {
             // Its run_status, or a wake line delivered: the quiet time starts again.
             self?.watchdog.touched(run)
         }
-        watchdog.wake = { [weak self] run in self?.waker.say(OperatorWatchdog.reason, to: run) }
+        watchdog.wake = { [weak self] run in self?.waker.say(.quiet, to: run) }
         tools.onCall = { [weak self] run in self?.watchdog.touched(run) }
         prompts.changed = { [weak self] in self?.runChanged($0) }
         branchWatch.checked = { [weak self] task in
@@ -349,7 +338,7 @@ final class OperatorController {
         tools.onActivity = { [weak self] run in self?.activityWritten[run, default: 0] += 1 }
         starter.onUncertain = { [weak self] task in
             guard let operated = task.operated else { return }
-            self?.waker.say("one task is uncertain, no worker confirmed in its window", to: operated.runId)
+            self?.waker.say(.uncertain, to: operated.runId)
         }
         starter.onBlocked = { [weak self] task in
             guard let self, let runId = task.operated?.runId else { return }
@@ -542,12 +531,12 @@ final class OperatorController {
         let due = BroadcastCompletion.goalCheckIsDue(run, in: workspace.state)
         if due != run.goalCheckDue {
             mutateRun(id) { $0.goalCheckDue = due }
-            if due { waker.say(Self.goalCheckReason, to: id) }
+            if due { waker.say(.goalCheckDue, to: id) }
         }
         guard BroadcastCompletion.isComplete(run, in: workspace.state) else { return }
         let now = ports.now()
         mutateRun(id) { $0.state = .complete; $0.completedAt = now }
-        waker.say("broadcast complete", to: id)
+        waker.say(.broadcastComplete, to: id)
         awaitSummary(id, completedAt: now)
     }
 
@@ -557,7 +546,7 @@ final class OperatorController {
     /// Tells the operator `reconnected`, in one line with a goal check still due, which the restart or its time offline may
     /// have lost the wake of.
     private func sayReconnected(_ id: UUID) {
-        waker.say(run(id: id)?.goalCheckDue == true ? "reconnected, and \(Self.goalCheckReason)" : "reconnected", to: id)
+        waker.say(run(id: id)?.goalCheckDue == true ? .reconnectedWithGoalCheckDue : .reconnected, to: id)
     }
 
     /// Waits `OperatorTiming.summaryWait` for the summary of the completion at `completedAt`, then gives up on it
@@ -665,19 +654,19 @@ final class OperatorController {
             try await daemon.registerOperator(runId: run.id.uuidString, token: prepared.token)
             registered = true
             guard !hasEnded(run.id) else {
-                await revokeAfterEnd(run.id, window: nil, daemon: daemon)
+                await windows.revokeAfterEnd(run.id, window: nil, daemon: daemon)
                 return run.id
             }
             let window = try await daemon.createTaskWindow(taskId: run.id.uuidString, cwd: prepared.folder.path, title: run.name,
                                                            agentCommand: prepared.command, frame: taskFrame(), background: false)
             guard !hasEnded(run.id) else {
-                await revokeAfterEnd(run.id, window: window, daemon: daemon)
+                await windows.revokeAfterEnd(run.id, window: window, daemon: daemon)
                 return run.id
             }
             mutateRun(run.id) { $0.operatorWindowId = window }
         } catch where hasEnded(run.id) {
             // Ended while its token registered or its window opened: the end stands, and what came after it goes.
-            if registered { await revokeAfterEnd(run.id, window: nil, daemon: daemon) }
+            if registered { await windows.revokeAfterEnd(run.id, window: nil, daemon: daemon) }
             return run.id
         } catch let error as DaemonError where registered && error.leavesOutcomeUnknown {
             mutateRun(run.id) { $0.state = .operatorOffline }
@@ -719,7 +708,7 @@ final class OperatorController {
             if snapshot.connected, reattached {
                 reattached = false
                 resendOwnership()
-                closeEndedOperatorWindows()
+                windows.closeEnded()
                 reconcileTick()
             }
         case .itermDisconnected, .itermAuthFailed:
@@ -796,11 +785,11 @@ final class OperatorController {
                 }
             }
         }
-        for id in reopenedOperator.keys where Self.operatorTab(of: id, in: sessions) != nil { reopenedOperator[id] = nil }
+        windows.tabsListed(sessions)
         let held = starter.tabsListed(sessions)
         for id in closed { operatorWindowClosed(id) }
         recordWindowAnswers(sessions)
-        pauseLateWorkers()
+        signaller.pauseLateWorkers()
         observeRuns()
         probePrompts()
         for run in runs { waker.operatorSessionChanged(run.id) }
@@ -929,7 +918,7 @@ final class OperatorController {
             guard let operated = workspace.state.task(id: id)?.operated else { continue }
             quiet[operated.runId, default: []].append(operated.key)
         }
-        for (run, keys) in quiet { waker.say(keys.count == 1 ? "one task may be stalled" : "some tasks may be stalled", to: run) }
+        for (run, keys) in quiet { waker.say(.stalled(several: keys.count > 1), to: run) }
     }
 
     /// Starts the reconcile loop; AiTerm's `start()` calls it. The merges AiTerm was waiting for when it
@@ -938,6 +927,7 @@ final class OperatorController {
         guard loop == nil else { return }
         isStopped = false
         prompts.start()
+        signaller.start()
         waker.start()
         starter.start()
         tabs.start()
@@ -957,7 +947,7 @@ final class OperatorController {
     /// settled, so a broadcast's last merge completes it (spec §9).
     func publicationChanged(_ id: UUID) {
         guard let operated = workspace.state.task(id: id)?.operated else { return }
-        waker.say(operated.state == .published ? "one task merged" : "one task can’t merge", to: operated.runId)
+        waker.say(operated.state == .published ? .merged : .cannotMerge, to: operated.runId)
         runChanged(operated.runId)
     }
 
@@ -965,7 +955,7 @@ final class OperatorController {
     /// what it did.
     func publicationEndedLate(_ id: UUID) {
         guard let operated = workspace.state.task(id: id)?.operated else { return }
-        waker.say("\(OperatorWaker.taskReference(operated.key))'s finish_task ended", to: operated.runId, colon: true)
+        waker.say(.finishEnded(key: operated.key), to: operated.runId)
         runChanged(operated.runId)
     }
 
@@ -975,10 +965,10 @@ final class OperatorController {
     func mergeWatchStopped(_ id: UUID, _ why: String) {
         guard let operated = workspace.state.task(id: id)?.operated else { return }
         if let sha = operated.acceptance?.resultSHA, why == TaskFinisher.unpushedAcceptance(operated.key, sha: sha) {
-            waker.say(Self.unpushedReason(key: operated.key), to: operated.runId, colon: true)
+            waker.say(.unpushed(key: operated.key), to: operated.runId)
             return
         }
-        waker.say("one task’s merge watch stopped", to: operated.runId, colon: true)
+        waker.say(.mergeWatchStopped, to: operated.runId)
     }
 
     /// What wakes the Operator for a task accepted again on a commit only its finish_task pushes.
@@ -1008,10 +998,8 @@ final class OperatorController {
         resending = nil
         registering?.cancel()
         registering = nil
-        closing?.cancel()
-        closing = nil
-        for notes in signalling.values { notes.cancel() }
-        signalling = [:]
+        windows.stop()
+        signaller.stop()
         if let profileSaved { NotificationCenter.default.removeObserver(profileSaved) }
         profileSaved = nil
         for wait in summaryWaits.values { wait.cancel() }

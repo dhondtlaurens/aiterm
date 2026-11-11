@@ -262,7 +262,7 @@ import Testing
     func notes(_ world: OperatorWorld) -> [String] {
         world.daemon.requests("session.deliver").compactMap { request in
             guard let session = request.params["sessionId"] as? String, session != "op", let text = request.params["text"] as? String else { return nil }
-            let note = text == OperatorController.pauseNote ? "pause" : text == OperatorController.carryOnNote ? "carry on" : text
+            let note = text == PauseSignaller.pauseNote ? "pause" : text == PauseSignaller.carryOnNote ? "carry on" : text
             return session + ": " + note
         }
     }
@@ -409,7 +409,7 @@ import Testing
         var whileTyping: [OperatorRunState?] = [], pauseRefused = false
         world.daemon.onRequest = { method in
             guard method == "session.deliver", let last = world.daemon.requests("session.deliver").last,
-                  last.params["text"] as? String == OperatorController.carryOnNote else { return }
+                  last.params["text"] as? String == PauseSignaller.carryOnNote else { return }
             whileTyping.append(world.run(run.id)?.state)
             pauseRefused = (try? world.controller.pause(run: run.id)) == nil
         }

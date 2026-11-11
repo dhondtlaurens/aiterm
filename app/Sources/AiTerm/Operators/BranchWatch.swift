@@ -8,7 +8,9 @@ import AiTermCore
 /// 512 KB tail every tick otherwise. What it finds is kept on the task, shown in `run_status`, and a newly found drift wakes the
 /// Operator once: `[AiTerm] PAY-2 committed off its task branch, call run_status`. A task taken over, not
 /// at work, or in a broadcast paused or ended, is not read. A changed task-branch head resets its
-/// no-commit clock. The checked callback decides limits after each read, including one with no progress.
+/// no-commit clock. The checked callback decides limits after each read, including one with no progress. What a message
+/// names is looked up once for its words, the worktree's head and the repository's refs as they were then (`Lookup`):
+/// a pass that finds all three as they were asks git only for the head and the refs.
 @MainActor
 final class BranchWatch {
     private let workspace: WorkspaceStore
@@ -17,6 +19,10 @@ final class BranchWatch {
     private let waker: OperatorWaker
     private let transcripts: TranscriptLocator
     private let pass: TickPass
+    /// What each watched task's messages named, as last looked up, by task: only the last pass's are kept.
+    private var lookups: [UUID: [Lookup: [BranchDrift.Named]]] = [:]
+    /// A message's lookup holds while its words, the head and the refs are the same.
+    private struct Lookup: Hashable, Sendable { let message: String, head: String?, refs: String }
     /// A fresh read finished, including one with no progress or an unreadable head.
     var checked: @MainActor (UUID) -> Void = { _ in }
 
@@ -42,6 +48,8 @@ final class BranchWatch {
     /// One pass over every watched task, unless the last is still reading.
     func poll() {
         transcripts.keepReplies(of: Set(live.sessions.compactMap(\.conversationId)))
+        let watched = Set(state.tasks.filter(isWatched).map(\.id))
+        lookups = lookups.filter { watched.contains($0.key) }
         pass.run(state.tasks.filter(isWatched).map(\.id)) { [weak self] in await self?.check($0) }
     }
 
@@ -57,15 +65,24 @@ final class BranchWatch {
             return (tab.agent, conversation)
         }
         let git = ports.git, transcripts = self.transcripts, worktree = task.worktreePath
-        let branch = task.branch, base = task.baseBranch
+        let branch = task.branch, base = task.baseBranch, known = lookups[id] ?? [:]
         let reading = await BackgroundWork.run {
-            let named: [BranchDrift.Named]? = conversations.isEmpty ? nil : conversations.flatMap { conversation -> [BranchDrift.Named] in
-                let message = transcripts.reply(agent: conversation.agent, conversation: conversation.id).reply?.text
-                return message.map { Self.named(in: $0, branch: branch, base: base, worktree: worktree, git: git) } ?? []
+            let head = Self.head(in: worktree, git: git)
+            let messages = conversations.compactMap { transcripts.reply(agent: $0.agent, conversation: $0.id).reply?.text }
+            // The refs are read only for a message that names something to look up, and only once.
+            let refs = messages.contains { !BranchDrift.shaCandidates(in: $0).isEmpty } ? Self.refs(in: worktree, git: git) : nil
+            var looked: [Lookup: [BranchDrift.Named]] = [:]
+            let named: [BranchDrift.Named]? = conversations.isEmpty ? nil : messages.flatMap { message -> [BranchDrift.Named] in
+                guard let refs else { return Self.named(in: message, branch: branch, base: base, worktree: worktree, git: git) }
+                let key = Lookup(message: message, head: head?.sha, refs: refs)
+                let found = looked[key] ?? known[key] ?? Self.named(in: message, branch: branch, base: base, worktree: worktree, git: git)
+                looked[key] = found
+                return found
             }
-            return (head: Self.head(in: worktree, git: git), named: named)
+            return (head: head, named: named, looked: looked)
         }
         guard !Task.isCancelled else { return }
+        lookups[id] = reading.looked
         // Read fresh: git was asked meanwhile.
         guard let current = state.task(id: id), isWatched(current), current.worktreePath == worktree, current.branch == branch,
               let fresh = current.operated, fresh.ownership == operated.ownership else { return }
@@ -80,17 +97,25 @@ final class BranchWatch {
             }
             $0.branchDrift = found
         } }
-        if found != nil, fresh.branchDrift == nil { waker.say("one task committed off its task branch", to: fresh.runId) }
+        if found != nil, fresh.branchDrift == nil { waker.say(.committedOffBranch, to: fresh.runId) }
     }
 
     /// The worktree's HEAD: its branch, nil when detached, and its commit. Nil when git can't read it, and
     /// while a rebase runs there: it detaches HEAD until it ends, back on the branch it started from.
+    /// One git process: the commit, then the branch's full name, or `HEAD` when detached.
     nonisolated static func head(in worktree: String, git: any GitRunning) -> BranchDrift.Head? {
-        guard let sha = try? git.run(["rev-parse", "HEAD"], in: worktree),
-              case .answered(let branch) = ask(["symbolic-ref", "--quiet", "--short", "HEAD"], in: worktree, none: [1], git: git)
-        else { return nil }
+        guard let read = try? git.run(["rev-parse", "HEAD", "--symbolic-full-name", "HEAD"], in: worktree) else { return nil }
+        let lines = read.split(separator: "\n").map(String.init)
+        guard lines.count == 2, !lines[0].isEmpty else { return nil }
+        let branch = lines[1].hasPrefix("refs/heads/") ? String(lines[1].dropFirst("refs/heads/".count)) : nil
         if branch == nil, rebasing(worktree, git: git) { return nil }
-        return BranchDrift.Head(branch: branch, sha: sha)
+        return BranchDrift.Head(branch: branch, sha: lines[0])
+    }
+
+    /// The repository's branches and origin's, each with its commit and what it points at, in one listing: what a
+    /// message's lookup reads (`named`) moves only when it does. Nil when git can't list them, and nothing is kept then.
+    nonisolated static func refs(in worktree: String, git: any GitRunning) -> String? {
+        try? git.run(["for-each-ref", "--format=%(refname) %(objectname) %(symref)", "refs/heads", "refs/remotes/origin"], in: worktree)
     }
 
     /// Whether a rebase is under way in the worktree: its own git folder holds git's rebase state.

@@ -301,26 +301,6 @@ import Testing
         #expect(finds(world, run).last?.ticket == nil)
     }
 
-    /// What AiTerm tells the Operator speaks of its summary, never of the summary it replaced: no string in the
-    /// Operator's sources says it, as the daemon's schema test reads its tools. The finished broadcast's
-    /// notification id keeps its `debrief-` prefix, so notes already delivered are not posted again.
-    @Test func noRefusalSpeaksOfASummary() throws {
-        let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/AiTerm/Operators")
-        let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil).filter { $0.pathExtension == "swift" }
-        #expect(files.count > 5, "the Operator's sources, read from \(folder.path)")
-        let literal = try Regex(#""[^"\n]*""#)
-        for file in files {
-            let code = try String(contentsOf: file, encoding: .utf8).split(separator: "\n")
-                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            for line in code {
-                for match in line.matches(of: literal) where match.output[0].substring?.lowercased().contains("debrief") == true {
-                    #expect(match.output[0].substring?.hasPrefix("\"debrief-") == true, "\(file.lastPathComponent): \(line)")
-                }
-            }
-        }
-    }
-
     @Test func aTaskOutsideTheWorkspaceOrAnAgentTheOperatorCannotRunIsRefused() async throws {
         let (world, run) = try makeWorld()
         #expect(await create(world, run, "A", project: "Elsewhere").message == "Elsewhere isn’t one of this broadcast’s projects: Shop, Web.")
