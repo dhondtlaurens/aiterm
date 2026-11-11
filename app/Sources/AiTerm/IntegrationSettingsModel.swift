@@ -200,14 +200,14 @@ final class IntegrationSettingsModel {
     }
 
     /// One card's change, checked and not yet made.
-    fileprivate struct PendingWrite {
+    private struct PendingWrite {
         /// The service the card is for, as a refused undo names it.
         let service: String
-        /// Writes the change to the store; `false` when the store refused it. Run off the main actor.
-        let write: @Sendable () -> Bool
+        /// Writes the change to the store; `false` when the store refused it.
+        let write: () -> Bool
         /// Puts the store back as the card opened it, for a later card's write failing; `false`
-        /// when the store refused that too. Run off the main actor.
-        let undo: @Sendable () -> Bool
+        /// when the store refused that too.
+        let undo: () -> Bool
         /// Notes the new saved config and the last test that goes with it.
         let commit: () -> Void
         let failure: String
@@ -222,7 +222,7 @@ final class IntegrationSettingsModel {
     private func pending<Fields: ServiceFields>(
         _ card: ServiceConnection<Fields>, service: String, saved: ReferenceWritableKeyPath<IntegrationSettingsModel, Fields.Config?>,
         failed: ReferenceWritableKeyPath<ServiceTestRecord, Bool>,
-        write: @escaping @Sendable (Fields.Config?) -> Bool, saveFailure: String, removeFailure: String
+        write: @escaping (Fields.Config?) -> Bool, saveFailure: String, removeFailure: String
     ) throws(InvalidCard) -> PendingWrite? {
         let before = self[keyPath: saved]
         if card.fields.hasInput {
@@ -245,72 +245,29 @@ final class IntegrationSettingsModel {
     /// puts back the ones made before it. `nil` when all of it was done; else what stopped it, for
     /// the sheet's footer — and which services stayed changed, if the Keychain refused to put
     /// them back too. Both are optional, so blank fields store nothing.
-    ///
-    /// The Keychain and the preferences are written on a thread of their own (`ThreadWork`): a Keychain that asks or
-    /// stalls holds that thread, not the app. What Save then notes runs back on the main actor, once all of it is done.
-    func save() async -> String? {
-        switch plan() {
-        case .refused(let message): message
-        case .writes(let writes): await save(writes)
-        }
-    }
-
-    /// Save's first half, on the main actor: every card checked, and what Save would write — maybe nothing.
-    enum Plan {
-        /// A card cannot make a connection: its message, and nothing is written.
-        case refused(String)
-        case writes(Writes)
-    }
-
-    /// The writes a `Plan` holds, to hand to `save(_:)`.
-    struct Writes {
-        fileprivate let pending: [PendingWrite]
-        /// Nothing typed or disconnected since the sheet opened: Save has nothing to write.
-        var isEmpty: Bool { pending.isEmpty }
-    }
-
-    func plan() -> Plan {
-        // The Keychain is safe to use from any thread (its lock is its own), as is UserDefaults; the protocol and the SDK
-        // just do not mark them `Sendable`. Each write runs after the one before has returned.
-        nonisolated(unsafe) let store = store, defaults = defaults
+    func save() -> String? {
         let writes: [PendingWrite]
         do throws(InvalidCard) {
             writes = [
                 try pending(jira, service: "Jira", saved: \.savedJira, failed: \.jiraFailed,
-                            write: { JiraSettings.save($0, store: store, defaults: defaults) },
+                            write: { JiraSettings.save($0, store: self.store, defaults: self.defaults) },
                             saveFailure: "Couldn’t save the API token to the Keychain",
                             removeFailure: "Couldn’t remove the API token from the Keychain"),
                 try pending(gitLab, service: "GitLab", saved: \.savedGitLab, failed: \.gitLabFailed,
-                            write: { GitLabSettings.save($0, store: store, defaults: defaults) },
+                            write: { GitLabSettings.save($0, store: self.store, defaults: self.defaults) },
                             saveFailure: "Couldn’t save the GitLab token to the Keychain",
                             removeFailure: "Couldn’t remove the GitLab token from the Keychain"),
                 try pending(gitHub, service: "GitHub", saved: \.savedGitHub, failed: \.gitHubFailed,
-                            write: { GitHubSettings.save($0, store: store) },
+                            write: { GitHubSettings.save($0, store: self.store) },
                             saveFailure: "Couldn’t save the GitHub token to the Keychain",
                             removeFailure: "Couldn’t remove the GitHub token from the Keychain"),
             ].compactMap { $0 }
         } catch {
-            return .refused(error.message)
+            return error.message
         }
-        return .writes(Writes(pending: writes))
-    }
-
-    /// Save's second half: `writes` made off the main actor, then noted, or what stopped them. Nothing to write
-    /// suspends nowhere.
-    func save(_ writes: Writes) async -> String? {
-        let writes = writes.pending
-        guard !writes.isEmpty else { return nil }
-        let changes = writes.map { (write: $0.write, undo: $0.undo) }
-        // The first write refused, and the writes before it whose undo was refused too, in order.
-        let refused: (index: Int, stuck: [Int])? = await ThreadWork.run {
-            for (index, change) in changes.enumerated() where !change.write() {
-                // Every undo is tried, in reverse, even after one is refused: each puts back its own service.
-                return (index, (0..<index).reversed().filter { !changes[$0].undo() }.reversed())
-            }
-            return nil
-        }
-        if let refused {
-            let change = writes[refused.index], stuck = refused.stuck.map { writes[$0].service }
+        for (index, change) in writes.enumerated() where !change.write() {
+            // Every undo is tried, in reverse, even after one is refused: each puts back its own service.
+            let stuck = writes[..<index].reversed().filter { !$0.undo() }.map(\.service).reversed()
             guard !stuck.isEmpty else { return change.failure }
             return "\(change.failure) and couldn’t put back the \(stuck.joined(separator: " and ")) settings"
         }
