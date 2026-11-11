@@ -545,8 +545,8 @@ Each box leaves the project working and is one or a few commits.
 - [ ] 8c. Stepped-sheet frame; picker field, clear button, Metrics tokens, chrome reuse.
 - [ ] 8d. Narrow header values with the redraw test; lazy Activity and Shelf; leaf reads.
 - [ ] 8e. Snapshot helpers; before and after image comparison.
-- [ ] 9a. `AppControllerTests` split; template and off-main git fixtures; blocking check; latches.
-- [ ] 9b. Concurrency measurement; gate history; release gate check; routing entries.
+- [x] 9a. `AppControllerTests` split; template and off-main git fixtures; blocking check; latches. Off-main migration partial: 38 main-actor factory sites in 19 Operator/finisher files deferred at `4b79d95e` to avoid phases 5/6 overlap; post-setup git also remains. Host-only conversion: four review tests. See the record for names and counts.
+- [x] 9b. Concurrency measurement; gate history; release gate check; routing entries.
 - [ ] 9c. Docs, design-system page, review record, full gate, bundle check, adversarial review.
 
 ## Left out

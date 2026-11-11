@@ -7,8 +7,7 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-@MainActor
-@Suite(.serialized) struct AppControllerTests {
+@MainActor @Suite struct ControllerStorageTests {
     @Test func failedLoadCannotSaveEmptyState() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -93,6 +92,9 @@ import Testing
             #expect(error.localizedDescription == "Save or recover the workspace before creating a task.")
         }
     }
+}
+
+@MainActor @Suite(.blocking) struct ControllerProjectsTests {
 
     /// An empty project draws collapsed and cannot be opened, so a click on its header must not
     /// flip the stored state underneath — the project would otherwise open on its first task.
@@ -336,7 +338,7 @@ import Testing
 
     /// Picking a nested folder adds its repository and names that choice in a toast.
     @Test(arguments: [false, true]) func pickingARepositoryOrItsChildAddsTheRepository(inside: Bool) async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.workspace.mutate { $0.items = [] }
@@ -355,19 +357,9 @@ import Testing
         #expect(controller.toastState.toast?.message == (inside ? "Added repo, the repository around the folder you picked." : nil))
     }
 
-    /// A completion toast comes down by itself once its lifetime has passed, and is up until then.
-    @Test func aToastIsTakenDownAfterItsLifetime() async {
-        let controller = AppController(preferences: .scratch(), toastLifetime: .milliseconds(30))
-        controller.notices.showToast("Task removed.")
-        #expect(controller.toastState.toast?.message == "Task removed.")
-
-        await eventually { controller.toastState.toast == nil }
-        #expect(controller.toastState.toast == nil)
-    }
-
     /// The "already in your projects" alert stays.
     @Test func pickingAProjectAlreadyAddedSaysSoAndAddsNothing() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "OK"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "OK"))
         defer { fixture.cleanUp() }
         fixture.prompter.folder = fixture.repo
 
@@ -406,6 +398,157 @@ import Testing
         #expect(!controller.projects.move(itemId: first.id, .down))
         #expect(controller.state.projects.map(\.id) == [first.id, last.id])
     }
+
+    @Test func addingADividerAppendsItAtTheEndAndPersists() throws {
+        let (controller, dir) = try loadedController()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        controller.workspace.mutate { $0.append(project: fixtureProject("repo")) }
+        controller.projects.addDivider(name: "  Work  ")
+        #expect(controller.state.items.last?.divider?.name == "Work")
+        #expect(controller.persistenceError == nil)
+        #expect(try controller.savedWorkspace().items.count == 2)
+    }
+
+    @Test func renamingADividerTrimsAndRenamingATaskChangesOnlyTheTitle() throws {
+        let (controller, dir) = try loadedController()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let project = fixtureProject("repo")
+        controller.workspace.mutate { $0.append(project: project) }
+        let rule = SidebarDivider(id: UUID(), name: "Work")
+        controller.workspace.mutate { $0.append(divider: rule) }
+        let task = TaskItem(id: UUID(), projectId: project.id, title: "Old", branch: "feat/x", worktreePath: "/wt",
+                            baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil,
+                            firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w1")
+        controller.workspace.mutate { $0.tasks = [task] }
+
+        controller.projects.rename(divider: rule, to: "  Personal ")
+        #expect(controller.state.items.last?.divider?.name == "Personal")
+
+        controller.projects.rename(task: task, to: "  New title ")
+        #expect(controller.state.tasks[0].title == "New title")
+        #expect(controller.state.tasks[0].branch == "feat/x")
+        #expect(controller.state.tasks[0].worktreePath == "/wt")
+        #expect(controller.state.tasks[0].windowId == "w1")
+
+        // An emptied field leaves a task's title alone; a divider may legitimately have no name.
+        controller.projects.rename(task: task, to: "   ")
+        #expect(controller.state.tasks[0].title == "New title")
+        controller.projects.rename(divider: rule, to: "   ")
+        #expect(controller.state.items.last?.divider?.name == "")
+    }
+
+    @Test func deletingADividerLeavesEveryProjectAndTaskInPlace() throws {
+        let (controller, dir) = try loadedController()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let project = fixtureProject("repo")
+        controller.workspace.mutate { $0.append(project: project) }
+        let rule = SidebarDivider(id: UUID(), name: "Work")
+        controller.workspace.mutate { state in
+            state.append(divider: rule)
+            state.terminals = [TerminalItem(id: UUID(), projectId: project.id, name: "Terminal", windowId: "w1", createdAt: Date())]
+        }
+        controller.projects.removeDivider(rule)
+        #expect(controller.state.items.map(\.id) == [project.id])
+        #expect(controller.state.terminals.count == 1)
+    }
+
+    @Test func movingAProjectPastADividerChangesItsGroupWithoutReorderingProjects() throws {
+        let (controller, dir) = try loadedController()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (a, b) = (fixtureProject("a"), fixtureProject("b"))
+        let rule = SidebarDivider(id: UUID(), name: "Work")
+        controller.workspace.mutate { state in
+            state.append(project: a)
+            state.append(divider: rule)
+            state.append(project: b)
+        }
+
+        let moved = controller.projects.move(itemId: b.id, .up)
+        #expect(moved)
+        #expect(controller.state.items.map(\.id) == [a.id, b.id, rule.id])
+        #expect(controller.state.projects.map(\.name) == ["a", "b"])
+        #expect(!controller.state.canMove(id: a.id, .up))
+        #expect(!controller.state.canMove(id: rule.id, .down))
+        #expect(controller.state.canMove(id: rule.id, .up))
+    }
+
+    @Test func dividerActionsAreRefusedWhileTheWorkspaceIsLocked() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("state.json")
+        try Data("{broken".utf8).write(to: url)
+        let controller = AppController(store: StateStore(url: url), preferences: .scratch())
+        #expect(throws: (any Error).self) { try controller.workspace.load() }
+        controller.projects.addDivider(name: "Work")
+        #expect(controller.state.items.isEmpty)
+        controller.sheets.presentNewDivider()
+        #expect(controller.sheet == nil)
+    }
+
+    @Test func theRenameAndNewDividerSheetsCarryTheirTarget() throws {
+        let (controller, dir) = try loadedController()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let project = fixtureProject("repo")
+        controller.workspace.mutate { $0.append(project: project) }
+        let task = TaskItem(id: UUID(), projectId: project.id, title: "Old", branch: "feat/x", worktreePath: "/wt",
+                            baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil,
+                            firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: nil)
+        controller.workspace.mutate { $0.tasks = [task] }
+
+        controller.sheets.presentNewDivider()
+        #expect(controller.sheet?.id == "divider-new")
+
+        controller.sheets.presentRename(task: task)
+        #expect(controller.sheet?.id == "rename-\(task.id)")
+        guard case .rename(let target)? = controller.sheet else { Issue.record("expected a rename sheet"); return }
+        #expect(target.name == "Old")
+        #expect(target.title == "Rename task")
+        #expect(target.subtitle == "The branch and worktree keep their names.")
+    }
+
+    /// A terminal is renamed through the same `NameSheet` as a task: the row's name changes and is
+    /// saved; its window and everything else about it stay as they are.
+    @Test func renamingATerminalChangesAndSavesOnlyItsName() throws {
+        let (controller, dir) = try loadedController()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let project = fixtureProject("repo")
+        controller.workspace.mutate { $0.append(project: project) }
+        let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Terminal", windowId: "w1", createdAt: Date())
+        controller.workspace.mutate { $0.terminals = [terminal] }
+
+        controller.sheets.presentRename(terminal: terminal)
+        guard case .rename(let target)? = controller.sheet else { Issue.record("expected a rename sheet"); return }
+        #expect(target == .terminal(terminal))
+        #expect(target.title == "Rename terminal")
+        #expect(target.fieldLabel == "Terminal name")
+        #expect(target.name == "Terminal")
+
+        controller.projects.rename(terminal: terminal, to: "  Dev server ")
+        #expect(controller.state.terminals == [TerminalItem(id: terminal.id, projectId: project.id, name: "Dev server",
+                                                            windowId: "w1", createdAt: terminal.createdAt)])
+        #expect(try controller.savedWorkspace().terminals.map(\.name) == ["Dev server"])
+
+        // An emptied field keeps the name, as a task's does.
+        controller.projects.rename(terminal: terminal, to: "   ")
+        #expect(controller.state.terminals.map(\.name) == ["Dev server"])
+    }
+}
+
+@MainActor @Suite struct ControllerNoticesTests {
+
+    /// A completion toast comes down by itself once its lifetime has passed, and is up until then.
+    @Test func aToastIsTakenDownAfterItsLifetime() async {
+        let controller = AppController(preferences: .scratch(), toastLifetime: .milliseconds(30))
+        controller.notices.showToast("Task removed.")
+        #expect(controller.toastState.toast?.message == "Task removed.")
+
+        await eventually { controller.toastState.toast == nil }
+        #expect(controller.toastState.toast == nil)
+    }
+}
+
+@MainActor @Suite(.serialized) struct ControllerApplicationTests {
 
     @Test func startupRecoveryUsesNativeRestoreAction() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -468,22 +611,6 @@ import Testing
         #expect(try store.load().lastModelByAgent[.claude] == "opus")
     }
 
-    /// A controller that goes away takes its workspace with it: nothing the workspace tells of a
-    /// change holds on to it, so a test's store does not live on to save into a deleted folder.
-    @Test func aControllerThatGoesAwayTakesItsWorkspace() throws {
-        weak var workspace: WorkspaceStore?
-        weak var live: LiveSessions?
-        weak var notices: Notices?
-        do {
-            let (controller, dir) = try loadedController()
-            defer { try? FileManager.default.removeItem(at: dir) }
-            workspace = controller.workspace; live = controller.live; notices = controller.notices
-        }
-        #expect(workspace == nil)
-        #expect(live == nil)
-        #expect(notices == nil)
-    }
-
     /// A change still waiting on its save when the app quits is saved before it does.
     @Test func quittingSavesAChangeStillWaitingOnItsSave() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -499,6 +626,9 @@ import Testing
 
         #expect(try store.load().lastModelByAgent[.claude] == "opus")
     }
+}
+
+@MainActor @Suite struct ControllerWindowsTests {
 
     /// A window found gone leaves its row owed it — a task's and a terminal's alike — and its
     /// selection and checkout where they were.
@@ -696,6 +826,9 @@ import Testing
         controller.focus.browse(.terminal(terminal.id))
         #expect(controller.live.contextPercents(for: controller.focus.selection).isEmpty, "Closing a terminal evicts its cached context")
     }
+}
+
+@MainActor @Suite(.blocking) struct ControllerLaunchTests {
 
     @Test(arguments: [false, true]) func createdTaskSurvivesDisconnectedLaunchAndSaveFailure(failSave: Bool) async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -703,8 +836,7 @@ import Testing
         let repo = dir.appendingPathComponent("repo")
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         let git = GitRunner.hermetic()
-        try git.run(["init", "-q", "-b", "main"], in: repo.path)
-        try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "init"], in: repo.path)
+        try await BackgroundWork.run { try GitFixture.initRepo(at: repo.path) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
         let project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
@@ -738,8 +870,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let repo = dir.appendingPathComponent("repo")
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
-        try GitRunner.hermetic().run(["init", "-q", "-b", "main"], in: repo.path)
-        try GitRunner.hermetic().run(["commit", "--allow-empty", "-m", "init"], in: repo.path)
+        try await BackgroundWork.run { try GitFixture.initRepo(at: repo.path) }
         let recording = RecordingGitRunner(forwardingTo: .hermetic())
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(), git: recording)
         try controller.workspace.load()
@@ -754,26 +885,6 @@ import Testing
         #expect(asked.filter { $0.contains("info/exclude") }.count == 2, "`.worktrees/` and the first-prompt exclusion are asked of the same runner")
     }
 
-    /// A project whose `.worktreeinclude` selects an `.env` that cannot be read, so cannot be copied.
-    private func projectWithAnUnreadableEnv(in dir: URL) throws -> (controller: AppController, project: Project) {
-        let repo = dir.appendingPathComponent("repo"), env = repo.appendingPathComponent(".env").path
-        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
-        let git = GitRunner.hermetic()
-        try git.run(["init", "-q", "-b", "main"], in: repo.path)
-        try ".env\n".write(toFile: repo.path + "/.gitignore", atomically: true, encoding: .utf8)
-        try ".env\n".write(toFile: repo.path + "/.worktreeinclude", atomically: true, encoding: .utf8)
-        try git.run(["add", ".gitignore", ".worktreeinclude"], in: repo.path)
-        try git.run(["commit", "-q", "-m", "init"], in: repo.path)
-        try "SECRET=1\n".write(toFile: env, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: env)
-        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(), git: git)
-        try controller.workspace.load()
-        let project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        controller.workspace.mutate { $0.items = [.project(project)] }
-        #expect(controller.workspace.flush())
-        return (controller, project)
-    }
-
     /// A file `.worktreeinclude` selects that could not be copied costs the task nothing: it is
     /// created, its window opens, its worktree is there, and the banner names the file — about the
     /// task, so it goes when the task does.
@@ -783,7 +894,7 @@ import Testing
             try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: dir.appendingPathComponent("repo/.env").path)
             try? FileManager.default.removeItem(at: dir)
         }
-        let (controller, project) = try projectWithAnUnreadableEnv(in: dir)
+        let (controller, project) = try await projectWithAnUnreadableEnv(in: dir)
         defer { controller.shutdown() }
         let server = RecordingDaemon()
         controller.helper.setDaemonClient(server)
@@ -805,7 +916,7 @@ import Testing
             try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: dir.appendingPathComponent("repo/.env").path)
             try? FileManager.default.removeItem(at: dir)
         }
-        let (controller, project) = try projectWithAnUnreadableEnv(in: dir)
+        let (controller, project) = try await projectWithAnUnreadableEnv(in: dir)
         defer { controller.shutdown() }
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setTitle("Unreadable env")
@@ -816,12 +927,15 @@ import Testing
 
     /// A copy that left nothing out says nothing: no banner for the task it made.
     @Test func aCompleteWorktreeIncludeCopyHasNoBanner() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         try await fixture.controller.launcher.createTask(draft: fixture.draft("Plain"), project: fixture.project)
         #expect(fixture.controller.issue == nil)
     }
+}
+
+@MainActor @Suite(.blocking) struct ControllerCheckoutTests {
 
     /// The alert-level courtesy. The guarantee is `TaskWorkflow.remove`'s own refusal, tested in
     /// `TaskWorkflowTests`; this only proves the checkbox is never offered for a review.
@@ -851,7 +965,7 @@ import Testing
         let controller = AppController(store: store, preferences: .scratch(), prompter: prompter)
         try controller.workspace.load()
 
-        let repo = try Self.repoWithATaskAndAReviewWorktree(git: controller.git)
+        let repo = try await repoWithATaskAndAReviewWorktree(git: controller.git)
         defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo).deletingLastPathComponent()) }
 
         await controller.projects.addProject(path: repo)
@@ -876,7 +990,7 @@ import Testing
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
                                         prompter: prompter, git: flaky)
         try controller.workspace.load()
-        let repo = try Self.repoWithATaskAndAReviewWorktree(git: controller.git)
+        let repo = try await repoWithATaskAndAReviewWorktree(git: controller.git)
         defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo).deletingLastPathComponent()) }
 
         await controller.projects.addProject(path: repo)
@@ -898,7 +1012,7 @@ import Testing
         let git = GatedDefaultBranchGit()
         let controller = AppController(store: store, preferences: .scratch(), prompter: ScriptedPrompter(), git: git)
         try controller.workspace.load()
-        let repo = try Self.repoWithATaskAndAReviewWorktree(git: GitRunner.hermetic())
+        let repo = try await repoWithATaskAndAReviewWorktree(git: GitRunner.hermetic())
         defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo).deletingLastPathComponent()) }
 
         let adding = Task { await controller.projects.addProject(path: repo) }
@@ -924,7 +1038,7 @@ import Testing
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
                                         prompter: prompter, git: git)
         try controller.workspace.load()
-        let repo = try Self.repoWithATaskAndAReviewWorktree(git: GitRunner.hermetic())
+        let repo = try await repoWithATaskAndAReviewWorktree(git: GitRunner.hermetic())
         defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo).deletingLastPathComponent()) }
 
         git.failing = true
@@ -935,35 +1049,9 @@ import Testing
                                                    reason: "Git timed out after \(GitRunner.localTimeout) s.",
                                                    detail: "git rev-parse --show-toplevel failed:\ngit timed out after \(GitRunner.localTimeout) s"))
     }
+}
 
-    /// A repository holding one worktree of each kind, made by the same calls the app makes: a
-    /// task's through `addTaskWorktree` and a review's through `addReviewWorktree`.
-    /// Resolved with POSIX `realpath(3)`, as `WorktreesTests` does: git reports the physical path
-    /// for a repository under `/var/folders`, and an unresolved one is added as "the repository
-    /// around the folder you picked", a path the project would then not match.
-    private static func repoWithATaskAndAReviewWorktree(git: any GitRunning) throws -> String {
-        let raw = FileManager.default.temporaryDirectory.appendingPathComponent("imp-\(UUID().uuidString)").path
-        try FileManager.default.createDirectory(atPath: raw, withIntermediateDirectories: true)
-        let root = realpath(raw, nil).map { defer { free($0) }; return String(cString: $0) } ?? raw
-        let repo = root + "/repo"
-        try git.run(["init", "-q", "-b", "main", repo], in: root)
-        try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"], in: repo)
-        try git.run(["branch", "feat/mr-branch"], in: repo)
-        _ = try Repository(repo, git: git).addTaskWorktree(slug: "a-task", branch: "feat/a-task", base: "main")
-        _ = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
-        return repo
-    }
-
-    func loadedController() throws -> (AppController, URL) {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        try controller.workspace.load()
-        return (controller, dir)
-    }
-
-    private func fixtureProject(_ name: String) -> Project {
-        Project(id: UUID(), name: name, path: "/" + name, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-    }
+@MainActor @Suite struct ControllerProjectionTests {
 
     /// The checkout monitor re-runs the refresh pass every two seconds. A pass that learns
     /// nothing new must not tell observers anything changed: each notification re-renders the
@@ -1073,35 +1161,6 @@ import Testing
         }
     }
 
-    /// `shutdown()` stops what `start()` started, and a later `start()` starts all of it again:
-    /// the checkout monitor, and the helper's search for Python.
-    @Test func startingAgainAfterShutdownRestartsTheMonitorAndTheHelper() async throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let scans = ScanCounter(), pythonLookups = ScanCounter()
-        // A bundle, so the helper looks for Python, through a lookup that runs no login shell.
-        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
-                                       harnessHome: dir, bundledResourcesURL: dir,
-                                       scan: { _, _, _, _, _, _, _ in
-                                           scans.increment()
-                                           return WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [],
-                                                                removedTasks: [], remotes: [:])
-                                       },
-                                       findPython: { pythonLookups.increment(); return nil })
-        try controller.workspace.load()
-
-        controller.start()
-        controller.shutdown()
-        controller.start()
-        defer { controller.shutdown() }
-
-        await eventually { scans.count != 0 && controller.helper.itermConnection != .starting }
-        #expect(scans.count >= 1, "the restarted monitor runs a pass")
-        // The first start's lookup was cancelled with it: only the restarted helper reports.
-        #expect(controller.helper.itermConnection == .pythonMissing, "the restarted helper looked for Python")
-        #expect(pythonLookups.count >= 1)
-    }
-
     /// The badge is recomputed on every write to `state` and `sessions`; only a new label is
     /// written to the dock.
     @Test func theDockBadgeIsWrittenOnlyWhenItsLabelChanges() throws {
@@ -1160,141 +1219,111 @@ import Testing
         controller.showFocusView()
         #expect(controller.focus.selectedTerminalId == shell.id, "Focus View goes to the first of the rows the badge counts")
     }
+}
 
-    @Test func addingADividerAppendsItAtTheEndAndPersists() throws {
-        let (controller, dir) = try loadedController()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        controller.workspace.mutate { $0.append(project: fixtureProject("repo")) }
-        controller.projects.addDivider(name: "  Work  ")
-        #expect(controller.state.items.last?.divider?.name == "Work")
-        #expect(controller.persistenceError == nil)
-        #expect(try controller.savedWorkspace().items.count == 2)
-    }
+@MainActor @Suite struct ControllerLifecycleTests {
 
-    @Test func renamingADividerTrimsAndRenamingATaskChangesOnlyTheTitle() throws {
-        let (controller, dir) = try loadedController()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let project = fixtureProject("repo")
-        controller.workspace.mutate { $0.append(project: project) }
-        let rule = SidebarDivider(id: UUID(), name: "Work")
-        controller.workspace.mutate { $0.append(divider: rule) }
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "Old", branch: "feat/x", worktreePath: "/wt",
-                            baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil,
-                            firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w1")
-        controller.workspace.mutate { $0.tasks = [task] }
-
-        controller.projects.rename(divider: rule, to: "  Personal ")
-        #expect(controller.state.items.last?.divider?.name == "Personal")
-
-        controller.projects.rename(task: task, to: "  New title ")
-        #expect(controller.state.tasks[0].title == "New title")
-        #expect(controller.state.tasks[0].branch == "feat/x")
-        #expect(controller.state.tasks[0].worktreePath == "/wt")
-        #expect(controller.state.tasks[0].windowId == "w1")
-
-        // An emptied field leaves a task's title alone; a divider may legitimately have no name.
-        controller.projects.rename(task: task, to: "   ")
-        #expect(controller.state.tasks[0].title == "New title")
-        controller.projects.rename(divider: rule, to: "   ")
-        #expect(controller.state.items.last?.divider?.name == "")
-    }
-
-    @Test func deletingADividerLeavesEveryProjectAndTaskInPlace() throws {
-        let (controller, dir) = try loadedController()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let project = fixtureProject("repo")
-        controller.workspace.mutate { $0.append(project: project) }
-        let rule = SidebarDivider(id: UUID(), name: "Work")
-        controller.workspace.mutate { state in
-            state.append(divider: rule)
-            state.terminals = [TerminalItem(id: UUID(), projectId: project.id, name: "Terminal", windowId: "w1", createdAt: Date())]
+    /// A controller that goes away takes its workspace with it: nothing the workspace tells of a
+    /// change holds on to it, so a test's store does not live on to save into a deleted folder.
+    @Test func aControllerThatGoesAwayTakesItsWorkspace() throws {
+        weak var workspace: WorkspaceStore?
+        weak var live: LiveSessions?
+        weak var notices: Notices?
+        do {
+            let (controller, dir) = try loadedController()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            workspace = controller.workspace; live = controller.live; notices = controller.notices
         }
-        controller.projects.removeDivider(rule)
-        #expect(controller.state.items.map(\.id) == [project.id])
-        #expect(controller.state.terminals.count == 1)
+        #expect(workspace == nil)
+        #expect(live == nil)
+        #expect(notices == nil)
     }
 
-    @Test func movingAProjectPastADividerChangesItsGroupWithoutReorderingProjects() throws {
-        let (controller, dir) = try loadedController()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let (a, b) = (fixtureProject("a"), fixtureProject("b"))
-        let rule = SidebarDivider(id: UUID(), name: "Work")
-        controller.workspace.mutate { state in
-            state.append(project: a)
-            state.append(divider: rule)
-            state.append(project: b)
-        }
-
-        let moved = controller.projects.move(itemId: b.id, .up)
-        #expect(moved)
-        #expect(controller.state.items.map(\.id) == [a.id, b.id, rule.id])
-        #expect(controller.state.projects.map(\.name) == ["a", "b"])
-        #expect(!controller.state.canMove(id: a.id, .up))
-        #expect(!controller.state.canMove(id: rule.id, .down))
-        #expect(controller.state.canMove(id: rule.id, .up))
-    }
-
-    @Test func dividerActionsAreRefusedWhileTheWorkspaceIsLocked() throws {
+    /// `shutdown()` stops what `start()` started, and a later `start()` starts all of it again:
+    /// the checkout monitor, and the helper's search for Python.
+    @Test func startingAgainAfterShutdownRestartsTheMonitorAndTheHelper() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let url = dir.appendingPathComponent("state.json")
-        try Data("{broken".utf8).write(to: url)
-        let controller = AppController(store: StateStore(url: url), preferences: .scratch())
-        #expect(throws: (any Error).self) { try controller.workspace.load() }
-        controller.projects.addDivider(name: "Work")
-        #expect(controller.state.items.isEmpty)
-        controller.sheets.presentNewDivider()
-        #expect(controller.sheet == nil)
+        let scans = ScanCounter(), pythonLookups = ScanCounter()
+        // A bundle, so the helper looks for Python, through a lookup that runs no login shell.
+        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
+                                       harnessHome: dir, bundledResourcesURL: dir,
+                                       scan: { _, _, _, _, _, _, _ in
+                                           scans.increment()
+                                           return WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [],
+                                                                removedTasks: [], remotes: [:])
+                                       },
+                                       findPython: { pythonLookups.increment(); return nil })
+        try controller.workspace.load()
+
+        controller.start()
+        controller.shutdown()
+        controller.start()
+        defer { controller.shutdown() }
+
+        await eventually { scans.count != 0 && controller.helper.itermConnection != .starting }
+        #expect(scans.count >= 1, "the restarted monitor runs a pass")
+        // The first start's lookup was cancelled with it: only the restarted helper reports.
+        #expect(controller.helper.itermConnection == .pythonMissing, "the restarted helper looked for Python")
+        #expect(pythonLookups.count >= 1)
     }
+}
 
-    @Test func theRenameAndNewDividerSheetsCarryTheirTarget() throws {
-        let (controller, dir) = try loadedController()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let project = fixtureProject("repo")
-        controller.workspace.mutate { $0.append(project: project) }
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "Old", branch: "feat/x", worktreePath: "/wt",
-                            baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil,
-                            firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: nil)
-        controller.workspace.mutate { $0.tasks = [task] }
-
-        controller.sheets.presentNewDivider()
-        #expect(controller.sheet?.id == "divider-new")
-
-        controller.sheets.presentRename(task: task)
-        #expect(controller.sheet?.id == "rename-\(task.id)")
-        guard case .rename(let target)? = controller.sheet else { Issue.record("expected a rename sheet"); return }
-        #expect(target.name == "Old")
-        #expect(target.title == "Rename task")
-        #expect(target.subtitle == "The branch and worktree keep their names.")
+/// A project whose `.worktreeinclude` selects an `.env` that cannot be read, so cannot be copied.
+@MainActor
+private func projectWithAnUnreadableEnv(in dir: URL) async throws -> (controller: AppController, project: Project) {
+    let repo = dir.appendingPathComponent("repo"), env = repo.appendingPathComponent(".env").path
+    try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+    let git = GitRunner.hermetic()
+    try await BackgroundWork.run {
+        try git.run(["init", "-q", "-b", "main"], in: repo.path)
+        try ".env\n".write(toFile: repo.path + "/.gitignore", atomically: true, encoding: .utf8)
+        try ".env\n".write(toFile: repo.path + "/.worktreeinclude", atomically: true, encoding: .utf8)
+        try git.run(["add", ".gitignore", ".worktreeinclude"], in: repo.path)
+        try git.run(["commit", "-q", "-m", "init"], in: repo.path)
+        try "SECRET=1\n".write(toFile: env, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: env)
     }
+    let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(), git: git)
+    try controller.workspace.load()
+    let project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+    controller.workspace.mutate { $0.items = [.project(project)] }
+    #expect(controller.workspace.flush())
+    return (controller, project)
+}
 
-    /// A terminal is renamed through the same `NameSheet` as a task: the row's name changes and is
-    /// saved; its window and everything else about it stay as they are.
-    @Test func renamingATerminalChangesAndSavesOnlyItsName() throws {
-        let (controller, dir) = try loadedController()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let project = fixtureProject("repo")
-        controller.workspace.mutate { $0.append(project: project) }
-        let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Terminal", windowId: "w1", createdAt: Date())
-        controller.workspace.mutate { $0.terminals = [terminal] }
-
-        controller.sheets.presentRename(terminal: terminal)
-        guard case .rename(let target)? = controller.sheet else { Issue.record("expected a rename sheet"); return }
-        #expect(target == .terminal(terminal))
-        #expect(target.title == "Rename terminal")
-        #expect(target.fieldLabel == "Terminal name")
-        #expect(target.name == "Terminal")
-
-        controller.projects.rename(terminal: terminal, to: "  Dev server ")
-        #expect(controller.state.terminals == [TerminalItem(id: terminal.id, projectId: project.id, name: "Dev server",
-                                                            windowId: "w1", createdAt: terminal.createdAt)])
-        #expect(try controller.savedWorkspace().terminals.map(\.name) == ["Dev server"])
-
-        // An emptied field keeps the name, as a task's does.
-        controller.projects.rename(terminal: terminal, to: "   ")
-        #expect(controller.state.terminals.map(\.name) == ["Dev server"])
+/// A repository holding one worktree of each kind, made by the same calls the app makes: a
+/// task's through `addTaskWorktree` and a review's through `addReviewWorktree`.
+/// Resolved with POSIX `realpath(3)`, as `WorktreesTests` does: git reports the physical path
+/// for a repository under `/var/folders`, and an unresolved one is added as "the repository
+/// around the folder you picked", a path the project would then not match.
+@MainActor
+private func repoWithATaskAndAReviewWorktree(git: any GitRunning) async throws -> String {
+    return try await BackgroundWork.run {
+        let raw = FileManager.default.temporaryDirectory.appendingPathComponent("imp-\(UUID().uuidString)").path
+        try FileManager.default.createDirectory(atPath: raw, withIntermediateDirectories: true)
+        let root = realpath(raw, nil).map { defer { free($0) }; return String(cString: $0) } ?? raw
+        let repo = root + "/repo"
+        try git.run(["init", "-q", "-b", "main", repo], in: root)
+        try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"], in: repo)
+        try git.run(["branch", "feat/mr-branch"], in: repo)
+        _ = try Repository(repo, git: git).addTaskWorktree(slug: "a-task", branch: "feat/a-task", base: "main")
+        _ = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        return repo
     }
+}
+
+@MainActor
+func loadedController() throws -> (AppController, URL) {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
+    try controller.workspace.load()
+    return (controller, dir)
+}
+
+@MainActor
+private func fixtureProject(_ name: String) -> Project {
+    Project(id: UUID(), name: name, path: "/" + name, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
 }
 
 /// Counts the passes a controller's scanner is asked for, from the background thread each runs on.
@@ -1331,7 +1360,7 @@ private struct DefaultBranchFailingGit: GitRunning {
     }
 }
 
-extension AppControllerTests {
+extension ControllerLifecycleTests {
     /// The operators read Claude's conversations from the app's Claude folder, as every other reader does.
     @Test func theLiveOperatorsReadTheAppsClaudeFolder() throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

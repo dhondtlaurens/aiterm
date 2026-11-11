@@ -72,6 +72,8 @@ final class OperatorWaker {
     var cleared: (@MainActor (UUID) -> Void)?
     /// The latest coalescing pass, for a test to release and await.
     private(set) var lastCoalesce: Task<Void, Never>?
+    /// The latest retry, retained so a test can release its sleep and join its actual completion.
+    private(set) var lastRetry: Task<Void, Never>?
 
     init(daemon: @escaping @MainActor () -> (any DaemonCommands)?, session: @escaping @MainActor (UUID) -> SessionInfo?,
          awake: @escaping @MainActor (UUID) -> Bool, coalesce: Duration, retryAfter: Duration = .seconds(15),
@@ -548,5 +550,6 @@ final class OperatorWaker {
             wake.retrying = nil
             send(run, wake)
         }
+        lastRetry = wake.retrying
     }
 }

@@ -103,14 +103,18 @@ import Synchronization
     /// A lookup that answers after another ticket was picked is dropped.
     @Test func aStaleLookupIsDropped() async {
         let slow = request(1, "JVS-5793: slow", branch: "slow")
+        let entered = TestLatch(), answer = TestLatch()
         let m = model(requests: { ticket in
-            if ticket.key == "JVS-5793" { try await Task.sleep(for: .milliseconds(200)) }
+            if ticket.key == "JVS-5793" { entered.signal(); await answer.wait() }
             return .init(requests: ticket.key == "JVS-5793" ? [slow] : [], complete: true)
         })
         m.pickTicket(ticket)
+        let first = m.kind.lookupTask
+        await entered.wait()
         m.pickTicket(other)
         await m.kind.lookupTask?.value
-        try? await Task.sleep(for: .milliseconds(300))
+        answer.signal()
+        await first?.value
         #expect(m.draft.mr == nil)
         #expect(m.draft.ticket == other)
     }

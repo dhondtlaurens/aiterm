@@ -115,4 +115,117 @@ assert record["started_at"] is not None and record["finished_at"] is not None
 with path.with_suffix(".lock").open("r+") as stream:
     fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
 PYMETA
-print 'Test queue: FIFO, crashed waiter, inherited holder and own-command result metadata passed.'
+# Optional history must never change either the command result or its activity record.
+review_errors=()
+for expected in 0 17; do
+    history_lock="$scratch/history-$expected"
+    mkdir "$history_lock.history.jsonl"
+    actual=0
+    "${PYTHON:-python3}" "$ROOT/scripts/test-queue.py" "$history_lock" fixture "$ROOT" \
+        /bin/sh -c "exit $expected" >"$scratch/history-$expected.stdout" 2>"$scratch/history-$expected.stderr" || actual=$?
+    [[ "$actual" == "$expected" ]] || review_errors+=("unwritable history changed command exit $expected to $actual")
+    grep -qi 'could not retain gate history' "$scratch/history-$expected.stderr" || review_errors+=('history failure did not warn')
+    if ! "${PYTHON:-python3}" - "$history_lock.runs" "$expected" <<'PYRESULT'
+import json, sys
+from pathlib import Path
+path, = Path(sys.argv[1]).glob('*.json')
+assert json.loads(path.read_text())['exit_code'] == int(sys.argv[2]), 'history rewrote the activity result'
+PYRESULT
+    then review_errors+=('history rewrote the activity result'); fi
+ done
+# Kill only the supervisor: its live command must still write both original streams and hold
+# admission until its own exit. SIGINT also exercises output after an interrupted supervisor.
+for termination in KILL INT; do
+    name="output-$termination"
+    output_lock="$scratch/$name.lock"
+    "${PYTHON:-python3}" "$ROOT/scripts/test-queue.py" "$output_lock" fixture "$ROOT" \
+        "${PYTHON:-python3}" - "$scratch" "$name" >"$scratch/$name.stdout" 2>"$scratch/$name.stderr" <<'PYCHILD' &
+import os, shutil, sys, time
+from pathlib import Path
+folder, name = Path(sys.argv[1]), sys.argv[2]
+(folder / (name + '.pid')).write_text(str(os.getpid()))
+while not (folder / (name + '.release')).exists(): time.sleep(0.01)
+result = 0
+try:
+    os.write(1, b'normal output after supervisor exit\n')
+    os.write(2, b'error output after supervisor exit\n')
+except BrokenPipeError:
+    result = 17
+(folder / (name + '.exit')).write_text(str(result))
+if report_dir := os.environ.get('AITERM_TEST_REPORT_DIR'):
+    shutil.rmtree(report_dir, ignore_errors=True)
+PYCHILD
+    supervisor=$!
+    pids+=($supervisor)
+    wait_for "$scratch/$name.pid"
+    live_child="$(cat "$scratch/$name.pid")"
+    pids+=($live_child)
+    kill -"$termination" "$supervisor"
+    supervisor_exit=0
+    wait "$supervisor" 2>/dev/null || supervisor_exit=$?
+    print "$supervisor_exit" >"$scratch/$name.supervisor-exit"
+    "${PYTHON:-python3}" "$ROOT/scripts/test-queue.py" "$output_lock" fixture "$ROOT" \
+        /usr/bin/touch "$scratch/$name.next-ran" >"$scratch/$name-next.log" 2>&1 &
+    successor=$!
+    pids+=($successor)
+    wait_queued "$name-next"
+    [[ ! -e "$scratch/$name.next-ran" ]] || review_errors+=('live writer lost the execution lock')
+    touch "$scratch/$name.release"
+    wait_for "$scratch/$name.exit"
+    [[ "$(cat "$scratch/$name.exit")" == 0 ]] || review_errors+=("$termination supervisor left the command writing to a broken pipe")
+    wait "$successor"
+    [[ -e "$scratch/$name.next-ran" ]] || review_errors+=('successor never ran')
+    grep -Fxq 'normal output after supervisor exit' "$scratch/$name.stdout" || review_errors+=('normal output was lost')
+    grep -Fxq 'error output after supervisor exit' "$scratch/$name.stderr" || review_errors+=('error output was lost or merged')
+    if grep -Fq 'error output after supervisor exit' "$scratch/$name.stdout"; then review_errors+=('stderr was merged into stdout'); fi
+ done
+# Preserve the old inherited-stdout regression at the actual queue boundary. The observer uses
+# regular files, so only a proxy inside the supervisor could wait for the grandchild's stdout EOF.
+"${PYTHON:-python3}" - "$ROOT" "$scratch" <<'PYGRANDCHILD'
+import os, shutil, subprocess, sys, time
+from pathlib import Path
+root, folder = map(Path, sys.argv[1:])
+release, pid, finished = (folder / ('inherited.' + suffix) for suffix in ('release', 'pid', 'exit'))
+worker = '''
+import os, shutil, sys, time
+from pathlib import Path
+release, pid, finished = map(Path, sys.argv[1:])
+pid.write_text(str(os.getpid()))
+while not release.exists(): time.sleep(0.01)
+if report_dir := os.environ.get('AITERM_TEST_REPORT_DIR'):
+    shutil.rmtree(report_dir, ignore_errors=True)
+finished.write_text('0')
+'''
+parent = '''
+import subprocess, sys
+subprocess.Popen([sys.executable, '-c', sys.argv[1], *sys.argv[2:]], close_fds=False)
+raise SystemExit(17)
+'''
+with (folder / 'inherited.stdout').open('wb') as output, (folder / 'inherited.stderr').open('wb') as error:
+    helper = subprocess.Popen([sys.executable, str(root / 'scripts/test-queue.py'), str(folder / 'inherited.lock'),
+        'fixture', str(root), sys.executable, '-c', parent, worker, str(release), str(pid), str(finished)],
+        stdout=output, stderr=error)
+    (folder / 'inherited.supervisor.pid').write_text(str(helper.pid))
+    try:
+        code = helper.wait(timeout=5)
+        (folder / 'inherited.supervisor.exit').write_text(str(code))
+        assert code == 17, code
+        assert not finished.exists(), 'grandchild was not still holding stdout'
+    finally:
+        release.touch()
+        try:
+            helper.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            helper.kill()
+            helper.wait()
+    deadline = time.monotonic() + 5
+    while not finished.exists() and time.monotonic() < deadline: time.sleep(0.01)
+    assert pid.exists() and finished.read_text() == '0'
+PYGRANDCHILD
+
+if (( ${#review_errors} )); then
+    print -rl -u2 -- $review_errors
+    fail 'review regressions: optional history and inherited output failed'
+fi
+
+print 'Test queue: FIFO, crashed waiter, inherited holder, command results, optional history and separate live-child streams passed.'

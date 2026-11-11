@@ -19,13 +19,14 @@ import Testing
 ///
 /// Every suite whose tests do blocking work off the main actor — a process waited for
 /// (`ProcessRunner`, `GitRunner`, a fixture's git), `Thread.sleep`, a semaphore — must be marked
-/// `@Suite(.blocking)`; nothing checks that it is.
+/// `@Suite(.blocking)`. The test-only process hook records an issue for an unmarked caller.
 ///
 /// At most one of these test cases per core runs at once (`BlockingSlots`). Most of them start git dozens of
 /// times, and with every one of them under way together the machine ran hundreds of gits side by
 /// side, so a fixture's `git init` waited past `GitRunner.localTimeout` for a core. A case waits
 /// for its slot before its body starts, so no time it measures includes the wait.
 struct BlockingTrait: SuiteTrait, TestTrait, TestScoping {
+    @TaskLocal static var isActive = false
     var isRecursive: Bool { true }
 
     func provideScope(for test: Test, testCase: Test.Case?, performing function: @Sendable () async throws -> Void) async throws {
@@ -33,7 +34,9 @@ struct BlockingTrait: SuiteTrait, TestTrait, TestScoping {
         guard testCase != nil else { return try await function() }
         await BlockingSlots.shared.acquire()
         defer { BlockingSlots.shared.release() }
-        try await withTaskExecutorPreference(ThreadPerJob.shared) { try await function() }
+        try await Self.$isActive.withValue(true) {
+            try await withTaskExecutorPreference(ThreadPerJob.shared) { try await function() }
+        }
     }
 }
 
@@ -85,3 +88,13 @@ final class ThreadPerJob: TaskExecutor {
     }
 }
 #endif
+
+/// Called by the test-only NSTask hook, including ProcessRunner and direct Foundation.Process users.
+/// A Dispatch queue or a dedicated thread has no current test and already runs off the cooperative pool.
+@_cdecl("AiTermTestCheckBlocking")
+func checkTestBlocking() {
+    #if DEBUG
+    guard Test.current != nil, !BlockingTrait.isActive else { return }
+    Issue.record("Process work in a test requires @Suite(.blocking) or @Test(.blocking)")
+    #endif
+}

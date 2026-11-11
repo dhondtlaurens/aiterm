@@ -3,7 +3,7 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-struct UnbornRepositoryTests {
+@Suite(.blocking) struct UnbornRepositoryTests {
     private let git = GitRunner.hermetic()
 
     private func unborn(_ branch: String = "main") throws -> String {
