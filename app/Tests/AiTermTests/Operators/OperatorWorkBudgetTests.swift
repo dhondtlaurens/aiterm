@@ -270,8 +270,8 @@ import Testing
 
     /// The `OperatorReviewTests` broadcast with `count` tasks in review, each with its draft request open (!12, !13, …)
     /// and people's review begun, all on one repository whose origin the fake host is bound to; git recorded.
-    func inReview(_ count: Int, git: RecordingGitRunner) async throws -> OperatorReviewTests.Reviewed {
-        let reviewed = try await OperatorReviewTests().reviewed(.inReview, adjust: { $0.git = git })
+    func inReview(_ count: Int, git: RecordingGitRunner, adjust: (inout OperatorPorts) -> Void = { _ in }) async throws -> OperatorReviewTests.Reviewed {
+        let reviewed = try await OperatorReviewTests().reviewed(.inReview, adjust: { ports in ports.git = git; adjust(&ports) })
         reviewed.world.workspace.mutate { state in
             for n in 1..<count {
                 var task = reviewed.task
@@ -306,10 +306,9 @@ import Testing
     }
 
     /// One `run_status` call over `count` tasks in people's review, the host's readings not kept yet, let finish: per
-    /// task, 2 host requests (its threads, read on every call, and its request's state, kept for `hostCache`) and 2
-    /// `git remote get-url` to find the host, one for each. A second call at once: the threads again, the state kept,
-    /// so 1 request and 1 origin read per task. A later change that finds the host once per call lowers the origin
-    /// reads; none may raise any of these.
+    /// task, 2 host requests (threads and request state), then 1 per task on a warm call (threads).
+    /// Each call resolves this project's origin once: phase 0 counted 2N cold and N warm origin reads.
+    /// Concurrency is not a count; this budget proves the origin-read reduction only.
     @Test(arguments: [1, 5, 20]) func aRunStatusCallAsksTheHost(count: Int) async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let r = try await inReview(count, git: git)
@@ -325,15 +324,15 @@ import Testing
         let cold = await call(), warm = await call()
 
         #expect(cold.requests.count == 2 * count, "host requests per cold run_status over \(count): \(cold.requests)")
-        #expect(cold.origins == 2 * count, "origin reads per cold run_status over \(count)")
+        #expect(cold.origins == 1, "origin reads per cold run_status over \(count)")
         #expect(warm.requests.count == count, "host requests per warm run_status over \(count): \(warm.requests)")
-        #expect(warm.origins == count, "origin reads per warm run_status over \(count)")
+        #expect(warm.origins == 1, "origin reads per warm run_status over \(count)")
     }
 }
 
 
 extension OperatorWorkBudgetTests {
-    /// Baseline for phase 6's settings synchronization: one redundant profile read on an ordinary tool call.
+    /// Phase 6 removes the redundant profile read from an ordinary tool call: 1 to 0.
     @Test func aToolCallReadsOracleSettings() async throws {
         let (world, run, _) = try OperatorServiceFixtures.oneWorkingTask()
         defer { world.controller.stop() }
@@ -341,10 +340,10 @@ extension OperatorWorkBudgetTests {
             #expect(await world.call(run.id, "ask_you", ["key": "q", "question": "Which locale?"]).message == nil)
             await world.ports.work.settled()
         }
-        #expect(work[.oracleSettingsRead] == 1)
+        #expect(work[.oracleSettingsRead, default: 0] == 0)
     }
 
-    /// Baseline: the gate fetches for landing, then the finisher fetches for the same landing again.
+    /// Landing stays fresh after the Oracle wait: 2 fetches; reuse dropped by the Operator.
     @Test func aJudgedMergeFetchesItsLandingCheck() async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let m = try OperatorMergeTests().merging(answer: "YES") { $0.git = git }
@@ -355,5 +354,57 @@ extension OperatorWorkBudgetTests {
         await m.world.ports.work.settled()
         let fetches = git.calls.dropFirst(mark).filter { $0.args.contains("fetch") }.map(\.args)
         #expect(fetches.count == 2, "landing-check fetches in a judged merge: \(fetches)")
+    }
+}
+
+
+extension OperatorWorkBudgetTests {
+    /// Main 51f83d77's sequential payload and numbering are the byte reference for the concurrent reads.
+    private func sequentialStatus(_ run: OperatorRun, world: OperatorWorld, numbered: inout [UUID: (content: RunStatus, revision: Int)]) async throws -> JSONValue {
+        let tools = world.controller.tools
+        let delivery = await tools.deliveryStatus()
+        var agents = await referenceAgentChoices(tools)
+        for (agent, messaging) in delivery ?? [:] { agents[agent]?.delivery = messaging }
+        let threads = await tools.readThreads(inRun: run.id)
+        guard let current = world.state.run(id: run.id),
+              var content = tools.currentStatus(of: current, hostThreads: threads.compactMapValues(\.resolutions)) else {
+            throw ToolRefusal("This broadcast is no longer in AiTerm.")
+        }
+        for index in content.tasks.indices {
+            if case .note(let note)? = threads[content.tasks[index].id] { content.tasks[index].peopleReview?.threadsNote = note }
+        }
+        content.run.agents.installed = Dictionary(agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
+        await tools.fillMergeRequests(&content)
+        let previous = numbered[run.id]
+        let revision = previous?.content == content ? previous?.revision ?? 1 : (previous?.revision ?? 0) + 1
+        numbered[run.id] = (content, revision)
+        var status = content
+        status.revision = revision
+        tools.waker.acknowledged(status, of: run.id)
+        return try JSONValue(encoding: status)
+    }
+
+
+    private func referenceAgentChoices(_ tools: OperatorToolHandler) async -> [AgentKind: RunStatus.AgentChoice] {
+        let agents = ModelChoice.pair.filter(tools.installedAgents.contains), models = tools.agentModels
+        let lists = await BackgroundWork.run { Dictionary(agents.map { ($0, models($0).map(\.id)) }, uniquingKeysWith: { first, _ in first }) }
+        return Dictionary(agents.map { agent in
+            let fallback = tools.defaultModel(for: agent)
+            return (agent, RunStatus.AgentChoice(models: lists[agent] ?? [], defaultModel: fallback.model, defaultReasoning: fallback.reasoning))
+        }, uniquingKeysWith: { first, _ in first })
+    }
+
+
+    @Test(arguments: [1, 5, 20]) func runStatusKeepsTheSequentialPayload(count: Int) async throws {
+        let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic()), epoch = OperatorCurrentContractTests.epoch
+        let r = try await inReview(count, git: git) { $0.clock.now = { epoch } }
+        defer { r.world.controller.stop() }
+        var numbered: [UUID: (content: RunStatus, revision: Int)] = [:]
+        for _ in 0..<2 {
+            let actual = try #require(await r.world.call(r.run.id, "run_status").value)
+            let expected = try await sequentialStatus(r.run, world: r.world, numbered: &numbered)
+            #expect(OperatorToolHandler.json(actual) == OperatorToolHandler.json(expected))
+            await r.world.ports.work.settled()
+        }
     }
 }

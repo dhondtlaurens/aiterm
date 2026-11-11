@@ -63,7 +63,6 @@ extension OperatorToolHandler {
             mutate(in: run.id) { $0.updateRun(id: run.id) { $0.gateAllowances.remove(at: allowed) } }
             return answer("allow", "allowed by you")
         }
-        refreshOracleSettings()
         let generation = oracleGeneration(run.id)
         let opinion = state.run(id: run.id)?.profile.oracle ?? run.profile.oracle
         guard opinion.isOn else {
@@ -81,7 +80,6 @@ extension OperatorToolHandler {
         let verdict = await job.value
         // The Oracle may take minutes: a broadcast that ended meanwhile runs nothing and asks nothing.
         if let ended = ended(run.id) { return answer("deny", ended, outcome: .refused) }
-        refreshOracleSettings()
         if oracleGeneration(run.id) != generation {
             return state.run(id: run.id)?.profile.oracle.isOn == false
                 ? answer("allow", "unchallenged: the Oracle is off")

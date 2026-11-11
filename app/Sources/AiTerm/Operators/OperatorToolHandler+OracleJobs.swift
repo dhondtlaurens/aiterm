@@ -33,7 +33,11 @@ final class OracleJobs {
             let current = jobs[key]?.token == token
             if current { jobs[key] = nil }
             // The gate keeps the runner's cancellation verdict for its existing allow/deny construction.
-            guard current, !Task.isCancelled else { return keepCancelled ? raw : nil }
+            guard current, !Task.isCancelled else {
+                guard keepCancelled else { return nil }
+                if case .critique = raw { return SecondOpinionRunner.cancelled }
+                return raw
+            }
             let verdict = capped ? OperatorToolHandler.capped(raw) : raw
             settle(verdict)
             return verdict

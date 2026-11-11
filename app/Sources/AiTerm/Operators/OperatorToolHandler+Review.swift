@@ -343,8 +343,10 @@ extension OperatorToolHandler {
 
     /// The host of the task's request, refused unless the project's origin still resolves to the repository it was
     /// opened in.
-    func reviewHost(of task: TaskItem, request publication: TaskPublication?) async throws -> any MergeRequestPublishing {
-        let host = try await reviewHost(of: task)
+    func reviewHost(of task: TaskItem, request publication: TaskPublication?, using hosts: StatusHosts? = nil) async throws -> any MergeRequestPublishing {
+        let host: any MergeRequestPublishing
+        if let hosts { host = try await hosts.host(of: task) }
+        else { host = try await reviewHost(of: task) }
         if let publication, let why = PublicationGuard.otherRepository(publication, repository: host.repository) { throw ToolRefusal(why) }
         return host
     }

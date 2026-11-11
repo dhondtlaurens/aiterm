@@ -234,3 +234,21 @@ extension OperatorOracleLifecycleTests {
         #expect(!jobs.contains(.challenge("same")) && recorded == ["new"])
     }
 }
+
+extension OperatorOracleLifecycleTests {
+    @Test func aGateVerdictReturnedAfterCancellationCannotOpenAQuestion() async throws {
+        let gate = OracleGate(), prompts = OperatorMergeTests.Prompts()
+        let runner = SecondOpinionRunner.answering("ASK: the person decides.", gate: gate, receivePrompt: { prompts.append($0) })
+        let (world, run, _) = try OperatorGateTests().makeWorld(runner: runner)
+        var answer: ToolAnswer?
+        world.ports.work.start {
+            answer = await world.call(run.id, "gate_command", ["command": "npm install", "directory": "/tmp"])
+        }
+        await eventually { prompts.list.count == 1 }
+        world.controller.stop()
+        await gate.open()
+        await world.ports.work.settled()
+        #expect(world.run(run.id)?.questions.isEmpty == true, "A cancelled Oracle cannot ask the person later")
+        #expect(answer?.value?["decision"] == "allow")
+    }
+}

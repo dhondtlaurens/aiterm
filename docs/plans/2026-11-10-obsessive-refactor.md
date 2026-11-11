@@ -537,7 +537,11 @@ Each box leaves the project working and is one or a few commits.
   board's one derivation is dropped: no budget counts it (record).
 - [x] 6a. One Oracle-job owner, cancelled on Stop and End (test first).
 - [x] 6b. Handler on tool traits; private tables; `mark_task` enum; sentence and timeout helpers.
-- [ ] 6c. Concurrent `run_status` host reads; reused landing check; settings sync sites.
+- [x] 6c. Concurrent `run_status` host reads; settings sync sites. Status-build skipping dropped: its probe leaves
+  the primed call at 3 and the frozen journey at 47, so its code is left out. "A judged merge reuses the gate's
+  landing check" is dropped on the Operator's decision: reuse changes the reply when the host merges during the
+  Oracle wait (published/merged true becomes waitingToMerge/merged false, with create/edit calls). Keep the second
+  fetch and the regression test; no fetch-budget improvement is claimed (record).
 - [ ] 6d. Finisher as a reference with one record per task; outcome kind; test layering.
 - [ ] 7a. Shared teardown prepare and run.
 - [ ] 7b. Debounced search; hook list; grouped ports.

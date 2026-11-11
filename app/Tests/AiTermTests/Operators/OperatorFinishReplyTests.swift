@@ -377,3 +377,25 @@ import Testing
         #expect(f.host.log.isEmpty)
     }
 }
+
+extension OperatorFinishReplyTests {
+    /// The host merges while the Oracle waits: main's second landing fetch records that merge.
+    @Test func aHostMergeDuringTheOracleWaitIsRecordedWithoutOpeningARequest() async throws {
+        let gate = OracleGate(), git = GitRunner.hermetic()
+        let f = try finishing(end: .merge, oracle: true, answer: "YES", gate: gate,
+                              challengeBudget: .seconds(600), budget: .seconds(600)) { _, path, _ in
+            try git.run(["push", "-q", "origin", "feat/a"], in: path)
+        }
+        defer { f.world.controller.stop() }
+        var answer: ToolAnswer?
+        f.world.ports.work.start { answer = await f.call() }
+        await eventually(describing: "the Oracle to judge the not-yet-landed commit") { f.prompts.list.count == 1 }
+        // Only this test's bare origin: stand in for a host-side fast-forward merge.
+        try git.run(["update-ref", "refs/heads/main", f.sha], in: f.origin)
+        await gate.open()
+        await f.world.ports.work.settled()
+        #expect(answer?.value?["result"] == "published", "Main records the merge discovered after the Oracle wait")
+        #expect(answer?.value?["merged"] == true)
+        #expect(f.host.log == ["existing feat/a"], "Only the existing-request lookup; nothing opened or written on the host")
+    }
+}

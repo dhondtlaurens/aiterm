@@ -244,7 +244,6 @@ extension OperatorToolHandler {
             ? deadline.map { min(ports.challengeReplyBudget, max(.zero, $0 - ContinuousClock.now)) } ?? ports.challengeReplyBudget
             : ports.challengeReplyBudget
         let answered = try? await BackgroundWork.within(wait, cancelling: false) { await challenge.value }.get()
-        refreshOracleSettings()
         if oracleGeneration(run.id) != generation {
             guard state.run(id: run.id)?.profile.oracle.isOn != false else { return nil }
             throw ToolRefusal("The Oracle settings changed while this check ran. Call \(call.tool) again without challengeId for a fresh check.")

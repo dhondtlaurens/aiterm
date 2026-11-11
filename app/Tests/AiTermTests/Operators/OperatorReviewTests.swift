@@ -907,3 +907,48 @@ extension OperatorReviewTests {
         }
     }
 }
+
+
+extension OperatorReviewTests {
+    @Test func statusReadsThreadsAndRequestStateTogether() async throws {
+        let gate = OracleGate()
+        let r = try await reviewed(.inReview, checkout: false)
+        defer { r.world.controller.stop() }
+        r.host.update {
+            $0.beforeState = { await gate.wait() }
+            $0.onCall = { if $0 == "threads 12" { await gate.wait() } }
+        }
+        var answer: ToolAnswer?
+        r.world.ports.work.start { answer = await r.world.call(r.run.id, "run_status") }
+        await eventually(describing: "both host reads to enter before either is released") {
+            r.host.log.contains("threads 12") && r.host.log.contains("state 12")
+        }
+        await gate.open()
+        await r.world.ports.work.settled()
+        #expect(answer?.value?["tasks"]?.arrayValue?.first?["mergeRequest"] != nil)
+    }
+}
+
+extension OperatorReviewTests {
+    @Test func runStatusDoesNotReuseAStateThatExpiredWhileItsThreadsWereRead() async throws {
+        let clock = TestClock.operators(), gate = OracleGate()
+        let r = try await reviewed(.inReview, checkout: false) { $0.clock.now = { clock.now } }
+        defer { r.world.controller.stop() }
+        r.host.update {
+            $0.state = MergeRequestState(iid: 12, url: FakeMergeHost.url, draft: true, pipeline: "running", mergeable: "mergeable", approvedBy: [], head: r.sha)
+            $0.onCall = { if $0 == "threads 12" { await gate.wait() } }
+        }
+        var answer: ToolAnswer?
+        r.world.ports.work.start { answer = await r.world.call(r.run.id, "run_status") }
+        await eventually { r.host.log.contains("state 12") && r.host.log.contains("threads 12") }
+        await r.world.ports.work.settled(leaving: 1)
+        clock.advance(by: r.world.ports.hostCache + 1)
+        r.host.update {
+            $0.state = MergeRequestState(iid: 12, url: FakeMergeHost.url, draft: true, pipeline: "success", mergeable: "mergeable", approvedBy: [], head: r.sha)
+        }
+        await gate.open()
+        await r.world.ports.work.settled()
+        #expect(answer?.value?["tasks"]?.arrayValue?.first?["mergeRequest"]?["pipeline"] == "success")
+        #expect(r.host.log.filter { $0 == "state 12" }.count == 2)
+    }
+}

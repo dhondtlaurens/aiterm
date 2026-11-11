@@ -136,7 +136,7 @@ final class OperatorToolHandler {
     struct ReviewWaiter { let id: UUID; let continuation: CheckedContinuation<Void, any Error> }
     private var reviewAssignments: [ReviewRequestKey: [ReviewWaiter]] = [:]
     /// A request reading belongs to this repository and accepted commit, even when its URL stays the same.
-    struct HostReadKey: Hashable {
+    struct HostReadKey: Hashable, Sendable {
         let project: UUID, repository: String?, url: String, number: Int, acceptedSHA: String?
     }
     struct HostRead { let id: UUID; let task: Task<HostReading, Never> }
@@ -309,7 +309,6 @@ final class OperatorToolHandler {
         // A finish_task answers by then, its publication done or not, and a retry_task, its launch done or not: the daemon
         // stops waiting soon after.
         let deadline = ContinuousClock.now + ports.finishReplyBudget
-        refreshOracleSettings()
         // A shell command is the gate's alone: never a tool, a challenge or a replayed message. It answers an ended
         // broadcast itself, with a deny rather than an error, which the hook would let run.
         if request.tool == Self.gateTool { return (.result(await gate(request)), .ok) }
@@ -458,16 +457,19 @@ final class OperatorToolHandler {
         let delivery = await deliveryStatus()
         var agents = await agentChoices()
         for (agent, messaging) in delivery ?? [:] { agents[agent]?.delivery = messaging }
-        let threads = await readThreads(inRun: run.id)
+        let hosts = StatusHosts(workspace: workspace, codeHost: ports.codeHost)
+        let requests = ports.work.start { [self] in await readMergeRequests(inRun: run.id, hosts: hosts) }
+        let threads = await readThreads(inRun: run.id, hosts: hosts)
         guard let current = state.run(id: run.id),
               var content = currentStatus(of: current, hostThreads: threads.compactMapValues(\.resolutions)) else {
+            requests.cancel()
             throw ToolRefusal("This broadcast is no longer in AiTerm.")
         }
         for index in content.tasks.indices {
             if case .note(let note)? = threads[content.tasks[index].id] { content.tasks[index].peopleReview?.threadsNote = note }
         }
         content.run.agents.installed = Dictionary(agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
-        await fillMergeRequests(&content)
+        await fillMergeRequests(&content, hosts: hosts, ready: await requests.value)
         let previous = numbered[run.id]
         let revision = previous?.content == content ? previous?.revision ?? 1 : (previous?.revision ?? 0) + 1
         numbered[run.id] = (content, revision)
@@ -715,8 +717,19 @@ final class OperatorToolHandler {
 }
 
 extension OperatorToolHandler {
+    /// Successful prefetches go through hostState again, so expiry or a newer pending read still wins.
+    /// A failed prefetch is used only for this response and never enters the success cache.
+    func prefetchedHostNote(_ kept: StatusHostReading, for task: TaskItem) -> HostReading? {
+        guard Self.hostReadKey(of: task) == kept.key, case .note = kept.reading else { return nil }
+        if hostReads[kept.key] != nil { return nil }
+        if let cached = hostStates[kept.key], ports.now().timeIntervalSince(cached.at) < ports.hostCache {
+            return .state(cached.state)
+        }
+        return kept.reading
+    }
+
     /// A successful request-state reading is retained for hostCache; a failed read is never kept.
-    func hostState(of task: TaskItem) async -> HostReading? {
+    func hostState(of task: TaskItem, hosts: StatusHosts? = nil) async -> HostReading? {
         guard let publication = task.operated?.publication, let number = publication.mergeRequestNumber,
               let url = publication.mergeRequestURL else { return nil }
         let key = HostReadKey(project: task.projectId, repository: publication.repository, url: url,
@@ -724,7 +737,7 @@ extension OperatorToolHandler {
         if let kept = hostStates[key], ports.now().timeIntervalSince(kept.at) < ports.hostCache { return .state(kept.state) }
         if let pending = hostReads[key] { return await pending.task.value }
         let id = UUID()
-        let reading = Task { await self.readHost(task, publication: publication, number: number, url: url) }
+        let reading = Task { await self.readHost(task, publication: publication, number: number, url: url, hosts: hosts) }
         hostReads[key] = HostRead(id: id, task: reading)
         let answer = await reading.value
         // A stop may have discarded this job and a resumed caller started another one for the same request.

@@ -12,12 +12,13 @@ extension OperatorToolHandler {
     }
 
     /// Fills `mergeRequest`, or `mergeRequestNote`, on every task of `status` that has a request, asking the hosts together.
-    func fillMergeRequests(_ status: inout RunStatus) async {
+    func fillMergeRequests(_ status: inout RunStatus, hosts: StatusHosts? = nil, ready: [UUID: StatusHostReading] = [:]) async {
         // One task each, started together: every host answers or times out inside the same few seconds.
         let jobs = status.tasks.map(\.id).map { id in
             (id, Task { @MainActor () -> HostReading? in
                 guard let task = self.state.task(id: id) else { return nil }
-                return await self.hostState(of: task)
+                if let kept = ready[id], let reading = self.prefetchedHostNote(kept, for: task) { return reading }
+                return await self.hostState(of: task, hosts: hosts)
             })
         }
         var readings: [UUID: HostReading] = [:]
@@ -31,12 +32,12 @@ extension OperatorToolHandler {
         }
     }
 
-    func readHost(_ task: TaskItem, publication: TaskPublication, number: Int, url: String) async -> HostReading {
+    func readHost(_ task: TaskItem, publication: TaskPublication, number: Int, url: String, hosts: StatusHosts? = nil) async -> HostReading {
         let request = MergeRequest(iid: number, title: task.title, sourceBranch: task.branch, targetBranch: publication.targetBranch ?? "",
                                    author: nil, state: "opened", draft: false, url: url)
         let limit = ports.hostTimeout
         let answer = await BackgroundWork.within(limit) { [self] in
-            let host = try await reviewHost(of: task, request: publication)
+            let host = try await reviewHost(of: task, request: publication, using: hosts)
             return try await host.state(of: request)
         }
         switch answer {
@@ -60,21 +61,21 @@ extension OperatorToolHandler {
     /// The review threads of every task of the run with a request whose people review began, in any state, as the host has
     /// them now: asked together, each within `OperatorPorts.hostTimeout`, and never kept, so a thread resolved on the host
     /// is counted resolved on the next run_status. A host that doesn't answer leaves a note, never a failed tool.
-    func readThreads(inRun run: UUID) async -> [UUID: ThreadsReading] {
+    func readThreads(inRun run: UUID, hosts: StatusHosts? = nil) async -> [UUID: ThreadsReading] {
         let jobs = state.tasks(inRun: run).compactMap { task -> (UUID, Task<ThreadsReading, Never>)? in
             guard let operated = task.operated, operated.peopleReview != nil, let publication = operated.publication,
                   let number = publication.mergeRequestNumber else { return nil }
-            return (task.id, Task { @MainActor () -> ThreadsReading in await self.readThreads(task, publication: publication, number: number) })
+            return (task.id, Task { @MainActor () -> ThreadsReading in await self.readThreads(task, publication: publication, number: number, hosts: hosts) })
         }
         var readings: [UUID: ThreadsReading] = [:]
         for (id, job) in jobs { readings[id] = await job.value }
         return readings
     }
 
-    private func readThreads(_ task: TaskItem, publication: TaskPublication, number: Int) async -> ThreadsReading {
+    private func readThreads(_ task: TaskItem, publication: TaskPublication, number: Int, hosts: StatusHosts? = nil) async -> ThreadsReading {
         let limit = ports.hostTimeout
         let answer = await BackgroundWork.within(limit) { [self] in
-            let host = try await reviewHost(of: task, request: publication)
+            let host = try await reviewHost(of: task, request: publication, using: hosts)
             return try await host.threads(of: number)
         }
         switch answer {
@@ -86,11 +87,68 @@ extension OperatorToolHandler {
         }
     }
 
+    struct StatusHostReading: Sendable { let key: HostReadKey; let reading: HostReading }
+
+    static func hostReadKey(of task: TaskItem) -> HostReadKey? {
+        guard let publication = task.operated?.publication, let number = publication.mergeRequestNumber,
+              let url = publication.mergeRequestURL else { return nil }
+        return HostReadKey(project: task.projectId, repository: publication.repository, url: url,
+                           number: number, acceptedSHA: task.operated?.acceptance?.resultSHA)
+    }
+
+    /// Prefetches alongside the thread reads. Application still validates each task's publication identity.
+    func readMergeRequests(inRun run: UUID, hosts: StatusHosts) async -> [UUID: StatusHostReading] {
+        let jobs = state.tasks(inRun: run).compactMap { task -> (UUID, Task<StatusHostReading?, Never>)? in
+            guard let key = Self.hostReadKey(of: task) else { return nil }
+            return (task.id, Task { @MainActor in
+                guard let reading = await self.hostState(of: task, hosts: hosts) else { return nil }
+                return StatusHostReading(key: key, reading: reading)
+            })
+        }
+        var readings: [UUID: StatusHostReading] = [:]
+        for (id, job) in jobs { readings[id] = await job.value }
+        return readings
+    }
+
     /// Some surrounding sentences supply their own punctuation; the request-state note does not.
     static func hostFailure(_ error: any Error, limit: Duration, trimmingPeriods: Bool = false) -> String {
         var why = error is BackgroundWork.NoAnswer ? "the host did not answer in \(Int(limit.components.seconds)) seconds"
             : (error as? ToolRefusal)?.message ?? error.localizedDescription
         if trimmingPeriods { while why.hasSuffix(".") { why.removeLast() } }
         return why
+    }
+}
+
+
+/// One run_status call's repository bindings. Only a successful binding is retained; a failed
+/// lookup leaves immediately, and its token cannot remove a newer lookup of the same project.
+@MainActor
+final class StatusHosts {
+    private struct Key: Hashable { let project: UUID; let path: String }
+    private struct Read { let id: UUID; let task: Task<any MergeRequestPublishing, any Error> }
+    private let workspace: WorkspaceStore
+    private let codeHost: CodeHostCheck
+    private var reads: [Key: Read] = [:]
+
+    init(workspace: WorkspaceStore, codeHost: CodeHostCheck) { self.workspace = workspace; self.codeHost = codeHost }
+
+    func host(of task: TaskItem) async throws -> any MergeRequestPublishing {
+        guard let project = workspace.state.project(id: task.projectId) else { throw ToolRefusal("Its project is no longer in AiTerm.") }
+        let key = Key(project: project.id, path: project.path)
+        let read: Read
+        if let existing = reads[key] { read = existing }
+        else {
+            let codeHost = self.codeHost
+            read = Read(id: UUID(), task: Task<any MergeRequestPublishing, any Error> {
+                do { return try await codeHost.host(of: project) }
+                catch let failure as CodeHostCheck.Failure { throw ToolRefusal(failure) }
+            })
+            reads[key] = read
+        }
+        do { return try await read.task.value }
+        catch {
+            if reads[key]?.id == read.id { reads[key] = nil }
+            throw error
+        }
     }
 }
