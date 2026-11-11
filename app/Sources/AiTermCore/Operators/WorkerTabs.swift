@@ -46,6 +46,38 @@ public struct WorkerTab: Equatable, Sendable {
     /// An extra tab that opened and is listed no more: closed, and never opened again. A first worker is never closed
     /// here; its window comes back on your click.
     public var isClosed: Bool { key != nil && session == nil && !isOpening }
+
+    /// This tab as its tab alone says it, a first worker's launch not counted: what `TaskItem.workerTabs(in:)` gives with
+    /// no time. A pass matches its tabs once, as of its time; what readiness and a pause leave aside reads them so.
+    public var asListed: WorkerTab {
+        guard key == nil, isOpening else { return self }
+        var tab = self
+        tab.isOpening = false
+        return tab
+    }
+}
+
+/// Which of a task's worker tabs a field names: its first worker, or an extra tab by its key. Each field keeps its own
+/// encoding, nil or `main` (`WorkerTab.firstKey`) for the first worker, and is read through this.
+public enum TabReference: Hashable, Sendable {
+    case first, extra(String)
+
+    /// From a key or a name: nil and `main` are the first worker, a key no extra tab may take (`open_tab`).
+    public init(_ key: String?) {
+        guard let key, key != WorkerTab.firstKey else { self = .first; return }
+        self = .extra(key)
+    }
+
+    /// The name `run_status` and the Operator's tools give it: `main` for the first worker.
+    public var name: String { if case .extra(let key) = self { key } else { WorkerTab.firstKey } }
+
+    /// Its key, nil for the first worker: as `WorkerTab.key`, an extra tab's question and a worker's reading keep it.
+    public var key: String? { if case .extra(let key) = self { key } else { nil } }
+}
+
+public extension WorkerTab {
+    /// Which tab it is (`TabReference`).
+    var reference: TabReference { TabReference(key) }
 }
 
 /// An immutable view for one observation pass. Parse each session's task tag once, retaining daemon order.
@@ -80,19 +112,23 @@ public extension TaskItem {
     /// when the task has none of that key.
     func workerTab(_ key: String?, in sessions: [SessionInfo]) -> WorkerTab? {
         let tabs = workerTabs(in: sessions)
-        guard let key, key != WorkerTab.firstKey else { return tabs[0] }
-        return tabs.first { $0.key == key }
+        switch TabReference(key) {
+        case .first: return tabs[0]
+        case .extra(let key): return tabs.first { $0.key == key }
+        }
     }
 
-    /// Whether its result waits for the Operator to accept it, its workers as `sessions` list them: working, and
-    /// every worker ended its turn with nothing left running in the background (`RunStatus.isReadyForAcceptance`).
-    /// A question it waits on you for (`waitingOnYou`) holds it too, as `run_status` says, and so does a worker whose
-    /// turn an API error ended (`SessionInfo.stoppedOn`): it did not finish.
-    func isReadyForAcceptance(in sessions: [SessionInfo]) -> Bool {
-        return isReadyForAcceptance(tabs: workerTabs(in: sessions))
+    /// Whether its result waits for the Operator to accept it, its workers as `sessions` list them as of `now`: working,
+    /// and every worker ended its turn with nothing left running in the background (`RunStatus.isReadyForAcceptance`). A
+    /// first worker still launching is at work (`workerTabs(in:now:)`), as `run_status` counts it. A question it waits on
+    /// you for (`waitingOnYou`) holds it too, as `run_status` says, and so does a worker whose turn an API error ended
+    /// (`SessionInfo.stoppedOn`): it did not finish.
+    func isReadyForAcceptance(in sessions: [SessionInfo], now: Date) -> Bool {
+        return isReadyForAcceptance(tabs: workerTabs(in: sessions, now: now))
     }
 
-    /// `isReadyForAcceptance(in:)` from its worker tabs (`workerTabs(in:)`), for a caller that has them already.
+    /// `isReadyForAcceptance(in:now:)` from its worker tabs as of a time (`workerTabs(in:now:)`), for a caller that has
+    /// them already.
     internal func isReadyForAcceptance(tabs: [WorkerTab]) -> Bool {
         guard let operated, !operated.flags.contains(.waitingOnYou), tabs.allSatisfy({ $0.session?.stoppedOn == nil }) else { return false }
         let workers = tabs.map(\.status)
@@ -110,7 +146,7 @@ public extension TaskItem {
         var asking: [(rank: Int, place: Int, session: SessionInfo)] = []
         for (place, tab) in tabs.enumerated() {
             guard let session = tab.session else { continue }
-            let key = tab.key ?? WorkerTab.firstKey
+            let key = tab.reference.name
             var ranks = requests.filter { $0.taskId == id && $0.tab == key }.map(\.kind.rank)
             if session.state == .needsInput { ranks.append(BroadcastRequest.Kind.permission.rank) }
             if let rank = ranks.min() { asking.append((rank, place, session)) }
@@ -136,7 +172,8 @@ public extension TaskItem {
         }
     }
 
-    /// A shared per-pass session view for callers observing several tasks.
+    /// A shared per-pass session view for callers observing several tasks: given `now`, the pass's one live projection
+    /// of the task, which run_status (`TaskLiveFacts.of`) and the turn reader read.
     func workerTabs(in sessions: WorkerSessions, now: Date? = nil) -> [WorkerTab] {
         workerTabs(in: sessions.sessions(for: id), now: now)
     }

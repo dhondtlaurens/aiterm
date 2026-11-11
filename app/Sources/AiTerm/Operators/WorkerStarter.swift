@@ -541,11 +541,8 @@ final class WorkerStarter {
         // A relaunch has no earlier record: its launch was claimed before, and stays.
         guard let before else { return }
         workspace.mutate { state in
-            guard let i = state.tasks.firstIndex(where: { $0.id == id }), let operated = state.tasks[i].operated,
-                  operated.state == .working, operated.launch == attempt else { return }
-            state.tasks[i].operated?.state = before.state
-            state.tasks[i].operated?.launch = before.launch
-            state.tasks[i].operated?.blockedReason = before.blockedReason
+            guard let operated = state.task(id: id)?.operated, operated.state == .working, operated.launch == attempt else { return }
+            state.updateOperated(id) { OperatedTransitions.record(.unclaim(to: before), on: &$0) }
         }
     }
 

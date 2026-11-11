@@ -41,7 +41,7 @@ public enum MergedBranchCheck {
             .trimmingCharacters(in: .whitespacesAndNewlines) == acceptedSHA else { return false }
         let target = repository.defaultBranch()
         guard branch != target else { return false }
-        if publication?.merged == true && publication?.mergedHead == acceptedSHA { return true }
+        if publication?.mergeOutcome == .merged && publication?.mergedHead == acceptedSHA { return true }
         if try git.ask(["merge-base", "--is-ancestor", acceptedSHA, "refs/heads/" + target], in: path, none: [1, 128]) != nil {
             return true
         }

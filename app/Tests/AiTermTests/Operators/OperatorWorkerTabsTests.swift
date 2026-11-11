@@ -284,7 +284,7 @@ import Testing
         #expect(line.tabs?.map(\.liveModel) == ["claude-opus-5-5", nil] && line.tabs?.map(\.liveReasoning) == ["high", nil])
     }
 
-    /// A Claude tab the Operator added says what it runs now and what became of its slash commands, as `liveFacts`
+    /// A Claude tab the Operator added says what it runs now and what became of its slash commands, as `TaskLiveFacts.of`
     /// builds its line, and reads as needing input while a prompt it opened waits on you, though its session says working.
     @Test func anAddedClaudeTabSaysWhatItRunsNowWhileItsPromptWaitsOnYou() async throws {
         let daemon = RecordingDaemon()

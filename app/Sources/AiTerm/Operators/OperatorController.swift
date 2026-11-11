@@ -391,77 +391,9 @@ final class OperatorController {
                        extraTurns: [UUID: [String: WorkerTurnReader.Reading]] = [:], quiet: Set<UUID> = [],
                        quietTabs: [UUID: Set<String>] = [:], hostThreads: [UUID: [String: Bool]] = [:], now: Date = Date()) -> RunStatus? {
         RunStatus.build(state: state, run: run, revision: revision,
-                        live: liveFacts(of: run, state: state, sessions: sessions, turns: turns, extraTurns: extraTurns, quiet: quiet,
-                                        quietTabs: quietTabs, now: now),
+                        live: TaskLiveFacts.of(run: run, state: state, sessions: sessions, turns: turns, extraTurns: extraTurns, quiet: quiet,
+                                               quietTabs: quietTabs, now: now),
                         runLive: RunLiveFacts(weeklyUsage: usage), hostThreads: hostThreads, now: now)
-    }
-
-    /// What the tabs say of each of the run's tasks: each worker tab's live status (`WorkerTab`), and the prompt
-    /// each waits on you with (the open question D14 records for it). While its first worker is idle or done, what that
-    /// turn left (`turns`, spec §J): a task whose turn is not read yet, read again after it was accepted again or reopened,
-    /// or answered by `message_task` since, is `turnUnread`. A first worker at work whose task is in `quiet` has gone quiet (spec §H).
-    /// A worker an API error stopped says why (`StoppedOn.reason`), a limit's reset as of `now`. A first worker whose launch is
-    /// under way as of `now` and that has named no conversation yet is opening (`TaskItem.workerTabs(in:now:)`): at work,
-    /// its turn not ended.
-    static func liveFacts(of run: UUID, state: AppState, sessions: [SessionInfo],
-                          turns: [UUID: WorkerTurnReader.Reading], extraTurns: [UUID: [String: WorkerTurnReader.Reading]] = [:],
-                          quiet: Set<UUID> = [], quietTabs: [UUID: Set<String>] = [:], now: Date = Date()) -> [UUID: TaskLiveFacts] {
-        let questions = state.run(id: run)?.questions ?? []
-        var facts: [UUID: TaskLiveFacts] = [:]
-        let workersByTask = WorkerSessions(sessions)
-        for task in state.tasks(inRun: run) {
-            let open = questions.filter { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix(OperatorQuestion.promptPrefix) }
-            let workers = task.workerTabs(in: workersByTask, now: now), tab = workers[0].session, prompt = open.first { $0.tab == nil }?.text
-            let extra = workers.dropFirst().compactMap { worker in
-                worker.key.map { key in
-                    let prompt = open.first { $0.tab == key }?.text
-                    let reading = extraTurns[task.id]?[key]
-                    let ended = worker.status?.turnEnded == true
-                    let read = reading.flatMap { $0.session == worker.session?.sessionId && !$0.messaged ? $0 : nil }
-                    return TaskLiveFacts.Tab(key: key, agent: worker.agent, model: worker.model,
-                                             status: prompt == nil || worker.session == nil ? worker.session?.state : .needsInput,
-                                             opening: worker.isOpening, closed: worker.isClosed, waitingPrompt: prompt,
-                                             liveModel: worker.session?.liveModel, liveReasoning: worker.session?.liveReasoning,
-                                             slashCommands: worker.session?.slashCommands ?? [],
-                                             lastMessage: ended ? read?.lastMessage : nil, turnUnread: ended && read == nil,
-                                             quiet: prompt == nil && quietTabs[task.id]?.contains(key) == true)
-                }
-            }
-            if tab != nil || prompt != nil || !extra.isEmpty || workers[0].isOpening {
-                var live = TaskLiveFacts(status: prompt == nil || tab == nil ? tab?.state : .needsInput, waitingPrompt: prompt, tabs: Array(extra),
-                                         background: workers.flatMap(\.background),
-                                         yourPrompt: workers.lazy.compactMap { $0.session?.yourPrompt }.first,
-                                         quiet: prompt == nil && quiet.contains(task.id), liveModel: tab?.liveModel,
-                                         liveReasoning: tab?.liveReasoning, slashCommands: tab?.slashCommands ?? [],
-                                         stoppedOn: workers.lazy.compactMap { $0.session?.stoppedOn }.first?.reason(now: now),
-                                         opening: workers[0].isOpening, testActivities: workers.compactMap { $0.session?.testActivity })
-                if let tab, !live.opening, live.status?.turnEnded == true {
-                    if let turn = turns[task.id], turn.session == tab.sessionId, !turn.messaged {
-                        live.lastMessage = turn.lastMessage
-                        live.commitsAhead = turn.commitsAhead
-                        live.atReopenedCommit = turn.atReopenedCommit
-                        live.changedAfterAcceptance = turn.changedAfterAcceptance
-                    } else {
-                        live.turnUnread = true
-                    }
-                }
-                // Git belongs to the shared checkout. A newer extra-worker result supersedes
-                // an idle main worker's old count and changed-after-acceptance reading.
-                let completed = workers.compactMap { worker -> WorkerTurnReader.Reading? in
-                    guard worker.status?.turnEnded == true else { return nil }
-                    let reading = worker.key.flatMap { extraTurns[task.id]?[$0] } ?? (worker.key == nil ? turns[task.id] : nil)
-                    guard let reading, !reading.messaged, reading.session == worker.session?.sessionId else { return nil }
-                    return reading
-                }
-                if let newest = completed.max(by: { $0.observedOrder < $1.observedOrder }) {
-                    live.commitsAhead = newest.commitsAhead
-                    live.atReopenedCommit = newest.atReopenedCommit
-                    live.changedAfterAcceptance = newest.changedAfterAcceptance
-                }
-                facts[task.id] = live
-            }
-        }
-        return facts
     }
 
     /// The first line of the brief, whole, as the run's row names it until the person renames it: each
@@ -766,7 +698,7 @@ final class OperatorController {
         reattached = true
         let open = runs.filter { !$0.hasEnded }.map { ($0.id, folder(of: $0.id)) }
         // Runs you ended: a revocation that failed before is tried again while their token file is there.
-        let ended = runs.filter { $0.intent == .stopped }.map { ($0.id, folder(of: $0.id)) }
+        let ended = runs.filter { $0.youAsked == .stop }.map { ($0.id, folder(of: $0.id)) }
         registering = Task {
             for (id, folder) in open {
                 guard let token = await BackgroundWork.run({ OperatorCommand.existingToken(in: folder) }) else { continue }
@@ -869,7 +801,7 @@ final class OperatorController {
     /// so AiTerm stops waiting for it. A pause of yours stays a pause.
     private func operatorWindowClosed(_ id: UUID) {
         if giveUpOnSummary(id, windowGone: true) { runChanged(id) }
-        guard let run = run(id: id), run.intent == nil, run.state == .planning || run.state == .active else { return }
+        guard let run = run(id: id), run.youAsked == nil, run.state == .planning || run.state == .active else { return }
         mutateRun(id) { $0.state = .operatorOffline }
     }
 
@@ -1005,10 +937,7 @@ final class OperatorController {
         guard !run.questions.contains(where: { $0.id == key }) else { return }
         let question = OperatorQuestion(id: key, text: "\(why) AiTerm publishes nothing more of it or on top of it: decide how the broadcast goes on.",
                                         task: id, askedAt: ports.now(), resolution: nil)
-        workspace.mutate { state in
-            state.updateRun(id: run.id) { $0.questions.append(question) }
-            state.updateOperated(id) { $0.flags.insert(.waitingOnYou) }
-        }
+        workspace.mutate { $0.open(question, inRun: run.id) }
     }
 
     /// Ends the runtime's polling, transcript reads, prompt probes, wake/summary timers, registration,

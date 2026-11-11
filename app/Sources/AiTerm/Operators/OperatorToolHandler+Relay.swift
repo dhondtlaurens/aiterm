@@ -34,7 +34,7 @@ extension OperatorToolHandler {
         let check: RelayCheck = (state.run(id: run.id)?.profile.oracle ?? run.profile.oracle).isOn ? run.relayCheckOrDefault : .straight
         // The same call repeated after its answer was lost: the round it started, never another Oracle call.
         if let started = run.challenges.first(where: { $0.tool == call.tool && $0.askedArguments == Self.invocation(call)
-                                                       && $0.askedEvidence == worker.text && ($0.round ?? 1) == 1 }) {
+                                                       && $0.askedEvidence == worker.text && $0.relayRound == 1 }) {
             return try await answerRound(started.id, call, in: run, task: task, holds: holds, choices: choices)
         }
         guard check != .straight else {
@@ -55,13 +55,13 @@ extension OperatorToolHandler {
         let name = operated.key
         if operated.takenOver { throw ToolRefusal("\(name) is the person’s now: they answer its worker themselves.") }
         if operated.isFinished { throw ToolRefusal("\(name) has finished: nothing waits on its worker’s answer.") }
-        let tab = call.optionalString("tab") ?? WorkerTab.firstKey
+        let tab = TabReference(call.optionalString("tab")).name
         let reading: WorkerTurnReader.Reading?
-        if tab == WorkerTab.firstKey {
+        if TabReference(tab) == .first {
             reading = turnReadings()[task.id]
         } else {
             guard operated.extraTabs.contains(where: { $0.key == tab }) else {
-                let tabs = [WorkerTab.firstKey] + operated.extraTabs.map(\.key)
+                let tabs = [TabReference.first.name] + operated.extraTabs.map(\.key)
                 throw ToolRefusal("\(name) has no tab \(tab). Its tabs are \(tabs.joined(separator: ", ")).")
             }
             reading = extraTurnReadings()[task.id]?[tab]
@@ -97,14 +97,13 @@ extension OperatorToolHandler {
         let question = OperatorQuestion(id: key, text: worker.text, task: task.id, askedAt: ports.now(), holds: holds == false ? false : nil,
                                         choices: choices, relayedFrom: worker.tab, history: history)
         mutate(in: run.id) { state in
+            state.open(question, inRun: run.id)
             state.updateRun(id: run.id) { run in
-                run.questions.append(question)
                 if let round, let i = run.challenges.firstIndex(where: { $0.id == round }) {
                     run.challenges[i].stage = .acted
                     run.challenges[i].result = key
                 }
             }
-            if question.holdsTask { state.updateOperated(task.id) { $0.flags.insert(.waitingOnYou) } }
         }
         return Self.relayAnswer(question, task: task.operated?.key ?? task.title)
     }
@@ -206,12 +205,12 @@ extension OperatorToolHandler {
         // call still carries this round's reply, so a critique the next round delivered is said again here, not answered.
         if kept.stage == .acted, let next = run.challenges.first(where: { $0.tool == kept.tool && $0.askedArguments == kept.askedArguments
                                                                     && $0.askedEvidence == kept.askedEvidence
-                                                                    && $0.round == (kept.round ?? 1) + 1 }) {
+                                                                    && $0.relayRound == (kept.relayRound ?? 1) + 1 }) {
             if next.stage == .delivered { return Self.relayChallenged(next.id, next.critique ?? "", task: task.operated?.key ?? task.title) }
             return try await answerRound(next.id, call, in: run, task: task, holds: holds, choices: choices)
         }
         let discussion = discussion(before: kept, worker: worker, in: run)
-        let number = kept.round ?? 1
+        let number = kept.relayRound ?? 1
         switch kept.stage {
         case .running where runningChallenges[id] != nil:
             return Self.relayPending(id)
@@ -246,8 +245,8 @@ extension OperatorToolHandler {
     private func discussion(before kept: ChallengeRecord, worker: WorkerQuestion, in run: OperatorRun) -> [QuestionStep] {
         let earlier = run.challenges.filter { $0.tool == kept.tool && $0.askedArguments == kept.askedArguments
                                               && $0.askedEvidence == kept.askedEvidence
-                                              && ($0.round ?? 1) < (kept.round ?? 1) && $0.askedAt <= kept.askedAt }
-            .sorted { ($0.round ?? 1) < ($1.round ?? 1) }
+                                              && ($0.relayRound ?? 1) < (kept.relayRound ?? 1) && $0.askedAt <= kept.askedAt }
+            .sorted { ($0.relayRound ?? 1) < ($1.relayRound ?? 1) }
         var steps = [QuestionStep(kind: .asked, text: worker.message, at: earlier.first?.askedAt ?? kept.askedAt)]
         for round in earlier {
             steps.append(QuestionStep(kind: .oracle, text: round.critique ?? "", at: round.askedAt, round: round.round))

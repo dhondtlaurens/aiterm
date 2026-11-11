@@ -121,7 +121,7 @@ struct OperatorScene {
             state.runs = run.map { [$0] } ?? []; state.tasks = others + tasks
             state.foldedRuns = folded ? Set([runId]) : []
         }
-        let prompted = Set((run?.questions ?? []).filter { $0.id.hasPrefix("prompt-") }.compactMap(\.task))
+        let prompted = Set((run?.questions ?? []).filter { $0.kind == .prompt }.compactMap(\.task))
         let workers = tasks.flatMap { task -> [SessionInfo] in
             guard let operated = task.operated, operated.state == .working else { return [] }
             let main = Fixture.session("s-\(task.id.uuidString.prefix(6))", task.windowId ?? "", task.id, task.agent.rawValue,

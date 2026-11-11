@@ -145,8 +145,11 @@ public enum PublicationGuard {
 
     /// A broadcast publishes while it is active or complete and you have neither paused nor ended it.
     public static func runRefusal(_ run: OperatorRun) -> String? {
-        if run.intent == .stopped { return "The broadcast was stopped; it publishes nothing." }
-        if run.intent == .paused { return "The broadcast is paused; nothing is published until it runs again." }
+        switch run.youAsked {
+        case .stop?: return "The broadcast was stopped; it publishes nothing."
+        case .pause?: return "The broadcast is paused; nothing is published until it runs again."
+        case nil: break
+        }
         switch run.state {
         case .active, .complete: return nil
         case .paused: return "The broadcast is paused; nothing is published until it runs again."

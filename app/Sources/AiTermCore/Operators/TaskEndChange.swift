@@ -50,10 +50,7 @@ public enum TaskEndChange {
             operated.publication?.mergeRefusal = nil
             operated.publication?.conditionsHeld = nil
             // A commit end has no review: the task was accepted before it went into review, and is again.
-            if end == .commit, operated.state == .inReview {
-                operated.state = .accepted
-                operated.peopleReview?.ended = true
-            }
+            if end == .commit { OperatedTransitions.record(.endReviewOnCommitEnd, on: &operated) }
             if leaving { operated.publication?.leftForYou = true } else if handedBack { operated.publication?.leftForYou = false }
         }
         guard let left else { return }
@@ -71,13 +68,4 @@ public extension String {
     /// Its first letter in capitals and the rest as it is: `draft MR` as `Draft MR`, where `capitalized` would lower
     /// the rest.
     var capitalizingFirst: String { prefix(1).uppercased() + dropFirst() }
-}
-
-public extension OperatedTask {
-    /// Finished by reaching its end: published, accepted on a commit end, or ended with no change; not failed, stopped
-    /// or with its publication left for you. The one rule for it: the broadcast's closing closes these tasks, and the
-    /// board says which of them it kept.
-    var reachedItsEnd: Bool {
-        state == .published || state == .noChange || (state == .accepted && end == .commit && publication?.leftForYou != true)
-    }
 }

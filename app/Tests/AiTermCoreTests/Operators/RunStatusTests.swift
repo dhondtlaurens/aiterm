@@ -113,6 +113,14 @@ import Foundation
         #expect(o.possiblyStalled == ["C"] && o.uncertain == ["C"])
     }
 
+    /// The obligations alone (`RunStatus.openObligations`), built without a task line, are what the whole snapshot says.
+    @Test func theObligationsAloneAreTheSnapshots() throws {
+        let (s, live, _) = scene()
+        let whole = try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: live, now: F.epoch))
+        #expect(RunStatus.openObligations(state: s, run: F.runId, live: live, now: F.epoch) == whole.obligations)
+        #expect(RunStatus.openObligations(state: s, run: UUID(), live: live) == nil)
+    }
+
     /// A question on a task is a question, not a prompt: the task leaves promptsWaitingOnYou, keeps its
     /// question under questionsWaiting, and still isn't ready to accept while it waits on you.
     @Test func aQuestionOnATaskIsNotAPromptInItsTerminal() throws {

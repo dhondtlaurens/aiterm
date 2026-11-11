@@ -152,7 +152,7 @@ final class TabOpener {
     static func holds(_ task: TaskItem, in state: AppState) -> Bool {
         guard let operated = task.operated, [.working, .inReview].contains(operated.state), !operated.takenOver,
               task.hasCheckout, task.windowId != nil, let run = state.run(id: operated.runId) else { return false }
-        return [.active, .complete].contains(run.state) && run.intent == nil
+        return [.active, .complete].contains(run.state) && run.youAsked == nil
     }
 
     /// An extra tab's first prompt: AiTerm's line on where it works (`WorkerStarter.worktreeLine`), its line on the

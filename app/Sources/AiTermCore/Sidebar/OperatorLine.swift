@@ -137,7 +137,7 @@ public struct OperatorLine: Equatable, Sendable {
     /// error ended is `blocked · usage limit, resets 13:20` (`StoppedOn`), its reset said as of `now` in `calendar`'s time zone.
     public static func task(_ task: TaskItem, run: OperatorRun, acting: OperatorAct?, requests: [BroadcastRequest],
                             tasks: [UUID: TaskItem] = [:], sessions: [SessionInfo] = [], turn: WorkerTurn.Ending? = nil,
-                            now: Date = Date(), calendar: Calendar = .current) -> OperatorLine? {
+                            now: Date = Date(), calendar: Calendar = .current, tabs matched: [WorkerTab]? = nil) -> OperatorLine? {
         guard let operated = task.operated, operated.runId == run.id, !operated.takenOver, operated.state != .stopped,
               !run.hasEnded else { return nil }
         // A finished task's leftover asks nothing. An open question also marks the task whose work
@@ -163,7 +163,9 @@ public struct OperatorLine: Equatable, Sendable {
             // The Operator holds it: the line moves with the row's mark, whether the agent works or the Operator
             // checks it next. The row's icon names the agent, so the line names the Operator.
             // Its worker ended its turn asking the Operator something, or with nothing committed: the Operator's to read.
-            let tabs = task.workerTabs(in: sessions)
+            // Matched once, as of `now`: readiness and a pause count a first worker still launching as at work; the rest
+            // reads each tab as it says (`WorkerTab.asListed`).
+            let timed = matched ?? task.workerTabs(in: sessions, now: now), tabs = timed.map(\.asListed)
             // A worker an API error stopped short of finishing: what stopped it, and for a limit when it resets.
             if let stopped = tabs.lazy.compactMap({ $0.session?.stoppedOn }).first {
                 return needsYou("blocked", stopped.detail(now: now, calendar: calendar),
@@ -172,7 +174,7 @@ public struct OperatorLine: Equatable, Sendable {
             // You paused the broadcast: its workers were told to stop. A prompt in one is still yours, below.
             // A first worker still launching, as of `now`, is at work too: its first prompt is on its way.
             if run.isPausedByYou, !tabs.contains(where: { $0.status == .needsInput }) {
-                return task.workerTabs(in: sessions, now: now).contains(where: \.isStillAtWork) ? .pausing : .paused
+                return timed.contains(where: \.isStillAtWork) ? .pausing : .paused
             }
             if !tabs.contains(where: { $0.status == .needsInput }),
                let tests = tabs.lazy.compactMap({ $0.session?.testActivity }).first(where: \.isActive) {
@@ -180,7 +182,7 @@ public struct OperatorLine: Equatable, Sendable {
             }
             if let round = reviewRound(of: operated, tabs: tabs) { return OperatorLine("in review · " + round, look: .acting) }
             if turn == .asks, !sessions.isEmpty, tabs[0].status?.turnEnded == true { return OperatorLine("asking the Operator", look: .acting) }
-            if !sessions.isEmpty, task.isReadyForAcceptance(tabs: tabs) {
+            if !sessions.isEmpty, task.isReadyForAcceptance(tabs: timed) {
                 let text = turn == .noCommit ? Count.working.words + " · no commit" : Count.ready.words
                 if let tests = tabs.lazy.compactMap({ $0.session?.testActivity }).first {
                     return OperatorLine(text + " · " + tests.line, look: .acting, tooltip: text + "; " + tests.detail)

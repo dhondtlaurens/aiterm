@@ -6,36 +6,13 @@ import AiTermCore
 /// working task's branch has past where its work starts and whether an accepted, inReview or published one moved on from
 /// its accepted commit. A turn's end is read once: when its session's state changed since the last read, or the task was
 /// accepted again or reopened since (its `Basis`), when what was read is dropped at once and read again. Git and the
-/// transcript are read off the main thread. What it read is `run_status`'s `TaskLiveFacts` (`OperatorController.liveFacts`)
+/// transcript are read off the main thread. What it read is `run_status`'s `TaskLiveFacts` (`TaskLiveFacts.of`)
 /// until the worker's next turn starts, or until `message_task` reaches it. A task you took over, not started yet or
 /// stopped, or in an ended broadcast, is not read.
 @MainActor
 final class WorkerTurnReader {
-    /// What one ended turn left, by the session it was read for, the state it was read at and the task it was read of.
-    struct Reading: Equatable, Sendable {
-        var session: String, state: SessionState
-        var basis: Basis
-        var lastMessage: String?, commitsAhead: Int?, changedAfterAcceptance: Bool
-        /// A reopened working task's HEAD is the commit it was accepted on (`TaskLiveFacts.atReopenedCommit`).
-        var atReopenedCommit = false
-        /// `message_task` reached the worker after its turn ended: what the turn left is answered, and its next turn's end
-        /// is what counts. Nothing of this reading is shown, and a working task is not ready until that turn is read.
-        var messaged = false
-        var conversation: String? = nil
-        var replyIdentity: Int? = nil
-        var observedOrder = 0
-    }
-
-    /// What a reading holds for beyond its session: the task's state, accepted commit and content baseline.
-    /// Reaccepting, refreshing the baseline or reopening invalidates it even without a new worker turn.
-    struct Basis: Equatable, Sendable {
-        var state: OperatedState, accepted: String?, fingerprint: String?
-        init(_ task: OperatedTask) {
-            state = task.state
-            accepted = [.accepted, .inReview, .published].contains(task.state) ? task.acceptance?.resultSHA : nil
-            fingerprint = accepted == nil ? nil : task.acceptanceWorktreeFingerprint
-        }
-    }
+    typealias Reading = WorkerTurnReading
+    typealias Basis = WorkerTurnReading.Basis
 
     private let workspace: WorkspaceStore
     private let live: LiveSessions
@@ -137,7 +114,7 @@ final class WorkerTurnReader {
 
     /// An answer clears only the addressed worker's ended turn.
     func messaged(_ task: UUID, tab: String? = nil) {
-        let id = WorkerID(task: task, tab: tab == WorkerTab.firstKey ? nil : tab)
+        let id = WorkerID(task: task, tab: TabReference(tab).key)
         guard var reading = workerReadings[id] else { messagedWhileReading.insert(id); return }
         guard !reading.messaged else { return }
         reading.messaged = true

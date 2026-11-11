@@ -7,6 +7,8 @@ import Testing
 /// iTerm2 lists for it.
 @Suite struct WorkerTabsTests {
     let start = Date(timeIntervalSince1970: 1_800_000_000)
+    /// After any launch these tasks made (`OperatedWorld` launches at `start`): their first worker is taken as its tab says.
+    var launchOver: Date { start.addingTimeInterval(OperatorTiming.firstWorkerOpening) }
 
     func session(_ id: String, task: UUID, index: Int = 0, agent: SessionAgent = .claude, state: SessionState = .working,
                  key: String? = nil) -> SessionInfo {
@@ -84,12 +86,12 @@ import Testing
         var done = session("s1", task: task.id, state: .done)
         done.background = [BackgroundJob(kind: .shell, text: "npm run test:run")]
         #expect(task.workerTabs(in: [done]).flatMap(\.background) == ["npm run test:run"])
-        #expect(!task.isReadyForAcceptance(in: [done]))
+        #expect(!task.isReadyForAcceptance(in: [done], now: launchOver))
         let line = try #require(OperatorLine.task(task, run: run, acting: nil, requests: [], sessions: [done]))
         #expect(line.text == "Operator watching · in background" && line.look == .acting)
         #expect(line.tooltip == "Running in the background: npm run test:run")
         done.background = []
-        #expect(task.isReadyForAcceptance(in: [done]))
+        #expect(task.isReadyForAcceptance(in: [done], now: launchOver))
         var working = session("s1", task: task.id, state: .working)
         working.background = [BackgroundJob(kind: .shell, text: "npm run dev")]
         #expect(task.workerTabs(in: [working]).flatMap(\.background).isEmpty, "a turn under way waits on nothing yet")
@@ -107,7 +109,7 @@ import Testing
         var waiting = session("s1", task: task.id, state: .working)
         waiting.background = [BackgroundJob(kind: .subagent, text: "Review the fix"), BackgroundJob(kind: .shell, text: "scripts/test.sh")]
         #expect(task.workerTabs(in: [waiting]).flatMap(\.background) == ["Review the fix"])
-        #expect(!task.isReadyForAcceptance(in: [waiting]))
+        #expect(!task.isReadyForAcceptance(in: [waiting], now: launchOver))
         let line = try #require(OperatorLine.task(task, run: run, acting: nil, requests: [], sessions: [waiting]))
         #expect(line.text == "Operator watching · in background")
         #expect(line.tooltip == "Running in the background: Review the fix")
@@ -232,11 +234,37 @@ import Testing
         var done = session("s1", task: task.id, state: .done)
         done.testActivity = TestActivity(runId: "own", suite: "swift", state: state, queuePosition: 2)
         #expect(!task.workerTabs(in: [done]).flatMap(\.background).isEmpty)
-        #expect(!task.isReadyForAcceptance(in: [done]))
+        #expect(!task.isReadyForAcceptance(in: [done], now: launchOver))
         done.testActivity?.state = .completed
         done.testActivity?.exitCode = 0
         #expect(task.workerTabs(in: [done]).flatMap(\.background).isEmpty)
-        #expect(task.isReadyForAcceptance(in: [done]))
+        #expect(task.isReadyForAcceptance(in: [done], now: launchOver))
     }
 
+    /// A first worker still launching reads as at work on its row, in the broadcast's header and on the board, as
+    /// run_status counts it (`TaskLiveFacts.opening`): Codex reads idle until its first hook, and that is no ended turn,
+    /// so none of them says it is ready while it launches. Once its launch is over, its idle tab is an ended turn.
+    @Test func aFirstWorkerStillLaunchingIsNotReadyOnTheRowTheHeaderOrTheBoard() throws {
+        var world = OperatedWorld()
+        let run = world.addRun()
+        let id = world.addTask("T-1", run: run, state: .working)
+        let launched = Date().addingTimeInterval(-10)
+        let index = try #require(world.state.tasks.firstIndex { $0.id == id })
+        world.state.tasks[index].agent = .codex
+        world.state.updateOperated(id) { $0.launch = LaunchAttempt(number: 1, requestedAt: launched, openedAt: launched) }
+        let state = world.state, task = try #require(state.task(id: id)), operatorRun = try #require(state.run(id: run))
+        let idle = session("s1", task: id, agent: .codex, state: .idle), working = session("s1", task: id, agent: .codex)
+        func row(_ sessions: [SessionInfo], now: Date = Date()) -> OperatorLine? {
+            OperatorLine.task(task, run: operatorRun, acting: nil, requests: [], sessions: sessions, now: now)
+        }
+        func board(_ sessions: [SessionInfo]) -> OperatorLine {
+            BroadcastBoard.make(run: operatorRun, state: state, acting: .none, requests: [], sessions: sessions).band
+        }
+        #expect(row([idle]) == row([working]))
+        #expect(row([idle])?.text != OperatorLine.Count.ready.words)
+        #expect(SidebarModel.broadcastRow(state: state, sessions: [idle])?.line == SidebarModel.broadcastRow(state: state, sessions: [working])?.line)
+        #expect(board([idle]) == board([working]))
+        #expect(row([idle], now: launched.addingTimeInterval(OperatorTiming.firstWorkerOpening))?.text == OperatorLine.Count.ready.words,
+                "its launch is over")
+    }
 }
