@@ -49,9 +49,9 @@ import Synchronization
         }
     }
 
-    private func makeClient(_ handler: @escaping StubURLProtocol.Handler) -> (client: GitHubClient, stub: StubSession) {
+    private func makeClient(repo: String = "octocat/hello", _ handler: @escaping StubURLProtocol.Handler) -> (client: GitHubClient, stub: StubSession) {
         let stub = StubSession(handler: handler)
-        return (GitHubClient(config: config, session: stub.session), stub)
+        return (GitHubClient(config: config, repo: repo, session: stub.session), stub)
     }
 
     private func body(_ request: URLRequest?) throws -> [String: Any] {
@@ -71,13 +71,13 @@ import Synchronization
                       ("octocat/hello", "OCTOCAT/HELLO"), ("octocat/hello", "someone/else")])
     func aThreadDetailBelongsToTheBoundRepositoryIgnoringCase(_ remote: String, _ repository: String) async throws {
         let answer = #"{"data":{"node":{"id":"TH","path":"a.swift","line":4,"originalLine":3,"pullRequest":{"number":88,"repository":{"nameWithOwner":"\#(repository)"}},"comments":{"nodes":[{"body":"Keep this text.","author":{"login":"sam"}}]}}}}"#
-        let (client, stub) = makeClient { _ in (200, Data(answer.utf8)) }
+        let (client, stub) = makeClient(repo: remote) { _ in (200, Data(answer.utf8)) }
         if repository == "someone/else" {
             await #expect(throws: GitHubError.refused("thread TH is not on pull request #88")) {
-                _ = try await client.threadDetail(repo: remote, number: 88, thread: "TH")
+                _ = try await client.threadDetail(88, thread: "TH")
             }
         } else {
-            #expect(try await client.threadDetail(repo: remote, number: 88, thread: "TH") ==
+            #expect(try await client.threadDetail(88, thread: "TH") ==
                 ReviewThreadDetail(id: "TH", path: "a.swift", line: 4, notes: [.init(author: "sam", body: "Keep this text.")]))
         }
         #expect(stub.requests.count == 1)
@@ -89,8 +89,7 @@ import Synchronization
             if request.url?.path.hasSuffix("/issues/88") == true { return (200, Data(#"{"number":88}"#.utf8)) }
             return (200, Data(Self.pull(draft: true).utf8))
         }
-        try await client.updatePullRequest(repo: "octocat/hello", number: 88, title: "PLUTO-231: Add gift card",
-                                           body: "Adds the gift card.", assignee: "nathan")
+        try await client.updateRequest(88, RequestContent(title: "PLUTO-231: Add gift card", description: "Adds the gift card.", assignee: "nathan"))
         let writes = stub.requests.filter { $0.httpMethod != "GET" }
         #expect(writes.map { "\($0.httpMethod ?? "") \($0.url?.absoluteString ?? "")" }
                 == ["PATCH \(Self.api)/pulls/88", "PATCH \(Self.api)/issues/88"])
@@ -109,8 +108,7 @@ import Synchronization
         let checks = Mutex(0)
         struct Paused: Error {}
         await #expect(throws: Paused.self) {
-            try await client.updatePullRequest(repo: "octocat/hello", number: 88, title: "T", body: nil, assignee: "nathan",
-                                               beforeWrite: { _ in if checks.withLock({ $0 += 1; return $0 }) > 1 { throw Paused() } })
+            try await client.updateRequest(88, RequestContent(title: "T", description: nil, assignee: "nathan"), beforeWrite: { _ in if checks.withLock({ $0 += 1; return $0 }) > 1 { throw Paused() } })
         }
         #expect(stub.requests.filter { $0.httpMethod != "GET" }.map { $0.url?.path ?? "" } == ["/repos/octocat/hello/pulls/88"])
     }
@@ -119,7 +117,7 @@ import Synchronization
         let (client, stub) = makeClient { request in
             request.httpMethod == "GET" ? (200, Data(Self.pull().utf8)) : (200, Data(#"{"number":88}"#.utf8))
         }
-        try await client.updatePullRequest(repo: "octocat/hello", number: 88, title: nil, body: nil, assignee: "laurens")
+        try await client.updateRequest(88, RequestContent(title: nil, description: nil, assignee: "laurens"))
         #expect(stub.requests.filter { $0.httpMethod != "GET" }.map { $0.url?.path ?? "" } == ["/repos/octocat/hello/issues/88"])
     }
 
@@ -147,7 +145,7 @@ import Synchronization
             return (200, Data(Self.pull().utf8))
         }
         let checked = Mutex(0)
-        let answer = try await client.retryFailedRuns(repo: "octocat/hello", number: 88, beforeWrite: { _ in checked.withLock { $0 += 1 } })
+        let answer = try await client.retryPipeline(88, beforeWrite: { _ in checked.withLock { $0 += 1 } })
         #expect(answer == .retried("the failed jobs of CI"))
         let listed = try #require(stub.requests.first { $0.url?.path.hasSuffix("/actions/runs") == true })
         #expect(listed.url?.query?.contains("head_sha=\(Self.head)") == true)
@@ -164,7 +162,7 @@ import Synchronization
             if request.httpMethod == "POST" { return (201, Data()) }
             return request.url?.path.hasSuffix("/actions/runs") == true ? (200, Data(runs.utf8)) : (200, Data(Self.pull().utf8))
         }
-        #expect(try await client.retryFailedRuns(repo: "octocat/hello", number: 88) == .retried("the failed jobs of CI"))
+        #expect(try await client.retryPipeline(88) == .retried("the failed jobs of CI"))
         #expect(stub.requests.filter { $0.httpMethod == "POST" }.map { $0.url?.absoluteString } == ["\(Self.api)/actions/runs/40/rerun-failed-jobs"])
     }
 
@@ -173,7 +171,7 @@ import Synchronization
         let (client, stub) = makeClient { request in
             request.url?.path.hasSuffix("/actions/runs") == true ? (200, Data(runs.utf8)) : (200, Data(Self.pull().utf8))
         }
-        let answer = try await client.retryFailedRuns(repo: "octocat/hello", number: 88, beforeWrite: { _ in Issue.record("nothing to write") })
+        let answer = try await client.retryPipeline(88, beforeWrite: { _ in Issue.record("nothing to write") })
         #expect(answer == .notFailed("no GitHub Actions run of its head failed; another app's check is rerun in that app"))
         #expect(!stub.requests.contains { $0.httpMethod == "POST" })
     }
@@ -183,16 +181,16 @@ import Synchronization
         let answer = #"{"data":{"node":{"id":"PRRT_64","path":"app/redirect.ts","line":42,"originalLine":40,"pullRequest":{"number":88,"repository":{"nameWithOwner":"octocat/hello"}},"#
             + #""comments":{"nodes":[{"body":"Open redirect.","author":{"login":"aikido-bot"}},{"body":"Still open.","author":{"login":"jan"}}]}}}}"#
         let (client, stub) = makeClient { _ in (200, Data(answer.utf8)) }
-        let detail = try await client.threadDetail(repo: "octocat/hello", number: 88, thread: "PRRT_64")
+        let detail = try await client.threadDetail(88, thread: "PRRT_64")
         #expect(detail == ReviewThreadDetail(id: "PRRT_64", path: "app/redirect.ts", line: 42, notes: [
             ReviewThreadDetail.Note(author: "aikido-bot", body: "Open redirect."), ReviewThreadDetail.Note(author: "jan", body: "Still open.")]))
         #expect((try body(stub.lastRequest)["variables"] as? [String: Any])?["thread"] as? String == "PRRT_64")
-        await #expect(throws: GitHubError.self) { try await client.threadDetail(repo: "octocat/hello", number: 89, thread: "PRRT_64") }
+        await #expect(throws: GitHubError.self) { try await client.threadDetail(89, thread: "PRRT_64") }
     }
 
     @Test func aReviewThreadIsResolvedByItsNodeId() async throws {
         let (client, stub) = makeClient { _ in (200, Data(#"{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}"#.utf8)) }
-        try await client.resolve(repo: "octocat/hello", thread: "PRRT_64")
+        try await client.resolve(88, thread: "PRRT_64")
         let sent = try body(stub.lastRequest)
         #expect((sent["query"] as? String)?.contains("resolveReviewThread") == true)
         #expect((sent["variables"] as? [String: Any])?["thread"] as? String == "PRRT_64")
@@ -200,8 +198,7 @@ import Synchronization
 
     @Test func aDraftIsOpenedFromTheTasksBranch() async throws {
         let (client, stub) = makeClient { _ in (201, Data(Self.pull(draft: true, mergeable: "null", mergeableState: "unknown").utf8)) }
-        let request = try await client.createPullRequest(repo: "octocat/hello", source: "feat/pluto-231", target: "main",
-                                                         title: "PLUTO-231 Add gift card", body: "Opened by AiTerm", draft: true)
+        let request = try await client.createRequest(from: "feat/pluto-231", into: "main", title: "PLUTO-231 Add gift card", description: "Opened by AiTerm", draft: true)
         #expect(request.iid == 88)
         #expect(request.draft)
         #expect(request.targetBranch == "main")
@@ -221,8 +218,7 @@ import Synchronization
 
     @Test func aPullRequestThatIsNotADraftIsOpenedAsOne() async throws {
         let (client, stub) = makeClient { _ in (201, Data(Self.pull().utf8)) }
-        let request = try await client.createPullRequest(repo: "octocat/hello", source: "feat/pluto-231", target: "feat/parent",
-                                                         title: "t", body: "b", draft: false)
+        let request = try await client.createRequest(from: "feat/pluto-231", into: "feat/parent", title: "t", description: "b", draft: false)
         #expect(!request.draft)
         #expect(try body(stub.lastRequest)["draft"] as? Bool == false)
         #expect(try body(stub.lastRequest)["base"] as? String == "feat/parent")
@@ -230,7 +226,7 @@ import Synchronization
 
     @Test func theOpenPullRequestFromABranchIsFoundNotOpenedAgain() async throws {
         let (client, stub) = makeClient { _ in (200, Data(("[" + Self.pull() + "]").utf8)) }
-        let found = try await client.openPullRequest(repo: "octocat/hello", source: "feat/pluto-231")
+        let found = try await client.existingRequest(from: "feat/pluto-231")
         #expect(found?.iid == 88)
         #expect(found?.targetBranch == "main", "the request says where it points, for a stacked task to compare")
         let url = try #require(stub.lastRequest?.url?.absoluteString)
@@ -238,7 +234,7 @@ import Synchronization
         #expect(url.contains("state=open"))
         #expect(url.contains("head=octocat:feat/pluto-231"))
         let (none, _) = makeClient { _ in (200, Data("[]".utf8)) }
-        #expect(try await none.openPullRequest(repo: "octocat/hello", source: "feat/x") == nil)
+        #expect(try await none.existingRequest(from: "feat/x") == nil)
     }
 
     @Test func aForksPullRequestOfTheSameBranchNameIsNotTheTasks() async throws {
@@ -246,23 +242,23 @@ import Synchronization
         let deleted = Self.pull(headRepo: nil)
         for entry in [fork, deleted] {
             let (client, _) = makeClient { _ in (200, Data(("[" + entry + "]").utf8)) }
-            #expect(try await client.openPullRequest(repo: "octocat/hello", source: "feat/pluto-231") == nil)
+            #expect(try await client.existingRequest(from: "feat/pluto-231") == nil)
         }
         let (both, _) = makeClient { _ in (200, Data(("[" + fork + "," + Self.pull() + "]").utf8)) }
-        #expect(try await both.openPullRequest(repo: "octocat/hello", source: "feat/pluto-231")?.forkHead == nil)
+        #expect(try await both.existingRequest(from: "feat/pluto-231")?.forkHead == nil)
     }
 
     @Test func anEntryThatCannotBeReadIsNoAnswerNotNone() async throws {
         for listing in [#"[{"number":"eighty-eight"}]"#, "[" + Self.pull() + #",{"oops":true}]"#, #"{"message":"not a list"}"#] {
             await #expect(throws: GitHubError.decoding) {
-                _ = try await self.makeClient { _ in (200, Data(listing.utf8)) }.client.openPullRequest(repo: "octocat/hello", source: "feat/pluto-231")
+                _ = try await self.makeClient { _ in (200, Data(listing.utf8)) }.client.existingRequest(from: "feat/pluto-231")
             }
         }
         await #expect(throws: GitHubError.forbidden) {
-            _ = try await self.makeClient { _ in (403, Data()) }.client.openPullRequest(repo: "octocat/hello", source: "feat/x")
+            _ = try await self.makeClient { _ in (403, Data()) }.client.existingRequest(from: "feat/x")
         }
         await #expect(throws: GitHubError.repoNotFound("octocat")) {
-            _ = try await self.makeClient { _ in (200, Data("[]".utf8)) }.client.openPullRequest(repo: "octocat", source: "feat/x")
+            _ = try await self.makeClient(repo: "octocat") { _ in (200, Data("[]".utf8)) }.client.existingRequest(from: "feat/x")
         }
     }
 
@@ -299,7 +295,7 @@ import Synchronization
         ]
         for item in cases {
             let (client, stub) = makeClient(host(pull: item.pull, checkRuns: item.runs, status: item.status))
-            #expect(try await client.mergeReadiness(repo: "octocat/hello", number: 88) == item.expected, "\(item.expected)")
+            #expect(try await client.readiness(of: 88) == item.expected, "\(item.expected)")
             #expect(stub.requests.first?.url?.absoluteString == Self.api + "/pulls/88")
         }
     }
@@ -318,7 +314,7 @@ import Synchronization
             }
             let request = MergeRequest(iid: 88, title: "PLUTO-231", sourceBranch: "feat/pluto-231", targetBranch: "main", author: nil,
                                        state: "open", draft: false, url: "https://github.com/octocat/hello/pull/88")
-            return try await GitHubPublisher(client: client, repo: "octocat/hello").state(of: request)
+            return try await client.state(of: request)
         }
         let failing = try await state(runs: Self.runs([("test", "completed", "success"), ("lint", "completed", "failure")]))
         #expect(failing == MergeRequestState(iid: 88, url: "https://github.com/octocat/hello/pull/88", draft: true, pipeline: "failure",
@@ -359,8 +355,8 @@ import Synchronization
             let (client, _) = makeClient { request in
                 request.url?.path.hasSuffix("/reviews") == true ? (200, Data("[]".utf8)) : answers(request)
             }
-            #expect(try await client.mergeReadiness(repo: "octocat/hello", number: 88) == item.readiness, "\(item.runs) \(item.statuses)")
-            let state = try await GitHubPublisher(client: client, repo: "octocat/hello").state(of: request)
+            #expect(try await client.readiness(of: 88) == item.readiness, "\(item.runs) \(item.statuses)")
+            let state = try await client.state(of: request)
             #expect(state.pipeline == item.pipeline, "\(item.runs) \(item.statuses)")
         }
     }
@@ -376,7 +372,7 @@ import Synchronization
             if path.hasSuffix("/status") { return (200, Data(Self.statuses([]).utf8)) }
             return (200, Data(Self.pull().utf8))
         }
-        #expect(try await client.mergeReadiness(repo: "octocat/hello", number: 88) == .blocked("its check deploy failed"))
+        #expect(try await client.readiness(of: 88) == .blocked("its check deploy failed"))
         #expect(stub.requests.filter { $0.url?.path.hasSuffix("/check-runs") == true }.count == 2)
     }
 
@@ -392,7 +388,7 @@ import Synchronization
             }
             return (200, Data(Self.pull().utf8))
         }
-        #expect(try await client.mergeReadiness(repo: "octocat/hello", number: 88) == .blocked("its status ci/last failed"))
+        #expect(try await client.readiness(of: 88) == .blocked("its status ci/last failed"))
     }
 
     /// A list that never reaches its total, or ends short of it, is not green: it waits.
@@ -403,28 +399,28 @@ import Synchronization
             if path.hasSuffix("/status") { return (200, Data(Self.statuses([]).utf8)) }
             return (200, Data(Self.pull().utf8))
         }
-        #expect(try await endless.client.mergeReadiness(repo: "octocat/hello", number: 88) == .waiting("GitHub has not listed all its checks"))
+        #expect(try await endless.client.readiness(of: 88) == .waiting("GitHub has not listed all its checks"))
         #expect(endless.stub.requests.filter { $0.url?.path.hasSuffix("/check-runs") == true }.count == GitHubClient.listedPages,
                 "it gives up after the pages it reads")
         #expect(endless.stub.requests.filter { $0.url?.path.hasSuffix("/status") == true }.count == 1)
         let short = makeClient(host(pull: Self.pull(), checkRuns: Self.runs([], total: 3)))
-        #expect(try await short.client.mergeReadiness(repo: "octocat/hello", number: 88) == .waiting("GitHub has not listed all its checks"))
+        #expect(try await short.client.readiness(of: 88) == .waiting("GitHub has not listed all its checks"))
     }
 
     @Test func readinessThatCannotBeAskedThrows() async throws {
         for status in [401, 403, 404, 500] {
             await #expect(throws: GitHubError.self) {
-                _ = try await self.makeClient { _ in (status, Data()) }.client.mergeReadiness(repo: "octocat/hello", number: 88)
+                _ = try await self.makeClient { _ in (status, Data()) }.client.readiness(of: 88)
             }
         }
         await #expect(throws: GitHubError.decoding) {
             _ = try await self.makeClient(self.host(pull: Self.pull(), checkRuns: #"{"check_runs":[]}"#)).client
-                .mergeReadiness(repo: "octocat/hello", number: 88)
+                .readiness(of: 88)
         }
         await #expect(throws: GitHubError.forbidden) {
             _ = try await self.makeClient { request in
                 request.url?.path.hasSuffix("/status") == true ? (403, Data()) : (200, Data((request.url?.path.hasSuffix("/check-runs") == true ? Self.green : Self.pull()).utf8))
-            }.client.mergeReadiness(repo: "octocat/hello", number: 88)
+            }.client.readiness(of: 88)
         }
     }
 
@@ -433,7 +429,7 @@ import Synchronization
     @Test func itIsMergedAtTheAcceptedCommit() async throws {
         let answer = #"{"sha":"\#(Self.mergeCommit)","merged":true,"message":"Pull Request successfully merged"}"#
         let (client, stub) = makeClient { _ in (200, Data(answer.utf8)) }
-        #expect(try await client.merge(repo: "octocat/hello", number: 88, sha: Self.head) == .merged(commit: Self.mergeCommit, head: Self.head))
+        #expect(try await client.merge(88, at: Self.head) == .merged(commit: Self.mergeCommit, head: Self.head))
         let sent = try #require(stub.lastRequest)
         #expect(sent.httpMethod == "PUT")
         #expect(sent.url?.absoluteString == Self.api + "/pulls/88/merge")
@@ -443,34 +439,34 @@ import Synchronization
     @Test func anAnswerThatDoesNotSayItMergedIsNotAMerge() async throws {
         for answer in [#"{"merged":false,"message":"queued"}"#, #"{"merged":true}"#, "{}"] {
             let (client, _) = makeClient { _ in (200, Data(answer.utf8)) }
-            #expect(try await client.merge(repo: "octocat/hello", number: 88, sha: Self.head) == .waiting("GitHub has not finished merging it"), "\(answer)")
+            #expect(try await client.merge(88, at: Self.head) == .waiting("GitHub has not finished merging it"), "\(answer)")
         }
     }
 
     @Test func aRefusedMergeIsBlockedNotThrown() async throws {
         let (moved, _) = makeClient { _ in (409, Data(#"{"message":"Head branch was modified. Review and try the merge again."}"#.utf8)) }
-        #expect(try await moved.merge(repo: "octocat/hello", number: 88, sha: Self.head) == .blocked("the branch moved past the accepted commit"))
+        #expect(try await moved.merge(88, at: Self.head) == .blocked("the branch moved past the accepted commit"))
         for status in [405, 422] {
             let (client, _) = makeClient { _ in (status, Data(#"{"message":"Pull Request is not mergeable"}"#.utf8)) }
-            #expect(try await client.merge(repo: "octocat/hello", number: 88, sha: Self.head) == .blocked("GitHub refused to merge it (HTTP \(status))"))
+            #expect(try await client.merge(88, at: Self.head) == .blocked("GitHub refused to merge it (HTTP \(status))"))
         }
         await #expect(throws: GitHubError.unauthorized) {
-            _ = try await self.makeClient { _ in (401, Data()) }.client.merge(repo: "octocat/hello", number: 88, sha: Self.head)
+            _ = try await self.makeClient { _ in (401, Data()) }.client.merge(88, at: Self.head)
         }
         await #expect(throws: GitHubError.badResponse(502)) {
-            _ = try await self.makeClient { _ in (502, Data()) }.client.merge(repo: "octocat/hello", number: 88, sha: Self.head)
+            _ = try await self.makeClient { _ in (502, Data()) }.client.merge(88, at: Self.head)
         }
     }
 
     @Test func aPullRequestIsRetargeted() async throws {
         let (client, stub) = makeClient { _ in (200, Data(Self.pull().utf8)) }
-        try await client.retarget(repo: "octocat/hello", number: 88, to: "main")
+        try await client.retarget(88, to: "main")
         let sent = try #require(stub.lastRequest)
         #expect(sent.httpMethod == "PATCH")
         #expect(sent.url?.absoluteString == Self.api + "/pulls/88")
         #expect(try body(sent) as NSDictionary == ["base": "main"])
         await #expect(throws: GitHubError.badResponse(422)) {
-            _ = try await self.makeClient { _ in (422, Data()) }.client.retarget(repo: "octocat/hello", number: 88, to: "gone")
+            _ = try await self.makeClient { _ in (422, Data()) }.client.retarget(88, to: "gone")
         }
     }
 
@@ -501,20 +497,20 @@ import Synchronization
     @Test func aBranchGitHubProtectsIsSaid() async throws {
         let pullRequestRule = #"[{"type":"pull_request","ruleset_source_type":"Repository","ruleset_source":"octocat/hello","ruleset_id":7,"parameters":{"required_approving_review_count":1}}]"#
         let (byRuleset, stub) = makeClient(protectionHost(rulesets: pullRequestRule))
-        #expect(try await byRuleset.branchProtection(repo: "octocat/hello", branch: "feat/pluto-231") == .protected("a ruleset’s pull request rule covers it"))
+        #expect(try await byRuleset.protection(of: "feat/pluto-231") == .protected("a ruleset’s pull request rule covers it"))
         #expect(stub.requests.first?.url?.absoluteString.hasPrefix(Self.api + "/rules/branches/feat%2Fpluto-231?") == true,
                 "a slash in the branch stays inside its path segment")
 
         let classic = (200, Self.branch(protected: true))
-        #expect(try await makeClient(protectionHost(branch: classic)).client.branchProtection(repo: "octocat/hello", branch: "feat/pluto-231")
+        #expect(try await makeClient(protectionHost(branch: classic)).client.protection(of: "feat/pluto-231")
                 == .protected("GitHub’s branch protection covers it"))
 
         let pattern = Self.rules(["feat/*"])
-        #expect(try await makeClient(protectionHost(patterns: pattern)).client.branchProtection(repo: "octocat/hello", branch: "feat/pluto-231")
+        #expect(try await makeClient(protectionHost(patterns: pattern)).client.protection(of: "feat/pluto-231")
                 == .protected("the branch protection rule feat/* covers it"))
-        #expect(try await makeClient(protectionHost(patterns: pattern)).client.branchProtection(repo: "octocat/hello", branch: "feat/pluto/231")
+        #expect(try await makeClient(protectionHost(patterns: pattern)).client.protection(of: "feat/pluto/231")
                 == .unprotected, "GitHub's * stops at a slash")
-        #expect(try await makeClient(protectionHost(branch: classic)).client.branchProtection(repo: "octocat/hello", branch: "refs/heads/feat/pluto-231")
+        #expect(try await makeClient(protectionHost(branch: classic)).client.protection(of: "refs/heads/feat/pluto-231")
                 == .protected("GitHub’s branch protection covers it"), "a full ref names the same branch")
     }
 
@@ -525,12 +521,12 @@ import Synchronization
         for type in named + ["a_rule_from_the_future"] {
             let rule = #"[{"type":"\#(type)","ruleset_source_type":"Organization","ruleset_source":"octocat","ruleset_id":1}]"#
             let (client, _) = makeClient(protectionHost(rulesets: rule, branch: (200, Self.branch(protected: false, name: "feat/x"))))
-            #expect(try await client.branchProtection(repo: "octocat/hello", branch: "feat/x")
+            #expect(try await client.protection(of: "feat/x")
                     == .protected("a ruleset’s \(type.replacingOccurrences(of: "_", with: " ")) rule covers it"), "\(type)")
         }
         // One harmless rule beside a protective one does not hide it.
         let both = #"[{"type":"deletion"},{"type":"workflows"}]"#
-        #expect(try await makeClient(protectionHost(rulesets: both)).client.branchProtection(repo: "octocat/hello", branch: "feat/x")
+        #expect(try await makeClient(protectionHost(rulesets: both)).client.protection(of: "feat/x")
                 == .protected("a ruleset’s workflows rule covers it"))
     }
 
@@ -538,7 +534,7 @@ import Synchronization
         for type in GitHubClient.harmlessRules {
             let rule = #"[{"type":"\#(type)","ruleset_source_type":"Organization","ruleset_source":"octocat","ruleset_id":1}]"#
             let (client, _) = makeClient(protectionHost(rulesets: rule, branch: (200, Self.branch(protected: false, name: "feat/x"))))
-            #expect(try await client.branchProtection(repo: "octocat/hello", branch: "feat/x") == .unprotected, "\(type)")
+            #expect(try await client.protection(of: "feat/x") == .unprotected, "\(type)")
         }
         #expect(GitHubClient.harmlessRules.count == 12)
     }
@@ -546,13 +542,13 @@ import Synchronization
     @Test func aBranchThatWasRenamedIsNotAnsweredForByItsNewNamesFlag() async throws {
         let (client, _) = makeClient(protectionHost(branch: (200, Self.branch(protected: false, name: "feat/renamed"))))
         await #expect(throws: ProtectionUnknown.self) {
-            _ = try await client.branchProtection(repo: "octocat/hello", branch: "feat/old")
+            _ = try await client.protection(of: "feat/old")
         }
     }
 
     @Test func aPlusInABranchIsSentAsAPlus() async throws {
         let (client, stub) = makeClient { _ in (200, Data("[]".utf8)) }
-        #expect(try await client.openPullRequest(repo: "octocat/hello", source: "feat/a+b") == nil)
+        #expect(try await client.existingRequest(from: "feat/a+b") == nil)
         let url = try #require(stub.lastRequest?.url?.absoluteString)
         #expect(url.contains("head=octocat:feat/a%2Bb"))
         #expect(!url.contains("+"))
@@ -562,7 +558,7 @@ import Synchronization
         let noForce = #"[{"type":"non_fast_forward","ruleset_source_type":"Organization","ruleset_source":"octocat","ruleset_id":1},{"type":"deletion","ruleset_source_type":"Organization","ruleset_source":"octocat","ruleset_id":1}]"#
         let unprotected = (200, Self.branch(protected: false))
         #expect(try await makeClient(protectionHost(rulesets: noForce, branch: unprotected)).client
-                .branchProtection(repo: "octocat/hello", branch: "feat/pluto-231") == .unprotected)
+                .protection(of: "feat/pluto-231") == .unprotected)
     }
 
     /// A page that comes back short proves nothing: the guarding rule is on the second one.
@@ -578,24 +574,24 @@ import Synchronization
             }
             return (200, Data(Self.noRules.utf8))
         }
-        #expect(try await client.branchProtection(repo: "octocat/hello", branch: "feat/x") == .protected("a ruleset’s required status checks rule covers it"))
+        #expect(try await client.protection(of: "feat/x") == .protected("a ruleset’s required status checks rule covers it"))
         #expect(stub.requests.count == 2)
         let endless = makeClient { _ in (200, Data(#"[{"type":"deletion"}]"#.utf8)) }
         await #expect(throws: ProtectionUnknown.tooManyRules(GitHubClient.listedPages * 100)) {
-            _ = try await endless.client.branchProtection(repo: "octocat/hello", branch: "feat/x")
+            _ = try await endless.client.protection(of: "feat/x")
         }
         #expect(endless.stub.requests.count == GitHubClient.listedPages)
     }
 
     @Test func aBranchGitHubDoesNotHaveYetIsAskedByItsRulesPatterns() async throws {
         let (client, stub) = makeClient(protectionHost(patterns: Self.rules(["release/*", "main"])))
-        #expect(try await client.branchProtection(repo: "octocat/hello", branch: "feat/a b") == .unprotected)
+        #expect(try await client.protection(of: "feat/a b") == .unprotected)
         let urls = stub.requests.compactMap { $0.url?.absoluteString }
         #expect(urls.contains { $0.hasPrefix(Self.api + "/branches/feat%2Fa%20b") }, "a branch is asked for in one segment")
         #expect(urls.last == "https://api.github.com/graphql")
         // An existing branch is answered by its own flag: no pattern is read for it.
         let (existing, existingStub) = makeClient(protectionHost(branch: (200, Self.branch(protected: false))))
-        #expect(try await existing.branchProtection(repo: "octocat/hello", branch: "feat/pluto-231") == .unprotected)
+        #expect(try await existing.protection(of: "feat/pluto-231") == .unprotected)
         #expect(existingStub.requests.allSatisfy { $0.url?.path != "/graphql" })
     }
 
@@ -609,15 +605,15 @@ import Synchronization
             }
             return (404, Data(Self.notThere.utf8))
         }
-        #expect(try await client.branchProtection(repo: "octocat/hello", branch: "feat/x") == .protected("the branch protection rule feat/* covers it"))
+        #expect(try await client.protection(of: "feat/x") == .protected("the branch protection rule feat/* covers it"))
         #expect(stub.requests.filter { $0.url?.path == "/graphql" }.count == 2)
         let endless = makeClient(protectionHost(patterns: Self.rules(["a"], next: "more")))
         await #expect(throws: ProtectionUnknown.self) {
-            _ = try await endless.client.branchProtection(repo: "octocat/hello", branch: "feat/x")
+            _ = try await endless.client.protection(of: "feat/x")
         }
         let stuck = makeClient(protectionHost(patterns: Self.rules(["a"], next: "same")))
         await #expect(throws: ProtectionUnknown.self) {
-            _ = try await stuck.client.branchProtection(repo: "octocat/hello", branch: "feat/x")
+            _ = try await stuck.client.protection(of: "feat/x")
         }
         #expect(stuck.stub.requests.filter { $0.url?.path == "/graphql" }.count == 2, "a cursor that repeats stops it")
     }
@@ -625,29 +621,29 @@ import Synchronization
     @Test func aPatternAiTermCannotReadIsNoAnswerUnlessAnotherRuleCoversTheBranch() async throws {
         let (client, _) = makeClient(protectionHost(patterns: Self.rules(["[z-a]", "feat/other"])))
         await #expect(throws: ProtectionUnknown.unreadable("AiTerm cannot read the branch pattern [z-a]")) {
-            _ = try await client.branchProtection(repo: "octocat/hello", branch: "feat/x")
+            _ = try await client.protection(of: "feat/x")
         }
         let (covered, _) = makeClient(protectionHost(patterns: Self.rules(["[z-a]", "feat/*"])))
-        #expect(try await covered.branchProtection(repo: "octocat/hello", branch: "feat/x") == .protected("the branch protection rule feat/* covers it"))
+        #expect(try await covered.protection(of: "feat/x") == .protected("the branch protection rule feat/* covers it"))
     }
 
     /// What cannot be read is no answer: the caller pushes nothing.
     @Test func protectionThatCannotBeReadThrows() async throws {
         let hidden = #"{"data":{"repository":null},"errors":[{"type":"NOT_FOUND","message":"Could not resolve to a Repository"}]}"#
         await #expect(throws: ProtectionUnknown.self) {
-            _ = try await self.makeClient(self.protectionHost(patterns: hidden)).client.branchProtection(repo: "octocat/hello", branch: "feat/x")
+            _ = try await self.makeClient(self.protectionHost(patterns: hidden)).client.protection(of: "feat/x")
         }
         let partial = #"{"data":{"repository":{"branchProtectionRules":{"pageInfo":{"hasNextPage":false},"nodes":[]}}},"errors":[{"message":"Something went wrong"}]}"#
         await #expect(throws: ProtectionUnknown.self) {
-            _ = try await self.makeClient(self.protectionHost(patterns: partial)).client.branchProtection(repo: "octocat/hello", branch: "feat/x")
+            _ = try await self.makeClient(self.protectionHost(patterns: partial)).client.protection(of: "feat/x")
         }
         for repo in ["octocat", "octocat/hello/more", "/hello", ""] {
             await #expect(throws: ProtectionUnknown.self) {
-                _ = try await self.makeClient(self.protectionHost()).client.branchProtection(repo: repo, branch: "feat/x")
+                _ = try await self.makeClient(repo: repo, self.protectionHost()).client.protection(of: "feat/x")
             }
         }
         await #expect(throws: ProtectionUnknown.self) {
-            _ = try await self.makeClient(self.protectionHost()).client.branchProtection(repo: "octocat/hello", branch: "")
+            _ = try await self.makeClient(self.protectionHost()).client.protection(of: "")
         }
     }
 
@@ -658,7 +654,7 @@ import Synchronization
             for status in [401, 403, 404, 429, 500, 502] where !(source == "branch" && status == 404) {
                 await #expect(throws: ProtectionUnknown.self, "\(source) \(status)") {
                     _ = try await self.makeClient(self.protectionHost(fail: [source: status])).client
-                        .branchProtection(repo: "octocat/hello", branch: "feat/x")
+                        .protection(of: "feat/x")
                 }
             }
         }
@@ -671,12 +667,12 @@ import Synchronization
         ]
         for (what, handler) in garbled {
             await #expect(throws: ProtectionUnknown.self, "\(what)") {
-                _ = try await self.makeClient(handler).client.branchProtection(repo: "octocat/hello", branch: "feat/x")
+                _ = try await self.makeClient(handler).client.protection(of: "feat/x")
             }
         }
         // The same sources, each answering as it does for a branch that is not protected, are unprotected.
-        #expect(try await makeClient(protectionHost()).client.branchProtection(repo: "octocat/hello", branch: "feat/x") == .unprotected)
+        #expect(try await makeClient(protectionHost()).client.protection(of: "feat/x") == .unprotected)
         #expect(try await makeClient(protectionHost(branch: (200, Self.branch(protected: false, name: "feat/x")))).client
-                .branchProtection(repo: "octocat/hello", branch: "feat/x") == .unprotected)
+                .protection(of: "feat/x") == .unprotected)
     }
 }

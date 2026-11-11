@@ -10,15 +10,15 @@ import Foundation
                              "author": ["name": "Sam Rivera"],
                              "web_url": "https://git.example.net/web/acme-web/-/merge_requests/4"]
 
-    private func makeClient(_ handler: @escaping StubURLProtocol.Handler) -> (client: GitLabClient, stub: StubSession) {
+    private func makeClient(project: String = "web/acme-web", _ handler: @escaping StubURLProtocol.Handler) -> (client: GitLabClient, stub: StubSession) {
         let stub = StubSession(handler: handler)
-        return (GitLabClient(config: config, session: stub.session), stub)
+        return (GitLabClient(config: config, project: project, session: stub.session), stub)
     }
 
     @Test func testDefaultListParsesAndAuthenticates() async throws {
         let body = try JSONSerialization.data(withJSONObject: [mr])
         let (client, stub) = makeClient { _ in (200, body) }
-        let found = try await client.mergeRequests(project: "web/acme-web", search: "")
+        let found = try await client.mergeRequests(search: "")
         #expect(found == [MergeRequest(iid: 4, title: "Add gift card", sourceBranch: "feat-gift-card",
                                        targetBranch: "main", author: "Sam Rivera", state: "opened", draft: false,
                                        url: "https://git.example.net/web/acme-web/-/merge_requests/4")])
@@ -36,7 +36,7 @@ import Foundation
         payload["target_project_id"] = 12
         let body = try JSONSerialization.data(withJSONObject: [payload])
         let (client, _) = makeClient { _ in (200, body) }
-        let found = try #require(try await client.mergeRequests(project: "web/acme-web", search: "").first)
+        let found = try #require(try await client.mergeRequests(search: "").first)
         #expect(found.forkHead == (fork ? "project 99:feat-gift-card" : nil))
     }
 
@@ -48,7 +48,7 @@ import Foundation
 
     @Test func testSearchAddsQueryAndFields() async throws {
         let (client, stub) = makeClient { _ in (200, Data("[]".utf8)) }
-        _ = try await client.mergeRequests(project: "web/acme-web", search: "gift")
+        _ = try await client.mergeRequests(search: "gift")
         let url = stub.lastRequest!.url!.absoluteString
         #expect(url.contains("search=gift"))
         #expect(url.contains("in=title,description") || url.contains("in=title%2Cdescription"))
@@ -59,7 +59,7 @@ import Foundation
         let body = try JSONSerialization.data(withJSONObject: mr)
         let (client, stub) = makeClient { _ in (200, body) }
         for query in ["!4", "4", "  !4 "] {
-            let found = try await client.mergeRequests(project: "web/acme-web", search: query)
+            let found = try await client.mergeRequests(search: query)
             #expect(found.map(\.iid) == [4])
             #expect(stub.lastRequest!.url!.absoluteString.hasSuffix("/merge_requests/4"))
         }
@@ -67,35 +67,35 @@ import Foundation
 
     @Test func testUnauthorizedAndNotFoundMapToErrors() async {
         await #expect(throws: GitLabError.unauthorized) {
-            _ = try await makeClient { _ in (401, Data()) }.client.mergeRequests(project: "p", search: "")
+            _ = try await makeClient(project: "p") { _ in (401, Data()) }.client.mergeRequests(search: "")
         }
         await #expect(throws: GitLabError.unauthorized) {
-            _ = try await makeClient { _ in (403, Data()) }.client.mergeRequests(project: "p", search: "")
+            _ = try await makeClient(project: "p") { _ in (403, Data()) }.client.mergeRequests(search: "")
         }
         await #expect(throws: GitLabError.projectNotFound("p")) {
-            _ = try await makeClient { _ in (404, Data()) }.client.mergeRequests(project: "p", search: "")
+            _ = try await makeClient(project: "p") { _ in (404, Data()) }.client.mergeRequests(search: "")
         }
         await #expect(throws: GitLabError.badResponse(500)) {
-            _ = try await makeClient { _ in (500, Data()) }.client.mergeRequests(project: "p", search: "")
+            _ = try await makeClient(project: "p") { _ in (500, Data()) }.client.mergeRequests(search: "")
         }
     }
 
     /// GitLab answers 404 for a merge request number that does not exist: nothing found, not a
     /// missing project.
     @Test func anUnknownMergeRequestNumberFindsNothing() async throws {
-        let (client, _) = makeClient { _ in (404, Data(#"{"message":"404 Not found"}"#.utf8)) }
-        #expect(try await client.mergeRequests(project: "p", search: "!99").isEmpty)
+        let (client, _) = makeClient(project: "p") { _ in (404, Data(#"{"message":"404 Not found"}"#.utf8)) }
+        #expect(try await client.mergeRequests(search: "!99").isEmpty)
     }
 
     /// The connection test asks for no project; a 404 there is a host that serves no GitLab API.
     @Test func aConnectionTestThatFindsNoAPIPointsAtTheHost() async {
         await #expect(throws: GitLabError.noAPI("https://git.example.net")) {
-            _ = try await makeClient { _ in (404, Data()) }.client.testConnection()
+            let missing = StubSession { _ in (404, Data()) }
+            _ = try await GitLabClient.testConnection(config: config, session: missing.session)
         }
         let slashed = StubSession { _ in (404, Data()) }
         await #expect(throws: GitLabError.noAPI("https://git.example.net")) {
-            _ = try await GitLabClient(config: GitLabConfig(hostURL: URL(string: "https://git.example.net//")!, token: "tok"),
-                                       session: slashed.session).testConnection()
+            _ = try await GitLabClient.testConnection(config: GitLabConfig(hostURL: URL(string: "https://git.example.net//")!, token: "tok"), session: slashed.session)
         }
         #expect(GitLabError.noAPI("https://git.example.net").errorDescription
                 == "GitLab’s API was not found at https://git.example.net. Check the host URL in Settings › Integrations.")
@@ -103,37 +103,37 @@ import Foundation
 
     @Test func testMalformedBodyIsADecodingError() async {
         await #expect(throws: GitLabError.decoding) {
-            _ = try await makeClient { _ in (200, Data("not json".utf8)) }.client.mergeRequests(project: "p", search: "")
+            _ = try await makeClient(project: "p") { _ in (200, Data("not json".utf8)) }.client.mergeRequests(search: "")
         }
     }
 
     @Test func aMalformedEntryDropsOnlyItself() async throws {
         let body = try JSONSerialization.data(withJSONObject: [["iid": "four"], mr])
-        let (client, _) = makeClient { _ in (200, body) }
-        #expect(try await client.mergeRequests(project: "p", search: "").map(\.iid) == [4])
+        let (client, _) = makeClient(project: "p") { _ in (200, body) }
+        #expect(try await client.mergeRequests(search: "").map(\.iid) == [4])
     }
 
     @Test func tokenDoesNotFollowARedirectToAnotherHost() async throws {
         let user = URL(string: "https://git.example.net/api/v4/user")!
         let elsewhere = URL(string: "https://elsewhere.example.com/user")!
         let stub = RedirectSession(redirects: [user: elsewhere], body: Data(#"{"username":"sam.rivera"}"#.utf8))
-        #expect(try await GitLabClient(config: config, session: stub.session).testConnection() == "sam.rivera")
+        #expect(try await GitLabClient.testConnection(config: config, session: stub.session) == "sam.rivera")
         #expect(stub.requests.map(\.url) == [user, elsewhere])
         #expect(stub.requests.map { $0.value(forHTTPHeaderField: "PRIVATE-TOKEN") } == ["tok", nil])
     }
 
     @Test func aCancelledRequestThrowsCancellation() async {
-        let (client, _) = makeClient { _ in (200, Data("[]".utf8)) }
+        let (client, _) = makeClient(project: "p") { _ in (200, Data("[]".utf8)) }
         let search = Task {
             withUnsafeCurrentTask { $0?.cancel() }
-            return try await client.mergeRequests(project: "p", search: "")
+            return try await client.mergeRequests(search: "")
         }
         await #expect(throws: CancellationError.self) { _ = try await search.value }
     }
 
     @Test func testConnectionReturnsTheUsername() async throws {
-        let (client, stub) = makeClient { _ in (200, try! JSONSerialization.data(withJSONObject: ["username": "sam.rivera"])) }
-        #expect(try await client.testConnection() == "sam.rivera")
+        let (_, stub) = makeClient { _ in (200, try! JSONSerialization.data(withJSONObject: ["username": "sam.rivera"])) }
+        #expect(try await GitLabClient.testConnection(config: config, session: stub.session) == "sam.rivera")
         #expect(stub.lastRequest!.url!.absoluteString == "https://git.example.net/api/v4/user")
     }
 
@@ -159,7 +159,7 @@ import Foundation
             [["resolvable": true, "resolved": false]],
         ])
         let (client, stub) = makeClient { _ in (200, body) }
-        #expect(try await client.reviewThreads(project: "web/acme-web", iid: 4) == ReviewThreads(resolved: 1, total: 3))
+        #expect(try await client.reviewThreads(of: 4) == ReviewThreads(resolved: 1, total: 3))
         let req = try #require(stub.lastRequest)
         #expect(req.httpMethod == "GET")
         #expect(req.value(forHTTPHeaderField: "PRIVATE-TOKEN") == "tok")
@@ -171,27 +171,27 @@ import Foundation
         let full = try Self.discussions(Array(repeating: [["resolvable": true, "resolved": true]], count: 100))
         let last = try Self.discussions([[["resolvable": true, "resolved": false]]])
         let (client, stub) = makeClient { request in (200, Self.page(of: request) == "1" ? full : last) }
-        #expect(try await client.reviewThreads(project: "web/acme-web", iid: 4) == ReviewThreads(resolved: 100, total: 101))
+        #expect(try await client.reviewThreads(of: 4) == ReviewThreads(resolved: 100, total: 101))
         #expect(stub.requests.map(Self.page(of:)) == ["1", "2"])
     }
 
     /// Review focus 4: a host that never answers a short page is read ten pages deep and no further.
     @Test func reviewThreadsStopAtTenPages() async throws {
         let full = try Self.discussions(Array(repeating: [["resolvable": true, "resolved": false]], count: 100))
-        let (client, stub) = makeClient { _ in (200, full) }
-        #expect(try await client.reviewThreads(project: "p", iid: 4) == ReviewThreads(resolved: 0, total: 1000))
+        let (client, stub) = makeClient(project: "p") { _ in (200, full) }
+        #expect(try await client.reviewThreads(of: 4) == ReviewThreads(resolved: 0, total: 1000))
         #expect(stub.requests.count == GitLabClient.discussionPages)
     }
 
     @Test func reviewThreadsMapStatusesLikeEveryOtherRead() async {
         await #expect(throws: GitLabError.unauthorized) {
-            _ = try await makeClient { _ in (401, Data()) }.client.reviewThreads(project: "p", iid: 4)
+            _ = try await makeClient(project: "p") { _ in (401, Data()) }.client.reviewThreads(of: 4)
         }
         await #expect(throws: GitLabError.projectNotFound("p")) {
-            _ = try await makeClient { _ in (404, Data()) }.client.reviewThreads(project: "p", iid: 4)
+            _ = try await makeClient(project: "p") { _ in (404, Data()) }.client.reviewThreads(of: 4)
         }
         await #expect(throws: GitLabError.decoding) {
-            _ = try await makeClient { _ in (200, Data("<html>".utf8)) }.client.reviewThreads(project: "p", iid: 4)
+            _ = try await makeClient(project: "p") { _ in (200, Data("<html>".utf8)) }.client.reviewThreads(of: 4)
         }
     }
 }

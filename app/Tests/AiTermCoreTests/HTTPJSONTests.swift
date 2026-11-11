@@ -33,11 +33,11 @@ import Foundation
         do {
             switch host {
             case "GitHub":
-                try await GitHubClient(config: GitHubConfig(token: "stub"), session: stub.session)
-                    .markReady(repo: "owner/repo", number: 1)
+                try await GitHubClient(config: GitHubConfig(token: "stub"), repo: "owner/repo", session: stub.session)
+                    .markReady(1)
             case "GitLab":
-                try await GitLabClient(config: GitLabConfig(hostURL: url, token: "stub"), session: stub.session)
-                    .markReady(project: "owner/repo", iid: 1)
+                try await GitLabClient(config: GitLabConfig(hostURL: url, token: "stub"), project: "owner/repo", session: stub.session)
+                    .markReady(1)
             default:
                 _ = try await JiraClient(config: JiraConfig(siteURL: url, email: "stub", token: "stub"), session: stub.session)
                     .transition(key: "PAY-1", to: "Done")

@@ -15,9 +15,9 @@ import Foundation
                 "base": ["ref": "main", "repo": ["full_name": "octocat/hello"]]]
     }
 
-    private func makeClient(_ handler: @escaping StubURLProtocol.Handler) -> (client: GitHubClient, stub: StubSession) {
+    private func makeClient(repo: String = "octocat/hello", _ handler: @escaping StubURLProtocol.Handler) -> (client: GitHubClient, stub: StubSession) {
         let stub = StubSession(handler: handler)
-        return (GitHubClient(config: config, session: stub.session), stub)
+        return (GitHubClient(config: config, repo: repo, session: stub.session), stub)
     }
 
     /// Today's interpolation remains the reference. Encoding is character-wise, so the complete
@@ -48,15 +48,15 @@ import Foundation
     @Test(arguments: [("owner/repo%2Fpart", "owner/repo%252Fpart"), ("owner/repo+part", "owner/repo%2Bpart"),
                       ("owner/repo#part", "owner/repo%23part"), ("owner/repo?part", "owner/repo%3Fpart")])
     func aRepositorySegmentIsEncodedInTheSentRequest(_ repo: String, _ encoded: String) async throws {
-        let (client, stub) = makeClient { _ in (404, Data()) }
-        #expect(try await client.pullRequests(repo: repo, search: "#87").isEmpty)
+        let (client, stub) = makeClient(repo: repo) { _ in (404, Data()) }
+        #expect(try await client.mergeRequests(search: "#87").isEmpty)
         #expect(stub.requests.map { $0.url?.absoluteString } == ["https://api.github.com/repos/\(encoded)/pulls/87"])
     }
 
     @Test func theListIsOpenPullsNewestFirstWithTheToken() async throws {
         let body = try JSONSerialization.data(withJSONObject: [pull(87)])
         let (client, stub) = makeClient { _ in (200, body) }
-        let found = try await client.pullRequests(repo: "octocat/hello", search: "")
+        let found = try await client.mergeRequests(search: "")
         #expect(found == [MergeRequest(iid: 87, title: "Add gift card", sourceBranch: "feat-gift-card", targetBranch: "main",
                                        author: "octocat", state: "open", draft: false,
                                        url: "https://github.com/octocat/hello/pull/87")])
@@ -73,17 +73,17 @@ import Foundation
         let many = (1...40).map { pull($0, title: "Change \($0)", head: "topic-\($0)", author: $0 == 3 ? "Sam" : "octocat") }
         let body = try JSONSerialization.data(withJSONObject: many + [pull(99, title: "Gift CARD flow")])
         let (client, _) = makeClient { _ in (200, body) }
-        #expect(try await client.pullRequests(repo: "octocat/hello", search: "gift card").map(\.iid) == [99])
-        #expect(try await client.pullRequests(repo: "octocat/hello", search: "topic-12").map(\.iid) == [12])
-        #expect(try await client.pullRequests(repo: "octocat/hello", search: "sam").map(\.iid) == [3])
-        #expect(try await client.pullRequests(repo: "octocat/hello", search: "").count == 25)
+        #expect(try await client.mergeRequests(search: "gift card").map(\.iid) == [99])
+        #expect(try await client.mergeRequests(search: "topic-12").map(\.iid) == [12])
+        #expect(try await client.mergeRequests(search: "sam").map(\.iid) == [3])
+        #expect(try await client.mergeRequests(search: "").count == 25)
     }
 
     @Test func aNumberFetchesThatPullRequest() async throws {
         let body = try JSONSerialization.data(withJSONObject: pull(87))
         let (client, stub) = makeClient { _ in (200, body) }
         for text in ["87", "#87", "!87", " #87 "] {
-            #expect(try await client.pullRequests(repo: "octocat/hello", search: text).map(\.iid) == [87], "\(text)")
+            #expect(try await client.mergeRequests(search: text).map(\.iid) == [87], "\(text)")
         }
         #expect(stub.lastRequest?.url?.absoluteString == "https://api.github.com/repos/octocat/hello/pulls/87")
     }
@@ -95,20 +95,20 @@ import Foundation
             payload["merged"] = merged
             let body = try JSONSerialization.data(withJSONObject: payload)
             let (client, _) = makeClient { _ in (200, body) }
-            let found = try await client.pullRequests(repo: "octocat/hello", search: "#88")
+            let found = try await client.mergeRequests(search: "#88")
             #expect(found.first?.lane == lane, "\(state) merged \(merged)")
         }
     }
 
     @Test func anUnknownNumberIsNothingFound() async throws {
         let (client, _) = makeClient { _ in (404, Data()) }
-        #expect(try await client.pullRequests(repo: "octocat/hello", search: "#9999") == [])
+        #expect(try await client.mergeRequests(search: "#9999") == [])
     }
 
     @Test func aPullRequestFromAForkSaysWhichFork() async throws {
         let body = try JSONSerialization.data(withJSONObject: [pull(5, head: "patch-1", headRepo: "someone/hello")])
         let (client, _) = makeClient { _ in (200, body) }
-        let found = try #require(try await client.pullRequests(repo: "octocat/hello", search: "").first)
+        let found = try #require(try await client.mergeRequests(search: "").first)
         #expect(found.forkHead == "someone:patch-1")
         #expect(found.lane == "Fork")
     }
@@ -117,7 +117,7 @@ import Foundation
     @Test func aPullRequestFromADeletedForkIsStillListed() async throws {
         let body = try JSONSerialization.data(withJSONObject: [pull(6, head: "patch-2", headRepo: nil), pull(7)])
         let (client, _) = makeClient { _ in (200, body) }
-        let found = try await client.pullRequests(repo: "octocat/hello", search: "")
+        let found = try await client.mergeRequests(search: "")
         #expect(found.map(\.iid) == [6, 7])
         #expect(found.first?.forkHead == "ghost:patch-2")
         #expect(found.last?.forkHead == nil)
@@ -126,15 +126,15 @@ import Foundation
     @Test func aMalformedEntryDropsOnlyItself() async throws {
         let body = try JSONSerialization.data(withJSONObject: [["number": "x"], pull(7)])
         let (client, _) = makeClient { _ in (200, body) }
-        #expect(try await client.pullRequests(repo: "octocat/hello", search: "").map(\.iid) == [7])
+        #expect(try await client.mergeRequests(search: "").map(\.iid) == [7])
     }
 
     @Test func statusCodesMapToErrors() async {
         for (status, error) in [(401, GitHubError.unauthorized), (403, .forbidden), (404, .repoNotFound("octocat/hello")), (500, .badResponse(500))] {
-            await #expect(throws: error) { _ = try await self.makeClient { _ in (status, Data()) }.client.pullRequests(repo: "octocat/hello", search: "") }
+            await #expect(throws: error) { _ = try await self.makeClient { _ in (status, Data()) }.client.mergeRequests(search: "") }
         }
         await #expect(throws: GitHubError.decoding) {
-            _ = try await self.makeClient { _ in (200, Data("<html>".utf8)) }.client.pullRequests(repo: "octocat/hello", search: "")
+            _ = try await self.makeClient { _ in (200, Data("<html>".utf8)) }.client.mergeRequests(search: "")
         }
     }
 
@@ -145,8 +145,8 @@ import Foundation
     }
 
     @Test func testConnectionReturnsTheLogin() async throws {
-        let (client, stub) = makeClient { _ in (200, Data(#"{"login":"octocat"}"#.utf8)) }
-        #expect(try await client.testConnection() == "octocat")
+        let (_, stub) = makeClient { _ in (200, Data(#"{"login":"octocat"}"#.utf8)) }
+        #expect(try await GitHubClient.testConnection(config: config, session: stub.session) == "octocat")
         #expect(stub.lastRequest?.url?.absoluteString == "https://api.github.com/user")
     }
 
@@ -154,7 +154,7 @@ import Foundation
         let first = URL(string: "https://api.github.com/repos/octocat/hello/pulls?state=open&sort=updated&direction=desc&per_page=100")!
         let elsewhere = URL(string: "https://evil.example.com/pulls")!
         let stub = RedirectSession(redirects: [first: elsewhere], body: Data("[]".utf8))
-        _ = try await GitHubClient(config: config, session: stub.session).pullRequests(repo: "octocat/hello", search: "")
+        _ = try await GitHubClient(config: config, repo: "octocat/hello", session: stub.session).mergeRequests(search: "")
         #expect(stub.requests.map { $0.value(forHTTPHeaderField: "Authorization") } == ["Bearer ghp_tok", nil])
     }
 
@@ -180,7 +180,7 @@ import Foundation
     @Test func reviewThreadsAskGraphQLForThePullRequestsThreads() async throws {
         let body = try Self.threadsPage([true, false, true])
         let (client, stub) = makeClient { _ in (200, body) }
-        #expect(try await client.reviewThreads(repo: "octocat/hello", number: 87) == ReviewThreads(resolved: 2, total: 3))
+        #expect(try await client.reviewThreads(of: 87) == ReviewThreads(resolved: 2, total: 3))
         let req = try #require(stub.lastRequest)
         #expect(req.url?.absoluteString == "https://api.github.com/graphql")
         #expect(req.httpMethod == "POST")
@@ -202,7 +202,7 @@ import Foundation
     @Test func reviewThreadsFollowTheCursor() async throws {
         let first = try Self.threadsPage([true, true], next: "c1"), second = try Self.threadsPage([false])
         let (client, stub) = makeClient { request in (200, Self.variables(of: request)["after"] as? String == "c1" ? second : first) }
-        #expect(try await client.reviewThreads(repo: "octocat/hello", number: 87) == ReviewThreads(resolved: 2, total: 3))
+        #expect(try await client.reviewThreads(of: 87) == ReviewThreads(resolved: 2, total: 3))
         #expect(stub.requests.map { Self.variables(of: $0)["after"] as? String } == [nil, "c1"])
     }
 
@@ -210,7 +210,7 @@ import Foundation
     @Test func reviewThreadsStopAtTenPagesToo() async throws {
         let endless = try Self.threadsPage([true], next: "again")
         let (client, stub) = makeClient { _ in (200, endless) }
-        #expect(try await client.reviewThreads(repo: "octocat/hello", number: 87) == ReviewThreads(resolved: 10, total: 10))
+        #expect(try await client.reviewThreads(of: 87) == ReviewThreads(resolved: 10, total: 10))
         #expect(stub.requests.count == GitHubClient.threadPages)
     }
 
@@ -225,18 +225,18 @@ import Foundation
         ]
         for (body, error) in cases {
             await #expect(throws: error, "\(body)") {
-                _ = try await self.makeClient { _ in (200, Data(body.utf8)) }.client.reviewThreads(repo: "octocat/hello", number: 87)
+                _ = try await self.makeClient { _ in (200, Data(body.utf8)) }.client.reviewThreads(of: 87)
             }
         }
         await #expect(throws: GitHubError.unauthorized) {
-            _ = try await self.makeClient { _ in (401, Data()) }.client.reviewThreads(repo: "octocat/hello", number: 87)
+            _ = try await self.makeClient { _ in (401, Data()) }.client.reviewThreads(of: 87)
         }
     }
 
     /// A repository that is not `owner/name` is not asked about at all.
     @Test func aRepositoryWithoutAnOwnerIsNotAsked() async {
-        let (client, stub) = makeClient { _ in (200, Data()) }
-        await #expect(throws: GitHubError.repoNotFound("hello")) { _ = try await client.reviewThreads(repo: "hello", number: 87) }
+        let (client, stub) = makeClient(repo: "hello") { _ in (200, Data()) }
+        await #expect(throws: GitHubError.repoNotFound("hello")) { _ = try await client.reviewThreads(of: 87) }
         #expect(stub.requests.isEmpty)
     }
 }

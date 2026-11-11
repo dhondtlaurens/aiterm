@@ -106,8 +106,8 @@ import Foundation
     @Test func aGitLabForkCannotSelectASameNamedOriginBranch() async throws {
         let body = Data(#"[{"iid":4,"title":"Fork patch","source_branch":"feat-gift-card","target_branch":"main","web_url":"https://git.example.net/web/acme-web/-/merge_requests/4","source_project_id":99,"target_project_id":12}]"#.utf8)
         let stub = StubSession { _ in (200, body) }
-        let client = GitLabClient(config: GitLabConfig(hostURL: URL(string: "https://git.example.net")!, token: "t"), session: stub.session)
-        let fork = try #require(try await client.mergeRequests(project: "web/acme-web", search: "").first)
+        let client = GitLabClient(config: GitLabConfig(hostURL: URL(string: "https://git.example.net")!, token: "t"), project: "web/acme-web", session: stub.session)
+        let fork = try #require(try await client.mergeRequests(search: "").first)
         let m = model()
         let before = m.draft.branch
         m.pick(fork)

@@ -514,8 +514,7 @@ Each box leaves the project working and is one or a few commits.
   maintainer has not approved; the question is with them, and each answer is a one-line switch.
 - [x] 2e. Cloned backup, path identity and stamp, priorities, dead code, monotonic clocks.
 - [x] 3a. Outcome-unknown classification in Core (test first); token trimming.
-- [ ] 3b. Clients bound to their repository; forwarding removed; access narrowed; path encoding.
-  Path encoding and thread repository check done (approved edge changes, record); binding and access changes remain pending.
+- [x] 3b. Clients bound to their repository; forwarding removed; access narrowed; path encoding.
 - [ ] 3c. `find_user`, symlinked catalogue stamps (tests first); listing and user reuse. GitLab closing-issue
   concurrency dropped: one issue's two source listings stay at 2 host requests (record); the other items remain pending.
 - [ ] 3d. Jira on `JSONValue`; Fix state; dead code; small shared helpers.

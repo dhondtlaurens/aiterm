@@ -7,9 +7,9 @@ import Testing
 @MainActor @Suite struct OperatorReviewTests {
     @Test func failureBeforeAHostWriteDoesNotHoldItsOutcomeOpen() async {
         let stub = StubSession { _ in (200, Data(#"{"draft":true}"#.utf8)) }
-        let client = GitHubClient(config: GitHubConfig(token: "stub"), session: stub.session)
+        let client = GitHubClient(config: GitHubConfig(token: "stub"), repo: "owner/repo", session: stub.session)
         do {
-            try await client.markReady(repo: "owner/repo", number: 1)
+            try await client.markReady(1)
             Issue.record("Missing node id must stop the write")
         } catch {
             #expect(!OperatorToolHandler.mayHaveLanded(error))

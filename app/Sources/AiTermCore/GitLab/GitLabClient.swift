@@ -29,13 +29,20 @@ public enum GitLabError: HostFailure, Equatable, LocalizedError {
     }
 }
 
-public struct GitLabClient: Sendable {
+public struct GitLabClient: HostRepository {
     let config: GitLabConfig, session: URLSession
-    public init(config: GitLabConfig, session: URLSession = .shared) { self.config = config; self.session = session }
+    let project: String
+    private let boundPath: String
+    public init(config: GitLabConfig, project: String, session: URLSession = .shared) {
+        self.config = config; self.session = session; self.project = project
+        boundPath = Self.projectPath(project)
+    }
+
+    public var repository: String { (config.hostURL.host?.lowercased() ?? "") + "/" + project }
 
     /// A GitLab project id is the namespaced path as **one** path segment, so every `/` inside it
     /// must be escaped, or `a/b/c` would split into three segments and 404 on every subgroup project.
-    public static func encodedProject(_ path: String) -> String { HTTPJSON.pathSegment(path) }
+    static func encodedProject(_ path: String) -> String { HTTPJSON.pathSegment(path) }
 
     /// A project's API path, the base of every per-project request.
     static func projectPath(_ project: String) -> String { "/api/v4/projects/" + encodedProject(project) }
@@ -47,13 +54,18 @@ public struct GitLabClient: Sendable {
         return base
     }
 
-    public func testConnection() async throws -> String {
-        struct User: Decodable { var username: String }
-        return try await get(User.self, path: "/api/v4/user", notFound: .noAPI(Self.base(config.hostURL))).username
+    public func currentUser() async throws -> String { try await Self.testConnection(config: config, session: session) }
+    public func openRequests(pages: Int) async throws -> (requests: [MergeRequest], complete: Bool) {
+        try await openMergeRequests(pages: pages)
     }
 
-    public func mergeRequests(project: String, search: String) async throws -> [MergeRequest] {
-        let base = Self.requestsPath(project)
+    public static func testConnection(config: GitLabConfig, session: URLSession = .shared) async throws -> String {
+        struct User: Decodable { var username: String }
+        return try await api(config, session: session, notFound: .noAPI(Self.base(config.hostURL))).get(User.self, path: "/api/v4/user").username
+    }
+
+    public func mergeRequests(search: String) async throws -> [MergeRequest] {
+        let base = boundPath + "/merge_requests"
         let text = search.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Typing a merge request's number finds that merge request, rather than full-text
@@ -82,8 +94,8 @@ public struct GitLabClient: Sendable {
     /// that issue, whatever its state. A project whose issues are off, or that the token cannot
     /// see, has none: GitLab answers those with 403 or 404, and a project without issues is the
     /// common case, not an error. A token GitLab no longer accepts (401) is one, and is thrown.
-    public func issues(project: String, search: String) async throws -> [JiraTicket] {
-        let base = Self.projectPath(project) + "/issues"
+    public func issues(search: String) async throws -> [JiraTicket] {
+        let base = boundPath + "/issues"
         let text = search.trimmingCharacters(in: .whitespacesAndNewlines)
         let none = GitLabError.projectNotFound(project)
         let api = HostAPI(base: Self.base(config.hostURL), headers: ["PRIVATE-TOKEN": config.token, "Accept": "application/json"],
@@ -111,8 +123,8 @@ public struct GitLabClient: Sendable {
     }
 
     /// The open merge requests in `project` that close issue `iid` or mention it, each once.
-    public func openMergeRequests(project: String, closingIssue iid: Int) async throws -> [MergeRequest] {
-        let base = Self.projectPath(project) + "/issues/\(iid)"
+    public func openRequests(closingIssue iid: Int) async throws -> [MergeRequest] {
+        let base = boundPath + "/issues/\(iid)"
         var seen = Set<Int>(), found: [MergeRequest] = []
         for path in [base + "/closed_by", base + "/related_merge_requests"] {
             let page = try await get([Lenient<MergeRequestPayload>].self, path: path, notFound: .projectNotFound(project))
@@ -127,12 +139,12 @@ public struct GitLabClient: Sendable {
     /// Up to `pages` pages of the project's open merge requests, `perPage` at a time, the most
     /// recently updated first, and whether that was all of them: a page that came back short is
     /// the last one.
-    public func openMergeRequests(project: String, perPage: Int = 100, pages: Int = 5) async throws -> (requests: [MergeRequest], complete: Bool) {
+    func openMergeRequests(perPage: Int = 100, pages: Int = 5) async throws -> (requests: [MergeRequest], complete: Bool) {
         var all: [MergeRequest] = []
         for page in 1...max(1, pages) {
             let query = [URLQueryItem(name: "state", value: "opened"), URLQueryItem(name: "order_by", value: "updated_at"),
                          URLQueryItem(name: "per_page", value: String(perPage)), URLQueryItem(name: "page", value: String(page))]
-            let read = try await get([Lenient<MergeRequestPayload>].self, path: Self.requestsPath(project), query: query,
+            let read = try await get([Lenient<MergeRequestPayload>].self, path: boundPath + "/merge_requests", query: query,
                                      notFound: .projectNotFound(project))
             all += read.compactMap { $0.value?.mergeRequest }
             if read.count < perPage { return (all, true) }
@@ -168,8 +180,8 @@ public struct GitLabClient: Sendable {
     /// them are. Read a page at a time until one comes back short — GitLab's paging headers are not
     /// read, `HTTPJSON` hands back the body and the status only — and at most `discussionPages`.
     /// Read-only.
-    public func reviewThreads(project: String, iid: Int) async throws -> ReviewThreads {
-        let resolutions = try await readDiscussions(project: project, iid: iid, complete: false) { discussions in
+    public func reviewThreads(of iid: Int) async throws -> ReviewThreads {
+        let resolutions = try await readDiscussions(iid: iid, complete: false) { discussions in
             discussions.compactMap { $0.value?.resolution }
         }
         return ReviewThreads(resolutions: resolutions)
@@ -177,16 +189,14 @@ public struct GitLabClient: Sendable {
 
     // MARK: Publishing — the only writes this client makes, for an operator's finish_task (spec §6)
 
-    static func requestsPath(_ project: String) -> String {
-        projectPath(project) + "/merge_requests"
-    }
+
 
     /// The open merge request from `source`, if there is one: what a repeated finish_task finds
     /// instead of opening a second after a reply was lost. An entry that does not decode is no
     /// answer, not an absent request, and one from a fork's branch of the same name is not this one.
-    public func openMergeRequest(project: String, source: String) async throws -> MergeRequest? {
+    public func existingRequest(from source: String) async throws -> MergeRequest? {
         let query = [URLQueryItem(name: "state", value: "opened"), URLQueryItem(name: "source_branch", value: source)]
-        return try await get([MergeRequestPayload].self, path: Self.requestsPath(project), query: query,
+        return try await get([MergeRequestPayload].self, path: boundPath + "/merge_requests", query: query,
                              notFound: .projectNotFound(project))
             .first { $0.sourceProjectId == nil || $0.targetProjectId == nil || $0.sourceProjectId == $0.targetProjectId }?.mergeRequest
     }
@@ -194,27 +204,28 @@ public struct GitLabClient: Sendable {
     /// A merge request from `source` into `target`. A draft is GitLab's `Draft:` title prefix. The
     /// source branch is kept after a merge: deleting a branch is ask-first. Nothing here asks GitLab
     /// to merge, squash or rebase it: merging is `merge`, at the accepted commit.
-    public func createMergeRequest(project: String, source: String, target: String, title: String,
+    public func createRequest(from source: String, into target: String, title: String,
                                    description: String, draft: Bool) async throws -> MergeRequest {
         struct Create: Encodable { var sourceBranch, targetBranch, title, description: String; var removeSourceBranch = false }
         let body = Create(sourceBranch: source, targetBranch: target, title: (draft ? "Draft: " : "") + Self.readyTitle(title),
                           description: description)
-        return try await send(MergeRequestPayload.self, method: "POST", path: Self.requestsPath(project), body: body,
+        return try await send(MergeRequestPayload.self, method: "POST", path: boundPath + "/merge_requests", body: body,
                               notFound: .projectNotFound(project)).mergeRequest
     }
 
     /// Whether GitLab would merge it now: its pipeline first — a merge end waits for green whatever
     /// the project requires — then whether it is a draft, then GitLab's `detailed_merge_status`.
-    public func mergeReadiness(project: String, iid: Int) async throws -> MergeReadiness {
-        try await get(MergeStatusPayload.self, path: Self.requestsPath(project) + "/\(iid)",
+    public func readiness(of iid: Int) async throws -> MergeReadiness {
+        try await get(MergeStatusPayload.self, path: boundPath + "/merge_requests/\(iid)",
                       notFound: .projectNotFound(project)).readiness
     }
 
     /// The request as the Operator reads it (`MergeRequestState`): the same read as `mergeReadiness` and who approved it,
     /// asked together. `mergeable` is GitLab's `detailed_merge_status` as it says it, `state` when it gives none.
-    public func mergeRequestState(project: String, iid: Int, url: String) async throws -> MergeRequestState {
-        async let status = get(MergeStatusPayload.self, path: Self.requestsPath(project) + "/\(iid)", notFound: .projectNotFound(project))
-        async let approved = approvals(project: project, iid: iid)
+    public func state(of request: MergeRequest) async throws -> MergeRequestState {
+        let iid = request.iid, url = request.url
+        async let status = get(MergeStatusPayload.self, path: boundPath + "/merge_requests/\(iid)", notFound: .projectNotFound(project))
+        async let approved = approvals(of: iid)
         let (read, by) = try await (status, approved)
         return MergeRequestState(iid: iid, url: url, draft: read.draft ?? false, pipeline: read.headPipeline?.status,
                                  mergeable: read.detailedMergeStatus ?? read.state ?? "unknown", approvedBy: by, head: read.sha)
@@ -225,10 +236,10 @@ public struct GitLabClient: Sendable {
     /// branch. A refusal is `.blocked`, with GitLab's status; only a failure to ask throws. GitLab may
     /// answer before the merge has run (the request still open): that is `.waiting`, and `mergeReadiness`
     /// says when it has.
-    public func merge(project: String, iid: Int, sha: String) async throws -> MergeReadiness {
+    public func merge(_ iid: Int, at sha: String) async throws -> MergeReadiness {
         struct Merge: Encodable { var sha: String }
         do {
-            let answer = try await send(MergeStatusPayload.self, method: "PUT", path: Self.requestsPath(project) + "/\(iid)/merge",
+            let answer = try await send(MergeStatusPayload.self, method: "PUT", path: boundPath + "/merge_requests/\(iid)/merge",
                                         body: Merge(sha: sha), notFound: .projectNotFound(project))
             switch answer.readiness {
             case .merged(let commit, let head, let target): return .merged(commit: commit.isEmpty ? sha : commit, head: head.isEmpty ? sha : head, target: target)
@@ -243,9 +254,9 @@ public struct GitLabClient: Sendable {
     }
 
     /// Points it at `target`: a stacked request, once its parent has merged.
-    public func retarget(project: String, iid: Int, to target: String) async throws {
+    public func retarget(_ iid: Int, to target: String) async throws {
         struct Retarget: Encodable { var targetBranch: String }
-        _ = try await send(MergeRequestPayload.self, method: "PUT", path: Self.requestsPath(project) + "/\(iid)",
+        _ = try await send(MergeRequestPayload.self, method: "PUT", path: boundPath + "/merge_requests/\(iid)",
                            body: Retarget(targetBranch: target), notFound: .projectNotFound(project))
     }
 
@@ -266,8 +277,8 @@ public struct GitLabClient: Sendable {
 
     /// Takes it out of draft, which on GitLab is dropping the title's draft prefix. One that is not a
     /// draft is not written to.
-    public func markReady(project: String, iid: Int, beforeWrite: @Sendable () async throws -> Void = {}) async throws {
-        let path = Self.requestsPath(project) + "/\(iid)"
+    public func markReady(_ iid: Int, beforeWrite: @Sendable () async throws -> Void = {}) async throws {
+        let path = boundPath + "/merge_requests/\(iid)"
         let request = try await HTTPJSON.preparingWrite(GitLabError.self) {
             try await get(MergeRequestPayload.self, path: path, notFound: .projectNotFound(project))
         }
@@ -282,9 +293,10 @@ public struct GitLabClient: Sendable {
     /// username, replaces any it has. A draft keeps its `Draft: ` prefix whatever title is given, since a title without it
     /// takes the request out of draft, and a draft prefix in `title` is dropped. `beforeWrite` gets the request as read
     /// before the write.
-    public func updateMergeRequest(project: String, iid: Int, title: String?, description: String?, assignee: String?,
+    public func updateRequest(_ iid: Int, _ edit: RequestContent,
                                    beforeWrite: @Sendable (MergeRequest) async throws -> Void = { _ in }) async throws {
-        let path = Self.requestsPath(project) + "/\(iid)"
+        let title = edit.title, description = edit.description, assignee = edit.assignee
+        let path = boundPath + "/merge_requests/\(iid)"
         let request = try await HTTPJSON.preparingWrite(GitLabError.self) {
             try await get(MergeRequestPayload.self, path: path, notFound: .projectNotFound(project))
         }
@@ -308,13 +320,13 @@ public struct GitLabClient: Sendable {
 
     /// Adds `usernames` to its reviewers, each looked up by its exact username; the reviewers it has stay.
     /// Nothing is written when every one of them reviews it already.
-    public func assignReviewers(project: String, iid: Int, usernames: [String],
+    public func assignReviewers(_ iid: Int, usernames: [String],
                                 beforeWrite: @Sendable () async throws -> Void = {}) async throws {
         let ids = try await HTTPJSON.preparingWrite(GitLabError.self) {
             try await JiraClient.inOrder(usernames) { try await userId($0) }
         }
         struct Reviewers: Decodable { struct Reviewer: Decodable { var id: Int }; var reviewers: [Reviewer]? }
-        let path = Self.requestsPath(project) + "/\(iid)"
+        let path = boundPath + "/merge_requests/\(iid)"
         let current = (try await HTTPJSON.preparingWrite(GitLabError.self) { try await get(Reviewers.self, path: path, notFound: .projectNotFound(project)) }.reviewers ?? []).map(\.id)
         let all = current + ids.filter { !current.contains($0) }
         guard all.count > current.count else { return }
@@ -327,8 +339,8 @@ public struct GitLabClient: Sendable {
     /// note that is not GitLab's own. Read a page at a time until an **empty** one (a short page proves nothing, as
     /// for protected branches): `threadPagesRead` pages without reaching it, or a discussion that does not decode, or
     /// a thread without an id, throws `IncompleteRead`, so nothing is decided on part of them.
-    public func threads(project: String, iid: Int) async throws -> [ReviewThread] {
-        try await readDiscussions(project: project, iid: iid, complete: true) { discussions in
+    public func threads(of iid: Int) async throws -> [ReviewThread] {
+        try await readDiscussions(iid: iid, complete: true) { discussions in
             try discussions.compactMap { entry in
                 guard let discussion = entry.value else { throw IncompleteRead("review threads") }
                 guard discussion.resolution != nil else { return nil }
@@ -340,11 +352,11 @@ public struct GitLabClient: Sendable {
 
     /// Badges stop on a short page or at their bound; publication requires the terminal empty page.
     /// Project binding, requests and per-page validation are shared without making a partial read complete.
-    private func readDiscussions<Item>(project: String, iid: Int, complete: Bool,
+    private func readDiscussions<Item>(iid: Int, complete: Bool,
                                        items: ([Lenient<DiscussionPayload>]) throws -> [Item]) async throws -> [Item] {
         var result: [Item] = []
         for page in 1...(complete ? Self.threadPagesRead : Self.discussionPages) {
-            let discussions = try await get([Lenient<DiscussionPayload>].self, path: Self.requestsPath(project) + "/\(iid)/discussions",
+            let discussions = try await get([Lenient<DiscussionPayload>].self, path: boundPath + "/merge_requests/\(iid)/discussions",
                 query: [URLQueryItem(name: "per_page", value: String(Self.discussionsPerPage)), URLQueryItem(name: "page", value: String(page))],
                 notFound: .projectNotFound(project))
             if discussions.isEmpty { return result }
@@ -356,16 +368,16 @@ public struct GitLabClient: Sendable {
     }
 
     /// A reply in the discussion `discussion`.
-    public func reply(project: String, iid: Int, discussion: String, body: String) async throws {
+    public func reply(_ iid: Int, thread discussion: String, body: String) async throws {
         struct Note: Encodable { var body: String }
         struct Posted: Decodable { var id: Int }
-        _ = try await send(Posted.self, method: "POST", path: Self.requestsPath(project) + "/\(iid)/discussions/\(Self.encodedProject(discussion))/notes",
+        _ = try await send(Posted.self, method: "POST", path: boundPath + "/merge_requests/\(iid)/discussions/\(Self.encodedProject(discussion))/notes",
                            body: Note(body: body), notFound: .projectNotFound(project))
     }
 
     /// The discussion `discussion` whole: the file and line its first note is on, when it is on the diff, and every note
     /// that is not GitLab's own, oldest first.
-    public func threadDetail(project: String, iid: Int, discussion: String) async throws -> ReviewThreadDetail {
+    public func threadDetail(_ iid: Int, thread discussion: String) async throws -> ReviewThreadDetail {
         struct Discussion: Decodable {
             struct Position: Decodable { var newPath: String?, newLine: Int?, oldPath: String?, oldLine: Int? }
             struct Note: Decodable {
@@ -374,7 +386,7 @@ public struct GitLabClient: Sendable {
             }
             var id: String, notes: [Note]?
         }
-        let read = try await get(Discussion.self, path: Self.requestsPath(project) + "/\(iid)/discussions/\(Self.encodedProject(discussion))",
+        let read = try await get(Discussion.self, path: boundPath + "/merge_requests/\(iid)/discussions/\(Self.encodedProject(discussion))",
                                  notFound: .projectNotFound(project))
         let notes = (read.notes ?? []).filter { $0.system != true }
         let position = notes.first?.position
@@ -383,18 +395,18 @@ public struct GitLabClient: Sendable {
     }
 
     /// Resolves the discussion `discussion`; GitLab leaves one resolved already as it is.
-    public func resolve(project: String, iid: Int, discussion: String) async throws {
+    public func resolve(_ iid: Int, thread discussion: String) async throws {
         struct Resolve: Encodable { var resolved = true }
         struct Resolved: Decodable { var id: String? }
-        _ = try await send(Resolved.self, method: "PUT", path: Self.requestsPath(project) + "/\(iid)/discussions/\(Self.encodedProject(discussion))",
+        _ = try await send(Resolved.self, method: "PUT", path: boundPath + "/merge_requests/\(iid)/discussions/\(Self.encodedProject(discussion))",
                            body: Resolve(), notFound: .projectNotFound(project))
     }
 
     /// Retries its head pipeline once it failed: GitLab reruns that pipeline's failed jobs. Any other status, or none, is
     /// `.notFailed` with nothing written. `beforeWrite` gets the request as read, right before the retry.
-    public func retryPipeline(project: String, iid: Int, beforeWrite: @Sendable (MergeRequest) async throws -> Void = { _ in }) async throws -> PipelineRetry {
+    public func retryPipeline(_ iid: Int, beforeWrite: @Sendable (MergeRequest) async throws -> Void = { _ in }) async throws -> PipelineRetry {
         let read = try await HTTPJSON.preparingWrite(GitLabError.self) {
-            try await get(RequestWithPipeline.self, path: Self.requestsPath(project) + "/\(iid)", notFound: .projectNotFound(project))
+            try await get(RequestWithPipeline.self, path: boundPath + "/merge_requests/\(iid)", notFound: .projectNotFound(project))
         }
         guard let pipeline = read.headPipeline else { return .notFailed("it has no pipeline") }
         guard pipeline.status == "failed", let id = pipeline.id else {
@@ -403,37 +415,37 @@ public struct GitLabClient: Sendable {
         try await beforeWrite(read.request.mergeRequest)
         struct Nothing: Encodable {}
         struct Retried: Decodable { var id: Int? }
-        _ = try await send(Retried.self, method: "POST", path: Self.projectPath(project) + "/pipelines/\(id)/retry", body: Nothing(),
+        _ = try await send(Retried.self, method: "POST", path: boundPath + "/pipelines/\(id)/retry", body: Nothing(),
                            notFound: .projectNotFound(project))
         return .retried("pipeline \(id)")
     }
 
     /// The project's members who match `query`, by username or name: who may review in it.
-    public func findUsers(project: String, query: String) async throws -> [HostUser] {
+    public func findUsers(_ query: String) async throws -> [HostUser] {
         struct User: Decodable { var username: String, name: String? }
         let items = [URLQueryItem(name: "search", value: query), URLQueryItem(name: "per_page", value: "20")]
-        return try await get([Lenient<User>].self, path: Self.projectPath(project) + "/users", query: items,
+        return try await get([Lenient<User>].self, path: boundPath + "/users", query: items,
                              notFound: .projectNotFound(project))
             .compactMap { $0.value.map { HostUser(username: $0.username, name: $0.name) } }
     }
 
     /// Who approved it, by username.
-    public func approvals(project: String, iid: Int) async throws -> [String] {
+    public func approvals(of iid: Int) async throws -> [String] {
         struct Approvals: Decodable {
             struct Approval: Decodable { struct User: Decodable { var username: String }; var user: User? }
             var approvedBy: [Approval]?
         }
-        return (try await get(Approvals.self, path: Self.requestsPath(project) + "/\(iid)/approvals", notFound: .projectNotFound(project))
+        return (try await get(Approvals.self, path: boundPath + "/merge_requests/\(iid)/approvals", notFound: .projectNotFound(project))
             .approvedBy ?? []).compactMap { $0.user?.username }
     }
 
     /// How many pages of 100 protected-branch rules a listing reads before it gives up.
-    public static let protectedPages = 20
+    static let protectedPages = 20
 
     /// The branch-name patterns `project` protects itself — exact names and `*` wildcards — every page of
     /// them (see `protectedRules`). Group-level rules are `branchProtection`'s to add.
-    public func protectedBranches(project: String) async throws -> [String] {
-        try await protectedRules(path: Self.projectPath(project) + "/protected_branches",
+    func protectedBranches() async throws -> [String] {
+        try await protectedRules(path: boundPath + "/protected_branches",
                                  notFound: .projectNotFound(project), noneIfMissing: false)
     }
 
@@ -467,12 +479,12 @@ public struct GitLabClient: Sendable {
 
     /// The top-level group `project` lives under, from its namespace: nil in a user's namespace. A namespace
     /// GitLab does not describe is no answer.
-    private func topLevelGroup(of project: String) async throws -> String? {
+    private func topLevelGroup() async throws -> String? {
         struct Owner: Decodable {
             struct Namespace: Decodable { var kind: String?, fullPath: String? }
             var namespace: Namespace?
         }
-        let owner = try await get(Owner.self, path: Self.projectPath(project), notFound: .projectNotFound(project))
+        let owner = try await get(Owner.self, path: boundPath, notFound: .projectNotFound(project))
         switch owner.namespace?.kind {
         case "user": return nil
         case "group":
@@ -489,10 +501,10 @@ public struct GitLabClient: Sendable {
     /// match by name or wildcard, case-sensitively, as GitLab compares names.
     /// A failure to ask, a rule list that cannot be read whole, and a rule AiTerm cannot evaluate (unless
     /// another rule covers the branch anyway) throw: nothing is pushed then, never "unprotected".
-    public func branchProtection(project: String, branch: String) async throws -> BranchProtection {
+    public func protection(of branch: String) async throws -> BranchProtection {
         let name = branch.hasPrefix("refs/heads/") ? String(branch.dropFirst("refs/heads/".count)) : branch
         guard !name.isEmpty else { throw ProtectionUnknown.unreadable("There is no branch name to check") }
-        let group = try await topLevelGroup(of: project)
+        let group = try await topLevelGroup()
         var unreadable: ProtectionUnknown?
         func covering(_ rules: [String]) -> String? {
             for rule in rules {
@@ -504,11 +516,11 @@ public struct GitLabClient: Sendable {
         func said(_ rule: String, of owner: String) -> BranchProtection {
             .protected(rule == name ? "\(owner) protects it" : "\(owner) protects \(rule)")
         }
-        if let rule = covering(try await protectedBranches(project: project)) { return said(rule, of: "GitLab") }
+        if let rule = covering(try await protectedBranches()) { return said(rule, of: "GitLab") }
         if let group, let rule = covering(try await groupProtectedBranches(group: group)) { return said(rule, of: "GitLab group \(group)") }
         struct Existing: Decodable { var `protected`: Bool }
         do {
-            let path = Self.projectPath(project) + "/repository/branches/" + Self.encodedProject(name)
+            let path = boundPath + "/repository/branches/" + Self.encodedProject(name)
             if try await get(Existing.self, path: path, notFound: .projectNotFound(project)).protected { return .protected("GitLab protects it") }
         } catch GitLabError.projectNotFound {}   // the project was just read: this is a branch GitLab does not have yet
         if let unreadable { throw unreadable }
@@ -531,7 +543,9 @@ public struct GitLabClient: Sendable {
         try await api(notFound).get(type, path: path, query: query)
     }
 
-    private func api(_ notFound: GitLabError) -> HostAPI {
+    private func api(_ notFound: GitLabError) -> HostAPI { Self.api(config, session: session, notFound: notFound) }
+
+    private static func api(_ config: GitLabConfig, session: URLSession, notFound: GitLabError) -> HostAPI {
         HostAPI(base: Self.base(config.hostURL), headers: ["PRIVATE-TOKEN": config.token, "Accept": "application/json"], session: session, malformed: GitLabError.notSent(.decoding),
                 mapping: { Self.error(for: $0, notFound: notFound) })
     }
