@@ -3,18 +3,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable, Iterator, Mapping
-from contextlib import contextmanager
-from dataclasses import replace
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Any, TypeVar
 
 from . import protocol
-from .claude_sessions import ClaudeSessionFile, ClaudeSessionFiles
-from .claude_subagents import SubagentTranscripts, TranscriptTail
-from .claude_background import BackgroundTranscripts, ShellReading
-from .codex_sessions import CodexReading, CodexSessionFiles
+from .claude_sessions import ClaudeSessionFiles
+from .claude_subagents import SubagentTranscripts
+from .claude_background import BackgroundTranscripts
+from .codex_sessions import CodexSessionFiles
 from .connection import ItermSupervisor
+from .corroboration import CorroboratingReaders, ReadPlan, logged as _logged
 from .delivery import NOT_CHECKED, Deliverer, Verdict, read_policy
 from .hook_router import HookRouter
 from .hooks_server import HookServer
@@ -29,22 +28,12 @@ from .rpc_server import RpcError, RpcServer
 from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
 from .sessions import SessionRegistry, SnapshotDiff
 from .slash_commands import SlashCommands
-from .status import StatusEngine, shows_trust_prompt
-from .stop_failures import LIMIT_ERRORS, RESET_READ_SECONDS, limit_resets_at
+from .status import StatusEngine
 from .test_activity import TestActivityReader
 from .usage import UsageReadFailure, UsageStore, parse_codex_rate_limits
 from .windows import WindowManager
 
 log = logging.getLogger(__name__)
-
-
-@contextmanager
-def _logged(step: str) -> Iterator[None]:
-    """Runs a step that must not stop the ones after it: a failure is logged and the caller carries on."""
-    try:
-        yield
-    except Exception:  # noqa: BLE001 - the steps after it are independent of it
-        log.exception("%s failed", step)
 
 
 POLL_SECONDS = 2.0
@@ -97,6 +86,7 @@ class Service:
         self.hook_router.typed_by_you = self._typed_by_you
         # What became of each slash command delivered to a Claude tab, read on every tick from its transcript.
         self.slash_commands = SlashCommands(self.registry, clock)
+        self.readers = CorroboratingReaders(self.registry, self.status, self.resolver, iterm, clock, self.slash_commands)
         # The operator's MCP server (Operators spec §5), on the hook server's port: its tool calls
         # are forwarded to the attached app, which answers them over this socket.
         # `operator_runs` is where the app keeps each run's token file, which a restarted daemon loads
@@ -363,209 +353,31 @@ class Service:
             self.windows.forget_window(wid)
             with _logged(f"announcing closed window {wid}"):
                 await self.rpc.broadcast(protocol.WINDOW_CLOSED, {"windowId": wid})
-        threads: dict[str, str] = {}
-        screens: list[str] = []
-        # Consume snapshot titles and process exits before suspending for file I/O, so hooks
-        # arriving during that read supersede the snapshot rather than being overwritten by it.
-        for s in sessions:
-            with _logged(f"corroborating session {s.session_id}"):
-                self._corroborate(s, {}, threads, screens, changed)
-        claude_readings = await self._read_claude_files(sessions)
-        for s in sessions:
-            if s.session_id not in claude_readings:
-                continue
-            # Another process's file must not stop the other tabs.
-            with _logged(f"corroborating session {s.session_id}"):
-                self._corroborate(s, claude_readings, threads, screens, changed)
-        with _logged("reading the screens for trust prompts"):
-            changed += await self._apply_trust_prompts(screens)
-        with _logged("reading the Codex rollouts"):
-            changed += await self.observe_codex(threads)
-        with _logged("releasing dead subagents"):
-            changed += self.status.release_dead_subagents(await self._subagent_tails(self.status.subagent_transcripts()))
-        with _logged("reading Claude background shells"):
-            changed += await self.observe_background(sessions)
-        with _logged("reading what became of the slash commands"):
-            changed += await self._apply_slash_commands()
-        with _logged("reading when the limits that stopped sessions reset"):
-            changed += await self._apply_limit_resets()
-        with _logged("reading worktree test activity"):
-            captured = [replace(s) for s in sessions]
-            reading = await self.run_check("the test activity read", lambda: self.test_activity.read(captured), None)
-            if reading is not None:
-                changed += self.test_activity.apply(self.registry, reading)
+        threads, screens = self.readers.snapshot(sessions, changed)
+        changed += await self.observe(self.readers.claude(self.claude_files, sessions, screens))
+        # Fixed order: hooks arriving during a read supersede the request that reader captured.
+        observations: tuple[tuple[str, Callable[[], Awaitable[list[str]]]], ...] = (
+            ("reading the screens for trust prompts", lambda: self.readers.trust_prompts(screens)),
+            ("reading the Codex rollouts", lambda: self.observe_codex(threads)),
+            ("releasing dead subagents", lambda: self.observe(self.readers.subagents(self.subagent_transcripts))),
+            ("reading Claude background shells", lambda: self.observe_background(sessions)),
+            ("reading what became of the slash commands", lambda: self.observe(self.readers.slash())),
+            ("reading when the limits that stopped sessions reset", lambda: self.observe(self.readers.limits())),
+            ("reading worktree test activity", lambda: self.observe(self.readers.tests(self.test_activity, sessions))),
+        )
+        for name, observe in observations:
+            with _logged(name):
+                changed += await observe()
 
-    async def _read_claude_files(self, sessions: list[SessionInfo]) -> dict[str, ClaudeSessionFile | None]:
-        """Read the pass's Claude files in one worker, then reject replaced sessions or configuration."""
-        files, root = self.claude_files, self.claude_files.root
-        identities = {s.session_id: (s.agent, s.job_pid, s.conversation_id, s.agent_cwd)
-                      for s in sessions if s.agent != "shell" and HARNESS_BY_AGENT[s.agent].corroboration == "claude_file"}
-        if not identities:
-            return {}
-
-        def read() -> dict[str, ClaudeSessionFile | None]:
-            readings: dict[str, ClaudeSessionFile | None] = {}
-            for sid, (_, pid, _, _) in identities.items():
-                with _logged(f"reading the Claude file of session {sid}"):
-                    readings[sid] = files.read(pid) if pid else None
-            return readings
-
-        unavailable: dict[str, ClaudeSessionFile | None] = {}
-        readings = await self.run_check("the Claude file read", read, unavailable)
-        if files.root != root:
-            return {}
-        return {sid: value for sid, value in readings.items()
-                if (s := self.registry.get(sid)) is not None
-                and (s.agent, s.job_pid, s.conversation_id, s.agent_cwd) == identities[sid]}
-
-    def _corroborate(self, s: SessionInfo, claude_readings: dict[str, ClaudeSessionFile | None],
-                    threads: dict[str, str], screens: list[str], changed: list[str]) -> None:
-        """Adds to `changed` what the agent's own files and the tab say of `s` that its hooks have
-        not, to `threads` the Codex thread it runs, by session, and to `screens` a session whose
-        screen may show a folder-trust dialog. A step that raises keeps the changes before it. The
-        Codex rollout and the screens are not read here: see `_apply_codex_rollouts` and
-        `_apply_trust_prompts`."""
-        if s.agent == "shell":
-            if s.state != "idle":
-                changed += self.status.agent_exited(s.session_id)
-            return
-        corroboration = HARNESS_BY_AGENT[s.agent].corroboration
-        if corroboration == "claude_file":
-            if s.session_id not in claude_readings:
-                return
-            if f := claude_readings[s.session_id]:
-                # Claude writes its file only once its folder is trusted.
-                changed += self.status.apply_trust_prompt(s.session_id, False)
-                changed += self.status.apply_claude_file_status(s.session_id, f.status, f.written_at)
-                # The file's cwd is the agent's own, and it follows it into a worktree;
-                # `s.cwd` is the shell's and never moves (spec: branch awareness, §1).
-                changed += self.status.apply_metadata(s.session_id, cwd=f.cwd)
-                # The file names the conversation its pid runs: a tab no hook has named one for (adopted after a
-                # restart) takes it, so a sibling's post placed by directory can't land there (resolver `_may_run`).
-                # A conversation a hook named stays: after a `/clear` the file may still name the one before.
-                if (current := self.registry.get(s.session_id)) is not None and current.conversation_id is None:
-                    changed += self.status.apply_metadata(s.session_id, conversation=f.session_id)
-                # The running Claude's own version, which delivery is held against (delivery.Verdict).
-                self.registry.set_cli_version(s.session_id, f.version)
-            elif s.job_pid and (s.state == "idle" or self.status.showing_trust_prompt(s.session_id)):
-                # No file yet: the trust dialog, which only the screen shows, or a Claude just starting.
-                screens.append(s.session_id)
-        elif corroboration == "codex_title":
-            changed += self.status.apply_codex_title(s.session_id, s.title)
-            if thread_id := self.resolver.codex_thread(s.session_id):
-                threads[s.session_id] = thread_id
-
-    async def _apply_trust_prompts(self, session_ids: list[str]) -> list[str]:
-        """The sessions a folder-trust dialog opened or closed on, read from their screens at once. A
-        screen that cannot be read costs only its own session, and changes nothing."""
-        screens = await asyncio.gather(*(self.iterm.screen_text(sid) for sid in session_ids), return_exceptions=True)
-        changed: list[str] = []
-        for sid, screen in zip(session_ids, screens, strict=True):
-            if isinstance(screen, BaseException):
-                log.warning("reading the screen of session %s failed: %s", sid, screen)
-            elif screen is not None and (s := self.registry.get(sid)) is not None:
-                changed += self.status.apply_trust_prompt(sid, shows_trust_prompt(s.agent, screen))
-        return changed
-
-    async def observe_codex(self, threads: dict[str, str]) -> list[str]:
-        """The sessions whose context fill their Codex rollouts changed, and the rollouts'
-        caches pruned to the threads still running. A rollout grows without bound and a hung mount can
-        stall its read, so it is read on a worker thread: everything that touches the caches runs there."""
-        files = self.codex_files
-
-        def attempt(reading: Callable[[str], T], what: str, thread_id: str) -> T | None:
-            # Another process's file: one that cannot be read costs only its own thread, and only
-            # the reading that failed.
-            try:
-                return reading(thread_id)
-            except Exception:  # noqa: BLE001
-                log.exception("reading the Codex %s of thread %s failed", what, thread_id)
-                return None
-
-        def read() -> dict[str, CodexReading | None]:
-            readings = {thread_id: attempt(files.reading, "rollout", thread_id) for thread_id in set(threads.values())}
-            files.retain(set(threads.values()))
-            return readings
-
-        none: dict[str, CodexReading | None] = {}
-        readings = await self.run_check(CODEX_READ, read, none)
-        changed: list[str] = []
-        for session_id, thread_id in threads.items():
-            # A hook or a replacement process may have changed the binding during the read.
-            if self.resolver.codex_thread(session_id) != thread_id:
-                continue
-            context, version, turn = (readings.get(thread_id) or CodexReading(None, None, None))
-            # The running Codex's version, which delivery is held against (delivery.Verdict).
-            self.registry.set_cli_version(session_id, version)
-            changed += self.status.apply_metadata(session_id, context=context)
-            if turn is not None:
-                changed += self.status.apply_codex_rollout(session_id, *turn)
-        return changed
-
-    async def _subagent_tails(self, paths: set[str]) -> dict[str, TranscriptTail | None]:
-        """The end of each of `paths`, the transcripts of every child the status engine counts; None
-        for one not found. A read that cannot answer holds none, which proves no child dead, nor any
-        stop."""
-        if not paths:
-            return {}
-        read = self.subagent_transcripts.read_all
-        return await self.run_check("the subagent transcript read", lambda: read(paths), {})
+    async def observe(self, plan: ReadPlan[T]) -> list[str]:
+        reading = plan.nothing if plan.read is None else await self.run_check(plan.name, plan.read, plan.nothing)
+        return plan.apply(reading)
 
     async def observe_background(self, sessions: list[SessionInfo]) -> list[str]:
-        # Capture before I/O; a late reply belongs to this exact process/conversation and turn owner.
-        captured = {s.session_id: (s.agent, s.job_pid, s.conversation_id, s.transcript, self.status.turn(s.session_id))
-                    for s in sessions if s.agent == "claude"}
-        requests = {f"{sid}:{owner.generation}": (path, owner.work_since)
-                    for sid, (_, _, _, path, owner) in captured.items()
-                    if path is not None and owner is not None and owner.work_since is not None}
-        read = self.background_transcripts.read_all
-        recoveries = {f"{sid}:{owner.generation}": owner.shell_snapshot_at
-                      for sid, (_, _, _, _, owner) in captured.items()
-                      if owner is not None and owner.shell_snapshot_valid and owner.shell_snapshot is not None}
-        unavailable: dict[str, ShellReading | None] = {}
-        readings = await self.run_check("the Claude background read", lambda: read(requests, recoveries), unavailable)
-        changed: list[str] = []
-        for sid, (agent, pid, conversation, path, owner) in captured.items():
-            session = self.registry.get(sid)
-            if (session is None or (session.agent, session.job_pid, session.conversation_id, session.transcript)
-                    != (agent, pid, conversation, path) or self.status.turn(sid) is not owner):
-                continue
-            # Metadata may invalidate provenance on the same Turn object while a read is running.
-            key = f"{sid}:{owner.generation}" if owner is not None else ""
-            if key in requests and owner is not None and owner.work_since != requests[key][1]:
-                continue
-            changed += self.status.apply_shell_reading(sid, readings.get(key))
-        return changed
+        return await self.observe(self.readers.background(self.background_transcripts, sessions))
 
-    async def _apply_slash_commands(self) -> list[str]:
-        """The sessions whose slash commands their transcripts, or the time, moved on. Each transcript a command is
-        looked for in is read on a worker thread, on from where it was typed; a read that cannot answer changes nothing."""
-        now, read = self.clock(), self.slash_commands.reader.read_all
-        starts = self.slash_commands.starts(now)
-        records = await self.run_check("the slash command read", lambda: read(starts), None) if starts else {}
-        return [] if records is None else self.slash_commands.apply(records, now)
-
-    async def _apply_limit_resets(self) -> list[str]:
-        """The sessions whose transcripts now say when the usage limit that stopped their turn resets. Each is looked
-        for, on a worker thread, from the StopFailure until RESET_READ_SECONDS after it; a read that cannot answer
-        changes nothing."""
-        now = self.clock()
-        stopped = {s.session_id: (s.stopped_on, s.transcript) for s in self.registry.all()
-                   if s.stopped_on is not None and s.stopped_on.error in LIMIT_ERRORS and s.stopped_on.resets_at is None
-                   and s.transcript and now - s.stopped_on.at <= RESET_READ_SECONDS}
-        if not stopped:
-            return []
-        paths = {transcript for _, transcript in stopped.values() if transcript}
-        none: dict[str, int | None] = {}
-        resets = await self.run_check("the usage limit read", lambda: {path: limit_resets_at(path) for path in paths}, none)
-        changed: list[str] = []
-        for session_id, (stopped_on, transcript) in stopped.items():
-            # A hook may have moved the session on during the read.
-            if (s := self.registry.get(session_id)) is None or s.stopped_on is not stopped_on or not transcript:
-                continue
-            if (resets_at := resets.get(transcript)) is not None:
-                changed += [session_id] if self.registry.set_stopped_on(session_id, replace(stopped_on, resets_at=resets_at)) else []
-        return changed
+    async def observe_codex(self, threads: dict[str, str]) -> list[str]:
+        return await self.observe(self.readers.codex(self.codex_files, threads))
 
     async def settle_reads(self) -> None:
         """Wait for this service's outstanding reads, then release their completed handles.

@@ -500,3 +500,15 @@ def test_a_failed_combined_cursor_read_retries_without_a_file_change(tmp_path, m
         assert files.cli_version("t") is None
         assert not files._rollouts
     assert files.cli_version("t") == "0.160.0"
+
+
+def test_a_failed_context_does_not_discard_the_other_corroboration(tmp_path, monkeypatch):
+    write_rollout(tmp_path, "t", [versioned("t", "0.160.0"),
+        {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_complete"}}])
+    files = CodexSessionFiles(tmp_path)
+
+    def broken(path):
+        raise ValueError("context unavailable")
+
+    monkeypatch.setattr(files, "_read_context", broken)
+    assert files.reading("t") == (None, "0.160.0", ("done", 101.0))

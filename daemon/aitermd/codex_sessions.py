@@ -1,6 +1,7 @@
 from __future__ import annotations
 import contextlib
 import json
+import logging
 import os
 import time
 from collections.abc import Callable, Iterator
@@ -147,7 +148,8 @@ class CodexSessionFiles:
             return CodexReading(None, None, None)
         try:
             context = self._context_at(thread_id, path)
-        except OSError:
+        except Exception:  # noqa: BLE001 - context failure must not discard version or boundary evidence
+            logging.getLogger("aitermd.service").exception("reading the Codex context of thread %s failed", thread_id)
             context = None
         try:
             cursor = self._rollout(path, thread_id)
