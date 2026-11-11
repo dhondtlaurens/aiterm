@@ -391,8 +391,9 @@ class Service:
             changed += await self._apply_limit_resets()
         with _logged("reading worktree test activity"):
             captured = [replace(s) for s in sessions]
-            reading = await run_detached(lambda: self.test_activity.read(captured))
-            changed += self.test_activity.apply(self.registry, reading)
+            reading = await self._off_loop("the test activity read", lambda: self.test_activity.read(captured), None)
+            if reading is not None:
+                changed += self.test_activity.apply(self.registry, reading)
 
     async def _read_claude_files(self, sessions: list[SessionInfo]) -> dict[str, ClaudeSessionFile | None]:
         """Read the pass's Claude files in one worker, then reject replaced sessions or configuration."""
@@ -409,7 +410,8 @@ class Service:
                     readings[sid] = files.read(pid) if pid else None
             return readings
 
-        readings = await run_detached(read)
+        unavailable: dict[str, ClaudeSessionFile | None] = {}
+        readings = await self._off_loop("the Claude file read", read, unavailable)
         if files.root != root:
             return {}
         return {sid: value for sid, value in readings.items()

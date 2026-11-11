@@ -240,7 +240,10 @@ class HookServer:
             "inputSchema": {"type": "object", "additionalProperties": True},
         }]
 
+        pending: dict[str, Any] | None = None
+
         async def call(request: dict[str, Any]) -> dict[str, Any]:
+            nonlocal pending
             request_id, params = request.get("id"), request.get("params")
             name = params.get("name") if isinstance(params, dict) else None
             arguments = params.get("arguments") if isinstance(params, dict) else None
@@ -248,10 +251,12 @@ class HookServer:
                 return mcp.error(request_id, -32602, "invalid tool call")
             payload = dict(arguments)
             self._add_iterm_session(payload, headers)
-            await self._deliver("/hook/codex", payload)
+            pending = payload
             return mcp.answer(request_id, mcp.tool_result({}))
 
         await self._reply(writer, *await mcp.serve(message, tools, "aiterm-hooks", call))
+        if pending is not None:
+            await self._deliver("/hook/codex", pending)
 
     @staticmethod
     async def _reply(writer: asyncio.StreamWriter, status: int, text: str) -> None:

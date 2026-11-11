@@ -1,12 +1,18 @@
 """Which iTerm2 session an agent's post belongs to, and which Codex thread each tab runs."""
 from __future__ import annotations
 
+import asyncio
+import logging
 from dataclasses import dataclass
 
 from .claude_sessions import ClaudeSessionFiles
 from .offload import run_detached
 from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
 from .sessions import SessionRegistry
+
+
+SCAN_SECONDS = 1.0
+log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -26,6 +32,7 @@ class SessionResolver:
         self._pins: dict[tuple[str, str], str] = {}
         self._codex: dict[str, CodexBinding] = {}
         self._generation = 0
+        self._scan: asyncio.Future[int | None] | None = None
 
     async def resolve_with_evidence(self, agent: AgentKind, session_id: str | None, cwd: str | None,
                               iterm_session_id: str | None = None) -> tuple[str | None, str | None]:
@@ -50,16 +57,30 @@ class SessionResolver:
             return None
         if harness.placement == "pid_file":
             if session_id:
-                # The indexed file is checked on the loop; only a miss scans, on a worker thread.
-                # Registry and pin decisions stay on the loop. A scan of a root `configure` moved
-                # meanwhile answers for the wrong folder, so it is asked again.
-                pid = self.claude_files.indexed_pid(session_id)
-                if pid is None:
-                    while True:
-                        root = self.claude_files.root
-                        pid = await run_detached(lambda: self.claude_files.pid_for_session(session_id))
-                        if root == self.claude_files.root:
-                            break
+                # Even a known file can live on a dead mount. Keep all file I/O off the loop,
+                # under one deadline, and never overlap a scan whose worker is still running.
+                deadline = asyncio.get_running_loop().time() + SCAN_SECONDS
+                pid = None
+                while True:
+                    if self._scan is not None and not self._scan.done():
+                        break
+                    root = self.claude_files.root
+                    scan = self._scan = run_detached(
+                        lambda: self.claude_files.indexed_pid(session_id) or self.claude_files.pid_for_session(session_id))
+                    scan.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+                    done, _ = await asyncio.wait({scan}, timeout=max(0, deadline - asyncio.get_running_loop().time()))
+                    if not done:
+                        break
+                    try:
+                        pid = scan.result()
+                    except Exception:  # noqa: BLE001 - unavailable evidence leaves placement to other signals
+                        log.exception("the Claude pid scan failed")
+                        break
+                    if root == self.claude_files.root:
+                        break
+                    pid = None
+                    if asyncio.get_running_loop().time() >= deadline:
+                        break
                 if pid and (s := self.registry.by_job_pid(pid)):
                     return s.session_id
         elif iterm_session_id:

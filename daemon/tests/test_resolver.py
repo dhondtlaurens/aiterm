@@ -85,3 +85,26 @@ async def test_pi_resolves_directly_by_iterm_session(tmp_path):
     resolver = SessionResolver(reg, ClaudeSessionFiles(tmp_path))
     # $ITERM_SESSION_ID carries a pane prefix; iTerm2's API reports only the suffix.
     assert await resolver.resolve_directly("pi", "p-1", "w0t0p0:tab-1") == "tab-1"
+
+
+async def test_a_stuck_pid_scan_has_a_deadline_and_no_overlapping_retry(world, monkeypatch):
+    import asyncio
+    import threading
+    from aitermd import resolver as module
+
+    resolver, _, files = world
+    monkeypatch.setattr(module, "SCAN_SECONDS", 0.02, raising=False)
+    release, calls = threading.Event(), []
+
+    def stuck(session_id):
+        calls.append(session_id)
+        release.wait(5)
+        return None
+
+    monkeypatch.setattr(files, "pid_for_session", stuck)
+    try:
+        assert await asyncio.wait_for(resolver.resolve_directly("claude", "conv"), 0.3) is None
+        assert await asyncio.wait_for(resolver.resolve_directly("claude", "conv"), 0.3) is None
+        assert calls == ["conv"]
+    finally:
+        release.set()

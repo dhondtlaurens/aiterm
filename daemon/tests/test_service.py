@@ -2483,3 +2483,29 @@ async def test_a_conversation_a_hook_named_is_not_replaced_by_the_session_file(s
     svc.status.apply_metadata(sid, conversation="after")
     await svc.tick()
     assert svc.registry.get(sid).conversation_id == "after"
+
+
+@pytest.mark.parametrize("reader", ["claude", "test_activity"])
+async def test_tick_bounds_file_reads_and_does_not_overlap_a_stuck_reader(make_service, monkeypatch, reader):
+    monkeypatch.setattr(service, "OFF_LOOP_CHECK_SECONDS", 0.02)
+    svc = make_service()
+    _, sid = await svc.iterm.create_window("/wt", "worker", {}, Frame(0, 0, 10, 10))
+    await svc.iterm.user_runs(sid, "claude", job_pid=710)
+    release, entered = threading.Event(), threading.Event()
+    calls = []
+
+    def stuck(*args):
+        calls.append(args)
+        entered.set()
+        release.wait(5)
+        raise OSError("mount gone")
+
+    target, method = (svc.claude_files, "read") if reader == "claude" else (svc.test_activity, "read")
+    monkeypatch.setattr(target, method, stuck)
+    try:
+        await asyncio.wait_for(svc.tick(), 0.3)
+        assert entered.is_set()
+        await asyncio.wait_for(svc.tick(), 0.3)
+        assert len(calls) == 1
+    finally:
+        release.set()
