@@ -16,10 +16,17 @@ PRIOR_RELEASES=19
 
 die() { print -u2 "release: $*"; exit 1; }
 
+require_full_gate() {
+    "$PY" "$ROOT/scripts/test-history.py" require-full "$ROOT" \
+        "${AITERM_TEST_LOCK:-/tmp/aiterm-test.lock}.history.jsonl" ||
+        die "no green full gate for clean HEAD; run scripts/test.sh all"
+}
+
 [[ "$VERSION" =~ '^[0-9]+\.[0-9]+\.[0-9]+$' ]] || die "usage: scripts/release.sh <major.minor.patch>"
 cd "$ROOT"
 [[ "$(git branch --show-current)" == main ]] || die "run from main"
 [[ -z "$(git status --porcelain)" ]] || die "working tree is not clean"
+require_full_gate
 origin="$(git remote get-url origin)"
 [[ "$origin" == (git@github.com:|https://github.com/|ssh://git@github.com/)"$REPO"(.git|) ]] || die "origin is $origin, not github.com/$REPO"
 git fetch --quiet --tags origin main
@@ -40,6 +47,9 @@ if [[ -n "$(git status --porcelain -- docs/desktop.png)" ]]; then
     git commit --quiet -m "Redraw the README picture for $VERSION" -- docs/desktop.png
     git push --quiet origin main || die "committed the redrawn README picture but could not push it: git push origin main, then run again"
 fi
+
+# Redrawing the README can have committed a new HEAD. It needs its own full gate too.
+require_full_gate
 
 AITERM_RELEASE=1 SIGN_IDENTITY="$IDENTITY" "$ROOT/scripts/make-app.sh"
 BUILD=$(( PRIOR_RELEASES + $(git tag -l 'v*' | wc -l) + 1 ))

@@ -15,7 +15,7 @@ import Testing
     }
 
     @Test func theSheetOffersWhatTheProjectsWorktreeIncludeSelects() async throws {
-        let repo = try GitFixture.makeRepo(prefix: "wis-")
+        let repo = try await GitFixture.makeRepoOffMain(prefix: "wis-")
         defer { try? FileManager.default.removeItem(atPath: repo) }
         try ".env\n".write(toFile: repo + "/.gitignore", atomically: true, encoding: .utf8)
         try ".env\n".write(toFile: repo + "/.worktreeinclude", atomically: true, encoding: .utf8)
@@ -29,7 +29,7 @@ import Testing
 
     /// No file, no checkbox — and opening the sheet asks git nothing more than it did.
     @Test func aProjectWithoutTheFileOffersNothingAndAsksGitNothing() async throws {
-        let repo = try GitFixture.makeRepo(prefix: "wis-")
+        let repo = try await GitFixture.makeRepoOffMain(prefix: "wis-")
         defer { try? FileManager.default.removeItem(atPath: repo) }
         let recording = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let model = taskModel(repo, git: recording)

@@ -20,6 +20,9 @@
 # it), and AITERM_TEST_LOGS_KEEP=0 drops a failed run's logs instead of keeping them.
 set -euo pipefail
 TEST_RUN_ARGS=("$@")
+# Only the admitted gate consumes this. Nested runner fixtures do not inherit report ownership.
+HISTORY_REPORTS="${AITERM_TEST_REPORT_DIR:-}"
+unset AITERM_TEST_REPORT_DIR
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PYTHON="${PYTHON:-python3}"
@@ -196,7 +199,13 @@ daemon_suite() {
         # this venv's dependencies or shadow the checkout under test.
         env -u PYTHONPATH "$DAEMON_VENV/bin/python" -m pip install --quiet --disable-pip-version-check -e "$ROOT/daemon[dev]"
     fi
-    (cd "$ROOT/daemon" && env -u PYTHONPATH "$PYTEST" -q)
+    if [[ -n "$HISTORY_REPORTS" ]]; then
+        # Ignore an app-exported PYTHONPATH; load only the runner's optional reporting plugin.
+        (cd "$ROOT/daemon" && env PYTHONPATH="$ROOT/scripts" AITERM_TEST_PYTEST_REPORT="$HISTORY_REPORTS/daemon.json" \
+            "$PYTEST" -p test-history -q)
+    else
+        (cd "$ROOT/daemon" && env -u PYTHONPATH "$PYTEST" -q)
+    fi
     # The daemon's lint: types across the package, the tests and the tools (FakeIterm is checked against the
     # ItermPort it stands in for), then ruff. Both come with the venv's `dev` extra, and are always the
     # venv's, not tools beside a PYTEST override: that need not be in a venv (the toolchain guard passes
@@ -228,6 +237,7 @@ swift_test() {
     shift 3
     local log rc runs passed tests suite
     log="$TEST_LOGS/$label.log"
+    print -r -- "Gate pass: $label"
 
     set +e
     # Hundreds of main-actor fixture setups can otherwise queue ahead of a test's awaited work.
@@ -236,6 +246,9 @@ swift_test() {
         "$ROOT/scripts/swift.sh" test "$@") 2>&1 | tee "$log"
     rc=${pipestatus[1]}
     set -e
+    if [[ -n "$HISTORY_REPORTS" ]]; then
+        cp "$log" "$HISTORY_REPORTS/$label.log" || print -u2 "Warning: could not retain $label history log"
+    fi
     if [[ "$rc" -ne 0 ]]; then
         print -u2 "$label pass: swift test exited $rc."
         return "$rc"

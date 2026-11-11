@@ -113,7 +113,9 @@ check "the plist adds the release feed" suite:AiTermCoreTests.ReleaseFeedTests s
 check "hooks run the daemon and the shim" daemon suite:AiTermCoreTests.StatusLineShimTests -- hooks/claude-statusline-shim.sh
 check "the toolchain runs everything" everything toolchain -- .swift-version
 check "the manifest runs the toolchain guard and every swift target" target:AiTermCoreTests target:AiTermTests target:AiTermUITests toolchain -- app/Package.swift
-check "the release script runs nothing" -- scripts/release.sh
+check "the release script's syntax is checked" toolchain -- scripts/release.sh
+check "gate history can affect every suite and the daemon's queue fixture" everything toolchain -- scripts/test-history.py
+check "the history guard is part of the toolchain check" everything toolchain -- scripts/test-test-history.sh
 check "the bundle verifier runs the toolchain guard" toolchain -- scripts/test-app-bundle.sh
 check "the build scripts the fixtures run select the toolchain guard" toolchain -- scripts/make-app.sh scripts/snapshots.sh
 check "an unknown path runs everything" everything -- Makefile

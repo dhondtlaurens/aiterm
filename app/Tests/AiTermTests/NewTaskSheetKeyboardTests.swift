@@ -7,7 +7,7 @@ import AiTermCore
 @testable import AiTermTestSupport
 
 @MainActor
-@Suite(.serialized) struct NewTaskSheetKeyboardTests {
+@Suite(.serialized, .blocking) struct NewTaskSheetKeyboardTests {
     @Test func arrowDownAndReturnSelectTheNextVisibleTicket() throws {
         let controller = AppController(preferences: .scratch())
         let project = Project(id: UUID(), name: "AiTerm", path: "/tmp", provider: .none,

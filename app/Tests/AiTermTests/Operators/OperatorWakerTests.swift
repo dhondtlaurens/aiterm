@@ -11,8 +11,10 @@ import Testing
     final class Operator { var tab: SessionInfo?; var awake = true }
 
     let daemon = RecordingDaemon(), op = Operator(), project = OperatorServiceFixtures.project()
-    /// Where every waker here starts its coalescing and its deliveries, for `settled`.
-    let work = OperatorWork()
+    /// Where every waker here starts its coalescing and its deliveries, for `settled`; and its retries, kept apart (a
+    /// retry waits `retryAfter`), which a test that released one by hand joins through `retries.settled()`. Each join is
+    /// bounded by `TestDeadline`: a wait a regression starts fails the test, never hangs it.
+    let work = OperatorWork(), retries = OperatorWork()
     let run: OperatorRun
     init() {
         run = OperatorServiceFixtures.run(projects: [project], state: .active)
@@ -34,10 +36,10 @@ import Testing
     func makeWaker(coalesce: Duration = .zero, retryAfter: Duration = .seconds(60), by hand: HandSleeper? = nil) -> OperatorWaker {
         guard let hand else {
             return OperatorWaker(daemon: { [daemon] in daemon }, session: { [op] _ in op.tab }, awake: { [op] _ in op.awake },
-                                 coalesce: coalesce, retryAfter: retryAfter, work: work)
+                                 coalesce: coalesce, retryAfter: retryAfter, work: work, retries: retries)
         }
         return OperatorWaker(daemon: { [daemon] in daemon }, session: { [op] _ in op.tab }, awake: { [op] _ in op.awake },
-                             coalesce: coalesce, retryAfter: retryAfter, sleep: { await hand.sleep($0) }, work: work)
+                             coalesce: coalesce, retryAfter: retryAfter, sleep: { await hand.sleep($0) }, work: work, retries: retries)
     }
 
     /// The run as `run_status` would show it with `questions` open questions.
@@ -52,6 +54,7 @@ import Testing
     /// Usage readings drift with every report from the vendor: the operator reads them when it asks.
     @Test func aChangeOfUsageAloneIsNoNews() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         func withUsage(_ percent: Int) -> RunStatus {
             let state = OperatorServiceFixtures.state(projects: [project], runs: [run])
             return RunStatus.build(state: state, run: run.id, revision: 1, live: [:],
@@ -59,24 +62,26 @@ import Testing
         }
         waker.acknowledged(withUsage(40), of: run.id)
         waker.observe(withUsage(41), of: run.id)
-        try await Task.sleep(for: .milliseconds(50))
+        await work.settled()
         #expect(hand.requested == 0 && lines.isEmpty)
     }
 
     @Test func usageAvailabilityInRunStatusDoesNotCreateWakeNews() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         let observed = status(questions: 0)
         var acknowledged = observed
         acknowledged.run.usageTelemetry["claude"] = RunStatus.UsageTelemetry(lastKnown: nil, now: Date())
         waker.acknowledged(acknowledged, of: run.id)
         waker.observe(observed, of: run.id)
-        try await Task.sleep(for: .milliseconds(50))
+        await work.settled()
         #expect(hand.requested == 0 && lines.isEmpty)
     }
 
     /// What a host says of a task's request is filled in by `run_status` alone: the run reads without it, and the difference is no news.
     @Test func whatTheHostSaysOfARequestIsNoNews() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .inReview)
         var read = RunStatus.build(state: OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), run: run.id, revision: 1, live: [:])!
         let plain = read
@@ -84,7 +89,7 @@ import Testing
                                                        approvedBy: [], head: nil)
         waker.acknowledged(read, of: run.id)
         waker.observe(plain, of: run.id)
-        try await Task.sleep(for: .milliseconds(50))
+        await work.settled()
         #expect(hand.requested == 0 && lines.isEmpty)
     }
 
@@ -92,6 +97,7 @@ import Testing
     /// "delivered" its own message_task brings back, a switch, a command that ran or went unseen wake nobody.
     @Test func whatAWorkerRunsAndItsSlashCommandsAreNoNews() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .working)
         task.operated?.extraTabs = [ExtraTab(key: "review", agent: .claude, model: "m", reasoning: nil, modelReason: "Tests.", brief: "Test it.",
                                              launch: LaunchAttempt(number: 1, requestedAt: Date(timeIntervalSince1970: 0)))]
@@ -107,12 +113,13 @@ import Testing
         waker.observe(read(SlashCommand(text: "/model claude-opus-5-5", state: .delivered, deliveredAt: 0), model: nil), of: run.id)
         waker.observe(read(SlashCommand(text: "/model claude-opus-5-5", state: .ran, deliveredAt: 0, seenAt: 1, output: "Set model"),
                            model: "claude-opus-5-5"), of: run.id)
-        try await Task.sleep(for: .milliseconds(50))
+        await work.settled()
         #expect(hand.requested == 0 && lines.isEmpty)
     }
 
     @Test func aBurstOfChangesIsOneLineSayingHowMany() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.observe(status(questions: 1), of: run.id)
         waker.observe(status(questions: 2), of: run.id)
@@ -127,6 +134,7 @@ import Testing
 
     @Test(arguments: [false, true]) func cleanupProgressWakesTheOperator(summaryExpires: Bool) async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         var completed = run
         completed.state = .complete
         completed.completedAt = Date(timeIntervalSince1970: 10)
@@ -157,7 +165,7 @@ import Testing
     @Test func theFirstLookAtARunIsWhatItHasSeen() async throws {
         let waker = makeWaker()
         waker.observe(status(questions: 1), of: run.id)
-        try await Task.sleep(for: .milliseconds(100))
+        await work.settled()
         #expect(lines.isEmpty)
     }
 
@@ -166,7 +174,7 @@ import Testing
         waker.acknowledged(status(questions: 0), of: run.id)
         op.tab?.state = .working
         waker.observe(status(questions: 1), of: run.id)
-        try await Task.sleep(for: .milliseconds(100))
+        await work.settled()
         #expect(lines.isEmpty)
         op.tab?.state = .idle
         waker.operatorSessionChanged(run.id)
@@ -179,12 +187,13 @@ import Testing
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.observe(status(questions: 1), of: run.id)
         waker.acknowledged(status(questions: 1), of: run.id)
-        try await Task.sleep(for: .milliseconds(100))
+        await work.settled()
         #expect(lines.isEmpty)
     }
 
     @Test func theOperatorsOwnChangeIsSeenWhenItHadSeenEverythingBefore() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.ownChange(from: status(questions: 0), to: status(questions: 1), of: run.id)
         // What its own call made is looked at next: it is the news the operator already has.
@@ -200,6 +209,7 @@ import Testing
 
     @Test func anOwnChangeAfterNewsTheOperatorHasNotSeenStillWakesIt() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         waker.acknowledged(status(questions: 0), of: run.id)
         // News arrives, then the operator's call changes the run on top of it without having seen it.
         waker.observe(status(questions: 1), of: run.id)
@@ -217,7 +227,7 @@ import Testing
         op.awake = false
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.observe(status(questions: 1), of: run.id)
-        try await Task.sleep(for: .milliseconds(100))
+        await work.settled()
         #expect(lines.isEmpty)
     }
 
@@ -232,7 +242,7 @@ import Testing
         try await daemon.received("session.deliver", count: 2)
         await work.settled()
         waker.operatorSessionChanged(run.id)
-        try await Task.sleep(for: .milliseconds(100))
+        await work.settled()
         #expect(lines.count == 2)
     }
 
@@ -246,6 +256,7 @@ import Testing
     @Test func aRefusedWakeIsKeptAndTriedAgainLaterEvenIfTheTabNeverChanges() async throws {
         daemon.deliveries = [Delivery(result: .refused, reason: "you are typing"), Delivery(result: .delivered, reason: nil)]
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.observe(status(questions: 1), of: run.id)
         await hand.release(1)
@@ -254,14 +265,17 @@ import Testing
         try await daemon.received("session.deliver", count: 2)
         await work.settled()
         #expect(lines == ["[AiTerm] updates waiting, call run_status", "[AiTerm] updates waiting, call run_status"])
-        // It landed: no third wait is started.
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(hand.requested == 2)
+        // It landed: release any obsolete retry, join it and the send it may have started, then look for a third wait.
+        hand.releaseAll()
+        await retries.settled()
+        await work.settled()
+        #expect(hand.requested == 2 && lines.count == 2)
     }
 
     @Test func aWakeStaysRefusedWithoutSpinning() async throws {
         daemon.deliveries = [Delivery(result: .refused, reason: "unsent text waits in its input")]
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.observe(status(questions: 1), of: run.id)
         await hand.release(1)
@@ -275,7 +289,9 @@ import Testing
         #expect(lines.count == 2)
         waker.acknowledged(status(questions: 1), of: run.id)
         hand.releaseAll()
-        try await Task.sleep(for: .milliseconds(50))
+        // The retry released, and any send it may have started, joined before nothing more is said to be sent.
+        await retries.settled()
+        await work.settled()
         #expect(lines.count == 2 && hand.requested == 3)
     }
     @Test(arguments: [false, true])
@@ -398,7 +414,7 @@ import Testing
             waker.acknowledged(status(tasks, turns: ["T6": quiet, "T7": quiet, "T10": quiet]), of: run.id)
             op.tab?.state = .working
             waker.observe(status(tasks, turns: ["T6": quiet, "T7": quiet, "T10": quiet].merging(news) { $1 }), of: run.id)
-            try await Task.sleep(for: .milliseconds(100))
+            await work.settled()
             #expect(daemon.requests("session.deliver").isEmpty, "nothing is typed while the Operator works")
             op.tab?.state = .idle
             waker.operatorSessionChanged(run.id)
@@ -439,6 +455,7 @@ import Testing
     /// would otherwise be on, so only its line says it.
     @Test func aWorkerStoppedOnAnAPIErrorWakesTheOperator() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         let tasks = [OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .working)]
         waker.acknowledged(status(tasks, turns: ["PAY-2": TaskLiveFacts(status: .working)]), of: run.id)
         let stopped = TaskLiveFacts(status: .done, lastMessage: "You've hit your org's monthly spend limit", commitsAhead: 1,
@@ -455,6 +472,7 @@ import Testing
     /// it went, was the generic one. It names the task now, in a line the daemon types.
     @Test func aWorkerStoppedAfterTheMacSleptIsNamed() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         let tasks = [OperatorServiceFixtures.task(in: run, project: project, key: "area-A", state: .working)]
         waker.acknowledged(status(tasks, turns: ["area-A": TaskLiveFacts(status: .working)]), of: run.id)
         let stopped = TaskLiveFacts(status: .idle, lastMessage: "API Error: Connection error.", commitsAhead: 1,
@@ -476,6 +494,7 @@ import Testing
     /// Work done in an accepted task's worker after its acceptance wakes the Operator with its own line.
     @Test func workAfterAcceptanceWakesTheOperatorSayingSo() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         var accepted = OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .accepted)
         accepted.operated?.acceptance = TaskAcceptance(resultSHA: "4f2a91c", prerequisiteSHAs: [], checkOutput: "ok", note: nil,
                                                        at: Date(timeIntervalSince1970: 0))
@@ -495,6 +514,7 @@ import Testing
     /// opening as it lands could take for its answer, and run_status names the question. The question stays open.
     @Test func theOperatorIsWokenNamingTheTask() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .working)
         func status(typed: String?) -> RunStatus {
             var run = self.run
@@ -548,12 +568,13 @@ import Testing
     /// state and what runs in the background are read on the Operator's next look, and the task is never ready meanwhile.
     @Test func aWorkerFlappingWithWorkInTheBackgroundWakesNothing() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         let tasks = [OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .working)]
         let working = TaskLiveFacts(status: .working)
         let waiting = TaskLiveFacts(status: .done, background: ["npm test"], lastMessage: "Running the tests.", commitsAhead: 1)
         waker.acknowledged(status(tasks, turns: ["PAY-2": working]), of: run.id)
         for facts in [waiting, working, waiting, working, waiting] { waker.observe(status(tasks, turns: ["PAY-2": facts]), of: run.id) }
-        try await Task.sleep(for: .milliseconds(50))
+        await work.settled()
         #expect(hand.requested == 0 && lines.isEmpty)
     }
 
@@ -561,6 +582,7 @@ import Testing
     /// wakes it as ever.
     @Test func newsUndoneBeforeItsLineGoesWakesNothing() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         let tasks = [OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .working)]
         let working = status(tasks, turns: ["PAY-2": TaskLiveFacts(status: .working)])
         let ready = status(tasks, turns: ["PAY-2": TaskLiveFacts(status: .idle, lastMessage: "Done.", commitsAhead: 1)])
@@ -569,7 +591,7 @@ import Testing
         await hand.started(1)
         waker.observe(working, of: run.id)
         hand.releaseAll()
-        try await Task.sleep(for: .milliseconds(50))
+        await work.settled()
         #expect(lines.isEmpty)
         // Held while the Operator works, then undone: nothing goes once it is idle either.
         op.tab?.state = .working
@@ -578,7 +600,7 @@ import Testing
         waker.observe(working, of: run.id)
         op.tab?.state = .idle
         waker.operatorSessionChanged(run.id)
-        try await Task.sleep(for: .milliseconds(50))
+        await work.settled()
         #expect(lines.isEmpty)
         waker.observe(ready, of: run.id)
         await hand.release(3)
@@ -603,7 +625,7 @@ import Testing
         waker.observe(working, of: run.id)
         waker.observe(ready, of: run.id)
         await settle()
-        try await Task.sleep(for: .milliseconds(50))
+        await work.settled()
         #expect(lines.count == 1, "\(lines)")
     }
 
@@ -645,7 +667,7 @@ import Testing
         let tasks = [OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .inReview)]
         func read(_ facts: TaskLiveFacts) -> RunStatus { status(tasks, turns: ["PAY-2": facts]) }
         let working = read(TaskLiveFacts(status: .working)), quiet = read(TaskLiveFacts(status: .working, quiet: true))
-        func settle() async { await work.settled(); try? await Task.sleep(for: .milliseconds(30)) }
+        func settle() async { await work.settled() }
         #expect(quiet.obligations.uncertain == ["PAY-2"])
         waker.acknowledged(working, of: run.id)
         waker.observe(quiet, of: run.id)
@@ -686,6 +708,7 @@ import Testing
     /// What the Operator records itself, a snag or an off-brief find, is no news to it.
     @Test func theOperatorsOwnSnagsAndFindsWakeNothing() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
+        defer { waker.stop(); hand.releaseAll() }
         var run = self.run
         let plain = RunStatus.build(state: OperatorServiceFixtures.state(projects: [project], runs: [run]), run: run.id, revision: 1, live: [:])!
         run.snags = [OperatorSnag(key: "snag-1", title: "A prompt that is not there", showed: "a prompt", actual: "none", workaround: "read it",
@@ -694,7 +717,7 @@ import Testing
         let recorded = RunStatus.build(state: OperatorServiceFixtures.state(projects: [project], runs: [run]), run: run.id, revision: 1, live: [:])!
         waker.acknowledged(plain, of: run.id)
         waker.observe(recorded, of: run.id)
-        try await Task.sleep(for: .milliseconds(50))
+        await work.settled()
         #expect(hand.requested == 0 && lines.isEmpty)
     }
 
@@ -827,7 +850,7 @@ import Testing
         #expect(lines[0].contains("letter-ess may be stalled"))
         #expect(lines[0].contains("letter-ar entered review"))
         waker.observe(after, of: run.id)
-        try await Task.sleep(for: .milliseconds(20))
+        await work.settled()
         #expect(lines.count == 1, "the same events are not told twice")
     }
 
@@ -848,7 +871,7 @@ import Testing
         #expect(line.contains("needs acceptance"))
         waker.observe(after, of: run.id)
         waker.operatorSessionChanged(run.id)
-        try await Task.sleep(for: .milliseconds(20))
+        await work.settled()
         #expect(lines.count == 1)
     }
 

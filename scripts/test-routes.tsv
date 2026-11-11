@@ -56,6 +56,8 @@ scripts/fixtures/*	toolchain everything
 scripts/test.sh	toolchain everything
 scripts/test-queue.sh	toolchain everything
 scripts/test-queue.py	toolchain everything daemon
+scripts/test-history.py	toolchain everything daemon
+scripts/test-test-history.sh	toolchain everything
 scripts/test-test-queue.sh	toolchain everything
 scripts/test-select.sh	toolchain everything
 scripts/test-routes.tsv	toolchain everything
@@ -67,6 +69,8 @@ scripts/test-app-bundle.sh	toolchain
 scripts/build-app.sh	toolchain
 scripts/make-app.sh	toolchain
 scripts/snapshots.sh	toolchain
+# The history guard syntax-checks release.sh without running it.
+scripts/release.sh	toolchain
 
 # Nothing a test reads.
 docs/*	none
@@ -76,7 +80,6 @@ docs/*	none
 LICENSE	none
 .gitignore	none
 # The release and picture scripts, which only a person runs; the fixtures copy them but never run them.
-scripts/release.sh	none
 scripts/make-dmg.sh	none
 scripts/dmg-settings.py	none
 scripts/readme-picture.sh	none

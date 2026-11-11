@@ -125,19 +125,19 @@ enum Budget {
     /// list`). A later change that lists the worktrees once per Shelve lowers that number; none may raise them.
     @Test func shelvingAndRestoringATaskSpawnsGit() async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
-        let fixture = try RaceFixture(scan: Budget.noScan, controllerGit: git)
+        let fixture = try await RaceFixture(scan: Budget.noScan, controllerGit: git)
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
 
         var mark = git.calls.count
         await (await controller.archiver.archive(task: task))?.value
         let shelve = Budget.commands(git, since: mark)
         #expect(controller.state.archive.map(\.id) == [task.id], "shelved")
 
-        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         await controller.windows.lastRestore?.value
         mark = git.calls.count
         await controller.archiver.restore(task.id)?.value

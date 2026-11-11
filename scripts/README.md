@@ -59,7 +59,14 @@ filter, even when no Swift suite was selected; daemon does not accept Swift argu
 release tickets. A queued run selects again after admission. Per-run metadata records the run's
 own queue/result state; a missing completion never becomes success. Leave other runs alone.
 
-`test-swift-toolchain.sh` proves the pin and runner behavior. `test-test-select.sh` guards fixture
+Completed runs retain suite timings, failing test names, the tested commit and clean-tree state for
+seven days in `<lock>.history.jsonl` (normally `/tmp/aiterm-test.lock.history.jsonl`). Gate duration
+excludes queue wait. This runner-owned file is beside the activity records; their schema and
+retention are unchanged. The supervisor inherits stdout and stderr directly; history reads the
+Swift logs and a pytest finish report after the command exits. History I/O failures only warn and
+never change the command's verdict or activity record. Release still requires a recorded full pass.
+
+`test-swift-toolchain.sh` proves the pin, history and runner behavior. `test-test-select.sh` guards fixture
 readers and routing. `test.sh` creates `daemon/.venv` with the `dev` extra when needed, runs pytest,
 then its own venv's mypy/ruff over implementation, tests and tools. `PYTEST` can override the pytest
 executable; lint still uses the repository venv.
@@ -106,8 +113,11 @@ scripts/release.sh <version>
 version, signature and Applications link. Layout is in `dmg-settings.py`.
 
 `release.sh` publishes externally: it requires clean pushed `main`, the expected GitHub origin,
-logged-in `gh`, a newer version, the release certificate and Python 3.11+. It redraws the README
-picture and commits and pushes it to `main` when it changed.
+logged-in `gh`, a newer version, the release certificate and Python 3.11+. It requires a recorded
+green `scripts/test.sh all` for the exact clean `HEAD` in the last seven days before contacting
+external services. It redraws the README picture and commits and pushes it to `main` when it
+changed; that new commit needs its own full gate before retrying the release.
 It stamps the built bundle, creates/pushes the version tag, uploads the DMG to a draft, then
-publishes. The development bundle marker is refused. Complete the full gate first. Signing setup, version numbering and interrupted-release recovery live in
+publishes. The development bundle marker is refused. Signing setup, version numbering and
+interrupted-release recovery live in
 [releasing](../docs/workflow/release.md). A build/test command never implies permission to release.

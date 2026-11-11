@@ -9,7 +9,7 @@ import Testing
 /// prompt on step 2, and Start Broadcast handing them to `OperatorController.startBroadcast`. Its Agents,
 /// Task and Done steps are `BroadcastSetupStepsTests`'.
 @MainActor
-struct NewBroadcastModelTests {
+@Suite(.blocking) struct NewBroadcastModelTests {
     private static let site = URL(string: "https://pauwels.atlassian.net")!
     private let pay = JiraProjectRef(id: "10001", key: "PAY", name: "Payments", siteURL: Self.site)
     private let shop = JiraProjectRef(id: "10002", key: "SHOP", name: "Webshop", siteURL: Self.site)
@@ -323,7 +323,7 @@ extension NewBroadcastModelTests {
     func newBroadcastChecksCodeHostsAsTheOperatorDoes(connected: Bool, readable: Bool) async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let fixture = try GitFixture.withOrigin(branch: "feat/source")
+        let fixture = try await BackgroundWork.run { try GitFixture.withOrigin(branch: "feat/source") }
         var ports = OperatorPorts.scratch(git: readable ? GitRunner.hermetic() : UnreadableOriginGit())
         let host = FakeMergeHost()
         if connected { ports.publisher = { _ in host } }

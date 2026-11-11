@@ -7,22 +7,15 @@ import Testing
 /// Choosing a row or creating a terminal ends with iTerm2 frontmost, so the person can type at
 /// once: the daemon only raises the window inside iTerm2, and the app itself is brought forward
 /// after. A new task or review, whose agent is already at work, leaves the keyboard in the sidebar.
-extension AppControllerTests {
-    /// What the daemon had been asked each time iTerm2 was brought forward.
-    @MainActor final class ItermFocus {
-        var server: RecordingDaemon?
-        private(set) var seen: [[String]] = []
-        func activate() { seen.append(server?.requests.map(\.method) ?? []) }
-    }
-
+@MainActor @Suite(.blocking) struct ItermFocusControllerTests {
     @Test func choosingATaskBringsItermForwardOnceItsWindowIsActive() async throws {
-        let focus = ItermFocus()
-        let fixture = try RaceFixture(activateIterm: { focus.activate() })
+        let focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() })
         let server = RecordingDaemon()
         focus.server = server
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "work")
+        let task = try await fixture.addTask(windowId: "work")
 
         await fixture.controller.focus.select(.task(task.id))?.value
 
@@ -31,11 +24,11 @@ extension AppControllerTests {
     }
 
     @Test func pressingReturnBringsItermForward() async throws {
-        let focus = ItermFocus()
-        let fixture = try RaceFixture(activateIterm: { focus.activate() })
+        let focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() })
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: "work")
+        let task = try await fixture.addTask(windowId: "work")
         fixture.controller.focus.browse(.task(task.id))
         #expect(focus.seen.isEmpty, "browsing leaves the focus in the sidebar")
 
@@ -45,12 +38,12 @@ extension AppControllerTests {
 
     /// A click whose window is still being placed when the selection moves on never takes focus.
     @Test func aStaleClickDoesNotBringItermForward() async throws {
-        let focus = ItermFocus()
-        let fixture = try RaceFixture(activateIterm: { focus.activate() })
+        let focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() })
         let server = RecordingDaemon(holding: "window.setFrame")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "work")
+        let task = try await fixture.addTask(windowId: "work")
 
         let click = fixture.controller.focus.select(.task(task.id))
         try await server.received("window.setFrame")
@@ -65,8 +58,8 @@ extension AppControllerTests {
     /// The agent is already on the prompt: the task is selected and its window opened, and Return
     /// is all it takes to go to it.
     @Test func aCreatedTaskIsSelectedButLeavesTheKeyboardInTheSidebar() async throws {
-        let focus = ItermFocus()
-        let fixture = try RaceFixture(activateIterm: { focus.activate() })
+        let focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() })
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
@@ -84,8 +77,8 @@ extension AppControllerTests {
 
     /// A new terminal is selected like a new task, but comes forward: an empty shell waits on you.
     @Test func aNewTerminalIsSelectedAndBringsItermForward() async throws {
-        let focus = ItermFocus()
-        let fixture = try RaceFixture(activateIterm: { focus.activate() })
+        let focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() })
         let server = RecordingDaemon()
         focus.server = server
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
@@ -102,12 +95,12 @@ extension AppControllerTests {
     /// Moving on while the terminal opens keeps the newer choice: the terminal is added, unselected,
     /// and iTerm2 is not brought forward over what was chosen instead.
     @Test func aNewTerminalDoesNotTakeFocusFromANewerSelection() async throws {
-        let focus = ItermFocus()
-        let fixture = try RaceFixture(activateIterm: { focus.activate() })
+        let focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() })
         let server = RecordingDaemon(holding: "window.createTerminal")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "work")
+        let task = try await fixture.addTask(windowId: "work")
 
         let opening = fixture.controller.terminals.newTerminal(project: fixture.project, name: "Shell")
         try await server.received("window.createTerminal")
@@ -123,14 +116,14 @@ extension AppControllerTests {
 
 /// The arrow keys peek: the row's window is placed beside the sidebar and raised in iTerm2, but
 /// iTerm2 is not brought forward, so the keyboard stays in the sidebar. Return or a click commits.
-extension AppControllerTests {
+extension ItermFocusControllerTests {
     @Test func peekingShowsTheWindowAndKeepsTheKeyboardInTheSidebar() async throws {
-        let focus = ItermFocus()
-        let fixture = try RaceFixture(activateIterm: { focus.activate() })
+        let focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() })
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "work")
+        let task = try await fixture.addTask(windowId: "work")
 
         let peek = fixture.controller.focus.peek(.task(task.id))
         #expect(fixture.controller.focus.selectedTaskId == task.id)
@@ -146,12 +139,12 @@ extension AppControllerTests {
     /// ⌘F goes to the first row waiting on you as the arrows would: its window is shown, the
     /// keyboard stays in the sidebar to arrow on, and the task stays blue until Return opens it.
     @Test func focusViewPeeksAtTheFirstRowNeedingAttention() async throws {
-        let focus = ItermFocus()
-        let fixture = try RaceFixture(activateIterm: { focus.activate() })
+        let focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() })
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "work")
+        let task = try await fixture.addTask(windowId: "work")
         fixture.controller.live.sessions = [SessionInfo.stub(window: "work", task: task, state: .done)]
 
         let peek = fixture.controller.showFocusView()
@@ -165,11 +158,11 @@ extension AppControllerTests {
 
     /// The waiting row can already be selected, its window buried under others: ⌘F still shows it.
     @Test func focusViewShowsTheWaitingRowAlreadySelected() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "work")
+        let task = try await fixture.addTask(windowId: "work")
         fixture.controller.live.sessions = [SessionInfo.stub(window: "work", task: task, state: .done)]
         fixture.controller.focus.browse(.task(task.id))
 
@@ -180,11 +173,11 @@ extension AppControllerTests {
 
     /// Holding ↓ runs past rows faster than windows can move; only the row it stops on is shown.
     @Test func arrowingPastRowsShowsOnlyTheOneItStopsOn() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
-        let first = try fixture.addTask(windowId: "first")
+        let first = try await fixture.addTask(windowId: "first")
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: "shell", createdAt: Date())
         fixture.controller.workspace.mutate { $0.terminals = [terminal] }
 
@@ -199,11 +192,11 @@ extension AppControllerTests {
     /// A row whose window is closed has nothing to show; the selection still moves, and nothing is
     /// asked of the daemon.
     @Test func peekingARowWithoutAWindowOnlySelectsIt() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
 
         #expect(fixture.controller.focus.peek(.task(task.id)) == nil)
 
@@ -214,12 +207,12 @@ extension AppControllerTests {
     /// The window a peek raised reports itself activated. Arrowed on meanwhile to a row with no
     /// window, that echo must not pull the selection back.
     @Test func aPeeksOwnActivationDoesNotPullTheSelectionBack() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let shown = try fixture.addTask(windowId: "work")
+        let shown = try await fixture.addTask(windowId: "work")
         let windowless = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
         controller.workspace.mutate { $0.terminals = [windowless] }
 
@@ -236,13 +229,13 @@ extension AppControllerTests {
     /// A task being removed can be selected, but Return, a peek and ⌘F leave its window be: it is
     /// about to close — the removal's first step, while git checks for unsaved work, still has it.
     @Test func aRowBeingRemovedIsNotBroughtForward() async throws {
-        let focus = ItermFocus()
-        let fixture = try RaceFixture(activateIterm: { focus.activate() })
+        let focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() })
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "work")
+        let task = try await fixture.addTask(windowId: "work")
         controller.live.sessions = [SessionInfo.stub(window: "work", task: task, state: .done)]
         controller.remover.seedSnapshotRemoval(.removing, of: task.id)
 

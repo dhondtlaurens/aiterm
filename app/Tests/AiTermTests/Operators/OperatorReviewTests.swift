@@ -4,7 +4,7 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-@MainActor @Suite struct OperatorReviewTests {
+@MainActor @Suite(.blocking) struct OperatorReviewTests {
     let project = OperatorServiceFixtures.project()
 
     // MARK: - Reviews, by an agent (base) and by people (the Review slice), spec §3.1 and §5
@@ -13,13 +13,28 @@ import Testing
         let world: OperatorWorld, run: OperatorRun, task: TaskItem, host: FakeMergeHost, sha: String
     }
 
+    /// Host-only reads still bind the saved publication to its origin; no repository needs building.
+    private struct HostReadGit: GitRunning {
+        func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+            guard args == ["remote", "get-url", "origin"] else {
+                throw GitError(args: args, code: 128, stderr: "No git checkout in this host-only fixture")
+            }
+            return "https://git.example.net/web/acme-web.git"
+        }
+    }
+
     /// A broadcast whose Review is `review`, with `slices` frozen, and one task `A` on the branch of a repository
     /// with an origin; the Operator's tab idle. A task past working is accepted on the branch's commit, and one in
     /// review has its draft request open as !12.
     func reviewed(_ taskState: OperatedState, end: TaskEnd = .draftMR, slices: Slices = .none,
-                  review: String? = "Assign Jan, fix his feedback.", agent: AgentKind = .codex,
+                  review: String? = "Assign Jan, fix his feedback.", agent: AgentKind = .codex, checkout: Bool = true,
                   adjust: (inout OperatorPorts) -> Void = { _ in }) async throws -> Reviewed {
-        let fixture = try GitFixture.withOrigin(branch: "feat/a")
+        let fixture: (path: String, origin: String, sha: String)
+        if checkout {
+            fixture = try await BackgroundWork.run { try GitFixture.withOrigin(branch: "feat/a") }
+        } else {
+            fixture = (try GitFixture.folder("op-host-"), "", String(repeating: "a", count: 40))
+        }
         let project = OperatorServiceFixtures.project(path: fixture.path)
         var profile = OperatorServiceFixtures.profile()
         profile.slices = slices
@@ -38,7 +53,10 @@ import Testing
             task.operated?.peopleReview = PeopleReview()
         }
         let host = FakeMergeHost()
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), adjust: { ports in
+        let git: any GitRunning
+        if checkout { git = GitRunner.hermetic() }
+        else { git = HostReadGit() }
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), git: git, adjust: { ports in
             ports.publisher = { _ in host }
             // The fake host answers at once: a long wait, so a loaded machine never turns its answer into a timeout. A test
             // of the timeout itself sets a short one.
@@ -47,8 +65,10 @@ import Testing
         })
         world.live.sessions = [OperatorServiceFixtures.session("operator", tag: run.id), OperatorServiceFixtures.session("worker", tag: task.id)]
         // The idle worker's turn is read first (`WorkerTurnReader`), so its reading is the Operator's first look, not news.
-        world.controller.turns.observe()
-        await world.settled()
+        if checkout {
+            world.controller.turns.observe()
+            await world.settled()
+        }
         return Reviewed(world: world, run: run, task: task, host: host, sha: fixture.sha)
     }
 
@@ -83,7 +103,7 @@ import Testing
     }
 
     @Test func overlappingStatusConsumersShareOneHostRead() async throws {
-        let r = try await reviewed(.inReview)
+        let r = try await reviewed(.inReview, checkout: false)
         let release = AsyncStream<Void>.makeStream()
         r.host.update { $0.beforeState = { for await _ in release.stream { break } } }
         defer { release.continuation.finish() }
@@ -102,7 +122,7 @@ import Testing
     }
 
     @Test func acceptingAnotherCommitInvalidatesTheHostReading() async throws {
-        let r = try await reviewed(.inReview)
+        let r = try await reviewed(.inReview, checkout: false)
         _ = await r.world.controller.tools.hostState(of: r.task)
         var changed = r.task
         changed.operated?.acceptance?.resultSHA = "another-commit"
@@ -206,7 +226,7 @@ import Testing
     }
 
     @Test func readTaskReviewShowsTheRequestToo() async throws {
-        let r = try await reviewed(.inReview)
+        let r = try await reviewed(.inReview, checkout: false)
         r.host.update { $0.approvals = ["alice"] }
         let read = try #require(await r.world.call(r.run.id, "read_task", ["task": "A", "what": "review"]).value)
         #expect(read["mergeRequest"]?["iid"] == 12 && read["mergeRequest"]?["approvedBy"] == ["alice"])
@@ -214,7 +234,7 @@ import Testing
 
     /// Approvals the host can't read are said as its threads' are: a note, not an empty answer.
     @Test func approvalsTheHostCantReadAreSaidWithANote() async throws {
-        let r = try await reviewed(.inReview)
+        let r = try await reviewed(.inReview, checkout: false)
         r.host.update { $0.onCall = { [host = r.host] line in
             if line.hasPrefix("approvals") { host.update { $0.reviewError = URLError(.notConnectedToInternet) } }
         } }

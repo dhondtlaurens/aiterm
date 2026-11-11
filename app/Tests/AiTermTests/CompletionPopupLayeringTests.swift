@@ -11,7 +11,7 @@ import Testing
 /// the command preview — a later sibling in the sheet's stack — on the sheet's own colour, so the
 /// preview's text showed straight through it.
 @MainActor
-@Suite(.serialized) struct CompletionPopupLayeringTests {
+@Suite(.serialized, .blocking) struct CompletionPopupLayeringTests {
     @Test func popupDrawsOverTheCommandPreviewOnItsOwnFill() throws {
         let controller = AppController(preferences: .scratch())
         let project = Project(id: UUID(), name: "AiTerm", path: "/tmp", provider: .none,

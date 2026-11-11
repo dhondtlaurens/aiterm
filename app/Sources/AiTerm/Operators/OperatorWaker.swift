@@ -69,13 +69,17 @@ final class OperatorWaker {
     /// The operator is awake, or its run is gone: it called `run_status`, a wake line was delivered, or the run was forgotten.
     var cleared: (@MainActor (UUID) -> Void)?
     /// Where a coalescing pass and a delivery are started, for a test to wait for (`OperatorWork.settled`). A refused
-    /// line's retry is not: it waits `retryAfter`.
+    /// line's retry is not: it waits `retryAfter`, which would hold up every settle.
     private let work: OperatorWork
+    /// Where a refused line's retry is started (`retryLater`): apart from `work`, so a test that released a retry's wait
+    /// by hand joins it here, and the send it may start through `work`, each within its deadline.
+    private let retries: OperatorWork
 
     init(daemon: @escaping @MainActor () -> (any DaemonCommands)?, session: @escaping @MainActor (UUID) -> SessionInfo?,
          awake: @escaping @MainActor (UUID) -> Bool, coalesce: Duration, retryAfter: Duration = .seconds(15),
          sleep: @escaping @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
-         now: @escaping @MainActor () -> Date = { Date() }, work: OperatorWork = OperatorWork()) {
+         now: @escaping @MainActor () -> Date = { Date() }, work: OperatorWork = OperatorWork(),
+         retries: OperatorWork = OperatorWork()) {
         self.daemon = daemon
         self.session = session
         self.awake = awake
@@ -84,6 +88,7 @@ final class OperatorWaker {
         self.sleep = sleep
         self.now = now
         self.work = work
+        self.retries = retries
     }
 
     /// What `run_status` would answer now. The first look at a run is taken as seen — after a restart
@@ -541,7 +546,7 @@ final class OperatorWaker {
     private func retryLater(_ run: UUID, _ wake: WakeState) {
         guard wake.retrying == nil, wake.updates > 0 else { return }
         let wait = retryAfter, sleep = self.sleep
-        wake.retrying = Task { [weak self] in
+        wake.retrying = retries.start { [weak self] in
             try? await sleep(wait)
             guard !Task.isCancelled, let self else { return }
             wake.retrying = nil

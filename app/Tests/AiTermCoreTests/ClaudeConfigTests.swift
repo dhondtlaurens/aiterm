@@ -4,7 +4,7 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-struct ClaudeConfigTests {
+@Suite(.blocking) struct ClaudeConfigTests {
     @Test func resolvesUnsetEmptyAbsoluteAndTilde() {
         let home = ScratchHome.bare
         for value in [nil, ""] as [String?] {

@@ -1,12 +1,12 @@
 import Testing
 import Foundation
 @testable import AiTermCore
-import AiTermTestSupport
+@testable import AiTermTestSupport
 
 /// A broadcast reaches its Operator as the person typed it: the prompt, Review and Done in
 /// `first-message.md`, the Review, Done and Instructions in `brief.md`, and the first message through
 /// the shell that runs the Operator's command, byte for byte, whatever the text holds (`TypedText`).
-@Suite struct OperatorBriefDeliveryTests {
+@Suite(.blocking) struct OperatorBriefDeliveryTests {
     typealias F = OperatorFixtures
     let token = String(repeating: "ab", count: 32)
 

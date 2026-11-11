@@ -7,7 +7,7 @@ import Testing
 
 /// The plan (spec §6, §8): unstarted tasks added and changed in the open revision, a revision
 /// submitted once, and queued at once when it is.
-@MainActor @Suite struct OperatorPlanToolsTests {
+@MainActor @Suite(.blocking) struct OperatorPlanToolsTests {
     let project = OperatorServiceFixtures.project(), other = OperatorServiceFixtures.project(path: "/tmp/aiterm-operators-other", name: "Web")
     let docs = OperatorServiceFixtures.project(path: "/tmp/aiterm-operators-docs", name: "Docs")
 
@@ -359,7 +359,7 @@ import Testing
 
     /// M3 carries out every end; a stacked task whose end its parent can't carry is refused with the reason.
     @Test func aPlanWhoseStackedEndItsParentCannotCarryIsRefusedWithTheReason() async throws {
-        let fixture = try GitFixture.withOrigin(branch: "feat/source")
+        let fixture = try await BackgroundWork.run { try GitFixture.withOrigin(branch: "feat/source") }
         let project = OperatorServiceFixtures.project(path: fixture.path)
         var profile = OperatorServiceFixtures.profile()
         profile.slices.merge = true
@@ -457,7 +457,7 @@ extension OperatorPlanToolsTests {
     /// Git failing to read the origin is no answer that there is none: the call is refused with git's sentence, not
     /// told the project has no connected code host.
     @Test func anOriginGitCantReadIsRefusedWithGitsSentence() async throws {
-        let fixture = try GitFixture.withOrigin(branch: "feat/source")
+        let fixture = try await BackgroundWork.run { try GitFixture.withOrigin(branch: "feat/source") }
         let project = OperatorServiceFixtures.project(path: fixture.path)
         var run = OperatorServiceFixtures.run(projects: [project])
         run.taskSettings.end = .draftMR
@@ -473,7 +473,7 @@ extension OperatorPlanToolsTests {
     /// The origin is read only for an end that needs a code host: one git can't read holds up no task that ends at a
     /// commit, the broadcast's end or the one a legacy call names, nor a legacy update to one.
     @Test func anEndThatNeedsNoCodeHostReadsNoOrigin() async throws {
-        let fixture = try GitFixture.withOrigin(branch: "feat/source")
+        let fixture = try await BackgroundWork.run { try GitFixture.withOrigin(branch: "feat/source") }
         let project = OperatorServiceFixtures.project(path: fixture.path)
         var run = OperatorServiceFixtures.run(projects: [project])
         run.taskSettings = TaskSettings(review: nil, end: .commit)
