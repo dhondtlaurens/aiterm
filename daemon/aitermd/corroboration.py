@@ -12,12 +12,13 @@ from .claude_background import BackgroundTranscripts, ShellReading
 from .claude_sessions import ClaudeSessionFile, ClaudeSessionFiles
 from .claude_subagents import SubagentTranscripts, TranscriptTail
 from .codex_sessions import CodexReading, CodexSessionFiles
-from .iterm_bridge import ItermPort
+from .iterm_port import ItermPort
 from .models import HARNESS_BY_AGENT, SessionInfo
 from .resolver import SessionResolver
 from .sessions import SessionRegistry
 from .slash_commands import SlashCommands, TranscriptRecord
-from .status import StatusEngine, shows_trust_prompt
+from .status import StatusEngine
+from .screens import shows_trust_prompt
 from .stop_failures import LIMIT_ERRORS, RESET_READ_SECONDS, limit_resets_at
 from .test_activity import ActivityRead, TestActivityReader
 

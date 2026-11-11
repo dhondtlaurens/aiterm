@@ -17,7 +17,7 @@ from .corroboration import CorroboratingReaders, ReadPlan, logged as _logged
 from .delivery import NOT_CHECKED, Deliverer, Verdict, read_policy
 from .hook_router import HookRouter
 from .hooks_server import HookServer
-from .iterm_bridge import ItermPort
+from .iterm_port import ItermPort
 from .keystrokes import YOUR_PROMPT_SECONDS, TypingGuard
 from .offload import run_detached
 from .operator_mcp import OperatorRoute, OperatorTokens

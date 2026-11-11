@@ -4,7 +4,7 @@ import asyncio
 import itertools
 from collections.abc import Awaitable, Callable
 
-from aitermd.iterm_bridge import ItermAuthFailed, ItermNotRunning, ItermPort, ItermUnavailable, KeystrokeCallback, TypedScreen
+from aitermd.iterm_port import ItermAuthFailed, ItermNotRunning, ItermPort, ItermUnavailable, KeystrokeCallback, TypedScreen
 from aitermd.models import Frame, RawSession
 
 

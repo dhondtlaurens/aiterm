@@ -10,19 +10,20 @@ import os
 import plistlib
 import subprocess
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterable
-from typing import Any, NamedTuple, ParamSpec, Protocol, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
 import iterm2
 from websockets.legacy.exceptions import InvalidStatusCode
 
+from .iterm_port import (ItermApiIncompatible as ItermApiIncompatible, ItermAuthFailed as ItermAuthFailed,
+                         ItermNotRunning as ItermNotRunning, ItermPort as ItermPort,
+                         ItermUnavailable as ItermUnavailable, KeystrokeCallback, TypedScreen as TypedScreen)
+from .screens import screen_string as screen_string, typed_line as typed_line
 from .models import PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, TITLE_TAG, Frame, RawSession
 from .offload import run_detached
 from .process_agents import resolve_agents
 
 log = logging.getLogger(__name__)
-# A key pressed in a session (ItermPort.on_keystroke): the session, the key's characters and the
-# modifiers held, of control, option, command and shift.
-KeystrokeCallback = Callable[[str, str, frozenset[str]], Awaitable[None]]
 # The modifiers a key's effect on a CLI's input depends on: a Return held with one types a newline.
 _MODIFIER_NAMES = {iterm2.api_pb2.Modifiers.CONTROL: "control", iterm2.api_pb2.Modifiers.OPTION: "option",
                    iterm2.api_pb2.Modifiers.COMMAND: "command", iterm2.api_pb2.Modifiers.SHIFT: "shift"}
@@ -34,10 +35,6 @@ VARIABLES = ("commandLine", "jobPid", "autoName", "path", f"user.{TASK_TAG}", f"
 ITERM_CALL_SECONDS = 10.0
 P = ParamSpec("P")
 T = TypeVar("T")
-
-
-class ItermUnavailable(Exception):
-    pass
 
 
 class _SessionGone(iterm2.rpc.RPCException):
@@ -59,22 +56,6 @@ def _variable_values(response) -> list[Any]:
     return [json.loads(value) for value in response.variable_response.values]
 
 
-class ItermAuthFailed(ItermUnavailable):
-    """iTerm2 is running but would not let the daemon in: the cookie request was refused, or the
-    cookie presented was rejected. Retrying at the normal rate cannot fix it -- a person has to --
-    so the service backs off and tells the app, instead of treating it as iTerm2 still starting."""
-
-
-class ItermApiIncompatible(ItermUnavailable):
-    """iTerm2 refused the Python API version. Like a cookie refusal, this needs a person to fix
-    it, so the supervisor reports the reason to the app and backs off between attempts."""
-
-
-class ItermNotRunning(ItermUnavailable):
-    """iTerm2 is not running at all, as opposed to running but not answering: only a launch made
-    after this one opens iTerm2's startup window rather than bringing an open one forward."""
-
-
 def _no_cookie_request(launch_if_needed: bool = False, myname: str | None = None) -> bool:
     """Stands in for the cookie request `iterm2.Connection` makes itself, and says no cookie was
     fetched. Since iterm2 2.30, `Connection.async_create` answers a 401 by asking iTerm2 for a new
@@ -84,9 +65,6 @@ def _no_cookie_request(launch_if_needed: bool = False, myname: str | None = None
     reports as `ItermAuthFailed`. `_auth_authenticate` is private: verified against iterm2 2.30
     (pinned)."""
     return False
-
-
-iterm2.connection._auth_authenticate = _no_cookie_request
 
 
 def request_cookie(runner_class: type | None = None) -> None:
@@ -304,83 +282,6 @@ def _is_auth_rejection(exc: BaseException) -> bool:
     return getattr(response, "status_code", getattr(exc, "status_code", None)) == 401
 
 
-class TypedScreen(NamedTuple):
-    """One read of a session's screen (ItermPort.typed_screen): `text` as `screen_text` reads it, and `typed`
-    the same lines, cell for cell, with ghost text blanked (`typed_line`), so a line's positions match in both."""
-    text: str
-    typed: str
-
-
-class _Cell(Protocol):
-    """What `typed_line` reads of iterm2's CellStyle."""
-    @property
-    def faint(self) -> bool: ...
-    @property
-    def inverse(self) -> bool: ...
-
-
-class _Line(Protocol):
-    """What `typed_line` reads of iterm2's LineContents."""
-    def string_at(self, x: int) -> str: ...
-    def style_at(self, x: int) -> _Cell | None: ...
-
-
-def typed_line(line: _Line) -> str:
-    """`line` as typed text, cell for cell, its ghost text blanked to spaces. Ghost text is drawn, not typed: a
-    faint cell (SGR 2: Claude Code draws its empty input's placeholder and its prompt suggestion faint), and an inverse
-    cell right before a faint one (its own cursor drawn on a placeholder's first character)."""
-    cells: list[tuple[str, _Cell | None]] = []
-    while True:
-        try:
-            cells.append((line.string_at(len(cells)), line.style_at(len(cells))))
-        except IndexError:
-            break
-
-    def faint(x: int) -> bool:
-        return x < len(cells) and (style := cells[x][1]) is not None and style.faint
-
-    def ghost(x: int) -> bool:
-        style = cells[x][1]
-        return faint(x) or (style is not None and style.inverse and faint(x + 1))
-
-    return "".join(" " * len(text) if ghost(x) else text for x, (text, _style) in enumerate(cells))
-
-
-class ItermPort(Protocol):
-    async def connect(self) -> str | None: ...
-    def is_connected(self) -> bool: ...
-    def keystroke_epoch(self) -> object | None: ...
-    async def close(self) -> None: ...
-    async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame,
-                            background: bool = False) -> tuple[str, str]: ...
-    async def create_tab(self, window_id: str, tags: dict[str, str], cwd: str | None = None,
-                         background: bool = False) -> str: ...
-    async def activate_window(self, window_id: str) -> None: ...
-    async def activate_session(self, session_id: str) -> None: ...
-    async def set_frame(self, window_id: str, frame: Frame) -> None: ...
-    async def close_window(self, window_id: str) -> None: ...
-    async def send_text(self, session_id: str, text: str) -> None: ...
-    async def set_session_tags(self, session_id: str, tags: dict[str, str]) -> None: ...
-    async def set_session_titles(self, titles: dict[str, str]) -> list[str]: ...
-    async def set_aiterm_background(self, session_ids: list[str], enabled: bool) -> None: ...
-    async def screen_text(self, session_id: str) -> str | None: ...
-    async def typed_screen(self, session_id: str) -> TypedScreen | None: ...
-    async def snapshot(self) -> list[RawSession]: ...
-    async def session_info(self, session_id: str) -> RawSession | None: ...
-    def on_new_session(self, cb: Callable[[str], Awaitable[None]]) -> None: ...
-    def on_session_closed(self, cb: Callable[[str], Awaitable[None]]) -> None: ...
-    def on_window_activated(self, cb: Callable[[str], Awaitable[None]]) -> None: ...
-    def on_keystroke(self, cb: KeystrokeCallback) -> None: ...
-    def on_disconnect(self, cb: Callable[[], Awaitable[None]]) -> None: ...
-
-
-def screen_string(lines: Iterable[str]) -> str:
-    """A screen's lines as one text, each cell a program skipped with a cursor move -- which iTerm2
-    hands back as NUL -- read as the space it shows. Unread, the NULs split the words every prompt
-    marker is matched by, and Claude Code draws its dialogs that way."""
-    return "\n".join(lines).replace("\x00", " ")
-
-
 # A session where the hierarchy has it: its window, its tab's index, and whether it is that window's
 # current session.
 _Placement = tuple[iterm2.Session, str, int, bool]
@@ -419,6 +320,7 @@ class ItermBridge:
         # Asked for here, not by the library, so a refusal comes back with its reason. With a
         # cookie already in the environment the library then makes no AppleScript request itself.
         # osascript can take seconds, or wait on a permission dialog: keep it off the event loop.
+        iterm2.connection._auth_authenticate = _no_cookie_request
         await run_detached(request_cookie)
         try:
             conn = await iterm2.Connection.async_create()

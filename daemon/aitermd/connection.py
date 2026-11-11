@@ -9,7 +9,8 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from . import protocol
-from .iterm_bridge import ItermApiIncompatible, ItermAuthFailed, ItermNotRunning, ItermPort, ItermUnavailable, use_cookie
+from .iterm_port import ItermApiIncompatible, ItermAuthFailed, ItermNotRunning, ItermPort, ItermUnavailable
+from .iterm_bridge import use_cookie
 from .rpc_params import optional_param, param
 
 log = logging.getLogger(__name__)
