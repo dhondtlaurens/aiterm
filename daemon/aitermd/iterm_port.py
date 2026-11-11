@@ -7,6 +7,10 @@ from typing import NamedTuple, Protocol
 from .models import Frame, RawSession
 
 
+class SessionNotFound(KeyError):
+    """A window or session was explicitly absent, preserving KeyError's identifier formatting."""
+
+
 class ItermUnavailable(Exception):
     pass
 

@@ -16,8 +16,14 @@ from aitermd import codex_sessions, process_agents
 from aitermd.models import Frame, RawSession
 from aitermd.hook_events import HookEvent
 from aitermd.test_activity import TestActivityReader
-from tests.test_claude_background import launch, write
-from tests.test_codex_sessions import token_count, write_rollout
+from tests.builders import (
+    shell_launch as launch,
+    write_transcript as write,
+)
+from tests.builders import (
+    token_count,
+    write_rollout,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -137,11 +143,11 @@ async def counted_tick(svc, monkeypatch, root):
 # claude, codex, shells, records -> registry sorts, file opens, directory listings, process spawns.
 @pytest.mark.parametrize(("shape", "ceiling"), [
     ((0, 0, 6, 0), (6, 0, 2, 0)),
-    # One more registry sort for each Codex tab that reports its context.
-    ((2, 2, 2, 0), (8, 0, 2, 0)),
-    ((6, 6, 6, 0), (12, 0, 2, 0)),
+    # Task-index lookups add no registry sort for a Codex context update.
+    ((2, 2, 2, 0), (6, 0, 2, 0)),
+    ((6, 6, 6, 0), (6, 0, 2, 0)),
     # Valid unchanged records are cached; each finished run still needs its kernel lock checked.
-    ((2, 2, 2, 20), (8, 20, 2, 0)),
+    ((2, 2, 2, 20), (6, 20, 2, 0)),
 ])
 async def test_a_steady_tick_stays_within_its_work_budget(make_service, tmp_path, monkeypatch, shape, ceiling):
     claude, codex, shells, records = shape

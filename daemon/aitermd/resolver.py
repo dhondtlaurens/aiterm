@@ -73,7 +73,7 @@ class SessionResolver:
                         break
                     try:
                         pid = scan.result()
-                    except Exception:  # noqa: BLE001 - unavailable evidence leaves placement to other signals
+                    except Exception:  # unavailable evidence leaves placement to other signals
                         log.exception("the Claude pid scan failed")
                         break
                     if root == self.claude_files.root:

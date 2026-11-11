@@ -3,26 +3,12 @@ import pytest
 
 from aitermd.claude_background import BackgroundTranscripts
 
-
-def record(kind, content, at=101, **extra):
-    return {"type": kind, "timestamp": f"1970-01-01T00:01:{at - 60:02d}.000Z",
-            "message": {"content": content}, **extra}
-
-
-def launch(task="job1", call="call1", at=101, command="npm run test"):
-    return [record("assistant", [{"type": "tool_use", "id": call, "name": "Bash",
-                                  "input": {"command": command, "run_in_background": True}}], at),
-            record("user", [{"type": "tool_result", "tool_use_id": call, "content": "not parsed"}], at + 1,
-                   toolUseResult={"backgroundTaskId": task, "stdout": "", "stderr": "", "interrupted": False})]
-
-
-def completed(task="job1", at=110, status="completed"):
-    return record("user", [{"type": "text", "text":
-                  f"<task-notification>\n<task-id>{task}</task-id>\n<status>{status}</status>\n</task-notification>"}], at)
-
-
-def write(path, records):
-    path.write_text("".join(json.dumps(r) + "\n" for r in records))
+from tests.builders import (
+    claude_record as record,
+    shell_launch as launch,
+    shell_completed as completed,
+    write_transcript as write,
+)
 
 
 def read(reader, path, since=100):
@@ -229,4 +215,4 @@ def test_restore_background_transcript_read_budget(tmp_path, monkeypatch):
     result = read(BackgroundTranscripts(), path)
     assert result.tasks[0].job.task_id == "job1"
     assert len(parsed) == 1002
-    assert sum(len(line) + 1 for line in parsed) == path.stat().st_size
+    assert sum(len(line) + 1 for line in parsed) == path.stat().st_size == 129_462

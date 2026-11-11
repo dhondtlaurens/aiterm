@@ -21,6 +21,11 @@ from aitermd.hook_events import HookEvent
 from tests.conftest import FRAME, call, http, post_hook, task_tab, wait_until
 from tests.fake_iterm import FakeIterm
 
+from tests.builders import (
+    append_transcript as _append,
+    write_claude_session,
+)
+
 
 @pytest.fixture
 async def stack(make_service):
@@ -139,7 +144,11 @@ async def background_session(make_service, tmp_path):
 
 
 async def test_background_shell_lifecycle_is_published_without_changing_state(make_service, tmp_path, monkeypatch):
-    from tests.test_claude_background import completed, launch, write
+    from tests.builders import (
+        shell_completed as completed,
+        shell_launch as launch,
+        write_transcript as write,
+    )
     svc, sid, path = await background_session(make_service, tmp_path)
     events = []
 
@@ -611,7 +620,7 @@ async def test_a_screen_that_cannot_be_read_leaves_the_row_alone(stack):
 
 def write_claude_file(files, pid, status, written_at):
     path = files.root / f"{pid}.json"
-    path.write_text(json.dumps({"pid": pid, "sessionId": f"c{pid}", "cwd": "/wt", "status": status, "updatedAt": 1}))
+    write_claude_session(files.root, pid, sessionId=f"c{pid}", cwd="/wt", status=status)
     os.utime(path, (written_at, written_at))
 
 
@@ -1009,7 +1018,10 @@ async def test_codex_usage_is_read_from_the_rollout_file_on_tick(tmp_path, make_
     # Codex writes its account rate limits into every `token_count` record of its rollout
     # file. That is the whole feed: no subprocess, and the number's age is the record's own
     # timestamp rather than the moment the daemon looked.
-    from tests.test_codex_sessions import rate_limited, write_rollout
+    from tests.builders import (
+        rate_limited,
+        write_rollout,
+    )
     root = tmp_path / "codex-sessions"
     path = write_rollout(root, "thread-1", [rate_limited({"used_percent": 52.0, "window_minutes": 10080, "resets_at": 1790582049},
                                                          plan="self_serve_business_prolite")])
@@ -1908,11 +1920,6 @@ async def _claude_child_in_background(svc, r, w, tmp_path, pid, *work):
     return sid, base, child
 
 
-def _append(path, *records):
-    with path.open("a") as f:
-        f.write("".join(json.dumps(record) + "\n" for record in records))
-
-
 async def _published_until(r, matches):
     while True:
         payload = await next_event(r, "session.changed")
@@ -2508,3 +2515,9 @@ async def test_tick_bounds_file_reads_and_does_not_overlap_a_stuck_reader(make_s
         assert len(calls) == 1
     finally:
         release.set()
+
+
+def test_optional_hook_fields_are_keyword_only():
+    with pytest.raises(TypeError):
+        HookEvent("claude", "subagentStart", None, "conversation", "/wt", "child")
+    assert HookEvent("claude", "subagentStart", None, "conversation", "/wt", subagent_id="child").subagent_id == "child"

@@ -203,7 +203,7 @@ class HookServer:
         than a connection dropped without a word."""
         try:
             status, text = await handler(method, headers, body)
-        except Exception:  # noqa: BLE001 - answered, not left to end the connection
+        except Exception:  # answered, not left to end the connection
             log.exception("the operator route failed")
             status, text = 500, json.dumps({"error": "internal"})
         await self._reply(writer, status, text)
@@ -213,7 +213,7 @@ class HookServer:
             return None
         try:
             await self.on_post(path, payload)
-        except Exception:  # noqa: BLE001 - telemetry must never break the agent hook
+        except Exception:  # telemetry must never break the agent hook
             log.exception("hook handler failed for %s", path)
             return None
 

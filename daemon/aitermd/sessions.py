@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bisect import insort
 from dataclasses import dataclass, field, fields
 
 from .models import (PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, DisplayWork, RawSession,
@@ -19,6 +20,7 @@ class SnapshotDiff:
 class SessionRegistry:
     def __init__(self) -> None:
         self._sessions: dict[str, SessionInfo] = {}
+        self._task_index: dict[str | None, list[str]] = {}
         self._window_task: dict[str, str] = {}
         self._window_project: dict[str, str] = {}
         self._window_terminal: dict[str, str] = {}
@@ -72,7 +74,15 @@ class SessionRegistry:
                 self._window_project.pop(wid, None)
                 self._window_terminal.pop(wid, None)
                 self._window_active.pop(wid, None)
+        self._index_tasks()
         return diff
+
+    def _index_tasks(self) -> None:
+        buckets: dict[str | None, list[tuple[str, int, int, str]]] = {}
+        for ordinal, session in enumerate(self._sessions.values()):
+            insort(buckets.setdefault(session.task_id, []),
+                   (session.window_id, session.tab_index, ordinal, session.session_id))
+        self._task_index = {task: [sid for _, _, _, sid in entries] for task, entries in buckets.items()}
 
     def _to_info(self, r: RawSession) -> SessionInfo:
         return SessionInfo(
@@ -171,7 +181,7 @@ class SessionRegistry:
         return sorted(self._sessions.values(), key=lambda s: (s.window_id, s.tab_index))
 
     def for_task(self, task_id: str) -> list[SessionInfo]:
-        return [s for s in self.all() if s.task_id == task_id]
+        return [self._sessions[sid] for sid in self._task_index.get(task_id, ())]
 
     def by_job_pid(self, pid: int) -> SessionInfo | None:
         return next((s for s in self._sessions.values() if s.job_pid == pid), None)

@@ -5,6 +5,7 @@ from typing import Any, TypeVar
 
 from . import protocol
 from .iterm_port import ItermPort, ItermUnavailable
+from .iterm_port import SessionNotFound
 from .models import Frame
 from .rpc_server import RpcError
 
@@ -47,7 +48,7 @@ async def guard(coro: Awaitable[T]) -> T:
     lost connection as `iterm_unavailable`."""
     try:
         return await coro
-    except KeyError as exc:
+    except SessionNotFound as exc:
         raise RpcError(protocol.NOT_FOUND, f"no such window or session: {exc.args[0]}") from exc
     except ItermUnavailable as exc:
         raise RpcError(protocol.ITERM_UNAVAILABLE, str(exc)) from exc

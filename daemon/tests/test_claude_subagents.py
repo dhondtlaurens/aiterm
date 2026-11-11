@@ -1,10 +1,13 @@
-import json
 import os
 
 import pytest
 
 from aitermd import claude_subagents
 from aitermd.claude_subagents import SubagentTranscripts
+
+from tests.builders import (
+    write_child_transcript as write,
+)
 
 # The records a Claude subagent transcript ends with, as Claude Code 2.1.285 writes them.
 PROMPT = {"type": "user", "isSidechain": True, "agentId": "c1", "message": {"role": "user", "content": "Fix the tests"}}
@@ -31,12 +34,6 @@ REMINDED = {"type": "user", "isSidechain": True, "agentId": "c1", "isMeta": True
 HANDED_BACK = {"type": "user", "isSidechain": True, "agentId": "c1", "message": {"role": "user", "content": [
     {"tool_use_id": "toolu_1", "type": "tool_result",
      "content": [{"type": "text", "text": '{"success":true,"message":"Report delivered to your caller."}'}]}]}}
-
-
-def write(path, *records, tail=""):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(r) + "\n" for r in records) + tail)
-    return str(path)
 
 
 def has_ended(path):

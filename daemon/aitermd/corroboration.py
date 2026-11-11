@@ -30,7 +30,7 @@ T = TypeVar("T")
 def logged(step: str) -> Iterator[None]:
     try:
         yield
-    except Exception:  # noqa: BLE001 - each observation is independent of the ones after it
+    except Exception:  # each observation is independent of the ones after it
         log.exception("%s failed", step)
 
 
@@ -117,7 +117,7 @@ class CorroboratingReaders:
             for thread in set(captured.values()):
                 try:
                     readings[thread] = files.reading(thread)
-                except Exception:  # noqa: BLE001 - a different thread's file must still be read
+                except Exception:  # a different thread's file must still be read
                     log.exception("reading the Codex rollout of thread %s failed", thread)
                     readings[thread] = None
             files.retain(set(captured.values()))

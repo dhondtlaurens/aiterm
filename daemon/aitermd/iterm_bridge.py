@@ -19,6 +19,7 @@ from .iterm_port import (ItermApiIncompatible as ItermApiIncompatible, ItermAuth
                          ItermNotRunning as ItermNotRunning, ItermPort as ItermPort,
                          ItermUnavailable as ItermUnavailable, KeystrokeCallback, TypedScreen as TypedScreen)
 from .screens import screen_string as screen_string, typed_line as typed_line
+from .iterm_port import SessionNotFound
 from .models import PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, TITLE_TAG, Frame, RawSession
 from .offload import run_detached
 from .process_agents import resolve_agents
@@ -90,7 +91,7 @@ def request_cookie(runner_class: type | None = None) -> None:
         if str(exc) == "iTerm2 not running":
             raise ItermNotRunning(str(exc)) from exc
         raise ItermAuthFailed(_applescript_error(runners[-1]) or str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 - the library's own error parsing raises on stderr it cannot match
+    except Exception as exc:  # the library's own error parsing raises on stderr it cannot match
         raise ItermAuthFailed((_applescript_error(runners[-1]) if runners else None) or f"cookie request failed: {exc}") from exc
     cookie, _, key = reply.partition(" ")
     if not cookie or not key:
@@ -348,7 +349,7 @@ class ItermBridge:
         self._conn = conn
         try:
             await _call(self._subscribe(conn))
-        except Exception as exc:  # noqa: BLE001 - a half-open connection is no connection
+        except Exception as exc:  # a half-open connection is no connection
             if self._conn is conn:
                 self._conn = None
             self._forget_app()
@@ -422,7 +423,7 @@ class ItermBridge:
             for cb in self._disc_cbs:
                 try:
                     await cb()
-                except Exception:  # noqa: BLE001 - every subscriber must learn the connection ended
+                except Exception:  # every subscriber must learn the connection ended
                     log.exception("disconnect callback failed")
 
     async def _on_new(self, _conn, notif) -> None:
@@ -491,7 +492,7 @@ class ItermBridge:
         else:
             w = await self._found(lambda app: app.get_window_by_id(window_id))
         if w is None:
-            raise KeyError(window_id)
+            raise SessionNotFound(window_id)
         return w
 
     async def _sessions(self, ids: Iterable[str], *, fresh: bool = False) -> AsyncIterator[tuple[str, iterm2.Session | None]]:
@@ -516,7 +517,7 @@ class ItermBridge:
         else:
             s = app.get_session_by_id(session_id)
         if s is None:
-            raise KeyError(session_id)
+            raise SessionNotFound(session_id)
         return s
 
     @staticmethod
@@ -535,7 +536,7 @@ class ItermBridge:
         win, session = await _call(self._new_window(cwd, title, select=not background))
         try:
             await _call(self._set_up_window(win, session, tags, frame, background, before))
-        except Exception:  # noqa: BLE001 - the window exists either way
+        except Exception:  # the window exists either way
             log.exception("iTerm2 made window %s but setting it up failed", win.window_id)
         return win.window_id, session.session_id
 
@@ -583,7 +584,7 @@ class ItermBridge:
         session = await _call(self._new_tab(window_id, cwd, background))
         try:
             await _call(self._tag(session, tags))
-        except Exception:  # noqa: BLE001 - the tab exists either way
+        except Exception:  # the tab exists either way
             log.exception("iTerm2 made tab %s but tagging it failed", session.session_id)
         return session.session_id
 
@@ -672,7 +673,7 @@ class ItermBridge:
         async for session_id, session in self._sessions(session_ids):
             try:
                 if session is None:
-                    raise KeyError(session_id)
+                    raise SessionNotFound(session_id)
                 if enabled:
                     if session_id not in self._background_restore_profiles:
                         self._background_restore_profiles[session_id] = await session.async_get_profile()
@@ -686,7 +687,7 @@ class ItermBridge:
                     await session.async_set_profile_properties(change)
                 elif original := self._background_restore_profiles.pop(session_id, None):
                     await session.async_set_profile(original)
-            except KeyError:
+            except SessionNotFound:
                 # A tab can be closed between the registry snapshot and this request. It no
                 # longer needs a profile update, and stale restore data should not accumulate.
                 self._background_restore_profiles.pop(session_id, None)
@@ -739,7 +740,7 @@ class ItermBridge:
         closed."""
         try:
             session = await self._session(session_id)
-        except KeyError:
+        except SessionNotFound:
             return None
         contents = await session.async_get_screen_contents()
         return screen_string(contents.line(i).string for i in range(contents.number_of_lines))
@@ -750,7 +751,7 @@ class ItermBridge:
         that has closed. iTerm2 sends the cells' styles with every screen read."""
         try:
             session = await self._session(session_id)
-        except KeyError:
+        except SessionNotFound:
             return None
         contents = await session.async_get_screen_contents()
         lines = [contents.line(i) for i in range(contents.number_of_lines)]

@@ -1,11 +1,10 @@
-import json
-
 import pytest
 
 from aitermd.claude_sessions import ClaudeSessionFiles
 from aitermd.models import RawSession
 from aitermd.resolver import SessionResolver
 from aitermd.sessions import SessionRegistry
+from tests.builders import write_claude_session
 
 
 @pytest.fixture
@@ -22,7 +21,7 @@ def world(tmp_path):
 
 
 def claude_file(files, pid, session_id):
-    (files.root / f"{pid}.json").write_text(json.dumps({"pid": pid, "sessionId": session_id, "cwd": "/repo", "status": "busy"}))
+    write_claude_session(files.root, pid, sessionId=session_id, cwd="/repo")
 
 
 async def test_claude_resolves_by_pid_before_anything_else(world):

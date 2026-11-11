@@ -184,7 +184,7 @@ class WindowManager:
         """Runs `step`; its failure, logged, is returned as a sentence (the exception's own words), else None."""
         try:
             await coro
-        except Exception as exc:  # noqa: BLE001 - the window exists either way
+        except Exception as exc:  # the window exists either way
             log.exception("%s after creating a window or tab failed", step)
             return str(exc) or type(exc).__name__
         return None
@@ -310,5 +310,5 @@ class WindowManager:
             if tags and cwd:
                 await self.iterm.send_text(session_id, f" cd {shlex.quote(cwd)} && clear\n")
             await self.tick()
-        except Exception:  # noqa: BLE001 - must not escape into the iTerm2 library's dispatch
+        except Exception:  # must not escape into the iTerm2 library's dispatch
             log.exception("on_new_session failed for %s", session_id)

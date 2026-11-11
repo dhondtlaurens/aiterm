@@ -139,7 +139,7 @@ class Service:
         while True:
             try:
                 await self.tick()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.exception("tick failed")
             await asyncio.sleep(POLL_SECONDS)
 
@@ -179,7 +179,7 @@ class Service:
             self.claude_files.configure(Path(directory))
         try:
             await self.tick()
-        except Exception:  # noqa: BLE001 - the last known registry beats no bootstrap at all
+        except Exception:  # the last known registry beats no bootstrap at all
             log.exception("tick failed")
         # No await between reading state and returning it. RpcServer writes the reply
         # before yielding, making it a barrier between earlier and later events.
@@ -202,7 +202,7 @@ class Service:
         await guard(self.iterm.close_window(window_id))
         try:
             await self.tick()
-        except Exception:  # noqa: BLE001 - the window is closed either way; the next tick sees it
+        except Exception:  # the window is closed either way; the next tick sees it
             log.exception("tick after closing a window failed")
         return {}
 
@@ -258,7 +258,7 @@ class Service:
         # in sync. The window id is enough: the app owns the task/terminal mapping.
         try:
             await self.rpc.broadcast(protocol.WINDOW_ACTIVATED, {"windowId": window_id})
-        except Exception:  # noqa: BLE001 - must not escape into the iTerm2 library's dispatch
+        except Exception:  # must not escape into the iTerm2 library's dispatch
             log.exception("on_window_activated failed for %s", window_id)
 
     def _typed_by_you(self, session_id: str) -> bool:
@@ -276,7 +276,7 @@ class Service:
     async def _on_session_closed(self, session_id: str) -> None:
         try:
             await self.tick()
-        except Exception:  # noqa: BLE001 - must not escape into the iTerm2 library's dispatch
+        except Exception:  # must not escape into the iTerm2 library's dispatch
             log.exception("on_session_closed failed for %s", session_id)
 
     # -- polling -------------------------------------------------------------------
@@ -303,7 +303,7 @@ class Service:
         self.codex_files.begin_tick()
         try:
             await self._read_codex_usage()
-        except Exception:  # noqa: BLE001 - another process's file must not stop session polling
+        except Exception:  # another process's file must not stop session polling
             log.exception("reading Codex usage failed")
         if not self.iterm.is_connected():
             return
@@ -416,7 +416,7 @@ class Service:
             return nothing
         try:
             return check.result()
-        except Exception:  # noqa: BLE001 - a check that cannot answer finds nothing, as documented
+        except Exception:  # a check that cannot answer finds nothing, as documented
             log.exception("%s failed", name)
             return nothing
 

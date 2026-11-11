@@ -504,7 +504,7 @@ Each box leaves the project working and is one or a few commits.
 - [x] 1c. Test activity: injectable directory, stamp cache, age before lock.
 - [x] 1d. Readers own plan and apply; `Service` runs the fixed list; test seams.
 - [x] 1e. Port and screens modules, strict typing, auth patch at connect.
-- [ ] 1f. Task index, `SessionNotFound`, ruff rules, keyword-only hook fields, test builders, README.
+- [x] 1f. Task index, `SessionNotFound`, ruff rules, keyword-only hook fields, test builders, README.
 - [x] 2a. Locked worktree record (test first); successful-only login-shell answer.
 - [x] 2b. One lane per repository, with the rendezvous test.
 - [x] 2c. Bounded output and untrimmed runner; bounded diff readers.

@@ -159,7 +159,7 @@ class HookRouter:
             self._pending_tick, self._last_tick_start = None, loop.time()
         try:
             await tick()
-        except Exception:  # noqa: BLE001 - a failed tick must not break the hook; the poll retries itself
+        except Exception:  # a failed tick must not break the hook; the poll retries itself
             log.warning("tick for an unplaced hook failed", exc_info=True)
             return False
         return True

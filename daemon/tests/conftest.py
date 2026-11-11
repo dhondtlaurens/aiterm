@@ -105,7 +105,7 @@ async def make_service(tmp_path, sock_dir):
 
 
 class _Collector(BaseHTTPRequestHandler):
-    def do_POST(self):  # noqa: N802 - BaseHTTPRequestHandler's naming
+    def do_POST(self):  # BaseHTTPRequestHandler's naming
         body = self.rfile.read(int(self.headers.get("content-length", 0) or 0))
         self.server.received.append((self.path, dict(self.headers), json.loads(body or b"{}")))
         self.send_response(200)

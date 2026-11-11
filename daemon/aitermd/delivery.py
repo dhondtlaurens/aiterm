@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from .iterm_port import ItermPort, ItermUnavailable
+from .iterm_port import SessionNotFound
 from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo, support_dir
 from .offload import run_detached
 from .screens import (PromptDetails as PromptDetails, PromptKind as PromptKind, _session_prompt,
@@ -314,7 +315,7 @@ class Deliverer:
             session, policy = again  # a verdict that changed to paste-only meanwhile keeps the Enter back
         try:
             await self.iterm.send_text(session_id, PASTE_START + body + PASTE_END)
-        except KeyError:
+        except SessionNotFound:
             return _refused(Refusal("sessionClosed", "the session has closed"))
         except ItermUnavailable as exc:
             self._pasted[session_id] = self._monotonic()
@@ -328,7 +329,7 @@ class Deliverer:
             return _partial(why)
         try:
             await self.iterm.send_text(session_id, SUBMIT)
-        except (KeyError, ItermUnavailable) as exc:
+        except (SessionNotFound, ItermUnavailable) as exc:
             return _partial(Refusal("itermRefused", f"the Enter could not be sent ({exc}); the text waits unsent in the input"))
         return DeliveryResult("delivered")
 
@@ -460,7 +461,7 @@ class Deliverer:
         """Classify and quote one screen read, so the operator sees the question and all its options.
         The full visible screen preserves context that harness-specific menu slicing could lose."""
         if (session := self.registry.get(session_id)) is None or (screen := await self.iterm.screen_text(session_id)) is None:
-            raise KeyError(session_id)
+            raise SessionNotFound(session_id)
         if not screen.strip():
             raise ItermUnavailable("the screen came back empty, so whether a prompt is open is unknown")
         kind = _session_prompt(session, screen)
@@ -472,14 +473,14 @@ class Deliverer:
         read within the session's turn, shows that offer below any input arrow and the tab is not
         working. It must bear every update marker: any other
         startup dialog -- a folder's trust above all -- is yours to answer, and is left open. True
-        when Esc was sent. KeyError for a session not open."""
+        when Esc was sent. SessionNotFound for a session not open."""
         if self.registry.get(session_id) is None:
-            raise KeyError(session_id)
+            raise SessionNotFound(session_id)
         async with self._turn(session_id):
             if (screen := await self.iterm.screen_text(session_id)) is None:
-                raise KeyError(session_id)
+                raise SessionNotFound(session_id)
             if (current := self.registry.get(session_id)) is None:
-                raise KeyError(session_id)
+                raise SessionNotFound(session_id)
             if current.state == "working" or not shows_update_offer(current.agent, screen):
                 return False
             await self.iterm.send_text(session_id, ESC)

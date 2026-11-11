@@ -37,3 +37,18 @@ async def test_connect_applies_the_authentication_patch_before_using_the_sdk(mon
     monkeypatch.setattr(iterm_bridge.iterm2.Connection, "async_create", connect)
     with pytest.raises(ItermUnavailable, match="probe stopped"):
         await iterm_bridge.ItermBridge().connect()
+
+
+async def test_rpc_guard_translates_only_an_intentional_missing_resource():
+    from aitermd.iterm_port import SessionNotFound
+    from aitermd.rpc_params import guard
+    from aitermd.rpc_server import RpcError
+
+    async def fail(error):
+        raise error
+
+    with pytest.raises(RpcError) as missing:
+        await guard(fail(SessionNotFound("gone")))
+    assert (missing.value.code, missing.value.message) == ("not_found", "no such window or session: gone")
+    with pytest.raises(KeyError, match="payload"):
+        await guard(fail(KeyError("payload")))

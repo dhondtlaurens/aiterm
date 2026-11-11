@@ -32,7 +32,7 @@ async def _launch_iterm() -> None:
         process = await asyncio.create_subprocess_exec(
             "open", "-a", "iTerm", stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
         await process.wait()
-    except Exception:  # noqa: BLE001 - a missing/failing `open` must never break the reconnect loop
+    except Exception:  # a missing/failing `open` must never break the reconnect loop
         log.exception("failed to launch iTerm2 via 'open -a iTerm'")
 
 
@@ -156,7 +156,7 @@ class ItermSupervisor:
         if launched and self.on_launched_connected:
             try:
                 await self.on_launched_connected()
-            except Exception:  # noqa: BLE001 - cosmetic setup must not prevent a connection
+            except Exception:  # cosmetic setup must not prevent a connection
                 log.exception("capturing the iTerm2 startup window failed")
         await self.broadcast(protocol.ITERM_CONNECTED, {"version": self.version})
         return True
@@ -248,6 +248,6 @@ class ItermSupervisor:
                 if not launched and not self._auth_failures:
                     launched, ours = True, self._not_running
                     await self.launch_iterm()
-            except Exception:  # noqa: BLE001 - nothing may end the loop while iTerm2 is away
+            except Exception:  # nothing may end the loop while iTerm2 is away
                 log.exception("reconnect attempt failed")
             await self.reconnect_sleep(self._retry_delay())

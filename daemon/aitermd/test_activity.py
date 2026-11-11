@@ -86,6 +86,13 @@ class TestActivityReader:
                 # Kernel lock ownership cannot be cached by a file stamp.
                 stamp = _number(data.get("finished_at")) or _number(data.get("queued_at"))
                 expired = now - stamp > RESULT_SECONDS
+                if expired:
+                    try:
+                        path.with_suffix(".lock").stat()
+                    except FileNotFoundError:
+                        continue
+                    except OSError:
+                        pass  # Absence was not proved; use the original kernel check.
                 live = _live(path)
                 if expired and not live:
                     continue

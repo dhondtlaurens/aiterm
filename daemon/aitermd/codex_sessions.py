@@ -65,7 +65,7 @@ class _RolloutCursor(JsonlCursor):
                                if kind != "turn_aborted" and at is not None else None)
 
 
-Stamp = tuple[Path, int, int, int, int]  # path, st_mtime_ns, st_size
+Stamp = tuple[Path, int, int, int, int]  # path, target inode, ctime, mtime, size
 
 
 class CodexSessionFiles:
@@ -81,7 +81,7 @@ class CodexSessionFiles:
         self._recent: list[Path] = []
         # Thread id -> the rollout as last parsed, and the fill it gave.
         self._context: dict[str, tuple[Stamp, int | None]] = {}
-        # Rollout -> how far it has been read for the Codex version (cli_version).
+        # Rollout -> the shared version/boundary cursor and the target stamp it consumed.
         self._rollouts: dict[Path, _RolloutCursor] = {}
         # The rollouts `rate_limits()` last consulted, by (path, mtime), and what they said: the
         # tick asks every two seconds, and a file nobody has written to has nothing new to say.
@@ -148,7 +148,7 @@ class CodexSessionFiles:
             return CodexReading(None, None, None)
         try:
             context = self._context_at(thread_id, path)
-        except Exception:  # noqa: BLE001 - context failure must not discard version or boundary evidence
+        except Exception:  # context failure must not discard version or boundary evidence
             logging.getLogger("aitermd.service").exception("reading the Codex context of thread %s failed", thread_id)
             context = None
         try:

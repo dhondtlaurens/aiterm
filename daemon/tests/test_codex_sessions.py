@@ -8,29 +8,14 @@ import pytest
 from aitermd import jsonl
 from aitermd.codex_sessions import LIST_SECONDS, CodexSessionFiles
 
-
-def write_rollout(root, session_id, records, day="2026/09/22"):
-    path = root / day / f"rollout-2026-09-22T09-26-25-{session_id}.jsonl"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(json.dumps(record) if isinstance(record, dict) else record for record in records) + "\n")
-    return path
-
-
-def token_count(total_tokens, context_window):
-    return {
-        "type": "event_msg",
-        "payload": {
-            "type": "token_count",
-            "info": {
-                "last_token_usage": {"total_tokens": total_tokens},
-                "model_context_window": context_window,
-            },
-        },
-    }
-
-
-def meta(thread_id):
-    return {"type": "session_meta", "payload": {"id": thread_id, "session_id": thread_id}}
+from tests.builders import (
+    write_rollout,
+    token_count,
+    codex_meta as meta,
+    rate_limited,
+    limits,
+    codex_versioned as versioned,
+)
 
 
 def test_reads_latest_valid_context_for_the_exact_codex_session(tmp_path):
@@ -56,14 +41,6 @@ def test_rejects_unusable_codex_context_numbers_and_clamps_overflow(tmp_path):
     assert files.context_percent("zero-window") is None
     assert files.context_percent("boolean") is None
     assert files.context_percent("overflow") == 100
-
-
-def rate_limited(primary, secondary=None, plan="team", timestamp="2026-09-22T14:31:09.229Z"):
-    """A `token_count` record the way Codex writes it: the rate limits ride along with the tokens."""
-    record = token_count(100, 1000)
-    record["timestamp"] = timestamp
-    record["payload"]["rate_limits"] = {"limit_id": "codex", "primary": primary, "secondary": secondary, "plan_type": plan}
-    return record
 
 
 def test_rate_limits_come_from_the_newest_record_of_the_newest_rollout(tmp_path):
@@ -146,10 +123,6 @@ class Clock:
 
     def __call__(self):
         return self.now
-
-
-def limits(percent):
-    return rate_limited({"used_percent": percent, "window_minutes": 10080, "resets_at": 1})
 
 
 def test_the_tree_is_relisted_at_most_every_list_interval(tmp_path):
@@ -242,12 +215,6 @@ def test_matching_lines_are_found_whichever_block_they_straddle(tmp_path, block_
         found = list(jsonl._lines_reverse(path, b'"token_count"', block_size))
 
         assert found == [lines[6], lines[4], lines[1]]
-
-
-def versioned(thread_id, version):
-    record = meta(thread_id)
-    record["payload"]["cli_version"] = version
-    return record
 
 
 def test_the_cli_version_is_the_newest_the_threads_rollout_names(tmp_path):
@@ -512,3 +479,62 @@ def test_a_failed_context_does_not_discard_the_other_corroboration(tmp_path, mon
 
     monkeypatch.setattr(files, "_read_context", broken)
     assert files.reading("t") == (None, "0.160.0", ("done", 101.0))
+
+
+def test_history_refresh_still_stamps_every_candidate_before_picking_three(tmp_path, monkeypatch):
+    from aitermd import codex_sessions
+
+    for index in range(100):
+        write_rollout(tmp_path, f"t{index}", [{"type": "response_item"}])
+    clock, stamped = Clock(), []
+    original = codex_sessions._mtime
+    monkeypatch.setattr(codex_sessions, "_mtime", lambda path: stamped.append(path) or original(path))
+    files = CodexSessionFiles(tmp_path, clock=clock)
+    assert files.rate_limits() is None
+    assert len(stamped) == 100
+    stamped.clear()
+    clock.now += LIST_SECONDS
+    assert files.rate_limits() is None
+    assert len(stamped) == 100  # Left out: newest-first discovery still traverses all history.
+
+
+def test_rollout_cursor_detects_a_same_size_same_date_rewrite(tmp_path):
+    path = write_rollout(tmp_path, "t", [versioned("t", "0.160.0")])
+    files = CodexSessionFiles(tmp_path)
+    assert files.cli_version("t") == "0.160.0"
+    stamp = path.stat()
+    path.write_text(path.read_text().replace("0.160.0", "0.161.0"))
+    os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+    assert path.stat().st_size == stamp.st_size
+    assert files.cli_version("t") == "0.161.0"
+
+
+def test_a_short_rollout_read_is_retried_without_a_stamp_change(tmp_path, monkeypatch):
+    path = write_rollout(tmp_path, "t", [versioned("t", "0.160.0")])
+    files, original = CodexSessionFiles(tmp_path), type(path).open
+
+    class ShortRead:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            self.stream.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.stream.__exit__(*args)
+
+        def __getattr__(self, name):
+            return getattr(self.stream, name)
+
+        def read(self, size):
+            return self.stream.read(max(0, size - 1))
+
+    def short(candidate, *args, **kwargs):
+        stream = original(candidate, *args, **kwargs)
+        return ShortRead(stream) if candidate == path else stream
+
+    with monkeypatch.context() as patch:
+        patch.setattr(type(path), "open", short)
+        assert files.cli_version("t") is None
+    assert files.cli_version("t") == "0.160.0"

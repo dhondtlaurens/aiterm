@@ -5,6 +5,7 @@ import itertools
 from collections.abc import Awaitable, Callable
 
 from aitermd.iterm_port import ItermAuthFailed, ItermNotRunning, ItermPort, ItermUnavailable, KeystrokeCallback, TypedScreen
+from aitermd.iterm_port import SessionNotFound
 from aitermd.models import Frame, RawSession
 
 
@@ -51,6 +52,16 @@ class FakeIterm:
         self._disc_cbs: list[Callable[[], Awaitable[None]]] = []
         self._notifications: set[asyncio.Future[None]] = set()
 
+    def _session(self, session_id: str) -> RawSession:
+        if (session := self.sessions.get(session_id)) is None:
+            raise SessionNotFound(session_id)
+        return session
+
+    def _window(self, window_id: str) -> dict:
+        if (window := self.windows.get(window_id)) is None:
+            raise SessionNotFound(window_id)
+        return window
+
     async def connect(self) -> str | None:
         if self.auth_error is not None:
             raise ItermAuthFailed(self.auth_error)
@@ -82,12 +93,12 @@ class FakeIterm:
     async def create_tab(self, window_id: str, tags: dict[str, str], cwd: str | None = None,
                          background: bool = False) -> str:
         if cwd is None:
-            cwd = self.sessions[self.windows[window_id]["sessions"][0]].cwd
-        current = self.windows[window_id]["current"]
+            cwd = self.sessions[self._window(window_id)["sessions"][0]].cwd
+        current = self._window(window_id)["current"]
         sid = await self._add_session(window_id, cwd, tags, command_line="-zsh", title="zsh")
         if background:
             # Not selected: the window keeps the tab it had current.
-            self.windows[window_id]["current"] = current
+            self._window(window_id)["current"] = current
         await self._announce_new(sid)
         return sid
 
@@ -104,18 +115,19 @@ class FakeIterm:
     async def activate_window(self, window_id: str) -> None:
         for w in self.windows.values():
             w["active"] = False
-        self.windows[window_id]["active"] = True
+        self._window(window_id)["active"] = True
 
     async def activate_session(self, session_id: str) -> None:
         """Selects its tab, which becomes its window's current session, and brings that window forward."""
-        window_id = self.sessions[session_id].window_id
-        self.windows[window_id]["current"] = session_id
+        window_id = self._session(session_id).window_id
+        self._window(window_id)["current"] = session_id
         await self.activate_window(window_id)
 
     async def set_frame(self, window_id: str, frame: Frame) -> None:
-        self.windows[window_id]["frame"] = frame
+        self._window(window_id)["frame"] = frame
 
     async def close_window(self, window_id: str) -> None:
+        self._window(window_id)
         closed = self.windows.pop(window_id)["sessions"]
         for sid in closed:
             self.sessions.pop(sid, None)
@@ -125,10 +137,11 @@ class FakeIterm:
     async def send_text(self, session_id: str, text: str) -> None:
         if self.send_error is not None:
             raise self.send_error
+        self._session(session_id)
         self.sent.append((session_id, text))
 
     async def set_session_tags(self, session_id: str, tags: dict[str, str]) -> None:
-        self.sessions[session_id].user_vars.update(tags)
+        self._session(session_id).user_vars.update(tags)
 
     async def set_session_titles(self, titles: dict[str, str]) -> list[str]:
         applied = [sid for sid in titles if sid in self.sessions]
@@ -156,7 +169,7 @@ class FakeIterm:
         return [self._raw(s) for s in self.sessions.values()]
 
     async def session_info(self, session_id: str) -> RawSession | None:
-        return self._raw(self.sessions[session_id]) if session_id in self.sessions else None
+        return self._raw(self._session(session_id)) if session_id in self.sessions else None
 
     def _raw(self, s: RawSession) -> RawSession:
         r = RawSession(**vars(s))
@@ -218,7 +231,7 @@ class FakeIterm:
 
     def user_selects_tab(self, session_id: str) -> None:
         """Simulates clicking a tab: it becomes the window's current session."""
-        self.windows[self.sessions[session_id].window_id]["current"] = session_id
+        self.windows[self._session(session_id).window_id]["current"] = session_id
 
     async def user_activates_window(self, window_id: str) -> None:
         """Simulates iTerm2 receiving focus, such as after clicking an agent notification."""
@@ -232,7 +245,7 @@ class FakeIterm:
             await cb(session_id, characters, modifiers)
 
     async def user_runs(self, session_id: str, command_line: str, job_pid: int, title: str = ""):
-        s = self.sessions[session_id]
+        s = self._session(session_id)
         s.command_line, s.job_pid, s.title = command_line, job_pid, title or s.title
 
     async def user_closes_session(self, session_id: str):
@@ -246,7 +259,7 @@ class FakeIterm:
     def _renumber_tabs(self, window_id: str) -> None:
         """Closing a tab shifts every later one down to close the gap; closing a pane of a tab that
         has others leaves the numbers alone."""
-        sessions = [self.sessions[sid] for sid in self.windows[window_id]["sessions"]]
+        sessions = [self.sessions[sid] for sid in self._window(window_id)["sessions"]]
         numbering = {old: new for new, old in enumerate(sorted({s.tab_index for s in sessions}))}
         for s in sessions:
             s.tab_index = numbering[s.tab_index]
