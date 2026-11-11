@@ -2,6 +2,7 @@ import asyncio
 from http.client import HTTPConnection
 import json
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -18,6 +19,41 @@ from aitermd.rpc_server import RpcServer
 from aitermd.service import Service
 from aitermd.test_activity import TestActivityReader
 from tests.fake_iterm import FakeIterm
+
+
+class LiveRecordsGuard:
+    """Reject live-queue access before the operating system can open or list it."""
+
+    def __init__(self):
+        self.attempts: list[tuple[str, str]] = []
+        sys.addaudithook(self.check)
+
+    def check(self, event, args):
+        if event not in ("open", "os.scandir", "os.listdir") or not args:
+            return
+        if not isinstance(args[0], (str, bytes)):
+            return
+        path = os.path.abspath(os.fsdecode(args[0]))
+        roots = ("/tmp/aiterm-test.lock.runs", "/private/tmp/aiterm-test.lock.runs")
+        if any(path == root or path.startswith(root + "/") for root in roots):
+            self.attempts.append((event, path))
+            raise PermissionError(f"test blocked from live queue records: {event} {path}")
+
+
+LIVE_RECORDS = LiveRecordsGuard()
+
+
+@pytest.fixture(autouse=True)
+def no_live_queue_records():
+    before = len(LIVE_RECORDS.attempts)
+    yield
+    assert not LIVE_RECORDS.attempts[before:], f"test attempted live queue access: {LIVE_RECORDS.attempts[before:]}"
+
+
+def pytest_sessionfinish(session, exitstatus):
+    # A late worker may try after its fixture teardown. Access is still blocked and fails the run.
+    if LIVE_RECORDS.attempts:
+        session.exitstatus = 1
 
 
 async def wait_until(predicate, timeout=2.0):
