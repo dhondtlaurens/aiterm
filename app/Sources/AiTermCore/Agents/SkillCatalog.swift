@@ -67,10 +67,10 @@ public enum SkillCatalog {
         func look(at path: String) {
             guard seen.insert(path).inserted else { return }
             paths.append(path)
-            taken.append(FileStamps.stamp(path))
+            taken.append(FileStamps.stamp(path, followingSymlinks: true))
         }
 
-        var stamps: FileStamps { FileStamps(files: paths, stamps: taken) }
+        var stamps: FileStamps { FileStamps(files: paths, stamps: taken, followingSymlinks: true) }
     }
 
     private static func discover(agent: AgentKind, projectPath: String?, home: URL, claudeConfig: ClaudeConfig, walk: Walk) -> [AgentCompletion] {

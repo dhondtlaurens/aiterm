@@ -20,6 +20,27 @@ import Foundation
         return (GitHubClient(config: config, repo: repo, session: stub.session), stub)
     }
 
+    @Test func findUsersReadsPastTheFirstHundredAssignees() async throws {
+        let first = try JSONSerialization.data(withJSONObject: (0..<100).map { ["login": "other-\($0)"] })
+        let (client, stub) = makeClient { request in
+            let page = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?
+                .first { $0.name == "page" }?.value ?? "1"
+            return (200, page == "1" ? first : Data(#"[{"login":"sam"}]"#.utf8))
+        }
+        #expect(try await client.findUsers("@sam") == [HostUser(username: "sam", name: nil)])
+        #expect(stub.requests.count == 2)
+    }
+
+    @Test func findUsersStopsAtItsPageBound() async throws {
+        let (client, stub) = makeClient { request in
+            let page = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?
+                .first { $0.name == "page" }?.value ?? "1"
+            return (200, try! JSONSerialization.data(withJSONObject: (0..<100).map { ["login": "user-\(page)-\($0)"] }))
+        }
+        #expect(try await client.findUsers("user").count == GitHubClient.assigneePages * 100)
+        #expect(stub.requests.count == GitHubClient.assigneePages)
+    }
+
     /// Today's interpolation remains the reference. Encoding is character-wise, so the complete
     /// allowed alphabet and each character at either end and inside a name cover valid names.
     @Test func repositoryPathsKeepTodaysConstructionForEveryAllowedCharacter() throws {

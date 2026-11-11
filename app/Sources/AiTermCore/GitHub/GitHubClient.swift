@@ -498,12 +498,22 @@ public struct GitHubClient: HostRepository {
         return .retried("the failed jobs of " + failed.map { $0.name ?? "run \($0.id)" }.joined(separator: ", "))
     }
 
+    static let assigneePages = 20
+
     /// The people who may be assigned in `repo` whose login matches `query`. GitHub lists assignees by login
     /// only, so a name is not known.
     public func findUsers(_ query: String) async throws -> [HostUser] {
         struct User: Decodable { var login: String }
-        let users = try await get([User].self, path: boundPath + "/assignees", query: [URLQueryItem(name: "per_page", value: "100")],
-                                  notFound: .repoNotFound(repo))
+        var users: [User] = []
+        for page in 1...Self.assigneePages {
+            // Keep the first page's existing request; later pages add only their offset.
+            var query = [URLQueryItem(name: "per_page", value: "100")]
+            if page > 1 { query.append(URLQueryItem(name: "page", value: String(page))) }
+            let read = try await get([User].self, path: boundPath + "/assignees", query: query,
+                                     notFound: .repoNotFound(repo))
+            users += read
+            if read.count < 100 { break }
+        }
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "@"))
         return users.filter { text.isEmpty || $0.login.range(of: text, options: .caseInsensitive) != nil }
             .map { HostUser(username: $0.login, name: nil) }

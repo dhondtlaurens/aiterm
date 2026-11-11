@@ -516,7 +516,8 @@ Each box leaves the project working and is one or a few commits.
 - [x] 3a. Outcome-unknown classification in Core (test first); token trimming.
 - [x] 3b. Clients bound to their repository; forwarding removed; access narrowed; path encoding.
 - [ ] 3c. `find_user`, symlinked catalogue stamps (tests first); listing and user reuse. GitLab closing-issue
-  concurrency dropped: one issue's two source listings stay at 2 host requests (record); the other items remain pending.
+  concurrency dropped: one issue's two source listings stay at 2 host requests (record).
+  `find_user` and catalogue stamps done; listing and user reuse remain pending for the next slice.
 - [ ] 3d. Jira on `JSONValue`; Fix state; dead code; small shared helpers.
 - [x] 4a. Tool traits and exhaustive Activity lines (test first for `update_request`).
 - [x] 4b. One live projection and one readiness predicate (test first for the launch window). The reconciler keeps

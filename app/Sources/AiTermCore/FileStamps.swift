@@ -30,28 +30,29 @@ struct FileStamps: Equatable, Sendable {
 
     let files: [String]
     private let stamps: [Stamp?]
+    private let followingSymlinks: Bool
 
-    init(_ files: [String]) {
-        self.files = files
-        stamps = files.map(Self.stamp)
+    init(_ files: [String], followingSymlinks: Bool = false) {
+        self.files = files; self.followingSymlinks = followingSymlinks
+        stamps = files.map { Self.stamp($0, followingSymlinks: followingSymlinks) }
     }
 
     /// Stamps taken one at a time, each just before its file was read: for a walk that learns which
     /// files its answer depends on only as it reads them (`SkillCatalog`).
-    init(files: [String], stamps: [Stamp?]) {
-        self.files = files
+    init(files: [String], stamps: [Stamp?], followingSymlinks: Bool = false) {
+        self.files = files; self.followingSymlinks = followingSymlinks
         self.stamps = stamps
     }
 
     /// Whether every file is as it was when these stamps were taken.
-    var areCurrent: Bool { self == FileStamps(files) }
+    var areCurrent: Bool { self == FileStamps(files, followingSymlinks: followingSymlinks) }
 
     /// Whether not one of the files exists: the directory they are in is gone, or never was.
     var noneExist: Bool { stamps.allSatisfy { $0 == nil } }
 
-    static func stamp(_ path: String) -> Stamp? {
+    static func stamp(_ path: String, followingSymlinks: Bool = false) -> Stamp? {
         var info = stat()
-        guard lstat(path, &info) == 0 else { return nil }
+        guard (followingSymlinks ? fstatat(AT_FDCWD, path, &info, 0) : lstat(path, &info)) == 0 else { return nil }
         return Stamp(info)
     }
 

@@ -7,6 +7,21 @@ import Testing
 @Suite struct ModelCatalogueTests {
     private static let piTable = "provider model context max-out thinking images\nopenai model-x 128k 16k yes no\n"
 
+    @Test func aSymlinkedModelConfigurationIsStampedThroughItsTarget() throws {
+        let home = try ScratchFolder.make("aiterm-catalogue-link-")
+        let target = home.appendingPathComponent("shared.toml")
+        let config = home.appendingPathComponent(".codex/config.toml")
+        try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"model = "gpt-first""#.utf8).write(to: target)
+        try FileManager.default.createSymbolicLink(at: config, withDestinationURL: target)
+        let catalogue = ModelCatalogue(home: home, runner: .nothingInstalled)
+        #expect(try catalogue.models(for: .codex).map(\.id) == ["gpt-first"])
+        let defaultStamp = FileStamps([config.path])
+        try Data(#"model = "gpt-second""#.utf8).write(to: target, options: .atomic)
+        #expect(try catalogue.models(for: .codex).map(\.id) == ["gpt-second"])
+        #expect(defaultStamp.areCurrent, "the git and persistence default still stamps the link itself")
+    }
+
     /// A PI that lists `piTable`, or fails as told, and counts its launches. `/usr/bin/true` is
     /// where it is found: a real file, so its stamp is a real one.
     private func pi(_ launches: Launches, failing: Bool = false) -> HarnessCommandRunner {
