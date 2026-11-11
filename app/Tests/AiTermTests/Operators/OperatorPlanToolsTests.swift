@@ -301,6 +301,27 @@ import Testing
         #expect(finds(world, run).last?.ticket == nil)
     }
 
+    /// The replies that speak of the broadcast's summary call it the summary, never by its old name (`write_debrief`):
+    /// `write_summary` refused before the broadcast is complete and while its goal is still to check, and an addition past
+    /// the backlog's limit refused with the find noted for the summary, filed and not filed. A focused test over the
+    /// refusals the deleted source scan (`noRefusalSpeaksOfASummary`) guarded (phase 5, review round 4).
+    @Test func noReplyThatSpeaksOfTheSummaryNamesItsOldTool() async throws {
+        var said: [String] = []
+        let (world, run) = try makeWorld()
+        said.append(await world.call(run.id, "write_summary", ["text": "Done."]).message ?? "")
+        world.controller.mutateRun(run.id) { $0.goalCheckDue = true }
+        said.append(await world.call(run.id, "write_summary", ["text": "Done."]).message ?? "")
+        let jira = FakeJira()
+        let (backlog, backlogRun) = try makeBacklogWorld(oracle: false, jira: jira)
+        _ = await create(backlog, backlogRun, "FREE")
+        said.append(await create(backlog, backlogRun, "PAST").message ?? "")
+        jira.failWrites()
+        said.append(await create(backlog, backlogRun, "LATER").message ?? "")
+        #expect(said.allSatisfy { !$0.isEmpty }, "each refused: \(said)")
+        #expect(said.contains { $0.contains("summary") }, "they speak of the summary: \(said)")
+        #expect(!said.contains { $0.lowercased().contains("debrief") }, "\(said)")
+    }
+
     @Test func aTaskOutsideTheWorkspaceOrAnAgentTheOperatorCannotRunIsRefused() async throws {
         let (world, run) = try makeWorld()
         #expect(await create(world, run, "A", project: "Elsewhere").message == "Elsewhere isn’t one of this broadcast’s projects: Shop, Web.")

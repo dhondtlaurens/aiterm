@@ -638,11 +638,15 @@ extension WorkerTurnReaderTests {
 final class FirstReadHold: Sendable {
     private let release = DispatchSemaphore(value: 0)
     private let state = Mutex<(arrived: Bool, used: Bool)>((false, false))
+    /// Whether a full read can be the one held; by default only a stamp-only read is.
+    private let fullReads: Bool
     var arrived: Bool { state.withLock { $0.arrived } }
 
-    /// Holds the first stamp-only read until `letGo`; a full read, and every read after the first, passes.
+    init(fullReads: Bool = false) { self.fullReads = fullReads }
+
+    /// Holds the first read (stamp-only, unless `fullReads`) until `letGo`; every read after it passes.
     func hold(fullRead: Bool) {
-        guard !fullRead, state.withLock({ state -> Bool in
+        guard fullReads || !fullRead, state.withLock({ state -> Bool in
             guard !state.used else { return false }
             state.used = true
             state.arrived = true
@@ -687,6 +691,55 @@ extension WorkerTurnReaderTests {
         try handle.close()
         try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
         world.controller.reconcileTick()
+        await eventually(describing: "B applied") { world.controller.turns.readings[task.id]?.lastMessage == "Wired B." }
+        // A ends last.
+        hold.letGo()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.", "the older read applies nothing")
+        try await contextMoved(world, task, to: 50)
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.", "the older read kept nothing")
+    }
+}
+
+extension WorkerTurnReaderTests {
+    /// A read's number does not come back when its conversation is let go and returns (phase 5, review round 4): read A
+    /// begins and is held, the conversation leaves the listing and the branch watch lets its replies go, it returns, read B
+    /// begins, keeps B and applies it; A, ending last, keeps nothing and applies nothing, and the next change still reads B.
+    @Test func aReadFromBeforeItsConversationWasLetGoKeepsNothingWhenItEndsLast() async throws {
+        let (world, run, task, _) = try makeWorld(worker: .idle)
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("conv-1.jsonl")
+        try replyLine("Wired 0.").write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_800_000_000)], ofItemAtPath: file.path)
+        world.controller.turns.observe()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired 0.")
+        let listed = sessions(run, task, .idle), operatorOnly = listed.filter { $0.taskUUID != task.id }
+        func leave() {
+            world.show(operatorOnly)
+            // The branch watch's pass lets go of the replies of conversations no longer listed.
+            world.controller.branchWatch.poll()
+        }
+
+        // A, written a minute later, then the conversation leaves and returns: its first read since, A, is held.
+        let written = Date(timeIntervalSince1970: 1_800_000_060)
+        try replyLine("Wired A.").write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        leave()
+        await world.settled()
+        let hold = FirstReadHold(fullReads: true)
+        world.controller.transcripts.holdBeforeKeeping { hold.hold(fullRead: $0) }
+        defer { world.controller.transcripts.holdBeforeKeeping(nil) }
+        world.show(listed)
+        await eventually(describing: "read A held") { hold.arrived }
+        // It leaves again while A is under way, and returns after B was written in place, its date put back: read B.
+        leave()
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.write(contentsOf: try replyLine("Wired B."))
+        try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        world.show(listed)
         await eventually(describing: "B applied") { world.controller.turns.readings[task.id]?.lastMessage == "Wired B." }
         // A ends last.
         hold.letGo()

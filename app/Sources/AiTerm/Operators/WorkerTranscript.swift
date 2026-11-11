@@ -215,10 +215,14 @@ final class TranscriptLocator: Sendable {
     private struct Kept { let stamp: Stamp, reply: WorkerTranscript.Reply? }
     /// What is kept, and the newest read begun of each conversation's file, numbered: only that read keeps what it found,
     /// so a read that a newer one overtook — the turn reader's and the branch watch's reads overlap — keeps nothing, and
-    /// never puts an older reply back. One lock for both: a read is told it is the newest and keeps in one step.
+    /// never puts an older reply back. One lock for all of it: a read is told it is the newest and keeps in one step. The
+    /// numbers come from one counter for the locator's life, so none repeats when a conversation is let go and returns;
+    /// and a conversation keeps its newest number while a read of it is under way (`running`).
     private struct Replies {
         var kept: [String: Kept] = [:]
         var begun: [String: Int] = [:]
+        var running: [String: Int] = [:]
+        var last = 0
     }
     private let replies = Mutex(Replies())
     /// What runs between a read and what it keeps, for a test to hold a read there (`holdBeforeKeeping`); nothing in the app.
@@ -253,14 +257,17 @@ final class TranscriptLocator: Sendable {
         let key = agent.rawValue + "/" + conversation, stamp = Self.stamp(of: file)
         if !fullRead, let stamp, let kept = replies.withLock({ $0.kept[key] }), kept.stamp == stamp { return (kept.reply, false) }
         let number = replies.withLock { replies in
-            let number = replies.begun[key, default: 0] + 1
-            replies.begun[key] = number
-            return number
+            replies.last += 1
+            replies.begun[key] = replies.last
+            replies.running[key, default: 0] += 1
+            return replies.last
         }
         // Stamped before the read: a write in between is read again next time, never missed.
         let read = WorkerTranscript.readReply(in: file, agent: agent)
         beforeKeeping.withLock { $0 }?(fullRead)
         replies.withLock { replies in
+            let left = replies.running[key, default: 1] - 1
+            replies.running[key] = left > 0 ? left : nil
             // Overtaken by a newer read of the same file: that one keeps what it found, and this keeps nothing.
             guard replies.begun[key] == number else { return }
             replies.kept[key] = read.flatMap { read in stamp.map { Kept(stamp: $0, reply: read.reply) } }
@@ -276,7 +283,8 @@ final class TranscriptLocator: Sendable {
         replies.withLock { replies in
             func isOpen(_ key: String) -> Bool { open.contains(String(key.drop { $0 != "/" }.dropFirst())) }
             replies.kept = replies.kept.filter { isOpen($0.key) }
-            replies.begun = replies.begun.filter { isOpen($0.key) }
+            // A conversation with a read under way keeps its newest number: that read is still told whether it is newest.
+            replies.begun = replies.begun.filter { isOpen($0.key) || replies.running[$0.key] != nil }
         }
     }
 
