@@ -544,8 +544,11 @@ Each box leaves the project working and is one or a few commits.
 - [x] 7b. Debounced search; hook list; grouped ports. The catalogue load keeps its own counter: SwiftUI's task, no query
   and no pause (record). Both fields' rules for letting a search go are kept, each against its old code as reference.
 - [x] 7c. Blocking checks off the main actor; reconciler trigger; scan projection; row chooser. The trigger on the
-  maintainer's option B, with a conditional poll pass (reconciler passes 10 to 0). Dropped: the slug resolving on draft
-  change, which moves no count, and `LatestTask` for counters whose lifetime does not match it (record).
+  Operator's option B, with a poll that checks the window plan in memory (reconciler passes 10 to 0). The row chooser
+  leaves a terminal row's click calling `RowFocus.select` from its view, which is what the chooser does for it: the
+  views are phase 8's. Dropped: Keychain writes off the main actor (an edit or a test answer could land mid-Save, which
+  only a visible change could stop), the slug resolving on draft change, which moves no count, and `LatestTask` for
+  counters whose lifetime does not match it (record).
 - [ ] 8a. Plain `@State` (one file first, then the rest).
 - [ ] 8b. Badge line, row content, fold modifier, heading inset, ring helper.
 - [ ] 8c. Stepped-sheet frame; picker field, clear button, Metrics tokens, chrome reuse.
