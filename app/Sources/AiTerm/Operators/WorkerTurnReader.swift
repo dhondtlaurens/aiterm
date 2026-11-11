@@ -20,21 +20,39 @@ final class WorkerTurnReader {
     private let ports: OperatorPorts
     private let transcripts: TranscriptLocator
     struct WorkerID: Hashable { let task: UUID; let tab: String? }
-    private var workerReadings: [WorkerID: Reading] = [:]
+    /// What is kept of one worker tab, its task's first worker (`tab` nil) or an extra tab, while the tab is listed for a
+    /// task: dropped whole once neither is (`observe`).
+    private struct Worker {
+        /// Its session as last seen: one read when this changes, or its basis does.
+        var seen: Seen?
+        /// What its last ended turn left, as read.
+        var reading: Reading?
+        /// `message_task` reached it while its turn was being read: the reading lands answered.
+        var messagedWhileReading = false
+        /// The read under way: which request, for which basis, and its task, which a newer read replaces.
+        var asked: UUID?
+        var requestedBasis: Basis?
+        var inFlight: Task<Void, Never>?
+
+        /// Nothing more is read for its turn until it ends again: what it had left, and a read under way, go.
+        mutating func atWork() -> Bool {
+            messagedWhileReading = false
+            asked = nil
+            inFlight = nil
+            defer { reading = nil }
+            return reading != nil
+        }
+    }
+    private var workers: [WorkerID: Worker] = [:]
     var readings: [UUID: Reading] {
-        Dictionary(uniqueKeysWithValues: workerReadings.compactMap { $0.key.tab == nil ? ($0.key.task, $0.value) : nil })
+        Dictionary(uniqueKeysWithValues: workers.compactMap { id, worker in id.tab == nil ? worker.reading.map { (id.task, $0) } : nil })
     }
     var extraReadings: [UUID: [String: Reading]] {
         var result: [UUID: [String: Reading]] = [:]
-        for (id, reading) in workerReadings { if let tab = id.tab { result[id.task, default: [:]][tab] = reading } }
+        for (id, worker) in workers { if let tab = id.tab, let reading = worker.reading { result[id.task, default: [:]][tab] = reading } }
         return result
     }
-    private struct Seen: Equatable { let state: SessionState; let conversation: String? }
-    private var seen: [String: Seen] = [:]
-    private var messagedWhileReading: Set<WorkerID> = []
-    private var asked: [WorkerID: UUID] = [:]
-    private var requestedBasis: [WorkerID: Basis] = [:]
-    private var inFlight: [WorkerID: Task<Void, Never>] = [:]
+    private struct Seen: Equatable { let session: String; let state: SessionState; let conversation: String? }
     private var nextReadOrder = 0
     /// What the readings changed: what `run_status` and the rows show.
     var changed: @MainActor () -> Void = {}
@@ -46,12 +64,15 @@ final class WorkerTurnReader {
         self.transcripts = transcripts
     }
 
+    /// Every read under way is cancelled and forgotten, and every session as if not seen; the readings stay.
     func stop() {
-        for read in inFlight.values { read.cancel() }
-        inFlight = [:]
-        asked = [:]
-        requestedBasis = [:]
-        seen = [:]
+        for id in workers.keys {
+            workers[id]?.inFlight?.cancel()
+            workers[id]?.inFlight = nil
+            workers[id]?.asked = nil
+            workers[id]?.requestedBasis = nil
+            workers[id]?.seen = nil
+        }
     }
 
     /// Whether `task`'s worker turns are read: started and not stopped, still the Operator's, in a broadcast not ended.
@@ -68,70 +89,68 @@ final class WorkerTurnReader {
         let sessions = live.sessions, now = ports.now()
         let workersByTask = WorkerSessions(sessions)
         var dropped = false
-        var retained: Set<WorkerID> = []
+        var listed: Set<WorkerID> = []
         for task in workspace.state.tasks {
             let watched = isRead(task)
-            for worker in task.workerTabs(in: workersByTask, now: now) {
-                let id = WorkerID(task: task.id, tab: worker.key)
-                if !watched, let tab = worker.session { seen[tab.sessionId] = nil }
-                guard watched, let tab = worker.session, tab.state.turnEnded, !worker.isOpening, let operated = task.operated else {
-                    if let tab = worker.session { seen[tab.sessionId] = Seen(state: .working, conversation: worker.conversation) }
-                    messagedWhileReading.remove(id)
-                    asked[id] = nil
-                    inFlight[id] = nil
-                    if workerReadings.removeValue(forKey: id) != nil { dropped = true }
+            for tab in task.workerTabs(in: workersByTask, now: now) {
+                let id = WorkerID(task: task.id, tab: tab.key)
+                listed.insert(id)
+                var worker = workers[id] ?? Worker()
+                defer { workers[id] = worker }
+                guard watched, let session = tab.session, session.state.turnEnded, !tab.isOpening, let operated = task.operated else {
+                    worker.seen = tab.session.map { Seen(session: $0.sessionId, state: .working, conversation: tab.conversation) }
+                    if worker.atWork() { dropped = true }
                     continue
                 }
-                retained.insert(id)
-                let identity = Seen(state: tab.state, conversation: worker.conversation), basis = Basis(operated)
-                if let earlier = workerReadings[id], earlier.session != tab.sessionId || earlier.conversation != worker.conversation || earlier.basis != basis {
-                    if earlier.messaged && earlier.conversation == worker.conversation { messagedWhileReading.insert(id) }
-                    workerReadings[id] = nil
+                let identity = Seen(session: session.sessionId, state: session.state, conversation: tab.conversation), basis = Basis(operated)
+                if let earlier = worker.reading,
+                   earlier.session != session.sessionId || earlier.conversation != tab.conversation || earlier.basis != basis {
+                    if earlier.messaged && earlier.conversation == tab.conversation { worker.messagedWhileReading = true }
+                    worker.reading = nil
                     dropped = true
                 }
-                let changed = seen[tab.sessionId] != identity || requestedBasis[id] != basis
-                seen[tab.sessionId] = identity
+                let changed = worker.seen != identity || worker.requestedBasis != basis
+                worker.seen = identity
                 // Even without a working hook, a new reply in the same idle conversation is a new turn.
                 // The background read compares reply identity before asking git again. A read under way for an unchanged
                 // turn is left to finish.
-                if changed || inFlight[id] == nil { read(task, worker, id: id) }
+                if changed || worker.inFlight == nil { read(task, tab, operated, &worker, id: id) }
             }
         }
-        for id in workerReadings.keys where !retained.contains(id) {
-            workerReadings[id] = nil
-            asked[id] = nil
-            dropped = true
+        // A worker no task lists any more: all of it goes, and a read under way for it lands nowhere.
+        for (id, worker) in workers where !listed.contains(id) {
+            if worker.reading != nil { dropped = true }
+            workers[id] = nil
         }
-        let open = Set(sessions.map(\.sessionId))
-        seen = seen.filter { open.contains($0.key) }
         if dropped { changed() }
     }
 
     /// An answer clears only the addressed worker's ended turn.
     func messaged(_ task: UUID, tab: String? = nil) {
         let id = WorkerID(task: task, tab: TabReference(tab).key)
-        guard var reading = workerReadings[id] else { messagedWhileReading.insert(id); return }
+        guard var reading = workers[id]?.reading else { workers[id, default: Worker()].messagedWhileReading = true; return }
         guard !reading.messaged else { return }
         reading.messaged = true
-        workerReadings[id] = reading
+        workers[id]?.reading = reading
         changed()
     }
 
-    private func read(_ task: TaskItem, _ worker: WorkerTab, id: WorkerID) {
-        let operated = task.operated!, tab = worker.session!
+    /// Reads the turn `worker` ended, as `record` asks it: the read replaces one under way.
+    private func read(_ task: TaskItem, _ worker: WorkerTab, _ operated: OperatedTask, _ record: inout Worker, id: WorkerID) {
+        let tab = worker.session!
         nextReadOrder += 1
         let order = nextReadOrder
-        let state = tab.state, session = tab.sessionId, previous = workerReadings[id], request = UUID()
+        let state = tab.state, session = tab.sessionId, previous = record.reading, request = UUID()
         let git = ports.git, transcripts = self.transcripts, agent = worker.agent
         let conversation = worker.conversation, worktree = task.hasCheckout ? task.worktreePath : nil, baseBranch = task.baseBranch
         let counts = operated.state == .working, reopenedFrom = operated.reopenedFrom, savedBase = operated.diffBaseSHA
         let parent = RunScheduler.baseCommit(for: task.id, in: workspace.state)
         let basis = Basis(operated), accepted = basis.accepted
-        asked[id] = request
-        requestedBasis[id] = basis
+        record.asked = request
+        record.requestedBasis = basis
         // A read under way for this worker is for a turn this one replaces.
-        inFlight[id]?.cancel()
-        inFlight[id] = ports.work.start { [weak self] in
+        record.inFlight?.cancel()
+        record.inFlight = ports.work.start { [weak self] in
             guard !Task.isCancelled else { return }
             let (read, tailRead) = await BackgroundWork.run { () -> (Reading?, Bool) in
                 let found = conversation.map { transcripts.reply(agent: agent, conversation: $0) }
@@ -161,17 +180,18 @@ final class WorkerTurnReader {
             if tailRead { WorkMeter.note(.turnRead) }
             // Read fresh: the worker may have started its next turn, or ended it again, and the task may have been accepted
             // again or reopened, while git was asked.
-            guard !Task.isCancelled, let self, self.asked[id] == request else { return }
-            self.inFlight[id] = nil
+            guard !Task.isCancelled, let self, self.workers[id]?.asked == request else { return }
+            self.workers[id]?.inFlight = nil
             guard var reading = read,
-                  self.seen[session] == Seen(state: state, conversation: conversation),
+                  self.workers[id]?.seen == Seen(session: session, state: state, conversation: conversation),
                   let current = self.workspace.state.task(id: id.task), self.isRead(current), current.operated.map(Basis.init) == basis,
                   let worker = current.workerTab(id.tab, in: self.live.sessions), worker.session?.sessionId == session,
                   worker.conversation == conversation else { return }
-            reading.messaged = self.messagedWhileReading.remove(id) != nil
+            reading.messaged = self.workers[id]?.messagedWhileReading == true
+            self.workers[id]?.messagedWhileReading = false
             reading.observedOrder = order
-            guard self.workerReadings[id] != reading else { return }
-            self.workerReadings[id] = reading
+            guard self.workers[id]?.reading != reading else { return }
+            self.workers[id]?.reading = reading
             self.changed()
         }
     }

@@ -93,7 +93,7 @@ final class TabOpener {
             let session = try await daemon.createTab(windowId: window, cwd: worktree, agentCommand: command, tabKey: id.key, background: true)
             recordSession(session, of: id)
             return .opened
-        } catch let error as DaemonError where [.timeout, .disconnected, .itermUnavailable].contains(error.code) {
+        } catch let error as DaemonError where error.leavesOutcomeUnknown {
             Log.daemon.info("An operator's extra worker tab may still open; the run reconciler looks again: \(error.message, privacy: .public)")
             return .opening
         } catch {

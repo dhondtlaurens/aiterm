@@ -14,36 +14,49 @@ final class WorkerStarter {
     private let ports: OperatorPorts
     private let workflow: TaskWorkflow
     private var isStopped = false
-    /// The tasks being started now: a pass that meets one again leaves it be.
-    private(set) var starting: Set<UUID> = []
-    /// When each task's last launch task in this run of AiTerm ended: a launch that ended without a
-    /// window (a timeout) may still open one, so the reconciler counts its minute from here, not from the claim.
-    private(set) var settledAt: [UUID: Date] = [:]
-    /// Each claim made and not yet launched or released: the task as it stood before it, and the attempt
-    /// that claimed it — what a claim that does not hold goes back to, and the failure a retry tells of.
-    private var claims: [UUID: Claim] = [:]
+    /// What this run of AiTerm keeps of each task's starts, by task: dropped once the task is gone from the workspace and
+    /// nothing starts it (`forgetGone`).
+    private var starts: [UUID: Start] = [:]
+    private struct Start {
+        /// Being started now — a launch, a relaunch, a reopen: a pass that meets it again leaves it be.
+        var running = false
+        /// When its last launch task in this run of AiTerm ended: a launch that ended without a window (a timeout) may
+        /// still open one, so the reconciler counts its minute from here, not from the claim.
+        var settledAt: Date?
+        /// The claim made and not yet launched or released: the task as it stood before it, and the attempt that claimed
+        /// it — what a claim that does not hold goes back to, and the failure a retry tells of.
+        var claim: Claim?
+        /// A launch or a reopen asked iTerm2 for its window, or ended not knowing whether one opens, and iTerm2 has not
+        /// listed a worker tab tagged with it yet (`isFirstWorkerTab`), not the shell the agent command is still being
+        /// typed into. A claim in that gap — the task failed and was retried meanwhile — would find no worker to retry in
+        /// and launch again, so none is made while it waits (`ListingWait`). Past that, the claim goes ahead: with a worker
+        /// listed by then the retry goes to it in place; with none, it is launched, and a window still tagged with the task
+        /// is the one the helper hands back — never a second — though its shell is not told of the retry.
+        var unlisted: ListingWait?
+        /// Its worker window reopened on your click: a click while iTerm2 has not listed its tab opens no second window.
+        var reopened: ListingWait?
+        /// Its launches in this run of AiTerm that ended without iTerm2 confirming their window (a timeout, the helper or
+        /// iTerm2 gone), in a row, until a window or a tab tagged with it is seen: how many, when the last ended and why.
+        /// The reconciler tries `launchTries` of them, no more (`unconfirmedReason`), and one cut off by a disconnect that
+        /// lasts is given up on `firstWorkerOpening` after it ended (`checkLaunches`).
+        var unconfirmed: Unconfirmed?
+    }
     private struct Claim {
         let before: OperatedTask
         let attempt: LaunchAttempt
     }
-    /// When a launch or a reopen last asked iTerm2 for each task's window, or ended not knowing whether one
-    /// opens, until iTerm2 lists a worker tab tagged with the task (`isFirstWorkerTab`), not the shell the agent
-    /// command is still being typed into. A claim in that gap — the task failed and was retried meanwhile —
-    /// would find no worker to retry in and launch again, so none is made for `launchAdoptAfter`, the time a
-    /// slow iTerm2 has to list it. Past that, the claim goes ahead: with a worker listed by then the retry goes
-    /// to it in place; with none, it is launched, and a window still tagged with the task is the one the
-    /// helper hands back — never a second — though its shell is not told of the retry.
-    private var unlisted: [UUID: Date] = [:]
-    /// When each task's worker window was last reopened on your click: a click in the gap before iTerm2
-    /// lists its tab (up to `launchAdoptAfter`) opens no second window.
-    private var reopenedAt: [UUID: Date] = [:]
-    /// Each task's launches in this run of AiTerm that ended without iTerm2 confirming their window (a timeout, the helper or
-    /// iTerm2 gone), in a row, until a window or a tab tagged with the task is seen: how many, when the last ended and why.
-    /// The reconciler tries `launchTries` of them, no more (`unconfirmedReason`), and one cut off by a disconnect that lasts is
-    /// given up on `firstWorkerOpening` after it ended (`checkLaunches`).
-    private var unconfirmed: [UUID: Unconfirmed] = [:]
     private struct Unconfirmed {
         var count: Int, at: Date, reason: String
+    }
+    /// The tasks being started now.
+    var starting: Set<UUID> { Set(starts.compactMap { $0.value.running ? $0.key : nil }) }
+    private func isStarting(_ id: UUID) -> Bool { starts[id]?.running == true }
+    /// When the task's last launch task in this run of AiTerm ended (`Start.settledAt`).
+    func settledAt(of id: UUID) -> Date? { starts[id]?.settledAt }
+
+    /// Lets go of what is kept of tasks gone from the workspace that nothing is starting.
+    private func forgetGone() {
+        starts = starts.filter { $0.value.running || state.task(id: $0.key) != nil }
     }
     /// Launches in a row that showed no window before the reconciler stops launching again and blocks the task.
     static let launchTries = 3
@@ -82,14 +95,15 @@ final class WorkerStarter {
     /// (spec §11), and releases them if it cannot.
     func claimReady() -> [UUID] {
         guard !isStopped else { return [] }
+        forgetGone()
         let busy = busy()
         blockUnbased(excluding: busy)
         let before = state, now = ports.now()
         let claimed = workspace.mutate { RunScheduler.claim(in: &$0, now: now, excluding: busy) }
         for id in claimed {
-            starting.insert(id)
+            starts[id, default: Start()].running = true
             if let operated = before.task(id: id)?.operated, let attempt = state.task(id: id)?.operated?.launch {
-                claims[id] = Claim(before: operated, attempt: attempt)
+                starts[id]?.claim = Claim(before: operated, attempt: attempt)
             }
         }
         return claimed
@@ -99,8 +113,9 @@ final class WorkerStarter {
     /// the task queues again, and the next pass tries it afresh.
     func release(_ ids: [UUID]) {
         for id in ids {
-            starting.remove(id)
-            guard let claim = claims.removeValue(forKey: id) else { continue }
+            starts[id]?.running = false
+            guard let claim = starts[id]?.claim else { continue }
+            starts[id]?.claim = nil
             release(id, claimedAs: claim.attempt, to: claim.before)
         }
     }
@@ -128,10 +143,10 @@ final class WorkerStarter {
     @discardableResult
     func launchClaimed(_ id: UUID, attempt: LaunchAttempt) async -> Outcome {
         defer {
-            claims[id] = nil
+            starts[id]?.claim = nil
             settle(id)
         }
-        guard let claim = claims[id], claim.attempt == attempt, let task = state.task(id: id) else {
+        guard let claim = starts[id]?.claim, claim.attempt == attempt, let task = state.task(id: id) else {
             // Only `claimReady`'s claims are launched here; the reconciler relaunches this one a minute on.
             Log.daemon.error("An operator's task was launched with no claim of attempt \(attempt.number, privacy: .public); nothing opened")
             return .notLaunched
@@ -160,8 +175,8 @@ final class WorkerStarter {
     /// `launchAdoptAfter` and is not listed yet. Older ones are forgotten — that window never came.
     private func busy() -> Set<UUID> {
         let now = ports.now()
-        unlisted = unlisted.filter { now.timeIntervalSince($0.value) < OperatorTiming.launchAdoptAfter }
-        return starting.union(unlisted.keys)
+        for id in starts.keys where starts[id]?.unlisted?.waits(at: now) == false { starts[id]?.unlisted = nil }
+        return Set(starts.compactMap { $0.value.running || $0.value.unlisted != nil ? $0.key : nil })
     }
 
     private func blockUnbased(excluding busy: Set<UUID>) {
@@ -235,7 +250,7 @@ final class WorkerStarter {
                                                            frame: taskFrame())
                 (window, inTab) = (opened.id, false)
             }
-            unlisted[id] = ports.now()
+            starts[id, default: Start()].unlisted = ListingWait(since: ports.now())
             recordWindow(window, of: id)
             if let failure = opened.commandError {
                 let reason = "AiTerm couldn’t start it: its window opened, but AiTerm couldn’t type its agent command there: "
@@ -244,10 +259,10 @@ final class WorkerStarter {
                 return .failed(reason)
             }
             return .opened(tab: inTab)
-        } catch let error as DaemonError where [.timeout, .disconnected, .itermUnavailable].contains(error.code) {
-            unlisted[id] = ports.now()
-            let count = (unconfirmed[id]?.count ?? 0) + 1
-            unconfirmed[id] = Unconfirmed(count: count, at: ports.now(), reason: error.localizedDescription)
+        } catch let error as DaemonError where error.leavesOutcomeUnknown {
+            let count = (starts[id]?.unconfirmed?.count ?? 0) + 1
+            starts[id, default: Start()].unlisted = ListingWait(since: ports.now())
+            starts[id]?.unconfirmed = Unconfirmed(count: count, at: ports.now(), reason: error.localizedDescription)
             Log.daemon.info("An operator's worker window may still open; the run reconciler looks again: \(error.message, privacy: .public)")
             return .opening
         } catch {
@@ -277,13 +292,13 @@ final class WorkerStarter {
     /// Why the reconciler stops launching the task again: its last `launchTries` launches in this run of AiTerm all ended
     /// without iTerm2 confirming a window. Nil while it may try again.
     func unconfirmedReason(_ id: UUID) -> String? {
-        guard let tries = unconfirmed[id], tries.count >= Self.launchTries else { return nil }
+        guard let tries = starts[id]?.unconfirmed, tries.count >= Self.launchTries else { return nil }
         return "AiTerm couldn’t start it: iTerm2 didn’t confirm its window in \(Self.launchTries) tries (\(tries.reason))."
     }
 
     /// A launch the reconciler gives up on (`unconfirmedReason`): blocked with the reason, resumed into the queue.
     func giveUp(_ id: UUID, reason: String) {
-        unconfirmed[id] = nil
+        starts[id]?.unconfirmed = nil
         block(id, reason: reason, requeue: true)
     }
 
@@ -297,11 +312,11 @@ final class WorkerStarter {
         guard !isStopped else { return }
         for task in state.tasks {
             guard let operated = task.operated, operated.state == .working, !operated.takenOver, let launch = operated.launch,
-                  !starting.contains(task.id), state.run(id: operated.runId)?.state == .active else { continue }
-            if let tries = unconfirmed[task.id], launch.openedAt == nil {
+                  !isStarting(task.id), state.run(id: operated.runId)?.state == .active else { continue }
+            if let tries = starts[task.id]?.unconfirmed, launch.openedAt == nil {
                 // Not every such launch is tried again: the reconciler leaves one that named a conversation (a retry's).
                 guard now.timeIntervalSince(tries.at) >= OperatorTiming.firstWorkerOpening else { continue }
-                unconfirmed[task.id] = nil
+                starts[task.id]?.unconfirmed = nil
                 let why = sessions == nil ? "it lost iTerm2 while opening its window, and iTerm2 hasn’t answered since"
                                           : "iTerm2 didn’t confirm its window, and none showed within 3 minutes"
                 block(task.id, reason: "AiTerm couldn’t start it: \(why) (\(tries.reason)).", requeue: true)
@@ -360,8 +375,8 @@ final class WorkerStarter {
 
     /// A launch that showed no tab, tried again as `attempt` — saved by the caller first.
     func relaunch(_ id: UUID, attempt: LaunchAttempt) {
-        guard !isStopped, !starting.contains(id) else { return }
-        starting.insert(id)
+        guard !isStopped, !isStarting(id) else { return }
+        starts[id, default: Start()].running = true
         ports.work.start { [self] in
             defer { settle(id) }
             await launch(id, attempt: attempt)
@@ -375,16 +390,16 @@ final class WorkerStarter {
     /// (`TaskItem.firstWorkerConversation`): an extra tab the Operator added (`open_tab`) is never opened again.
     func reopen(_ id: UUID) -> Task<Void, Never>? {
         guard !isStopped else { return nil }
-        if let at = reopenedAt[id], ports.now().timeIntervalSince(at) < OperatorTiming.launchAdoptAfter { return nil }
-        guard !starting.contains(id), !live.sessions.contains(where: { $0.taskUUID == id }), let task = state.task(id: id),
+        if starts[id]?.reopened?.waits(at: ports.now()) == true { return nil }
+        guard !isStarting(id), !live.sessions.contains(where: { $0.taskUUID == id }), let task = state.task(id: id),
               task.hasCheckout, let operated = task.operated, state.run(id: operated.runId) != nil, let conversation = task.firstWorkerConversation,
               let daemon = daemon() else { return nil }
-        starting.insert(id)
+        starts[id, default: Start()].running = true
         let reopening = OperatorActivity(run: operated.runId, task: id, act: .reopeningItsWindow)
         onActing(reopening, true)
         return ports.work.start { [self] in
             defer {
-                starting.remove(id)
+                starts[id]?.running = false
                 onActing(reopening, false)
             }
             do {
@@ -394,8 +409,8 @@ final class WorkerStarter {
                                                                agentCommand: command, frame: taskFrame(), background: true)
                 // Left on the row, so a click raises it.
                 recordWindow(window, of: id)
-                reopenedAt[id] = ports.now()
-                unlisted[id] = ports.now()
+                starts[id, default: Start()].reopened = ListingWait(since: ports.now())
+                starts[id]?.unlisted = ListingWait(since: ports.now())
             } catch {
                 Log.daemon.error("An operator's worker window could not reopen: \(String(describing: error), privacy: .public)")
             }
@@ -407,21 +422,24 @@ final class WorkerStarter {
     /// may be claimed. Whether one was: a start pass may have something new to start.
     @discardableResult
     func tabsListed(_ sessions: [SessionInfo]) -> Bool {
+        forgetGone()
         let tagged = Set(sessions.compactMap(\.taskUUID))
-        for id in reopenedAt.keys where tagged.contains(id) { reopenedAt[id] = nil }
-        // A window tagged with the task is there: whatever its launches did, iTerm2 confirmed one.
-        for id in unconfirmed.keys where tagged.contains(id) { unconfirmed[id] = nil }
+        for id in tagged {
+            starts[id]?.reopened = nil
+            // A window tagged with the task is there: whatever its launches did, iTerm2 confirmed one.
+            starts[id]?.unconfirmed = nil
+        }
         for id in tagged { checkWorker(id, sessions: sessions) }
         let workers = Set(sessions.filter(Self.isFirstWorkerTab).compactMap(\.taskUUID))
-        let listed = unlisted.keys.filter(workers.contains)
-        for id in listed { unlisted[id] = nil }
+        let listed = starts.compactMap { $0.value.unlisted != nil && workers.contains($0.key) ? $0.key : nil }
+        for id in listed { starts[id]?.unlisted = nil }
         checkLaunches(sessions: sessions, now: ports.now())
         return !listed.isEmpty
     }
 
     private func settle(_ id: UUID) {
-        starting.remove(id)
-        settledAt[id] = ports.now()
+        starts[id, default: Start()].running = false
+        starts[id]?.settledAt = ports.now()
     }
 
     /// The worker's window, and that its launch showed one: from now on it comes back only on your
@@ -433,7 +451,7 @@ final class WorkerStarter {
             state.tasks[i].windowId = window
             if state.tasks[i].operated?.launch?.openedAt == nil { state.tasks[i].operated?.launch?.openedAt = now }
         }
-        unconfirmed[id] = nil
+        starts[id]?.unconfirmed = nil
         checkWorker(id, sessions: live.sessions)
     }
 

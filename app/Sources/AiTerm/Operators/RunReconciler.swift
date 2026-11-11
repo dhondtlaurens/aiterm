@@ -1,6 +1,20 @@
 import Foundation
 import AiTermCore
 
+/// A window or a tab asked of iTerm2 and not listed yet, since when: iTerm2 may list one late, so nothing asks for a
+/// second while it `waits`, and only once its wait `isOver` (`OperatorTiming.launchAdoptAfter`) is one asked for again.
+/// Each owner keeps its own, and says what listing ends it: a start's window (`WorkerStarter`), a reopened worker's,
+/// the Operator's reopened window (`OperatorController.reopenOperatorWindow`), and the reconciler's relaunches of a
+/// worker and of an extra tab.
+struct ListingWait: Equatable, Sendable {
+    let since: Date
+
+    /// Still waited for at `now`: less than `launchAdoptAfter` has passed.
+    func waits(at now: Date) -> Bool { now.timeIntervalSince(since) < OperatorTiming.launchAdoptAfter }
+    /// Waited for long enough at `now`: more than `launchAdoptAfter` has passed.
+    func isOver(at now: Date) -> Bool { now.timeIntervalSince(since) > OperatorTiming.launchAdoptAfter }
+}
+
 /// Looks at the real tabs and says what it finds (spec §7.3, §8, §11): an operator whose tab has gone
 /// takes its broadcast offline, and one back brings it back — never a pause or stop of yours; a worker
 /// whose launch never showed a tab is launched again, but only a minute on, never while one may still
@@ -106,7 +120,7 @@ final class RunReconciler {
         }
         guard active, operated.state == .working, !operated.takenOver, launch.openedAt == nil, task.windowId == nil,
               task.conversations.isEmpty, !starter.starting.contains(task.id),
-              now.timeIntervalSince(max(launch.requestedAt, starter.settledAt[task.id] ?? firstSynced ?? now)) > OperatorTiming.launchAdoptAfter
+              ListingWait(since: max(launch.requestedAt, starter.settledAt(of: task.id) ?? firstSynced ?? now)).isOver(at: now)
         else { return }
         // Its launches in a row showed no window `WorkerStarter.launchTries` times: it is blocked, with why, not tried again.
         if let reason = starter.unconfirmedReason(task.id) {
@@ -130,7 +144,7 @@ final class RunReconciler {
         for tab in operated.extraTabs where tab.sessionId == nil && tab.launch.openedAt == nil && tab.failure == nil {
             let id = TabOpener.ID(task: task.id, key: tab.key)
             guard !tabs.opening.contains(id), !sessions.contains(where: { $0.taskUUID == task.id && $0.tabKey == tab.key }),
-                  now.timeIntervalSince(max(tab.launch.requestedAt, tabs.settledAt[id] ?? firstSynced ?? now)) > OperatorTiming.launchAdoptAfter
+                  ListingWait(since: max(tab.launch.requestedAt, tabs.settledAt[id] ?? firstSynced ?? now)).isOver(at: now)
             else { continue }
             let attempt = LaunchAttempt(number: tab.launch.number + 1, requestedAt: now)
             workspace.mutate { state in

@@ -217,7 +217,7 @@ final class OperatorController {
     @ObservationIgnored var reopeningOperator: Set<UUID> = []
     /// When each broadcast's operator window was last opened by `reopenOperatorWindow`, until its tab is
     /// listed: a click in the gap before iTerm2 lists it (or past `launchAdoptAfter`) opens no second one.
-    @ObservationIgnored var reopenedOperator: [UUID: Date] = [:]
+    @ObservationIgnored var reopenedOperator: [UUID: ListingWait] = [:]
     /// The re-registration of the runs' tokens under way: a later attach's replaces it, and `stop()` cancels it.
     @ObservationIgnored private var registering: Task<Void, Never>?
     /// The close of ended broadcasts' operator windows after an attach (`closeEndedOperatorWindows`): a later attach's
@@ -679,7 +679,7 @@ final class OperatorController {
             // Ended while its token registered or its window opened: the end stands, and what came after it goes.
             if registered { await revokeAfterEnd(run.id, window: nil, daemon: daemon) }
             return run.id
-        } catch let error as DaemonError where registered && [.timeout, .disconnected, .itermUnavailable].contains(error.code) {
+        } catch let error as DaemonError where registered && error.leavesOutcomeUnknown {
             mutateRun(run.id) { $0.state = .operatorOffline }
             _ = workspace.flush()
         } catch {
@@ -816,8 +816,9 @@ final class OperatorController {
     /// the Operator's to resolve this way.
     private func recordWindowAnswers(_ sessions: [SessionInfo]) {
         var typed: [UUID: String] = [:]
+        let workers = WorkerSessions(sessions)
         for task in workspace.state.tasks where task.operated != nil {
-            let prompt = task.workerTabs(in: sessions).lazy.compactMap { $0.session?.yourPrompt }.first
+            let prompt = task.workerTabs(in: workers).lazy.compactMap { $0.session?.yourPrompt }.first
             if let line = prompt?.split(whereSeparator: \.isNewline).first.map(String.init) { typed[task.id] = line }
         }
         guard !typed.isEmpty else { return }
@@ -827,9 +828,12 @@ final class OperatorController {
             }
         }
         guard !news.isEmpty else { return }
-        for (run, question, prompt) in news {
-            mutateRun(run) { run in
-                if let i = run.questions.firstIndex(where: { $0.id == question }) { run.questions[i].answeredInWindow = prompt }
+        // One change for them all.
+        workspace.mutate { state in
+            for (run, question, prompt) in news {
+                state.updateRun(id: run) { run in
+                    if let i = run.questions.firstIndex(where: { $0.id == question }) { run.questions[i].answeredInWindow = prompt }
+                }
             }
         }
     }

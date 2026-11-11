@@ -507,7 +507,7 @@ extension OperatorController {
             if run.state == .operatorOffline { try await resume(run: id, background: background) }
             else { _ = try await reopenOperatorWindow(id, background: background) }
         } catch {
-            if (error as? ActionUnavailable)?.message == Self.cannotResume { reopenFailed.insert(id) }
+            if (error as? ActionUnavailable)?.kind == .conversationGone { reopenFailed.insert(id) }
             if !background || !reopenFailed.contains(id) {
                 notices.report(OperationIssue(title: "Couldn’t reopen the Operator’s window.", error: error))
             }
@@ -549,7 +549,7 @@ extension OperatorController {
         guard operatorTab(of: id) == nil else { return .done }
         guard !reopeningOperator.contains(id) else { return .underway }
         guard let daemon = daemon(), tabsKnown else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
-        if let at = reopenedOperator[id], ports.now().timeIntervalSince(at) < OperatorTiming.launchAdoptAfter { return .underway }
+        if reopenedOperator[id]?.waits(at: ports.now()) == true { return .underway }
         reopeningOperator.insert(id)
         defer { reopeningOperator.remove(id) }
         let projects = run.projectIds.compactMap(workspace.state.project(id:)), home = ports.home, folder = self.folder(of: id)
@@ -561,7 +561,7 @@ extension OperatorController {
             : nil
         let prepared = try await BackgroundWork.run {
             if let conversation, transcripts.file(agent: .claude, conversation: conversation) == nil {
-                throw ActionUnavailable(cannotResume)
+                throw ActionUnavailable(cannotResume, kind: .conversationGone)
             }
             let token = OperatorCommand.existingToken(in: folder) ?? OperatorCommand.makeToken()
             return try OperatorCommand.prepare(run: run, projects: projects, home: home, claudeConfig: claudeConfig, token: token,
@@ -593,7 +593,7 @@ extension OperatorController {
             await revokeAfterEnd(id, window: window, daemon: daemon)
             return .done
         }
-        reopenedOperator[id] = ports.now()
+        reopenedOperator[id] = ListingWait(since: ports.now())
         reopenFailed.remove(id)
         mutateRun(id) { $0.operatorWindowId = window }
         return .done
