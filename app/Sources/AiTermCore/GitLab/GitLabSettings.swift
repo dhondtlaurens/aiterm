@@ -3,7 +3,7 @@ import Foundation
 public enum GitLabSettings {
     public static func load(store: SecretStore = Keychain.shared, defaults: UserDefaults = .standard) -> GitLabConfig? {
         guard let host = defaults.string(forKey: "gitlab.host"), let url = URL(string: host),
-              url.host != nil, let token = store.get("gitlab.token"), !token.isEmpty else { return nil }
+              url.host != nil, let token = store.get("gitlab.token")?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty else { return nil }
         return GitLabConfig(hostURL: url, token: token)
     }
 
@@ -12,7 +12,7 @@ public enum GitLabSettings {
     /// are not there.
     @discardableResult
     public static func save(_ cfg: GitLabConfig?, store: SecretStore = Keychain.shared, defaults: UserDefaults = .standard) -> Bool {
-        guard store.set("gitlab.token", cfg?.token) else { return false }
+        guard store.set("gitlab.token", cfg?.token.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
         defaults.set(cfg?.hostURL.absoluteString, forKey: "gitlab.host")
         return true
     }

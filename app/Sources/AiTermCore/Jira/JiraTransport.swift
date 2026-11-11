@@ -26,7 +26,9 @@ extension JiraClient {
 
     /// Reads needed to prepare a write retain write refusal details as well.
     func writeDecode<Response: Decodable>(_ type: Response.Type, _ request: URLRequest) async throws -> Response {
-        try decode(type, data: await writeSend(request))
+        try await HTTPJSON.preparingWrite(JiraError.self) {
+            try decode(type, data: await writeSend(request))
+        }
     }
 
     /// A refusal keeps Jira's own words: its 400s and 404s say which field or which ticket.

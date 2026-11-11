@@ -513,9 +513,10 @@ Each box leaves the project working and is one or a few commits.
   (three for commit ids, the push's own for the same-location check), because one rule changes refusals the
   maintainer has not approved; the question is with them, and each answer is a one-line switch.
 - [x] 2e. Cloned backup, path identity and stamp, priorities, dead code, monotonic clocks.
-- [ ] 3a. Outcome-unknown classification in Core (test first); token trimming.
+- [x] 3a. Outcome-unknown classification in Core (test first); token trimming.
 - [ ] 3b. Clients bound to their repository; forwarding removed; access narrowed; path encoding.
-- [ ] 3c. `find_user`, symlinked catalogue stamps (tests first); listing and user reuse.
+- [ ] 3c. `find_user`, symlinked catalogue stamps (tests first); listing and user reuse. GitLab closing-issue
+  concurrency dropped: one issue's two source listings stay at 2 host requests (record); the other items remain pending.
 - [ ] 3d. Jira on `JSONValue`; Fix state; dead code; small shared helpers.
 - [x] 4a. Tool traits and exhaustive Activity lines (test first for `update_request`).
 - [x] 4b. One live projection and one readiness predicate (test first for the launch window). The reconciler keeps

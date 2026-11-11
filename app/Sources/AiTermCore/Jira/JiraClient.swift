@@ -23,7 +23,9 @@ public struct JiraConfig: Equatable, Sendable { public let siteURL: URL, email: 
     }
 }
 
-public enum JiraError: Error, Equatable, LocalizedError {
+public enum JiraError: HostFailure, Equatable, LocalizedError {
+    /// The preparation failed before a host write was sent; the original sentence is kept.
+    indirect case notSent(JiraError)
     case unauthorized, network(String), badResponse(Int), decoding
     case projectSiteMismatch(linked: URL, configured: URL)
     case unconfinedQuery
@@ -34,6 +36,7 @@ public enum JiraError: Error, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
+        case .notSent(let error): return error.errorDescription
         case .unauthorized: return "Check your Jira email and API token in Settings › Integrations."
         case .network(let message): return "Couldn’t connect to Jira. \(message)"
         case .badResponse(let status): return "Jira returned an error (HTTP \(status)). Try again."
@@ -393,4 +396,14 @@ private struct ProjectPage: Decodable {
 private struct Myself: Decodable {
     @Lenient var displayName: String?
     @Lenient var emailAddress: String?
+}
+
+public extension JiraError {
+    var outcomeUnknown: Bool {
+        switch self {
+        case .network, .decoding: return true
+        case .badResponse(let status): return HTTPJSON.Failure.status(status).outcomeUnknown
+        case .unauthorized, .projectSiteMismatch, .unconfinedQuery, .noTransition, .refused, .notSent: return false
+        }
+    }
 }

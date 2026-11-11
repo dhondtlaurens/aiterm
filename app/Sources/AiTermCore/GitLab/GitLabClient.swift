@@ -5,7 +5,9 @@ public struct GitLabConfig: Equatable, Sendable {
     public init(hostURL: URL, token: String) { self.hostURL = hostURL; self.token = token }
 }
 
-public enum GitLabError: Error, Equatable, LocalizedError {
+public enum GitLabError: HostFailure, Equatable, LocalizedError {
+    /// The preparation failed before a host write was sent; the original sentence is kept.
+    indirect case notSent(GitLabError)
     case unauthorized, network(String), badResponse(Int), decoding, projectNotFound(String)
     /// Nothing at the host answers GitLab's API — a mistyped host, or a web page in front of it.
     case noAPI(String)
@@ -14,6 +16,7 @@ public enum GitLabError: Error, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
+        case .notSent(let error): return error.errorDescription
         case .unauthorized: return "Check your GitLab access token in Settings › Integrations."
         case .network(let message): return "Couldn’t connect to GitLab. \(message)"
         case .badResponse(let status): return "GitLab returned an error (HTTP \(status)). Try again."
@@ -84,7 +87,7 @@ public struct GitLabClient: Sendable {
         let text = search.trimmingCharacters(in: .whitespacesAndNewlines)
         let none = GitLabError.projectNotFound(project)
         let api = HostAPI(base: Self.base(config.hostURL), headers: ["PRIVATE-TOKEN": config.token, "Accept": "application/json"],
-                          session: session, malformed: GitLabError.decoding,
+                          session: session, malformed: GitLabError.notSent(.decoding),
                           mapping: { failure in
                               if case .status(403) = failure { return none }
                               return Self.error(for: failure, notFound: none)
@@ -265,7 +268,9 @@ public struct GitLabClient: Sendable {
     /// draft is not written to.
     public func markReady(project: String, iid: Int, beforeWrite: @Sendable () async throws -> Void = {}) async throws {
         let path = Self.requestsPath(project) + "/\(iid)"
-        let request = try await get(MergeRequestPayload.self, path: path, notFound: .projectNotFound(project))
+        let request = try await HTTPJSON.preparingWrite(GitLabError.self) {
+            try await get(MergeRequestPayload.self, path: path, notFound: .projectNotFound(project))
+        }
         let ready = Self.readyTitle(request.title)
         guard ready != request.title || request.draft == true else { return }
         try await beforeWrite()
@@ -280,9 +285,11 @@ public struct GitLabClient: Sendable {
     public func updateMergeRequest(project: String, iid: Int, title: String?, description: String?, assignee: String?,
                                    beforeWrite: @Sendable (MergeRequest) async throws -> Void = { _ in }) async throws {
         let path = Self.requestsPath(project) + "/\(iid)"
-        let request = try await get(MergeRequestPayload.self, path: path, notFound: .projectNotFound(project))
+        let request = try await HTTPJSON.preparingWrite(GitLabError.self) {
+            try await get(MergeRequestPayload.self, path: path, notFound: .projectNotFound(project))
+        }
         var assigneeIds: [Int]?
-        if let assignee { assigneeIds = [try await userId(assignee)] }
+        if let assignee { assigneeIds = [try await HTTPJSON.preparingWrite(GitLabError.self) { try await userId(assignee) }] }
         try await beforeWrite(request.mergeRequest)
         struct Edit: Encodable { var title, description: String?; var assigneeIds: [Int]? }
         let draft = request.draft == true || Self.readyTitle(request.title) != request.title
@@ -303,10 +310,12 @@ public struct GitLabClient: Sendable {
     /// Nothing is written when every one of them reviews it already.
     public func assignReviewers(project: String, iid: Int, usernames: [String],
                                 beforeWrite: @Sendable () async throws -> Void = {}) async throws {
-        let ids = try await JiraClient.inOrder(usernames) { try await userId($0) }
+        let ids = try await HTTPJSON.preparingWrite(GitLabError.self) {
+            try await JiraClient.inOrder(usernames) { try await userId($0) }
+        }
         struct Reviewers: Decodable { struct Reviewer: Decodable { var id: Int }; var reviewers: [Reviewer]? }
         let path = Self.requestsPath(project) + "/\(iid)"
-        let current = (try await get(Reviewers.self, path: path, notFound: .projectNotFound(project)).reviewers ?? []).map(\.id)
+        let current = (try await HTTPJSON.preparingWrite(GitLabError.self) { try await get(Reviewers.self, path: path, notFound: .projectNotFound(project)) }.reviewers ?? []).map(\.id)
         let all = current + ids.filter { !current.contains($0) }
         guard all.count > current.count else { return }
         try await beforeWrite()
@@ -384,7 +393,9 @@ public struct GitLabClient: Sendable {
     /// Retries its head pipeline once it failed: GitLab reruns that pipeline's failed jobs. Any other status, or none, is
     /// `.notFailed` with nothing written. `beforeWrite` gets the request as read, right before the retry.
     public func retryPipeline(project: String, iid: Int, beforeWrite: @Sendable (MergeRequest) async throws -> Void = { _ in }) async throws -> PipelineRetry {
-        let read = try await get(RequestWithPipeline.self, path: Self.requestsPath(project) + "/\(iid)", notFound: .projectNotFound(project))
+        let read = try await HTTPJSON.preparingWrite(GitLabError.self) {
+            try await get(RequestWithPipeline.self, path: Self.requestsPath(project) + "/\(iid)", notFound: .projectNotFound(project))
+        }
         guard let pipeline = read.headPipeline else { return .notFailed("it has no pipeline") }
         guard pipeline.status == "failed", let id = pipeline.id else {
             return .notFailed("its pipeline is \((pipeline.status ?? "unknown").replacingOccurrences(of: "_", with: " "))")
@@ -521,7 +532,7 @@ public struct GitLabClient: Sendable {
     }
 
     private func api(_ notFound: GitLabError) -> HostAPI {
-        HostAPI(base: Self.base(config.hostURL), headers: ["PRIVATE-TOKEN": config.token, "Accept": "application/json"], session: session, malformed: GitLabError.decoding,
+        HostAPI(base: Self.base(config.hostURL), headers: ["PRIVATE-TOKEN": config.token, "Accept": "application/json"], session: session, malformed: GitLabError.notSent(.decoding),
                 mapping: { Self.error(for: $0, notFound: notFound) })
     }
 
@@ -640,6 +651,16 @@ private struct MergeStatusPayload: Decodable {
         case "draft_status": return .blocked(MergeReadiness.draftReason)
         case "discussions_not_resolved": return .blocked("it has unresolved threads")
         default: return .blocked("GitLab says " + status.replacingOccurrences(of: "_", with: " "))
+        }
+    }
+}
+
+public extension GitLabError {
+    var outcomeUnknown: Bool {
+        switch self {
+        case .network, .decoding: return true
+        case .badResponse(let status): return HTTPJSON.Failure.status(status).outcomeUnknown
+        case .unauthorized, .projectNotFound, .noAPI, .noUser, .notSent: return false
         }
     }
 }

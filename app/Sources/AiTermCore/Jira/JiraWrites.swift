@@ -89,8 +89,12 @@ extension JiraClient {
         switch fields.assignee {
         case nil: break
         case .unassigned: sent["assignee"] = ["accountId": NSNull()]
-        case .me: sent["assignee"] = ["accountId": try await decode(Account.self, request(path: "/rest/api/3/myself")).accountId]
-        case .query(let query): sent["assignee"] = ["accountId": try await assignee(matching: query, forTicket: key).accountId]
+        case .me: sent["assignee"] = ["accountId": try await HTTPJSON.preparingWrite(JiraError.self) {
+            try await decode(Account.self, request(path: "/rest/api/3/myself")).accountId
+        }]
+        case .query(let query): sent["assignee"] = ["accountId": try await HTTPJSON.preparingWrite(JiraError.self) {
+            try await assignee(matching: query, forTicket: key).accountId
+        }]
         }
         try await beforeWrite()
         _ = try await send(method: "PUT", path: path,

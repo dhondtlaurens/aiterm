@@ -5,13 +5,16 @@ public struct GitHubConfig: Equatable, Sendable {
     public init(token: String) { self.token = token }
 }
 
-public enum GitHubError: Error, Equatable, LocalizedError {
+public enum GitHubError: HostFailure, Equatable, LocalizedError {
+    /// The preparation failed before a host write was sent; the original sentence is kept.
+    indirect case notSent(GitHubError)
     case unauthorized, forbidden, network(String), badResponse(Int), decoding, repoNotFound(String)
     /// GraphQL answered with an error of its own, in GitHub's words.
     case refused(String)
 
     public var errorDescription: String? {
         switch self {
+        case .notSent(let error): return error.errorDescription
         case .unauthorized: return "Check your GitHub access token in Settings › Integrations."
         // GitHub answers both a token without access to the repository and a spent rate limit with 403.
         case .forbidden: return "GitHub refused: the token can’t read this repository, or the rate limit was reached."
@@ -133,7 +136,7 @@ public struct GitHubClient: Sendable {
         guard let (owner, _) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
         let query = [URLQueryItem(name: "state", value: "open"), URLQueryItem(name: "head", value: "\(owner):\(source)"),
                      URLQueryItem(name: "per_page", value: "100")]
-        guard let encoded = HTTPJSON.url(Self.api + "/repos/\(repo)/pulls", query: query) else { throw GitHubError.decoding }
+        guard let encoded = HTTPJSON.url(Self.api + "/repos/\(repo)/pulls", query: query) else { throw GitHubError.notSent(.decoding) }
         return try await HTTPJSON.decode([PullPayload].self, HTTPJSON.request(encoded, headers: headers), session: session) {
             Self.error(for: $0, notFound: .repoNotFound(repo))
         }.value
@@ -283,7 +286,9 @@ public struct GitHubClient: Sendable {
     /// each of them.
     public func updatePullRequest(repo: String, number: Int, title: String?, body: String?, assignee: String?,
                                   beforeWrite: @Sendable (MergeRequest) async throws -> Void = { _ in }) async throws {
-        let pull = try await get(PullPayload.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
+        let pull = try await HTTPJSON.preparingWrite(GitHubError.self) {
+            try await get(PullPayload.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
+        }
         try await beforeWrite(pull.mergeRequest)
         if title != nil || body != nil {
             struct Edit: Encodable { var title, body: String? }
@@ -310,9 +315,11 @@ public struct GitHubClient: Sendable {
     /// pull request's node id. One that is not a draft is not written to.
     public func markReady(repo: String, number: Int, beforeWrite: @Sendable () async throws -> Void = {}) async throws {
         struct Pull: Decodable { var nodeId: String?, draft: Bool? }
-        let pull = try await get(Pull.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
+        let pull = try await HTTPJSON.preparingWrite(GitHubError.self) {
+            try await get(Pull.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
+        }
         guard pull.draft == true else { return }
-        guard let node = pull.nodeId else { throw GitHubError.decoding }
+        guard let node = pull.nodeId else { throw GitHubError.notSent(.decoding) }
         try await beforeWrite()
         struct Variables: Encodable { var id: String }
         struct Done: Decodable {}
@@ -440,15 +447,17 @@ public struct GitHubClient: Sendable {
     /// `.notFailed`, nothing written. `beforeWrite` gets the pull request as read, right before each rerun.
     public func retryFailedRuns(repo: String, number: Int,
                                 beforeWrite: @Sendable (MergeRequest) async throws -> Void = { _ in }) async throws -> PipelineRetry {
-        let pull = try await get(PullPayload.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
-        guard let sha = pull.head.sha else { throw GitHubError.decoding }
+        let pull = try await HTTPJSON.preparingWrite(GitHubError.self) {
+            try await get(PullPayload.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
+        }
+        guard let sha = pull.head.sha else { throw GitHubError.notSent(.decoding) }
         struct Runs: Decodable {
             struct Run: Decodable { var id: Int, workflowId: Int?, name: String?, event: String?, status: String?, conclusion: String? }
             var workflowRuns: [Run]
         }
-        let runs = try await get(Runs.self, path: "/repos/\(repo)/actions/runs",
+        let runs = try await HTTPJSON.preparingWrite(GitHubError.self) { try await get(Runs.self, path: "/repos/\(repo)/actions/runs",
                                  query: [URLQueryItem(name: "head_sha", value: sha), URLQueryItem(name: "per_page", value: "100")],
-                                 notFound: .repoNotFound(repo)).workflowRuns
+                                 notFound: .repoNotFound(repo)) }.workflowRuns
         // Newest first: the first run seen of each workflow, for each event that ran it (a push and the pull request run the
         // same workflow on the same head apart), is its latest.
         var seen: Set<String> = []
@@ -652,7 +661,7 @@ public struct GitHubClient: Sendable {
 
     /// `notFound` is what a 404 means for the path asked.
     private func api(_ notFound: GitHubError) -> HostAPI {
-        HostAPI(base: Self.api, headers: headers, session: session, malformed: GitHubError.decoding,
+        HostAPI(base: Self.api, headers: headers, session: session, malformed: GitHubError.notSent(.decoding),
                 mapping: { Self.error(for: $0, notFound: notFound) })
     }
 
@@ -772,5 +781,15 @@ private struct GraphQLPageInfo: Decodable {
         guard let invalid else { return endCursor }
         guard let next = endCursor, next != previous, allowEmpty || !next.isEmpty else { throw invalid }
         return next
+    }
+}
+
+public extension GitHubError {
+    var outcomeUnknown: Bool {
+        switch self {
+        case .network, .decoding: return true
+        case .badResponse(let status): return HTTPJSON.Failure.status(status).outcomeUnknown
+        case .unauthorized, .forbidden, .repoNotFound, .refused, .notSent: return false
+        }
     }
 }
