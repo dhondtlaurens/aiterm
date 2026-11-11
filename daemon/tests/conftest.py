@@ -95,8 +95,8 @@ async def make_service(tmp_path, sock_dir):
         arguments = {"hooks": HookServer(on_post=None, port=0), "claude_files": ClaudeSessionFiles(tmp_path / "claude-sessions"),
                      "clock": lambda: 1000, "codex_files": CodexSessionFiles(tmp_path / "codex-sessions"),
                      "operator_runs": tmp_path / "operator-runs", **overrides}
+        arguments.setdefault("test_activity", TestActivityReader(tmp_path / "test-runs", clock=arguments["clock"]))
         built.append(Service(iterm=iterm, rpc=rpc, supervisor=supervisor, **arguments))
-        built[-1].test_activity = TestActivityReader(tmp_path / "test-runs", clock=built[-1].clock)
         return built[-1]
 
     yield make

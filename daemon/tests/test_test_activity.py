@@ -230,3 +230,74 @@ def test_the_reference_writer_records_what_the_reader_reads(tmp_path):
         run.wait(timeout=10)
     activity = reader.read().activities[str(root.resolve())]
     assert activity.state == "completed" and activity.exit_code == 3
+
+
+def test_record_cache_follows_rewrites_with_the_same_size_and_date(tmp_path):
+    folder, root = tmp_path / "runs", tmp_path / "wt"
+    path = record(folder, "1", root, "completed", finished_at=15)
+    reader = TestActivityReader(folder, clock=lambda: 20)
+    assert reader.read().activities[str(root)].suite == "swift"
+    stamp = path.stat()
+    path.write_text(path.read_text().replace('"swift"', '"other"'))
+    os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+    assert path.stat().st_size == stamp.st_size
+    assert reader.read().activities[str(root)].suite == "other"
+
+
+def test_record_cache_stamps_the_opened_symlink_target(tmp_path):
+    folder, root = tmp_path / "runs", tmp_path / "wt"
+    first = record(tmp_path / "first", "1", root, "completed", finished_at=15)
+    second = record(tmp_path / "second", "1", root, "completed", finished_at=15, suite="other")
+    stamp = first.stat()
+    os.utime(second, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+    folder.mkdir()
+    link = folder / "1.json"
+    link.symlink_to(first)
+    reader = TestActivityReader(folder, clock=lambda: 20)
+    assert reader.read().activities[str(root)].suite == "swift"
+    link.unlink()
+    link.symlink_to(second)
+    assert reader.read().activities[str(root)].suite == "other"
+
+
+def test_record_cache_retries_an_unreadable_file_without_a_stamp_change(tmp_path, monkeypatch):
+    folder, root = tmp_path / "runs", tmp_path / "wt"
+    path = record(folder, "1", root, "completed", finished_at=15)
+    reader, original = TestActivityReader(folder, clock=lambda: 20), type(path).open
+
+    def failed(candidate, *args, **kwargs):
+        if candidate == path:
+            raise PermissionError("temporarily unreadable")
+        return original(candidate, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(type(path), "open", failed)
+        assert reader.read().activities == {}
+    assert reader.read().activities[str(root)].state == "completed"
+
+
+def test_old_records_still_report_a_held_lock(tmp_path):
+    folder, root = tmp_path / "runs", tmp_path / "wt"
+    path = record(folder, "1", root, "completed", finished_at=15)
+    fd = hold(path)
+    reader = TestActivityReader(folder, clock=lambda: 1000)
+    try:
+        assert reader.read().activities[str(root)].state == "completed"
+    finally:
+        os.close(fd)
+    assert reader.read().activities == {}
+
+
+def test_empty_activity_resolves_no_session_directories(tmp_path, monkeypatch):
+    registry = SessionRegistry()
+    registry.apply_snapshot([RawSession(str(i), "w", i, "claude", i, "", str(tmp_path), {}) for i in range(5)])
+    resolved, original = [], Path.resolve
+
+    def resolve(path, *args, **kwargs):
+        resolved.append(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    reader = TestActivityReader(tmp_path / "runs")
+    assert reader.apply(registry, reader.read(registry.all())) == []
+    assert resolved == []  # Before: five resolutions, one per session with no activity to place.

@@ -69,7 +69,7 @@ class Service:
                  clock: Callable[[], float], codex_files: CodexSessionFiles,
                  supervisor: ItermSupervisor | None = None, monotonic: Callable[[], float] = time.monotonic,
                  delivery_policy: Callable[[], Mapping[AgentKind, Verdict]] | None = None,
-                 operator_runs: Path | None = None):
+                 operator_runs: Path | None = None, test_activity: TestActivityReader | None = None):
         self.iterm, self.rpc, self.hooks = iterm, rpc, hooks
         # `clock` is the wall clock, in seconds. Fractional: the status engine stamps each hook with
         # it and compares the stamp with a session file's mtime, which a whole second would blur.
@@ -115,7 +115,7 @@ class Service:
         self._last_good_tick = 0
         self.subagent_transcripts = SubagentTranscripts()
         self.background_transcripts = BackgroundTranscripts(clock=clock)
-        self.test_activity = TestActivityReader(clock=clock)
+        self.test_activity = test_activity or TestActivityReader(clock=clock)
         # Each off-loop check's latest run, by name, while its worker thread may still be running: a
         # thread stuck on a hung mount cannot be cancelled, so no second one is started beside it.
         self._checks: dict[str, asyncio.Future[Any]] = {}

@@ -501,7 +501,7 @@ Each box leaves the project working and is one or a few commits.
 - [x] 1b. One rollout cursor with a tail window and exact head fallback; subagent path memo.
   Background offset and prefilter dropped: restore has no byte checkpoint, and skipping pre-marker lines
   changes gap evidence; its first-read byte and parse budgets do not move (record).
-- [ ] 1c. Test activity: injectable directory, stamp cache, age before lock.
+- [x] 1c. Test activity: injectable directory, stamp cache, age before lock.
 - [ ] 1d. Readers own plan and apply; `Service` runs the fixed list; test seams.
 - [ ] 1e. Port and screens modules, strict typing, auth patch at connect.
 - [ ] 1f. Task index, `SessionNotFound`, ruff rules, keyword-only hook fields, test builders, README.

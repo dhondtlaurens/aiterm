@@ -140,8 +140,8 @@ async def counted_tick(svc, monkeypatch, root):
     # One more registry sort for each Codex tab that reports its context.
     ((2, 2, 2, 0), (8, 0, 2, 0)),
     ((6, 6, 6, 0), (12, 0, 2, 0)),
-    # Two opens for each finished test run still in the queue's folder: its record, and its lock.
-    ((2, 2, 2, 20), (8, 40, 2, 0)),
+    # Valid unchanged records are cached; each finished run still needs its kernel lock checked.
+    ((2, 2, 2, 20), (8, 20, 2, 0)),
 ])
 async def test_a_steady_tick_stays_within_its_work_budget(make_service, tmp_path, monkeypatch, shape, ceiling):
     claude, codex, shells, records = shape
