@@ -24,7 +24,7 @@ final class CheckoutMonitor {
         didSet {
             let changed = oldValue.symmetricDifference(missingCheckouts)
             for id in changed { missingRows[id] = missingCheckouts.contains(id) }
-            if !changed.isEmpty { for hook in missingHooks { hook(changed) } }
+            if !changed.isEmpty { missingHooks(changed) }
         }
     }
     /// `missingCheckouts`, observed row by row.
@@ -68,10 +68,10 @@ final class CheckoutMonitor {
     /// The saved workspace a pass reads, and where what it finds for that workspace goes: remotes
     /// to adopt (`onRemotes`), tasks whose checkout is gone (`removals`), the tab titles to send.
     private let workspace: WorkspaceStore
-    @ObservationIgnored private var remotesHooks: [@MainActor ([UUID: WorkspaceScan.Remote]) -> Void] = []
+    @ObservationIgnored private let remotesHooks = HookList<[UUID: WorkspaceScan.Remote]>()
     private let onTitles: @MainActor ([SessionTitle]) async -> Void
-    @ObservationIgnored private var rowsHooks: [@MainActor () -> Void] = []
-    @ObservationIgnored private var missingHooks: [@MainActor (Set<UUID>) -> Void] = []
+    @ObservationIgnored private let rowsHooks = HookList<Void>()
+    @ObservationIgnored private let missingHooks = HookList<Set<UUID>>()
 
     init(live: LiveSessions, scan: @escaping Scanner, pollInterval: Duration = .seconds(2), git: any GitRunning,
          workspace: WorkspaceStore, onTitles: @escaping @MainActor ([SessionTitle]) async -> Void) {
@@ -91,23 +91,26 @@ final class CheckoutMonitor {
     }
 
     /// Adds `hook` to what hears the remotes each pass read, to adopt those that changed.
-    func onRemotes(_ hook: @escaping @MainActor ([UUID: WorkspaceScan.Remote]) -> Void) {
-        remotesHooks.append(hook)
+    @discardableResult
+    func onRemotes(_ hook: @escaping @MainActor ([UUID: WorkspaceScan.Remote]) -> Void) -> HookList<[UUID: WorkspaceScan.Remote]>.Token {
+        remotesHooks.add(hook)
     }
 
     /// Adds `hook` to what hears that a map the sidebar's rows are drawn from — `branchByCwd`,
     /// `projectBranch`, `diffByTask` — changed: once for each pass or call that changed any of them.
-    func onRowsChanged(_ hook: @escaping @MainActor () -> Void) {
-        rowsHooks.append(hook)
+    @discardableResult
+    func onRowsChanged(_ hook: @escaping @MainActor () -> Void) -> HookList<Void>.Token {
+        rowsHooks.add(hook)
     }
 
     /// Adds `hook` to what hears which tasks' worktrees were read missing, or back, since the last time.
-    func onMissingChanged(_ hook: @escaping @MainActor (Set<UUID>) -> Void) {
-        missingHooks.append(hook)
+    @discardableResult
+    func onMissingChanged(_ hook: @escaping @MainActor (Set<UUID>) -> Void) -> HookList<Set<UUID>>.Token {
+        missingHooks.add(hook)
     }
 
     private func rowsChanged() {
-        for hook in rowsHooks { hook() }
+        rowsHooks()
     }
 
     /// Polls the saved checkouts until `stop()`, even when neither the agent nor the daemon sends
@@ -170,10 +173,13 @@ final class CheckoutMonitor {
                     scanner(inputs.cwds, inputs.projects, inputs.tasks, branches, remotes, diffs, defaultBranches)
                 }
                 guard !Task.isCancelled else { return }
-                guard inputs == ScanInputs(workspace: workspace.state, cwds: live.sessions.map(\.effectiveCwd)) else { continue }
+                // Read again only when what the scan read moved; another change to a row leaves its answer as it was.
+                let now = workspace.state
+                guard inputs.scanned == ScanInputs(workspace: now, cwds: live.sessions.map(\.effectiveCwd)).scanned else { continue }
                 let branchesMoved = applyScan(scan)
-                for hook in remotesHooks { hook(scan.remotes) }
-                removals?.forgetRemovedCheckouts(scan.removedTasks)
+                remotesHooks(scan.remotes)
+                // The cleanup is handed each row as it is now, as a pass read again would hand it.
+                removals?.forgetRemovedCheckouts(scan.removedTasks.map { now.task(id: $0.id) ?? $0 })
                 if retainDiffsDuringRemoval(scan) || branchesMoved { rowsChanged() }
                 syncTitles(scan)
                 if !trailingPassOwed { return }
@@ -248,14 +254,28 @@ final class CheckoutMonitor {
 }
 
 /// What a pass reads from the app: the directories of the open tabs and the saved workspace's
-/// projects and tasks. A pass whose inputs differ at its end read a workspace that has since moved.
-private struct ScanInputs: Equatable {
+/// projects and tasks. A pass whose `scanned` part differs at its end read a workspace that has since moved.
+private struct ScanInputs {
     let cwds: [String], projects: [Project], tasks: [TaskItem]
 
     @MainActor init(workspace: AppState, cwds: [String]) {
         self.cwds = cwds
         projects = workspace.projects
         tasks = workspace.tasks
+    }
+
+    /// The fields a scan reads (`WorkspaceScan.run`, `StallGuardedGit.scope`): each tab's directory, each project's id
+    /// and folder, each task's id, project, worktree and base — what its checkout, its removal and its diff are read
+    /// from. A title, a window, a conversation or the Operator's state moving changes no answer of the scan's.
+    var scanned: Scanned {
+        Scanned(cwds: cwds, projects: projects.map { .init(id: $0.id, path: $0.path) },
+                tasks: tasks.map { .init(id: $0.id, projectId: $0.projectId, worktreePath: $0.worktreePath, baseBranch: $0.baseBranch) })
+    }
+
+    struct Scanned: Equatable {
+        struct ProjectFields: Equatable { let id: UUID, path: String }
+        struct TaskFields: Equatable { let id: UUID, projectId: UUID, worktreePath: String, baseBranch: String }
+        let cwds: [String], projects: [ProjectFields], tasks: [TaskFields]
     }
 }
 

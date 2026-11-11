@@ -207,9 +207,20 @@ final class CreationModel<Kind: CreationKind> {
     private var fields: Draft
     /// The prompt as typed. Observed under its own name, and not through `draft`.
     @ObservationIgnored private var prompt: String
-    var query = ""
-    var results: [Item] = []
-    var searchError: String?
+    /// The picker's field: its query, the rows it found and why it failed, searched for a pause after each keystroke.
+    let itemSearch: DebouncedSearch<Item>
+    var query: String {
+        get { itemSearch.query }
+        set { itemSearch.query = newValue }
+    }
+    var results: [Item] {
+        get { itemSearch.results }
+        set { itemSearch.results = newValue }
+    }
+    var searchError: String? {
+        get { itemSearch.error }
+        set { itemSearch.error = newValue }
+    }
     var branches: [String] = [] {
         didSet { kind.branchesChanged(in: self) }
     }
@@ -235,10 +246,7 @@ final class CreationModel<Kind: CreationKind> {
     @ObservationIgnored private var initialCatalogue: (agent: AgentKind, models: [AgentModel], failure: String?)?
     /// Lists the project's branches, and a review's checkouts.
     var git: any GitRunning { context.git }
-    private let searchItems: @MainActor (String) async throws -> [Item]
     private let submit: @MainActor (Draft) async throws -> Void
-    @ObservationIgnored private var searchTask: Task<Void, Never>?
-    @ObservationIgnored private var searchGeneration = 0
     @ObservationIgnored private var catalogueGeneration = 0
     @ObservationIgnored private var resetModel = false
     /// Written while a body reads `worktreeSlug`, so it must not count as a change to the model.
@@ -263,7 +271,7 @@ final class CreationModel<Kind: CreationKind> {
         self.kind = kind; self.project = project; self.fields = fields; self.prompt = draft.promptText
         self.context = context
         self.initialCatalogue = context.initialCatalogue.map { (draft.agent, $0, context.initialCatalogueFailure) }
-        self.searchItems = search; self.submit = submit
+        itemSearch = DebouncedSearch(lookup: search); self.submit = submit
         self.fixer = fixer; self.pipeline = pipeline; self.fixLanded = fixLanded; self.backupKept = backupKept
     }
 
@@ -412,49 +420,19 @@ final class CreationModel<Kind: CreationKind> {
         worktreeIncludes = found
     }
 
-    func cancelSearch() {
-        searchGeneration += 1
-        searchTask?.cancel()
-        searchTask = nil
-    }
+    /// Lets the picker's search go: an answer still to come is dropped.
+    func cancelSearch() { itemSearch.cancel() }
 
     /// The search field's text as it is typed: kept, and searched for after a pause.
-    func setQuery(_ text: String) {
-        query = text
-        scheduleSearch(text: text)
-    }
+    func setQuery(_ text: String) { itemSearch.type(text) }
 
     /// Back to the default list, as clearing a pick does: an empty query, searched at once.
     func reopenSearch() { setQuery("") }
 
-    private func scheduleSearch(text: String) {
-        cancelSearch()
-        searchTask = Task { await search(text: text, debounce: true) }
-    }
-
     /// An answer that arrives after a newer search, or after the search was abandoned, is dropped.
     /// A failure clears the list: rows from an earlier query beside an error about this one would
-    /// read as its answer.
-    func search(text: String, debounce: Bool = false) async {
-        searchGeneration += 1
-        let generation = searchGeneration
-        do {
-            if debounce { try await Task.sleep(for: .milliseconds(250)) }
-            try Task.checkCancellation()
-            let found = try await searchItems(text)
-            guard !Task.isCancelled, generation == searchGeneration else { return }
-            results = found; searchError = nil
-        } catch {
-            guard !Task.isCancelled, generation == searchGeneration else { return }
-            // One source failed and another answered: its rows, and the line saying which failed.
-            if let partial = error as? PartialSearch<Item> {
-                results = partial.items; searchError = partial.message
-                return
-            }
-            results = []
-            searchError = error.localizedDescription
-        }
-    }
+    /// read as its answer. One source failed and another answered: its rows, and the line saying which failed.
+    func search(text: String, debounce: Bool = false) async { await itemSearch.search(text, debounce: debounce) }
 
     /// Stops a create before it starts, saying why in the footer.
     func refuse(_ reason: String) { show(CreationFailure(reason: reason, detail: nil)) }

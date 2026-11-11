@@ -23,8 +23,8 @@ final class SheetCoordinator {
     /// Told when what the slot holds changed: the rows derive the board while its sheet shows.
     @ObservationIgnored var onChange: (@MainActor () -> Void)?
     @ObservationIgnored var onDismiss: (@MainActor () -> Void)?
-    /// New Review's Fix for a project: the controller's `fixPipeline`, which a test replaces with a stub.
-    @ObservationIgnored var fixPipeline: @MainActor (Project) -> FixPipeline
+    /// New Review's Fix for a project: the controller's `fixPipeline`, the banner's too.
+    @ObservationIgnored private let fixPipeline: @MainActor (Project) -> FixPipeline
     /// The preparation on its way to the slot, if any; tests await it.
     @ObservationIgnored private(set) var preparingSheet: Task<Void, Never>?
 
@@ -52,7 +52,8 @@ final class SheetCoordinator {
          jiraSettings: @escaping @Sendable () -> JiraConfig?,
          gitLabSettings: @escaping @Sendable () -> GitLabConfig?,
          gitHubSettings: @escaping @Sendable () -> GitHubConfig?,
-         launcher: TaskLauncher, workflow: TaskWorkflow, defaults: UserDefaults) {
+         launcher: TaskLauncher, workflow: TaskWorkflow, defaults: UserDefaults,
+         fixPipeline: @escaping @MainActor (Project) -> FixPipeline) {
         self.defaults = defaults
         self.workspace = workspace
         self.checkouts = checkouts
@@ -64,7 +65,7 @@ final class SheetCoordinator {
         self.gitHubSettings = gitHubSettings
         self.launcher = launcher
         self.workflow = workflow
-        fixPipeline = { [agents] in agents.fixPipeline(for: $0, git: git, workflow: workflow) }
+        self.fixPipeline = fixPipeline
     }
 
     private var canChangeWorkspace: Bool { workspace.canChangeWorkspace }

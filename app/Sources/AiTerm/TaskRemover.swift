@@ -50,7 +50,7 @@ final class TaskRemover: CheckoutRemovals {
     private let checkouts: CheckoutMonitor
     private let live: LiveSessions
     private let daemon: @MainActor () -> (any DaemonCommands)?
-    private var removalsHooks: [@MainActor () -> Void] = []
+    private let removalsHooks = HookList<Void>()
 
     /// Whether a task's checkout — at `projectPath`'s project, if it still has one — is gone for good.
     typealias ConfirmsRemoval = @Sendable (_ task: TaskItem, _ projectPath: String?) -> Bool
@@ -81,8 +81,9 @@ final class TaskRemover: CheckoutRemovals {
 
     /// Adds `hook` to what hears that a row's removal changed: a task on its way out is not counted
     /// on the Dock.
-    func onRemovalsChanged(_ hook: @escaping @MainActor () -> Void) {
-        removalsHooks.append(hook)
+    @discardableResult
+    func onRemovalsChanged(_ hook: @escaping @MainActor () -> Void) -> HookList<Void>.Token {
+        removalsHooks.add(hook)
     }
 
     /// The task's removal, as its row draws it.
@@ -143,7 +144,7 @@ final class TaskRemover: CheckoutRemovals {
         guard removals[id] != now else { return }
         removals[id] = now
         rows[id] = now
-        for hook in removalsHooks { hook() }
+        removalsHooks()
     }
 
     // -- the person's Remove ------------------------------------------------------------
@@ -266,12 +267,10 @@ final class TaskRemover: CheckoutRemovals {
         }
     }
 
-    /// Whether the task's worktree folder is there, asked on a thread of its own: a mount that stopped answering stalls
-    /// that thread, not the app or the shared pool.
+    /// Whether the task's worktree folder is there (`FolderCheck`).
     private func hasWorktreeFolder(_ task: TaskItem) async -> Bool {
         guard task.hasCheckout else { return false }
-        let path = task.worktreePath
-        return await ThreadWork.run { FileManager.default.fileExists(atPath: path) }
+        return await FolderCheck.exists(task.worktreePath)
     }
 
     /// The banner's Keep: the removal that stopped with the branch kept finishes, the branch left.

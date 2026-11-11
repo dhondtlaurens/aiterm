@@ -9,11 +9,23 @@ import AiTermCore
 /// connection is tested. Keychain writes go to a `MemorySecretStore`; the testers are stand-ins.
 @MainActor
 @Suite(.serialized) struct IntegrationSettingsModelTests {
-    @Test func savingUnchangedCredentialsWritesNoSecrets() {
+    @Test func savingUnchangedCredentialsWritesNoSecrets() async {
         let store = CountingSecretStore(wrapping: MemorySecretStore(), allowing: 0)
         let settings = model(jira: Self.jira, gitLab: Self.gitLab, gitHub: Self.gitHub, store: store)
-        #expect(settings.save() == nil)
+        #expect(await settings.save() == nil)
         #expect(store.writes == 0)
+    }
+
+    /// Save writes the Keychain off the main actor (phase 7): every write and undo reaches the store on a thread of its
+    /// own, and what Save notes after them is the same.
+    @Test func theKeychainIsWrittenOffTheMainActor() async {
+        let store = ThreadRecordingSecretStore()
+        let m = model(store: store)
+        m.jira.fields = JiraFields(Self.jira)
+        m.gitHub.fields = GitHubFields(Self.gitHub)
+        #expect(await m.save() == nil)
+        #expect(store.writesOnMain == [false, false], "jira.token and github.token, neither on the main thread")
+        #expect(GitHubSettings.load(store: store) == Self.gitHub)
     }
 
     static let site = URL(string: "https://example.atlassian.net")!
@@ -45,17 +57,17 @@ import AiTermCore
                                  testGitHub: { testers.tested($0); return "octocat" })
     }
 
-    @Test func gitHubSavesAndDisconnectsItsToken() {
+    @Test func gitHubSavesAndDisconnectsItsToken() async {
         let store = MemorySecretStore(), defaults = ScratchDefaults.make()
         let m = model(store: store, defaults: defaults)
         m.gitHub.fields = GitHubFields(Self.gitHub)
-        #expect(m.save() == nil)
+        #expect(await m.save() == nil)
         #expect(GitHubSettings.load(store: store) == Self.gitHub)
 
         let reopened = model(gitHub: Self.gitHub, store: store, defaults: defaults)
         #expect(reopened.gitHub.canDisconnect)
         reopened.gitHub.disconnect()
-        #expect(reopened.save() == nil)
+        #expect(await reopened.save() == nil)
         #expect(GitHubSettings.load(store: store) == nil)
     }
 
@@ -70,53 +82,53 @@ import AiTermCore
         #expect(testers.gitHubCalls.last == GitHubConfig(token: "gh-other"))
     }
 
-    @Test func aBlankGitHubCardSavesNothing() {
+    @Test func aBlankGitHubCardSavesNothing() async {
         let store = MemorySecretStore()
         let m = model(store: store)
         m.gitHub.fields.token = "   "
-        #expect(m.save() == nil)
+        #expect(await m.save() == nil)
         #expect(GitHubSettings.load(store: store) == nil)
     }
 
-    @Test func blankFieldsSaveNothing() {
+    @Test func blankFieldsSaveNothing() async {
         let store = MemorySecretStore(), defaults = ScratchDefaults.make()
         let m = model(store: store, defaults: defaults)
-        #expect(m.save() == nil)
+        #expect(await m.save() == nil)
         #expect(JiraSettings.load(store: store, defaults: defaults) == nil)
         #expect(GitLabSettings.load(store: store, defaults: defaults) == nil)
     }
 
-    @Test func saveStoresEachTypedServiceBehindTheSecretStore() {
+    @Test func saveStoresEachTypedServiceBehindTheSecretStore() async {
         let store = MemorySecretStore(), defaults = ScratchDefaults.make()
         let m = model(store: store, defaults: defaults)
         m.jira.fields = JiraFields(Self.jira)
         m.gitLab.fields = GitLabFields(Self.gitLab)
-        #expect(m.save() == nil)
+        #expect(await m.save() == nil)
         #expect(JiraSettings.load(store: store, defaults: defaults) == Self.jira)
         #expect(GitLabSettings.load(store: store, defaults: defaults) == Self.gitLab)
     }
 
     /// A URL without a host is refused before anything is stored — neither service is half-saved.
-    @Test func anInvalidURLIsRefusedAndNothingIsStored() {
+    @Test func anInvalidURLIsRefusedAndNothingIsStored() async {
         let store = MemorySecretStore(), defaults = ScratchDefaults.make()
         let m = model(store: store, defaults: defaults)
         m.jira.fields.site = "not a url"
         m.jira.fields.email = "me@example.com"
-        #expect(m.save() == "Enter a valid Jira site URL")
+        #expect(await m.save() == "Enter a valid Jira site URL")
         m.jira.fields = JiraFields(nil)
         m.gitLab.fields.token = "gl-token"
         m.gitLab.fields.host = "gitlab"
-        #expect(m.save() == "Enter a valid GitLab host URL")
+        #expect(await m.save() == "Enter a valid GitLab host URL")
         #expect(JiraSettings.load(store: store, defaults: defaults) == nil)
         #expect(GitLabSettings.load(store: store, defaults: defaults) == nil)
     }
 
-    @Test func aRefusingKeychainIsSaid() {
+    @Test func aRefusingKeychainIsSaid() async {
         let m = model(store: RefusingSecretStore())
         m.gitLab.fields = GitLabFields(Self.gitLab)
-        #expect(m.save() == "Couldn’t save the GitLab token to the Keychain")
+        #expect(await m.save() == "Couldn’t save the GitLab token to the Keychain")
         m.jira.fields = JiraFields(Self.jira)
-        #expect(m.save() == "Couldn’t save the API token to the Keychain")
+        #expect(await m.save() == "Couldn’t save the API token to the Keychain")
     }
 
     /// Opening tests only the services with enough filled in, and each answer lands on its card.
@@ -175,14 +187,14 @@ import AiTermCore
     }
 
     /// Save removes the saved site or host and the Keychain token of each disconnected service.
-    @Test func saveRemovesADisconnectedService() {
+    @Test func saveRemovesADisconnectedService() async {
         let store = MemorySecretStore(), defaults = ScratchDefaults.make()
         JiraSettings.save(Self.jira, store: store, defaults: defaults)
         GitLabSettings.save(Self.gitLab, store: store, defaults: defaults)
         let m = model(jira: Self.jira, gitLab: Self.gitLab, store: store, defaults: defaults)
         m.jira.disconnect()
         m.gitLab.disconnect()
-        #expect(m.save() == nil)
+        #expect(await m.save() == nil)
         #expect(JiraSettings.load(store: store, defaults: defaults) == nil)
         #expect(GitLabSettings.load(store: store, defaults: defaults) == nil)
         #expect(store.get("jira.token") == nil)
@@ -201,61 +213,61 @@ import AiTermCore
     }
 
     /// New credentials typed in after Disconnect are what Save stores.
-    @Test func credentialsTypedAfterDisconnectAreSaved() {
+    @Test func credentialsTypedAfterDisconnectAreSaved() async {
         let store = MemorySecretStore(), defaults = ScratchDefaults.make()
         JiraSettings.save(Self.jira, store: store, defaults: defaults)
         let m = model(jira: Self.jira, store: store, defaults: defaults)
         m.jira.disconnect()
         let other = JiraConfig(siteURL: URL(string: "https://other.atlassian.net")!, email: "you@example.com", token: "t2")
         m.jira.fields = JiraFields(other)
-        #expect(m.save() == nil)
+        #expect(await m.save() == nil)
         #expect(JiraSettings.load(store: store, defaults: defaults) == other)
     }
 
-    @Test func aRefusingKeychainIsSaidOnRemovalToo() {
+    @Test func aRefusingKeychainIsSaidOnRemovalToo() async {
         let m = model(gitLab: Self.gitLab, store: RefusingSecretStore())
         m.gitLab.disconnect()
-        #expect(m.save() == "Couldn’t remove the GitLab token from the Keychain")
+        #expect(await m.save() == "Couldn’t remove the GitLab token from the Keychain")
     }
 
     /// A card that cannot save stops the whole Save before anything is written: a Disconnect on
     /// Jira, and a new GitLab host mistyped, leave Jira's credentials where they were, so Cancel
     /// keeps everything.
-    @Test func aFailingLaterCardLeavesEarlierCredentialsUntouched() {
+    @Test func aFailingLaterCardLeavesEarlierCredentialsUntouched() async {
         let store = MemorySecretStore(), defaults = ScratchDefaults.make()
         JiraSettings.save(Self.jira, store: store, defaults: defaults)
         let m = model(jira: Self.jira, store: store, defaults: defaults)
         m.jira.disconnect()
         m.gitLab.fields.host = "gitlab"
         m.gitLab.fields.token = "gl-token"
-        #expect(m.save() == "Enter a valid GitLab host URL")
+        #expect(await m.save() == "Enter a valid GitLab host URL")
         #expect(JiraSettings.load(store: store, defaults: defaults) == Self.jira)
         #expect(GitLabSettings.load(store: store, defaults: defaults) == nil)
 
         let other = JiraConfig(siteURL: URL(string: "https://other.atlassian.net")!, email: "you@example.com", token: "t2")
         m.jira.fields = JiraFields(other)
-        #expect(m.save() == "Enter a valid GitLab host URL")
+        #expect(await m.save() == "Enter a valid GitLab host URL")
         #expect(JiraSettings.load(store: store, defaults: defaults) == Self.jira)
     }
 
     /// Once the failing card is fixed, the same Save writes everything it held back.
-    @Test func fixingTheFailingCardLetsTheWholeSaveThrough() {
+    @Test func fixingTheFailingCardLetsTheWholeSaveThrough() async {
         let store = MemorySecretStore(), defaults = ScratchDefaults.make()
         JiraSettings.save(Self.jira, store: store, defaults: defaults)
         let m = model(jira: Self.jira, store: store, defaults: defaults)
         m.jira.disconnect()
         m.gitLab.fields.host = "gitlab"
         m.gitLab.fields.token = "gl-token"
-        #expect(m.save() != nil)
+        #expect(await m.save() != nil)
         m.gitLab.fields = GitLabFields(Self.gitLab)
-        #expect(m.save() == nil)
+        #expect(await m.save() == nil)
         #expect(JiraSettings.load(store: store, defaults: defaults) == nil)
         #expect(GitLabSettings.load(store: store, defaults: defaults) == Self.gitLab)
     }
 
     /// A Keychain that refuses a later card's write puts back what Save had already written, and
     /// the model's own record of what is saved stays as it was.
-    @Test func aRefusedWritePutsBackTheEarlierWritesOfThisSave() {
+    @Test func aRefusedWritePutsBackTheEarlierWritesOfThisSave() async {
         let memory = MemorySecretStore(), defaults = ScratchDefaults.make()
         JiraSettings.save(Self.jira, store: memory, defaults: defaults)
         let store = RefusingKeySecretStore(wrapping: memory, refusing: "gitlab.token")
@@ -264,28 +276,28 @@ import AiTermCore
         m.jira.disconnect()
         m.gitLab.fields = GitLabFields(Self.gitLab)
         m.gitHub.fields = GitHubFields(Self.gitHub)
-        #expect(m.save() == "Couldn’t save the GitLab token to the Keychain")
+        #expect(await m.save() == "Couldn’t save the GitLab token to the Keychain")
         #expect(JiraSettings.load(store: memory, defaults: defaults) == Self.jira)
         #expect(GitLabSettings.load(store: memory, defaults: defaults) == nil)
         #expect(GitHubSettings.load(store: memory) == nil)
 
         // A second Save, with the Keychain willing, still sees Jira as saved and stores the rest.
         store.refused = nil
-        #expect(m.save() == nil)
+        #expect(await m.save() == nil)
         #expect(JiraSettings.load(store: memory, defaults: defaults) == nil)
         #expect(GitLabSettings.load(store: memory, defaults: defaults) == Self.gitLab)
         #expect(GitHubSettings.load(store: memory) == Self.gitHub)
     }
 
     /// An earlier card's write that did land is undone when a later one is refused.
-    @Test func anEarlierNewConfigIsUndoneWhenALaterWriteIsRefused() {
+    @Test func anEarlierNewConfigIsUndoneWhenALaterWriteIsRefused() async {
         let memory = MemorySecretStore(), defaults = ScratchDefaults.make()
         let store = RefusingKeySecretStore(wrapping: memory, refusing: "github.token")
         let m = model(store: store, defaults: defaults)
         m.jira.fields = JiraFields(Self.jira)
         m.gitLab.fields = GitLabFields(Self.gitLab)
         m.gitHub.fields = GitHubFields(Self.gitHub)
-        #expect(m.save() == "Couldn’t save the GitHub token to the Keychain")
+        #expect(await m.save() == "Couldn’t save the GitHub token to the Keychain")
         #expect(JiraSettings.load(store: memory, defaults: defaults) == nil)
         #expect(GitLabSettings.load(store: memory, defaults: defaults) == nil)
         #expect(memory.get("jira.token") == nil)
@@ -294,7 +306,7 @@ import AiTermCore
 
     /// A replaced config is put back as it was, not removed: Jira saved as A and typed in as B, then
     /// GitLab refused, leaves A in the Keychain and the defaults.
-    @Test func aReplacedConfigIsPutBackWhenALaterWriteIsRefused() {
+    @Test func aReplacedConfigIsPutBackWhenALaterWriteIsRefused() async {
         let memory = MemorySecretStore(), defaults = ScratchDefaults.make()
         JiraSettings.save(Self.jira, store: memory, defaults: defaults)
         let store = RefusingKeySecretStore(wrapping: memory, refusing: "gitlab.token")
@@ -302,7 +314,7 @@ import AiTermCore
         let other = JiraConfig(siteURL: URL(string: "https://other.atlassian.net")!, email: "you@example.com", token: "t2")
         m.jira.fields = JiraFields(other)
         m.gitLab.fields = GitLabFields(Self.gitLab)
-        #expect(m.save() == "Couldn’t save the GitLab token to the Keychain")
+        #expect(await m.save() == "Couldn’t save the GitLab token to the Keychain")
         #expect(JiraSettings.load(store: memory, defaults: defaults) == Self.jira)
         #expect(memory.get("jira.token") == Self.jira.token)
         #expect(defaults.string(forKey: "jira.site") == Self.site.absoluteString)
@@ -310,7 +322,7 @@ import AiTermCore
 
     /// A Save that fails — a card that cannot save, or a write the Keychain refuses — leaves what
     /// Settings opens on next as it was: the record of each saved service's last test.
-    @Test func aFailedSaveLeavesTheTestRecordUntouched() {
+    @Test func aFailedSaveLeavesTheTestRecordUntouched() async {
         let memory = MemorySecretStore(), defaults = ScratchDefaults.make()
         JiraSettings.save(Self.jira, store: memory, defaults: defaults)
         let store = RefusingKeySecretStore(wrapping: memory, refusing: "gitlab.token")
@@ -320,31 +332,31 @@ import AiTermCore
         m.jira.disconnect()
         m.gitLab.fields.host = "gitlab"
         m.gitLab.fields.token = "gl-token"
-        #expect(m.save() == "Enter a valid GitLab host URL")
+        #expect(await m.save() == "Enter a valid GitLab host URL")
         #expect(record.jiraFailed && !record.gitLabFailed)
 
         m.gitLab.fields = GitLabFields(Self.gitLab)
-        #expect(m.save() == "Couldn’t save the GitLab token to the Keychain")
+        #expect(await m.save() == "Couldn’t save the GitLab token to the Keychain")
         #expect(record.jiraFailed && !record.gitLabFailed, "a removed Jira would have cleared its flag")
     }
 
     /// Putting back an earlier write can itself be refused; the footer then says which service
     /// was left changed rather than only what stopped the Save.
-    @Test func anUndoTheKeychainRefusesIsSaid() {
+    @Test func anUndoTheKeychainRefusesIsSaid() async {
         let memory = MemorySecretStore(), defaults = ScratchDefaults.make()
         // Jira's token lands; every write after it — GitLab's, then Jira's undo — is refused.
         let store = CountingSecretStore(wrapping: memory, allowing: 1)
         let m = model(store: store, defaults: defaults)
         m.jira.fields = JiraFields(Self.jira)
         m.gitLab.fields = GitLabFields(Self.gitLab)
-        #expect(m.save() == "Couldn’t save the GitLab token to the Keychain and couldn’t put back the Jira settings")
+        #expect(await m.save() == "Couldn’t save the GitLab token to the Keychain and couldn’t put back the Jira settings")
 
         // Two earlier writes left changed are both named.
         let both = model(store: CountingSecretStore(wrapping: MemorySecretStore(), allowing: 2), defaults: ScratchDefaults.make())
         both.jira.fields = JiraFields(Self.jira)
         both.gitLab.fields = GitLabFields(Self.gitLab)
         both.gitHub.fields = GitHubFields(Self.gitHub)
-        #expect(both.save() == "Couldn’t save the GitHub token to the Keychain and couldn’t put back the Jira and GitLab settings")
+        #expect(await both.save() == "Couldn’t save the GitHub token to the Keychain and couldn’t put back the Jira and GitLab settings")
     }
 
     /// A saved service's test answer is remembered for the next opening; a test of fields not yet
@@ -367,15 +379,15 @@ import AiTermCore
         unsaved.jira.runTest()
         await eventually { unsaved.jira.test != .running }
         #expect(!record.jiraFailed, "those fields were never saved")
-        #expect(unsaved.save() == nil)
+        #expect(await unsaved.save() == nil)
         #expect(record.jiraFailed, "saved now, and their last test failed")
 
         unsaved.jira.disconnect()
-        #expect(unsaved.save() == nil)
+        #expect(await unsaved.save() == nil)
         #expect(!record.jiraFailed, "a removed service has no last test")
     }
 
-    @Test func aURLWithoutAHostFailsItsTestAtOnce() {
+    @Test func aURLWithoutAHostFailsItsTestAtOnce() async {
         let m = model()
         m.jira.fields.site = "nope"
         m.jira.runTest()
@@ -419,5 +431,20 @@ private final class CountingSecretStore: SecretStore {
         guard remaining > 0 else { return false }
         remaining -= 1
         return wrapped.set(key, value)
+    }
+}
+
+/// A store that notes, for each write, whether it came on the main thread.
+private final class ThreadRecordingSecretStore: SecretStore, @unchecked Sendable {
+    private let wrapped = MemorySecretStore()
+    private let lock = NSLock()
+    private var onMain: [Bool] = []
+    var writesOnMain: [Bool] { lock.withLock { onMain } }
+    func get(_ key: String) -> String? { lock.withLock { wrapped.get(key) } }
+    func set(_ key: String, _ value: String?) -> Bool {
+        lock.withLock {
+            onMain.append(Thread.isMainThread)
+            return wrapped.set(key, value)
+        }
     }
 }

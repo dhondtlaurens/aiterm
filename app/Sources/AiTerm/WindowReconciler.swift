@@ -87,7 +87,7 @@ final class WindowReconciler {
         // Retries the checkout cleanup that waited for a daemon to close a window with.
         helper.onAttach { [weak checkouts] in checkouts?.refresh() }
         focus.onWindowGone { [weak self] in self?.handleWindowClosed($0) }
-        focus.onChoosingOwedRow { [weak self] in self?.choose($0) }
+        focus.setRestoreOwedRow { [weak self] in self?.choose($0) }
         // Work ending on a row — a removal kept, a restore done — can leave it owed and free.
         work.onChange { [weak self] _ in self?.pass() }
         // A worktree read missing, or back: a task whose restore found it gone has been read again.
@@ -203,7 +203,7 @@ final class WindowReconciler {
             // nothing left to open its window in.
             let awaitingRetry = state.tasks.map(\.id).filter { remover.removals[$0]?.awaitsRetry == true }
             let waiting = triage.held.union(questioned).union(restoring.keys).union(failed).union(awaitingRetry)
-                .union(worktreeGone).union(rows.filter { isBusy($0) || checkouts.isMissing($0) })
+                .union(worktreeGone).union(rows.filter { isBusy($0) || checkouts.missingCheckouts.contains($0) })
             let lettingGo = Set(state.tasks.map(\.id).filter { work.operation(onTask: $0)?.letsWindowGo == true })
             let settled = workspace.canChangeWorkspace && daemon() != nil && triage.isQuiet(at: now())
             for step in state.windowPlan(sessions: live.sessions, settled: settled, due: due, waiting: waiting, lettingGo: lettingGo) {
@@ -291,7 +291,7 @@ final class WindowReconciler {
             guard let path = state.task(id: id)?.worktreePath else { return }
             // The checkout monitor reads a worktree gone only at its next pass: one gone before then has
             // nothing to open in, and waits for that pass, asked for now, to say so — not failed.
-            guard await BackgroundWork.run({ FileManager.default.fileExists(atPath: path) }) else {
+            guard await FolderCheck.exists(path) else {
                 worktreeGone.insert(id)
                 checkouts.refresh()
                 return

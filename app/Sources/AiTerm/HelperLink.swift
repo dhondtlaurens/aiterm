@@ -34,8 +34,8 @@ final class HelperLink {
     private let preferences: InterfacePreferences
     /// Who hears the events, and of a daemon attaching: the owners built after the link, which
     /// add themselves (`onEvent`, `onAttach`).
-    @ObservationIgnored private var eventHooks: [@MainActor (DaemonEvent) -> Void] = []
-    @ObservationIgnored private var attachHooks: [@MainActor () -> Void] = []
+    @ObservationIgnored private let eventHooks = HookList<DaemonEvent>()
+    @ObservationIgnored private let attachHooks = HookList<Void>()
     /// Where a request that failed with no caller waiting to say so is reported.
     private let notices: Notices
     private let findPython: @Sendable () -> URL?
@@ -57,13 +57,15 @@ final class HelperLink {
     }
 
     /// Adds `hook` to what hears every event the connection delivers, once the link has taken its own.
-    func onEvent(_ hook: @escaping @MainActor (DaemonEvent) -> Void) {
-        eventHooks.append(hook)
+    @discardableResult
+    func onEvent(_ hook: @escaping @MainActor (DaemonEvent) -> Void) -> HookList<DaemonEvent>.Token {
+        eventHooks.add(hook)
     }
 
     /// Adds `hook` to what hears that a daemon attached.
-    func onAttach(_ hook: @escaping @MainActor () -> Void) {
-        attachHooks.append(hook)
+    @discardableResult
+    func onAttach(_ hook: @escaping @MainActor () -> Void) -> HookList<Void>.Token {
+        attachHooks.add(hook)
     }
 
     /// Finds Python — a login shell costing the better part of a second — and starts the helper
@@ -112,7 +114,7 @@ final class HelperLink {
         // The iTerm2 background waits for the attach snapshot: the daemon can apply it only with
         // iTerm2 connected, and says so there — or later, with `.itermConnected`.
         awaitingAttachSnapshot = client != nil
-        if client != nil { for hook in attachHooks { hook() } }
+        if client != nil { attachHooks() }
     }
 
     private func supervisorChanged(_ st: DaemonSupervisor.State) {
@@ -152,7 +154,7 @@ final class HelperLink {
             sendItermBackground()
         default: break
         }
-        for hook in eventHooks { hook(event) }
+        eventHooks(event)
     }
 
     /// Settings' test of the iTerm2 connection. A fresh snapshot comes back through the event

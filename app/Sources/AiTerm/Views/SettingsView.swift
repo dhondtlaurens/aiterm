@@ -88,6 +88,10 @@ struct SettingsView: View {
     private var badgeDetails: BadgeDetails { get { _badgeDetails.wrappedValue } nonmutating set { _badgeDetails.wrappedValue = newValue } }
     var _interfaceSize: State<InterfaceSize>
     private var interfaceSize: InterfaceSize { get { _interfaceSize.wrappedValue } nonmutating set { _interfaceSize.wrappedValue = newValue } }
+    /// A Save whose Keychain writes are under way: Save and Cancel wait for it, as they did while the writes held the
+    /// main actor.
+    private var _saving = State<Bool>(initialValue: false)
+    private var saving: Bool { get { _saving.wrappedValue } nonmutating set { _saving.wrappedValue = newValue } }
     private var _result = State<String?>(initialValue: nil)
     private var result: String? { get { _result.wrappedValue } nonmutating set { _result.wrappedValue = newValue } }
     private var _itermEnvironment = State<ItermEnvironment?>(initialValue: nil)
@@ -148,8 +152,8 @@ struct SettingsView: View {
         } content: {
             settingsContent(scroll)
         } footer: {
-            SheetFooter(primary: "Save", closeList: closeOpenList, cancel: { cancel(); dismiss.afterThisEvent() },
-                        submit: { if save() { dismiss.afterThisEvent() } }) {
+            SheetFooter(primary: "Save", closeList: closeOpenList, cancel: { guard !saving else { return }; cancel(); dismiss.afterThisEvent() },
+                        submit: submit) {
                 if let result { Text(result).font(Typography.caption).foregroundStyle(Palette.muted).lineLimit(2) }
             }
         }
@@ -264,12 +268,31 @@ struct SettingsView: View {
     /// Jira, GitLab and GitHub are optional. Validate them before committing the Operator's profile and
     /// harness defaults so a failed save can still be cancelled without changing the models used by
     /// new tasks or the next broadcast.
-    private func save() -> Bool {
-        if let failure = integrations.save() { tab = .integrations; result = failure; return false }
+    private func saved(_ failure: String?) -> Bool {
+        if let failure { tab = .integrations; result = failure; return false }
         saveInterface()
         operatorSettings?.save()
         harnessModel.save()
         return true
+    }
+
+    /// Save's button and ⌘↩: the sheet closes once everything is saved, and stays on a failure, which the footer says.
+    /// With nothing for the Keychain, as before, all of it within the event; with a token to store or remove, once the
+    /// writes made off the main actor are done.
+    private func submit() {
+        guard !saving else { return }
+        switch integrations.plan() {
+        case .refused(let failure):
+            _ = saved(failure)
+        case .writes(let writes) where writes.isEmpty:
+            if saved(nil) { dismiss.afterThisEvent() }
+        case .writes(let writes):
+            saving = true
+            Task {
+                if saved(await integrations.save(writes)) { dismiss.afterThisEvent() }
+                saving = false
+            }
+        }
     }
 
     /// Sidebar size is the one preference applied before Save: the sidebar sits behind the sheet,

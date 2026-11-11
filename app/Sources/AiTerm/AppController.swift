@@ -76,9 +76,9 @@ final class AppController {
     /// Opens a row's context menu from the keyboard (`RowMenuAnchor`). A test records the call
     /// instead: the menu tracks modally, and ending that stopped a test host's run loop.
     @ObservationIgnored var openRowMenu: @MainActor (UUID) -> Void = { RowMenuAnchor.openMenu(for: $0) }
-    /// What the banner's Fix runs for a project: the live pipeline — a clone, the agent, AiTerm's
-    /// landing — which a test replaces with a stub, as it does `openRowMenu`.
-    @ObservationIgnored var fixPipeline: @MainActor (Project) -> FixPipeline
+    /// What the banner's and New Review's Fix run for a project: the live pipeline — a clone, the agent, AiTerm's
+    /// landing — unless the ports name one (`AppPorts.fixPipeline`), as a test's stub does.
+    let fixPipeline: @MainActor (Project) -> FixPipeline
     let git: any GitRunning
     /// Writes the Dock tile's badge. Only the app has a Dock tile to write, so the default is none.
     private let setBadge: @MainActor (String?) -> Void
@@ -98,52 +98,21 @@ final class AppController {
     let operatorController: OperatorController
     @ObservationIgnored private var agentProbe: Task<Void, Never>?
 
-    /// Nothing here has a default: every dependency that reaches outside the process — the state
-    /// file, the Keychain, a login shell, the person's home, the modal alerts — is named by whoever
-    /// builds a controller. The app builds one with `live()`, the snapshots with `live` too and a few
-    /// of its own, and a test with the convenience initializer in its target, whose defaults touch
-    /// none of them. `peekDelay` is `RowFocus`'s; a test passes none, and awaits the peek instead.
-    /// `backpackPorts` are everything Backpack Mode touches — `sudo pmset`, Wi-Fi, the battery,
-    /// Location, the lid — and `backpackSecrets` where it keeps the hotspot's password;
-    /// `openLocationSettings` is where its Allow… sends the person once macOS will not ask.
-    /// `machineSensor` reads the Mac's load for the footer; the battery is `backpackPorts.power`.
-    /// `checkoutPollInterval` is the pause between the checkout monitor's passes; `toastLifetime` is
-    /// how long a completion toast stays up; `closedWindowHold` and `now` are how long, and against
-    /// what clock, a closed task window is held before Remove's question (`ClosedWindowTriage`);
-    /// `bringForward` brings AiTerm forward for it; `launchIterm` starts iTerm2 when AiTerm starts
-    /// while `itermRunning` says it is not, and when a row is chosen while it is away.
-    /// `confirmsRemoval` is the last look at a checkout the monitor found gone (`TaskRemover`).
-    /// `operatorPorts` are what the operators reach: run folders, the agents' home, notifications. Nil is the app's own
-    /// (`OperatorPorts.live`), from `harnessHome`, `git`, `jiraSettings` and Settings › Agents.
-    init(store: StateStore,
-         preferences: InterfacePreferences,
-         harnessHome: URL,
-         claudeConfig: ClaudeConfig = ClaudeConfig(),
-         bundledResourcesURL: URL?,
-         locateAgents: @escaping @Sendable () -> Set<AgentKind>?,
-         findPython: @escaping @Sendable () -> URL?,
-         jiraSettings: @escaping @Sendable () -> JiraConfig?,
-         gitLabSettings: @escaping @Sendable () -> GitLabConfig?,
-         gitHubSettings: @escaping @Sendable () -> GitHubConfig?,
-         prompter: Prompter,
-         setBadge: @escaping @MainActor (String?) -> Void,
-         activateIterm: @escaping @MainActor () -> Void,
-         launchIterm: @escaping @MainActor () -> Void,
-         itermRunning: @escaping @MainActor () -> Bool,
-         bringForward: @escaping @MainActor () -> Void,
-         backpackPorts: BackpackPorts,
-         backpackSecrets: any SecretStore,
-         openLocationSettings: @escaping @MainActor () -> Void,
-         machineSensor: any MachineSensor,
-         peekDelay: Duration,
-         checkoutPollInterval: Duration,
-         toastLifetime: Duration,
-         closedWindowHold: Duration,
-         now: @escaping @MainActor () -> ContinuousClock.Instant,
-         git: any GitRunning,
-         scan: @escaping CheckoutMonitor.Scanner,
-         confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval,
-         operatorPorts: OperatorPorts?) {
+    /// Nothing here has a default: every dependency that reaches outside the process is one of `ports`, named by whoever
+    /// builds a controller (`AppPorts`), and every wait one of `timings` (`AppTimings`). The app builds one with `live()`,
+    /// the snapshots with `live` too and a few of their own, and a test with the scratch ports in its target, which touch
+    /// none of them.
+    init(preferences: InterfacePreferences, ports: AppPorts, timings: AppTimings) {
+        let store = ports.store, harnessHome = ports.harnessHome, claudeConfig = ports.claudeConfig
+        let bundledResourcesURL = ports.bundledResourcesURL, locateAgents = ports.locateAgents, findPython = ports.findPython
+        let jiraSettings = ports.jiraSettings, gitLabSettings = ports.gitLabSettings, gitHubSettings = ports.gitHubSettings
+        let prompter = ports.prompter, setBadge = ports.setBadge, activateIterm = ports.activateIterm
+        let launchIterm = ports.launchIterm, itermRunning = ports.itermRunning, bringForward = ports.bringForward
+        let backpackPorts = ports.backpackPorts, backpackSecrets = ports.backpackSecrets
+        let openLocationSettings = ports.openLocationSettings, machineSensor = ports.machineSensor, git = ports.git
+        let scan = ports.scan, confirmsRemoval = ports.confirmsRemoval
+        let peekDelay = timings.peekDelay, checkoutPollInterval = timings.checkoutPollInterval
+        let toastLifetime = timings.toastLifetime, closedWindowHold = timings.closedWindowHold, now = timings.now
         let workspace = WorkspaceStore(file: store), work = WorkInFlight(), workflow = TaskWorkflow(git: git)
         let notices = Notices(toastLifetime: toastLifetime,
                               isStale: { [weak workspace] issue in workspace.map { issue.isStale(in: $0.state) } ?? false })
@@ -196,7 +165,7 @@ final class AppController {
                                    notices: notices, daemon: daemon, now: now, closeHold: closedWindowHold, bringForward: bringForward, launchIterm: launchIterm)
         // The agents a task may run, their model lists and the profile a broadcast freezes are Settings › Agents', unless
         // the caller made its own ports.
-        let operatorPorts = operatorPorts ?? .live(home: harnessHome, git: git, jiraSettings: jiraSettings, claudeConfig: claudeConfig,
+        let operatorPorts = ports.operatorPorts ?? .live(home: harnessHome, git: git, jiraSettings: jiraSettings, claudeConfig: claudeConfig,
                                                     agents: agents, preferences: preferences.defaults)
         // The delivery check's file beside the helper's others, read against the versions the Operator is told of;
         // Run check's window opens through the helper, tiled as a task's, and its closing reads the file again.
@@ -214,9 +183,11 @@ final class AppController {
         self.operatorController = operatorController
         helper.onEvent { [weak operatorController] in operatorController?.handle($0) }
         helper.onAttach { [weak operatorController] in operatorController?.daemonAttached() }
+        let fixPipeline = ports.fixPipeline ?? { [agents] project in agents.fixPipeline(for: project, git: git, workflow: workflow) }
+        self.fixPipeline = fixPipeline
         sheets = SheetCoordinator(workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
                                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
-                                  launcher: launcher, workflow: workflow, defaults: preferences.defaults)
+                                  launcher: launcher, workflow: workflow, defaults: preferences.defaults, fixPipeline: fixPipeline)
         // The connections as Settings saved them, read once per pass: a test's are none, so it
         // reads nothing from either host.
         reviewThreads = ReviewThreadsWatcher(workspace: workspace, focus: focus,
@@ -230,7 +201,6 @@ final class AppController {
                                       openLocationSettings: openLocationSettings,
                                       toast: { notices.showToast($0, symbol: BackpackController.symbol) })
         machine = MachineMonitor(sensor: machineSensor, power: backpackPorts.power)
-        fixPipeline = { [agents] project in agents.fixPipeline(for: project, git: git, workflow: workflow) }
         // The rows are derived again whenever something they are made of may have changed, and the
         // Dock badge recounted when they did or a removal moved.
         live.onRowSessionsChanged { [weak self] in self?.refreshRows() }
@@ -275,18 +245,16 @@ final class AppController {
             })
         }
         sheets.onChange = { [weak self] in self?.refreshRows() }
-        // New Review's Fix goes through the same seam as the banner's. The sheets live as long as the controller.
-        sheets.fixPipeline = { [unowned self] in self.fixPipeline($0) }
         refreshRows()
         // The Operator's row chosen without a window — closed, or its Operator offline — is the operator
         // controller's to reopen, in front.
-        focus.onChoosingOperationWithoutWindow { [weak operators] id in
+        focus.setReopenOperatorWindow { [weak operators] id in
             Task { await operators?.reopenOperator(run: id) }
         }
         // A driven task whose window you closed: its conversation resumed by the operator controller,
         // never a second worker beside a live one (integration decision 7). The row raises the window
         // it opened once the reopen is done.
-        focus.onChoosingOperatedTaskWithoutWindow { [weak operators] id in
+        focus.setReopenWorkerWindow { [weak operators] id in
             Task { await operators?.reopenWorker(task: id) }
         }
         // A notification's click on a waiting plan, a done or a blocked broadcast opens its board:
@@ -538,11 +506,30 @@ final class AppController {
             }
             return nil
         }
-        // A task's row, as its click chooses it: a driven one brings the tab that asks.
-        if let id = focus.selectedTaskId, state.task(id: id) != nil { return choose(task: id) }
-        // The Operator's row, as its click chooses it: a question it waits on opens the board at its block.
-        if case .operation(let id)? = focus.selection, let row = rows.broadcast?.operatorRow, row.runId == id { return chooseOperatorRow(row) }
-        return focus.activateSelection()
+        // Any other row as its click chooses it, while it is still a row.
+        guard let selection = focus.selection else { return nil }
+        switch selection {
+        case .task(let id) where state.task(id: id) != nil: return choose(selection)
+        case .operation(let id) where rows.broadcast?.operatorRow.runId == id: return choose(selection)
+        default: return focus.row(id: selection.id) != nil ? choose(selection) : nil
+        }
+    }
+
+    /// A row chosen, by its click or ↩: the one owner of what that does. A task's row goes through `choose(task:)` — a
+    /// driven one brings the tab that asks — the live broadcast's Operator's row through `chooseOperatorRow` — a
+    /// question it waits on opens the board at its block — and every other row to `RowFocus.select`, which raises its
+    /// window or has it restored.
+    @discardableResult
+    func choose(_ row: RowSelection) -> Task<Void, Never>? {
+        switch row {
+        case .task(let id):
+            return choose(task: id)
+        case .operation(let id):
+            if let operatorRow = rows.broadcast?.operatorRow, operatorRow.runId == id { return chooseOperatorRow(operatorRow) }
+            return focus.select(row)
+        case .terminal, .project:
+            return focus.select(row)
+        }
     }
 
     /// A task row's click or ↩. An unresolved Operator question about the task opens the Operator's
@@ -611,21 +598,19 @@ extension AppController {
                      }) -> AppController {
         // git with the login shell's PATH, so the hooks it runs (a lefthook pre-push) find Homebrew's node.
         let git = GitRunner(searchPath: { LoginShellLocator.shared.knownPath })
-        return AppController(store: store, preferences: preferences, harnessHome: harnessHome, claudeConfig: claudeConfig, bundledResourcesURL: bundledResourcesURL,
-                      locateAgents: locateAgents, findPython: { PythonLocator.find() },
-                      jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
-                      gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,
-                      activateIterm: activateIterm, launchIterm: launchIterm, itermRunning: itermRunning,
-                      bringForward: { AppController.bringAiTermForward() },
-                      backpackPorts: backpackPorts, backpackSecrets: Keychain.shared,
-                      openLocationSettings: {
-                          NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
-                      },
-                      machineSensor: machineSensor,
-                      peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2),
-                      toastLifetime: .seconds(10), closedWindowHold: ClosedWindowTriage.hold, now: { .now },
-                      git: git, scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval,
-                      operatorPorts: nil)
+        let ports = AppPorts(store: store, harnessHome: harnessHome, claudeConfig: claudeConfig, bundledResourcesURL: bundledResourcesURL,
+                             locateAgents: locateAgents, findPython: { PythonLocator.find() },
+                             jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
+                             gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,
+                             activateIterm: activateIterm, launchIterm: launchIterm, itermRunning: itermRunning,
+                             bringForward: { AppController.bringAiTermForward() },
+                             backpackPorts: backpackPorts, backpackSecrets: Keychain.shared,
+                             openLocationSettings: {
+                                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
+                             },
+                             machineSensor: machineSensor, git: git, scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval,
+                             operatorPorts: nil, fixPipeline: nil)
+        return AppController(preferences: preferences, ports: ports, timings: .live)
     }
 
     /// AiTerm brought forward for Remove's question about a window the person closed in iTerm2. macOS's
