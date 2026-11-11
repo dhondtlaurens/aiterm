@@ -228,44 +228,6 @@ public enum SkillCatalog {
         return out
     }
 
-    // -- a skill's text ---------------------------------------------------------------
-
-    /// The file a skill or command named `name` (with or without its namespace, without the `/`) is
-    /// written in, among `agent`'s roots for `projectPath`: what a headless run, which cannot invoke a
-    /// skill, is handed as text (`AgentReview`). The first root that has it wins, as in discovery.
-    public static func file(named name: String, agent: AgentKind, projectPath: String?,
-                            home: URL = FileManager.default.homeDirectoryForCurrentUser, claudeConfig: ClaudeConfig = ClaudeConfig()) -> URL? {
-        let walk = Walk(), leaf = leafName(name)
-        func skill(in root: URL, namespace: String?) -> URL? {
-            descend(root, depth: maxDepth, walk: walk).lazy.map { $0.appendingPathComponent("SKILL.md") }.first { manifest in
-                guard FileManager.default.fileExists(atPath: manifest.path) else { return false }
-                let found = frontmatter(of: manifest)["name"].map(leafName) ?? manifest.deletingLastPathComponent().lastPathComponent
-                return qualify(found, with: namespace) == name || (found == leaf && !name.contains(":"))
-            }
-        }
-        func command(in root: URL, namespace: String?) -> URL? {
-            let parts = (name.hasPrefix((namespace ?? "") + ":") && namespace != nil ? String(name.dropFirst(namespace!.count + 1)) : name)
-                .split(separator: ":").map(String.init)
-            guard !parts.isEmpty else { return nil }
-            let file = parts.dropLast().reduce(root) { $0.appendingPathComponent($1) }.appendingPathComponent(parts.last! + ".md")
-            return FileManager.default.fileExists(atPath: file.path) ? file : nil
-        }
-        for root in agent.harness(claudeConfig: claudeConfig).skillRoots(home, projectPath.map(URL.init(fileURLWithPath:))) {
-            switch root.kind {
-            case .skills(let namespace, _):
-                if let found = skill(in: root.url, namespace: namespace) { return found }
-            case .commands(let namespace):
-                if let found = command(in: root.url, namespace: namespace) { return found }
-            case .plugins:
-                for plugin in pluginRoots(under: root.url.appendingPathComponent("plugins"), walk: walk) {
-                    if let found = skill(in: plugin.url.appendingPathComponent("skills"), namespace: plugin.name)
-                        ?? command(in: plugin.url.appendingPathComponent("commands"), namespace: plugin.name) { return found }
-                }
-            }
-        }
-        return nil
-    }
-
     // -- frontmatter ----------------------------------------------------------------
 
     /// Every key of a `---` frontmatter block, read in one pass; the first of a key wins, and a key

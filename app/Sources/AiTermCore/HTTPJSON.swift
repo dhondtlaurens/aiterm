@@ -43,6 +43,18 @@ enum HTTPJSON {
         catch let error as Failure { throw error.outcomeUnknown ? Failure.notSent(error) : error }
     }
 
+    /// A short page ends this listing. Count the raw entries, including ones that do not decode.
+    static func shortPages<Item>(perPage: Int, pages: Int,
+        read: (Int) async throws -> [Item]) async throws -> (items: [Item], complete: Bool) {
+        var all: [Item] = []
+        for page in 1...max(1, pages) {
+            let batch = try await read(page)
+            all += batch
+            if batch.count < perPage { return (all, true) }
+        }
+        return (all, false)
+    }
+
     /// A bounded listing whose only terminal page is an empty one. Validation stays per page.
     static func pagesUntilEmpty<Page, Item>(limit: Int, exhausted: any Error,
         read: (Int) async throws -> [Page], items: ([Page]) throws -> [Item]) async throws -> [Item] {

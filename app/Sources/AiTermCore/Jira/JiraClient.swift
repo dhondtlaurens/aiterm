@@ -176,7 +176,7 @@ public struct JiraClient: Sendable {
     private func suggestions(for queries: [String], scope: String, projectKeys: [String],
                              matching: @escaping @Sendable (String) -> Bool) async throws -> [String] {
         let currentJQL = (scope.isEmpty ? "" : scope + " ") + "ORDER BY updated DESC"
-        let lists = try await Self.inOrder(queries) { query in
+        let lists = try await inOrder(queries) { query in
             let picker = try await decode(PickerResponse.self, request(path: "/rest/api/3/issue/picker", queryItems: [
                 URLQueryItem(name: "query", value: query),
                 URLQueryItem(name: "currentJQL", value: currentJQL),
@@ -215,7 +215,7 @@ public struct JiraClient: Sendable {
 
     /// One search per key, a few at a time, in `keys` order; a key Jira cannot resolve (400) finds nothing.
     private func lookUp(_ keys: [String], jql: @escaping @Sendable (String) -> String, scope: String) async throws -> [JiraTicket] {
-        try await Self.inOrder(keys) { key in
+        try await inOrder(keys) { key in
             do { return try await search(jql: Self.scoped(jql(key), in: scope)) }
             catch JiraError.badResponse(400) { return [] }
         }.flatMap { $0 }
@@ -223,31 +223,6 @@ public struct JiraClient: Sendable {
 
     /// How many requests one fan-out has in flight. A number across ten linked projects asks for
     /// ten picker lists and ten lookups, which Jira answered with 429 when sent at once.
-    static let fanOut = 4
-
-    /// `body` for each of `items`, `width` at a time, and the results in the order of `items`. The
-    /// first failure cancels the bodies still running.
-    static func inOrder<Item: Sendable, Output: Sendable>(
-        _ items: [Item], width: Int = fanOut, _ body: @escaping @Sendable (Item) async throws -> Output
-    ) async throws -> [Output] {
-        precondition(width > 0, "a fan-out of no width never starts")
-        return try await withThrowingTaskGroup(of: (Int, Output).self) { group in
-            var pending = items.enumerated().makeIterator()
-            func startNext(in group: inout ThrowingTaskGroup<(Int, Output), Error>) {
-                guard let (index, item) = pending.next() else { return }
-                group.addTask { (index, try await body(item)) }
-            }
-            for _ in 0..<width { startNext(in: &group) }
-            var results = [Output?](repeating: nil, count: items.count)
-            while let (index, output) = try await group.next() {
-                results[index] = output
-                startNext(in: &group)
-            }
-            // Every item started and none finished twice, so every slot is filled.
-            return results.map { $0! }
-        }
-    }
-
     /// `lists` in order, each ticket once, at most `maxResults`.
     private static func merged(_ lists: [JiraTicket]...) -> [JiraTicket] {
         var seen = Set<String>()
@@ -298,7 +273,7 @@ public struct JiraClient: Sendable {
                                   json: JSONEncoder().encode(SearchBody(jql: jql, maxResults: Self.maxResults,
                                                                        fields: ["summary", "description", "status", "issuetype", "updated"])), write: false)
         return try decode(SearchResponse.self, data: data, reading: path).issues.compactMap(\.value).map { issue in
-            let description = ADFText.plain(issue.fields.description?.foundationValue)
+            let description = ADFText.plain(issue.fields.description)
             return JiraTicket(key: issue.key, summary: issue.fields.summary, description: description.isEmpty ? nil : description,
                               issueType: issue.fields.issuetype?.value?.name, status: issue.fields.status?.value?.name,
                               url: config.siteURL.appendingPathComponent("browse/\(issue.key)").absoluteString,

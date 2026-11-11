@@ -14,12 +14,12 @@ public struct GitHubReleaseSource: ReleaseSource {
 
     public func latest() async throws -> Release {
         guard let url = HTTPJSON.url("https://api.github.com/repos/\(owner)/\(repo)/releases", query: [URLQueryItem(name: "per_page", value: "20")])
-        else { throw UpdateError.projectNotFound(.gitHub, "\(owner)/\(repo)") }
+        else { throw UpdateError.projectNotFound("\(owner)/\(repo)") }
         let (page, status) = try await HTTPJSON.decode([Lenient<ReleasePayload>].self, request(url, timeout: 15), session: session) {
             mapped($0, listing: true)
         }
         let published = page.filter { $0.value.map { !$0.isDraft && !$0.isPrerelease } ?? true }
-        return try ReleasePage.newest(published.map { $0.value?.entry }, host: .gitHub, status: status)
+        return try ReleasePage.newest(published.map { $0.value?.entry }, status: status)
     }
 
     /// Streamed to disk, not held in memory: the image is the whole app bundle.
@@ -40,8 +40,8 @@ public struct GitHubReleaseSource: ReleaseSource {
         switch failure {
         case .transport: return .unreachable("api.github.com")
         case .status(403), .status(429): return .rateLimited
-        case .status(404) where listing: return .projectNotFound(.gitHub, "\(owner)/\(repo)")
-        case .status(let status), .undecodable(let status): return .badResponse(.gitHub, status)
+        case .status(404) where listing: return .projectNotFound("\(owner)/\(repo)")
+        case .status(let status), .undecodable(let status): return .badResponse(status)
         }
     }
 }

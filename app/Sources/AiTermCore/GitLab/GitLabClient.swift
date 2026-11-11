@@ -144,22 +144,18 @@ public struct GitLabClient: HostRepository {
     /// recently updated first, and whether that was all of them: a page that came back short is
     /// the last one.
     func openMergeRequests(perPage: Int = 100, pages: Int = 5) async throws -> (requests: [MergeRequest], complete: Bool) {
-        var all: [MergeRequest] = []
-        for page in 1...max(1, pages) {
+        let result = try await HTTPJSON.shortPages(perPage: perPage, pages: pages) { page in
             let query = [URLQueryItem(name: "state", value: "opened"), URLQueryItem(name: "order_by", value: "updated_at"),
                          URLQueryItem(name: "per_page", value: String(perPage)), URLQueryItem(name: "page", value: String(page))]
-            let read = try await get([Lenient<MergeRequestPayload>].self, path: boundPath + "/merge_requests", query: query,
+            return try await get([Lenient<MergeRequestPayload>].self, path: boundPath + "/merge_requests", query: query,
                                      notFound: .projectNotFound(project))
-            all += read.compactMap { $0.value?.mergeRequest }
-            if read.count < perPage { return (all, true) }
         }
-        return (all, false)
+        return (result.items.compactMap { $0.value?.mergeRequest }, result.complete)
     }
 
     /// `55` or `#55`.
     static func issueNumber(_ text: String) -> Int? {
-        guard text.range(of: #"^#?\d+$"#, options: .regularExpression) != nil else { return nil }
-        return Int(text.drop { $0 == "#" })
+        HostText.number(text, prefixes: "#")
     }
 
     /// Whether `request` is one of `project`'s: an issue's related list can name another project's.
@@ -327,7 +323,7 @@ public struct GitLabClient: HostRepository {
     public func assignReviewers(_ iid: Int, usernames: [String],
                                 beforeWrite: @Sendable () async throws -> Void = {}) async throws {
         let ids = try await HTTPJSON.preparingWrite(GitLabError.self) {
-            try await JiraClient.inOrder(usernames) { try await userId($0) }
+            try await inOrder(usernames) { try await userId($0) }
         }
         struct Reviewers: Decodable { struct Reviewer: Decodable { var id: Int }; var reviewers: [Reviewer]? }
         let path = boundPath + "/merge_requests/\(iid)"
@@ -476,8 +472,7 @@ public struct GitLabClient: HostRepository {
             return try await protectedRules(path: "/api/v4/groups/" + Self.encodedProject(group) + "/protected_branches",
                                             notFound: .projectNotFound(group), noneIfMissing: true)
         } catch let error as GitLabError {
-            let why = (error.errorDescription ?? "").trimmingCharacters(in: CharacterSet(charactersIn: ". "))
-            throw ProtectionUnknown.unreadable("AiTerm could not read the protected branches of the GitLab group \(group): \(why)")
+            throw HostText.protectionFailure("AiTerm could not read the protected branches of the GitLab group \(group)", reason: error.errorDescription)
         }
     }
 
@@ -506,7 +501,7 @@ public struct GitLabClient: HostRepository {
     /// A failure to ask, a rule list that cannot be read whole, and a rule AiTerm cannot evaluate (unless
     /// another rule covers the branch anyway) throw: nothing is pushed then, never "unprotected".
     public func protection(of branch: String) async throws -> BranchProtection {
-        let name = branch.hasPrefix("refs/heads/") ? String(branch.dropFirst("refs/heads/".count)) : branch
+        let name = HostText.branchName(branch)
         guard !name.isEmpty else { throw ProtectionUnknown.unreadable("There is no branch name to check") }
         let group = try await topLevelGroup()
         var unreadable: ProtectionUnknown?
@@ -537,8 +532,7 @@ public struct GitLabClient: HostRepository {
     }
 
     static func iid(_ text: String) -> Int? {
-        guard text.range(of: #"^!?\d+$"#, options: .regularExpression) != nil else { return nil }
-        return Int(text.hasPrefix("!") ? String(text.dropFirst()) : text)
+        HostText.number(text, prefixes: "!")
     }
 
     /// `notFound` is what a 404 means for this `path`.

@@ -37,11 +37,11 @@ extension JiraClient {
     /// belongs to an epic; its key.
     public func createIssue(project: String, type: String, summary: String, description: String, parent: String? = nil,
                             labels: [String] = []) async throws -> String {
-        var fields: [String: Any] = ["project": ["key": project], "issuetype": ["name": type], "summary": summary]
+        var fields: [String: JSONValue] = ["project": ["key": .string(project)], "issuetype": ["name": .string(type)], "summary": .string(summary)]
         if !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { fields["description"] = ADFText.document(description) }
-        if let parent { fields["parent"] = ["key": parent] }
-        if !labels.isEmpty { fields["labels"] = labels }
-        let data = try await send(method: "POST", path: "/rest/api/3/issue", json: JSONSerialization.data(withJSONObject: ["fields": fields]))
+        if let parent { fields["parent"] = ["key": .string(parent)] }
+        if !labels.isEmpty { fields["labels"] = .array(labels.map(JSONValue.string)) }
+        let data = try await send(method: "POST", path: "/rest/api/3/issue", json: ["fields": .object(fields)])
         return try decode(Created.self, data: data).key
     }
 
@@ -58,16 +58,16 @@ extension JiraClient {
             throw JiraError.noTransition(key: key, status: statusName, offered: offered.compactMap { $0.to?.value?.name })
         }
         try await beforeWrite()
-        _ = try await send(method: "POST", path: path, json: JSONSerialization.data(withJSONObject: ["transition": ["id": chosen.id]]))
+        _ = try await send(method: "POST", path: path, json: ["transition": ["id": .string(chosen.id)]])
         return true
     }
 
     /// `key` linked to `other` by the link type named `type` (`Blocks`, `Relates`, `Duplicate`), read from `key`'s
     /// side: "`key` blocks `other`".
     public func link(key: String, to other: String, type: String) async throws {
-        _ = try await send(method: "POST", path: "/rest/api/3/issueLink", json: JSONSerialization.data(withJSONObject: [
-            "type": ["name": type], "outwardIssue": ["key": try Self.validKey(key)], "inwardIssue": ["key": try Self.validKey(other)],
-        ]))
+        _ = try await send(method: "POST", path: "/rest/api/3/issueLink", json: [
+            "type": ["name": .string(type)], "outwardIssue": ["key": .string(try Self.validKey(key))], "inwardIssue": ["key": .string(try Self.validKey(other))],
+        ])
     }
 
     /// Changes the fields of `key` that `fields` names, with `PUT /rest/api/3/issue/{key}`. The labels go as add and remove
@@ -77,30 +77,30 @@ extension JiraClient {
     public func edit(key: String, fields: JiraEdit, beforeWrite: @Sendable () async throws -> Void = {}) async throws {
         let path = "/rest/api/3/issue/\(try Self.validKey(key))"
         guard !fields.isEmpty else { throw JiraError.refused(status: 400, detail: "An edit needs at least one field to change.") }
-        var sent: [String: Any] = [:], update: [String: Any] = [:]
-        if let summary = fields.summary { sent["summary"] = summary }
+        var sent: [String: JSONValue] = [:], update: [String: JSONValue] = [:]
+        if let summary = fields.summary { sent["summary"] = .string(summary) }
         if let description = fields.description {
-            sent["description"] = description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? NSNull() : ADFText.document(description)
+            sent["description"] = description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .null : ADFText.document(description)
         }
-        if let priority = fields.priority { sent["priority"] = ["name": priority] }
-        if let versions = fields.fixVersions { sent["fixVersions"] = versions.map { ["name": $0] } }
-        let labels = fields.labelsAdd.map { ["add": $0] } + fields.labelsRemove.map { ["remove": $0] }
-        if !labels.isEmpty { update["labels"] = labels }
+        if let priority = fields.priority { sent["priority"] = ["name": .string(priority)] }
+        if let versions = fields.fixVersions { sent["fixVersions"] = .array(versions.map { ["name": .string($0)] }) }
+        let labels: [JSONValue] = fields.labelsAdd.map { ["add": .string($0)] } + fields.labelsRemove.map { ["remove": .string($0)] }
+        if !labels.isEmpty { update["labels"] = .array(labels) }
         switch fields.assignee {
         case nil: break
-        case .unassigned: sent["assignee"] = ["accountId": NSNull()]
-        case .me: sent["assignee"] = ["accountId": try await HTTPJSON.preparingWrite(JiraError.self) {
+        case .unassigned: sent["assignee"] = ["accountId": .null]
+        case .me: sent["assignee"] = ["accountId": .string(try await HTTPJSON.preparingWrite(JiraError.self) {
             try await HostUserMemo.user(.jira, host: config.siteURL.absoluteString, token: config.token, account: config.email) {
                 try await decode(Account.self, request(path: "/rest/api/3/myself")).accountId
             }
-        }]
-        case .query(let query): sent["assignee"] = ["accountId": try await HTTPJSON.preparingWrite(JiraError.self) {
+        })]
+        case .query(let query): sent["assignee"] = ["accountId": .string(try await HTTPJSON.preparingWrite(JiraError.self) {
             try await assignee(matching: query, forTicket: key).accountId
-        }]
+        })]
         }
         try await beforeWrite()
         _ = try await send(method: "PUT", path: path,
-                           json: JSONSerialization.data(withJSONObject: update.isEmpty ? ["fields": sent] : ["fields": sent, "update": update]))
+                           json: update.isEmpty ? ["fields": .object(sent)] : ["fields": .object(sent), "update": .object(update)])
     }
 
     /// The users of `project` a ticket can be assigned to whose name or email matches `query`.
@@ -134,9 +134,9 @@ extension JiraClient {
         let path = "/rest/api/3/issue/\(try Self.validKey(key))/comment"
         guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw JiraError.refused(status: 400, detail: "A comment needs text.") }
         try await beforeWrite()
-        var sent: [String: Any] = ["body": ADFText.document(body)]
-        if let tag { sent["properties"] = [["key": Self.commentPropertyKey, "value": ["call": tag]]] }
-        let data = try await send(method: "POST", path: path, json: JSONSerialization.data(withJSONObject: sent))
+        var sent: [String: JSONValue] = ["body": ADFText.document(body)]
+        if let tag { sent["properties"] = [["key": .string(Self.commentPropertyKey), "value": ["call": .string(tag)]]] }
+        let data = try await send(method: "POST", path: path, json: .object(sent))
         return try decode(CommentCreated.self, data: data).id
     }
 

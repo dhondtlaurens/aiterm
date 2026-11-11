@@ -90,22 +90,18 @@ public struct GitHubClient: HostRepository {
     /// Up to `pages` pages of the repository's open pull requests, `perPage` at a time, the most
     /// recently updated first, and whether that was all of them: a short page is the last.
     func openPullRequests(perPage: Int = 100, pages: Int = 5) async throws -> (requests: [MergeRequest], complete: Bool) {
-        var all: [MergeRequest] = []
-        for page in 1...max(1, pages) {
+        let result = try await HTTPJSON.shortPages(perPage: perPage, pages: pages) { page in
             let query = [URLQueryItem(name: "state", value: "open"), URLQueryItem(name: "sort", value: "updated"),
                          URLQueryItem(name: "direction", value: "desc"), URLQueryItem(name: "per_page", value: String(perPage)),
                          URLQueryItem(name: "page", value: String(page))]
-            let read = try await get([Lenient<PullPayload>].self, path: boundPath + "/pulls", query: query, notFound: .repoNotFound(repo))
-            all += read.compactMap { $0.value?.mergeRequest }
-            if read.count < perPage { return (all, true) }
+            return try await get([Lenient<PullPayload>].self, path: boundPath + "/pulls", query: query, notFound: .repoNotFound(repo))
         }
-        return (all, false)
+        return (result.items.compactMap { $0.value?.mergeRequest }, result.complete)
     }
 
     /// `87`, `#87`, or GitLab's `!87` from habit.
     static func number(_ text: String) -> Int? {
-        guard text.range(of: #"^[#!]?\d+$"#, options: .regularExpression) != nil else { return nil }
-        return Int(text.drop { $0 == "#" || $0 == "!" })
+        HostText.number(text, prefixes: "#!")
     }
 
     /// How many review threads one page of `reviewThreads` asks for, and how many pages it reads
@@ -596,12 +592,11 @@ public struct GitHubClient: HostRepository {
     /// Anything that cannot be read whole throws `ProtectionUnknown`: an error, a refusal, a body that does
     /// not decode, a list longer than AiTerm reads, a rule it cannot evaluate. Never "unprotected" by default.
     public func protection(of branch: String) async throws -> BranchProtection {
-        let name = branch.hasPrefix("refs/heads/") ? String(branch.dropFirst("refs/heads/".count)) : branch
+        let name = HostText.branchName(branch)
         guard !name.isEmpty else { throw ProtectionUnknown.unreadable("There is no branch name to check") }
         do { return try await protection(branch: name) }
         catch let error as GitHubError {
-            let why = (error.errorDescription ?? "").trimmingCharacters(in: CharacterSet(charactersIn: ". "))
-            throw ProtectionUnknown.unreadable("AiTerm could not read GitHub’s protection of \(name) in \(repo): \(why)")
+            throw HostText.protectionFailure("AiTerm could not read GitHub’s protection of \(name) in \(repo)", reason: error.errorDescription)
         }
     }
 

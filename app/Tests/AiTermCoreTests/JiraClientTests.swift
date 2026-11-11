@@ -471,7 +471,7 @@ import Synchronization
     @Test func inOrderRunsAtMostWidthAtOnceAndReturnsInItemOrder() async throws {
         let width = 4
         let flight = Flight()
-        let results = try await JiraClient.inOrder(Array(0..<20), width: width) { (n: Int) async throws -> Int in
+        let results = try await inOrder(Array(0..<20), width: width) { (n: Int) async throws -> Int in
             await flight.enter(latch: n < width ? width : nil)
             try await Task.sleep(for: .milliseconds(1 + (20 - n)))
             await flight.leave()
@@ -483,7 +483,7 @@ import Synchronization
 
     @Test func inOrderThrowsTheFailureOfAnyBody() async {
         await #expect(throws: JiraError.badResponse(500)) {
-            _ = try await JiraClient.inOrder(Array(0..<10), width: 3) { (n: Int) async throws -> Int in
+            _ = try await inOrder(Array(0..<10), width: 3) { (n: Int) async throws -> Int in
                 if n == 5 { throw JiraError.badResponse(500) }
                 return n
             }
@@ -494,7 +494,7 @@ import Synchronization
     @Test func inOrderStartsNothingMoreAfterAFailure() async {
         let starts = Mutex(0)
         await #expect(throws: JiraError.badResponse(500)) {
-            _ = try await JiraClient.inOrder(Array(0..<20), width: 3) { (n: Int) async throws -> Int in
+            _ = try await inOrder(Array(0..<20), width: 3) { (n: Int) async throws -> Int in
                 starts.withLock { $0 += 1 }
                 if n == 1 { throw JiraError.badResponse(500) }
                 try await Task.sleep(for: .seconds(60))
@@ -508,7 +508,7 @@ import Synchronization
     @Test func inOrderEndsWithCancellationWhenItsTaskIsCancelled() async {
         let starts = Mutex(0)
         let fanOut = Task {
-            try await JiraClient.inOrder(Array(0..<20), width: 3) { (n: Int) async throws -> Int in
+            try await inOrder(Array(0..<20), width: 3) { (n: Int) async throws -> Int in
                 starts.withLock { $0 += 1 }
                 try await Task.sleep(for: .seconds(60))
                 return n

@@ -1,6 +1,11 @@
 import Foundation
 
 extension JiraClient {
+    /// Typed write bodies retain the existing JSONSerialization encoder and its escaping policy.
+    func send(method: String, path: String, json: JSONValue) async throws -> Data {
+        try await send(method: method, path: path, json: JSONSerialization.data(withJSONObject: json.foundationValue))
+    }
+
     /// Sends already encoded JSON, preserving the caller's encoder. Search uses read errors;
     /// writes keep Jira's refusal details, including for an empty successful response.
     func send(method: String, path: String, json: Data, write: Bool = true) async throws -> Data {

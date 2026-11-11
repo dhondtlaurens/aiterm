@@ -62,3 +62,18 @@ public indirect enum JSONValue: Codable, Equatable, Sendable, ExpressibleByStrin
     public var arrayValue: [JSONValue]? { if case .array(let v) = self { v } else { nil } }
     public var objectValue: [String: JSONValue]? { if case .object(let v) = self { v } else { nil } }
 }
+
+extension JSONValue {
+    /// The Foundation representation for callers that preserve a JSONSerialization encoder.
+    var foundationValue: Any {
+        switch self {
+        case .null: return NSNull()
+        case .bool(let value): return value
+        case .int(let value): return value
+        case .double(let value): return value
+        case .string(let value): return value
+        case .array(let values): return values.map(\.foundationValue)
+        case .object(let fields): return fields.mapValues(\.foundationValue)
+        }
+    }
+}

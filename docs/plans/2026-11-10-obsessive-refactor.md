@@ -517,7 +517,7 @@ Each box leaves the project working and is one or a few commits.
 - [x] 3b. Clients bound to their repository; forwarding removed; access narrowed; path encoding.
 - [x] 3c. `find_user`, symlinked catalogue stamps (tests first); listing and user reuse. GitLab closing-issue
   concurrency dropped: one issue's two source listings stay at 2 host requests (record).
-- [ ] 3d. Jira on `JSONValue`; Fix state; dead code; small shared helpers.
+- [x] 3d. Jira on `JSONValue`; Fix state; dead code; small shared helpers.
 - [x] 4a. Tool traits and exhaustive Activity lines (test first for `update_request`).
 - [x] 4b. One live projection and one readiness predicate (test first for the launch window). The reconciler keeps
   reading tabs as they list themselves: given the launch window it would block a relaunched finished task (record).

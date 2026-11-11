@@ -1,16 +1,23 @@
 import Foundation
 
 public enum ADFText {
-    public static func plain(_ adf: Any?) -> String {
+    public static func plain(_ adf: JSONValue?) -> String {
         guard let adf else { return "" }
-        if let s = adf as? String { return s }
-        guard let node = adf as? [String: Any] else { return "" }
+        if let s = adf.stringValue { return s }
+        guard let node = adf.objectValue else { return "" }
         return blocks(node).joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func blocks(_ node: [String: Any]) -> [String] {
-        let children = node["content"] as? [[String: Any]] ?? []
-        switch node["type"] as? String {
+    // Foundation's cast accepted the whole array or none of it. Keep that rule for malformed ADF.
+    private static func children(of node: [String: JSONValue]) -> [[String: JSONValue]] {
+        guard let values = node["content"]?.arrayValue else { return [] }
+        let objects = values.compactMap(\.objectValue)
+        return objects.count == values.count ? objects : []
+    }
+
+    private static func blocks(_ node: [String: JSONValue]) -> [String] {
+        let children = children(of: node)
+        switch node["type"]?.stringValue {
         case "doc": return children.flatMap(blocks)
         case "paragraph", "heading": return [inline(children)]
         case "codeBlock": return ["```\n" + inline(children) + "\n```"]
@@ -21,47 +28,32 @@ public enum ADFText {
         }
     }
 
-    private static func itemText(_ item: [String: Any]) -> String { blocks(item).joined(separator: " ") }
+    private static func itemText(_ item: [String: JSONValue]) -> String { blocks(item).joined(separator: " ") }
 
-    private static func inline(_ nodes: [[String: Any]]) -> String {
+    private static func inline(_ nodes: [[String: JSONValue]]) -> String {
         nodes.map { n -> String in
-            switch n["type"] as? String {
-            case "text": return n["text"] as? String ?? ""
+            switch n["type"]?.stringValue {
+            case "text": return n["text"]?.stringValue ?? ""
             case "hardBreak": return "\n"
-            case "mention": return (n["attrs"] as? [String: Any])?["text"] as? String ?? ""
-            case "inlineCard": return (n["attrs"] as? [String: Any])?["url"] as? String ?? ""
-            default: return inline(n["content"] as? [[String: Any]] ?? [])
+            case "mention": return n["attrs"]?["text"]?.stringValue ?? ""
+            case "inlineCard": return n["attrs"]?["url"]?.stringValue ?? ""
+            default: return inline(children(of: n))
             }
         }.joined()
     }
 }
 
-extension JSONValue {
-    /// The value as `JSONSerialization` would have read it, which is what `ADFText` walks.
-    var foundationValue: Any {
-        switch self {
-        case .null: return NSNull()
-        case .bool(let value): return value
-        case .int(let value): return value
-        case .double(let value): return value
-        case .string(let value): return value
-        case .array(let values): return values.map(\.foundationValue)
-        case .object(let fields): return fields.mapValues(\.foundationValue)
-        }
-    }
-}
-
 extension ADFText {
     /// `text` as an Atlassian Document Format document: a paragraph for each run of lines, its line breaks kept.
-    static func document(_ text: String) -> [String: Any] {
+    static func document(_ text: String) -> JSONValue {
         let paragraphs = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        return ["type": "doc", "version": 1, "content": paragraphs.map { paragraph -> [String: Any] in
+        return ["type": "doc", "version": 1, "content": .array(paragraphs.map { paragraph -> JSONValue in
             let lines = paragraph.components(separatedBy: "\n")
-            let inline = lines.enumerated().flatMap { index, line -> [[String: Any]] in
-                (index > 0 ? [["type": "hardBreak"]] : []) + (line.isEmpty ? [] : [["type": "text", "text": line]])
+            let inline = lines.enumerated().flatMap { index, line -> [JSONValue] in
+                (index > 0 ? [["type": "hardBreak"]] : []) + (line.isEmpty ? [] : [["type": "text", "text": .string(line)]])
             }
-            return ["type": "paragraph", "content": inline]
-        }]
+            return ["type": "paragraph", "content": .array(inline)]
+        })]
     }
 }

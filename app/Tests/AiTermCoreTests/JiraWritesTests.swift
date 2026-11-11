@@ -45,7 +45,7 @@ import Foundation
         let description = try #require(fields["description"] as? [String: Any])
         #expect(description["type"] as? String == "doc" && description["version"] as? Int == 1)
         // The description reads back through ADFText as it was written.
-        #expect(ADFText.plain(description) == "It leaks.\n\nSecond line one\nSecond line two")
+        #expect(ADFText.plain(try JSONDecoder().decode(JSONValue.self, from: JSONSerialization.data(withJSONObject: description))) == "It leaks.\n\nSecond line one\nSecond line two")
     }
 
     @Test func createWithoutADescriptionOrParentSendsNeither() async throws {
@@ -184,7 +184,8 @@ import Foundation
         #expect((fields["fixVersions"] as? [[String: String]]) == [["name": "1.4"], ["name": "1.5"]])
         #expect(fields["assignee"] == nil && fields["labels"] == nil, "labels are operations, not a replacement")
         let description = try #require(fields["description"] as? [String: Any])
-        #expect(description["type"] as? String == "doc" && ADFText.plain(description) == "First.\n\nSecond")
+        let typedDescription = try JSONDecoder().decode(JSONValue.self, from: JSONSerialization.data(withJSONObject: description))
+        #expect(description["type"] as? String == "doc" && ADFText.plain(typedDescription) == "First.\n\nSecond")
         let update = try #require(sent["update"] as? [String: Any])
         let labels = try #require(update["labels"] as? [[String: String]])
         #expect(labels == [["add": "web"], ["add": "urgent"], ["remove": "old"]])
@@ -343,7 +344,7 @@ import Foundation
         #expect(request.httpMethod == "POST" && request.url?.path == "/rest/api/3/issue/PAY-9/comment")
         let document = try #require(try body(request)["body"] as? [String: Any])
         #expect(document["type"] as? String == "doc" && document["version"] as? Int == 1)
-        #expect(ADFText.plain(document) == "Shipped in 1.4.\n\nSee the MR.")
+        #expect(ADFText.plain(try JSONDecoder().decode(JSONValue.self, from: JSONSerialization.data(withJSONObject: document))) == "Shipped in 1.4.\n\nSee the MR.")
     }
 
     @Test func aBlankCommentOrAKeyThatIsNoKeyNeverReachesTheNetwork() async throws {
