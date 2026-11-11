@@ -1050,7 +1050,7 @@ extension TaskFinisher.Result {
         let projectId = try #require(world.task(task)?.projectId)
         let path = try #require(world.state.project(id: projectId)?.path)
         try git.run(["commit", "--allow-empty", "-q", "-m", "one more"], in: path)
-        await world.controller.waker.lastSend?.value
+        await world.settled()
         let before = world.daemon.requests("session.deliver").count
         await ticker.tick()
         #expect(await eventually(describing: "the watch to stop") { world.controller.finisher.watching.isEmpty })
@@ -1063,7 +1063,7 @@ extension TaskFinisher.Result {
         defer { world.controller.stop() }
         #expect(world.controller.finisher.watching.isEmpty)
         for _ in 0..<50 { await Task.yield() }
-        await world.controller.waker.lastSend?.value
+        await world.settled()
         #expect(stopped().count == 1, "told once")
     }
 

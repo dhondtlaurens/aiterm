@@ -61,7 +61,7 @@ import Testing
     func replacementTabsUseFrozenRowsDespiteDifferentSettingsDefaults(model: String?) async throws {
         let (world, run, task) = try makeWorld(adjust: { ports in
             ModelSettings.save(ModelPreference(model: "claude-opus-5-5", reasoning: "medium"), for: .claude,
-                               defaults: ports.preferences!)
+                               defaults: ports.preferences)
             ports.agentModels = { _ in [AgentModel(id: "claude-opus-5-5", label: "Opus", detail: nil,
                                                    efforts: ["medium", "high"], defaultEffort: "medium")] }
         })
@@ -258,7 +258,7 @@ import Testing
         #expect(adopted.sessionId == "s9" && adopted.launch.openedAt == clock.now)
         clock.advance(by: 61)
         restarted.controller.reconcileTick()
-        await restarted.controller.reconciler.lastTab?.value
+        await restarted.settled()
         #expect(restarted.daemon.requests("tab.create").isEmpty)
         #expect(await restarted.call(run.id, "open_tab", Self.arguments()).value?["state"] == "opened")
 
@@ -277,7 +277,7 @@ import Testing
         #expect(await world.call(run.id, "open_tab", Self.arguments()).value?["state"] == "opened")
         clock.advance(by: 61)
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastTab?.value
+        await world.settled()
         #expect(world.daemon.requests("tab.create").count == 1, "never a second tab")
     }
 
@@ -286,12 +286,12 @@ import Testing
         let (world, run, task) = try makeWorld(daemon: daemon)
         _ = await world.call(run.id, "open_tab", Self.arguments())
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastTab?.value
+        await world.settled()
         #expect(daemon.requests("tab.create").count == 1)
         daemon.failing = [:]
         clock.advance(by: 61)
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastTab?.value
+        await world.settled()
         let asked = daemon.requests("tab.create")
         #expect(asked.count == 2 && asked.last?.params["tabKey"] as? String == "review" && asked.last?.params["background"] as? Bool == true)
         #expect(try world.workspace.file.load().task(id: task.id)?.operated?.extraTabs.first?.launch.number == 2)
@@ -300,7 +300,7 @@ import Testing
         world.show(Self.tabs(run: run, task: task))
         clock.advance(by: 61)
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastTab?.value
+        await world.settled()
         #expect(daemon.requests("tab.create").count == 2)
     }
 
@@ -313,7 +313,7 @@ import Testing
         #expect(await world.call(run.id, "open_tab", Self.arguments()).message == refusal, "the same key, the first call's answer")
         clock.advance(by: 61)
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastTab?.value
+        await world.settled()
         #expect(daemon.requests("tab.create").count == 1)
     }
 
@@ -324,7 +324,7 @@ import Testing
         world.workspace.mutate { $0.updateOperated(task.id) { $0.takenOver = true } }
         clock.advance(by: 61)
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastTab?.value
+        await world.settled()
         #expect(daemon.requests("tab.create").count == 1)
     }
 }

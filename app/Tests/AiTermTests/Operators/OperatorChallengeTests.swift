@@ -85,7 +85,7 @@ import Testing
 
     @Test func savedOracleChangesApplyToActiveBroadcastWithoutRestart() async throws {
         let (world, run) = try await makeWorld(runner: .answering("Critique when enabled."))
-        let defaults = try #require(world.ports.preferences)
+        let defaults = world.ports.preferences
         var profile = run.profile
         profile.oracle.isOn = false
         try OperatorProfileStore.save(profile, defaults)
@@ -101,7 +101,7 @@ import Testing
         let gate = OracleGate()
         let (world, run) = try await makeWorld(runner: .answering("Obsolete critique", gate: gate), budget: .milliseconds(10))
         let id = try #require(await world.call(run.id, "submit_plan", ["revision": 1]).value?["challengeId"]?.stringValue)
-        let defaults = try #require(world.ports.preferences)
+        let defaults = world.ports.preferences
         var profile = run.profile; profile.oracle.isOn = false
         try OperatorProfileStore.save(profile, defaults)
         _ = await world.call(run.id, "run_status")

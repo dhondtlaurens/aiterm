@@ -113,7 +113,8 @@ final class AppController {
     /// `bringForward` brings AiTerm forward for it; `launchIterm` starts iTerm2 when AiTerm starts
     /// while `itermRunning` says it is not, and when a row is chosen while it is away.
     /// `confirmsRemoval` is the last look at a checkout the monitor found gone (`TaskRemover`).
-    /// `operatorPorts` are what the operators reach: run folders, the agents' home, notifications.
+    /// `operatorPorts` are what the operators reach: run folders, the agents' home, notifications. Nil is the app's own
+    /// (`OperatorPorts.live`), from `harnessHome`, `git`, `jiraSettings` and Settings › Agents.
     init(store: StateStore,
          preferences: InterfacePreferences,
          harnessHome: URL,
@@ -142,7 +143,7 @@ final class AppController {
          git: any GitRunning,
          scan: @escaping CheckoutMonitor.Scanner,
          confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval,
-         operatorPorts: OperatorPorts) {
+         operatorPorts: OperatorPorts?) {
         let workspace = WorkspaceStore(file: store), work = WorkInFlight(), workflow = TaskWorkflow(git: git)
         let notices = Notices(toastLifetime: toastLifetime,
                               isStale: { [weak workspace] issue in workspace.map { issue.isStale(in: $0.state) } ?? false })
@@ -193,21 +194,14 @@ final class AppController {
         windows = WindowReconciler(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
                                    remover: remover, archiver: archiver, launcher: launcher, terminals: terminals,
                                    notices: notices, daemon: daemon, now: now, closeHold: closedWindowHold, bringForward: bringForward, launchIterm: launchIterm)
-        // The agents a task may run and their model lists are Settings › Agents', unless the caller named its own.
-        var operatorPorts = operatorPorts
-        if operatorPorts.installedVersions == nil { operatorPorts.installedVersions = { AgentVersions.shared.current($0) } }
-        if operatorPorts.installedAgents == nil { operatorPorts.installedAgents = { [weak agents] in agents?.availableAgents ?? [] } }
-        if operatorPorts.agentModels == nil {
-            let catalogue = agents.catalogue
-            operatorPorts.agentModels = { (try? catalogue.models(for: $0)) ?? [] }
-        }
-        // A broadcast freezes Settings › Operator's profile as these preferences keep it.
-        if operatorPorts.profile == nil { operatorPorts.profile = agents.operatorProfile }
-        if operatorPorts.preferences == nil { operatorPorts.preferences = preferences.defaults }
+        // The agents a task may run, their model lists and the profile a broadcast freezes are Settings › Agents', unless
+        // the caller made its own ports.
+        let operatorPorts = operatorPorts ?? .live(home: harnessHome, git: git, jiraSettings: jiraSettings, claudeConfig: claudeConfig,
+                                                    agents: agents, preferences: preferences.defaults)
         // The delivery check's file beside the helper's others, read against the versions the Operator is told of;
         // Run check's window opens through the helper, tiled as a task's, and its closing reads the file again.
         let messaging = MessagingChecks(policyURL: AiTermPaths.deliveryPolicyURL(home: harnessHome),
-                                        versions: operatorPorts.installedVersions ?? { _ in [:] })
+                                        versions: operatorPorts.installedVersions)
         messaging.opener = MessagingChecks.Opener(daemon: daemon, runtime: { helper.runtime }, frame: { tiling.taskFrame() },
                                                   activateIterm: activateIterm)
         helper.onEvent { [weak messaging] event in
@@ -631,7 +625,7 @@ extension AppController {
                       peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2),
                       toastLifetime: .seconds(10), closedWindowHold: ClosedWindowTriage.hold, now: { .now },
                       git: git, scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval,
-                      operatorPorts: .live(home: harnessHome, git: git, jiraSettings: { JiraSettings.load() }, claudeConfig: claudeConfig))
+                      operatorPorts: nil)
     }
 
     /// AiTerm brought forward for Remove's question about a window the person closed in iTerm2. macOS's

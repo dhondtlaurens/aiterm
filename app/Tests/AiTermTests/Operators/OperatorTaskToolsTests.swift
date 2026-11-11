@@ -418,7 +418,7 @@ import Testing
         // Queued again, AiTerm starts it again at once, and the answer says how its launch went.
         let retried = await world.call(run.id, "retry_task", ["task": "PLUTO-1"]).value
         #expect(retried?["state"] == "working" && retried?["launch"]?["result"] == "opened")
-        await world.controller.lastStart?.value
+        await world.settled()
         let afterRetry = try #require(world.task(task.id)?.operated)
         #expect(afterRetry.retriesUsed == 1 && [.queued, .working].contains(afterRetry.state))
         #expect(afterRetry.lastFailure == "The build broke.")
@@ -440,7 +440,7 @@ import Testing
         #expect(await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "noChange"]).message
                 == "The person paused this broadcast. Wait until they resume it.")
         // Nothing of the Operator's is typed; AiTerm's own pause note may go to a worker still starting.
-        #expect(world.daemon.requests("session.deliver").allSatisfy { $0.params["text"] as? String == OperatorController.pauseNote })
+        #expect(world.daemon.requests("session.deliver").allSatisfy { $0.params["text"] as? String == PauseSignaller.pauseNote })
     }
 }
 

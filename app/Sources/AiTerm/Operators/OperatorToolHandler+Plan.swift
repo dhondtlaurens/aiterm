@@ -156,15 +156,15 @@ extension OperatorToolHandler {
     }
 
     /// The agents' model lists, as the ports read them; none read is an empty list.
-    var agentModels: @Sendable (AgentKind) -> [AgentModel] { ports.agentModels ?? { _ in [] } }
+    var agentModels: @Sendable (AgentKind) -> [AgentModel] { ports.agentModels }
 
     /// Settings defaults remain visible under run_status; task selection uses only the frozen rows.
     func defaultModel(for agent: AgentKind) -> (model: String, reasoning: String?) {
-        AgentIntegrations.taskModel(agent, remembered: state.lastModelByAgent, defaults: ports.preferences ?? .standard)
+        AgentIntegrations.taskModel(agent, remembered: state.lastModelByAgent, defaults: ports.preferences)
     }
 
     /// The installed agents, as the ports say; every agent when nothing says.
-    var installedAgents: Set<AgentKind> { ports.installedAgents?() ?? Set(AgentKind.allCases) }
+    var installedAgents: Set<AgentKind> { ports.installedAgents() }
 
     /// Only an unstarted task changes here; a started one is steered with `message_task` (spec §6).
     /// A change joins the open revision, and a queued task waits for that revision again.

@@ -1,6 +1,20 @@
 import Foundation
 import AiTermCore
 
+/// A window or a tab asked of iTerm2 and not listed yet, since when: iTerm2 may list one late, so nothing asks for a
+/// second while it `waits`, and only once its wait `isOver` (`OperatorTiming.launchAdoptAfter`) is one asked for again.
+/// Each owner keeps its own, and says what listing ends it: a start's window (`WorkerStarter`), a reopened worker's,
+/// the Operator's reopened window (`OperatorController.reopenOperatorWindow`), and the reconciler's relaunches of a
+/// worker and of an extra tab.
+struct ListingWait: Equatable, Sendable {
+    let since: Date
+
+    /// Still waited for at `now`: less than `launchAdoptAfter` has passed.
+    func waits(at now: Date) -> Bool { now.timeIntervalSince(since) < OperatorTiming.launchAdoptAfter }
+    /// Waited for long enough at `now`: more than `launchAdoptAfter` has passed.
+    func isOver(at now: Date) -> Bool { now.timeIntervalSince(since) > OperatorTiming.launchAdoptAfter }
+}
+
 /// Looks at the real tabs and says what it finds (spec §7.3, §8, §11): an operator whose tab has gone
 /// takes its broadcast offline, and one back brings it back — never a pause or stop of yours; a worker
 /// whose launch never showed a tab is launched again, but only a minute on, never while one may still
@@ -16,16 +30,11 @@ final class RunReconciler {
     private let starter: WorkerStarter
     private let tabs: TabOpener
     private let waker: OperatorWaker
+    /// A watched branch's progress is read before its no-commit limit is decided (`waitsForProgress`).
+    private let branchWatch: BranchWatch
+    /// Whether a connected snapshot has come since the helper attached: until then, a tab not listed is not a tab gone.
+    private let listing: TabsListing
     private let ports: OperatorPorts
-    /// Whether a connected snapshot has come since the helper attached (the controller's `tabsKnown`): until then, a
-    /// tab not listed is not a tab gone.
-    var tabsKnown: @MainActor () -> Bool = { false }
-    /// A watched branch's progress is read before its no-commit limit is decided.
-    var waitsForProgress: @MainActor (TaskItem) -> Bool = { _ in false }
-    /// The latest relaunch, for a test to await.
-    private(set) var lastLaunch: Task<Void, Never>?
-    /// The latest extra tab asked for again, for a test to await.
-    private(set) var lastTab: Task<Void, Never>?
     /// When the last tick counted runtime; nil until the first tick after AiTerm starts, which only
     /// sets it, so the time AiTerm was not running is not counted.
     private var lastCounted: Date?
@@ -33,13 +42,21 @@ final class RunReconciler {
     /// AiTerm started) is counted a minute from here at the soonest, so a slow iTerm2 has listed its window.
     private var firstSynced: Date?
 
-    init(workspace: WorkspaceStore, live: LiveSessions, starter: WorkerStarter, tabs: TabOpener, waker: OperatorWaker, ports: OperatorPorts) {
+    init(workspace: WorkspaceStore, live: LiveSessions, starter: WorkerStarter, tabs: TabOpener, waker: OperatorWaker,
+         branchWatch: BranchWatch, listing: TabsListing, ports: OperatorPorts) {
         self.workspace = workspace
         self.live = live
         self.starter = starter
         self.tabs = tabs
         self.waker = waker
+        self.branchWatch = branchWatch
+        self.listing = listing
         self.ports = ports
+    }
+
+    /// Whether the task's no-commit limit waits for the branch watch's read: it has a head recorded and is watched.
+    private func waitsForProgress(_ task: TaskItem) -> Bool {
+        task.operated?.runtimeHead != nil && branchWatch.isWatched(task)
     }
 
     private var state: AppState { workspace.state }
@@ -47,7 +64,7 @@ final class RunReconciler {
     /// One pass. The runs whose state it changed or in which it blocked a task, for their scheduling and completion.
     @discardableResult
     func tick() -> Set<UUID> {
-        guard tabsKnown() else { return [] }
+        guard listing.known else { return [] }
         let sessions = live.sessions, now = ports.now()
         firstSynced = firstSynced ?? now
         var changed: Set<UUID> = []
@@ -82,7 +99,7 @@ final class RunReconciler {
         default: return false
         }
         workspace.mutate { $0.updateRun(id: run.id) { $0.state = next } }
-        if next != .operatorOffline { waker.say("reconnected", to: run.id) }
+        if next != .operatorOffline { waker.say(.reconnected, to: run.id) }
         return true
     }
 
@@ -103,7 +120,7 @@ final class RunReconciler {
         }
         guard active, operated.state == .working, !operated.takenOver, launch.openedAt == nil, task.windowId == nil,
               task.conversations.isEmpty, !starter.starting.contains(task.id),
-              now.timeIntervalSince(max(launch.requestedAt, starter.settledAt[task.id] ?? firstSynced ?? now)) > OperatorTiming.launchAdoptAfter
+              ListingWait(since: max(launch.requestedAt, starter.settledAt(of: task.id) ?? firstSynced ?? now)).isOver(at: now)
         else { return }
         // Its launches in a row showed no window `WorkerStarter.launchTries` times: it is blocked, with why, not tried again.
         if let reason = starter.unconfirmedReason(task.id) {
@@ -113,7 +130,7 @@ final class RunReconciler {
         let attempt = LaunchAttempt(number: launch.number + 1, requestedAt: now)
         workspace.mutate { $0.updateOperated(task.id) { $0.launch = attempt } }
         guard workspace.flush() else { return }
-        lastLaunch = starter.relaunch(task.id, attempt: attempt) ?? lastLaunch
+        starter.relaunch(task.id, attempt: attempt)
     }
 
     /// The Operator's extra worker tabs (`open_tab`); a tab tagged with the task and a tab's key is that tab, recorded by
@@ -127,7 +144,7 @@ final class RunReconciler {
         for tab in operated.extraTabs where tab.sessionId == nil && tab.launch.openedAt == nil && tab.failure == nil {
             let id = TabOpener.ID(task: task.id, key: tab.key)
             guard !tabs.opening.contains(id), !sessions.contains(where: { $0.taskUUID == task.id && $0.tabKey == tab.key }),
-                  now.timeIntervalSince(max(tab.launch.requestedAt, tabs.settledAt[id] ?? firstSynced ?? now)) > OperatorTiming.launchAdoptAfter
+                  ListingWait(since: max(tab.launch.requestedAt, tabs.settledAt[id] ?? firstSynced ?? now)).isOver(at: now)
             else { continue }
             let attempt = LaunchAttempt(number: tab.launch.number + 1, requestedAt: now)
             workspace.mutate { state in
@@ -136,14 +153,15 @@ final class RunReconciler {
                 }
             }
             guard workspace.flush() else { return }
-            lastTab = tabs.relaunch(id, attempt: attempt) ?? lastTab
+            tabs.relaunch(id, attempt: attempt)
         }
     }
 
     /// Spec §8's limits. Each tick adds the time since the last one to every working task of an active
-    /// run any of whose worker tabs is busy (`WorkerTab.status`: an extra tab still opening is), once however many
-    /// are, and which neither waits on you nor is taken over: at most two intervals' worth, so a Mac asleep is
-    /// not work, saved with the task. A worker idle at its prompt is not at work:
+    /// run any of whose worker tabs is busy (`WorkerTab.status` as of now: an extra tab still opening is, and so is a first
+    /// worker whose launch is under way), once however many are, and which neither waits on you nor is taken over: at most
+    /// two intervals' worth, so a Mac asleep is not work, saved with the task. A worker idle at its prompt, its launch over,
+    /// is not at work:
     /// its turn ended, and its result waits for review. A task past 90 minutes without a commit or four hours
     /// total, or failed with no retry left, is blocked with the reason, which the notifier then tells you — never
     /// for its runtime while it waits for acceptance. The no-commit decision waits for the branch read.
@@ -153,26 +171,27 @@ final class RunReconciler {
         let step = TimeInterval(interval.seconds) + TimeInterval(interval.attoseconds) / 1e18
         let elapsed = lastCounted.map { min(max(0, now.timeIntervalSince($0)), 2 * step) } ?? 0
         lastCounted = now
-        return applyLimits(elapsed: elapsed, sessions: sessions)
+        return applyLimits(elapsed: elapsed, sessions: sessions, now: now)
     }
 
     /// The branch read finished: decide its limit with fresh progress, without counting time again.
     func checkLimits(for task: UUID) -> Set<UUID> {
-        guard tabsKnown() else { return [] }
-        return applyLimits(elapsed: 0, sessions: live.sessions, checkedTask: task)
+        guard listing.known else { return [] }
+        return applyLimits(elapsed: 0, sessions: live.sessions, now: ports.now(), checkedTask: task)
     }
 
     /// Count work and apply limits, either on a tick or for the task whose branch read finished.
-    private func applyLimits(elapsed: TimeInterval, sessions: [SessionInfo], checkedTask: UUID? = nil) -> Set<UUID> {
+    private func applyLimits(elapsed: TimeInterval, sessions: [SessionInfo], now: Date, checkedTask: UUID? = nil) -> Set<UUID> {
         var blocked: [UUID] = []
         let workersByTask = WorkerSessions(sessions)
         workspace.mutate { state in
             for task in state.tasks where checkedTask == nil || task.id == checkedTask {
                 guard let operated = task.operated, let run = state.run(id: operated.runId), run.state == .active, run.youAsked == nil
                 else { continue }
-                // Each tab as it says itself, a first worker's launch not counted, unlike the row and run_status: counted as
-                // work here, a relaunched window would put a finished task back under its runtime limit.
-                let workers = task.workerTabs(in: workersByTask).map(\.status)
+                // Each tab as the pass's live projection reads it as of now, as run_status, the row line and the board read it: a
+                // first worker whose launch is under way is at work, so it counts runtime and is not ready for acceptance,
+                // and a relaunched window puts a finished task back under its runtime limit until its launch is over.
+                let workers = task.workerTabs(in: workersByTask, now: now).map(\.status)
                 if elapsed > 0, workers.contains(.working), operated.state == .working, !operated.takenOver,
                    !operated.flags.contains(.waitingOnYou) {
                     state.updateOperated(task.id) {

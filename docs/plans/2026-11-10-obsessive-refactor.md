@@ -519,20 +519,22 @@ Each box leaves the project working and is one or a few commits.
   concurrency dropped: one issue's two source listings stay at 2 host requests (record).
 - [x] 3d. Jira on `JSONValue`; Fix state; dead code; small shared helpers.
 - [x] 4a. Tool traits and exhaustive Activity lines (test first for `update_request`).
-- [x] 4b. One live projection and one readiness predicate (test first for the launch window). The reconciler keeps
-  reading tabs as they list themselves: given the launch window it would block a relaunched finished task (record).
+- [x] 4b. One live projection and one readiness predicate (test first for the launch window). The reconciler reads
+  through it too since phase 5, on the maintainer's decision of 2026-11-11, which accepted the changed blocking (record).
 - [x] 4c. Requests and tabs once per refresh; `RunStatus.build` split.
 - [x] 4d. Transition table covers every edge; one question writer.
 - [x] 4e. Computed views: question kind, tab reference, merge outcome, record role, run intent.
 - [x] 4f. Persisted publication outcome kind with its migration read and new fixture.
 - [x] 4g. Synthesized Codable with the two wrappers; housekeeping moves. Dropped for `OperatedTask`, whose
   `firstRevision` default and unknown-flag rule neither wrapper expresses: it keeps its hand-written coder (record).
-- [ ] 5a. Settle seam; suites moved to it; `last*` handles private.
-- [ ] 5b. Stop cancels everything it owns (test first); observer removed.
-- [ ] 5c. Gated, shared transcript reads; one status builder and one snapshot per pass.
-- [ ] 5d. Owners in dependency order with references; deferred start pass; ports non-optional.
-- [ ] 5e. Per-key records; the listing-wait value; batched mutations; typed errors.
-- [ ] 5f. Window owner and pause signaller; branch-watch and review-watch caches; closed wake reasons.
+- [x] 5a. Settle seam; suites moved to it; `last*` handles private.
+- [x] 5b. Stop cancels everything it owns (test first); observer removed.
+- [x] 5c. Gated, shared transcript reads; one status builder and one snapshot per pass. The status builder landed with
+  5d, which gave the handler the references it reads (record).
+- [x] 5d. Owners in dependency order with references; deferred start pass; ports non-optional.
+- [x] 5e. Per-key records; the listing-wait value; batched mutations; typed errors.
+- [x] 5f. Window owner and pause signaller; branch-watch and review-watch caches; closed wake reasons. The shelved
+  board's one derivation is dropped: no budget counts it (record).
 - [ ] 6a. One Oracle-job owner, cancelled on Stop and End (test first).
 - [ ] 6b. Handler on tool traits; private tables; `mark_task` enum; sentence and timeout helpers.
 - [ ] 6c. Concurrent `run_status` host reads; reused landing check; settings sync sites.

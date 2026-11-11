@@ -88,7 +88,7 @@ import Synchronization
         let m = try merging(answer: "YES")
         try GitRunner.hermetic().run(["commit", "--allow-empty", "-q", "-m", "new work"], in: m.task.worktreePath)
         var profile = m.run.profile; profile.oracle.isOn = false
-        try OperatorProfileStore.save(profile, m.world.ports.preferences!)
+        try OperatorProfileStore.save(profile, m.world.ports.preferences)
         let answer = await m.world.call(m.run.id, "mark_task", ["task": "A", "outcome": "accepted", "sha": .string(m.sha),
             "checkOutput": "Fresh pass for old commit"])
         #expect(answer.message?.contains("accept the commit its branch is on") == true)
@@ -98,12 +98,12 @@ import Synchronization
     @Test func savedOracleOffAndOnChangesSubsequentMergeChecks() async throws {
         let m = try merging(answer: "NO\nRequired review is missing.")
         var profile = m.run.profile; profile.oracle.isOn = false
-        try OperatorProfileStore.save(profile, m.world.ports.preferences!)
+        try OperatorProfileStore.save(profile, m.world.ports.preferences)
         let without = await m.world.call(m.run.id, "finish_task", ["task": "A"])
         #expect(without.value?["result"] == "waitingToMerge")
         #expect(m.prompts.list.isEmpty)
         profile.oracle.isOn = true
-        try OperatorProfileStore.save(profile, m.world.ports.preferences!)
+        try OperatorProfileStore.save(profile, m.world.ports.preferences)
         let checked = await m.world.call(m.run.id, "finish_task", ["task": "A"])
         #expect(checked.message?.contains("Required review is missing") == true)
         #expect(m.prompts.list.count == 1 && publication(m)?.merged != true)

@@ -49,7 +49,7 @@ import Testing
         let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": .string(reply)]]]]
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-1.jsonl"))
         world.show(sessions(run, task, .idle))
-        await world.controller.turns.lastRead?.value
+        await world.settled()
     }
 
     func relay(_ world: OperatorWorld, _ run: OperatorRun, key: String = "pay-236-bulk", _ more: [String: JSONValue] = [:]) async -> ToolAnswer {
@@ -265,8 +265,9 @@ import Testing
         let id = try #require(pending.value?["challengeId"]?.stringValue)
         #expect(slow.workspace.flush())
         let restarted = try OperatorWorld(try slow.workspace.file.load(), git: git)
-        restarted.show(sessions(slowRun, slowTask, .idle))
-        restarted.controller.tools.turnReadings = { [slowTask.id: slow.controller.turns.readings[slowTask.id]].compactMapValues { $0 } }
+        // The worker's question, read again after the restart.
+        try await endTurn(restarted, slowRun, slowTask)
+        #expect(restarted.controller.turns.readings[slowTask.id] != nil)
         _ = await restarted.call(slowRun.id, "relay_question", ["key": "pay-236-bulk", "task": "PAY-236", "challengeId": .string(id)])
         #expect(restarted.run(slowRun.id)?.questions.first?.history?.last?.text == "AiTerm restarted before the Oracle answered.")
         await gate.open()

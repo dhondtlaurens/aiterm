@@ -267,12 +267,13 @@ extension OperatorToolHandler {
         let delivery = try await daemon.deliver(sessionId: tab.sessionId, text: text, ownership: operated.ownership, wake: false,
                                                 worktree: task.worktreePath)
         // Its worker has the Operator's word: what its last turn asked or left is answered (spec §J).
-        if delivery.result == .delivered { onMessaged(task.id, worker.key) }
+        if delivery.result == .delivered { turns.messaged(task.id, tab: worker.key) }
         var fields: [String: JSONValue] = ["result": .string(delivery.result.rawValue), "reason": delivery.reason.map(JSONValue.string) ?? .null]
         // Steered, an accepted task is at work again; accepting it on its commit or another says what came of it.
         if delivery.result == .delivered, operated.state == .accepted, reopen(task) { fields["reopened"] = true }
         if delivery.result == .delivered || delivery.code == .prompt || delivery.code == .unrecognisedScreen {
-            onMessageResult(task.id, worker.key)
+            // Reading a screen must not delay the delivery result or its replay cache.
+            prompts.afterMessage(task.id, tab: worker.key)
         }
         let answer = JSONValue.object(fields)
         if delivery.result == .delivered { deliveredMessages[key] = (ports.now(), answer) }
@@ -513,8 +514,7 @@ extension OperatorToolHandler {
         let keys = revoked.compactMap { id in state.task(id: id)?.operated.map { ($0.runId, $0.key) } }
         for (run, keys) in Dictionary(grouping: keys, by: \.0) {
             let seen = run == task.operated?.runId ? state.run(id: run).flatMap(currentStatus(of:)) : nil
-            waker.say(keys.count == 1 ? "one task needs rebasing: another was accepted again" : "some tasks need rebasing: another was accepted again",
-                       to: run, unlessAcknowledged: seen)
+            waker.say(.needRebasing(several: keys.count > 1), to: run, unlessAcknowledged: seen)
         }
         let marked = state.task(id: task.id) ?? task
         guard case .object(var fields) = Self.taskAnswer(marked, created: false) else { return Self.taskAnswer(marked, created: false) }

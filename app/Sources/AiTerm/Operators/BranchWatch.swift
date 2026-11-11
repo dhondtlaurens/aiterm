@@ -4,11 +4,13 @@ import AiTermCore
 /// Watches that each worker commits on its task branch (`BranchDrift`), on every reconcile tick: the
 /// worktree's HEAD is read, and once a worker tab (`WorkerTab`) is idle at its prompt or done, the SHAs its
 /// last message names are looked up in the repository. A transcript is read again only once it was written
-/// since it was last read (`WorkerTranscript.modified`): an idle tab's is the same 512 KB tail every tick
-/// otherwise. What it finds is kept on the task, shown in `run_status`, and a newly found drift wakes the
+/// since it was last read, by this watch or the turn reader (`TranscriptLocator.reply`): an idle tab's is the same
+/// 512 KB tail every tick otherwise. What it finds is kept on the task, shown in `run_status`, and a newly found drift wakes the
 /// Operator once: `[AiTerm] PAY-2 committed off its task branch, call run_status`. A task taken over, not
 /// at work, or in a broadcast paused or ended, is not read. A changed task-branch head resets its
-/// no-commit clock. The checked callback decides limits after each read, including one with no progress.
+/// no-commit clock. The checked callback decides limits after each read, including one with no progress. What a message
+/// names is looked up once for its words, the worktree's head and the repository's refs as they were then (`Lookup`):
+/// a pass that finds all three as they were asks git only for the head and the refs.
 @MainActor
 final class BranchWatch {
     private let workspace: WorkspaceStore
@@ -16,12 +18,11 @@ final class BranchWatch {
     private let ports: OperatorPorts
     private let waker: OperatorWaker
     private let transcripts: TranscriptLocator
-    private let pass = TickPass()
-    /// Each conversation's last message as last read, by conversation id, with when its transcript was written then.
-    private var lastMessages: [String: Read] = [:]
-    private struct Read: Sendable { let modified: Date, message: String? }
-    /// The latest pass, for a test to await.
-    var lastPoll: Task<Void, Never>? { pass.last }
+    private let pass: TickPass
+    /// What each watched task's messages named, as last looked up, by task: only the last pass's are kept.
+    private var lookups: [UUID: [Lookup: [BranchDrift.Named]]] = [:]
+    /// A message's lookup holds while its words, the head and the refs are the same.
+    private struct Lookup: Hashable, Sendable { let message: String, head: String?, refs: String }
     /// A fresh read finished, including one with no progress or an unreadable head.
     var checked: @MainActor (UUID) -> Void = { _ in }
 
@@ -31,6 +32,7 @@ final class BranchWatch {
         self.ports = ports
         self.waker = waker
         self.transcripts = transcripts
+        pass = TickPass(work: ports.work)
     }
 
     private var state: AppState { workspace.state }
@@ -45,8 +47,9 @@ final class BranchWatch {
 
     /// One pass over every watched task, unless the last is still reading.
     func poll() {
-        let open = Set(live.sessions.compactMap(\.conversationId))
-        lastMessages = lastMessages.filter { open.contains($0.key) }
+        transcripts.keepReplies(of: Set(live.sessions.compactMap(\.conversationId)))
+        let watched = Set(state.tasks.filter(isWatched).map(\.id))
+        lookups = lookups.filter { watched.contains($0.key) }
         pass.run(state.tasks.filter(isWatched).map(\.id)) { [weak self] in await self?.check($0) }
     }
 
@@ -61,25 +64,30 @@ final class BranchWatch {
                   let conversation = tab.conversation else { return nil }
             return (tab.agent, conversation)
         }
-        let git = ports.git, transcripts = self.transcripts, known = lastMessages, worktree = task.worktreePath
-        let branch = task.branch, base = task.baseBranch
+        let git = ports.git, transcripts = self.transcripts, worktree = task.worktreePath
+        let branch = task.branch, base = task.baseBranch, known = lookups[id] ?? [:]
         let reading = await BackgroundWork.run {
-            var read: [String: Read] = [:]
-            let named: [BranchDrift.Named]? = conversations.isEmpty ? nil : conversations.flatMap { conversation -> [BranchDrift.Named] in
-                guard let file = transcripts.file(agent: conversation.agent, conversation: conversation.id) else { return [] }
-                let modified = WorkerTranscript.modified(file), message: String?
-                if let modified, let kept = known[conversation.id], kept.modified == modified {
-                    message = kept.message
-                } else {
-                    message = WorkerTranscript.lastMessage(in: file, agent: conversation.agent)
-                    if let modified { read[conversation.id] = Read(modified: modified, message: message) }
+            let head = Self.head(in: worktree, git: git)
+            let messages = conversations.compactMap { transcripts.reply(agent: $0.agent, conversation: $0.id).reply?.text }
+            // The refs are read only for a message that names something to look up, and only once.
+            let refs = messages.contains { !BranchDrift.shaCandidates(in: $0).isEmpty } ? Self.refs(in: worktree, git: git) : nil
+            var looked: [Lookup: [BranchDrift.Named]] = [:]
+            let named: [BranchDrift.Named]? = conversations.isEmpty ? nil : messages.flatMap { message -> [BranchDrift.Named] in
+                guard let refs else { return Self.named(in: message, branch: branch, base: base, worktree: worktree, git: git) }
+                let key = Lookup(message: message, head: head?.sha, refs: refs)
+                if let kept = looked[key] ?? known[key] {
+                    looked[key] = kept
+                    return kept
                 }
-                return message.map { Self.named(in: $0, branch: branch, base: base, worktree: worktree, git: git) } ?? []
+                // Kept only when git answered every question: a lookup it could not finish is asked again next pass.
+                let found = Self.lookUp(in: message, branch: branch, base: base, worktree: worktree, git: git)
+                if found.complete { looked[key] = found.named }
+                return found.named
             }
-            return (head: Self.head(in: worktree, git: git), named: named, read: read)
+            return (head: head, named: named, looked: looked)
         }
         guard !Task.isCancelled else { return }
-        lastMessages.merge(reading.read) { _, new in new }
+        lookups[id] = reading.looked
         // Read fresh: git was asked meanwhile.
         guard let current = state.task(id: id), isWatched(current), current.worktreePath == worktree, current.branch == branch,
               let fresh = current.operated, fresh.ownership == operated.ownership else { return }
@@ -94,17 +102,25 @@ final class BranchWatch {
             }
             $0.branchDrift = found
         } }
-        if found != nil, fresh.branchDrift == nil { waker.say("one task committed off its task branch", to: fresh.runId) }
+        if found != nil, fresh.branchDrift == nil { waker.say(.committedOffBranch, to: fresh.runId) }
     }
 
     /// The worktree's HEAD: its branch, nil when detached, and its commit. Nil when git can't read it, and
     /// while a rebase runs there: it detaches HEAD until it ends, back on the branch it started from.
+    /// One git process: the commit, then the branch's full name, or `HEAD` when detached.
     nonisolated static func head(in worktree: String, git: any GitRunning) -> BranchDrift.Head? {
-        guard let sha = try? git.run(["rev-parse", "HEAD"], in: worktree),
-              case .answered(let branch) = ask(["symbolic-ref", "--quiet", "--short", "HEAD"], in: worktree, none: [1], git: git)
-        else { return nil }
+        guard let read = try? git.run(["rev-parse", "HEAD", "--symbolic-full-name", "HEAD"], in: worktree) else { return nil }
+        let lines = read.split(separator: "\n").map(String.init)
+        guard lines.count == 2, !lines[0].isEmpty else { return nil }
+        let branch = lines[1].hasPrefix("refs/heads/") ? String(lines[1].dropFirst("refs/heads/".count)) : nil
         if branch == nil, rebasing(worktree, git: git) { return nil }
-        return BranchDrift.Head(branch: branch, sha: sha)
+        return BranchDrift.Head(branch: branch, sha: lines[0])
+    }
+
+    /// The repository's branches and origin's, each with its commit and what it points at, in one listing: what a
+    /// message's lookup reads (`named`) moves only when it does. Nil when git can't list them, and nothing is kept then.
+    nonisolated static func refs(in worktree: String, git: any GitRunning) -> String? {
+        try? git.run(["for-each-ref", "--format=%(refname) %(objectname) %(symref)", "refs/heads", "refs/remotes/origin"], in: worktree)
     }
 
     /// Whether a rebase is under way in the worktree: its own git folder holds git's rebase state.
@@ -121,24 +137,46 @@ final class BranchWatch {
     /// string that is no commit here (a session id, a hash quoted as evidence) is left out, as is one git couldn't answer
     /// for: nothing is said of either.
     nonisolated static func named(in message: String, branch: String, base: String, worktree: String, git: any GitRunning) -> [BranchDrift.Named] {
+        lookUp(in: message, branch: branch, base: base, worktree: worktree, git: git).named
+    }
+
+    /// `named`, and whether git answered every question it was asked (`complete`): a lookup git could not finish may
+    /// leave a commit out, or say less of one, and is not an answer to keep. That covers the default branch's lookup too
+    /// (`Repository.detectDefaultBranch`): git failing there is read as the fallback default for this pass, and kept as
+    /// nothing.
+    nonisolated static func lookUp(in message: String, branch: String, base: String, worktree: String,
+                                   git: any GitRunning) -> (named: [BranchDrift.Named], complete: Bool) {
+        var complete = true
+        func ask(_ args: [String], none: Set<Int32>) -> Answer {
+            let answer = Self.ask(args, in: worktree, none: none, git: git)
+            if case .failed = answer { complete = false }
+            return answer
+        }
+        func run(_ args: [String]) -> String? {
+            do { return try git.run(args, in: worktree) } catch { complete = false; return nil }
+        }
         // The base branch and the default one, each as this clone has it and as origin's: asked once, and only for a
         // commit off the task branch.
         var baseRefs: [String]?
         var priorHeads: Set<String>?
         func bases() -> [String] {
             if let baseRefs { return baseRefs }
-            let names = [base.isEmpty ? nil : base, Repository(worktree, git: git).defaultBranch()].compactMap { $0 }
+            let detected: String
+            do { detected = try Repository(worktree, git: git).detectDefaultBranch() ?? Repository.fallbackDefaultBranch } catch {
+                complete = false
+                detected = Repository.fallbackDefaultBranch
+            }
+            let names = [base.isEmpty ? nil : base, detected].compactMap { $0 }
             let refs = Array(Set(names.flatMap { ["refs/heads/" + $0, "refs/remotes/origin/" + $0] })).sorted()
             baseRefs = refs
             return refs
         }
-        return BranchDrift.shaCandidates(in: message).compactMap { text in
-            guard case .answered(let found) = ask(["rev-parse", "--verify", "--quiet", text + "^{commit}"], in: worktree, none: [1, 128], git: git),
+        let named = BranchDrift.shaCandidates(in: message).compactMap { text -> BranchDrift.Named? in
+            guard case .answered(let found) = ask(["rev-parse", "--verify", "--quiet", text + "^{commit}"], none: [1, 128]),
                   let commit = found
             else { return nil }
-            guard case .answered(let held) = ask(["merge-base", "--is-ancestor", commit, "refs/heads/" + branch], in: worktree, none: [1], git: git),
-                  let listed = try? git.run(["for-each-ref", "--contains", commit, "--format=%(refname)", "refs/heads", "refs/remotes/origin"],
-                                            in: worktree)
+            guard case .answered(let held) = ask(["merge-base", "--is-ancestor", commit, "refs/heads/" + branch], none: [1]),
+                  let listed = run(["for-each-ref", "--contains", commit, "--format=%(refname)", "refs/heads", "refs/remotes/origin"])
             else { return nil }
             let refs = listed.split(separator: "\n").map(String.init)
             let branches = refs.compactMap { $0.hasPrefix("refs/heads/") ? String($0.dropFirst("refs/heads/".count)) : nil }.filter { $0 != branch }
@@ -148,28 +186,34 @@ final class BranchWatch {
             // attention unless its patch is already present. Reflogs can expire, so also ask git whether the
             // old commit's patch is already present under another SHA after a rebase or cherry-pick.
             if priorHeads == nil {
-                priorHeads = Set(((try? git.run(["reflog", "show", "--format=%H", "refs/heads/" + branch], in: worktree)) ?? "")
+                priorHeads = Set((run(["reflog", "show", "--format=%H", "refs/heads/" + branch]) ?? "")
                     .split(separator: "\n").map(String.init))
             }
             if refs.isEmpty, priorHeads?.contains(commit) == true { return nil }
-            if let cherry = try? git.run(["cherry", "refs/heads/" + branch, commit, commit + "^"], in: worktree),
+            if let cherry = run(["cherry", "refs/heads/" + branch, commit, commit + "^"]),
                cherry.split(separator: "\n").contains(where: { $0 == "- " + commit }) { return nil }
             let onBase = !Set(refs).isDisjoint(with: bases())
+            let merged = onBase ? false : merges(commit, branch: branch, worktree: worktree, git: git)
+            if merged == nil { complete = false }
             return BranchDrift.Named(text: text, commit: commit, onTaskBranch: false, branches: branches, onBaseBranch: onBase,
-                                     mergesTaskBranch: !onBase && merges(commit, branch: branch, worktree: worktree, git: git))
+                                     mergesTaskBranch: merged ?? false)
         }
+        return (named, complete)
     }
 
     /// Whether `commit` is a merge of `branch`: a merge commit that holds its head while its first parent doesn't, so the
-    /// merge brought the task's work in. One that merged something else into a branch already holding it is not. False
-    /// when git couldn't say.
-    nonisolated private static func merges(_ commit: String, branch: String, worktree: String, git: any GitRunning) -> Bool {
+    /// merge brought the task's work in. One that merged something else into a branch already holding it is not. Nil
+    /// when git couldn't say, which is read as no.
+    nonisolated private static func merges(_ commit: String, branch: String, worktree: String, git: any GitRunning) -> Bool? {
         let head = "refs/heads/" + branch
-        guard case .answered(let second) = ask(["rev-parse", "--verify", "--quiet", commit + "^2"], in: worktree, none: [1, 128], git: git),
-              second != nil,
-              case .answered(let holds) = ask(["merge-base", "--is-ancestor", head, commit], in: worktree, none: [1], git: git), holds != nil,
-              case .answered(let before) = ask(["merge-base", "--is-ancestor", head, commit + "^1"], in: worktree, none: [1], git: git)
-        else { return false }
+        guard case .answered(let second) = ask(["rev-parse", "--verify", "--quiet", commit + "^2"], in: worktree, none: [1, 128], git: git)
+        else { return nil }
+        guard second != nil else { return false }
+        guard case .answered(let holds) = ask(["merge-base", "--is-ancestor", head, commit], in: worktree, none: [1], git: git)
+        else { return nil }
+        guard holds != nil else { return false }
+        guard case .answered(let before) = ask(["merge-base", "--is-ancestor", head, commit + "^1"], in: worktree, none: [1], git: git)
+        else { return nil }
         return before == nil
     }
 
