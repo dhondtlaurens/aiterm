@@ -391,6 +391,20 @@ import Testing
             #expect(try await workflow.hasUnsavedWork(task: task, project: project, after: preflight)
                     == (try await workflow.hasUnsavedWork(task: task, project: project)), "\(task.title): unsaved work")
         }
+        // A worktree listed at the preflight, then removed outside AiTerm and its folder made again by something still
+        // writing there, before the uncommitted-work check: git status there would answer for the project's own
+        // checkout, which has an untracked file. The rule before phase 7 listed again and skipped status for a folder
+        // git no longer lists.
+        let vanished = try await make("Vanished")
+        let listedThen = try await workflow.preflight(task: vanished, project: project)
+        #expect(listedThen.listed)
+        try git.run(["worktree", "unlock", vanished.worktreePath], in: project.path)
+        try git.run(["worktree", "remove", vanished.worktreePath], in: project.path)
+        try FileManager.default.createDirectory(atPath: vanished.worktreePath + "/build", withIntermediateDirectories: true)
+        try "stray".write(toFile: project.path + "/untracked-in-the-project", atomically: true, encoding: .utf8)
+        #expect(try await workflow.hasUnsavedWork(task: vanished, project: project, after: listedThen)
+                == (try await workflow.hasUnsavedWork(task: vanished, project: project)), "Vanished: unsaved work")
+        #expect(try await !workflow.hasUnsavedWork(task: vanished, project: project, after: listedThen))
         // The cases are the ones named: each answer is seen at least once.
         #expect(try await workflow.preflight(task: dirty, project: project).listed)
         #expect(try await workflow.preflight(task: detached, project: project).head == .detached)

@@ -145,13 +145,15 @@ public struct TaskWorkflow: Sendable {
         }
     }
 
-    /// `hasUnsavedWork(task:project:)` from the preflight's listing: git status is asked only of a worktree git listed
-    /// whose folder is still there.
+    /// `hasUnsavedWork(task:project:)` from the preflight's listing: git status is asked only of a worktree git listed,
+    /// whose folder is still that worktree when status is asked (`Worktree.isLinkedCheckout`). A worktree removed outside
+    /// AiTerm since the listing, its folder made again, is skipped as one git no longer lists was: status there would
+    /// answer for the project's own checkout.
     public func hasUnsavedWork(task: TaskItem, project: Project, after preflight: Preflight) async throws -> Bool {
         guard preflight.listed else { return false }
         let git = git
         return try await BackgroundWork.run {
-            guard FileManager.default.fileExists(atPath: task.worktreePath) else { return false }
+            guard Worktree.isLinkedCheckout(at: task.worktreePath) else { return false }
             return try !Repository(project.path, git: git).isClean(at: task.worktreePath, untracked: true)
         }
     }

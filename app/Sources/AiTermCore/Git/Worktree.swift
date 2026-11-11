@@ -54,4 +54,16 @@ public struct Worktree: Equatable, Sendable {
 
     /// `path` as the kernel names it (`CanonicalPath`), which is how two names for one worktree are compared.
     static func resolved(_ path: String) -> String { CanonicalPath.of(path) }
+
+    /// Whether the folder at `path` is a linked worktree git knows: its `.git` is a file naming an administrative folder
+    /// whose `gitdir` names this folder's `.git` back. Read from the disk, with no git process. A worktree removed
+    /// outside AiTerm loses its administrative folder, so a folder made again at its path is not one.
+    static func isLinkedCheckout(at path: String) -> Bool {
+        let link = path + "/.git"
+        guard let text = try? String(contentsOfFile: link, encoding: .utf8), text.hasPrefix("gitdir:") else { return false }
+        var admin = text.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !admin.hasPrefix("/") { admin = path + "/" + admin }
+        guard let back = try? String(contentsOfFile: admin + "/gitdir", encoding: .utf8) else { return false }
+        return resolved(back.trimmingCharacters(in: .whitespacesAndNewlines)) == resolved(link)
+    }
 }
