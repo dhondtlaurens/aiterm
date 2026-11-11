@@ -93,8 +93,8 @@ import Testing
 
     /// The wake lines typed into the Operator's tab, once the waker has sent what it holds.
     func wakes(_ world: OperatorWorld) async -> [String] {
-        await world.controller.waker.lastCoalesce?.value
-        await world.controller.waker.lastSend?.value
+        await world.settled()
+        await world.settled()
         return world.daemon.requests("session.deliver").filter { $0.params["wake"] as? Bool == true }.compactMap { $0.params["text"] as? String }
     }
 

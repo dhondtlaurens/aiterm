@@ -11,6 +11,8 @@ import Testing
     final class Operator { var tab: SessionInfo?; var awake = true }
 
     let daemon = RecordingDaemon(), op = Operator(), project = OperatorServiceFixtures.project()
+    /// Where every waker here starts its coalescing and its deliveries, for `settled`.
+    let work = OperatorWork()
     let run: OperatorRun
     init() {
         run = OperatorServiceFixtures.run(projects: [project], state: .active)
@@ -32,10 +34,10 @@ import Testing
     func makeWaker(coalesce: Duration = .zero, retryAfter: Duration = .seconds(60), by hand: HandSleeper? = nil) -> OperatorWaker {
         guard let hand else {
             return OperatorWaker(daemon: { [daemon] in daemon }, session: { [op] _ in op.tab }, awake: { [op] _ in op.awake },
-                                 coalesce: coalesce, retryAfter: retryAfter)
+                                 coalesce: coalesce, retryAfter: retryAfter, work: work)
         }
         return OperatorWaker(daemon: { [daemon] in daemon }, session: { [op] _ in op.tab }, awake: { [op] _ in op.awake },
-                             coalesce: coalesce, retryAfter: retryAfter, sleep: { await hand.sleep($0) })
+                             coalesce: coalesce, retryAfter: retryAfter, sleep: { await hand.sleep($0) }, work: work)
     }
 
     /// The run as `run_status` would show it with `questions` open questions.
@@ -116,7 +118,7 @@ import Testing
         waker.observe(status(questions: 2), of: run.id)
         await hand.release(1)
         try await daemon.received("session.deliver")
-        await waker.lastSend?.value
+        await work.settled()
         #expect(lines == ["[AiTerm] updates waiting, call run_status"])
         let sent = try #require(daemon.requests("session.deliver").first)
         #expect(sent.params["sessionId"] as? String == "op")
@@ -143,7 +145,7 @@ import Testing
         waker.observe(settled, of: completed.id)
         await hand.release(1)
         try await daemon.received("session.deliver")
-        await waker.lastSend?.value
+        await work.settled()
         #expect(lines == ["[AiTerm] updates waiting, call run_status"])
         waker.acknowledged(settled, of: completed.id)
         waker.observe(settled, of: completed.id)
@@ -206,7 +208,7 @@ import Testing
         waker.observe(status(questions: 2), of: run.id)
         await hand.release(1)
         try await daemon.received("session.deliver")
-        await waker.lastSend?.value
+        await work.settled()
         #expect(lines == ["[AiTerm] updates waiting, call run_status"])
     }
 
@@ -225,10 +227,10 @@ import Testing
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.observe(status(questions: 1), of: run.id)
         try await daemon.received("session.deliver")
-        await waker.lastSend?.value
+        await work.settled()
         waker.operatorSessionChanged(run.id)
         try await daemon.received("session.deliver", count: 2)
-        await waker.lastSend?.value
+        await work.settled()
         waker.operatorSessionChanged(run.id)
         try await Task.sleep(for: .milliseconds(100))
         #expect(lines.count == 2)
@@ -250,7 +252,7 @@ import Testing
         try await daemon.received("session.deliver")
         await hand.release(2)
         try await daemon.received("session.deliver", count: 2)
-        await waker.lastSend?.value
+        await work.settled()
         #expect(lines == ["[AiTerm] updates waiting, call run_status", "[AiTerm] updates waiting, call run_status"])
         // It landed: no third wait is started.
         try await Task.sleep(for: .milliseconds(50))
@@ -280,21 +282,20 @@ import Testing
     func newsCoalescedDuringDeliveryStillWakesAfterItCompletes(_ acknowledge: Bool) async throws {
         let held = RecordingDaemon(holding: "session.deliver"), hand = HandSleeper()
         let waker = OperatorWaker(daemon: { held }, session: { [op] _ in op.tab }, awake: { _ in true },
-                                  coalesce: .zero, sleep: { await hand.sleep($0) })
+                                  coalesce: .zero, sleep: { await hand.sleep($0) }, work: work)
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.observe(status(questions: 1), of: run.id)
         await hand.release(1)
         try await held.received("session.deliver")
-        let first = waker.lastSend
         if acknowledge { waker.acknowledged(status(questions: 1), of: run.id) }
         waker.observe(status(questions: 2), of: run.id)
         await hand.release(2)
-        await waker.lastCoalesce?.value
+        // The coalescing pass ended while the first delivery is still held.
+        await work.settled(leaving: 1)
         held.release()
-        await first?.value
         // No session change is needed: the coalescing deadline has already passed.
         await eventually { held.requests("session.deliver").count == 2 }
-        await waker.lastSend?.value
+        await work.settled()
         #expect(held.requests("session.deliver").compactMap { $0.params["text"] as? String } == [
             "[AiTerm] updates waiting, call run_status", "[AiTerm] updates waiting, call run_status"
         ])
@@ -305,18 +306,17 @@ import Testing
     @Test func aReasonArrivingDuringDeliveryGetsItsOwnWake() async throws {
         let held = RecordingDaemon(holding: "session.deliver"), hand = HandSleeper()
         let waker = OperatorWaker(daemon: { held }, session: { [op] _ in op.tab }, awake: { _ in true },
-                                  coalesce: .zero, sleep: { await hand.sleep($0) })
+                                  coalesce: .zero, sleep: { await hand.sleep($0) }, work: work)
         waker.say("reconnected", to: run.id)
         await hand.release(1)
         try await held.received("session.deliver")
-        let first = waker.lastSend
         waker.say("operation complete", to: run.id)
         await hand.release(2)
-        await waker.lastCoalesce?.value
+        // The coalescing pass ended while the first delivery is still held.
+        await work.settled(leaving: 1)
         held.release()
-        await first?.value
         await eventually { held.requests("session.deliver").count == 2 }
-        await waker.lastSend?.value
+        await work.settled()
         #expect(held.requests("session.deliver").compactMap { $0.params["text"] as? String } == [
             "[AiTerm] reconnected, call run_status", "[AiTerm] operation complete, call run_status"
         ])
@@ -325,29 +325,27 @@ import Testing
     @Test func forgettingDuringDeliveryPreservesReplacementNewsWithoutOverlappingWakes() async throws {
         let held = RecordingDaemon(holding: "session.deliver"), hand = HandSleeper()
         let waker = OperatorWaker(daemon: { held }, session: { [op] _ in op.tab }, awake: { _ in true },
-                                  coalesce: .zero, sleep: { await hand.sleep($0) })
+                                  coalesce: .zero, sleep: { await hand.sleep($0) }, work: work)
         waker.say("operation complete", to: run.id)
         await hand.release(1)
         try await held.received("session.deliver")
-        let original = waker.lastSend
 
         waker.forget(run.id)
         waker.say("reconnected", to: run.id)
         await hand.release(2)
-        await waker.lastCoalesce?.value
+        await work.settled(leaving: 1)
         waker.operatorSessionChanged(run.id)
         await Task.yield()
         #expect(held.requests("session.deliver").count == 1, "the forgotten delivery still owns the tab until it replies")
 
         held.release()
-        await original?.value
         try await held.received("session.deliver", count: 2)
-        await waker.lastSend?.value
+        await work.settled()
         #expect(held.requests("session.deliver").compactMap { $0.params["text"] as? String } == [
             "[AiTerm] operation complete, call run_status", "[AiTerm] reconnected, call run_status"
         ])
         waker.operatorSessionChanged(run.id)
-        await waker.lastSend?.value
+        await work.settled()
         #expect(held.requests("session.deliver").count == 2)
     }
 
@@ -371,12 +369,12 @@ import Testing
         func woken(by news: [String: TaskLiveFacts]) async throws -> [String] {
             let daemon = RecordingDaemon(), hand = HandSleeper()
             let waker = OperatorWaker(daemon: { daemon }, session: { [op] _ in op.tab }, awake: { _ in true }, coalesce: .zero,
-                                      sleep: { await hand.sleep($0) })
+                                      sleep: { await hand.sleep($0) }, work: work)
             waker.acknowledged(status(tasks, turns: ["PAY-2": quiet, "PAY-3": quiet]), of: run.id)
             waker.observe(status(tasks, turns: news), of: run.id)
             await hand.release(1)
             try await daemon.received("session.deliver")
-            await waker.lastSend?.value
+            await work.settled()
             return daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
         }
         #expect(try await woken(by: ["PAY-2": asks, "PAY-3": quiet]) == ["[AiTerm] PAY-two asks something, call run_status"])
@@ -396,7 +394,7 @@ import Testing
         func woken(by news: [String: TaskLiveFacts]) async throws -> [String] {
             let daemon = RecordingDaemon(), op = Operator()
             op.tab = OperatorServiceFixtures.session("op", tag: run.id)
-            let waker = OperatorWaker(daemon: { daemon }, session: { [op] _ in op.tab }, awake: { _ in true }, coalesce: .zero)
+            let waker = OperatorWaker(daemon: { daemon }, session: { [op] _ in op.tab }, awake: { _ in true }, coalesce: .zero, work: work)
             waker.acknowledged(status(tasks, turns: ["T6": quiet, "T7": quiet, "T10": quiet]), of: run.id)
             op.tab?.state = .working
             waker.observe(status(tasks, turns: ["T6": quiet, "T7": quiet, "T10": quiet].merging(news) { $1 }), of: run.id)
@@ -405,7 +403,7 @@ import Testing
             op.tab?.state = .idle
             waker.operatorSessionChanged(run.id)
             try await daemon.received("session.deliver")
-            await waker.lastSend?.value
+            await work.settled()
             let lines = daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
             #expect(lines.allSatisfy(OperatorWaker.isPlain), "\(lines)")
             return lines
@@ -449,7 +447,7 @@ import Testing
         waker.observe(status(tasks, turns: ["PAY-2": stopped]), of: run.id)
         await hand.release(1)
         try await daemon.received("session.deliver")
-        await waker.lastSend?.value
+        await work.settled()
         #expect(lines == ["[AiTerm] PAY-two's worker stopped on an error, call run_status"])
     }
 
@@ -464,7 +462,7 @@ import Testing
         waker.observe(status(tasks, turns: ["area-A": stopped]), of: run.id)
         await hand.release(1)
         try await daemon.received("session.deliver")
-        await waker.lastSend?.value
+        await work.settled()
         #expect(lines == ["[AiTerm] area-A's worker stopped on an error, call run_status"])
         #expect(lines.allSatisfy(OperatorWaker.isPlain))
     }
@@ -522,7 +520,7 @@ import Testing
             return RunStatus.build(state: OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), run: run.id,
                                    revision: 1, live: [:], now: Date(timeIntervalSince1970: began + minutes * 60))!
         }
-        func settle() async { await waker.lastCoalesce?.value; await waker.lastSend?.value }
+        func settle() async { await work.settled() }
         waker.acknowledged(status(began: 0, minutes: 4), of: run.id)
         waker.observe(status(began: 0, minutes: 5), of: run.id)
         await settle()
@@ -595,7 +593,7 @@ import Testing
         let tasks = [OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .working)]
         let working = status(tasks, turns: ["PAY-2": TaskLiveFacts(status: .working)])
         let ready = status(tasks, turns: ["PAY-2": TaskLiveFacts(status: .idle, lastMessage: "Done.", commitsAhead: 1)])
-        func settle() async { await waker.lastCoalesce?.value; await waker.lastSend?.value }
+        func settle() async { await work.settled() }
         #expect(ready.obligations.readyForAcceptance == ["PAY-2"])
         waker.acknowledged(working, of: run.id)
         waker.observe(ready, of: run.id)
@@ -621,18 +619,18 @@ import Testing
         for midTurn in [false, true] {
             let daemon = RecordingDaemon(), op = Operator()
             op.tab = OperatorServiceFixtures.session("op", tag: run.id)
-            let waker = OperatorWaker(daemon: { daemon }, session: { [op] _ in op.tab }, awake: { _ in true }, coalesce: .zero)
+            let waker = OperatorWaker(daemon: { daemon }, session: { [op] _ in op.tab }, awake: { _ in true }, coalesce: .zero, work: work)
             waker.acknowledged(working, of: run.id)
             if midTurn { op.tab?.state = .working }
             waker.observe(ready, of: run.id)
             if midTurn {
-                await waker.lastCoalesce?.value
+                await work.settled()
                 #expect(daemon.requests("session.deliver").isEmpty, "nothing is typed while the Operator works")
                 op.tab?.state = .idle
                 waker.operatorSessionChanged(run.id)
             }
             try await daemon.received("session.deliver")
-            await waker.lastSend?.value
+            await work.settled()
             let lines = daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
             #expect(lines == ["[AiTerm] area-E needs acceptance, call run_status"], "mid-turn: \(midTurn)")
             #expect(lines.allSatisfy(OperatorWaker.isPlain))
@@ -647,7 +645,7 @@ import Testing
         let tasks = [OperatorServiceFixtures.task(in: run, project: project, key: "PAY-2", state: .inReview)]
         func read(_ facts: TaskLiveFacts) -> RunStatus { status(tasks, turns: ["PAY-2": facts]) }
         let working = read(TaskLiveFacts(status: .working)), quiet = read(TaskLiveFacts(status: .working, quiet: true))
-        func settle() async { await waker.lastCoalesce?.value; await waker.lastSend?.value; try? await Task.sleep(for: .milliseconds(30)) }
+        func settle() async { await work.settled(); try? await Task.sleep(for: .milliseconds(30)) }
         #expect(quiet.obligations.uncertain == ["PAY-2"])
         waker.acknowledged(working, of: run.id)
         waker.observe(quiet, of: run.id)
@@ -776,7 +774,7 @@ import Testing
         waker.acknowledged(before, of: run.id)
         waker.observe(after, of: run.id)
         try await daemon.received("session.deliver")
-        await waker.lastSend?.value
+        await work.settled()
         #expect(lines == ["[AiTerm] PAY-one-two needs acceptance, call run_status"])
         #expect(lines.allSatisfy(OperatorWaker.isPlain))
     }
@@ -793,7 +791,7 @@ import Testing
         waker.acknowledged(before, of: run.id)
         waker.observe(after, of: run.id)
         try await daemon.received("session.deliver")
-        await waker.lastSend?.value
+        await work.settled()
         #expect(lines.count == 1)
         #expect(lines[0].contains("PAY-one-two needs acceptance"))
         #expect(lines[0].contains("PAY-one-three needs acceptance"))
@@ -813,7 +811,7 @@ import Testing
         waker.acknowledged(before, of: run.id)
         waker.observe(after, of: run.id)
         try await daemon.received("session.deliver")
-        await waker.lastSend?.value
+        await work.settled()
         let line = try #require(lines.first)
         #expect(line.count <= 2000)
         #expect(OperatorWaker.isPlain(line))
@@ -845,11 +843,11 @@ import Testing
         let reports = reporting(waker)
         waker.observe(status(questions: 1), of: run.id)
         try await daemon.received("session.deliver")
-        await waker.lastSend?.value
+        await work.settled()
         #expect(reports.refused == [unread] && reports.cleared == 0)
         waker.operatorSessionChanged(run.id)
         try await daemon.received("session.deliver", count: 2)
-        await waker.lastSend?.value
+        await work.settled()
         #expect(reports.refused.count == 1 && reports.cleared == 1)
     }
 
@@ -860,7 +858,7 @@ import Testing
         let reports = reporting(waker)
         waker.observe(status(questions: 1), of: run.id)
         try await daemon.received("session.deliver")
-        await waker.lastSend?.value
+        await work.settled()
         #expect(reports.refused.isEmpty)
     }
 
@@ -873,7 +871,7 @@ import Testing
         @MainActor final class Clock { var now = Date(timeIntervalSince1970: 0) }
         let clock = Clock()
         let waker = OperatorWaker(daemon: { [daemon] in daemon }, session: { [op] _ in op.tab }, awake: { _ in true },
-                                  coalesce: .zero, retryAfter: .seconds(60), now: { clock.now })
+                                  coalesce: .zero, retryAfter: .seconds(60), now: { clock.now }, work: work)
         waker.acknowledged(status(questions: 0), of: run.id)
         let reports = reporting(waker)
         waker.observe(status(questions: 1), of: run.id)
@@ -881,7 +879,7 @@ import Testing
             clock.now += seconds
             if n > 1 { waker.operatorSessionChanged(run.id) }
             try await daemon.received("session.deliver", count: n)
-            await waker.lastSend?.value
+            await work.settled()
         }
         try await attempt(1, after: 0)
         try await attempt(2, after: OperatorTiming.unsentWakeNotice - 1)
@@ -901,7 +899,7 @@ import Testing
         let reports = reporting(waker)
         waker.observe(status(questions: 1), of: run.id)
         try await daemon.received("session.deliver")
-        await waker.lastSend?.value
+        await work.settled()
         #expect(reports.refused.isEmpty && reports.cleared == 0)
     }
 
@@ -936,8 +934,8 @@ extension OperatorWakerTests {
         _ = await call.value
         world.live.sessions[1].state = .idle
         await gate.release()
-        await world.controller.waker.lastCoalesce?.value
-        await world.controller.waker.lastSend?.value
+        await world.settled()
+        await world.settled()
         #expect(daemon.requests("session.deliver").contains { $0.params["wake"] as? Bool == true })
     }
 }

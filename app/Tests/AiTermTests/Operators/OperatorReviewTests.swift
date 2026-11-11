@@ -48,14 +48,14 @@ import Testing
         world.live.sessions = [OperatorServiceFixtures.session("operator", tag: run.id), OperatorServiceFixtures.session("worker", tag: task.id)]
         // The idle worker's turn is read first (`WorkerTurnReader`), so its reading is the Operator's first look, not news.
         world.controller.turns.observe()
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         return Reviewed(world: world, run: run, task: task, host: host, sha: fixture.sha)
     }
 
     /// The wake lines typed into the Operator's tab, once the waker has sent what it holds.
     func wakes(_ world: OperatorWorld) async -> [String] {
-        await world.controller.waker.lastCoalesce?.value
-        await world.controller.waker.lastSend?.value
+        await world.settled()
+        await world.settled()
         return world.daemon.requests("session.deliver").filter { $0.params["wake"] as? Bool == true }.compactMap { $0.params["text"] as? String }
     }
 
@@ -406,21 +406,21 @@ import Testing
     @Test func approvalWithoutThreadsWakesTheOperatorOnce() async throws {
         let r = try await reviewed(.inReview, slices: Slices(review: true))
         let watcher = r.world.controller.reviewWatcher
-        watcher.poll(); await watcher.lastPoll?.value
+        watcher.poll(); await r.world.settled()
         #expect(await wakes(r.world).isEmpty)
         r.host.update { $0.approvals = ["jan"] }
-        watcher.poll(); await watcher.lastPoll?.value
+        watcher.poll(); await r.world.settled()
         #expect(await wakes(r.world) == ["[AiTerm] letter-ay has review feedback: call run_status"])
         #expect(r.world.task(r.task.id)?.operated?.peopleReview?.threads.isEmpty == true)
         #expect(r.world.task(r.task.id)?.operated?.peopleReview?.approvals == ["jan"])
-        watcher.poll(); await watcher.lastPoll?.value
+        watcher.poll(); await r.world.settled()
         #expect(await wakes(r.world).count == 1)
     }
 
     @Test func newFeedbackWakesTheOperator() async throws {
         let r = try await reviewed(.inReview, slices: Slices(review: true))
         let watcher = r.world.controller.reviewWatcher
-        func poll() async { watcher.poll(); await watcher.lastPoll?.value }
+        func poll() async { watcher.poll(); await r.world.settled() }
         await poll()
         #expect(await wakes(r.world) == [], "nothing new, no wake")
         r.host.update { $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this")] }
@@ -455,7 +455,7 @@ import Testing
             $0.publication?.mergeRequestURL = "https://github.com/acme/shop/pull/13"
         } }
         await gate.release()
-        await watcher.lastPoll?.value
+        await r.world.settled()
         #expect(r.world.task(r.task.id)?.operated?.peopleReview?.threads.isEmpty != false)
         #expect(await wakes(r.world) == [])
     }
@@ -465,14 +465,14 @@ import Testing
         let watcher = r.world.controller.reviewWatcher
         r.host.update { $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename")] }
         watcher.poll()
-        await watcher.lastPoll?.value
+        await r.world.settled()
         #expect(await wakes(r.world).count == 1)
         r.host.update {
             $0.me = "new-token-user"
             $0.threads[0] = ReviewThread(id: "d1", resolved: false, lastAuthor: "new-token-user", lastBody: "Done")
         }
         watcher.poll()
-        await watcher.lastPoll?.value
+        await r.world.settled()
         #expect(await wakes(r.world).count == 1, "a reply by the replacement token is its own, so it adds no wake")
     }
 
@@ -481,7 +481,7 @@ import Testing
         r.world.workspace.mutate { $0.updateOperated(r.task.id) { $0.takenOver = true } }
         r.host.update { $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this")] }
         r.world.controller.reviewWatcher.poll()
-        await r.world.controller.reviewWatcher.lastPoll?.value
+        await r.world.settled()
         #expect(r.host.log.isEmpty)
     }
 
@@ -490,7 +490,7 @@ import Testing
     @Test func aReviewersReplyWakesTheOperatorAndItsOwnDoesNot() async throws {
         let r = try await reviewed(.inReview, slices: Slices(review: true))
         let watcher = r.world.controller.reviewWatcher
-        func poll() async { watcher.poll(); await watcher.lastPoll?.value }
+        func poll() async { watcher.poll(); await r.world.settled() }
         r.host.update { $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this")] }
         await poll()
         #expect(await wakes(r.world).count == 1)
@@ -595,7 +595,7 @@ import Testing
         #expect(await r.world.call(r.run.id, "request_review", ["task": "A", "reviewers": ["jan"]]).message == refused)
         #expect(await r.world.call(r.run.id, "reply_thread", ["task": "A", "key": "r1", "thread": "d1", "body": "Done."]).message == refused)
         r.world.controller.reviewWatcher.poll()
-        await r.world.controller.reviewWatcher.lastPoll?.value
+        await r.world.settled()
         #expect(r.host.log.isEmpty, "another repository's !12 is neither read nor written")
     }
 

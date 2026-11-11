@@ -50,8 +50,8 @@ final class WorkerQuietWatch {
     /// A sign of life read for one of a task's worker tabs (nil for its first worker), and when: its transcript last
     /// grew, or now while a call it started still runs.
     var sign: @MainActor (_ task: UUID, _ tab: String?, _ at: Date) -> Void = { _, _, _ in }
-    /// The latest read, for a test to await.
-    private(set) var lastRead: Task<Void, Never>?
+    /// The read under way, which `stop` cancels.
+    private var reading: Task<Void, Never>?
 
     init(workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts, transcripts: TranscriptLocator) {
         self.workspace = workspace
@@ -61,7 +61,7 @@ final class WorkerQuietWatch {
     }
 
     func stop() {
-        lastRead?.cancel()
+        reading?.cancel()
         isReading = false
     }
 
@@ -118,7 +118,7 @@ final class WorkerQuietWatch {
         guard !asked.isEmpty else { return }
         isReading = true
         let earlier = calls
-        lastRead = Task { [weak self] in
+        reading = ports.work.start { [weak self] in
             guard !Task.isCancelled else { return }
             let read = await BackgroundWork.run {
                 asked.map { ask in

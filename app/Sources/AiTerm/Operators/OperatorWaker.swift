@@ -63,20 +63,19 @@ final class OperatorWaker {
     private var isStopped = false
     /// A fixed reason, and what joins it to "call run_status": a comma, or a colon after news about one task.
     struct Reason: Hashable { var text: String, colon: Bool }
-    /// The latest delivery, for a test to await.
-    private(set) var lastSend: Task<Void, Never>?
     /// A wake line the daemon refused that the sidebar's Notice shows (`OperatorWakeNotice.shows`): already held long
     /// enough when it was for input that may hold unsent text.
     var refused: (@MainActor (UUID, Delivery) -> Void)?
     /// The operator is awake, or its run is gone: it called `run_status`, a wake line was delivered, or the run was forgotten.
     var cleared: (@MainActor (UUID) -> Void)?
-    /// The latest coalescing pass, for a test to release and await.
-    private(set) var lastCoalesce: Task<Void, Never>?
+    /// Where a coalescing pass and a delivery are started, for a test to wait for (`OperatorWork.settled`). A refused
+    /// line's retry is not: it waits `retryAfter`.
+    private let work: OperatorWork
 
     init(daemon: @escaping @MainActor () -> (any DaemonCommands)?, session: @escaping @MainActor (UUID) -> SessionInfo?,
          awake: @escaping @MainActor (UUID) -> Bool, coalesce: Duration, retryAfter: Duration = .seconds(15),
          sleep: @escaping @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
-         now: @escaping @MainActor () -> Date = { Date() }) {
+         now: @escaping @MainActor () -> Date = { Date() }, work: OperatorWork = OperatorWork()) {
         self.daemon = daemon
         self.session = session
         self.awake = awake
@@ -84,6 +83,7 @@ final class OperatorWaker {
         self.retryAfter = retryAfter
         self.sleep = sleep
         self.now = now
+        self.work = work
     }
 
     /// What `run_status` would answer now. The first look at a run is taken as seen — after a restart
@@ -465,13 +465,12 @@ final class OperatorWaker {
     private func arm(_ run: UUID, _ wake: WakeState) {
         guard wake.armed == nil else { return }
         let coalesce = self.coalesce, sleep = self.sleep
-        wake.armed = Task { [weak self] in
+        wake.armed = work.start { [weak self] in
             try? await sleep(coalesce)
             guard !Task.isCancelled, let self else { return }
             wake.armed = nil
             send(run, wake)
         }
-        lastCoalesce = wake.armed
     }
 
     private func send(_ run: UUID, _ wake: WakeState) {
@@ -493,7 +492,7 @@ final class OperatorWaker {
             : "[AiTerm] " + parts.joined(separator: "; ") + ", call run_status"
         let bounded = Self.typable(Self.boundedLine(text))
         wake.sending = snapshot
-        lastSend = Task { [weak self] in
+        work.start { [weak self] in
             let delivery = try? await daemon.deliver(sessionId: tab.sessionId, text: bounded, ownership: 0, wake: true, worktree: nil)
             guard let self else { return }
             wake.sending = nil

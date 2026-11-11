@@ -15,14 +15,13 @@ final class ReviewWatcher {
     private let workspace: WorkspaceStore
     private let ports: OperatorPorts
     private let waker: OperatorWaker
-    private let pass = TickPass()
-    /// The latest pass, for a test to await.
-    var lastPoll: Task<Void, Never>? { pass.last }
+    private let pass: TickPass
 
     init(workspace: WorkspaceStore, ports: OperatorPorts, waker: OperatorWaker) {
         self.workspace = workspace
         self.ports = ports
         self.waker = waker
+        pass = TickPass(work: ports.work)
     }
 
     private var state: AppState { workspace.state }

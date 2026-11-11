@@ -22,10 +22,6 @@ final class RunReconciler {
     var tabsKnown: @MainActor () -> Bool = { false }
     /// A watched branch's progress is read before its no-commit limit is decided.
     var waitsForProgress: @MainActor (TaskItem) -> Bool = { _ in false }
-    /// The latest relaunch, for a test to await.
-    private(set) var lastLaunch: Task<Void, Never>?
-    /// The latest extra tab asked for again, for a test to await.
-    private(set) var lastTab: Task<Void, Never>?
     /// When the last tick counted runtime; nil until the first tick after AiTerm starts, which only
     /// sets it, so the time AiTerm was not running is not counted.
     private var lastCounted: Date?
@@ -113,7 +109,7 @@ final class RunReconciler {
         let attempt = LaunchAttempt(number: launch.number + 1, requestedAt: now)
         workspace.mutate { $0.updateOperated(task.id) { $0.launch = attempt } }
         guard workspace.flush() else { return }
-        lastLaunch = starter.relaunch(task.id, attempt: attempt) ?? lastLaunch
+        starter.relaunch(task.id, attempt: attempt)
     }
 
     /// The Operator's extra worker tabs (`open_tab`); a tab tagged with the task and a tab's key is that tab, recorded by
@@ -136,7 +132,7 @@ final class RunReconciler {
                 }
             }
             guard workspace.flush() else { return }
-            lastTab = tabs.relaunch(id, attempt: attempt) ?? lastTab
+            tabs.relaunch(id, attempt: attempt)
         }
     }
 

@@ -27,7 +27,7 @@ import Testing
     func wake(_ world: OperatorWorld, _ run: OperatorRun, count: Int = 1) async throws {
         world.controller.waker.say("reconnected", to: run.id)
         try await world.daemon.received("session.deliver", count: count)
-        await world.controller.waker.lastSend?.value
+        await world.settled()
     }
 
     @Test func aRefusedWakeLineShowsWhatWaitsOnTheOperatorAndWhy() async throws {

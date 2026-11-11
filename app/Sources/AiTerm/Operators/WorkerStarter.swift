@@ -359,10 +359,10 @@ final class WorkerStarter {
     }
 
     /// A launch that showed no tab, tried again as `attempt` — saved by the caller first.
-    func relaunch(_ id: UUID, attempt: LaunchAttempt) -> Task<Void, Never>? {
-        guard !isStopped, !starting.contains(id) else { return nil }
+    func relaunch(_ id: UUID, attempt: LaunchAttempt) {
+        guard !isStopped, !starting.contains(id) else { return }
         starting.insert(id)
-        return Task {
+        ports.work.start { [self] in
             defer { settle(id) }
             await launch(id, attempt: attempt)
         }
@@ -382,7 +382,7 @@ final class WorkerStarter {
         starting.insert(id)
         let reopening = OperatorActivity(run: operated.runId, task: id, act: .reopeningItsWindow)
         onActing(reopening, true)
-        return Task {
+        return ports.work.start { [self] in
             defer {
                 starting.remove(id)
                 onActing(reopening, false)

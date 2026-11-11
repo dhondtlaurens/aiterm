@@ -58,7 +58,7 @@ import Testing
     @Test func theRetryWithTheWorktreeAt41fa602StartsItsAgentInANewTabOfItsShellWindow() async throws {
         let (world, _, task, head) = try retryAt41fa602()
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         #expect(world.daemon.requests("window.createTask").isEmpty, "no window the daemon would hand back unused")
         let tab = try #require(world.daemon.requests("tab.create").first)
         // The worktree as the start adopted it, its symlinks resolved.
@@ -117,7 +117,7 @@ import Testing
         #expect(answer["launch"]?["note"]?.stringValue
                 == "AiTerm is still opening its worker. If no worker starts, AiTerm blocks the task and says why; run_status shows where it is.")
         daemon.release()
-        await world.controller.lastStart?.value
+        await world.settled()
     }
 
     // -- the 3-minute rule --------------------------------------------------------------------
@@ -127,7 +127,7 @@ import Testing
     @Test func aLaunchWhoseAgentNeverStartsIsBlockedAfterThreeMinutesAndResumeStartsItAgain() async throws {
         let (world, run, task, _) = try retryAt41fa602()
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         clock.advance(by: OperatorTiming.firstWorkerOpening - 1)
         world.controller.reconcileTick()
         #expect(world.task(task.id)?.operated?.state == .working, "still opening")
@@ -137,7 +137,7 @@ import Testing
         #expect(blocked.state == .blocked && blocked.blockedReason == Self.noAgentReason && blocked.blockedFrom == .queued)
         #expect(world.notifications.posted.map(\.target) == [.board(run.id)])
         #expect(await world.call(run.id, "resume_task", ["task": "T5"]).value?["state"] == "queued")
-        await world.controller.lastStart?.value
+        await world.settled()
         #expect(world.daemon.requests("tab.create").count == 2, "its worker is started again")
         #expect(world.task(task.id)?.operated?.state == .working)
     }
@@ -145,7 +145,7 @@ import Testing
     @Test func aLaunchWhoseAgentWasListedIsNeverBlockedByTheRule() async throws {
         let (world, run, task, _) = try retryAt41fa602()
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         let op = OperatorServiceFixtures.session("op", window: "w-op", tag: run.id)
         world.show([op, shell(of: task.id), OperatorServiceFixtures.session("s-new", window: "w-failed", tag: task.id)])
         #expect(world.task(task.id)?.operated?.launch?.workerPending == nil)
@@ -169,7 +169,7 @@ import Testing
         let daemon = RecordingDaemon(failing: ["window.createTask": .timeout])
         let (world, run, task) = try queued(daemon)
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         #expect(world.task(task.id)?.operated?.launch?.workerPending == true && world.task(task.id)?.operated?.launch?.openedAt == nil)
         world.show([OperatorServiceFixtures.session("op", window: "w-op", tag: run.id), shell(of: task.id)])
         world.controller.reconcileTick()
@@ -213,7 +213,7 @@ import Testing
         }
         world.show([OperatorServiceFixtures.session("op", window: "w-op", tag: run.id)])
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         return try #require(world.task(task.id))
     }
 
@@ -255,7 +255,7 @@ import Testing
         var uncertain = 0
         world.controller.starter.onUncertain = { _ in uncertain += 1 }
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         #expect(world.task(task.id)?.operated?.launch?.workerPending == true)
         let op = OperatorServiceFixtures.session("op", window: "w-op", tag: run.id)
         world.show([op, OperatorServiceFixtures.session("s-g", window: "reopened", tag: task.id, agent: .shell)])
@@ -276,7 +276,7 @@ import Testing
         var uncertain = 0
         world.controller.starter.onUncertain = { _ in uncertain += 1 }
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         world.show([OperatorServiceFixtures.session("op", window: "w-op", tag: run.id),
                     OperatorServiceFixtures.session("s-g", window: "reopened", tag: task.id, agent: .shell)])
         clock.advance(by: OperatorTiming.firstWorkerOpening)
@@ -303,17 +303,17 @@ import Testing
     @Test func aWindowIniTerm2NeverConfirmsIsTriedThreeTimesThenBlocked() async throws {
         let (world, run, task) = try queued(RecordingDaemon(failing: ["window.createTask": .timeout]))
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         for _ in 0..<2 {
             clock.advance(by: OperatorTiming.launchAdoptAfter + 1)
             world.controller.reconcileTick()
-            await world.controller.reconciler.lastLaunch?.value
+            await world.settled()
         }
         #expect(world.daemon.requests("window.createTask").count == 3)
         #expect(world.task(task.id)?.operated?.state == .working)
         clock.advance(by: OperatorTiming.launchAdoptAfter + 1)
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastLaunch?.value
+        await world.settled()
         #expect(world.daemon.requests("window.createTask").count == 3, "no fourth")
         let blocked = try #require(world.task(task.id)?.operated)
         #expect(blocked.state == .blocked && blocked.blockedFrom == .queued)
@@ -324,7 +324,7 @@ import Testing
     @Test func aLaunchCutOffByALastingDisconnectIsBlockedAfterThreeMinutes() async throws {
         let (world, _, task) = try queued(RecordingDaemon(failing: ["window.createTask": .disconnected]))
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         world.controller.handle(.itermDisconnected)
         clock.advance(by: OperatorTiming.firstWorkerOpening - 1)
         world.controller.reconcileTick()

@@ -38,9 +38,8 @@ import Testing
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .queued)
         world.workspace.mutate { $0.tasks.append(task) }
         world.controller.startReadyTasks()
-        let launch = world.controller.lastStart
         world.controller.stop()
-        await launch?.value
+        await world.settled()
         #expect(world.daemon.requests("window.createTask").isEmpty)
         #expect(world.task(task.id)?.operated?.state == .queued)
     }
@@ -56,7 +55,7 @@ import Testing
         let saved = try #require(try world.workspace.file.load().task(id: task.id))
         #expect(saved.operated?.state == .working && saved.operated?.launch?.number == 1)
         daemon.release()
-        await world.controller.lastStart?.value
+        await world.settled()
         let started = try #require(world.task(task.id))
         #expect(started.hasCheckout && FileManager.default.fileExists(atPath: started.worktreePath))
         #expect(started.baseBranch == "main")
@@ -91,7 +90,7 @@ import Testing
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-7", state: .queued, agent: .claude)
         world.workspace.mutate { $0.tasks.append(task) }
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         let started = try #require(world.task(task.id))
         #expect(started.agent == .codex && started.model == fallback.model && started.reasoning == fallback.reasoning)
         #expect(started.operated?.modelReason == "Started Task PLUTO-7 on Codex: Claude’s weekly limit is at 84 %.")
@@ -113,7 +112,7 @@ import Testing
         task.operated?.agentPinned = true
         world.workspace.mutate { $0.tasks.append(task) }
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         let started = try #require(world.task(task.id))
         #expect(started.agent == .claude && started.model == "m")
         #expect(world.run(run.id)?.decisions.isEmpty == true)
@@ -128,7 +127,7 @@ import Testing
         let child = OperatorServiceFixtures.task(in: run, project: project, key: "B", state: .queued, dependsOn: [TaskDependency(task: parent.id, kind: .code)])
         world.workspace.mutate { $0.tasks += [parent, child] }
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         let started = try #require(world.task(child.id))
         #expect(started.baseBranch == accepted)
         #expect(try head(started.worktreePath) == accepted)
@@ -142,7 +141,7 @@ import Testing
         let child = OperatorServiceFixtures.task(in: run, project: project, key: "B", state: .queued, dependsOn: [TaskDependency(task: parent.id, kind: .code)])
         world.workspace.mutate { $0.tasks += [parent, child] }
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         let blocked = try #require(world.task(child.id))
         #expect(blocked.operated?.state == .blocked)
         #expect(blocked.operated?.blockedReason == "AiTerm couldn’t start it: its code parent has no accepted commit to build on.")
@@ -157,7 +156,7 @@ import Testing
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-2", state: .queued)
         world.workspace.mutate { $0.tasks.append(task) }
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         let blocked = try #require(world.task(task.id)?.operated)
         #expect(blocked.state == .blocked)
         #expect(blocked.blockedReason == "AiTerm couldn’t start it: AiTerm’s helper ran into a problem.")
@@ -169,7 +168,7 @@ import Testing
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-3", state: .queued)
         world.workspace.mutate { $0.tasks.append(task) }
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         #expect(world.task(task.id)?.operated?.state == .working)
         #expect(world.task(task.id)?.operated?.launch?.number == 1)
         #expect(world.task(task.id)?.operated?.launch?.openedAt == nil, "it may still be opening")
@@ -194,7 +193,7 @@ import Testing
         #expect(task.operated?.state == .queued && task.operated?.blockedReason == nil)
         world.show([OperatorServiceFixtures.session("w4", window: "win4", tag: task.id, state: .done)])
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         let sent = try #require(world.daemon.requests("session.deliver").first)
         #expect(sent.params["sessionId"] as? String == "w4")
         #expect(sent.params["ownership"] as? Int == 2)
@@ -210,7 +209,7 @@ import Testing
         let (world, run, project) = try makeWorld()
         let task = try retried(world, run, project, key: "PLUTO-5")
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         let started = try #require(world.task(task.id))
         let window = try #require(world.daemon.requests("window.createTask").first)
         let prompt = brief("feat/pluto-5", "The last attempt failed: the tests failed. Try again from the worktree as it is.\n\nDo PLUTO-5.")
@@ -224,7 +223,7 @@ import Testing
         let task = try retried(world, run, project, key: "PLUTO-6")
         world.show([OperatorServiceFixtures.session("w6", tag: task.id, state: .working)])
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         let blocked = try #require(world.task(task.id)?.operated)
         #expect(blocked.state == .blocked)
         #expect(blocked.blockedReason == "AiTerm couldn’t start it: its worker is still busy; stop it or wait.")
@@ -241,7 +240,7 @@ import Testing
         world.controller.startReadyTasks()
         #expect(world.task(task.id)?.operated?.state == .working, "claimed and saved at once")
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.state = .paused } }
-        await world.controller.lastStart?.value
+        await world.settled()
         #expect(world.daemon.requests("window.createTask").isEmpty)
         let released = try #require(world.task(task.id)?.operated)
         #expect(released.state == .queued && released.launch == nil)
@@ -253,7 +252,8 @@ import Testing
         world.workspace.mutate { $0.tasks.append(task) }
         try FileManager.default.createDirectory(at: world.workspace.file.backupURL, withIntermediateDirectories: false)
         world.controller.startReadyTasks()
-        #expect(world.controller.lastStart == nil)
+        #expect(world.controller.starter.starting.isEmpty, "nothing is starting")
+        await world.settled()
         let operated = try #require(world.task(task.id)?.operated)
         #expect(operated.state == .queued && operated.launch == nil)
         #expect(world.daemon.requests("window.createTask").isEmpty)
@@ -272,7 +272,7 @@ import Testing
             if let i = state.tasks.firstIndex(where: { $0.id == task.id }) { state.tasks[i].operated?.takenOver = true }
         }
         daemon.release()
-        await world.controller.lastStart?.value
+        await world.settled()
         #expect(world.task(task.id)?.operated?.state == .working)
         #expect(world.notifications.posted.isEmpty)
     }
@@ -319,7 +319,7 @@ extension WorkerStarterTests {
         task.operated?.agentPinned = pinned
         world.workspace.mutate { $0.tasks.append(task) }
         world.controller.startReadyTasks()
-        await world.controller.lastStart?.value
+        await world.settled()
         let started = try #require(world.task(task.id))
         let expected = otherAllowed && !pinned ? other : planned
         #expect(started.agent == expected.agent && started.model == expected.model && started.reasoning == expected.reasoning)

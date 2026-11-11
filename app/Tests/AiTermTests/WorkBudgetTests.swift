@@ -16,20 +16,9 @@ enum Budget {
         return meter.take()
     }
 
-    /// Waits until the Operator's owners have finished what they started: the turn and transcript reads, prompt probes,
-    /// branch and review passes, wake lines, launches. A finished task may start another, so it waits until a round
-    /// finds the same handles it awaited.
-    static func settle(_ controller: OperatorController) async {
-        var awaited: [Task<Void, Never>?] = []
-        while true {
-            let handles = [controller.turns.lastRead, controller.quiet.lastRead, controller.lastProbe, controller.branchWatch.lastPoll,
-                           controller.reviewWatcher.lastPoll, controller.waker.lastCoalesce, controller.waker.lastSend,
-                           controller.lastStart, controller.reconciler.lastLaunch, controller.reconciler.lastTab]
-            if handles == awaited { return }
-            awaited = handles
-            for handle in handles { await handle?.value }
-        }
-    }
+    /// Waits until the Operator's owners have finished what they started (`OperatorWork`): the turn and transcript
+    /// reads, prompt probes, branch and review passes, wake lines, launches, and the work those started.
+    static func settle(_ controller: OperatorController) async { await controller.ports.work.settled() }
 
     /// A checkout monitor's scan that reads nothing: no git runs, and no branch or diff moves.
     static let noScan: CheckoutMonitor.Scanner = { _, _, _, _, _, _, _ in

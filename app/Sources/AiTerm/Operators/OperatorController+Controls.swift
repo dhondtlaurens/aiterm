@@ -221,11 +221,11 @@ extension OperatorController {
     @discardableResult
     func queueSignalling<Value: Sendable>(_ id: UUID, _ work: @escaping @MainActor () async -> Value) -> Task<Value, Never> {
         let before = signalling[id]
-        let task = Task { @MainActor in
+        let task = ports.work.start {
             await before?.value
             return await work()
         }
-        signalling[id] = Task { _ = await task.value }
+        signalling[id] = ports.work.start { _ = await task.value }
         return task
     }
 
@@ -429,7 +429,7 @@ extension OperatorController {
         guard let daemon = daemon() else { return }
         let ended = runs.filter { $0.youAsked == .stop }.map(\.id)
         guard !ended.isEmpty else { return }
-        closingEnded = Task {
+        ports.work.start { [self] in
             for id in ended {
                 await closeOperatorWindowIfOnlyItsOperator(id, daemon: daemon)
                 mutateRun(id) { $0.operatorWindowId = nil; $0.operatorSessionId = nil }

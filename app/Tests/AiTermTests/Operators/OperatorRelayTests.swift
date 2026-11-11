@@ -49,7 +49,7 @@ import Testing
         let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": .string(reply)]]]]
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-1.jsonl"))
         world.show(sessions(run, task, .idle))
-        await world.controller.turns.lastRead?.value
+        await world.settled()
     }
 
     func relay(_ world: OperatorWorld, _ run: OperatorRun, key: String = "pay-236-bulk", _ more: [String: JSONValue] = [:]) async -> ToolAnswer {

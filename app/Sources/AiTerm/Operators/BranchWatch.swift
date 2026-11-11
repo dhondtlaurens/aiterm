@@ -16,12 +16,10 @@ final class BranchWatch {
     private let ports: OperatorPorts
     private let waker: OperatorWaker
     private let transcripts: TranscriptLocator
-    private let pass = TickPass()
+    private let pass: TickPass
     /// Each conversation's last message as last read, by conversation id, with when its transcript was written then.
     private var lastMessages: [String: Read] = [:]
     private struct Read: Sendable { let modified: Date, message: String? }
-    /// The latest pass, for a test to await.
-    var lastPoll: Task<Void, Never>? { pass.last }
     /// A fresh read finished, including one with no progress or an unreadable head.
     var checked: @MainActor (UUID) -> Void = { _ in }
 
@@ -31,6 +29,7 @@ final class BranchWatch {
         self.ports = ports
         self.waker = waker
         self.transcripts = transcripts
+        pass = TickPass(work: ports.work)
     }
 
     private var state: AppState { workspace.state }

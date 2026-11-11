@@ -120,8 +120,8 @@ import Testing
         // A second click, before the Operator resolved it, says nothing: the first answer stands. (The waker may say the
         // first again until the Operator looks, as it does every reason.)
         try world.controller.answerFixRounds(of: task.id, .acceptAsItIs)
-        await world.controller.waker.lastCoalesce?.value
-        await world.controller.waker.lastSend?.value
+        await world.settled()
+        await world.settled()
         let lines = world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
         #expect(!lines.contains { $0.contains(BroadcastBoard.FixRoundsAnswer.acceptAsItIs.words) })
         #expect(world.run(run.id)?.questions.first?.answeredOnCard == "oneMoreRound")

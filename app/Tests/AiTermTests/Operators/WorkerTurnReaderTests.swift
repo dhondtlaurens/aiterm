@@ -49,7 +49,7 @@ import Testing
         let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": .string(reply)]]]]
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-1.jsonl"))
         world.show(sessions(run, task, .idle))
-        await world.controller.turns.lastRead?.value
+        await world.settled()
     }
 
     func status(_ world: OperatorWorld, _ run: OperatorRun) throws -> RunStatus.Obligations {
@@ -93,11 +93,11 @@ import Testing
     /// commit, so it is ready, not held as a turn still to read.
     @Test func aTaskHandedBackWithItsWorkerIdleIsReadAgainAndReady() async throws {
         let (world, run, task, worktree) = try makeWorld(worker: .idle)
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         try git.run(["commit", "--allow-empty", "-q", "-m", "work"], in: worktree)
         func takenOver(_ value: Bool) async {
             world.workspace.mutate { $0.updateOperated(task.id) { $0.takenOver = value } }
-            await world.controller.turns.lastRead?.value
+            await world.settled()
         }
         await takenOver(true)
         #expect(world.controller.turns.readings[task.id] == nil, "a task you took over is not read")
@@ -127,7 +127,7 @@ import Testing
         let (world, run, task, _) = try makeWorld(worker: .idle, agent: .codex, launchedAt: clock.now, conversation: nil, clock: clock)
         clock.advance(by: 20)
         world.controller.reconcileTick()
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         let current = try #require(world.run(run.id))
         var line = try #require(world.controller.status(of: current)?.tasks.first)
         #expect(line.opening == true)
@@ -139,7 +139,7 @@ import Testing
 
         clock.advance(by: OperatorTiming.firstWorkerOpening)
         world.controller.reconcileTick()
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         line = try #require(world.controller.status(of: current)?.tasks.first)
         #expect(line.opening == nil)
         obligations = try status(world, run)
@@ -213,8 +213,8 @@ import Testing
         #expect(try Repository(project.path, git: git).isAncestor(head, of: "main"))
         try await endTurn(saying: "The accepted work is merged locally.", world, run, task)
         #expect(try status(world, run).changedAfterAcceptance.isEmpty)
-        await world.controller.waker.lastCoalesce?.value
-        await world.controller.waker.lastSend?.value
+        await world.settled()
+        await world.settled()
         #expect(!wakeLines(world).contains { $0.contains("changed after acceptance") })
         #expect(world.workspace.flush())
         let restored = try world.workspace.file.load()
@@ -260,7 +260,7 @@ import Testing
         let refreshed = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(head),
                                                                "checkOutput": "checks run again"])
         #expect(refreshed.value?["state"] == "accepted")
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(world.run(run.id)?.state == .active)
         #expect(world.controller.turns.readings[task.id]?.changedAfterAcceptance == false)
         #expect(try status(world, run).changedAfterAcceptance.isEmpty, "the old reading's baseline no longer holds")
@@ -312,7 +312,7 @@ import Testing
         let head = try git.run(["rev-parse", "HEAD"], in: worktree)
         world.workspace.mutate { $0.updateOperated(task.id) { $0.acceptance?.resultSHA = head } }
         #expect(try status(world, run).changedAfterAcceptance.isEmpty, "not served while it is read again")
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).changedAfterAcceptance.isEmpty)
         #expect(world.controller.turns.readings[task.id]?.changedAfterAcceptance == false, "read again")
     }
@@ -331,7 +331,7 @@ import Testing
         world.workspace.mutate { $0.updateOperated(task.id) {
             $0.state = .working; $0.reopenedFrom = accepted; $0.acceptance = nil
         } }
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         let obligations = try status(world, run)
         #expect(obligations.finishedWithoutCommit == ["PLUTO-1"] && obligations.readyForAcceptance.isEmpty)
         #expect(obligations.changedAfterAcceptance.isEmpty)
@@ -348,10 +348,8 @@ import Testing
         let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": "Committed the fix."]]]]
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-1.jsonl"))
         world.show(sessions(run, task, .idle))
-        let first = world.controller.turns.lastRead
         world.workspace.mutate { $0.updateOperated(task.id) { $0.acceptance?.resultSHA = head } }
-        await first?.value
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(world.controller.turns.readings[task.id]?.changedAfterAcceptance == false)
         #expect(try status(world, run).changedAfterAcceptance.isEmpty)
     }
@@ -364,7 +362,7 @@ import Testing
         let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": "Should I include archived orders?"]]]]
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-2.jsonl"))
         world.show(sessions(run, task, .idle, conversation: "conv-2"))
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).workerAsks == [RunStatus.WorkerAsk(key: "PLUTO-1", question: "Should I include archived orders?")])
         #expect(try status(world, run).readyForAcceptance.isEmpty)
     }
@@ -385,7 +383,7 @@ import Testing
         review.tabKey = "review"
         tabs.append(review)
         world.show(tabs)
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).workerAsks == [RunStatus.WorkerAsk(key: "PLUTO-1", question: "Should I review the migration too?", tab: "review")])
         #expect(world.controller.acting.turns[task.id] == .asks)
     }
@@ -409,7 +407,7 @@ import Testing
         #expect(world.task(task.id)?.operated?.flags.contains(.uncertain) == false)
         replacement.state = .idle
         world.show([op, replacement])
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).readyForAcceptance == ["PLUTO-1"])
         #expect(try status(world, run).finishedWithoutCommit.isEmpty)
         let line = try #require(world.controller.status(of: run)?.tasks.first)
@@ -425,7 +423,7 @@ import Testing
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-claude.jsonl"))
         let replacement = OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .claude, state: .idle, conversation: "conv-claude")
         world.show([OperatorServiceFixtures.session("op", window: "wo", tag: run.id), replacement])
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).workerAsks == [RunStatus.WorkerAsk(key: "PLUTO-1", question: "Should I update the fixtures too?")])
         #expect(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "lastMessage"]).value?["lastMessage"] == "Should I update the fixtures too?")
     }
@@ -439,7 +437,7 @@ import Testing
         // The next Stop snapshot is also idle: no working snapshot reached the app.
         try await endTurn(saying: "Should archived orders include cancelled ones?", world, run, task)
         world.controller.reconcileTick()
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).workerAsks == [RunStatus.WorkerAsk(key: "PLUTO-1", question: "Should archived orders include cancelled ones?")])
     }
 
@@ -453,7 +451,7 @@ import Testing
 
     @Test func anExtraWorkersFreshCommitSupersedesTheIdleMainWorkersOldCount() async throws {
         let (world, run, task, worktree) = try makeWorld(worker: .idle)
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).finishedWithoutCommit == ["PLUTO-1"])
         world.workspace.mutate { $0.updateOperated(task.id) {
             $0.extraTabs = [ExtraTab(key: "fix", agent: .claude, model: "m", reasoning: nil, modelReason: "Fix", brief: "Fix",
@@ -470,7 +468,7 @@ import Testing
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-fix.jsonl"))
         fix.state = .idle
         world.show(sessions(run, task, .idle) + [fix])
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).readyForAcceptance == ["PLUTO-1"])
         #expect(try status(world, run).finishedWithoutCommit.isEmpty)
     }

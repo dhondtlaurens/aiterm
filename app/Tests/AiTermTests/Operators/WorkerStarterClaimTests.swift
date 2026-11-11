@@ -32,7 +32,7 @@ import Testing
         #expect(Set(daemon.requests("window.createTask").compactMap { $0.params["taskId"] as? String })
                 == Set(tasks.map(\.id.uuidString)))
         daemon.release()
-        await world.controller.lastStart?.value
+        await world.settled()
         #expect(await eventually(describing: "every start to end") { world.controller.starter.starting.isEmpty })
     }
 
@@ -82,6 +82,7 @@ import Testing
 
         // Mid-await: a pass, reconciles over iTerm2's tabs (only the operator's listed) a minute and more apart —
         // when a claimed launch with no tab would be launched again but for `starting` — and a run change start nothing more.
+        let attempts = world.state.tasks.map { $0.operated?.launch?.number }
         world.show([OperatorServiceFixtures.session("operator", window: "operator-window", tag: run.id)])
         world.controller.startReadyTasks()
         world.controller.reconcileTick()
@@ -89,13 +90,13 @@ import Testing
         world.controller.reconcileTick()
         world.controller.runChanged(run.id)
         #expect(world.run(run.id)?.state == .active, "its operator is there")
-        #expect(world.controller.reconciler.lastLaunch == nil, "no relaunch of a claim whose launch is in flight")
+        #expect(world.state.tasks.map { $0.operated?.launch?.number } == attempts, "no relaunch of a claim whose launch is in flight")
         #expect(world.state.tasks.filter { $0.operated?.state == .working }.count == 3,
                 "a launch that failed is blocked, not claimed twice: \(world.state.tasks.compactMap { $0.operated?.blockedReason })")
 
         daemon.release()
         #expect(await eventually(describing: "every launch to end", timeout: PatientGit.timeout) { world.controller.starter.starting.isEmpty })
-        await world.controller.lastStart?.value
+        await world.settled()
         #expect(daemon.requests("window.createTask").compactMap { $0.params["taskId"] as? String }.sorted()
                 == queued.map(\.id.uuidString).sorted(), "one window each, never a second")
         for task in queued { #expect(world.task(task.id)?.operated?.launch?.number == 1) }
@@ -122,7 +123,7 @@ import Testing
         #expect(daemon.requests("window.createTask").count == 1, "its launch is in flight")
 
         daemon.release()
-        await world.controller.lastStart?.value
+        await world.settled()
         #expect(world.controller.starter.starting.isEmpty, "the first launch has settled")
         let window = try #require(world.task(task.id)?.windowId)
         world.controller.startReadyTasks()

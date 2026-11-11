@@ -35,6 +35,8 @@ struct OperatorPorts {
     var finishReplyBudget: Duration = .seconds(OperatorTiming.finishReplyBudget)
     var clock = OperatorClock()
     var now: @Sendable () -> Date { clock.now }
+    /// What every owner starts its work through, so that a test waits for all of it at once (`OperatorWork.settled`).
+    let work = OperatorWork()
     /// The version of AiTerm that is running, for the snags the Operator reports: "dev" for a build with none.
     var appVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     /// How long a burst of changes is gathered into one wake line.
@@ -125,18 +127,14 @@ final class OperatorController {
     /// daemon reports for one of its tabs — status, title, context, conversation — and, on each tab's own clock, its
     /// transcript's growth or a tool call it still runs (`WorkerQuietWatch.sign`).
     @ObservationIgnored private var stallWatch = StallWatch()
-    /// The ownership being set again on a new daemon's tabs (`resendOwnership`), for a test to await; `stop()` cancels it.
-    @ObservationIgnored private(set) var resending: Task<Void, Never>?
-    /// The latest start a pass made, for a test to await.
-    @ObservationIgnored private(set) var lastStart: Task<Void, Never>?
+    /// The ownership being set again on a new daemon's tabs (`resendOwnership`); `stop()` cancels it.
+    @ObservationIgnored private var resending: Task<Void, Never>?
     /// Each task's start under way, and how it ended once it has: what a `retry_task` waits for (`launchNow`).
     @ObservationIgnored private var launches: [UUID: Task<WorkerStarter.Outcome, Never>] = [:]
     /// Each complete broadcast's wait for its summary, by run, while it waits: one per completion.
     @ObservationIgnored private(set) var summaryWaits: [UUID: Task<Void, Never>] = [:]
-    /// The latest wait for a summary, for a test to await.
-    @ObservationIgnored private(set) var summaryWait: Task<Void, Never>?
     /// The notes Pause and Resume type into a broadcast's workers, by run: each new batch waits for the one before it,
-    /// so the workers read them in the order you pressed the controls (`queueSignalling`). A test awaits it too.
+    /// so the workers read them in the order you pressed the controls (`queueSignalling`).
     @ObservationIgnored var signalling: [UUID: Task<Void, Never>] = [:]
     /// The workers this pause has tried to tell to stop, by run, told or not: none is tried twice while it lasts, so a
     /// worker whose window is listed only after Pause is told once it is (`pauseLateWorkers`), and one that refused is
@@ -161,10 +159,8 @@ final class OperatorController {
     /// When each broadcast's operator window was last opened by `reopenOperatorWindow`, until its tab is
     /// listed: a click in the gap before iTerm2 lists it (or past `launchAdoptAfter`) opens no second one.
     @ObservationIgnored var reopenedOperator: [UUID: Date] = [:]
-    /// The latest close of ended broadcasts' operator windows after an attach, for a test to await.
-    @ObservationIgnored var closingEnded: Task<Void, Never>?
-    /// The latest re-registration of the runs' tokens, for a test to await.
-    @ObservationIgnored private(set) var registering: Task<Void, Never>?
+    /// The re-registration of the runs' tokens under way, which `stop()` cancels.
+    @ObservationIgnored private var registering: Task<Void, Never>?
     /// Whether `live.sessions` is iTerm2's whole list — a connected snapshot has come since the helper
     /// attached and iTerm2 has not gone — so a tab missing from it is a tab closed.
     @ObservationIgnored private(set) var tabsKnown = false
@@ -233,7 +229,7 @@ final class OperatorController {
                                   guard let state = workspace.state.run(id: run)?.state else { return false }
                                   return state == .planning || state == .active || state == .complete
                               },
-                              coalesce: ports.wakeCoalesce, sleep: { try await clock.sleep(.wake, $0) }, now: clock.now)
+                              coalesce: ports.wakeCoalesce, sleep: { try await clock.sleep(.wake, $0) }, now: clock.now, work: ports.work)
         watchdog = OperatorWatchdog(now: clock.now)
         tabs = TabOpener(workspace: workspace, daemon: daemon, ports: ports)
         let transcripts = TranscriptLocator(home: ports.home, claudeConfig: ports.claudeConfig)
@@ -435,14 +431,12 @@ final class OperatorController {
                 continue
             }
             let run = operated.runId
-            let start = Task { [weak self] () -> WorkerStarter.Outcome in
+            launches[id] = ports.work.start { [weak self] () -> WorkerStarter.Outcome in
                 let outcome = await self?.starter.launchClaimed(id, attempt: attempt) ?? .notLaunched
                 self?.launches[id] = nil
                 self?.runChanged(run)
                 return outcome
             }
-            launches[id] = start
-            lastStart = Task { _ = await start.value }
         }
     }
 
@@ -516,15 +510,13 @@ final class OperatorController {
     private func awaitSummary(_ id: UUID, completedAt: Date) {
         summaryWaits[id]?.cancel()
         let clock = ports.clock
-        let wait = Task { [weak self] in
+        summaryWaits[id] = ports.work.start { [weak self] in
             guard (try? await clock.sleep(.summary, .seconds(OperatorTiming.summaryWait))) != nil, !Task.isCancelled, let self else { return }
             // Not cancelled, so still this completion's wait: a later one cancels it.
             summaryWaits[id] = nil
             giveUpOnSummary(id, waited: completedAt)
             runChanged(id)
         }
-        summaryWaits[id] = wait
-        summaryWait = wait
     }
 
     /// AiTerm stops waiting for the Operator's summary (the Operator sheet spec, Summary): `summaryWait` after the
@@ -699,7 +691,7 @@ final class OperatorController {
         let open = runs.filter { !$0.hasEnded }.map { ($0.id, folder(of: $0.id)) }
         // Runs you ended: a revocation that failed before is tried again while their token file is there.
         let ended = runs.filter { $0.youAsked == .stop }.map { ($0.id, folder(of: $0.id)) }
-        registering = Task {
+        registering = ports.work.start {
             for (id, folder) in open {
                 guard let token = await BackgroundWork.run({ OperatorCommand.existingToken(in: folder) }) else { continue }
                 guard !Task.isCancelled else { return }
@@ -954,7 +946,6 @@ final class OperatorController {
         registering = nil
         for wait in summaryWaits.values { wait.cancel() }
         summaryWaits = [:]
-        summaryWait = nil
         prompts.stop()
         turns.stop()
         quiet.stop()
@@ -967,7 +958,6 @@ final class OperatorController {
     }
 
     typealias PromptProbe = WorkerPrompts.Source
-    var lastProbe: Task<Void, Never>? { prompts.lastProbe }
     func probePrompts(_ source: PromptProbe = .event) { prompts.observe(source) }
     func probePrompt(_ id: UUID, source: PromptProbe = .event) { prompts.probePrompt(id, source: source) }
     static func promptText(_ kind: PromptKind?, agent: AgentKind) -> String { WorkerPrompts.promptText(kind, agent: agent) }
@@ -979,7 +969,7 @@ final class OperatorController {
         let owned = workspace.state.tasks.compactMap { task in task.operated.map { (task.id, $0.ownership) } }
         let sessions = live.sessions
         resending?.cancel()
-        resending = Task {
+        resending = ports.work.start {
             for (id, ownership) in owned {
                 for tab in sessions where tab.taskUUID == id {
                     guard !Task.isCancelled else { return }

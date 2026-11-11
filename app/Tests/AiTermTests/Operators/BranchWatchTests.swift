@@ -33,7 +33,7 @@ import Testing
 
     func tick(_ world: OperatorWorld) async {
         world.controller.reconcileTick()
-        await world.controller.branchWatch.lastPoll?.value
+        await world.settled()
     }
 
     func driftLines(_ world: OperatorWorld) -> [String] {
@@ -155,7 +155,7 @@ import Testing
         world.live.sessions = [OperatorServiceFixtures.session("op", window: "wo", tag: run.id),
                                OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .working)]
         world.controller.branchWatch.poll()
-        await world.controller.branchWatch.lastPoll?.value
+        await world.settled()
         #expect(world.task(task.id)?.operated?.state == .blocked)
         #expect(world.notifications.posted.last?.target == .board(run.id))
     }
@@ -224,7 +224,7 @@ import Testing
             driftLines(world) == ["[AiTerm] PLUTO-one needs its branch checked, call run_status"]
         })
         await tick(world)
-        await world.controller.waker.lastSend?.value
+        await world.settled()
         #expect(driftLines(world).count == 1, "told once")
 
         try git.run(["checkout", "-q", "feat/pluto-1"], in: worktree)

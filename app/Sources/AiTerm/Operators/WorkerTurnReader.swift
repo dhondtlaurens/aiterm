@@ -37,8 +37,6 @@ final class WorkerTurnReader {
     private var nextReadOrder = 0
     /// What the readings changed: what `run_status` and the rows show.
     var changed: @MainActor () -> Void = {}
-    /// The latest read, for a test to await.
-    private(set) var lastRead: Task<Void, Never>?
 
     init(workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts, transcripts: TranscriptLocator) {
         self.workspace = workspace
@@ -53,7 +51,6 @@ final class WorkerTurnReader {
         asked = [:]
         requestedBasis = [:]
         seen = [:]
-        lastRead?.cancel()
     }
 
     /// Whether `task`'s worker turns are read: started and not stopped, still the Operator's, in a broadcast not ended.
@@ -69,7 +66,7 @@ final class WorkerTurnReader {
     func observe() {
         let sessions = live.sessions, now = ports.now()
         let workersByTask = WorkerSessions(sessions)
-        var dropped = false, pending: [Task<Void, Never>] = []
+        var dropped = false
         var retained: Set<WorkerID> = []
         for task in workspace.state.tasks {
             let watched = isRead(task)
@@ -94,11 +91,9 @@ final class WorkerTurnReader {
                 let changed = seen[tab.sessionId] != identity || requestedBasis[id] != basis
                 seen[tab.sessionId] = identity
                 // Even without a working hook, a new reply in the same idle conversation is a new turn.
-                // The background read compares reply identity before asking git again.
-                if changed || workerReadings[id] == nil || inFlight[id] == nil {
-                    if let current = inFlight[id], !changed { pending.append(current) }
-                    else { pending.append(read(task, worker, id: id)) }
-                }
+                // The background read compares reply identity before asking git again. A read under way for an unchanged
+                // turn is left to finish.
+                if changed || inFlight[id] == nil { read(task, worker, id: id) }
             }
         }
         for id in workerReadings.keys where !retained.contains(id) {
@@ -108,7 +103,6 @@ final class WorkerTurnReader {
         }
         let open = Set(sessions.map(\.sessionId))
         seen = seen.filter { open.contains($0.key) }
-        if !pending.isEmpty { lastRead = Task { for read in pending { await read.value } } }
         if dropped { changed() }
     }
 
@@ -122,7 +116,7 @@ final class WorkerTurnReader {
         changed()
     }
 
-    private func read(_ task: TaskItem, _ worker: WorkerTab, id: WorkerID) -> Task<Void, Never> {
+    private func read(_ task: TaskItem, _ worker: WorkerTab, id: WorkerID) {
         let operated = task.operated!, tab = worker.session!
         WorkMeter.note(.turnRead)
         nextReadOrder += 1
@@ -135,7 +129,7 @@ final class WorkerTurnReader {
         let basis = Basis(operated), accepted = basis.accepted
         asked[id] = request
         requestedBasis[id] = basis
-        let readingTask = Task { [weak self] in
+        inFlight[id] = ports.work.start { [weak self] in
             guard !Task.isCancelled else { return }
             let read = await BackgroundWork.run {
                 let reply = conversation.flatMap { transcripts.lastReply(agent: agent, conversation: $0) }
@@ -175,7 +169,5 @@ final class WorkerTurnReader {
             self.workerReadings[id] = reading
             self.changed()
         }
-        inFlight[id] = readingTask
-        return readingTask
     }
 }
