@@ -16,6 +16,7 @@ from aitermd.connection import ItermSupervisor
 from aitermd.hooks_server import HookServer
 from aitermd.rpc_server import RpcServer
 from aitermd.service import Service
+from aitermd.test_activity import TestActivityReader
 from tests.fake_iterm import FakeIterm
 
 
@@ -95,6 +96,7 @@ async def make_service(tmp_path, sock_dir):
                      "clock": lambda: 1000, "codex_files": CodexSessionFiles(tmp_path / "codex-sessions"),
                      "operator_runs": tmp_path / "operator-runs", **overrides}
         built.append(Service(iterm=iterm, rpc=rpc, supervisor=supervisor, **arguments))
+        built[-1].test_activity = TestActivityReader(tmp_path / "test-runs", clock=built[-1].clock)
         return built[-1]
 
     yield make

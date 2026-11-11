@@ -8,15 +8,27 @@ seconds for as long as it is up.
 import json
 import sys
 import threading
+from datetime import datetime
 
 import pytest
 
-from aitermd import process_agents
+from aitermd import codex_sessions, process_agents
 from aitermd.models import Frame, RawSession
 from aitermd.hook_events import HookEvent
 from aitermd.test_activity import TestActivityReader
 from tests.test_claude_background import launch, write
 from tests.test_codex_sessions import token_count, write_rollout
+
+
+@pytest.fixture(autouse=True)
+def scan_date(monkeypatch):
+    """Keep this workspace's local and UTC scan dates independent of the wall clock."""
+    class ScanDate(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 11, 11, 0, 30, tzinfo=tz)
+
+    monkeypatch.setattr(codex_sessions, "datetime", ScanDate)
 
 
 class Audit:
