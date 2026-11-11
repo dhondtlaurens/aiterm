@@ -538,7 +538,7 @@ Each box leaves the project working and is one or a few commits.
 - [ ] 8d. Narrow header values with the redraw test; lazy Activity and Shelf; leaf reads.
 - [ ] 8e. Snapshot helpers; before and after image comparison.
 - [x] 9a. `AppControllerTests` split; template and off-main git fixtures; blocking check; latches.
-- [ ] 9b. Concurrency measurement; gate history; release gate check; routing entries.
+- [x] 9b. Concurrency measurement; gate history; release gate check; routing entries.
 - [ ] 9c. Docs, design-system page, review record, full gate, bundle check, adversarial review.
 
 ## Left out
