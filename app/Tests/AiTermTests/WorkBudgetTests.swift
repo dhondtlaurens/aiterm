@@ -119,10 +119,12 @@ enum Budget {
     /// Shelving a task with a clean worktree and an open window, then restoring it from the Shelf, as git sees it: the
     /// controller's own git, the checkout monitor's scan reading nothing.
     ///
-    /// Shelve: 9 spawns, `worktree list` five times (three before and two after the `status --porcelain` that looks for
-    /// unsaved work), then `worktree unlock`, `worktree remove` and `worktree prune`. Restore: 4 spawns, one `worktree
-    /// list`, then 2 `rev-parse` and `worktree add` (6 before phase 2 listed the worktrees once per restore, 3 `worktree
-    /// list`). A later change that lists the worktrees once per Shelve lowers that number; none may raise them.
+    /// Shelve: 7 spawns, `worktree list` three times — once for the preflight before any question, once for the head
+    /// once its window has closed, once by the removal itself — the `status --porcelain` that looks for unsaved work
+    /// after the first, then `worktree unlock`, `worktree remove` and `worktree prune` (9 before phase 7's one preflight,
+    /// with `worktree list` five times: head, unlisted folder and unsaved work each listed on their own). Restore: 4
+    /// spawns, one `worktree list`, then 2 `rev-parse` and `worktree add` (6 before phase 2 listed the worktrees once
+    /// per restore, 3 `worktree list`). None may raise them.
     @Test func shelvingAndRestoringATaskSpawnsGit() async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let fixture = try await RaceFixture(scan: Budget.noScan, controllerGit: git)
@@ -145,9 +147,33 @@ enum Budget {
         let restore = Budget.commands(git, since: mark)
         #expect(controller.state.tasks.map(\.id) == [task.id], "restored")
 
-        #expect(shelve.count == 9, "spawns per Shelve: \(shelve)")
+        #expect(shelve.count == 7, "spawns per Shelve: \(shelve)")
+        #expect(shelve.filter { $0 == "worktree list" }.count == 3, "\(shelve)")
         #expect(restore.count == 4, "spawns per restore: \(restore)")
         #expect(restore.filter { $0 == "worktree list" }.count == 1, "\(restore)")
+    }
+
+    /// The person's Remove of a task with a clean worktree and an open window, its branch kept, as git sees it: 6 spawns,
+    /// `worktree list` twice — the preflight, and the removal itself — `status --porcelain` after the first, then
+    /// `worktree unlock`, `worktree remove` and `worktree prune`. Before phase 7's one preflight: 7, with `worktree list`
+    /// three times (the unlisted folder and the unsaved work each listed on their own), counted by this test on the code
+    /// before the change. None may raise them.
+    @Test func removingATaskSpawnsGit() async throws {
+        let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove"), scan: Budget.noScan, controllerGit: git)
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let task = try await fixture.addTask(windowId: "alive")
+
+        let mark = git.calls.count
+        await (await controller.remover.confirmRemove(task: task))?.value
+        let remove = Budget.commands(git, since: mark)
+        #expect(controller.state.task(id: task.id) == nil, "removed")
+
+        #expect(remove.count == 6, "spawns per Remove: \(remove)")
+        #expect(remove.filter { $0 == "worktree list" }.count == 2, "\(remove)")
     }
 
     // MARK: - Saving

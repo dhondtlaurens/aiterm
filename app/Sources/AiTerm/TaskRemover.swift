@@ -350,33 +350,18 @@ final class TaskRemover: CheckoutRemovals {
         return removal
     }
 
-    /// The task's window, then its worktree and its branch when asked for, through `TaskWorkflow`. A
-    /// worktree with uncommitted changes asks first, while the window is still open; nil means it
-    /// was kept. Unsaved work written after that check is only found once the window has closed:
-    /// kept then, the task's window comes back. Without a daemon the window is left open, and
-    /// `finishRemoval` asks for it to be closed by hand.
+    /// The task's window, then its worktree and its branch when asked for, through `TaskWorkflow` and the teardown Shelve
+    /// shares (`WorktreeTeardown`). A worktree with uncommitted changes asks first, while the window is still open; nil
+    /// means it was kept. Unsaved work written after that check is only found once the window has closed: kept then, the
+    /// task is a task again, and its window, if this removal closed it, is owed and comes back (`WindowReconciler`).
+    /// Without a daemon the window is left open, and `finishRemoval` asks for it to be closed by hand.
     private func removeWorktree(task: TaskItem, project: Project, deleteBranch: Bool,
                                 holding token: WorkInFlight.Token) async throws -> TaskWorkflow.Removed? {
-        var task = task, force = false
-        let unlisted = try await workflow.needsRemovalConfirmation(task: task, project: project)
-        if unlisted {
-            let answer = await prompter.ask(Self.unlistedFolderQuestion(for: task))
-            guard answer.button == 1, let still = workspace.state.task(id: task.id),
-                  still.worktreePath == task.worktreePath, still.projectId == project.id else { return nil }
-            task = still
-        }
-        if try await workflow.hasUnsavedWork(task: task, project: project) {
-            guard await teardown.confirmDeletingUnsavedWork(of: task, verb: .remove), let still = workspace.state.task(id: task.id) else { return nil }
-            task = still
-            force = true
-        }
-        try await teardown.closeWindow(of: task, holding: token, requiringDaemon: false, operation: { .removing(windowLetGo: $0) })
-        do { return try await workflow.remove(task: task, project: project, deleteBranch: deleteBranch, force: force, allowUnlisted: unlisted) }
-        catch let error as GitError where error.refusedForUnsavedWork {
-            // Written after the check, before the window closed. Kept, the task is a task again: its
-            // window, if this removal closed it, is owed and comes back (`WindowReconciler`).
-            guard await teardown.confirmDeletingUnsavedWork(of: task, verb: .remove), let still = workspace.state.task(id: task.id) else { return nil }
-            return try await workflow.remove(task: still, project: project, deleteBranch: deleteBranch, force: true, allowUnlisted: unlisted)
+        guard let prepared = try await teardown.prepare(task, in: project, verb: .remove) else { return nil }
+        try await teardown.closeWindow(of: prepared.task, holding: token, requiringDaemon: false, operation: { .removing(windowLetGo: $0) })
+        return try await teardown.run(prepared, verb: .remove, current: { [workspace] in workspace.state.task(id: $0.id) }) { task, force in
+            try await workflow.remove(task: task, project: project, deleteBranch: deleteBranch, force: force,
+                                      allowUnlisted: prepared.allowUnlisted)
         }
     }
 

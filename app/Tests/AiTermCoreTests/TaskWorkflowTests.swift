@@ -154,7 +154,7 @@ import Testing
         try git.run(["worktree", "remove", path], in: project.path)
         try FileManager.default.createDirectory(atPath: path + "/app/node_modules/.cache", withIntermediateDirectories: true)
 
-        #expect(try await workflow.needsRemovalConfirmation(task: created.task, project: project) == !triedRemoval)
+        #expect(try await workflow.preflight(task: created.task, project: project).needsRemovalConfirmation == !triedRemoval)
         let result = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: false,
                                                allowUnlisted: !triedRemoval)
 
@@ -178,7 +178,7 @@ import Testing
         try git.run(["worktree", "remove", path], in: project.path)
         try FileManager.default.createDirectory(atPath: path + "/app/node_modules/.cache", withIntermediateDirectories: true)
 
-        #expect(try await !workflow.needsRemovalConfirmation(task: created.task, project: project))
+        #expect(try await !workflow.preflight(task: created.task, project: project).needsRemovalConfirmation)
         try await workflow.archive(task: created.task, project: project, force: false)
 
         #expect(!FileManager.default.fileExists(atPath: path))
@@ -335,6 +335,68 @@ import Testing
         let slug = BranchNaming.unused(draft.worktreeSlug, in: project.path)
         let made = try await workflow.create(draft: draft, project: project, reserved: [slug])
         #expect(URL(fileURLWithPath: made.task.worktreePath).lastPathComponent == slug + "-2")
+    }
+
+    /// The preflight Remove and Shelve share answers what the three reads it replaced answered, each with a listing of
+    /// its own: the head (`head(of:in:)`), whether an unlisted folder asks first (the rule before phase 7, kept here as
+    /// the reference), and whether the worktree holds unsaved work (`hasUnsavedWork(task:project:)`). Over a clean, a
+    /// dirty and a detached worktree, a folder git no longer lists, one this workflow's own removal left, a checkout
+    /// deleted outside AiTerm and a task with no checkout yet; the preflight lists the worktrees at most once.
+    @Test func thePreflightAnswersAsTheThreeReadsItReplacedDid() async throws {
+        let (project, base) = try fixture()
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        let git = GitRunner.hermetic(), recording = RecordingGitRunner(forwardingTo: .hermetic())
+        let workflow = TaskWorkflow(git: recording)
+        func make(_ title: String) async throws -> TaskItem {
+            var draft = base
+            draft.setTitle(title)
+            return try await workflow.create(draft: draft, project: project).task
+        }
+        /// Today's rule as `needsRemovalConfirmation` asked it before the preflight, with a listing of its own.
+        func referenceNeedsConfirmation(_ task: TaskItem) throws -> Bool {
+            guard task.hasCheckout, !workflow.removalAttempts.paths.withLock({ $0[task.id] == task.worktreePath }),
+                  FileManager.default.fileExists(atPath: task.worktreePath) else { return false }
+            return try Repository(project.path, git: git).worktree(at: task.worktreePath) == nil
+        }
+
+        let clean = try await make("Clean")
+        let dirty = try await make("Dirty")
+        try "work".write(toFile: dirty.worktreePath + "/unsaved", atomically: true, encoding: .utf8)
+        let detached = try await make("Detached")
+        try git.run(["checkout", "-q", "--detach"], in: detached.worktreePath)
+        let unlisted = try await make("Unlisted")
+        try git.run(["worktree", "unlock", unlisted.worktreePath], in: project.path)
+        try git.run(["worktree", "remove", unlisted.worktreePath], in: project.path)
+        try FileManager.default.createDirectory(atPath: unlisted.worktreePath + "/build", withIntermediateDirectories: true)
+        let leftover = try await make("Leftover")
+        try "work".write(toFile: leftover.worktreePath + "/unsaved", atomically: true, encoding: .utf8)
+        await #expect(throws: GitError.self) { try await workflow.archive(task: leftover, project: project, force: false) }
+        try FileManager.default.removeItem(atPath: leftover.worktreePath + "/unsaved")
+        try git.run(["worktree", "unlock", leftover.worktreePath], in: project.path)
+        try git.run(["worktree", "remove", leftover.worktreePath], in: project.path)
+        try FileManager.default.createDirectory(atPath: leftover.worktreePath + "/build", withIntermediateDirectories: true)
+        let deleted = try await make("Deleted")
+        try FileManager.default.removeItem(atPath: deleted.worktreePath)
+        let planned = TaskItem(id: UUID(), projectId: project.id, title: "Planned", branch: "feat/planned", worktreePath: "", baseBranch: "",
+                               jira: nil, agent: .claude, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false,
+                               createdAt: Date(), windowId: nil)
+
+        for task in [clean, dirty, detached, unlisted, leftover, deleted, planned] {
+            let mark = recording.calls.count
+            let preflight = try await workflow.preflight(task: task, project: project)
+            let listings = recording.calls.dropFirst(mark).filter { $0.args.starts(with: ["worktree", "list"]) }.count
+            #expect(listings <= 1, "\(task.title): one listing at most")
+            #expect(preflight.head == (try await workflow.head(of: task, in: project)), "\(task.title): head")
+            #expect(preflight.needsRemovalConfirmation == (try referenceNeedsConfirmation(task)), "\(task.title): unlisted")
+            #expect(try await workflow.hasUnsavedWork(task: task, project: project, after: preflight)
+                    == (try await workflow.hasUnsavedWork(task: task, project: project)), "\(task.title): unsaved work")
+        }
+        // The cases are the ones named: each answer is seen at least once.
+        #expect(try await workflow.preflight(task: dirty, project: project).listed)
+        #expect(try await workflow.preflight(task: detached, project: project).head == .detached)
+        #expect(try await workflow.preflight(task: unlisted, project: project).needsRemovalConfirmation)
+        #expect(try await !workflow.preflight(task: leftover, project: project).needsRemovalConfirmation)
+        #expect(try await workflow.preflight(task: deleted, project: project).head == .missing)
     }
 
     private func fixture() throws -> (Project, TaskDraft) {
