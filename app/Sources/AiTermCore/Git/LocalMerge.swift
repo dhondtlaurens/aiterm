@@ -45,7 +45,7 @@ public enum LocalMerge {
 
     private static func mergeNow(sha: String, into defaultBranch: String, in repo: Repository) throws -> String {
         let git = repo.git, path = repo.path
-        guard CommitId.isFull(sha) else { throw Refusal.invalidCommit(sha) }
+        guard CommitId.isMergeable(sha) else { throw Refusal.invalidCommit(sha) }
         // `symbolic-ref --quiet` exits 1 on a detached HEAD.
         let current = try git.ask(["symbolic-ref", "--quiet", "--short", "HEAD"], in: path, none: [1])
         // Exact ref names: on a case-insensitive disk a checked-out `Main` is another branch than `main`.

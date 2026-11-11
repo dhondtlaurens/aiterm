@@ -33,15 +33,11 @@ struct RemoteURLTests {
         "https://github.com/acme/my%20app.git", "git@host:team/a%2Fb", "/srv/repos/caf%C3%A9.git",
     ]
 
-    /// Everywhere but a percent-encoded path, the check reads every URL as it did; with one, it reads its path
-    /// decoded, and only that.
-    @Test(arguments: urls) func theSameLocationRuleIsTodaysButForPercentEncoding(url: String) {
+    /// The check reads every URL as it did before phase 2, a percent-encoded path included: decoding it, as provider
+    /// detection does, is the maintainer's to approve (`RemoteURL.decodesPath`).
+    @Test(arguments: urls) func theSameLocationRuleIsTodays(url: String) {
         let today = Self.reference(url), now = RemoteURL.location(of: url)
         #expect(now.host == today.host)
-        if url.contains("%") {
-            #expect(now.path == (RemoteURL.decodesPath ? today.path.removingPercentEncoding ?? today.path : today.path))
-        } else {
-            #expect(now.path == today.path)
-        }
+        #expect(now.path == today.path)
     }
 }

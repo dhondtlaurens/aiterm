@@ -81,12 +81,14 @@ public final class StateStore: Sendable {
     /// saves. A volume that cannot clone has `copyfile` copy, which is a write and is counted as one.
     private func keepBackup(_ previous: Data) throws {
         let staging = backupURL.appendingPathExtension("staging-" + UUID().uuidString)
-        guard let cloned = Self.clone(url, to: staging), (try? Data(contentsOf: staging)) == previous else {
+        let cloned = Self.clone(url, to: staging)
+        // A clone that copied wrote the bytes, whether or not they are kept.
+        if cloned == false { WorkMeter.note(.stateWrite) }
+        guard cloned != nil, (try? Data(contentsOf: staging)) == previous else {
             unlink(staging.path)
             WorkMeter.note(.stateWrite)
             return try previous.write(to: backupURL, options: .atomic)
         }
-        if !cloned { WorkMeter.note(.stateWrite) }
         guard rename(staging.path, backupURL.path) == 0 else {
             let error = CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: backupURL.path,
                                                                 NSUnderlyingErrorKey: POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)])
