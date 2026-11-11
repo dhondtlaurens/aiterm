@@ -236,7 +236,7 @@ extension OperatorController {
         }
         defer { runChanged(id) }
         finisher.stopWatching(inRun: id)
-        for challenge in run.challenges { tools.runningChallenges[challenge.id]?.cancel() }
+        tools.oracleJobs.cancel(inRun: id)
         waker.forget(id)
         // No start pass follows: nothing waited on a slot the ended broadcast held, as there is no cap.
         guard let daemon = daemon() else { return }

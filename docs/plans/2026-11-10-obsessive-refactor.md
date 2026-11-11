@@ -535,7 +535,7 @@ Each box leaves the project working and is one or a few commits.
 - [x] 5e. Per-key records; the listing-wait value; batched mutations; typed errors.
 - [x] 5f. Window owner and pause signaller; branch-watch and review-watch caches; closed wake reasons. The shelved
   board's one derivation is dropped: no budget counts it (record).
-- [ ] 6a. One Oracle-job owner, cancelled on Stop and End (test first).
+- [x] 6a. One Oracle-job owner, cancelled on Stop and End (test first).
 - [ ] 6b. Handler on tool traits; private tables; `mark_task` enum; sentence and timeout helpers.
 - [ ] 6c. Concurrent `run_status` host reads; reused landing check; settings sync sites.
 - [ ] 6d. Finisher as a reference with one record per task; outcome kind; test layering.

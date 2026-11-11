@@ -239,7 +239,7 @@ extension OperatorToolHandler {
             return Self.critiqueAnswer(kept, recorded: true)
         }
         let job: Task<SecondOpinionRunner.Verdict?, Never>
-        if let running = runningCritiques[key] {
+        if let running = oracleJobs.running(.critique(key)) {
             job = running
         } else {
             let detail = try await host.threadDetail(number, thread: thread)
@@ -253,7 +253,7 @@ extension OperatorToolHandler {
             guard now.ownership == operated.ownership, now.publication?.mergeRequestNumber == number else {
                 throw ToolRefusal("This task changed while AiTerm read the thread; call critique_thread again.")
             }
-            job = runningCritiques[key] ?? startCritique(key, of: current, detail, request: Self.request(of: now), opinion: fresh.profile.oracle,
+            job = oracleJobs.running(.critique(key)) ?? startCritique(key, of: current, detail, request: Self.request(of: now), opinion: fresh.profile.oracle,
                                                          in: fresh)
         }
         let verdict: SecondOpinionRunner.Verdict?
@@ -293,26 +293,18 @@ extension OperatorToolHandler {
         let runner = ports.secondOpinion, folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
         let consulting = OperatorActivity(run: run.id, task: task.id, act: .consultingTheOracle)
-        onActing(consulting, true)
-        let job = Task { @MainActor [weak self] () -> SecondOpinionRunner.Verdict? in
-            let verdict = await runner.challenge(opinion, prompt: prompt, runFolder: folder, projects: projects)
-            guard let self else { return nil }
-            runningCritiques[key] = nil
-            onActing(consulting, false)
-            guard !Task.isCancelled else { return nil }
-            let capped = Self.capped(verdict)
+        return oracleJobs.start(.critique(key), run: run.id, task: task.id, runner: runner, opinion: opinion,
+                                prompt: prompt, folder: folder, projects: projects,
+                                acting: { [weak self] on in self?.onActing(consulting, on) }) { [weak self] capped in
+            guard let self else { return }
             // Kept only for the task as it was asked about: one taken over or handed back since is someone else's now.
-            guard let now = state.task(id: key.task)?.operated, now.ownership == ownership, !now.takenOver else { return capped }
+            guard let now = state.task(id: key.task)?.operated, now.ownership == ownership, !now.takenOver else { return }
             if case .critique(let text) = capped {
                 let critique = ThreadCritique(thread: key.thread, note: key.note, head: key.head, critique: text, at: ports.now())
                 mutate(in: run.id) { $0.updateOperated(key.task) { $0.threadCritiques.append(critique) } }
                 _ = workspace.flush()
             }
-            return capped
         }
-        runningCritiques[key] = job
-        lastCritique = Task { _ = await job.value }
-        return job
     }
 
     // -- writes read fresh, and kept as pending while they may have landed ----------------------------

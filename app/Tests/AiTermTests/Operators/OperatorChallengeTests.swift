@@ -106,7 +106,7 @@ import Testing
         try OperatorProfileStore.save(profile, defaults)
         _ = await world.call(run.id, "run_status")
         await gate.open()
-        await world.controller.tools.lastChallenge?.value
+        await world.ports.work.settled()
         #expect(await world.call(run.id, "submit_plan", ["revision": 1, "challengeId": .string(id)]).value?["submitted"] == true)
         #expect(world.run(run.id)?.challenges.contains { $0.critique == "Obsolete critique" } == false)
     }
@@ -129,7 +129,7 @@ import Testing
         #expect(first.value?["pending"] == true && first.value?["critique"] == .null)
         let id = try #require(first.value?["challengeId"]?.stringValue)
         await gate.open()
-        await world.controller.tools.lastChallenge?.value
+        await world.ports.work.settled()
         let read = await world.call(run.id, "submit_plan", ["revision": 1, "challengeId": .string(id)])
         #expect(read.value?["critique"] == "Too broad." && world.run(run.id)?.planRevision == 0)
         _ = await world.call(run.id, "submit_plan", ["revision": 1, "challengeId": .string(id), "challengeReply": "Narrowed."])
@@ -148,7 +148,7 @@ import Testing
                                           acting: world.controller.acting.broadcast(run.id), requests: [])
         #expect(line == OperatorLine("consulting the Oracle", look: .acting))
         await gate.open()
-        await world.controller.tools.lastChallenge?.value
+        await world.ports.work.settled()
         #expect(world.controller.acting == .none)
     }
 
@@ -182,9 +182,9 @@ import Testing
         let (world, run) = try await makeWorld(runner: .answering("Late.", after: .seconds(30)), budget: .milliseconds(20))
         let id = try #require(await world.call(run.id, "submit_plan", ["revision": 1]).value?["challengeId"]?.stringValue)
         world.controller.stop()
-        await world.controller.tools.lastChallenge?.value
+        await world.ports.work.settled()
         #expect(world.run(run.id)?.challenges.map(\.stage) == [.running])
-        #expect(world.run(run.id)?.challenges.first?.unchallengedReason == nil && world.controller.tools.runningChallenges.isEmpty)
+        #expect(world.run(run.id)?.challenges.first?.unchallengedReason == nil && world.run(run.id)?.challenges.allSatisfy { !world.controller.tools.oracleJobs.contains(.challenge($0.id)) } == true)
         #expect(await world.call(run.id, "submit_plan", ["revision": 1, "challengeId": .string(id)]).value?["submitted"] == true)
         #expect(world.run(run.id)?.decisions.last?.challenge == "unchallenged: AiTerm restarted before the second opinion answered.")
     }

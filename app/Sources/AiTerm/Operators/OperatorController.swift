@@ -308,6 +308,7 @@ final class OperatorController {
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         workspace.onChange { [weak self] in
             // A task taken over, stopped or moved on: what its worker's turn left is read again or dropped first.
+            if let self { tools.oracleJobs.retain(in: self.workspace.state) }
             self?.turns.observe()
             self?.quiet.observe()
             self?.observeRuns()

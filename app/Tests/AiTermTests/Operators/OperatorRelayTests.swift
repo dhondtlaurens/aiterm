@@ -43,13 +43,13 @@ import Testing
     }
 
     /// The worker's turn ends having said `reply`: its tab goes idle, and AiTerm reads the turn.
-    func endTurn(saying reply: String = Self.t6, _ world: OperatorWorld, _ run: OperatorRun, _ task: TaskItem) async throws {
+    func endTurn(saying reply: String = Self.t6, _ world: OperatorWorld, _ run: OperatorRun, _ task: TaskItem, leavingOracle: Int = 0) async throws {
         let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": .string(reply)]]]]
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-1.jsonl"))
         world.show(sessions(run, task, .idle))
-        await world.settled()
+        await world.ports.work.settled(leaving: leavingOracle)
     }
 
     func relay(_ world: OperatorWorld, _ run: OperatorRun, key: String = "pay-236-bulk", _ more: [String: JSONValue] = [:]) async -> ToolAnswer {
@@ -222,7 +222,7 @@ import Testing
         try await endTurn(world, run, task)
         let id = try #require(await relay(world, run).value?["challengeId"]?.stringValue)
         await gate.open()
-        await world.controller.tools.lastChallenge?.value
+        await world.ports.work.settled()
         let polled = await relay(world, run, ["challengeId": .string(id)])
         #expect(polled.value?["critique"]?.stringValue == critique)
         #expect(await relay(world, run, ["challengeId": .string(id)]) == polled)
@@ -317,7 +317,7 @@ import Testing
         try await endTurn(world, run, task)
         let id = try #require(await relay(world, run).value?["challengeId"]?.stringValue)
         world.show(sessions(run, task, .working))
-        try await endTurn(saying: "Done with the button.\n\nQuestion: Should the dialog name the item?", world, run, task)
+        try await endTurn(saying: "Done with the button.\n\nQuestion: Should the dialog name the item?", world, run, task, leavingOracle: 1)
         let late = await relay(world, run, ["challengeId": .string(id)])
         #expect(late.message == "PAY-236’s worker has asked something else since the Oracle read its question. "
                 + "Call relay_question again without challengeId.")

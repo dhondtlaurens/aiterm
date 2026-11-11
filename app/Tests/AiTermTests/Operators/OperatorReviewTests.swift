@@ -800,7 +800,7 @@ extension OperatorReviewTests {
         let pending = await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d64"])
         #expect(pending.value?["pending"] == true && critiques(r).isEmpty)
         await gate.open()
-        await r.world.controller.tools.lastCritique?.value
+        await r.world.ports.work.settled()
         #expect(critiques(r).count == 1, "recorded once the Oracle answered, with no call waiting")
         #expect(await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d64"]).value?["recorded"] == true)
         #expect(prompts.list.count == 1)

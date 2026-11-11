@@ -151,7 +151,7 @@ extension OperatorToolHandler {
                 return answer
             case _ where kept.role == .veto:
                 return try await vetoAnswer(call, kept, in: run)
-            case .running where runningChallenges[id] != nil:
+            case .running where oracleJobs.contains(.challenge(id)):
                 return Self.pendingAnswer(id)
             case .running:
                 // Its second opinion was lost with AiTerm's restart, and never holds the act up (spec §4.4).
@@ -219,24 +219,14 @@ extension OperatorToolHandler {
         mutate(in: run.id) { $0.updateRun(id: run.id) { $0.challenges.append(asked) } }
         let runner = ports.secondOpinion, folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
-        // The runner turns every thrown error, a cancellation included, into `.unchallenged`; a challenge
-        // cancelled (AiTerm quitting) is not an answer, so it settles as nil, and its record stays `.running`.
-        let challenge = Task { () -> SecondOpinionRunner.Verdict? in
-            let verdict = await runner.challenge(opinion, prompt: prompt, runFolder: folder, projects: projects)
-            return Task.isCancelled ? nil : Self.capped(verdict)
-        }
-        // The Oracle is consulted until it answers, however long that outlasts the call: the lines say so.
         let consulting = OperatorActivity(run: run.id, task: call.optionalString("task").flatMap { state.task(inRun: run.id, named: $0)?.id },
                                           act: .consultingTheOracle)
-        onActing(consulting, true)
-        // Kept for the operator's next call, when it outlasts this one's reply.
-        let settled = Task { [weak self] in
-            let verdict = await withTaskCancellationHandler { await challenge.value } onCancel: { challenge.cancel() }
+        let challenge = oracleJobs.start(.challenge(id), run: run.id, task: consulting.task, runner: runner, opinion: opinion,
+                                         prompt: prompt, folder: folder, projects: projects,
+                                         acting: { [weak self] on in self?.onActing(consulting, on) }) { [weak self] verdict in
             guard let self else { return }
-            runningChallenges[id] = nil
-            onActing(consulting, false)
             guard oracleGeneration(run.id) == generation else { return }
-            guard let verdict, state.run(id: run.id)?.challenges.first(where: { $0.id == id })?.stage == .running else { return }
+            guard state.run(id: run.id)?.challenges.first(where: { $0.id == id })?.stage == .running else { return }
             updateChallenge(id, in: run.id) { kept in
                 switch verdict {
                 case .critique(let critique) where kind == .veto:
@@ -247,8 +237,6 @@ extension OperatorToolHandler {
                 }
             }
         }
-        runningChallenges[id] = settled
-        lastChallenge = settled
         // Nil out of budget, or cancelled with AiTerm quitting.
         // A finish_task answers by its deadline, the Oracle's wait in it too.
         let wait = call.operatorTool == .finishTask
@@ -304,7 +292,7 @@ extension OperatorToolHandler {
         let merges = kept.asksMerge
         try validateMergeEvidence(kept.askedEvidence, call: call, in: run)
         switch kept.stage {
-        case .running where runningChallenges[id] != nil:
+        case .running where oracleJobs.contains(.challenge(id)):
             return try vetoPendingAnswer(call, id, merges: merges, in: run)
         case .running:
             updateChallenge(id, in: run.id) { $0.stage = .unchallenged; $0.unchallengedReason = "AiTerm restarted before the Oracle answered." }
@@ -544,7 +532,7 @@ extension OperatorToolHandler {
     /// Cancels the second opinions still running, as AiTerm quits. Their records stay running, so the next
     /// call with each id after a restart proceeds unchallenged, with that reason, rather than as an answer.
     func cancelChallenges() {
-        for task in runningChallenges.values { task.cancel() }
+        oracleJobs.cancel()
     }
 
     /// JSON text, keys sorted, so the same value always reads the same.

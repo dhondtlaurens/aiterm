@@ -102,9 +102,7 @@ final class OperatorToolHandler {
     let transcripts: TranscriptLocator
     /// Each run's last `run_status`, and the revision it was numbered.
     private var numbered: [UUID: (content: RunStatus, revision: Int)] = [:]
-    /// The second opinions running now, by challenge id: one in a run's records but not here was lost
-    /// with AiTerm's restart.
-    var runningChallenges: [String: Task<Void, Never>] = [:]
+    let oracleJobs: OracleJobs
     var lastOracleRevision: Int?
     var oracleGenerations: [UUID: Int] = [:]
     /// The challenges whose acting call is performing now: a second call for one is refused, not performed too.
@@ -140,14 +138,9 @@ final class OperatorToolHandler {
     /// When `diffBase` last fetched, or tried to fetch, each task base from origin, by worktree and branch: within
     /// `OperatorTiming.diffBaseFetchInterval` it reads origin's copy as it is.
     var diffBaseFetches: [String: Date] = [:]
-    /// The latest challenge's run, for a test to await. Set by `OperatorToolHandler+Challenge.swift`.
-    var lastChallenge: Task<Void, Never>?
     /// The Oracle's critiques of review threads running now (`critique_thread`), by task, thread, note and commit: a call
     /// that comes while one runs waits for that one, and each is recorded on its task when it answers, whoever waits.
     struct CritiqueKey: Hashable { let task: UUID, thread: String, note: String, head: String? }
-    var runningCritiques: [CritiqueKey: Task<SecondOpinionRunner.Verdict?, Never>] = [:]
-    /// The latest critique asked for, recorded once it ends: for a test to await.
-    var lastCritique: Task<Void, Never>?
     /// The latest reply sent, for a test to await.
     private(set) var lastReply: Task<Void, Never>?
     /// The latest line written to a run's activity log, for a test to await: each waits for the one before it, so the
@@ -255,6 +248,7 @@ final class OperatorToolHandler {
         self.quiet = quiet
         self.prompts = prompts
         self.statuses = statuses
+        self.oracleJobs = OracleJobs(work: ports.work)
     }
 
     var state: AppState { workspace.state }

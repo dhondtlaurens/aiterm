@@ -75,9 +75,10 @@ extension OperatorToolHandler {
 
         // Awaited however long it takes: the hook waits `OperatorTiming.gateTimeout`, past the Oracle's own limit.
         let consulting = OperatorActivity(run: run.id, task: task?.id, act: .consultingTheOracle)
-        onActing(consulting, true)
-        let verdict = await ports.secondOpinion.challenge(opinion, prompt: prompt, runFolder: folder, projects: projects)
-        onActing(consulting, false)
+        let job = oracleJobs.start(.gate(UUID()), run: run.id, task: task?.id, runner: ports.secondOpinion, opinion: opinion,
+                                   prompt: prompt, folder: folder, projects: projects, capped: false, keepCancelled: true,
+                                   acting: { [weak self] on in self?.onActing(consulting, on) })
+        let verdict = await job.value
         // The Oracle may take minutes: a broadcast that ended meanwhile runs nothing and asks nothing.
         if let ended = ended(run.id) { return answer("deny", ended, outcome: .refused) }
         refreshOracleSettings()
@@ -88,8 +89,9 @@ extension OperatorToolHandler {
         }
         let critique: String
         switch verdict {
-        case .unchallenged(let why): return answer("allow", "unchallenged: \(why)")
-        case .critique(let text): critique = text
+        case .unchallenged(let why)?: return answer("allow", "unchallenged: \(why)")
+        case .critique(let text)?: critique = text
+        case nil: return answer("deny", Self.goneReason, outcome: .refused)
         }
         switch ChallengeLaunch.gateVerdict(critique) {
         case .allow:

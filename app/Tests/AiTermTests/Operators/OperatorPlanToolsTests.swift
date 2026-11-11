@@ -225,7 +225,7 @@ import Testing
         #expect(first.value?["pending"] == true && operated(world, "PAST") == nil)
         let id = try #require(first.value?["challengeId"]?.stringValue)
         await gate.open()
-        await world.controller.tools.lastChallenge?.value
+        await world.ports.work.settled()
         let acted = await create(world, run, "PAST", challengeId: id)
         #expect(acted.value?["created"] == true && operated(world, "PAST")?.state == .planned)
         #expect(await create(world, run, "PAST", challengeId: id) == acted, "the acting call again replays")
@@ -239,7 +239,7 @@ import Testing
         let id = try #require(await create(world, run, "PAST").value?["challengeId"]?.stringValue)
         #expect(await create(world, run, "PAST", challengeId: id).value?["pending"] == true, "still judging")
         await gate.open()
-        await world.controller.tools.lastChallenge?.value
+        await world.ports.work.settled()
         #expect(await create(world, run, "PAST", challengeId: id).message == "The Oracle judged this off-brief. AiTerm noted it for the summary.")
         #expect(operated(world, "PAST") == nil && finds(world, run).map(\.why) == ["Not in the brief."])
     }
