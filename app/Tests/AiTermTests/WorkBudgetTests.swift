@@ -87,9 +87,9 @@ enum Budget {
     // MARK: - The window lock
 
     /// Ten `session.changed` events for a task's tab that move only its context fill and its title, which no row draws,
-    /// through the app's own routing (`HelperLink.handle`): 10 `WindowReconciler` passes, one per event, though none
-    /// has anything to do. A later change that passes only when a row's window could have changed lowers it; none may
-    /// raise it.
+    /// through the app's own routing (`HelperLink.handle`): 0 `WindowReconciler` passes (10 before phase 7, one per
+    /// event, none with anything to do). A pass now runs on a session event only when the tabs as a pass reads them
+    /// moved. None may raise it.
     @Test func sessionEventsThatChangeNoRowEachPassTheWindowLock() async throws {
         let controller = AppController(preferences: .scratch(), scan: Budget.noScan)
         defer { controller.shutdown() }
@@ -111,7 +111,32 @@ enum Budget {
         }
 
         #expect(controller.state.task(id: task.id)?.windowId == "w", "the row keeps its window")
-        #expect(work[.reconcilerPass] == 10, "passes for 10 events: \(work)")
+        #expect(work[.reconcilerPass, default: 0] == 0, "passes for 10 events: \(work)")
+    }
+
+    /// The checkout monitor's polls with every row in its window: 0 `WindowReconciler` passes for 5 polls. The poll
+    /// passes only while the last pass left a row owed a window and not restored (phase 7, new). None may raise it.
+    @Test func pollsWithNothingOwedPassTheWindowLockNever() async throws {
+        let controller = AppController(preferences: .scratch(), checkoutPollInterval: .milliseconds(10), scan: Budget.noScan)
+        defer { controller.shutdown() }
+        try controller.workspace.load()
+        let project = Project.make(path: "/repo")
+        let task = TaskItem.make(project: project.id, title: "a", worktreePath: "/repo/a", windowId: "w")
+        controller.workspace.mutate { $0.append(project: project); $0.tasks = [task] }
+        controller.helper.setDaemonClient(RecordingDaemon())
+        let tab = SessionInfo.make("s", window: "w", task: task.id, state: .working, cwd: "/repo/a")
+        controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [tab], usage: .empty)))
+        await controller.windows.lastRestore?.value
+        var polls = 0
+        controller.checkouts.onPolled { polls += 1 }
+
+        let work = await Budget.metered {
+            controller.checkouts.startMonitoring()
+            await eventually(describing: "five polls") { polls >= 5 }
+            controller.checkouts.stop()
+        }
+
+        #expect(work[.reconcilerPass, default: 0] == 0, "passes for \(polls) polls with nothing owed: \(work)")
     }
 
     // MARK: - Shelve and restore

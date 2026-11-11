@@ -61,6 +61,12 @@ final class WindowReconciler {
     private var epoch = 0
     /// A pass is running, and another was asked for meanwhile: a pass's own work can start more.
     private var passing = false, passAgain = false
+    /// The tabs as the last pass read them, where they are and which row each belongs to (`LiveSessions.rowSessions`): a
+    /// session event that leaves them as they were has nothing for a pass to find.
+    private var passedSessions: [SessionInfo]?
+    /// Whether the last pass left a row owed a window and not being restored — held back, or its restore failed — so
+    /// the checkout monitor's poll passes again, which brings it back within one poll whatever it waited on.
+    private var owedLeft = false
 
     init(helper: HelperLink, workspace: WorkspaceStore, work: WorkInFlight, live: LiveSessions, checkouts: CheckoutMonitor,
          focus: RowFocus, remover: TaskRemover,
@@ -90,10 +96,19 @@ final class WindowReconciler {
         focus.setRestoreOwedRow { [weak self] in self?.choose($0) }
         // Work ending on a row — a removal kept, a restore done — can leave it owed and free.
         work.onChange { [weak self] _ in self?.pass() }
-        // A worktree read missing, or back: a task whose restore found it gone has been read again.
+        // A worktree read missing, or back: a task whose restore found it gone has been read again, and an owed row held
+        // back while its checkout read missing can come back.
         checkouts.onMissingChanged { [weak self] changed in
-            guard let self, !worktreeGone.isDisjoint(with: changed) else { return }
+            guard let self else { return }
             worktreeGone.subtract(changed)
+            pass()
+        }
+        // The workspace able to change again: an owed row waited on it.
+        workspace.onChangeable { [weak self] in self?.pass() }
+        // A bound on what has no trigger of its own: while a row is owed and not restored, each poll looks again. With
+        // nothing owed a poll starts no pass.
+        checkouts.onPolled { [weak self] in
+            guard let self, owedLeft else { return }
             pass()
         }
     }
@@ -140,7 +155,8 @@ final class WindowReconciler {
             if let task = session.taskUUID {
                 workspace.mutate { $0 = $0.rememberingConversations(from: live.sessions, only: [task]) }
             }
-            pass()
+            // A context fill, a model, a title: nothing a pass reads moved (`LiveSessions.rowSessions`).
+            if live.rowSessions != passedSessions { pass() }
         case .sessionClosed, .usageChanged, .operatorRequest, .unknown: break // `live`'s, the operators', or nobody's
         }
     }
@@ -206,9 +222,15 @@ final class WindowReconciler {
                 .union(worktreeGone).union(rows.filter { isBusy($0) || checkouts.missingCheckouts.contains($0) })
             let lettingGo = Set(state.tasks.map(\.id).filter { work.operation(onTask: $0)?.letsWindowGo == true })
             let settled = workspace.canChangeWorkspace && daemon() != nil && triage.isQuiet(at: now())
+            passedSessions = live.rowSessions
             for step in state.windowPlan(sessions: live.sessions, settled: settled, due: due, waiting: waiting, lettingGo: lettingGo) {
                 act(step)
             }
+            // The rows `windowPlan` would restore, still without a window and with no restore under way.
+            let after = self.state
+            owedLeft = after.tasks.contains { $0.hasCheckout && $0.operated == nil && $0.windowId == nil && restoring[$0.id] == nil
+                                                && !lettingGo.contains($0.id) }
+                || after.terminals.contains { $0.windowId == nil && restoring[$0.id] == nil }
         } while passAgain
     }
 
