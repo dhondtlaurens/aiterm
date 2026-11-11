@@ -29,7 +29,7 @@ import Testing
         let run = try await start(world, goal: BroadcastGoal(text: "\n  \(goal.text)  \n", extraRounds: goal.extraRounds))
         #expect(run.agents == OperatorServiceFixtures.agents && run.taskSettings == OperatorServiceFixtures.taskSettings)
         #expect(run.goal == goal)
-        #expect(OperatorProfileStore.lastAgents(try #require(world.ports.preferences)) == OperatorServiceFixtures.agents)
+        #expect(OperatorProfileStore.lastAgents(world.ports.preferences) == OperatorServiceFixtures.agents)
         #expect(try world.workspace.file.load().runs.first?.taskSettings == OperatorServiceFixtures.taskSettings, "frozen on disk")
     }
 
@@ -125,7 +125,7 @@ import Testing
         profile.slices = Slices(merge: true)
         let frozen = profile
         ports.profile = { frozen }
-        try OperatorProfileStore.saveLastAgents(OperatorServiceFixtures.agents, try #require(ports.preferences))
+        try OperatorProfileStore.saveLastAgents(OperatorServiceFixtures.agents, ports.preferences)
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
                                        operatorPorts: ports)
         try controller.workspace.load()

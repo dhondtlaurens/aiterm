@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 import Synchronization
 @testable import AiTermCore
 @testable import AiTerm
@@ -101,6 +102,16 @@ extension OperatorClock {
     }
 }
 
+extension OperatorWork {
+    /// Returns once no more than `count` of the tasks started here are running — none, by default: everything the Operator's
+    /// owners started has ended, the work that work started included. `count` leaves the ones a test holds on purpose (a
+    /// delivery held by the daemon) running. Work still running at `TestDeadline` is an issue, never a hang.
+    func settled(leaving count: Int = 0, sourceLocation: SourceLocation = #_sourceLocation) async {
+        await eventually(describing: "the Operator's work to end, \(running) still running", every: .milliseconds(1),
+                         sourceLocation: sourceLocation) { running <= count }
+    }
+}
+
 extension OperatorPorts {
     /// Ports that reach nothing real: a fresh temporary folder as the home — run folders and the agents'
     /// conversations under it — notifications recorded,
@@ -177,6 +188,19 @@ final class OperatorWorld {
     }
 
     var state: AppState { workspace.state }
+    /// Each agent's weekly use in percent, as the helper's usage feed reports it, its week not reset: what a task's launch
+    /// reads to start on the other agent.
+    func useWeekly(_ percents: [AgentKind: Int]) {
+        func usage(_ agent: AgentKind) -> Usage? {
+            percents[agent].map { Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: $0, resetsAt: nil), spend: nil, updatedAt: 0) }
+        }
+        live.usage = UsageSnapshot(claude: usage(.claude), codex: usage(.codex))
+    }
+    /// Returns once the work the Operator's owners started has ended, the work that work started included
+    /// (`OperatorWork.settled`).
+    func settled(leaving count: Int = 0, sourceLocation: SourceLocation = #_sourceLocation) async {
+        await ports.work.settled(leaving: count, sourceLocation: sourceLocation)
+    }
     func run(_ id: UUID) -> OperatorRun? { state.runs.first { $0.id == id } }
     func task(_ id: UUID) -> TaskItem? { state.task(id: id) }
 

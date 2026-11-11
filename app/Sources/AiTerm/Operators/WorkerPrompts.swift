@@ -15,16 +15,17 @@ final class WorkerPrompts {
     private var messageProbes: [UUID: Task<Void, Never>] = [:]
     private var generation = 0
     private var isStopped = false
-    private(set) var lastProbe: Task<Void, Never>?
-    var tabsKnown: @MainActor () -> Bool = { false }
+    /// Whether a tab not listed is a tab closed (`TabsListing`).
+    private let listing: TabsListing
     var changed: @MainActor (UUID) -> Void = { _ in }
 
     init(workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts,
-         daemon: @escaping @MainActor () -> (any DaemonCommands)?) {
+         daemon: @escaping @MainActor () -> (any DaemonCommands)?, listing: TabsListing) {
         self.workspace = workspace
         self.live = live
         self.ports = ports
         self.daemon = daemon
+        self.listing = listing
     }
 
     func start() { isStopped = false }
@@ -38,13 +39,12 @@ final class WorkerPrompts {
         messageProbes.removeAll()
         promptReadAt.removeAll()
         promptState.removeAll()
-        lastProbe = nil
     }
 
     func afterMessage(_ task: UUID, tab: String?) {
         guard !isStopped else { return }
         let id = UUID()
-        messageProbes[id] = Task { [weak self] in
+        messageProbes[id] = ports.work.start { [weak self] in
             guard let self else { return }
             defer { messageProbes[id] = nil }
             await probeAfterMessage(task, tab: tab)
@@ -103,7 +103,7 @@ final class WorkerPrompts {
         let tab = worker.session
         guard let tab else {
             // No tab listed yet is not an answer; a known closed tab has no prompt left to answer.
-            if let open, tabsKnown() { resolvePrompt(open, in: run.id, task: id) }
+            if let open, listing.known { resolvePrompt(open, in: run.id, task: id) }
             return
         }
         let previous = promptState.updateValue(tab.state, forKey: tab.sessionId)
@@ -118,7 +118,7 @@ final class WorkerPrompts {
         guard probing[tab.sessionId] == nil, let daemon = daemon() else { return }
         promptReadAt[tab.sessionId] = now
         let generation = self.generation
-        lastProbe = Task { [weak self] in
+        probing[tab.sessionId] = ports.work.start { [weak self] in
             // The helper gone is not a prompt AiTerm can't read: nothing is recorded, and the next pass asks again.
             let kind: PromptKind?
             let readSucceeded: Bool
@@ -166,7 +166,6 @@ final class WorkerPrompts {
                 state.updateOperated(id) { $0.flags.remove(.possiblyStalled) }
             }
         }
-        probing[tab.sessionId] = lastProbe
     }
 
     private func mayRecordPrompt(_ task: TaskItem, in run: OperatorRun, tab: SessionInfo, source: Source) -> Bool {

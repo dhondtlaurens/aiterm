@@ -169,12 +169,12 @@ import Testing
         // News the operator has not read yet, so its own call's change is not all it has to see.
         family.world.workspace.mutate { $0.updateOperated(second.id) { $0.state = .blocked; $0.blockedReason = "Needs a decision." } }
         try await family.world.daemon.received("session.deliver")
-        await family.world.controller.waker.lastSend?.value
+        await family.world.settled()
 
         let revoked = try commit("b.swift", in: family.parent.worktreePath)
         #expect(await accept("PLUTO-230", revoked, in: family).value?["revokedDependents"] == ["PLUTO-231", "PLUTO-232"])
         try await family.world.daemon.received("session.deliver", count: 2)
-        await family.world.controller.waker.lastSend?.value
+        await family.world.settled()
         let lines = family.world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
         #expect(lines == ["[AiTerm] updates waiting, call run_status",
                           "[AiTerm] some tasks need rebasing: another was accepted again, call run_status"],

@@ -80,9 +80,9 @@ import Testing
 
     /// One `session.changed` for the working worker that moves only its context fill, with what it starts let finish:
     /// 1 `RunStatus.build`, the session handling's look at the open run for the waker and the watchdog (`observeRuns`);
-    /// and 9 worker turn reads, one for each of the three done workers and six done extra tabs, read again though none
-    /// of them changed (each finds the same reply and builds nothing more). A later change that reads no turn that did
-    /// not change lowers the reads; none may raise either number.
+    /// and no worker turn read: the three done workers and six done extra tabs are asked about again, but none of their
+    /// transcripts was written since it was last read (`TranscriptLocator.reply`), so neither a transcript's tail nor git
+    /// is read. Phase 0 counted 9 reads, one for each, read again though none of them changed. None may raise either.
     @Test func aSessionEventBuildsTheStatus() async throws {
         let frozen = try Frozen()
         defer { frozen.world.controller.stop() }
@@ -96,13 +96,14 @@ import Testing
         }
 
         #expect(work[.statusBuild] == 1, "status builds per session event: \(work)")
-        #expect(work[.turnRead] == 9, "turn reads per session event: \(work)")
+        #expect(work[.turnRead, default: 0] == 0, "turn reads per session event: \(work)")
     }
 
-    /// One reconcile tick of the frozen broadcast, its tabs known, with what it starts let finish: 2 `RunStatus.build`s,
-    /// the tick's look for the waker and the watchdog (`observeRuns`) and the quiet check's (`checkQuiet`), which build
-    /// the same status twice; and 9 worker turn reads, the done workers' and extra tabs' again. A later change that builds
-    /// the status once per tick, or reads no unchanged turn, lowers them; none may raise either.
+    /// One reconcile tick of the frozen broadcast, its tabs known, with what it starts let finish: 1 `RunStatus.build`,
+    /// the tick's one snapshot for the waker, the watchdog and the quiet check (`observeRuns`); and 9 worker turn reads,
+    /// the three done workers' and six done extra tabs' transcripts read in full, whatever their stamps say: the tick is
+    /// where a change no stat can see is read (`TranscriptLocator`). Phase 0 counted 2 builds, the quiet check
+    /// (`checkQuiet`) building the same status again, and 9 reads. None may raise either.
     @Test func aReconcileTickBuildsTheStatus() async throws {
         let frozen = try Frozen()
         defer { frozen.world.controller.stop() }
@@ -113,8 +114,39 @@ import Testing
             await Budget.settle(frozen.world.controller)
         }
 
-        #expect(work[.statusBuild] == 2, "status builds per reconcile tick: \(work)")
+        #expect(work[.statusBuild] == 1, "status builds per reconcile tick: \(work)")
         #expect(work[.turnRead] == 9, "turn reads per reconcile tick: \(work)")
+    }
+
+    /// A reconcile tick a reconcile interval after the last, with one task's worker idle, its turn ended and read, and a
+    /// sibling task at work whose time the tick counts, which changes the workspace before the tick reads the ended turns:
+    /// 1 worker turn read, the idle worker's transcript read in full once, not lost to the read that change started
+    /// (phase 5, review round 2). The frozen broadcast's tick (above) counts no time, its clock held.
+    @Test func aReconcileTickWithABusySiblingReadsTheIdleTurnInFullOnce() async throws {
+        let clock = TestClock.operators()
+        let fixture = WorkerTurnReaderTests()
+        let (world, run, task, _) = try fixture.makeWorld(worker: .idle, clock: clock)
+        defer { world.controller.stop() }
+        let project = try #require(world.state.projects.first)
+        var busy = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-2", state: .working, worktree: "/tmp/aiterm-wt-busy")
+        busy.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now.addingTimeInterval(-3600),
+                                              openedAt: clock.now.addingTimeInterval(-3600))
+        world.workspace.mutate { $0.tasks.append(busy) }
+        world.show(fixture.sessions(run, task, .idle) + [OperatorServiceFixtures.session("w2", window: "w10", tag: busy.id, state: .working,
+                                                                                          conversation: "conv-busy")])
+        try BranchWatchTests().saveReply("Wired it.", conversation: "conv-1", in: world)
+        world.controller.reconcileTick()
+        await Budget.settle(world.controller)
+        let counted = world.task(busy.id)?.operated?.totalRuntimeUsed ?? 0
+        clock.advance(by: OperatorTiming.reconcileInterval)
+
+        let work = await Budget.metered {
+            world.controller.reconcileTick()
+            await Budget.settle(world.controller)
+        }
+
+        #expect((world.task(busy.id)?.operated?.totalRuntimeUsed ?? 0) > counted, "the sibling's time counted")
+        #expect(work[.turnRead] == 1, "turn reads per reconcile tick with a busy sibling: \(work)")
     }
 
     /// One mutating tool call, `ask_you` about the working task as the journey asks it, with what it starts let finish:
@@ -154,16 +186,18 @@ import Testing
 
     // MARK: - Worker turn reads
 
-    /// One task working in its own worktree, its worker idle at its prompt with its turn ended and read, as
-    /// `WorkerTurnReaderTests` builds it. Five workspace changes that touch no task (the sidebar's frame), each let
-    /// finish: 5 turn reads, one per change, though nothing about the worker changed. Five session events for its tab
-    /// that move only its context fill: 5 more. A later change that reads a turn only when it could have changed lowers
-    /// both; none may raise them.
-    @Test func anIdleWorkersEndedTurnIsReadAgainOnEveryChange() async throws {
+    /// One task working in its own worktree, its worker idle at its prompt with its turn ended and read, its reply in its
+    /// transcript, as `WorkerTurnReaderTests` builds it. Five workspace changes that touch no task (the sidebar's frame), each let
+    /// finish: no turn read, its transcript not written since it was read. Five session events for its tab that move
+    /// only its context fill: none either. Phase 0 counted 5 and 5, one read per change though nothing about the worker
+    /// changed. None may raise them. Its transcript written again, with a new reply, the next session event reads it: 1.
+    @Test func anIdleWorkersEndedTurnIsReadOnlyOnceItsTranscriptChanged() async throws {
         let (world, _, task, _) = try WorkerTurnReaderTests().makeWorld(worker: .idle)
         defer { world.controller.stop() }
+        try BranchWatchTests().saveReply("Wired it.", conversation: "conv-1", in: world)
+        world.controller.turns.observe()
         await Budget.settle(world.controller)
-        #expect(world.controller.turns.readings[task.id] != nil, "its turn is read")
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired it.", "its turn is read")
 
         let changes = await Budget.metered {
             for n in 1...5 {
@@ -181,8 +215,18 @@ import Testing
             }
         }
 
-        #expect(changes[.turnRead] == 5, "turn reads per 5 no-op workspace changes: \(changes)")
-        #expect(events[.turnRead] == 5, "turn reads per 5 session events: \(events)")
+        try BranchWatchTests().saveReply("Wired it, and tested it.", conversation: "conv-1", in: world)
+        let written = await Budget.metered {
+            tab.contextPercent = 70
+            world.live.handle(.sessionChanged(tab))
+            world.controller.handle(.sessionChanged(tab))
+            await Budget.settle(world.controller)
+        }
+
+        #expect(changes[.turnRead, default: 0] == 0, "turn reads per 5 no-op workspace changes: \(changes)")
+        #expect(events[.turnRead, default: 0] == 0, "turn reads per 5 session events: \(events)")
+        #expect(written[.turnRead] == 1, "turn reads once its transcript changed: \(written)")
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired it, and tested it.")
     }
 
     // MARK: - Git per BranchWatch pass
@@ -193,9 +237,9 @@ import Testing
     ///
     /// First pass: 9 spawns. 7 look up the one commit the message names (`rev-parse --verify`, `merge-base
     /// --is-ancestor`, `for-each-ref --contains`, `reflog show`, `cherry`, the default branch's `for-each-ref` and
-    /// `rev-parse --verify`) and 2 read the head (`rev-parse HEAD`, `symbolic-ref`). Second, nothing changed: the same
-    /// 9, the transcript not read again but its commit looked up again. A later change that keeps an unchanged
-    /// message's lookup lowers the second; none may raise either.
+    /// `rev-parse --verify`), 1 reads the head and its branch (`rev-parse HEAD --symbolic-full-name HEAD`) and 1 the refs
+    /// (`for-each-ref`). Second, nothing changed: 2, the head and the refs, the message's lookup kept for its words, the
+    /// head and the refs (phase 0 counted 9, the head read in two and the commit looked up again). None may raise either.
     @Test func aBranchWatchPassSpawnsGit() async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let fixture = BranchWatchTests()
@@ -219,7 +263,7 @@ import Testing
 
         #expect(world.task(task.id)?.operated?.branchDrift?.sha == sha, "the drift is found")
         #expect(first.count == 9, "spawns on the first pass: \(first)")
-        #expect(second.count == 9, "spawns on a pass that finds nothing new: \(second)")
+        #expect(second.count == 2, "spawns on a pass that finds nothing new: \(second)")
     }
 
     // MARK: - Host requests
@@ -242,10 +286,10 @@ import Testing
         return reviewed
     }
 
-    /// One `ReviewWatcher` pass, as the reconcile tick starts it, over `count` tasks in review, let finish: per task, 2
-    /// logged host requests (`threads`, `approvals`), 1 unlogged lookup of the token's user, and 1 `git remote get-url`
-    /// to find the host. A later change that finds the host once per pass, or asks less, lowers these numbers; none may
-    /// raise them.
+    /// One `ReviewWatcher` pass, as the reconcile tick starts it, over `count` tasks in review on one repository, let
+    /// finish: per task, 2 logged host requests (`threads`, `approvals`); per pass, 1 unlogged lookup of the token's user
+    /// and 1 `git remote get-url` to find the host, the project's host found once. Phase 0 counted the lookup and the
+    /// origin read once per task: 1 and 5 each. None may raise these numbers.
     @Test(arguments: [1, 5]) func aReviewWatcherPassAsksTheHost(count: Int) async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let r = try await inReview(count, git: git)
@@ -257,8 +301,8 @@ import Testing
 
         let requests = Array(r.host.log.dropFirst(logged)), spawned = Budget.commands(git, since: mark)
         #expect(requests.count == 2 * count, "host requests per pass over \(count): \(requests)")
-        #expect(r.host.userLookups - users == count, "user lookups per pass over \(count)")
-        #expect(spawned.filter { $0 == "remote get-url" }.count == count, "origin reads per pass over \(count): \(spawned)")
+        #expect(r.host.userLookups - users == 1, "user lookups per pass over \(count)")
+        #expect(spawned.filter { $0 == "remote get-url" }.count == 1, "origin reads per pass over \(count): \(spawned)")
     }
 
     /// One `run_status` call over `count` tasks in people's review, the host's readings not kept yet, let finish: per

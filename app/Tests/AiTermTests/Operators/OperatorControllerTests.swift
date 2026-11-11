@@ -83,7 +83,7 @@ import Testing
         }
         world.show([OperatorServiceFixtures.session("op", tag: active.id)])
         world.controller.daemonAttached()
-        await world.controller.registering?.value
+        await world.settled()
         #expect(world.daemon.requests("operator.register").map { $0.params["runId"] as? String } == [active.id.uuidString])
         #expect(world.daemon.requests("operator.register").first?.params["token"] as? String == tokens[active.id])
         try await world.daemon.received("session.deliver")
@@ -198,7 +198,7 @@ import Testing
         let gate = SleepGate(opened: true)
         let (world, run, task) = try broadcast(clock) { $0.clock.overrideSleep(.summary) { await gate.wait($0) } }
         try world.controller.stop(task: task.id)
-        await world.controller.summaryWait?.value
+        await world.settled()
         #expect(gate.asked == [.seconds(OperatorTiming.summaryWait)], "one wait per completion")
         #expect(world.controller.summaryWaits.isEmpty, "the wait that ended is let go")
         let run2 = try #require(world.run(run.id))
@@ -215,7 +215,7 @@ import Testing
         #expect(world.notifications.posted.map(\.body) == ["The summary is ready."])
         clock.advance(by: OperatorTiming.summaryWait)
         gate.open()
-        await world.controller.summaryWait?.value
+        await world.settled()
         world.controller.runChanged(run.id)
         #expect(world.run(run.id)?.summaryGivenUp == false)
         #expect(world.notifications.posted.map(\.body) == ["The summary is ready."], "posted once")
@@ -403,7 +403,7 @@ import Testing
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [endedByYou, goneByYou]))
         _ = try OperatorCommand.prepare(run: endedByYou, projects: [project], home: world.ports.home, token: String(repeating: "c", count: 64))
         world.controller.daemonAttached()
-        await world.controller.registering?.value
+        await world.settled()
         #expect(world.daemon.requests("operator.revoke").map { $0.params["runId"] as? String } == [endedByYou.id.uuidString])
         #expect(world.daemon.requests("operator.register").isEmpty)
     }

@@ -58,13 +58,13 @@ extension OperatorToolHandler {
         let tab = TabReference(call.optionalString("tab")).name
         let reading: WorkerTurnReader.Reading?
         if TabReference(tab) == .first {
-            reading = turnReadings()[task.id]
+            reading = turns.readings[task.id]
         } else {
             guard operated.extraTabs.contains(where: { $0.key == tab }) else {
                 let tabs = [TabReference.first.name] + operated.extraTabs.map(\.key)
                 throw ToolRefusal("\(name) has no tab \(tab). Its tabs are \(tabs.joined(separator: ", ")).")
             }
-            reading = extraTurnReadings()[task.id]?[tab]
+            reading = turns.extraReadings[task.id]?[tab]
         }
         guard let reading, let message = reading.lastMessage.said else {
             throw ToolRefusal("\(name)’s worker has no ended turn AiTerm has read: there is no question to pass on. Read it with read_task.")

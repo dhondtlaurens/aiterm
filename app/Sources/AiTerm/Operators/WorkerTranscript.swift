@@ -44,10 +44,16 @@ enum WorkerTranscript {
     static func lastMessage(in file: URL, agent: AgentKind) -> String? { lastReply(in: file, agent: agent)?.text }
 
     /// The full assistant record identifies the reply even when its text repeats in a later turn.
-    static func lastReply(in file: URL, agent: AgentKind) -> Reply? {
+    static func lastReply(in file: URL, agent: AgentKind) -> Reply? { readReply(in: file, agent: agent)?.reply }
+
+    /// What reading a file's tail found: its newest reply, nil when it has none.
+    struct TailRead: Sendable { let reply: Reply? }
+
+    /// The file's tail as read (`TailRead`); nil when the file could not be read at all.
+    static func readReply(in file: URL, agent: AgentKind) -> TailRead? {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { try? handle.close() }
-        let size = (try? handle.seekToEnd()) ?? 0
+        guard let size = try? handle.seekToEnd() else { return nil }
         let start = size > UInt64(tailBytes) ? size - UInt64(tailBytes) : 0
         guard (try? handle.seek(toOffset: start)) != nil, let data = try? handle.readToEnd() else { return nil }
         var lines = String(decoding: data, as: UTF8.self).split(separator: "\n")
@@ -57,9 +63,9 @@ enum WorkerTranscript {
         for line in lines.reversed() {
             guard let record = try? decoder.decode(JSONValue.self, from: Data(line.utf8)),
                   let text = agent == .codex ? codexReply(record) : claudeReply(record), !text.isEmpty else { continue }
-            return Reply(text: text, identity: line.hashValue)
+            return TailRead(reply: Reply(text: text, identity: line.hashValue))
         }
-        return nil
+        return TailRead(reply: nil)
     }
 
     /// The tool calls a conversation started and has no result for yet, as far as its file was read: a call that runs
@@ -191,11 +197,36 @@ extension WorkerTranscript.OpenCalls {
 /// Where each worker conversation's transcript is, found once and kept for the Operator's readers (`BranchWatch`,
 /// `WorkerTurnReader`, `WorkerQuietWatch`, `read_task`): a lookup lists Claude's project folders or walks every Codex
 /// session, so a file found is used again while it is still there, and looked up afresh once it is not. Under the
-/// `home` and the Claude folder (`ClaudeConfig`) AiTerm is set to. Blocking: read off the main actor.
+/// `home` and the Claude folder (`ClaudeConfig`) AiTerm is set to. The newest reply in each is kept with its file's stamp
+/// too, for the turn reader and the branch watch alike (`reply`). Blocking: read off the main actor.
+///
+/// What the stamp cannot tell apart: the same file rewritten in place, at the same length, its date put back to the
+/// second it had (a stat sees the same device, file number, length and date). A reader that must not miss that reads
+/// the file in full (`reply(fullRead:)`): the turn reader does on every reconcile tick, and whenever a worker's turn
+/// ends or its task's basis changes.
 final class TranscriptLocator: Sendable {
     let home: URL
     let claudeConfig: ClaudeConfig
     private let found = Mutex<[String: URL]>([:])
+    /// The file as last read, a link followed to the file it names: which file it is (its device and file number), when
+    /// it was written and how long it was.
+    private struct Stamp: Equatable { let device: Int, file: UInt64, modified: Date, size: UInt64 }
+    /// Each conversation's newest reply as last read, with its file's stamp then, by conversation id and agent.
+    private struct Kept { let stamp: Stamp, reply: WorkerTranscript.Reply? }
+    /// What is kept, and the newest read begun of each conversation's file, numbered: only that read keeps what it found,
+    /// so a read that a newer one overtook — the turn reader's and the branch watch's reads overlap — keeps nothing, and
+    /// never puts an older reply back. One lock for all of it: a read is told it is the newest and keeps in one step. The
+    /// numbers come from one counter for the locator's life, so none repeats when a conversation is let go and returns;
+    /// and a conversation keeps its newest number while a read of it is under way (`running`).
+    private struct Replies {
+        var kept: [String: Kept] = [:]
+        var begun: [String: Int] = [:]
+        var running: [String: Int] = [:]
+        var last = 0
+    }
+    private let replies = Mutex(Replies())
+    /// What runs between a read and what it keeps, for a test to hold a read there (`holdBeforeKeeping`); nothing in the app.
+    private let beforeKeeping = Mutex<(@Sendable (_ fullRead: Bool) -> Void)?>(nil)
 
     init(home: URL, claudeConfig: ClaudeConfig) {
         self.home = home
@@ -214,7 +245,53 @@ final class TranscriptLocator: Sendable {
     /// The worker's last message in its conversation's file (`WorkerTranscript.lastMessage(in:agent:)`).
     func lastMessage(agent: AgentKind, conversation: String) -> String? { lastReply(agent: agent, conversation: conversation)?.text }
 
-    func lastReply(agent: AgentKind, conversation: String) -> WorkerTranscript.Reply? {
-        file(agent: agent, conversation: conversation).flatMap { WorkerTranscript.lastReply(in: $0, agent: agent) }
+    func lastReply(agent: AgentKind, conversation: String) -> WorkerTranscript.Reply? { reply(agent: agent, conversation: conversation).reply }
+
+    /// The conversation's newest reply (`WorkerTranscript.lastReply(in:agent:)`), its file's tail read again only once the
+    /// file is another or was written since any reader last read it, or always with `fullRead`: `read` says whether this
+    /// one did. A link is followed: what is read is what is stamped. A file not found has no reply, and one that could not
+    /// be read is kept as nothing, so the next ask reads it.
+    func reply(agent: AgentKind, conversation: String, fullRead: Bool = false) -> (reply: WorkerTranscript.Reply?, read: Bool) {
+        guard let found = file(agent: agent, conversation: conversation) else { return (nil, false) }
+        let file = found.resolvingSymlinksInPath()
+        let key = agent.rawValue + "/" + conversation, stamp = Self.stamp(of: file)
+        if !fullRead, let stamp, let kept = replies.withLock({ $0.kept[key] }), kept.stamp == stamp { return (kept.reply, false) }
+        let number = replies.withLock { replies in
+            replies.last += 1
+            replies.begun[key] = replies.last
+            replies.running[key, default: 0] += 1
+            return replies.last
+        }
+        // Stamped before the read: a write in between is read again next time, never missed.
+        let read = WorkerTranscript.readReply(in: file, agent: agent)
+        beforeKeeping.withLock { $0 }?(fullRead)
+        replies.withLock { replies in
+            let left = replies.running[key, default: 1] - 1
+            replies.running[key] = left > 0 ? left : nil
+            // Overtaken by a newer read of the same file: that one keeps what it found, and this keeps nothing.
+            guard replies.begun[key] == number else { return }
+            replies.kept[key] = read.flatMap { read in stamp.map { Kept(stamp: $0, reply: read.reply) } }
+        }
+        return (read?.reply, true)
+    }
+
+    /// For a test: `hold` runs on each read of a file's tail after it is read and before what it found is kept.
+    func holdBeforeKeeping(_ hold: (@Sendable (_ fullRead: Bool) -> Void)?) { beforeKeeping.withLock { $0 = hold } }
+
+    /// Lets go of the replies kept for conversations not in `open`, by conversation id.
+    func keepReplies(of open: Set<String>) {
+        replies.withLock { replies in
+            func isOpen(_ key: String) -> Bool { open.contains(String(key.drop { $0 != "/" }.dropFirst())) }
+            replies.kept = replies.kept.filter { isOpen($0.key) }
+            // A conversation with a read under way keeps its newest number: that read is still told whether it is newest.
+            replies.begun = replies.begun.filter { isOpen($0.key) || replies.running[$0.key] != nil }
+        }
+    }
+
+    private static func stamp(of file: URL) -> Stamp? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
+              let device = attributes[.systemNumber] as? NSNumber, let number = attributes[.systemFileNumber] as? NSNumber,
+              let modified = attributes[.modificationDate] as? Date, let size = attributes[.size] as? NSNumber else { return nil }
+        return Stamp(device: device.intValue, file: number.uint64Value, modified: modified, size: size.uint64Value)
     }
 }

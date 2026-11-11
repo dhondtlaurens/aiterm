@@ -41,7 +41,7 @@ import Testing
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { ports in
             ModelSettings.save(ModelPreference(model: "claude-opus-5-5", reasoning: "high"), for: .claude,
-                               defaults: ports.preferences!)
+                               defaults: ports.preferences)
             ports.agentModels = { _ in [AgentModel(id: "claude-opus-5-5", label: "Opus", detail: nil,
                                                    efforts: ["medium", "high"], defaultEffort: "medium")] }
         }
@@ -301,24 +301,25 @@ import Testing
         #expect(finds(world, run).last?.ticket == nil)
     }
 
-    /// What AiTerm tells the Operator speaks of its summary, never of the summary it replaced: no string in the
-    /// Operator's sources says it, as the daemon's schema test reads its tools. The finished broadcast's
-    /// notification id keeps its `debrief-` prefix, so notes already delivered are not posted again.
-    @Test func noRefusalSpeaksOfASummary() throws {
-        let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/AiTerm/Operators")
-        let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil).filter { $0.pathExtension == "swift" }
-        #expect(files.count > 5, "the Operator's sources, read from \(folder.path)")
-        let literal = try Regex(#""[^"\n]*""#)
-        for file in files {
-            let code = try String(contentsOf: file, encoding: .utf8).split(separator: "\n")
-                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            for line in code {
-                for match in line.matches(of: literal) where match.output[0].substring?.lowercased().contains("debrief") == true {
-                    #expect(match.output[0].substring?.hasPrefix("\"debrief-") == true, "\(file.lastPathComponent): \(line)")
-                }
-            }
-        }
+    /// The replies that speak of the broadcast's summary call it the summary, never by its old name (`write_debrief`):
+    /// `write_summary` refused before the broadcast is complete and while its goal is still to check, and an addition past
+    /// the backlog's limit refused with the find noted for the summary, filed and not filed. A focused test over the
+    /// refusals the deleted source scan (`noRefusalSpeaksOfASummary`) guarded (phase 5, review round 4).
+    @Test func noReplyThatSpeaksOfTheSummaryNamesItsOldTool() async throws {
+        var said: [String] = []
+        let (world, run) = try makeWorld()
+        said.append(await world.call(run.id, "write_summary", ["text": "Done."]).message ?? "")
+        world.controller.mutateRun(run.id) { $0.goalCheckDue = true }
+        said.append(await world.call(run.id, "write_summary", ["text": "Done."]).message ?? "")
+        let jira = FakeJira()
+        let (backlog, backlogRun) = try makeBacklogWorld(oracle: false, jira: jira)
+        _ = await create(backlog, backlogRun, "FREE")
+        said.append(await create(backlog, backlogRun, "PAST").message ?? "")
+        jira.failWrites()
+        said.append(await create(backlog, backlogRun, "LATER").message ?? "")
+        #expect(said.allSatisfy { !$0.isEmpty }, "each refused: \(said)")
+        #expect(said.contains { $0.contains("summary") }, "they speak of the summary: \(said)")
+        #expect(!said.contains { $0.lowercased().contains("debrief") }, "\(said)")
     }
 
     @Test func aTaskOutsideTheWorkspaceOrAnAgentTheOperatorCannotRunIsRefused() async throws {

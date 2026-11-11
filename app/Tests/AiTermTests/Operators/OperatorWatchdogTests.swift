@@ -170,9 +170,10 @@ import Testing
         }
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id)])
         world.controller.reconcileTick()
+        // Its ended turn is read, and told, before the quiet time is counted.
+        await world.settled()
         func quietLines() async -> [String] {
-            await world.controller.waker.lastCoalesce?.value
-            await world.controller.waker.lastSend?.value
+            await world.settled()
             return world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }.filter { $0.contains("nothing has moved") }
         }
         clock.advance(by: OperatorTiming.quietWake - 60)
@@ -208,7 +209,7 @@ import Testing
         clock.advance(by: 60)
         world.controller.reconcileTick()
         try await Task.sleep(for: .milliseconds(50))
-        await world.controller.waker.lastSend?.value
+        await world.settled()
         let lines = world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
         #expect(!lines.contains { $0.contains("nothing has moved") }, "\(lines)")
     }

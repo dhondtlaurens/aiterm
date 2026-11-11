@@ -220,7 +220,7 @@ import Testing
         #expect(world.task(task.id)?.operated?.launch == nil, "taken over: not startable")
         try await world.controller.handBack(task: task.id)
         #expect(world.task(task.id)?.operated?.launch?.number == 1, "claimed by the start pass at once")
-        await world.controller.lastStart?.value
+        await world.settled()
     }
 
     @Test func aPauseHoldsWorkAndSurvivesAndResumingAnOperatorStillThereWakesIt() async throws {
@@ -262,7 +262,7 @@ import Testing
     func notes(_ world: OperatorWorld) -> [String] {
         world.daemon.requests("session.deliver").compactMap { request in
             guard let session = request.params["sessionId"] as? String, session != "op", let text = request.params["text"] as? String else { return nil }
-            let note = text == OperatorController.pauseNote ? "pause" : text == OperatorController.carryOnNote ? "carry on" : text
+            let note = text == PauseSignaller.pauseNote ? "pause" : text == PauseSignaller.carryOnNote ? "carry on" : text
             return session + ": " + note
         }
     }
@@ -270,7 +270,7 @@ import Testing
     @Test func pauseTellsWorkersAtWorkOrWithWorkRunningToStopAndKeepsThemForResume() async throws {
         let (world, run, tasks) = try pausingWorld()
         try world.controller.pause(run: run.id)
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         #expect(notes(world) == ["w2: pause", "w3: pause"], "PLUTO-1's worker has stopped already")
         let expected = [PausedWorker(task: tasks[1].id, tab: nil, ownership: 0), PausedWorker(task: tasks[2].id, tab: nil, ownership: 0)]
         #expect(world.run(run.id)?.pausedWorkers == expected)
@@ -284,7 +284,7 @@ import Testing
         let now = world.ports.now()
         world.workspace.mutate { $0.updateOperated(tasks[0].id) { $0.launch = LaunchAttempt(number: 1, requestedAt: now, openedAt: now) } }
         try world.controller.pause(run: run.id)
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         #expect(notes(world) == ["w1: pause", "w2: pause", "w3: pause"])
     }
 
@@ -293,14 +293,14 @@ import Testing
     @Test func aWorkerListedAfterPauseIsToldOnceItIs() async throws {
         let (world, run, _) = try pausingWorld()
         try world.controller.pause(run: run.id)
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         let late = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-4", state: .working, worktree: "/tmp/aiterm-wt4")
         world.workspace.mutate { $0.tasks.append(late) }
         world.show(world.live.sessions + [OperatorServiceFixtures.session("w4", window: "w12", tag: late.id, state: .working)])
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         #expect(notes(world) == ["w2: pause", "w3: pause", "w4: pause"])
         world.show(world.live.sessions)
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         #expect(notes(world).count == 3, "each told once")
         #expect(world.run(run.id)?.pausedWorkers.map(\.task).last == late.id)
     }
@@ -314,15 +314,15 @@ import Testing
         let (world, run, tasks) = try pausingWorld(daemon: daemon)
         world.show(world.live.sessions.filter { $0.sessionId != "w3" })
         try world.controller.pause(run: run.id)
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         #expect(notes(world) == ["w2: pause"], "its agent still drawing its screen")
         var shell = OperatorServiceFixtures.session("w3", window: "w11", tag: tasks[2].id, agent: .shell, state: .working)
         world.show(world.live.sessions + [shell])
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         #expect(notes(world) == ["w2: pause", "w2: pause"], "w2 tried again as the tabs changed; a shell has no agent to type into")
         shell.agent = .claude
         world.show(world.live.sessions.filter { $0.sessionId != "w3" } + [shell])
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         #expect(notes(world) == ["w2: pause", "w2: pause", "w3: pause"], "both told once they can take it")
     }
 
@@ -332,9 +332,9 @@ import Testing
         daemon.deliveries = [Delivery(result: .refused, reason: "a permission prompt is open", code: .prompt)]
         let (world, run, _) = try pausingWorld(daemon: daemon)
         try world.controller.pause(run: run.id)
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         world.show(world.live.sessions)
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         #expect(notes(world) == ["w2: pause", "w3: pause"])
     }
 
@@ -344,14 +344,14 @@ import Testing
                              Delivery(result: .delivered, reason: nil)]
         let (world, run, tasks) = try pausingWorld(daemon: daemon)
         try world.controller.pause(run: run.id)
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         #expect(world.run(run.id)?.pausedWorkers == [PausedWorker(task: tasks[2].id, tab: nil, ownership: 0)])
     }
 
     @Test func resumeTellsEachPausedWorkerToCarryOnThenWakesTheOperator() async throws {
         let (world, run, _) = try pausingWorld()
         try world.controller.pause(run: run.id)
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         try await world.controller.resume(run: run.id)
         #expect(notes(world) == ["w2: pause", "w3: pause", "w2: carry on", "w3: carry on"])
         #expect(world.run(run.id)?.pausedWorkers == [])
@@ -365,7 +365,7 @@ import Testing
     @Test func resumeLetsGoOfWorkersTheBroadcastNoLongerDrives() async throws {
         let (world, run, tasks) = try pausingWorld()
         try world.controller.pause(run: run.id)
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         try await world.controller.takeOver(task: tasks[1].id)
         try world.controller.stop(task: tasks[2].id)
         try await world.controller.resume(run: run.id)
@@ -376,7 +376,7 @@ import Testing
     @Test func aCarryOnThatDoesNotLandIsSaidInTheResumeWake() async throws {
         let (world, run, _) = try pausingWorld()
         try world.controller.pause(run: run.id)
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         // Every delivery refused from here, so which line comes first does not matter: no carry-on lands.
         world.daemon.deliveries = [Delivery(result: .refused, reason: "a permission prompt is open", code: .prompt)]
         try await world.controller.resume(run: run.id)
@@ -390,10 +390,13 @@ import Testing
         let (world, run, _) = try pausingWorld(daemon: RecordingDaemon(holding: "session.deliver"))
         try world.controller.pause(run: run.id)
         try await world.daemon.received("session.deliver")
-        let pausing = world.controller.signalling[run.id]
+        // Nothing runs but the held pause batch (its notes and the queue's wait for them): what Resume queues is counted
+        // on top of it.
+        await world.settled(leaving: 2)
+        let pausing = world.ports.work.running
         let resuming = Task { try await world.controller.resume(run: run.id) }
         // Resume has queued its carry-ons behind the held pause note.
-        await eventually(describing: "the carry-ons queued") { world.controller.signalling[run.id] != pausing }
+        await eventually(describing: "the carry-ons queued") { world.ports.work.running > pausing }
         world.daemon.release()
         try await resuming.value
         #expect(notes(world) == ["w2: pause", "w3: pause", "w2: carry on", "w3: carry on"])
@@ -404,12 +407,12 @@ import Testing
     @Test func theBroadcastReadsPausedUntilEveryCarryOnIsTyped() async throws {
         let (world, run, _) = try pausingWorld()
         try world.controller.pause(run: run.id)
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         let wakesBefore = wakes(world).count
         var whileTyping: [OperatorRunState?] = [], pauseRefused = false
         world.daemon.onRequest = { method in
             guard method == "session.deliver", let last = world.daemon.requests("session.deliver").last,
-                  last.params["text"] as? String == OperatorController.carryOnNote else { return }
+                  last.params["text"] as? String == PauseSignaller.carryOnNote else { return }
             whileTyping.append(world.run(run.id)?.state)
             pauseRefused = (try? world.controller.pause(run: run.id)) == nil
         }
@@ -430,7 +433,7 @@ import Testing
             try? world.controller.stop(task: tasks[2].id)
         }
         try world.controller.pause(run: run.id)
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         #expect(notes(world) == ["w2: pause"])
         #expect(world.run(run.id)?.pausedWorkers == [PausedWorker(task: tasks[1].id, tab: nil, ownership: 0)])
     }
@@ -452,7 +455,7 @@ import Testing
     @Test func endingAPausedBroadcastForgetsItsPausedWorkers() async throws {
         let (world, run, _) = try pausingWorld()
         try world.controller.pause(run: run.id)
-        await world.controller.signalling[run.id]?.value
+        await world.settled()
         try await world.controller.end(run: run.id)
         #expect(world.run(run.id)?.pausedWorkers == [])
     }
@@ -645,17 +648,17 @@ import Testing
         #expect(world.daemon.requests("operator.revoke").isEmpty && world.daemon.requests("window.close").isEmpty)
         world.link.attached = true
         world.controller.daemonAttached()
-        await world.controller.registering?.value
+        await world.settled()
         #expect(world.daemon.requests("operator.revoke").map { $0.params["runId"] as? String } == [run.id.uuidString])
         #expect(world.daemon.requests("window.close").isEmpty, "not before a connected snapshot says what the window holds")
         world.show([OperatorServiceFixtures.session("op", tag: run.id)])
-        await world.controller.closingEnded?.value
+        await world.settled()
         #expect(world.daemon.requests("window.close").map { $0.params["windowId"] as? String } == ["w1"])
         // The window is gone; a later attach finds nothing to close.
         world.show([])
         world.controller.daemonAttached()
         world.show([])
-        await world.controller.closingEnded?.value
+        await world.settled()
         #expect(world.daemon.requests("window.close").count == 1)
         #expect(world.run(run.id)?.operatorWindowId == nil && world.run(run.id)?.operatorSessionId == nil)
     }
@@ -669,7 +672,7 @@ import Testing
         world.link.attached = true
         world.controller.daemonAttached()
         world.show([OperatorServiceFixtures.session("mine", window: "w1", tag: UUID())])
-        await world.controller.closingEnded?.value
+        await world.settled()
         #expect(world.daemon.requests("window.close").isEmpty)
         #expect(world.run(run.id)?.operatorWindowId == nil, "handled: the recorded id does not outlive the snapshot")
     }
@@ -681,7 +684,7 @@ import Testing
         world.link.attached = true
         world.controller.daemonAttached()
         world.show([OperatorServiceFixtures.session("op", window: "w1", tag: run.id), OperatorServiceFixtures.session("mine", window: "w1", tag: UUID())])
-        await world.controller.closingEnded?.value
+        await world.settled()
         #expect(world.daemon.requests("window.close").isEmpty)
     }
 
@@ -740,7 +743,7 @@ import Testing
         world.workspace.mutate { $0.tasks.append(next) }
         try world.controller.stop(task: task.id)
         #expect(world.task(next.id)?.operated?.launch?.number == 1, "claimed by the start pass at once")
-        await world.controller.lastStart?.value
+        await world.settled()
     }
 
     @Test func aTaskThatHasEndedCannotBeStopped() throws {
@@ -966,7 +969,7 @@ import Testing
         #expect(world.task(task.id)?.operated?.launch == nil, "paused: nothing starts")
         try await world.controller.resume(run: task.operated!.runId)
         #expect(world.task(task.id)?.operated?.launch?.number == 1, "claimed by the start pass at once")
-        await world.controller.lastStart?.value
+        await world.settled()
     }
 
     // -- reopening a worker, more ------------------------------------------------------------------

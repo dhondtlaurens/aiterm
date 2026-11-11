@@ -16,7 +16,9 @@ public final class WorkMeter: Sendable {
         case workerTabs
         /// `WindowReconciler.pass`: one comparison of the rows with the windows.
         case reconcilerPass
-        /// `WorkerTurnReader`: one read of a worker's transcript tail and branch asked for.
+        /// `WorkerTurnReader`: one worker's turn read: its transcript's tail read in full (as on every reconcile tick and at
+        /// a turn's end, the file there or not) or past its stamp, or git asked about its branch. A turn whose transcript's
+        /// stamp did not change since it was last read, and whose reply is the same, costs neither between ticks.
         case turnRead
         /// `StateStore.save`: the workspace encoded and written by the caller itself, as a flush does.
         case stateSave

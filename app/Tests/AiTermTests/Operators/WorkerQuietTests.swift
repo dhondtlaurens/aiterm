@@ -75,7 +75,7 @@ import Testing
     /// One reconcile tick, and what it read of the transcripts.
     func tick(_ world: OperatorWorld) async {
         world.controller.reconcileTick()
-        await world.controller.quiet.lastRead?.value
+        await world.settled()
     }
 
     func line(_ world: OperatorWorld, _ run: OperatorRun) throws -> RunStatus.TaskLine {
