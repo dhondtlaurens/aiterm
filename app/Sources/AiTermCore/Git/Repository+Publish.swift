@@ -168,13 +168,13 @@ extension Repository {
         if let branchCommit, branchCommit == headCommit { throw PublishRefusal.atDefaultCommit(branch) }
     }
 
-    /// Whether two remote URLs name the same host and path (`RemoteURL`), whatever the scheme, user,
-    /// port, a trailing `.git` or slash, or case: `https://host/a/b.git` and `git@host:a/b`. A local
-    /// path has no host.
+    /// Whether two remote URLs name the same host and path (`RemoteURL.location`), whatever the scheme,
+    /// user, port, a trailing `.git` or slash, or case: `https://host/a/b.git` and `git@host:a/b`. A
+    /// local path has no host.
     static func sameLocation(_ a: String, _ b: String) -> Bool {
-        func parts(_ url: String) -> (host: String, path: String, relative: Bool) {
-            guard let url = RemoteURL(url) else { return ("", "", false) }
-            return (folded(url.host ?? ""), folded(url.path), url.isRelative)
+        func parts(_ url: String) -> (host: String, path: String) {
+            let location = RemoteURL.location(of: url)
+            return (folded(location.host), folded(location.path))
         }
         return parts(a) == parts(b)
     }

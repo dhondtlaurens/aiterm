@@ -72,23 +72,38 @@ public final class StateStore: Sendable {
         return state
     }
 
-    /// `previous`, what the primary holds, kept as the backup: the primary cloned beside the backup
-    /// and renamed over it, so a backup is never half there (`copyfile` copies where the volume cannot
-    /// clone). A primary the clone cannot open — its permissions changed under the store — has its
-    /// bytes written instead, as before the clone: the store already holds them.
+    /// `previous` kept as the backup: the bytes this store validated, never merely what the primary
+    /// holds now. The primary is cloned beside the backup, and the clone kept — renamed over the
+    /// backup, so a backup is never half there — only when it holds exactly `previous`: an edit the
+    /// store's stamp cannot see (same length, inode and modification time) is not a validated
+    /// snapshot. Otherwise, or when the primary cannot be opened, `previous` is written, as before
+    /// the clone. Comparing reads the clone back; writing nothing of its bytes is what the clone
+    /// saves. A volume that cannot clone has `copyfile` copy, which is a write and is counted as one.
     private func keepBackup(_ previous: Data) throws {
         let staging = backupURL.appendingPathExtension("staging-" + UUID().uuidString)
-        guard copyfile(url.path, staging.path, nil, copyfile_flags_t(COPYFILE_CLONE)) == 0 else {
+        guard let cloned = Self.clone(url, to: staging), (try? Data(contentsOf: staging)) == previous else {
             unlink(staging.path)
             WorkMeter.note(.stateWrite)
             return try previous.write(to: backupURL, options: .atomic)
         }
+        if !cloned { WorkMeter.note(.stateWrite) }
         guard rename(staging.path, backupURL.path) == 0 else {
             let error = CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: backupURL.path,
                                                                 NSUnderlyingErrorKey: POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)])
             unlink(staging.path)
             throw error
         }
+    }
+
+    /// `source` cloned to `destination` by `copyfile`: true when it cloned, false when it copied, `nil`
+    /// when it failed.
+    private static func clone(_ source: URL, to destination: URL) -> Bool? {
+        guard let state = copyfile_state_alloc() else { return nil }
+        defer { copyfile_state_free(state) }
+        guard copyfile(source.path, destination.path, state, copyfile_flags_t(COPYFILE_CLONE)) == 0 else { return nil }
+        var cloned = false
+        guard copyfile_state_get(state, UInt32(COPYFILE_STATE_WAS_CLONED), &cloned) == 0 else { return false }
+        return cloned
     }
 
     /// What the primary holds now, which a save keeps as the backup: the bytes this store last saw

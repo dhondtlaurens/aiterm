@@ -117,7 +117,7 @@ extension OperatorToolHandler {
             // The committed work mark_task accepts: from where the branch left its base to HEAD, so a base that
             // moved on is not read back as the worker's changes; edits not yet committed are told apart.
             let git = ports.git, path = task.worktreePath
-            let read: (head: String, commits: String, stat: String, diff: String, uncommitted: String)
+            let read: (head: String, commits: String, stat: String, diff: GitOutput, uncommitted: String)
             let working: (text: String, truncated: Bool)
             let base: String
             do {
@@ -182,13 +182,15 @@ extension OperatorToolHandler {
     /// only a patch beyond it reads differently, with fewer of its files counted.
     nonisolated static let diffReadLimit = 8 * 1024 * 1024
 
-    /// A patch as `git.run` gives it — trimmed — read no further than `diffReadLimit`.
-    nonisolated static func boundedDiff(_ args: [String], in path: String, git: any GitRunning) throws -> String {
-        try git.read(args, in: path, limit: diffReadLimit).text.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// A patch as `git.run` gives it — trimmed — read no further than `diffReadLimit`, and whether it was cut there.
+    nonisolated static func boundedDiff(_ args: [String], in path: String, git: any GitRunning) throws -> GitOutput {
+        let read = try git.read(args, in: path, limit: diffReadLimit)
+        return GitOutput(text: read.text.trimmingCharacters(in: .whitespacesAndNewlines), truncated: read.truncated)
     }
 
+    /// A patch cut at the reading's bound is not complete: the file it stops in, and the reply, say they are truncated.
     private static func diffReading(base: String,
-                                    read: (head: String, commits: String, stat: String, diff: String, uncommitted: String),
+                                    read: (head: String, commits: String, stat: String, diff: GitOutput, uncommitted: String),
                                     workingDiff: String = "", workingTruncated: Bool = false) -> JSONValue {
         // The whole answer is small, not only its patches: a wide diff lists some of its files, and the stat, the
         // commits and the uncommitted edits keep their ends.
@@ -210,7 +212,8 @@ extension OperatorToolHandler {
         let workingSize = workingShown.reduce(0) { $0 + ($1.patch?.count ?? 0) + ($1.summary?.count ?? 0) }
         // Share the existing answer budget: adding dirty patches must not double the response size.
         let budget = max(0, initialBudget - workingSize - workingFiles.count * 120)
-        let digest = DiffDigest.build(diff: read.diff, total: budget)
+        var digest = DiffDigest.build(diff: read.diff.text, total: budget)
+        if read.diff.truncated, !digest.files.isEmpty { digest.files[digest.files.count - 1].truncated = true }
         var files = digest.files.prefix(DiffDigest.listedFiles).map { file -> JSONValue in
             var entry: [String: JSONValue] = ["path": .string(file.path), "truncated": .bool(file.truncated)]
             if let patch = file.patch { entry["patch"] = .string(patch) }
@@ -220,7 +223,7 @@ extension OperatorToolHandler {
         let unlisted = digest.files.count - files.count
         if unlisted > 0 { files.append(["path": .string("and \(unlisted) more files"), "truncated": true]) }
         return ["base": .string(base), "head": .string(read.head), "stat": .string(stat.text), "commits": .string(commits.text),
-                "files": .array(files), "truncated": .bool(digest.truncated || unlisted > 0 || stat.cut || commits.cut || uncommitted.cut
+                "files": .array(files), "truncated": .bool(read.diff.truncated || digest.truncated || unlisted > 0 || stat.cut || commits.cut || uncommitted.cut
                                                             || working.truncated || workingTruncated || workingUnlisted > 0),
                 "uncommitted": .string(uncommitted.text), "uncommittedFiles": .array(workingFiles),
                 "uncommittedTruncated": .bool(working.truncated || workingTruncated || workingUnlisted > 0)]
