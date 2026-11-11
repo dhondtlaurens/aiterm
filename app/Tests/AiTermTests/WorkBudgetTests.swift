@@ -114,8 +114,9 @@ enum Budget {
         #expect(work[.reconcilerPass, default: 0] == 0, "passes for 10 events: \(work)")
     }
 
-    /// The checkout monitor's polls with every row in its window: 0 `WindowReconciler` passes for 5 polls. The poll
-    /// passes only while the last pass left a row owed a window and not restored (phase 7, new). None may raise it.
+    /// The checkout monitor's polls with every row in its window: 0 `WindowReconciler` passes for 5 polls. Each poll
+    /// does one check in memory — the window plan, acting on nothing — and passes only when a pass would act (phase 7,
+    /// new). None may raise it.
     @Test func pollsWithNothingOwedPassTheWindowLockNever() async throws {
         let controller = AppController(preferences: .scratch(), checkoutPollInterval: .milliseconds(10), scan: Budget.noScan)
         defer { controller.shutdown() }

@@ -80,9 +80,35 @@ import Synchronization
         #expect(controller.state.task(id: task.id)?.windowId == "reopened", "restored as the lock lifts, with no session event")
     }
 
-    /// A row owed a window and held back by nothing that tells the reconciler when it ends is looked at again within one
-    /// poll of the checkout monitor, with no other trigger: here its checkout keeps reading missing, so no read changes.
-    @Test func anOwedRowHeldBackIsLookedAtAgainWithinOnePoll() async throws {
+    /// A row that can have its window back by a path no trigger covers is restored within one poll of the checkout
+    /// monitor: each poll asks the window plan, in memory, whether a pass would act. Here the daemon is attached after
+    /// the snapshot that left the row owed, with no snapshot after it, which no trigger hears; in the app a snapshot
+    /// follows an attach.
+    @Test func anOwedRowNoTriggerCoversIsRestoredWithinOnePoll() async throws {
+        let fixture = try await RaceFixture(scan: Budget.noScan, checkoutPollInterval: .milliseconds(20))
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        let task = try await fixture.addTask(windowId: nil)
+        controller.helper.handle(.snapshot(Self.snapshot))
+        await controller.windows.lastRestore?.value
+        controller.helper.setDaemonClient(server)
+        await controller.windows.lastRestore?.value
+        #expect(controller.state.task(id: task.id)?.windowId == nil, "no trigger has heard the daemon come")
+        var polls = 0
+        controller.checkouts.onPolled { polls += 1 }
+
+        controller.checkouts.startMonitoring()
+        await eventually(describing: "one poll") { polls >= 1 }
+        await controller.windows.lastRestore?.value
+        controller.checkouts.stop()
+
+        #expect(controller.state.task(id: task.id)?.windowId == "reopened", "restored within one poll")
+    }
+
+    /// A row held back — here its checkout keeps reading missing — gives the poll nothing to do: the plan restores
+    /// nothing for it, so the poll starts no pass.
+    @Test func aRowHeldBackStartsNoPassAtAPoll() async throws {
         let controller = AppController(preferences: .scratch(), checkoutPollInterval: .milliseconds(10),
                                        scan: Self.scan(Missing(true)))
         defer { controller.shutdown() }
@@ -99,11 +125,35 @@ import Synchronization
 
         let work = await Budget.metered {
             controller.checkouts.startMonitoring()
-            await eventually(describing: "one poll") { polls >= 1 }
+            await eventually(describing: "three polls") { polls >= 3 }
             controller.checkouts.stop()
         }
 
         #expect(controller.checkouts.isMissing(task.id))
-        #expect(work[.reconcilerPass, default: 0] >= 1, "a pass within one poll: \(work)")
+        #expect(work[.reconcilerPass, default: 0] == 0, "passes for \(polls) polls: \(work)")
+    }
+
+    /// Worktrees imported when a project is added come in as rows owed their windows, with no session event and no
+    /// checkout read changing: they are restored at the import (phase 7, review round 1). Before, they waited for the
+    /// next session event of any kind.
+    @Test func importedWorktreesGetTheirWindowsAtTheImport() async throws {
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Import"))
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        controller.workspace.mutate { $0.items = [] }
+        #expect(controller.workspace.flush())
+        try fixture.git.run(["worktree", "add", "-q", "-b", "feat/old", fixture.repo.path + "/.worktrees/old"], in: fixture.repo.path)
+        controller.helper.handle(.snapshot(Self.snapshot))
+        await controller.windows.lastRestore?.value
+
+        await controller.projects.addProject(path: fixture.repo.path)
+        let imported = try #require(controller.state.tasks.first)
+        #expect(imported.windowId == nil, "imported without a window")
+
+        await eventually(describing: "the imported row's window") { controller.state.task(id: imported.id)?.windowId == "reopened" }
+        await controller.windows.lastRestore?.value
+        #expect(controller.state.task(id: imported.id)?.windowId == "reopened")
     }
 }

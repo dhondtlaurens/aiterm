@@ -64,9 +64,10 @@ final class WindowReconciler {
     /// The tabs as the last pass read them, where they are and which row each belongs to (`LiveSessions.rowSessions`): a
     /// session event that leaves them as they were has nothing for a pass to find.
     private var passedSessions: [SessionInfo]?
-    /// Whether the last pass left a row owed a window and not being restored — held back, or its restore failed — so
-    /// the checkout monitor's poll passes again, which brings it back within one poll whatever it waited on.
-    private var owedLeft = false
+    /// The rows owed a window as the last pass left them: a workspace change that makes another row owed passes.
+    private var passedOwed: Set<UUID> = []
+    /// A pass a workspace change asked for, to run once that change's hooks are done.
+    private var passScheduled = false
 
     init(helper: HelperLink, workspace: WorkspaceStore, work: WorkInFlight, live: LiveSessions, checkouts: CheckoutMonitor,
          focus: RowFocus, remover: TaskRemover,
@@ -105,10 +106,13 @@ final class WindowReconciler {
         }
         // The workspace able to change again: an owed row waited on it.
         workspace.onChangeable { [weak self] in self?.pass() }
-        // A bound on what has no trigger of its own: while a row is owed and not restored, each poll looks again. With
-        // nothing owed a poll starts no pass.
+        // A workspace change that makes a row owed a window — worktrees imported, a row back from the Shelf, a backup
+        // restored — passes once the change is done.
+        workspace.onChange { [weak self] in self?.workspaceChanged() }
+        // A bound on what has no trigger of its own: each poll asks the window plan, in memory, whether a pass would do
+        // anything now, and passes only then. With nothing to do a poll starts no pass.
         checkouts.onPolled { [weak self] in
-            guard let self, owedLeft else { return }
+            guard let self, wouldAct() else { return }
             pass()
         }
     }
@@ -215,23 +219,57 @@ final class WindowReconciler {
             failed.subtract(over)
             worktreeGone.formIntersection(rows)
             let due = Set(triage.due(at: now()))
-            // A removal stopped after its worktree went holds the row for the person's retry: there is
-            // nothing left to open its window in.
-            let awaitingRetry = state.tasks.map(\.id).filter { remover.removals[$0]?.awaitsRetry == true }
-            let waiting = triage.held.union(questioned).union(restoring.keys).union(failed).union(awaitingRetry)
-                .union(worktreeGone).union(rows.filter { isBusy($0) || checkouts.missingCheckouts.contains($0) })
-            let lettingGo = Set(state.tasks.map(\.id).filter { work.operation(onTask: $0)?.letsWindowGo == true })
-            let settled = workspace.canChangeWorkspace && daemon() != nil && triage.isQuiet(at: now())
+            let inputs = planInputs(of: state)
             passedSessions = live.rowSessions
-            for step in state.windowPlan(sessions: live.sessions, settled: settled, due: due, waiting: waiting, lettingGo: lettingGo) {
+            for step in state.windowPlan(sessions: live.sessions, settled: inputs.settled, due: due, waiting: inputs.waiting,
+                                         lettingGo: inputs.lettingGo) {
                 act(step)
             }
-            // The rows `windowPlan` would restore, still without a window and with no restore under way.
-            let after = self.state
-            owedLeft = after.tasks.contains { $0.hasCheckout && $0.operated == nil && $0.windowId == nil && restoring[$0.id] == nil
-                                                && !lettingGo.contains($0.id) }
-                || after.terminals.contains { $0.windowId == nil && restoring[$0.id] == nil }
+            passedOwed = Self.owed(in: self.state)
         } while passAgain
+    }
+
+    /// What `windowPlan` weighs besides the rows and the tabs, read without changing anything: the rows held back, the
+    /// tasks whose removal let their window go, and whether iTerm2 has settled.
+    private func planInputs(of state: AppState) -> (waiting: Set<UUID>, lettingGo: Set<UUID>, settled: Bool) {
+        let rows = state.tasks.map(\.id) + state.terminals.map(\.id)
+        // A removal stopped after its worktree went holds the row for the person's retry: there is
+        // nothing left to open its window in.
+        let awaitingRetry = state.tasks.map(\.id).filter { remover.removals[$0]?.awaitsRetry == true }
+        let waiting = triage.held.union(questioned).union(restoring.keys).union(failed).union(awaitingRetry)
+            .union(worktreeGone).union(rows.filter { isBusy($0) || checkouts.missingCheckouts.contains($0) })
+        let lettingGo = Set(state.tasks.map(\.id).filter { work.operation(onTask: $0)?.letsWindowGo == true })
+        let settled = workspace.canChangeWorkspace && daemon() != nil && triage.isQuiet(at: now())
+        return (waiting, lettingGo, settled)
+    }
+
+    /// The poll's check, in memory and acting on nothing: whether a pass now would adopt or restore a window. The closes
+    /// due to be asked about are their own look's, which `settling` runs.
+    private func wouldAct() -> Bool {
+        let state = self.state, inputs = planInputs(of: state)
+        return !state.windowPlan(sessions: live.sessions, settled: inputs.settled, due: [], waiting: inputs.waiting,
+                                 lettingGo: inputs.lettingGo).isEmpty
+    }
+
+    /// The rows `windowPlan` would restore that have no window: a task with a checkout that no Operator drives, and a
+    /// terminal.
+    private static func owed(in state: AppState) -> Set<UUID> {
+        Set(state.tasks.filter { $0.hasCheckout && $0.operated == nil && $0.windowId == nil }.map(\.id)
+            + state.terminals.filter { $0.windowId == nil }.map(\.id))
+    }
+
+    /// A workspace change: a row owed a window that the last pass did not leave owed is looked at once the change's
+    /// hooks have run, on the next turn — a pass's own changes are made inside a change.
+    private func workspaceChanged() {
+        guard !passScheduled, !Self.owed(in: state).isSubset(of: passedOwed) else { return }
+        passScheduled = true
+        let armed = epoch
+        Task { [weak self] in
+            guard let self else { return }
+            passScheduled = false
+            guard epoch == armed else { return }
+            pass()
+        }
     }
 
     private func act(_ step: WindowStep) {
