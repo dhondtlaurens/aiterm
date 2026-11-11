@@ -539,9 +539,13 @@ Each box leaves the project working and is one or a few commits.
 - [ ] 6b. Handler on tool traits; private tables; `mark_task` enum; sentence and timeout helpers.
 - [ ] 6c. Concurrent `run_status` host reads; reused landing check; settings sync sites.
 - [ ] 6d. Finisher as a reference with one record per task; outcome kind; test layering.
-- [ ] 7a. Shared teardown prepare and run.
-- [ ] 7b. Debounced search; hook list; grouped ports.
-- [ ] 7c. Blocking checks off the main actor; reconciler trigger; scan projection; row chooser.
+- [x] 7a. Shared teardown prepare and run. With the one preflight per removal and archive phase 2 dropped (its 2d line):
+  Shelve 9 to 7 git processes, Remove 7 to 6. Auto-close's own check still lists twice: no budget counts it (record).
+- [x] 7b. Debounced search; hook list; grouped ports. The catalogue load keeps its own counter: SwiftUI's task, no query
+  and no pause (record). Both fields' rules for letting a search go are kept, each against its old code as reference.
+- [x] 7c. Blocking checks off the main actor; reconciler trigger; scan projection; row chooser. The trigger on the
+  maintainer's option B, with a conditional poll pass (reconciler passes 10 to 0). Dropped: the slug resolving on draft
+  change, which moves no count, and `LatestTask` for counters whose lifetime does not match it (record).
 - [ ] 8a. Plain `@State` (one file first, then the rest).
 - [ ] 8b. Badge line, row content, fold modifier, heading inset, ring helper.
 - [ ] 8c. Stepped-sheet frame; picker field, clear button, Metrics tokens, chrome reuse.
