@@ -193,6 +193,8 @@ import Testing
         ("https://github.com/acme/app.git", "https://evil.example/acme/app.git", false),
         ("/tmp/a/origin", "/tmp/b/origin", false),
         ("/tmp/a/origin", "https://github.com/tmp/a/origin", false),
+        ("tmp/a/origin", "/tmp/a/origin", false),
+        ("git@host:team/.git", "git@host:team", false),
     ])
     func twoUrlsAreTheSamePlaceWhenHostAndPathAre(a: String, b: String, same: Bool) {
         #expect(Repository.sameLocation(a, b) == same)

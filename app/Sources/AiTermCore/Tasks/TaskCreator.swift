@@ -103,8 +103,9 @@ public enum TaskCreator {
         guard isNamed(draft.title) else { throw Failure.emptyTitle }
         guard !draft.model.isEmpty else { throw Failure.emptyModel }
         guard try BranchNaming.isValid(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
-        let slug = BranchNaming.unused(BranchNaming.worktreeSlug(branch: draft.branch), in: project.path, reserved: reserved)
         let repository = Repository(project.path, git: git)
+        let slug = BranchNaming.unused(BranchNaming.worktreeSlug(branch: draft.branch), in: project.path, reserved: reserved,
+                                       registered: try repository.registeredWorktreeFolders())
         let path = try repository.addTaskWorktree(slug: slug, branch: draft.branch, base: draft.baseBranch)
         let task = TaskItem(id: UUID(), projectId: project.id, title: draft.title, branch: draft.branch, worktreePath: path, baseBranch: draft.baseBranch,
                             jira: draft.ticket.map(JiraRef.init), agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
@@ -117,8 +118,9 @@ public enum TaskCreator {
         guard !draft.model.isEmpty else { throw Failure.emptyModel }
         guard !draft.branch.trimmingCharacters(in: .whitespaces).isEmpty,
               try BranchNaming.isValid(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
-        let slug = BranchNaming.unused(BranchNaming.reviewSlug(branch: draft.branch), in: project.path, reserved: reserved)
         let repository = Repository(project.path, git: git)
+        let slug = BranchNaming.unused(BranchNaming.reviewSlug(branch: draft.branch), in: project.path, reserved: reserved,
+                                       registered: try repository.registeredWorktreeFolders())
         let path = try repository.addReviewWorktree(slug: slug, branch: draft.branch)
         let task = TaskItem(id: UUID(), projectId: project.id, title: draft.title, branch: draft.branch, worktreePath: path,
                             baseBranch: draft.mr?.targetBranch ?? "", jira: draft.ticket.map(JiraRef.init), kind: .review,
@@ -138,11 +140,13 @@ public enum TaskCreator {
         let repository = Repository(project.path, git: git)
         var checkedOut = task
         checkedOut.baseBranch = start
-        if let earlier = try repository.worktrees().first(where: { $0.branch == task.branch && $0.path != project.path }) {
+        let worktrees = try repository.worktrees()
+        if let earlier = worktrees.first(where: { $0.branch == task.branch && $0.path != project.path }) {
             checkedOut.worktreePath = earlier.path
             return Made(task: checkedOut, worktreeInclude: .complete)
         }
-        let slug = BranchNaming.unused(BranchNaming.worktreeSlug(branch: task.branch), in: project.path, reserved: reserved)
+        let slug = BranchNaming.unused(BranchNaming.worktreeSlug(branch: task.branch), in: project.path, reserved: reserved,
+                                       registered: Repository.folders(under: project.path, of: worktrees))
         if try repository.commit("refs/heads/" + task.branch) != nil {
             checkedOut.worktreePath = project.path + "/" + Worktree.directoryName + "/" + slug
             try repository.restoreWorktree(at: checkedOut.worktreePath, branch: task.branch, kind: .task)

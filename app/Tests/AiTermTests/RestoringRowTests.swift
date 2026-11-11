@@ -303,7 +303,14 @@ import Synchronization
     @Test func aRestoreRefusedForITerm2BeingUnavailableIsNotMarkedFailedWhileSynced() async throws {
         let fixture = try await RaceFixture()
         let server = RecordingDaemon(failing: ["window.createTask": "iterm_unavailable"])
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let retryEntered = TestLatch(), reply = TestLatch()
+        var attempts = 0
+        server.beforeReply = { method in
+            guard method == "window.createTask" else { return }
+            attempts += 1
+            if attempts > 1 { retryEntered.signal(); await reply.wait() }
+        }
+        defer { reply.signal(); fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
         let task = try await fixture.addTask(windowId: nil)
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
@@ -314,8 +321,14 @@ import Synchronization
 
         server.failing = [:]
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await fixture.controller.windows.lastRestore?.value
+        // Ending the first restore can start its retry before this test resumes. Hold that reply
+        // until the failure has been checked, then join the actual retry rather than a prior handle.
+        await retryEntered.wait()
+        let retry = try #require(fixture.controller.windows.lastRestore)
+        reply.signal()
+        await retry.value
         #expect(fixture.controller.state.task(id: task.id)?.windowId == "reopened-2")
+        #expect(server.requests("window.createTask").count == 2)
     }
 
     /// A failed terminal reopen names its row, so a successful retry can dismiss its banner.

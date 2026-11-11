@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Darwin
 @testable import AiTermCore
 
 @Suite struct StateStoreTests {
@@ -15,11 +16,38 @@ import Foundation
             let stamp = try #require(FileStamps.stamp(url.path))
             #expect(stamp.inode == (attributes[.systemFileNumber] as? NSNumber)?.uint64Value)
             #expect(stamp.size == (attributes[.size] as? NSNumber)?.uint64Value)
-            #expect(stamp.modified == attributes[.modificationDate] as? Date)
+            let modified = try #require(attributes[.modificationDate] as? Date)
+            #expect(abs(Double(stamp.modified) / 1e9 - modified.timeIntervalSince1970) < 1e-6, "nanoseconds since the epoch")
         }
         try FileManager.default.removeItem(at: file)
         #expect(FileStamps.stamp(file.path) == nil)
         #expect(FileStamps.stamp(link.path) != nil)
+    }
+
+    /// The backup is the snapshot the store validated, whatever is on disk: an edit of the workspace file that keeps
+    /// its length, its inode and its modification time to the nanosecond leaves the store's stamp matching, and the
+    /// save after it must keep the bytes it knows rather than whatever the file now holds.
+    @Test func theBackupIsTheValidatedSnapshotEvenWhenTheFileChangedUnseen() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = StateStore(url: dir.appendingPathComponent("state.json"))
+        try store.save(.empty)
+        let validated = try Data(contentsOf: store.url)
+        var info = stat()
+        #expect(lstat(store.url.path, &info) == 0)
+        let handle = try FileHandle(forWritingTo: store.url)
+        try handle.write(contentsOf: Data("X".utf8))
+        try handle.close()
+        var times = [info.st_atimespec, info.st_mtimespec]
+        #expect(utimensat(AT_FDCWD, store.url.path, &times, 0) == 0)
+        #expect(FileStamps.stamp(store.url.path) == FileStamps.Stamp(info), "nothing the store's stamp sees changed")
+        var next = AppState.empty
+        next.lastModelByAgent[.claude] = "sonnet"
+
+        try store.save(next)
+
+        #expect(try Data(contentsOf: store.backupURL) == validated, "the backup is what was validated, not the edit")
+        #expect(store.hasValidBackup)
     }
 
     @Test func testLoadOfMissingFileGivesEmptyState() throws {

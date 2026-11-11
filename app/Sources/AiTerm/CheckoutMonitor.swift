@@ -165,7 +165,8 @@ final class CheckoutMonitor {
                 let branches = self.branches, remotes = self.remotes, diffs = self.diffs, scanner = self.scan
                 let defaultBranches = self.defaultBranches
                 stalls.scope(projects: inputs.projects, tasks: inputs.tasks)
-                let scan = await BackgroundWork.run {
+                // A poll no one is waiting on: it yields to what the person asked for.
+                let scan = await BackgroundWork.run(priority: .utility) {
                     scanner(inputs.cwds, inputs.projects, inputs.tasks, branches, remotes, diffs, defaultBranches)
                 }
                 guard !Task.isCancelled else { return }

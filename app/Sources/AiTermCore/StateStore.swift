@@ -1,9 +1,12 @@
 import Foundation
 import Synchronization
+import Darwin
 
 /// The workspace file, `state.json`, and its backup — the file as it was before the latest save, so
 /// a damaged primary can be recovered. A save validates what it writes and refuses to replace a
-/// primary it cannot read back; restoring keeps the damaged primary beside the restored one.
+/// primary it cannot read back; restoring keeps the damaged primary beside the restored one. The
+/// backup is a clone of the primary before it is replaced, not a second write of its bytes: on APFS
+/// the clone shares the primary's blocks, so a save writes one file.
 ///
 /// Sendable so the app can save off the main actor; it keeps one cache, behind a lock.
 public final class StateStore: Sendable {
@@ -51,7 +54,8 @@ public final class StateStore: Sendable {
         let data = try encoder.encode(state)
         let previous = try previousData()
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let previous { try previous.write(to: backupURL, options: .atomic) }
+        if let previous { try keepBackup(previous) }
+        WorkMeter.note(.stateWrite)
         try data.write(to: url, options: .atomic)
         remember(data, FileStamps.stamp(url.path))
     }
@@ -66,6 +70,42 @@ public final class StateStore: Sendable {
         try data.write(to: url, options: .atomic)
         remember(data, FileStamps.stamp(url.path))
         return state
+    }
+
+    /// `previous` kept as the backup: the bytes this store validated, never merely what the primary
+    /// holds now. The primary is cloned beside the backup, and the clone kept — renamed over the
+    /// backup, so a backup is never half there — only when it holds exactly `previous`: an edit the
+    /// store's stamp cannot see (same length, inode and modification time) is not a validated
+    /// snapshot. Otherwise, or when the primary cannot be opened, `previous` is written, as before
+    /// the clone. Comparing reads the clone back; writing nothing of its bytes is what the clone
+    /// saves. A volume that cannot clone has `copyfile` copy, which is a write and is counted as one.
+    private func keepBackup(_ previous: Data) throws {
+        let staging = backupURL.appendingPathExtension("staging-" + UUID().uuidString)
+        let cloned = Self.clone(url, to: staging)
+        // A clone that copied wrote the bytes, whether or not they are kept.
+        if cloned == false { WorkMeter.note(.stateWrite) }
+        guard cloned != nil, (try? Data(contentsOf: staging)) == previous else {
+            unlink(staging.path)
+            WorkMeter.note(.stateWrite)
+            return try previous.write(to: backupURL, options: .atomic)
+        }
+        guard rename(staging.path, backupURL.path) == 0 else {
+            let error = CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: backupURL.path,
+                                                                NSUnderlyingErrorKey: POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)])
+            unlink(staging.path)
+            throw error
+        }
+    }
+
+    /// `source` cloned to `destination` by `copyfile`: true when it cloned, false when it copied, `nil`
+    /// when it failed.
+    private static func clone(_ source: URL, to destination: URL) -> Bool? {
+        guard let state = copyfile_state_alloc() else { return nil }
+        defer { copyfile_state_free(state) }
+        guard copyfile(source.path, destination.path, state, copyfile_flags_t(COPYFILE_CLONE)) == 0 else { return nil }
+        var cloned = false
+        guard copyfile_state_get(state, UInt32(COPYFILE_STATE_WAS_CLONED), &cloned) == 0 else { return false }
+        return cloned
     }
 
     /// What the primary holds now, which a save keeps as the backup: the bytes this store last saw

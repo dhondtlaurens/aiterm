@@ -13,6 +13,17 @@ import Testing
         return (GitRunner(git: url.path), directory.path)
     }
 
+    /// A bounded read is git's output as printed — `run` trims it, a read does not — cut at its limit,
+    /// saying so; and a wrapper that guards git passes the bound through.
+    @Test func aBoundedReadIsUntrimmedAndCutAtItsLimit() throws {
+        let (git, directory) = try fakeGit("printf '  first line\\nsecond line\\n'")
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        #expect(try git.run(["show"], in: directory) == "first line\nsecond line")
+        #expect(try git.read(["show"], in: directory, limit: 1024) == GitOutput(text: "  first line\nsecond line\n", truncated: false))
+        #expect(try git.read(["show"], in: directory, limit: 7) == GitOutput(text: "  first", truncated: true))
+        #expect(try StallGuardedGit(git).read(["show"], in: directory, limit: 7) == GitOutput(text: "  first", truncated: true))
+    }
+
     @Test func aToplevelTimeoutIsNotANonRepository() throws {
         #expect(throws: GitError.self) {
             try Repository.toplevel(of: "/", git: TimingOutGitRunner(["rev-parse"], code: 128))

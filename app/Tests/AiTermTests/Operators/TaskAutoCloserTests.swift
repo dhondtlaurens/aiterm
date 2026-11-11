@@ -327,16 +327,15 @@ import Testing
     }
 
     @Test func aTurnStartedDuringTheWorktreeCheckDefersUntilItEnds() async throws {
-        let fixture = try await RaceFixture()
+        // Hold Remove's worktree check, git's `status`, so the person's turn starts after the closer's first check,
+        // while Remove is waiting for it. The check leaves its repository's lane, so it is held in git itself.
+        let gate = DispatchSemaphore(value: 0)
+        let fixture = try await RaceFixture(controllerGit: StatusHeldGit(gate))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         app.helper.setDaemonClient(RecordingDaemon())
         let closer = closer(fixture)
-        // Hold the workflow queue so the person's turn starts after the closer's first check,
-        // while Remove is waiting for its own worktree check.
-        let gate = DispatchSemaphore(value: 0)
-        TaskWorkflow.queue.async { gate.wait() }
         defer { gate.signal() }
         let closing = try #require(closer.lastClose, "the closer's sweep starts the closing")
         await eventually { app.remover.isRemoving(task.id) }
@@ -604,7 +603,7 @@ import Testing
         defer { gate.signal() }
         let closer = closer(fixture) { task, starting in
             try await app.remover.removeAutomatically(task) {
-                TaskWorkflow.queue.async { gate.wait() }
+                GitLanes.shared.lane(for: fixture.project.path).async { gate.wait() }
                 return starting()
             }
         }
@@ -734,6 +733,21 @@ private struct SaveBreakingGit: GitRunning {
         if args.first == on {
             try? FileManager.default.removeItem(at: backup)
             try? FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
+        }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
+    }
+}
+
+/// Hermetic git whose worktree checks (`Repository.hasUnsavedWork`'s `status`) wait until `gate` opens; it stays open.
+private struct StatusHeldGit: GitRunning {
+    let gate: DispatchSemaphore
+    let inner = GitRunner.hermetic()
+    init(_ gate: DispatchSemaphore) { self.gate = gate }
+
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        if args.starts(with: ["status", "--porcelain", "--ignore-submodules=none"]) {
+            gate.wait()
+            gate.signal()
         }
         return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }

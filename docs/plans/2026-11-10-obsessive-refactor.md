@@ -503,11 +503,16 @@ Each box leaves the project working and is one or a few commits.
 - [ ] 1d. Readers own plan and apply; `Service` runs the fixed list; test seams.
 - [ ] 1e. Port and screens modules, strict typing, auth patch at connect.
 - [ ] 1f. Task index, `SessionNotFound`, ruff rules, keyword-only hook fields, test builders, README.
-- [ ] 2a. Locked worktree record (test first); successful-only login-shell answer.
-- [ ] 2b. One lane per repository, with the rendezvous test.
-- [ ] 2c. Bounded output and untrimmed runner; bounded diff readers.
-- [ ] 2d. Typed git queries, commit id, remote-URL parser; one preflight per removal and archive.
-- [ ] 2e. Cloned backup, path identity and stamp, priorities, dead code, monotonic clocks.
+- [x] 2a. Locked worktree record (test first); successful-only login-shell answer.
+- [x] 2b. One lane per repository, with the rendezvous test.
+- [x] 2c. Bounded output and untrimmed runner; bounded diff readers.
+- [x] 2d. Typed git queries, commit id, remote-URL parser; one preflight per removal and archive. Restore lists
+  once (6 to 4 processes); the removal and archive preflight is dropped here, Shelve stays at 9: its listings are
+  asked by `TaskArchiver` and `TaskRemover`'s removal, phase 7's files, which build it with the shared teardown.
+  One commit-id rule and one remote-URL rule are dropped for now: `CommitId` and `RemoteURL` keep today's rules
+  (three for commit ids, the push's own for the same-location check), because one rule changes refusals the
+  maintainer has not approved; the question is with them, and each answer is a one-line switch.
+- [x] 2e. Cloned backup, path identity and stamp, priorities, dead code, monotonic clocks.
 - [ ] 3a. Outcome-unknown classification in Core (test first); token trimming.
 - [ ] 3b. Clients bound to their repository; forwarding removed; access narrowed; path encoding.
 - [ ] 3c. `find_user`, symlinked catalogue stamps (tests first); listing and user reuse.

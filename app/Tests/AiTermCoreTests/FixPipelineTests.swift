@@ -81,7 +81,7 @@ import Foundation
         let pipeline = live(script)
         let clone = try await pipeline.prepare(request)
         defer { clone.remove() }
-        #expect(clone.path.hasPrefix(VerifySandbox.realPath(NSTemporaryDirectory())), "a clone in the temporary directory")
+        #expect(clone.path.hasPrefix(CanonicalPath.of(NSTemporaryDirectory())), "a clone in the temporary directory")
         let (look, session) = try await pipeline.look(.claude, clone, request)
         #expect(session == "S1")
         guard case .fix(let proposal) = look else { Issue.record("expected a proposal, got \(look)"); return }

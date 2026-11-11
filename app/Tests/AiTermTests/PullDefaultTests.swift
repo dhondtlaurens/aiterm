@@ -144,15 +144,43 @@ import Testing
 
     /// A project removed while its pull runs gets neither a toast nor a banner.
     @Test func aPullOnAProjectRemovedMeanwhileSaysNothing() async throws {
-        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove"))
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let git = PullHeldUntilRemovedGit()
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove"), controllerGit: git)
+        defer { git.release(); fixture.controller.shutdown(); fixture.cleanUp() }
 
-        let pull = fixture.controller.projects.pullDefault(project: fixture.project)
+        git.arm()
+        let pull = try #require(fixture.controller.projects.pullDefault(project: fixture.project))
+        await git.entered.wait()
         await fixture.controller.projects.confirmRemove(project: fixture.project)
-        await pull?.value
+        #expect(fixture.controller.state.projects.isEmpty, "removed before the pull can finish")
+        git.release()
+        await pull.value
 
         #expect(fixture.controller.state.projects.isEmpty)
         #expect(fixture.controller.issue == nil)
         #expect(fixture.controller.toastState.toast == nil)
+    }
+}
+
+
+/// Makes "removed while pulling" an explicit ordering, including a pull that fails immediately.
+private final class PullHeldUntilRemovedGit: GitRunning {
+    let entered = TestLatch()
+    private let armed = Mutex(false)
+    private let gate = DispatchSemaphore(value: 0)
+    private let inner = GitRunner.hermetic()
+
+    func arm() { armed.withLock { $0 = true } }
+    func release() { armed.withLock { $0 = false }; gate.signal() }
+
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        if armed.withLock({ $0 }) {
+            entered.signal()
+            guard gate.wait(timeout: .now() + TestDeadline.seconds) == .success else {
+                throw ActionUnavailable("Timed out waiting for the test to remove its project.")
+            }
+            gate.signal()
+        }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }
 }
