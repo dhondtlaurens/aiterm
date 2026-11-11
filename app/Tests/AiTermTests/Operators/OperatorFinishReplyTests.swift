@@ -107,13 +107,18 @@ import Testing
     /// past the budget, the call answers running with the push it did; the run goes on, wakes the Operator when it ends,
     /// and the next call answers what it did without asking the host again.
     @Test func aPublicationSlowerThanTheBudgetAnswersRunningWithWhatIsDone() async throws {
-        let creating = OracleGate()
-        // Long enough for the push to be done on a loaded machine; the creation is held past it.
-        let f = try finishing(budget: .seconds(3), host: FakeMergeHost.Script(beforeCreate: { await creating.wait() }))
-        let first = Task { await f.call() }
-        let early = await promptly { await first.value }
+        let creating = OracleGate(), entered = OperatorMergeTests.Prompts()
+        let f = try finishing(host: FakeMergeHost.Script(beforeCreate: {
+            entered.append("creating")
+            await creating.wait()
+        }))
+        // Publication has pushed before the tool call starts its reply budget. The held creation,
+        // not the speed of a real push, makes this call answer running with its recorded progress.
+        f.world.ports.work.start { _ = await f.world.controller.finisher.finish(f.task.id) }
+        await eventually(describing: "request creation entered after the push") { entered.list == ["creating"] }
+        let early = await promptly { await f.call() }
         await creating.open()
-        _ = await first.value
+        await f.world.ports.work.settled()
         let answer = try #require(early?.value, "finish_task must answer within the budget while its publication goes on")
         #expect(answer["result"] == "running")
         #expect(answer["pushedSHA"]?.stringValue == f.sha)

@@ -25,7 +25,7 @@ extension OperatorToolHandler {
         if let assignee = edit.assignee {
             // A publication assigning the request now read the older choice: it would write it after this one. Read with
             // the save below in one step, so one that starts after reads the new choice.
-            if state.task(id: task.id)?.operated?.publication?.assigning == true, publishing(task.id) {
+            if state.task(id: task.id)?.operated?.publication?.assigning == true, finisher.running.contains(task.id) {
                 throw ToolRefusal("AiTerm is assigning \(reference) now, from finish_task: call update_request again once it answers.")
             }
             mutate(in: run.id) { state in

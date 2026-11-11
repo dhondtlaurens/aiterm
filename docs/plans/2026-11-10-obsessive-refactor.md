@@ -542,7 +542,7 @@ Each box leaves the project working and is one or a few commits.
   landing check" is dropped on the Operator's decision: reuse changes the reply when the host merges during the
   Oracle wait (published/merged true becomes waitingToMerge/merged false, with create/edit calls). Keep the second
   fetch and the regression test; no fetch-budget improvement is claimed (record).
-- [ ] 6d. Finisher as a reference with one record per task; outcome kind; test layering.
+- [x] 6d. Finisher as a reference with one record per task; outcome kind; test layering.
 - [ ] 7a. Shared teardown prepare and run.
 - [ ] 7b. Debounced search; hook list; grouped ports.
 - [ ] 7c. Blocking checks off the main actor; reconciler trigger; scan projection; row chooser.

@@ -38,11 +38,23 @@ final class TaskFinisher {
         /// What this call did to the request's draft state, in a few plain words (`MR !12 opened as a draft`, `opened, ready`,
         /// `left as a draft`, `marked ready`): so the Operator needn't ask the host. Nil when this call did nothing to it.
         var draftNote: String?
+        private(set) var problemKind: TaskPublication.ProblemKind? = nil
+
+        private enum CodingKeys: String, CodingKey {
+            case result, reason, mergeRequest, pushedSHA, merged, mergedSHA, draftNote
+        }
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.result == rhs.result && lhs.reason == rhs.reason && lhs.mergeRequest == rhs.mergeRequest
+                && lhs.pushedSHA == rhs.pushedSHA && lhs.merged == rhs.merged && lhs.mergedSHA == rhs.mergedSHA && lhs.draftNote == rhs.draftNote
+        }
 
         init(result: Kind, reason: String? = nil, mergeRequest: String? = nil, pushedSHA: String? = nil,
              merged: Bool = false, mergedSHA: String? = nil, draftNote: String? = nil) {
             self.result = result; self.reason = reason; self.mergeRequest = mergeRequest
             self.pushedSHA = pushedSHA; self.merged = merged; self.mergedSHA = mergedSHA; self.draftNote = draftNote
+            // Legacy text-only refusal producers keep exactly their current classification at this boundary.
+            if result == .refused { self.problemKind = reason.map(TaskPublication.ProblemKind.init(matching:)) }
         }
 
         init(_ publication: TaskPublication?, result: Kind, reason: String?) {
@@ -91,18 +103,40 @@ final class TaskFinisher {
     /// state — the branch moved, the task changed hands — with that reason, recorded as the problem. Set
     /// like `changed`.
     var watchStopped: @MainActor (UUID, String) -> Void = { _, _ in }
-    /// Each task's publication in flight, and the token that tells it from a later one.
-    private var inFlight: [UUID: (token: UUID, task: Task<Result, Never>)] = [:]
-    /// The Operator's calls waiting on each task's publication now, within their budget.
-    private var listening: [UUID: Int] = [:]
-    /// What a publication that outlived its call did, for the task's next call, with the accepted commit it ran on.
-    private var kept: [UUID: (sha: String, result: Result)] = [:]
-    /// The publication whose call answered `running`, by its token: only its end is kept and wakes the Operator, never a
-    /// merge watch's later polls.
-    private var owedFlights: [UUID: UUID] = [:]
+    private final class Completion { var result: Result? }
+    private struct Flight {
+        let token: UUID
+        let task: Task<Result, Never>
+        let completion: Completion
+    }
+    /// Only the task's record changes: a late flight cannot create a removed record or settle a replacement.
+    private final class TaskWork {
+        var inFlight: Flight?
+        var listening: Int?
+        var kept: (sha: String, result: Result)?
+        var owedFlight: UUID?
+        var watcher: Task<Void, Never>?
+        var holds: Set<UUID> = []
+    }
+    private var taskWork: [UUID: TaskWork] = [:]
+    private let work: OperatorWork
+
+    private func entry(_ id: UUID) -> TaskWork {
+        if let current = taskWork[id] { return current }
+        let entry = TaskWork()
+        if store.state.task(id: id) != nil { taskWork[id] = entry }
+        return entry
+    }
+
+    /// A write already sent still returns through its original call; its late completion recreates nothing.
+    func forgetRemovedTasks() {
+        for id in Array(taskWork.keys) where store.state.task(id: id) == nil {
+            taskWork.removeValue(forKey: id)?.watcher?.cancel()
+        }
+    }
+
     /// Told when a publication whose call answered `running` ended with no call waiting on it. Set like `changed`.
     var finishedLate: @MainActor (UUID) -> Void = { _ in }
-    private var watchers: [UUID: Task<Void, Never>] = [:]
     private var isStopped = false
     /// How many calls found a publication in flight and waited for it; for a test.
     private(set) var joined = 0
@@ -118,34 +152,27 @@ final class TaskFinisher {
     init(store: WorkspaceStore, git: any GitRunning,
          connect: @escaping @Sendable (RemoteInfo) throws -> any MergeRequestPublishing,
          now: @escaping @Sendable () -> Date, sleep: @escaping @Sendable (TimeInterval) async throws -> Void,
-         changed: @escaping @MainActor (UUID) -> Void = { _ in }) {
+         changed: @escaping @MainActor (UUID) -> Void = { _ in }, work: OperatorWork = OperatorWork()) {
         self.store = store; self.git = git; self.codeHost = CodeHostCheck(git: git, publisher: connect)
-        self.now = now; self.sleep = sleep; self.changed = changed
+        self.now = now; self.sleep = sleep; self.changed = changed; self.work = work
     }
 
     /// The tasks whose merge is being watched.
-    var watching: Set<UUID> { Set(watchers.keys) }
+    var watching: Set<UUID> { Set(taskWork.compactMap { $0.value.watcher == nil ? nil : $0.key }) }
     /// The tasks with a publication in flight.
-    var running: Set<UUID> { Set(inFlight.keys) }
+    var running: Set<UUID> { Set(taskWork.compactMap { $0.value.inFlight == nil ? nil : $0.key }) }
 
-    /// The accepted tasks the Operator is steering now (`message_task`, `open_tab`), each with how many of its calls hold
-    /// it: none of them is watched, and no publication of one starts, until the last call lets it go. A merge then never
-    /// races a worker's new commits, not even while the message is on its way.
-    private var held: [UUID: Int] = [:]
-
-    /// Holds `id`'s publication while it is steered: its merge watch stops, and none starts.
-    func hold(_ id: UUID) {
-        held[id, default: 0] += 1
+    /// Holds an accepted task while message_task or open_tab steers it: no watch or publication
+    /// starts until every call releases it. The release belongs to this exact record and hold,
+    /// including after removal and a later restore.
+    func hold(_ id: UUID) -> @MainActor () -> Void {
+        let record = entry(id), token = UUID()
+        record.holds.insert(token)
         stopWatching(id)
-    }
-
-    /// Lets `id`'s publication go once its last steering call ended: a task still accepted and waiting to merge (its
-    /// message not delivered, its tab failed) is watched again; one back at work isn't watchable.
-    func release(_ id: UUID) {
-        guard let count = held[id] else { return }
-        if count > 1 { held[id] = count - 1; return }
-        held[id] = nil
-        watch(id)
+        return { [weak self] in
+            guard let self, taskWork[id] === record, record.holds.remove(token) != nil else { return }
+            if record.holds.isEmpty { watch(id) }
+        }
     }
 
     /// Why a publication of a task the Operator is steering waits.
@@ -155,7 +182,7 @@ final class TaskFinisher {
 
     /// A publication of a task held for steering: refused with why, nothing done.
     private func steeringRefusal(_ id: UUID) -> Result? {
-        guard held[id] != nil else { return nil }
+        guard !entry(id).holds.isEmpty else { return nil }
         let operated = store.state.task(id: id)?.operated
         return Result(operated?.publication, result: .refused, reason: Self.beingSteered(operated?.key ?? "This task"))
     }
@@ -180,9 +207,9 @@ final class TaskFinisher {
         guard !isStopped else { return Result(result: .refused, reason: Self.closingReason) }
         // What a publication that outlived its call did is owed first, even while a merge watch's poll is in flight. With
         // nothing kept, the saved marker is read only once nothing runs: a run in flight is still the one it is owed for.
-        if kept[id] != nil || inFlight[id] == nil, let owed = owedAnswer(id) { return owed }
+        if entry(id).kept != nil || entry(id).inFlight == nil, let owed = owedAnswer(id) { return owed }
         if let steered = steeringRefusal(id) { return steered }
-        if inFlight[id] == nil, joinOnly {
+        if entry(id).inFlight == nil, joinOnly {
             return Result(store.state.task(id: id)?.operated?.publication, result: .refused, reason: Self.nothingToJoin)
         }
         if noVerify, let operated = store.state.task(id: id)?.operated, Self.stillToPush(operated),
@@ -202,9 +229,14 @@ final class TaskFinisher {
                 return Result(store.state.task(id: id)?.operated?.publication, result: .failed, reason: Self.notSavedReason)
             }
         }
-        let restart = watchers[id] == nil
+        let restart = entry(id).watcher == nil
         guard let budget else { return await run(id, restart: restart, noVerify: noVerify, operatorCall: true) }
         return await wait(for: id, restart: restart, noVerify: noVerify, budget: budget)
+    }
+
+    func finish(_ id: UUID, call: Call) async -> Result {
+        await finish(id, noVerify: call.noVerify, content: call.content, budget: call.budget,
+                     joinOnly: call.joinOnly)
     }
 
     /// Why a call let through only to join a publication is refused when none runs or is owed any more.
@@ -215,9 +247,9 @@ final class TaskFinisher {
     /// The saved marker alone counts only where it answers (`owedAnswer`): after a restart, a call on anything but a task in
     /// review resumes from the saved steps, through the gate as any call.
     func pending(_ id: UUID) -> Bool {
-        if inFlight[id] != nil { return true }
+        if entry(id).inFlight != nil { return true }
         guard let operated = store.state.task(id: id)?.operated, let accepted = operated.acceptance?.resultSHA else { return false }
-        if let late = kept[id], late.sha == accepted { return true }
+        if let late = entry(id).kept, late.sha == accepted { return true }
         return operated.state == .inReview && operated.publication?.unanswered == accepted
     }
 
@@ -227,8 +259,9 @@ final class TaskFinisher {
     /// way the marker goes. Nil when nothing is owed for the commit accepted now.
     private func owedAnswer(_ id: UUID) -> Result? {
         let operated = store.state.task(id: id)?.operated, accepted = operated?.acceptance?.resultSHA
-        let late = kept.removeValue(forKey: id), marked = operated?.publication?.unanswered
-        owedFlights[id] = nil
+        let late = entry(id).kept, marked = operated?.publication?.unanswered
+        entry(id).kept = nil
+        entry(id).owedFlight = nil
         if marked != nil { setUnanswered(nil, on: id) }
         if let late, late.sha == accepted {
             var result = late.result
@@ -248,24 +281,26 @@ final class TaskFinisher {
     /// nothing is owed. Past the budget, the call answers `running` and saves that an answer is owed: the publication's
     /// end keeps it for the next call (`ended`).
     private func wait(for id: UUID, restart: Bool, noVerify: Bool, budget: Duration) async -> Result {
+        let record = entry(id)
         let flight = start(id, restart: restart, noVerify: noVerify, operatorCall: true)
-        listening[id, default: 0] += 1
+        record.listening = (record.listening ?? 0) + 1
         let answered = await BackgroundWork.within(budget, cancelling: false) { await flight.task.value }
-        listening[id, default: 1] -= 1
-        if listening[id] == 0 { listening[id] = nil }
+        record.listening = (record.listening ?? 1) - 1
+        if record.listening == 0 { record.listening = nil }
         // It may have ended in the turn the budget ran out: then its answer is this call's.
-        if case .success(let result) = answered { return delivered(result, to: id) }
-        if inFlight[id]?.token != flight.token { return delivered(await flight.task.value, to: id) }
-        setUnanswered(store.state.task(id: id)?.operated?.acceptance?.resultSHA, on: id)
-        owedFlights[id] = flight.token
+        if case .success(let result) = answered { return delivered(result, to: id, record: record) }
+        if let result = flight.completion.result { return delivered(result, to: id, record: record) }
+        if taskWork[id] === record { setUnanswered(store.state.task(id: id)?.operated?.acceptance?.resultSHA, on: id) }
+        record.owedFlight = flight.token
         let publication = store.state.task(id: id)?.operated?.publication
         return Result(publication, result: .running, reason: Self.stillRunning(store.state.task(id: id)?.operated?.key ?? "the task"))
     }
 
     /// `result` answered to a call: nothing is owed any more.
-    private func delivered(_ result: Result, to id: UUID) -> Result {
-        kept[id] = nil
-        owedFlights[id] = nil
+    private func delivered(_ result: Result, to id: UUID, record: TaskWork) -> Result {
+        guard taskWork[id] === record else { return result }
+        record.kept = nil
+        record.owedFlight = nil
         if store.state.task(id: id)?.operated?.publication?.unanswered != nil { setUnanswered(nil, on: id) }
         return result
     }
@@ -340,23 +375,24 @@ final class TaskFinisher {
     /// start a subsequent write or another watch.
     func stopAll() {
         isStopped = true
-        for id in Array(watchers.keys) { stopWatching(id) }
+        for id in watching { stopWatching(id) }
     }
 
     /// On a takeover or a stopped task.
     func stopWatching(_ id: UUID) {
-        watchers.removeValue(forKey: id)?.cancel()
+        taskWork[id]?.watcher?.cancel()
+        taskWork[id]?.watcher = nil
     }
 
     /// On a Pause or an End: every watch of the broadcast's tasks.
     func stopWatching(inRun run: UUID) {
-        for id in Array(watchers.keys) where store.state.task(id: id)?.operated?.runId == run { stopWatching(id) }
+        for id in watching where store.state.task(id: id)?.operated?.runId == run { stopWatching(id) }
     }
 
     /// A merge end opened and waiting, not stuck, in a broadcast that runs and that you have neither
     /// paused nor ended, and still the operator's.
     private func isWatchable(_ id: UUID) -> Bool {
-        guard !isStopped, held[id] == nil else { return false }
+        guard !isStopped, entry(id).holds.isEmpty else { return false }
         guard let operated = store.state.task(id: id)?.operated, operated.end == .merge, operated.state == .accepted,
               !operated.takenOver, !operated.flags.contains(.upstreamReplaced),
               let publication = operated.publication, publication.mergeRequestNumber != nil,
@@ -377,35 +413,37 @@ final class TaskFinisher {
 
     /// The task's publication in flight, joined, or a new one started. `operatorCall`: started by the Operator's own call,
     /// which reads origin fresh before it decides that a merge end's commit is merged already (`finishLanded`).
-    private func start(_ id: UUID, restart: Bool, noVerify: Bool, operatorCall: Bool) -> (token: UUID, task: Task<Result, Never>) {
-        if let running = inFlight[id] {
+    private func start(_ id: UUID, restart: Bool, noVerify: Bool, operatorCall: Bool) -> Flight {
+        if let running = entry(id).inFlight {
             joined += 1
             return running
         }
-        let token = UUID()
-        let started = Task { () -> Result in
+        let token = UUID(), completion = Completion()
+        let started = work.start { () -> Result in
             let result = await self.advance(id, restart: restart, noVerify: noVerify, operatorCall: operatorCall)
+            completion.result = result
             self.ended(id, token: token, result)
             return result
         }
-        inFlight[id] = (token, started)
-        return (token, started)
+        let flight = Flight(token: token, task: started, completion: completion)
+        entry(id).inFlight = flight
+        return flight
     }
 
     /// A publication's end: no longer in flight. One whose call answered `running`, with no call waiting on it now, is kept
     /// for the next call and the Operator woken; a call still waiting has it as its answer. A merge watch's poll after it
     /// keeps the answer owed up to date, its own result, and wakes nobody again: the watch has its own word when it ends.
     private func ended(_ id: UUID, token: UUID, _ result: Result) {
-        guard inFlight[id]?.token == token else { return }
-        inFlight[id] = nil
-        if owedFlights[id] != token, let late = kept[id] {
-            kept[id] = (late.sha, result)
+        guard let record = taskWork[id], record.inFlight?.token == token else { return }
+        record.inFlight = nil
+        if record.owedFlight != token, let late = record.kept {
+            record.kept = (late.sha, result)
             return
         }
-        guard owedFlights[id] == token, listening[id] == nil,
+        guard record.owedFlight == token, record.listening == nil,
               let sha = store.state.task(id: id)?.operated?.publication?.unanswered else { return }
-        owedFlights[id] = nil
-        kept[id] = (sha, result)
+        record.owedFlight = nil
+        record.kept = (sha, result)
         finishedLate(id)
     }
 
@@ -417,7 +455,7 @@ final class TaskFinisher {
         clearFailure(before, kind: kind, on: id, restart: restart, after: result)
         if result.result == .refused, let reason = result.reason,
            let task = store.state.task(id: id), let operated = task.operated,
-           operated.state == .accepted, Self.permanent(reason) {
+           operated.state == .accepted, result.problemKind == .permanent {
             let project = store.state.project(id: task.projectId)?.name ?? "its project"
             let remaining = operated.end.merges ? "Merge \(task.branch) in \(project)" : "Push \(task.branch) in \(project) and open its merge request"
             leaveForYou("\(remaining): \(reason)", in: operated.runId) { state in
@@ -445,7 +483,6 @@ final class TaskFinisher {
         _ = store.flush()
     }
 
-    private static func permanent(_ reason: String) -> Bool { TaskPublication.ProblemKind(matching: reason) == .permanent }
 
     /// `sentence` in the run's Left for you, once, saved in one change with `also`.
     private func leaveForYou(_ sentence: String, in run: UUID, also: (inout AppState) -> Void = { _ in }) {
@@ -939,10 +976,10 @@ final class TaskFinisher {
     /// watchable now — a poll that answers after a Pause does not start a watch again. The entry is
     /// cleared when the poll ends — unless `stopWatching` replaced it meanwhile with a newer one.
     private func watch(_ id: UUID) {
-        guard watchers[id] == nil, isWatchable(id) else { return }
+        guard entry(id).watcher == nil, isWatchable(id) else { return }
         let current = Task { [weak self] in
             // Not cancelled, it is still the task's watch (`stopWatching` cancels the one it removes): its entry goes with it.
-            defer { if !Task.isCancelled { self?.watchers[id] = nil } }
+            defer { if !Task.isCancelled { self?.taskWork[id]?.watcher = nil } }
             var failures = 0
             while !Task.isCancelled {
                 guard let self else { return }
@@ -963,9 +1000,9 @@ final class TaskFinisher {
                     var why = result.reason ?? PublicationGuard.changedMidway
                     // The Oracle's yes no longer covers the evidence (mark_task refreshed it): the merge waits for the
                     // Operator's finish_task, which the Oracle judges, not for you.
-                    if self.awaitsOracle(id, refusedFor: why) { why = PublicationGuard.oracleYesNeeded }
-                    // A refusal is recorded as the kind its words are, until refusals carry their kind themselves.
-                    self.recordFailure(why, kind: TaskPublication.ProblemKind(matching: why), on: id)
+                    var kind = result.problemKind ?? .failure
+                    if self.awaitsOracle(id, refusedFor: why) { why = PublicationGuard.oracleYesNeeded; kind = .hold }
+                    self.recordFailure(why, kind: kind, on: id)
                     self.watchStopped(id, why)
                 case .failed:
                     failures += 1
@@ -978,7 +1015,7 @@ final class TaskFinisher {
                 return
             }
         }
-        watchers[id] = current
+        entry(id).watcher = current
     }
 
     /// Whether a watch's poll was refused, `why`, for the Oracle's yes no longer covering the task's evidence, as it stands now.

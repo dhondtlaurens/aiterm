@@ -169,27 +169,13 @@ final class OperatorToolHandler {
     let prompts: WorkerPrompts
     /// What `run_status` would answer now (`RunStatusSource`).
     let statuses: RunStatusSource
-    /// Carries out a task's recorded end (G10), past the push hooks when told (`noVerify`), opening its request with the
-    /// Operator's content when given, within the call's reply budget: the controller's `TaskFinisher`.
-    var finish: @MainActor (UUID, TaskFinisher.Call) async -> TaskFinisher.Result = { _, _ in
-        TaskFinisher.Result(result: .refused, reason: "AiTerm isn’t ready to publish yet.")
-    }
-    /// Whether a `finish_task` of the task now only joins a publication in flight or answers one that outlived its call
-    /// (`TaskFinisher.pending`): the challenge gate leaves such a call alone.
-    var pendingFinish: @MainActor (UUID) -> Bool = { _ in false }
+    let finisher: TaskFinisher
 
     /// Starts a retried task now and waits for its launch within the call's reply budget: what `retry_task` answers of it
     /// (the controller's `launchNow`).
     var launchNow: @MainActor (UUID, Duration?) async -> LaunchReport = { _, _ in
         LaunchReport(result: "queued", note: "AiTerm isn’t ready to start it yet.")
     }
-    /// Whether a publication of the task is in flight (`TaskFinisher.running`): finish_task, a retry or a merge watch's poll.
-    var publishing: @MainActor (UUID) -> Bool = { _ in false }
-    /// Holds an accepted task's publication while message_task or open_tab steers it, and lets it go once the call ends
-    /// (`TaskFinisher.hold`, `release`): no merge of it runs meanwhile.
-    var holdPublication: @MainActor (UUID) -> Void = { _ in }
-    var releasePublication: @MainActor (UUID) -> Void = { _ in }
-
     /// What a call on `task` is, as its status line says it: answering its agent, or, with people's review
     /// under way, relaying their feedback; checking the work; opening the MR or merging, by the task's end.
     static func act(for tool: OperatorTool, on task: TaskItem) -> OperatorAct? {
@@ -228,7 +214,7 @@ final class OperatorToolHandler {
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
          waker: OperatorWaker, tabs: TabOpener, transcripts: TranscriptLocator, turns: WorkerTurnReader, quiet: WorkerQuietWatch,
-         prompts: WorkerPrompts, statuses: RunStatusSource) {
+         prompts: WorkerPrompts, statuses: RunStatusSource, finisher: TaskFinisher) {
         self.workspace = workspace
         self.live = live
         self.daemon = daemon
@@ -240,6 +226,7 @@ final class OperatorToolHandler {
         self.quiet = quiet
         self.prompts = prompts
         self.statuses = statuses
+        self.finisher = finisher
         self.oracleJobs = OracleJobs(work: ports.work)
     }
 
@@ -426,7 +413,7 @@ final class OperatorToolHandler {
             let content = RequestContent(title: call.optionalString("title"), description: call.optionalString("description"),
                                          assignee: call.optionalString("assignee"))
             let budget = deadline.map { max(.zero, $0 - ContinuousClock.now) }
-            let result = await finish(task.id, TaskFinisher.Call(noVerify: call.optionalBool("noVerify") ?? false,
+            let result = await finisher.finish(task.id, call: TaskFinisher.Call(noVerify: call.optionalBool("noVerify") ?? false,
                                                                  content: content.isEmpty ? nil : content, budget: budget,
                                                                  joinOnly: joinOnly))
             return try JSONValue(encoding: result)

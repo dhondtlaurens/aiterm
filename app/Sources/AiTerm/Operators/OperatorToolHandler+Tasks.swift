@@ -281,13 +281,12 @@ extension OperatorToolHandler {
     /// An accepted task steered by `tool` (`message_task`, `open_tab`): refused while a publication of it runs, else its
     /// publication held from now, before anything is awaited, until the returned release is called at the call's end
     /// (`TaskFinisher.hold`). Nothing is held for a task in any other state.
-    func holdForSteering(_ task: TaskItem, _ operated: OperatedTask, by tool: String) throws(ToolRefusal) -> () -> Void {
+    func holdForSteering(_ task: TaskItem, _ operated: OperatedTask, by tool: String) throws(ToolRefusal) -> @MainActor () -> Void {
         guard operated.state == .accepted else { return {} }
-        guard !publishing(task.id) else {
+        guard !finisher.running.contains(task.id) else {
             throw ToolRefusal("AiTerm is publishing \(operated.key) now: call \(tool) again once finish_task answers.")
         }
-        holdPublication(task.id)
-        return { [weak self] in self?.releasePublication(task.id) }
+        return finisher.hold(task.id)
     }
 
     /// For an accepted task whose commit is on origin, steered while its request is open (snag G, T1's !65): the host must

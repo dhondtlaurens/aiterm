@@ -61,7 +61,7 @@ extension OperatorToolHandler {
     /// publication went on: it decides nothing new, so it is neither judged nor fetched for, and never starts a publication.
     func finishJoins(_ call: ToolCall, in run: OperatorRun) -> Bool {
         guard call.operatorTool == .finishTask, let task = try? task(call, in: run) else { return false }
-        if pendingFinish(task.id) { return true }
+        if finisher.pending(task.id) { return true }
         guard let id = call.optionalString("challengeId"),
               let kept = state.run(id: run.id)?.challenges.first(where: { $0.id == id && $0.tool == call.tool }),
               kept.stage == .acted, kept.actedArguments == Self.invocation(call), let result = kept.result,
