@@ -45,7 +45,7 @@ enum FixerPrompt {
         """
     }
 
-    /// Strict, as Codex's API requires (spikes): every property required, the unused ones `null`.
+    /// Strict schema: every property required, the unused ones `null`.
     static let lookSchema = #"""
     {"type":"object","additionalProperties":false,
      "properties":{"outcome":{"type":"string","enum":["fix","none"]},"headline":{"type":["string","null"]},

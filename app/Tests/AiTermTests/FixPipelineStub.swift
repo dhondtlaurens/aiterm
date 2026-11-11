@@ -1,5 +1,6 @@
 import Foundation
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 // Here and not in AiTermTestSupport: a clone and a landing are built with Core's internal
 // memberwise inits, which only a test target's `@testable` import reaches.
@@ -11,13 +12,13 @@ extension FixPipeline {
     static func stub(look: FixLook, slowLook: Bool = false) -> FixPipeline {
         FixPipeline(
             prepare: { request throws(FixRefusal) in
-                let dir = NSTemporaryDirectory() + FixClone.prefix + "stub-" + UUID().uuidString
+                let dir = ScratchFolder.path(FixClone.prefix + "stub-").path
                 try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
                 return FixClone(path: dir, branch: request.branch, startTip: "a", originTip: "b", git: GitRunner())
             },
             look: { _, _, _ throws(FixRefusal) in
                 if slowLook { try? await Task.sleep(for: .seconds(30)) }
-                return (look, "S")
+                return (look, FixLookSession(id: "S", before: [:]))
             },
             apply: { _, _, _, _ in "c" },
             land: { clone, _ in FixLanding(branch: clone.branch, old: "a", new: "c") })

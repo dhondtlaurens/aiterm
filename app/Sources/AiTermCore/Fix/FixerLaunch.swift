@@ -9,8 +9,8 @@ enum FixerLaunch {
         ["Edit(/\(clone.path)/**)", "Write(/\(clone.path)/**)"]
     }
 
-    static func look(_ agent: FixerAgent, model: String, reasoning: String?, clone: FixClone,
-                            request: FixRequest, sessionID: String) throws(FixRefusal) -> HeadlessInvocation {
+    static func look(model: String, reasoning: String?, clone: FixClone,
+                            request: FixRequest, sessionID: String) -> HeadlessInvocation {
         HeadlessInvocation(executable: "claude",
             arguments: HeadlessRun.claude(prompt: FixerPrompt.look(request: request, clone: clone),
                 allowedTools: ["Read", "Grep", "Glob"] + readOnlyGit, deniedTools: [],
@@ -19,8 +19,8 @@ enum FixerLaunch {
             environment: [:], sessionID: sessionID, answerFile: nil)
     }
 
-    static func apply(_ agent: FixerAgent, model: String, reasoning: String?, clone: FixClone,
-                             proposal: FixProposal, sessionID: String) throws(FixRefusal) -> HeadlessInvocation {
+    static func apply(model: String, reasoning: String?, clone: FixClone,
+                             proposal: FixProposal, sessionID: String) -> HeadlessInvocation {
         let verify = proposal.verify.map { ["Bash(\($0))"] } ?? []
         return HeadlessInvocation(executable: "claude",
             arguments: HeadlessRun.claude(prompt: FixerPrompt.apply(proposal: proposal),

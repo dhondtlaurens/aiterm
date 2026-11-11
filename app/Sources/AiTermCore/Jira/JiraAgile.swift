@@ -66,7 +66,7 @@ extension JiraClient {
         }
         let keys = try tickets.map { try Self.validKey($0) }
         try await beforeWrite()
-        _ = try await send(method: "POST", path: path, json: JSONEncoder().encode(["issues": keys]))
+        _ = try await send(method: "POST", path: path, json: JSONEncoder().encode(JSONValue.object(["issues": .array(keys.map(JSONValue.string))])))
     }
 
     /// Every entry of a paged agile list, a page at a time, the ones that do not read dropped alone.

@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Synchronization
+import Observation
 @testable import AiTerm
 @testable import AiTermCore
 @testable import AiTermTestSupport
@@ -8,7 +9,7 @@ import Synchronization
 @MainActor struct FixSessionTests {
     let request = FixRequest(title: "t", reason: nil, detail: nil, projectPath: "/p", branch: "feat/x", recreateRebase: true, retry: .createReview)
     let proposal = FixProposal(headline: "h", why: "w", steps: ["s"], moves: ["feat/x"], drops: [], verify: nil)
-    let clone = FixClone(path: NSTemporaryDirectory() + "aiterm-fix-test-\(UUID())", branch: "feat/x", startTip: "a", originTip: "b", git: GitRunner())
+    let clone = FixClone(path: ScratchFolder.path("aiterm-fix-test-").path, branch: "feat/x", startTip: "a", originTip: "b", git: GitRunner())
 
     /// `prepare` makes the clone's folder — after `slowPrepare`, cut short by a cancel as a real one is not.
     private func pipeline(slowPrepare: Bool = false,
@@ -21,7 +22,7 @@ import Synchronization
                                try? FileManager.default.createDirectory(atPath: clone.path, withIntermediateDirectories: true)
                                return clone
                            },
-                           look: { _, _, request throws(FixRefusal) in (try await look(request), "S") },
+                           look: { _, _, request throws(FixRefusal) in (try await look(request), FixLookSession(id: "S", before: [:])) },
                            apply: { _, _, _, _ throws(FixRefusal) in try await apply(); return "c" },
                            land: { _, _ in await land(); return FixLanding(branch: "feat/x", old: "a", new: "c") })
     }
@@ -57,6 +58,32 @@ import Synchronization
         #expect(retried?.new == "c")
         #expect(!cloneExists, "the clone goes when the fix is done")
         #expect(session.clonePath == nil)
+    }
+
+    @Test func onlyAChangedDisplayStateNotifiesItsSurface() async {
+        let proposal = proposal
+        let entered = Mutex(false), changes = Mutex(0)
+        let release = AsyncStream<Void>.makeStream()
+        let session = FixSession(request: request, fixer: .ready(.claude), pipeline: pipeline(look: { _ in
+            entered.withLock { $0 = true }
+            for await _ in release.stream { break }
+            return .fix(proposal)
+        }), retry: { _ in })
+        withObservationTracking { _ = session.state } onChange: { changes.withLock { $0 += 1 } }
+        session.start()
+        #expect(changes.withLock { $0 } == 1, "offered to looking redraws")
+        changes.withLock { $0 = 0 }
+        withObservationTracking { _ = session.state } onChange: { changes.withLock { $0 += 1 } }
+        #expect(await eventually(describing: "the Look to receive its clone") { entered.withLock { $0 } })
+        #expect(cloneExists && session.clonePath == clone.path)
+        #expect(changes.withLock { $0 } == 0, "acquiring the clone leaves the displayed state looking")
+        release.continuation.yield(())
+        release.continuation.finish()
+        await session.settled()
+        #expect(session.state == .proposal(proposal))
+        #expect(changes.withLock { $0 } == 1, "looking to proposal redraws")
+        session.cancel(); await session.settled()
+        #expect(!cloneExists)
     }
 
     /// M4: the action runs again as soon as the fix is in — not after the clone, a whole checkout, is removed.

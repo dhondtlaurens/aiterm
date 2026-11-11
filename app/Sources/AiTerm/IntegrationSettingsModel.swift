@@ -167,8 +167,8 @@ final class IntegrationSettingsModel {
     init(jira: JiraConfig?, gitLab: GitLabConfig?, gitHub: GitHubConfig? = nil, store: SecretStore = Keychain.shared, defaults: UserDefaults = .standard,
          record: ServiceTestRecord = ServiceTestRecord(), retestDelay: Duration = .seconds(1),
          testJira: @escaping @Sendable (JiraConfig) async throws -> String = { try await JiraClient(config: $0).testConnection() },
-         testGitLab: @escaping @Sendable (GitLabConfig) async throws -> String = { try await GitLabClient(config: $0).testConnection() },
-         testGitHub: @escaping @Sendable (GitHubConfig) async throws -> String = { try await GitHubClient(config: $0).testConnection() }) {
+         testGitLab: @escaping @Sendable (GitLabConfig) async throws -> String = { try await GitLabClient.testConnection(config: $0) },
+         testGitHub: @escaping @Sendable (GitHubConfig) async throws -> String = { try await GitHubClient.testConnection(config: $0) }) {
         self.jira = ServiceConnection(fields: JiraFields(jira), isSaved: jira != nil, invalidURL: "Enter a valid Jira site URL",
                                       retestDelay: retestDelay, connect: testJira)
         self.gitLab = ServiceConnection(fields: GitLabFields(gitLab), isSaved: gitLab != nil, invalidURL: "Enter a valid GitLab host URL",

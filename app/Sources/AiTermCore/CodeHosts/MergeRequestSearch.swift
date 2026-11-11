@@ -56,8 +56,8 @@ public enum MergeRequestSearch {
     public static func source(for remote: RemoteInfo, gitLab: GitLabConfig?, gitHub: GitHubConfig?,
                               session: URLSession = .shared) throws(Unavailable) -> any HostRepository {
         switch try connection(for: remote, gitLab: gitLab, gitHub: gitHub) {
-        case .gitHub(let config, let repo): return GitHubPublisher(client: GitHubClient(config: config, session: session), repo: repo)
-        case .gitLab(let config, let project): return GitLabPublisher(client: GitLabClient(config: config, session: session), project: project)
+        case .gitHub(let config, let repo): return GitHubClient(config: config, repo: repo, session: session)
+        case .gitLab(let config, let project): return GitLabClient(config: config, project: project, session: session)
         }
     }
 }

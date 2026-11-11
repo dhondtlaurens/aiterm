@@ -11,6 +11,27 @@ import Foundation
                           targetBranch: "main", author: "L", state: "opened", draft: false,
                           url: "https://git.example.net/web/acme-web/-/merge_requests/4")
 
+    /// Fixed workload: two sheets, three text searches per sheet. Before reuse: 6 requests.
+    @Test func aGitHubListingIsKeptForTheSheetsLife() async throws {
+        let pulls = (1...40).map { number -> [String: Any] in
+            ["number": number, "title": "Change \(number)", "html_url": "https://github.com/owner/repo/pull/\(number)",
+             "user": ["login": number == 40 ? "sam" : "other"],
+             "head": ["ref": "topic-\(number)", "repo": ["full_name": "owner/repo"]],
+             "base": ["ref": "main", "repo": ["full_name": "owner/repo"]]]
+        }
+        let data = try JSONSerialization.data(withJSONObject: pulls)
+        let stub = StubSession { _ in (200, data) }
+        let remote = RemoteInfo(host: "github.com", path: "owner/repo", provider: .github)
+        let config = GitHubConfig(token: "stub")
+        for _ in 0..<2 {
+            let search = ReviewCreationModel.searcher(gitLab: nil, gitHub: config, remote: remote, session: stub.session)
+            #expect(try await search("").map(\.iid) == Array(1...25))
+            #expect(try await search("topic-40").map(\.iid) == [40])
+            #expect(try await search("sam").map(\.iid) == [40])
+        }
+        #expect(stub.requests.count == 2) // 6 before, 2 after: one complete read per sheet, before filtering.
+    }
+
     private func model(search: @escaping @MainActor (String) async throws -> [MergeRequest] = { _ in [] },
                        agent: AgentKind = .claude, modelID: String = "sonnet", available: Set<AgentKind>? = nil,
                        catalogue: @escaping @Sendable (AgentKind) -> [AgentModel] = ScratchHome.catalogue,
@@ -106,8 +127,8 @@ import Foundation
     @Test func aGitLabForkCannotSelectASameNamedOriginBranch() async throws {
         let body = Data(#"[{"iid":4,"title":"Fork patch","source_branch":"feat-gift-card","target_branch":"main","web_url":"https://git.example.net/web/acme-web/-/merge_requests/4","source_project_id":99,"target_project_id":12}]"#.utf8)
         let stub = StubSession { _ in (200, body) }
-        let client = GitLabClient(config: GitLabConfig(hostURL: URL(string: "https://git.example.net")!, token: "t"), session: stub.session)
-        let fork = try #require(try await client.mergeRequests(project: "web/acme-web", search: "").first)
+        let client = GitLabClient(config: GitLabConfig(hostURL: URL(string: "https://git.example.net")!, token: "t"), project: "web/acme-web", session: stub.session)
+        let fork = try #require(try await client.mergeRequests(search: "").first)
         let m = model()
         let before = m.draft.branch
         m.pick(fork)
