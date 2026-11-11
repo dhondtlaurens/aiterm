@@ -418,26 +418,39 @@ public struct GitHubClient: HostRepository {
         _ = try await graphQL(Done.self, query: Self.replyMutation, variables: Variables(thread: thread, body: body))
     }
 
-    /// One query, never a mutation: a review thread by its node id, with its file, line, request and first comments.
-    static let threadDetailQuery = """
-        query($thread: ID!) {
-          node(id: $thread) {
-            ... on PullRequestReviewThread {
-              id path line originalLine pullRequest { number repository { nameWithOwner } }
-              comments(first: 50) { nodes { body author { login } } }
-            }
+    private static let threadDetailNode = """
+        node(id: $thread) {
+          ... on PullRequestReviewThread {
+            id path line originalLine pullRequest { number repository { id } }
+            comments(first: 50) { nodes { body author { login } } }
           }
         }
         """
 
+    /// Resolving the remote in this same query follows GitHub's renames and transfers.
+    static let threadDetailQuery = """
+        query($thread: ID!, $owner: String!, $name: String!) {
+          repository(owner: $owner, name: $name) { id }
+          \(threadDetailNode)
+        }
+        """
+
+    /// A binding that has no owner/name pair still permits the original node-only read.
+    private static let threadDetailNodeQuery = """
+        query($thread: ID!) {
+          \(threadDetailNode)
+        }
+        """
+
     /// The review thread `thread` whole, by its node id: its file and line, and its comments, oldest first, up to 50. One
-    /// that is not a thread of pull request `number` is no thread of it.
+    /// that is not a thread of pull request `number` is no thread of it. Known repository ids must agree;
+    /// without a resolvable binding, keep reading the detail rather than infer identity from a name.
     public func threadDetail(_ number: Int, thread: String) async throws -> ReviewThreadDetail {
-        struct Variables: Encodable { var thread: String }
+        struct Variables: Encodable { var thread: String, owner: String?, name: String? }
         struct Payload: Decodable {
+            struct Repository: Decodable { var id: String? }
             struct Node: Decodable {
                 struct Pull: Decodable {
-                    struct Repository: Decodable { var nameWithOwner: String }
                     var number: Int, repository: Repository?
                 }
                 struct Comments: Decodable {
@@ -446,11 +459,20 @@ public struct GitHubClient: HostRepository {
                 }
                 var id: String?, path: String?, line: Int?, originalLine: Int?, pullRequest: Pull?, comments: Comments?
             }
-            var node: Node?
+            var node: Node?, repository: Repository?
         }
-        let read = try await graphQL(Payload.self, query: Self.threadDetailQuery, variables: Variables(thread: thread))
+        let binding = Self.ownerAndName(repo)
+        let read = try await graphQL(Payload.self,
+            query: binding == nil ? Self.threadDetailNodeQuery : Self.threadDetailQuery,
+            variables: Variables(thread: thread, owner: binding?.owner, name: binding?.name),
+            answer: { (answer: GraphQLAnswer<Payload, GraphQLProblem>) in
+                // Only errors on the added lookup may leave the original node read intact.
+                let errors = answer.errors?.filter { binding == nil || $0.path?.first?.stringValue != "repository" }
+                return try GraphQLAnswer(data: answer.data, errors: errors).checked(repo: repo)
+            })
+        let expected = read.repository?.id, actual = read.node?.pullRequest?.repository?.id
         guard let node = read.node, let id = node.id, node.pullRequest?.number == number,
-              node.pullRequest?.repository?.nameWithOwner.lowercased() == repo.lowercased() else {
+              binding == nil || expected == nil || actual == nil || expected == actual else {
             throw GitHubError.refused("thread \(thread) is not on pull request #\(number)")
         }
         return ReviewThreadDetail(id: id, path: node.path, line: node.line ?? node.originalLine,
@@ -747,7 +769,10 @@ private struct GraphQLAnswer<Payload: Decodable, Problem: Decodable>: Decodable 
     var data: Payload?, errors: [Problem]?
 }
 
-private struct GraphQLProblem: Decodable { var type: String?, message: String? }
+private struct GraphQLProblem: Decodable {
+    var type: String?, message: String?
+    @Lenient var path: [JSONValue]?
+}
 
 extension GraphQLAnswer where Problem == GraphQLProblem {
     func checked(repo: String) throws -> Payload {

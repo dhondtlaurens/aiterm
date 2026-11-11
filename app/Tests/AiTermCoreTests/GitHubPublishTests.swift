@@ -68,9 +68,11 @@ import Synchronization
 
     /// A node id is global: another repository can have the same pull-request number.
     @Test(arguments: [("octocat/hello", "octocat/hello"), ("OCTOCAT/HELLO", "octocat/hello"),
-                      ("octocat/hello", "OCTOCAT/HELLO"), ("octocat/hello", "someone/else")])
+                      ("octocat/hello", "OCTOCAT/HELLO"), ("octocat/hello", "someone/else"),
+                      ("octocat/hello", "octocat/renamed"), ("octocat/hello", "newowner/hello")])
     func aThreadDetailBelongsToTheBoundRepositoryIgnoringCase(_ remote: String, _ repository: String) async throws {
-        let answer = #"{"data":{"node":{"id":"TH","path":"a.swift","line":4,"originalLine":3,"pullRequest":{"number":88,"repository":{"nameWithOwner":"\#(repository)"}},"comments":{"nodes":[{"body":"Keep this text.","author":{"login":"sam"}}]}}}}"#
+        let repositoryID = repository == "someone/else" ? "R_OTHER" : "R_BOUND"
+        let answer = #"{"data":{"repository":{"id":"R_BOUND"},"node":{"id":"TH","path":"a.swift","line":4,"originalLine":3,"pullRequest":{"number":88,"repository":{"id":"\#(repositoryID)","nameWithOwner":"\#(repository)"}},"comments":{"nodes":[{"body":"Keep this text.","author":{"login":"sam"}}]}}}}"#
         let (client, stub) = makeClient(repo: remote) { _ in (200, Data(answer.utf8)) }
         if repository == "someone/else" {
             await #expect(throws: GitHubError.refused("thread TH is not on pull request #88")) {
@@ -79,6 +81,44 @@ import Synchronization
         } else {
             #expect(try await client.threadDetail(88, thread: "TH") ==
                 ReviewThreadDetail(id: "TH", path: "a.swift", line: 4, notes: [.init(author: "sam", body: "Keep this text.")]))
+        }
+        #expect(stub.requests.count == 1)
+        let sent = try body(stub.lastRequest)
+        let variables = try #require(sent["variables"] as? [String: String])
+        let parts = remote.split(separator: "/").map(String.init)
+        #expect(variables == ["thread": "TH", "owner": parts[0], "name": parts[1]])
+        #expect((sent["query"] as? String)?.contains("repository(owner: $owner, name: $name) { id }") == true)
+        #expect((sent["query"] as? String)?.contains("pullRequest { number repository { id } }") == true)
+    }
+
+    @Test(arguments: ["octocat/hello", "octocat", "owner/name/extra"])
+    func aThreadDetailKeepsReadingWhenTheRepositoryCannotBeResolved(_ remote: String) async throws {
+        let answer = #"{"data":{"repository":null,"node":{"id":"TH","path":"a.swift","line":4,"pullRequest":{"number":88,"repository":{"id":"R_OTHER","nameWithOwner":"someone/else"}},"comments":{"nodes":[{"body":"Keep this text.","author":{"login":"sam"}}]}}}}"#
+        let (client, stub) = makeClient(repo: remote) { _ in (200, Data(answer.utf8)) }
+        #expect(try await client.threadDetail(88, thread: "TH") ==
+            ReviewThreadDetail(id: "TH", path: "a.swift", line: 4, notes: [.init(author: "sam", body: "Keep this text.")]))
+        #expect(stub.requests.count == 1)
+        let sent = try body(stub.lastRequest)
+        let variables = try #require(sent["variables"] as? [String: String])
+        if remote == "octocat/hello" {
+            #expect(variables == ["thread": "TH", "owner": "octocat", "name": "hello"])
+        } else {
+            #expect(variables == ["thread": "TH"])
+            #expect((sent["query"] as? String)?.contains("repository(owner:") == false)
+        }
+    }
+
+    @Test(arguments: ["repository", "node", "", "malformed"])
+    func onlyTheAdditionalRepositoryLookupsErrorCanLeaveTheDetailReadable(_ path: String) async throws {
+        let errorPath = path == "malformed" ? #", "path":false"# : (path.isEmpty ? "" : #", "path":["\#(path)"]"#)
+        let answer = #"{"data":{"repository":null,"node":{"id":"TH","pullRequest":{"number":88,"repository":{"id":"R_OTHER","nameWithOwner":"someone/else"}}}},"errors":[{"type":"NOT_FOUND","message":"Not found"\#(errorPath)}]}"#
+        let (client, stub) = makeClient { _ in (200, Data(answer.utf8)) }
+        if path == "repository" {
+            #expect(try await client.threadDetail(88, thread: "TH") == ReviewThreadDetail(id: "TH", path: nil, line: nil, notes: []))
+        } else {
+            await #expect(throws: GitHubError.repoNotFound("octocat/hello")) {
+                _ = try await client.threadDetail(88, thread: "TH")
+            }
         }
         #expect(stub.requests.count == 1)
     }

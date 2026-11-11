@@ -221,8 +221,6 @@ public struct JiraClient: Sendable {
         }.flatMap { $0 }
     }
 
-    /// How many requests one fan-out has in flight. A number across ten linked projects asks for
-    /// ten picker lists and ten lookups, which Jira answered with 429 when sent at once.
     /// `lists` in order, each ticket once, at most `maxResults`.
     private static func merged(_ lists: [JiraTicket]...) -> [JiraTicket] {
         var seen = Set<String>()

@@ -8,7 +8,7 @@ public struct Release: Equatable, Sendable {
 }
 
 public extension Release {
-    /// What a release's disk image is called, on every host.
+    /// What a GitHub release's disk image is called.
     static func assetName(for version: ReleaseVersion) -> String { "AiTerm-\(version).dmg" }
 }
 
@@ -22,7 +22,7 @@ public protocol ReleaseSource: Sendable {
 /// The release download: the request's body streamed to a temporary file, then moved
 /// to its place. The image is the whole app bundle, so it never sits in memory.
 enum ReleaseDownload {
-    /// `mapping` turns the request's failure into the host's `UpdateError`. A file that is already
+    /// `mapping` turns the request's failure into GitHub's `UpdateError`. A file that is already
     /// at `destination` is replaced.
     static func save(_ request: URLRequest, to destination: URL, session: URLSession,
                      mapping: (HTTPJSON.Failure) -> UpdateError) async throws {
@@ -78,7 +78,7 @@ public enum UpdateError: Error, Equatable, LocalizedError {
     public var errorDescription: String? { message }
 }
 
-/// One entry of a host's release list as a source read it: its tag, if it had one, and its assets
+/// One entry of GitHub's release list as the source read it: its tag, if it had one, and its assets
 /// by file name.
 struct ReleaseEntry {
     var tag: String?
