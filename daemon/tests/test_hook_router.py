@@ -398,7 +398,7 @@ async def test_claude_file_lookup_does_not_block_hook_event_loop(tmp_path, monke
     assert lookup_threads and loop_thread not in lookup_threads
 
 
-async def test_a_conversation_already_indexed_is_placed_on_the_loop_without_a_scan(tmp_path, monkeypatch):
+async def test_a_conversation_already_indexed_is_placed_without_a_scan(tmp_path, monkeypatch):
     import json
 
     hooks = Hooks(tmp_path)

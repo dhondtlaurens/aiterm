@@ -21,6 +21,7 @@ from websockets.http11 import Response
 
 from aitermd import iterm_bridge, process_agents
 from aitermd.iterm_bridge import ItermAuthFailed, ItermBridge, ItermUnavailable, VARIABLES, request_cookie
+from aitermd.iterm_port import SessionNotFound
 from aitermd.models import Frame
 from aitermd.process_agents import read_processes
 from aitermd.sessions import SessionRegistry
@@ -1701,7 +1702,7 @@ async def test_one_screen_read_gives_its_text_and_its_typed_view(monkeypatch):
 
     async def session(session_id, app=None):
         if session_id != "s1":
-            raise KeyError(session_id)
+            raise SessionNotFound(session_id)
         return Session()
 
     monkeypatch.setattr(bridge, "_session", session)

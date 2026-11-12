@@ -497,12 +497,14 @@ Each box leaves the project working and is one or a few commits.
 - [x] 0c. Daemon budgets: agent-path registry sorts and the audit-hook counts.
 - [x] 0d. Shared test builders, per-process scratch root, the `@testable` note.
 - [x] 0e. Review record started with the baselines.
-- [ ] 1a. Deadlines on the unbounded reads; Codex Stop answered first (tests first).
-- [ ] 1b. Background reader offset and prefilter; one rollout cursor with a cap; subagent path memo.
-- [ ] 1c. Test activity: injectable directory, stamp cache, age before lock.
-- [ ] 1d. Readers own plan and apply; `Service` runs the fixed list; test seams.
-- [ ] 1e. Port and screens modules, strict typing, auth patch at connect.
-- [ ] 1f. Task index, `SessionNotFound`, ruff rules, keyword-only hook fields, test builders, README.
+- [x] 1a. Deadlines on the unbounded reads; Codex Stop answered first (tests first).
+- [x] 1b. One rollout cursor with a tail window and exact head fallback; subagent path memo.
+  Background offset and prefilter dropped: restore has no byte checkpoint, and skipping pre-marker lines
+  changes gap evidence; its first-read byte and parse budgets do not move (record).
+- [x] 1c. Test activity: injectable directory, stamp cache, age before lock.
+- [x] 1d. Readers own plan and apply; `Service` runs the fixed list; test seams.
+- [x] 1e. Port and screens modules, strict typing, auth patch at connect.
+- [x] 1f. Task index, `SessionNotFound`, ruff rules, keyword-only hook fields, test builders, README.
 - [x] 2a. Locked worktree record (test first); successful-only login-shell answer.
 - [x] 2b. One lane per repository, with the rendezvous test.
 - [x] 2c. Bounded output and untrimmed runner; bounded diff readers.

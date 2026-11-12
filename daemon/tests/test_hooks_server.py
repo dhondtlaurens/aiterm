@@ -168,6 +168,7 @@ async def test_mcp_stop_hook_uses_an_existing_connection_and_delivers_to_codex_r
         "params": {"name": "post_codex_hook", "arguments": event},
     }, iterm_session_id="w0t0p0:codex")
     assert status == 200 and called["result"]["structuredContent"] == {}
+    await received.delivered(1)
     assert received == [("/hook/codex", {**event, "_aiterm_iterm_session_id": "w0t0p0:codex"})]
 
 
@@ -507,3 +508,26 @@ async def test_route_can_reply_with_a_standard_status_outside_hook_errors(server
 
     srv.operator_route = Route()
     assert await operator_post(srv.port, {}, token="token") == (201, {"created": True})
+
+
+async def test_mcp_stop_is_answered_before_routing_finishes():
+    release, entered = asyncio.Event(), asyncio.Event()
+
+    async def route(path, payload):
+        entered.set()
+        await release.wait()
+
+    srv = HookServer(port=0, on_post=route)
+    await srv.start()
+    try:
+        status, answer = await asyncio.wait_for(mcp(srv.port, {
+            "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+            "params": {"name": "post_codex_hook", "arguments": {"hook_event_name": "Stop"}},
+        }), 0.3)
+        assert status == 200
+        assert answer == {"jsonrpc": "2.0", "id": 7, "result": {
+            "content": [{"type": "text", "text": "{}"}], "isError": False, "structuredContent": {}}}
+        await asyncio.wait_for(entered.wait(), 1)
+    finally:
+        release.set()
+        await srv.stop()

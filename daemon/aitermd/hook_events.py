@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import KW_ONLY, dataclass, replace
 from typing import Any, NamedTuple
 
 from .text import nonempty_string
@@ -21,6 +21,7 @@ class HookEvent:
     model: str | None
     session_id: str | None
     cwd: str | None
+    _: KW_ONLY
     subagent_id: str | None = None
     iterm_session_id: str | None = None
     reasoning: str | None = None
@@ -190,7 +191,7 @@ def _claude_event(p: dict[str, Any]) -> HookEvent | None:
         if (child := _subagent(name, p)) is None:
             return None
         transcript = _claude_subagent_transcript(p, child[1]) if name == "SubagentStart" else None
-        return HookEvent("claude", child[0], None, sid, cwd, child[1], subagent_transcript=transcript, event_name=name,
+        return HookEvent("claude", child[0], None, sid, cwd, subagent_id=child[1], subagent_transcript=transcript, event_name=name,
                          subagent_label=nonempty_string(p.get("agent_type")))
     if name == "Stop":
         tasks = p.get("background_tasks")
@@ -220,7 +221,7 @@ def parse_codex_hook(p: dict[str, Any]) -> HookEvent | None:
         return HookEvent("codex", _session_start(p), model, sid, cwd, iterm_session_id=iterm_session_id, event_name=name)
     if name in {"SubagentStart", "SubagentStop"}:
         child = _subagent(name, p)
-        return HookEvent("codex", child[0], None, sid, cwd, child[1], iterm_session_id, event_name=name,
+        return HookEvent("codex", child[0], None, sid, cwd, subagent_id=child[1], iterm_session_id=iterm_session_id, event_name=name,
                          subagent_label=nonempty_string(p.get("agent_type"))) if child else None
     if name in SIMPLE_EVENTS:
         return HookEvent("codex", SIMPLE_EVENTS[name], model, sid, cwd, iterm_session_id=iterm_session_id, event_name=name,

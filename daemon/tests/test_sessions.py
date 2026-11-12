@@ -1,9 +1,9 @@
-from aitermd.models import BackgroundJob, DisplayWork, DisplayWorkItem, RawSession, SlashCommand
+from aitermd.models import BackgroundJob, DisplayWork, DisplayWorkItem, SlashCommand
 from aitermd.sessions import SessionRegistry
 
-
-def raw(sid="s1", win="w1", tab=0, cmd="-zsh", pid=100, title="zsh", cwd="/home", active=False, **vars_):
-    return RawSession(sid, win, tab, cmd, pid, title, cwd, dict(vars_), active=active)
+from tests.builders import (
+    raw_session as raw,
+)
 
 
 def test_first_snapshot_opens_sessions_with_agent_and_tag():
@@ -295,3 +295,22 @@ def test_the_cli_version_goes_with_the_agents_process():
     reg.apply_snapshot([raw(cmd="claude", pid=8, cwd="/elsewhere")])
     assert reg.get("s1").cli_version is None, "another process reports its own"
     assert reg.set_cli_version("s404", "2.1.301") is False
+
+
+def test_task_index_tracks_moves_retags_replacements_and_closures(monkeypatch):
+    reg = SessionRegistry()
+    reg.apply_snapshot([raw(sid="b", win="w2", tab=1, aiterm_task="t1"),
+                        raw(sid="a", win="w1", aiterm_task="t1"), raw(sid="c", win="w2", tab=1, aiterm_task="t1")])
+
+    def unexpected_sort():
+        raise AssertionError("a task lookup sorted the whole registry")
+
+    monkeypatch.setattr(reg, "all", unexpected_sort)
+    assert [s.session_id for s in reg.for_task("t1")] == ["a", "b", "c"]
+    reg.apply_snapshot([raw(sid="b", win="w0", tab=2, aiterm_task="t2"),
+                        raw(sid="c", win="w1", aiterm_task="t1"), raw(sid="a", win="w1", pid=200, aiterm_task="t1")])
+    assert [s.session_id for s in reg.for_task("t1")] == ["a", "c"]  # Stable pane ties use first-seen order.
+    assert [s.session_id for s in reg.for_task("t2")] == ["b"]
+    assert reg.for_task("t1")[0] is reg.get("a")
+    reg.apply_snapshot([])
+    assert reg.for_task("t1") == reg.for_task("t2") == []
