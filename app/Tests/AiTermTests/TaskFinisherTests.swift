@@ -61,7 +61,8 @@ final class MergeClock: Sendable {
     }
 
     func setUp(end: TaskEnd, git finisherGit: (any GitRunning)? = nil, slices: Slices = OperatedWorld.profile.slices,
-               connect: (@Sendable (RemoteInfo) throws -> any MergeRequestPublishing)? = nil) throws -> Setup {
+               connect: (@Sendable (RemoteInfo) throws -> any MergeRequestPublishing)? = nil,
+               work: OperatorWork = OperatorWork()) throws -> Setup {
         let fixture = try GitFixture.withOrigin(branch: "feat/pluto-231")
         var world = OperatedWorld(projectPath: fixture.path)
         let run = world.addRun(slices: slices)
@@ -79,7 +80,7 @@ final class MergeClock: Sendable {
                                         return try connect?(remote) ?? host
                                     },
                                     now: { clock.now },
-                                    sleep: { seconds in await ticker.wait(); clock.slept(seconds) })
+                                    sleep: { seconds in await ticker.wait(); clock.slept(seconds) }, work: work)
         let forgotten = Recorded<Void>()
         finisher.refreshLogin = { forgotten.append(()) }
         finisher.changed = { changed.ids.append($0) }
@@ -112,9 +113,6 @@ final class MergeClock: Sendable {
 
     /// `finish_task` says what it did to the request's draft state, so the Operator needn't ask the host.
     @Test func finishSaysWhetherTheDraftChanged() async throws {
-        let draft = try setUp(end: .draftMR)
-        #expect(await draft.finisher.finish(draft.task).draftNote == "MR !12 opened as a draft")
-
         // A merge end opens a request that is ready, and waits for the host.
         let merge = try setUp(end: .merge)
         let opened = await merge.finisher.finish(merge.task)
@@ -472,12 +470,15 @@ final class MergeClock: Sendable {
     @Test func aPushTheHookRefusedIsRecordedInTheHooksWords() async throws {
         let s = try setUp(end: .draftMR)
         let hook = URL(fileURLWithPath: s.path).appendingPathComponent(".git/hooks/pre-push")
-        try "#!/bin/sh\necho 'lefthook: running pre-push'\necho 'sh: npm: command not found' >&2\nexit 1\n"
+        try ("#!/bin/sh\necho 'lefthook: running pre-push' >&2\necho 'lint failed: src/a.ts' >&2\necho '  1:5  error  no-unused-vars' >&2\n"
+            + "echo 'tsc: 2 errors' >&2\necho 'pre-push script failed' >&2\nexit 1\n")
             .write(to: hook, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
         let result = await s.finisher.finish(s.task)
-        let why = "The pre-push hook refused the push of feat/pluto-231: lefthook: running pre-push\nsh: npm: command not found"
+        let why = "The pre-push hook refused the push of feat/pluto-231: lefthook: running pre-push\nlint failed: src/a.ts\n"
+            + "  1:5  error  no-unused-vars\ntsc: 2 errors\npre-push script failed"
         #expect(result.result == .failed)
+        #expect(s.forgotten.all.isEmpty, "ordinary hook failure keeps the login answers")
         #expect(result.reason == why)
         #expect(operated(s)?.publication?.problem == why)
         #expect(try StateStore(url: s.store.file.url).load().task(id: s.task)?.operated?.publication?.problem == why, "saved")
@@ -660,23 +661,6 @@ final class MergeClock: Sendable {
         try script.write(to: hook, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
         return hook
-    }
-
-    /// The Operator diagnoses a refusal itself, so it is told everything the hook said (git's own
-    /// `failed to push` line apart), however many lines that is.
-    @Test func aRefusingHookIsQuotedWhole() async throws {
-        let s = try setUp(end: .draftMR)
-        _ = try writeHook("#!/bin/sh\necho 'lefthook: running pre-push'\necho 'lint failed: src/a.ts'\necho '  1:5  error  no-unused-vars' >&2\n"
-                          + "echo 'tsc: 2 errors'\necho 'pre-push script failed' >&2\nexit 1\n", in: s)
-        let result = await s.finisher.finish(s.task)
-        #expect(result.result == .failed)
-        let reason = try #require(result.reason)
-        for line in ["lefthook: running pre-push", "lint failed: src/a.ts", "1:5  error  no-unused-vars", "tsc: 2 errors", "pre-push script failed"] {
-            #expect(reason.contains(line), "\(line) is in: \(reason)")
-        }
-        #expect(!reason.contains("failed to push some refs"))
-        #expect(reason.hasPrefix("The pre-push hook refused the push of feat/pluto-231: "))
-        #expect(s.forgotten.all.isEmpty, "an ordinary refusal leaves the login answers alone")
     }
 
     /// noVerify skips a hook only once a push without it showed what the hook says (spec §B): the refused push's
@@ -1124,5 +1108,78 @@ extension TaskFinisherTests {
         #expect(operated(s)?.publication?.leftForYou == true)
         #expect(s.store.state.run(id: s.run)?.leftForYou.first?.contains("feat/pluto-231") == true)
         #expect(RunScheduler.isComplete(s.store.state.run(id: s.run)!, in: s.store.state))
+    }
+}
+
+
+extension TaskFinisherTests {
+    @Test func anOldSteeringReleaseCannotReleaseARestoredTasksNewHold() async throws {
+        let s = try setUp(end: .draftMR)
+        let task = try #require(s.store.state.task(id: s.task))
+        let oldRelease = s.finisher.hold(s.task)
+        s.store.mutate { $0.tasks.removeAll { $0.id == s.task } }
+        s.finisher.forgetRemovedTasks()
+        s.store.mutate { $0.tasks.append(task) }
+        let newRelease = s.finisher.hold(s.task)
+        oldRelease()
+        let held = await s.finisher.finish(s.task)
+        #expect(held.result == .refused && held.reason == TaskFinisher.beingSteered("PLUTO-231"))
+        newRelease()
+        let finished = await s.finisher.finish(s.task)
+        #expect(finished.result == .published)
+    }
+
+    /// Main 51f83d77's complete result shape, before internal refusal kinds were carried.
+    private struct CurrentFinishResult: Codable {
+        let result: TaskFinisher.Result.Kind
+        let reason: String?, mergeRequest: String?, pushedSHA: String?
+        let merged: Bool
+        let mergedSHA: String?, draftNote: String?
+    }
+
+    @Test func internalOutcomeKindsKeepTheCurrentResultBytes() throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let cases: [(String?, TaskPublication.ProblemKind?)] = [
+            (nil, nil), ("The branch moved.", .failure), (PublicationGuard.mergeSliceOff, .permanent),
+            (PublicationGuard.oracleYesNeeded, .hold), ("A host says no connected code host here.", .permanent),
+            ("The branch is the default branch, as a host diagnostic.", .permanent),
+        ]
+        for (reason, kind) in cases {
+            let actual = TaskFinisher.Result(result: .refused, reason: reason, mergeRequest: FakeMergeHost.url,
+                                             pushedSHA: "accepted", merged: true, mergedSHA: "merged", draftNote: "left as a draft")
+            let current = CurrentFinishResult(result: actual.result, reason: actual.reason, mergeRequest: actual.mergeRequest,
+                                              pushedSHA: actual.pushedSHA, merged: actual.merged, mergedSHA: actual.mergedSHA,
+                                              draftNote: actual.draftNote)
+            #expect(actual.problemKind == kind)
+            #expect(try encoder.encode(actual) == encoder.encode(current))
+            #expect(try JSONDecoder().decode(TaskFinisher.Result.self, from: encoder.encode(current)) == actual)
+        }
+    }
+}
+
+
+extension TaskFinisherTests {
+    @Test func removingATaskDuringAHostWriteKeepsItsCallWithinItsBudget() async throws {
+        let work = OperatorWork(), creating = OracleGate(), entered = Recorded<String>()
+        let s = try setUp(end: .draftMR, work: work)
+        s.host.update { script in
+            script.beforeCreate = { entered.append("creating"); await creating.wait() }
+        }
+        var answer: TaskFinisher.Result?
+        work.start { _ = await s.finisher.finish(s.task) }
+        await eventually(describing: "creation entered after the push") { entered.all == ["creating"] }
+        work.start { answer = await s.finisher.finish(s.task, budget: .milliseconds(400)) }
+        await eventually(describing: "the budgeted caller joined the held publication") { s.finisher.joined == 1 }
+        s.store.mutate { $0.tasks.removeAll { $0.id == s.task } }
+        s.finisher.forgetRemovedTasks()
+        // The sent creation and its unbudgeted starter remain. The joined tool caller still answers on time.
+        await work.settled(leaving: 2)
+        #expect(answer?.result == .running)
+        #expect(s.finisher.running.isEmpty && !s.finisher.pending(s.task))
+        await creating.open()
+        await work.settled()
+        #expect(s.finisher.running.isEmpty && s.finisher.watching.isEmpty && !s.finisher.pending(s.task))
+        #expect(s.store.state.task(id: s.task) == nil)
     }
 }

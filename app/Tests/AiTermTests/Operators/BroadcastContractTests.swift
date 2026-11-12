@@ -54,7 +54,7 @@ import Testing
 
     /// Both new tools change the run; recording a review is not challenged and must name a task in the run.
     @Test func recordReviewAndCheckGoalAreMutating() async throws {
-        #expect(OperatorToolHandler.mutating.isSuperset(of: [.recordReview, .checkGoal]))
+        #expect(OperatorTool.recordReview.isMutating && OperatorTool.checkGoal.isMutating)
         #expect(!OperatorToolHandler.isChallenged(ToolCall(tool: "record_review", arguments: [:]), oracleIsOn: true))
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
@@ -139,16 +139,26 @@ import Testing
                 "no default saved: the first model the list has, at its default reasoning")
     }
 
-    /// The tools' traits (`OperatorTool`) say what the handler's own tables say, until the handler reads the traits.
-    @Test func theToolTraitsAgreeWithTheHandlersTables() {
-        #expect(OperatorToolHandler.mutating == Set(OperatorTool.allCases.filter(\.isMutating)))
-        #expect(OperatorToolHandler.actsOnTask == Set(OperatorTool.allCases.filter { $0.actKind == .onTask }))
+    /// The tables in main 51f83d77 are the reference for the handler moving onto traits.
+    @Test func theHandlerKeepsTheCurrentToolRules() {
+        let mutating: Set<OperatorTool> = [.createTask, .updateTask, .submitPlan, .messageTask, .openTab, .markTask, .resumeTask,
+                                              .retryTask, .finishTask, .askYou, .relayQuestion, .resolveQuestion, .logDecision, .leaveForYou, .reportFind,
+                                              .reportSnag, .writeSummary, .jiraCreate, .jiraMove, .jiraLink, .jiraSprint, .jiraEdit,
+                                              .jiraComment, .reviewTask, .requestReview, .replyThread, .resolveThread, .critiqueThread, .updateRequest, .retryPipeline, .recordReview,
+                                              .checkGoal]
+        let actsOnTask: Set<OperatorTool> = [.messageTask, .markTask, .finishTask, .reviewTask, .requestReview, .replyThread]
+        let actsOnBroadcast: [OperatorTool: OperatorAct] = [.createTask: .loadingTheConstruct, .updateTask: .loadingTheConstruct,
+                                                               .submitPlan: .loadingTheConstruct, .jiraCreate: .filingATicket,
+                                                               .reportFind: .filingATicket]
+        #expect(mutating == Set(OperatorTool.allCases.filter(\.isMutating)))
+        #expect(actsOnTask == Set(OperatorTool.allCases.filter { $0.actKind == .onTask }))
         let onBroadcast = OperatorTool.allCases.compactMap { tool -> (OperatorTool, OperatorAct)? in
             if case .onBroadcast(let act) = tool.actKind { (tool, act) } else { nil }
         }
-        #expect(OperatorToolHandler.actsOnBroadcast == Dictionary(uniqueKeysWithValues: onBroadcast))
+        #expect(actsOnBroadcast == Dictionary(uniqueKeysWithValues: onBroadcast))
         let everything: JSONValue = ["outcome": "accepted", "noVerify": true]
         for tool in OperatorTool.allCases {
+            #expect(OperatorToolHandler.isMutating(ToolCall(tool: tool.rawValue, arguments: [:])) == mutating.contains(tool))
             let challenged = OperatorToolHandler.isChallenged(ToolCall(tool: tool.rawValue, arguments: everything), oracleIsOn: true,
                                                               backlog: .needsOracle, merges: true)
             #expect(challenged == [.critique, .veto].contains(tool.challengeClass), "\(tool)")

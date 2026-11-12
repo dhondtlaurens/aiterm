@@ -537,10 +537,15 @@ Each box leaves the project working and is one or a few commits.
 - [x] 5e. Per-key records; the listing-wait value; batched mutations; typed errors.
 - [x] 5f. Window owner and pause signaller; branch-watch and review-watch caches; closed wake reasons. The shelved
   board's one derivation is dropped: no budget counts it (record).
-- [ ] 6a. One Oracle-job owner, cancelled on Stop and End (test first).
-- [ ] 6b. Handler on tool traits; private tables; `mark_task` enum; sentence and timeout helpers.
-- [ ] 6c. Concurrent `run_status` host reads; reused landing check; settings sync sites.
-- [ ] 6d. Finisher as a reference with one record per task; outcome kind; test layering.
+- [x] 6a. One Oracle-job owner, cancelled on Stop and End (test first). Review round 1 restores main’s
+  settings-save policy (non-acted challenge/relay jobs only); task/workspace removal cancels no Oracle job.
+- [x] 6b. Handler on tool traits; private tables; `mark_task` enum; sentence and timeout helpers.
+- [x] 6c. Concurrent `run_status` host reads; settings sync sites. Status-build skipping dropped: its probe leaves
+  the primed call at 3 and the frozen journey at 47, so its code is left out. "A judged merge reuses the gate's
+  landing check" is dropped on the Operator's decision: reuse changes the reply when the host merges during the
+  Oracle wait (published/merged true becomes waitingToMerge/merged false, with create/edit calls). Keep the second
+  fetch and the regression test; no fetch-budget improvement is claimed (record).
+- [x] 6d. Finisher as a reference with one record per task; outcome kind; test layering.
 - [ ] 7a. Shared teardown prepare and run.
 - [ ] 7b. Debounced search; hook list; grouped ports.
 - [ ] 7c. Blocking checks off the main actor; reconciler trigger; scan projection; row chooser.

@@ -301,13 +301,14 @@ final class OperatorController {
         signaller = PauseSignaller(workspace: workspace, live: live, ports: ports, daemon: daemon, turns: turns)
         windows = OperatorWindows(workspace: workspace, live: live, ports: ports, daemon: daemon, taskFrame: taskFrame,
                                   transcripts: transcripts, statuses: statuses, listing: listing)
-        tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, waker: waker, tabs: tabs,
-                                    transcripts: transcripts, turns: turns, quiet: quiet, prompts: prompts, statuses: statuses)
         finisher = TaskFinisher(store: workspace, git: ports.git, connect: ports.publisher, now: clock.now,
-                                sleep: { try await clock.sleep(.merge, .seconds($0)) })
+                                sleep: { try await clock.sleep(.merge, .seconds($0)) }, work: ports.work)
+        tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, waker: waker, tabs: tabs,
+                                    transcripts: transcripts, turns: turns, quiet: quiet, prompts: prompts, statuses: statuses, finisher: finisher)
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         workspace.onChange { [weak self] in
             // A task taken over, stopped or moved on: what its worker's turn left is read again or dropped first.
+            self?.finisher.forgetRemovedTasks()
             self?.turns.observe()
             self?.quiet.observe()
             self?.observeRuns()
@@ -354,19 +355,10 @@ final class OperatorController {
         finisher.changed = { [weak self] id in self?.publicationChanged(id) }
         finisher.mergedOnHost = { [weak self] id, why in self?.askAboutMergeOnHost(id, why) }
         finisher.watchStopped = { [weak self] id, why in self?.mergeWatchStopped(id, why) }
-        tools.publishing = { [weak self] id in self?.finisher.running.contains(id) ?? false }
-        tools.holdPublication = { [weak self] id in self?.finisher.hold(id) }
-        tools.releasePublication = { [weak self] id in self?.finisher.release(id) }
-        tools.pendingFinish = { [weak self] id in self?.finisher.pending(id) ?? false }
         tools.launchNow = { [weak self] id, budget in
             await self?.launchNow(id, within: budget) ?? LaunchReport(result: "queued", note: "AiTerm is closing.")
         }
         finisher.finishedLate = { [weak self] id in self?.publicationEndedLate(id) }
-        tools.finish = { [weak self] id, call in
-            guard let self else { return TaskFinisher.Result(result: .refused, reason: "AiTerm is closing.") }
-            return await self.finisher.finish(id, noVerify: call.noVerify, content: call.content, budget: call.budget,
-                                              joinOnly: call.joinOnly)
-        }
         notices.onIssueChanged { [weak self] old, new in self?.bannerChanged(from: old, to: new) }
         hearProfileSaves()
     }
@@ -510,7 +502,7 @@ final class OperatorController {
         guard let start = launches[id] else { return LaunchReport(id, in: workspace.state, starting: starter.starting.contains(id)) }
         let outcome: WorkerStarter.Outcome?
         if let budget {
-            if case .success(let ended) = await OperatorToolHandler.within(budget, cancelling: false, { await start.value }) {
+            if case .success(let ended) = await BackgroundWork.within(budget, cancelling: false, { await start.value }) {
                 outcome = ended
             } else {
                 outcome = nil

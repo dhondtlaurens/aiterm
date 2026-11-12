@@ -136,11 +136,11 @@ import Testing
         world.controller.runChanged(runId)
         await status("goal-due")
         let missing: JSONValue = ["met": false, "evidence": "One final verification remains.", "missing": ["Verify the release."]]
-        tools.vettedCalls.insert(OperatorToolHandler.invocation(ToolCall(tool: "check_goal", arguments: missing)))
+        tools.vet(ToolCall(tool: "check_goal", arguments: missing))
         checkpoints["plan-more"] = await call("check_goal", missing)
         await status("additional-round")
         let met: JSONValue = ["met": true, "evidence": "The release is verified; no more task is needed."]
-        tools.vettedCalls.insert(OperatorToolHandler.invocation(ToolCall(tool: "check_goal", arguments: met)))
+        tools.vet(ToolCall(tool: "check_goal", arguments: met))
         checkpoints["goal-met"] = await call("check_goal", met)
         world.controller.runChanged(runId)
         checkpoints["summary"] = await call("write_summary", ["text": "All planned work is merged and verified."])

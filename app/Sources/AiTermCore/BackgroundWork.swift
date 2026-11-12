@@ -25,3 +25,29 @@ public enum BackgroundWork {
         return try result.get()
     }
 }
+
+
+extension BackgroundWork {
+    /// The work did not answer within the limit.
+    public struct NoAnswer: Error { public init() {} }
+
+    /// `work`, or `NoAnswer` when it has not ended within `limit`. The race is between two tasks started here, not a task
+    /// group, so a host call that ignores cancellation is left behind instead of holding the answer up. The loser is
+    /// cancelled, `work` too unless `cancelling` is false: a wait that must go on after the answer (an Oracle's critique).
+    @MainActor public static func within<Value: Sendable>(_ limit: Duration, cancelling: Bool = true,
+                                        _ work: @escaping @MainActor @Sendable () async throws -> Value) async -> Result<Value, any Error> {
+        let (finished, report) = AsyncStream<Result<Value, any Error>>.makeStream()
+        let working = Task { @MainActor in
+            do { report.yield(.success(try await work())) } catch { report.yield(.failure(error)) }
+        }
+        let timer = Task {
+            try await Task.sleep(for: limit)
+            report.yield(.failure(NoAnswer()))
+        }
+        var first: Result<Value, any Error> = .failure(NoAnswer())
+        for await result in finished { first = result; break }
+        if cancelling { working.cancel() }
+        timer.cancel()
+        return first
+    }
+}

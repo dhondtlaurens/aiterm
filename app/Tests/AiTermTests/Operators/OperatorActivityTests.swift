@@ -10,7 +10,7 @@ import Testing
 
     /// The lines written so far, once every recording started has landed.
     func entries(_ world: OperatorWorld, _ run: UUID) async -> [ActivityEntry] {
-        await world.controller.tools.lastRecording?.value
+        await world.ports.work.settled()
         return ActivityLog.read(runFolder: OperatorCommand.runFolder(run, home: world.ports.home)).entries
     }
 
@@ -182,7 +182,7 @@ import Testing
         #expect(world.controller.activityGeneration(of: run.id) == 0)
         _ = await world.call(run.id, "run_status")
         _ = await world.call(run.id, "run_status")
-        await world.controller.tools.lastRecording?.value
+        await world.ports.work.settled()
         #expect(told == [1, 2])
     }
 
@@ -192,7 +192,7 @@ import Testing
         _ = await world.call(run.id, "run_status")
         _ = await world.call(run.id, "run_status")
         _ = await world.call(other.id, "run_status")
-        await world.controller.tools.lastRecording?.value
+        await world.ports.work.settled()
         #expect(world.controller.activityGeneration(of: run.id) == 2 && world.controller.activityGeneration(of: other.id) == 1)
     }
 }

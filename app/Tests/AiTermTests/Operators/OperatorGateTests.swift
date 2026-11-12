@@ -41,7 +41,7 @@ import Testing
 
     /// The lines written so far, once every recording started has landed.
     func entries(_ world: OperatorWorld, _ run: OperatorRun) async -> [ActivityEntry] {
-        await world.controller.tools.lastRecording?.value
+        await world.ports.work.settled()
         return ActivityLog.read(runFolder: OperatorCommand.runFolder(run.id, home: world.ports.home)).entries
     }
 
@@ -65,10 +65,15 @@ import Testing
     @Test func aYesRuns() async throws {
         let asked = Asked()
         let (world, run, task) = try makeWorld(runner: answering("YES. Reinstalling dependencies repairs the worktree.", asked))
+        // Main 51f83d77's construction, before the shared owner is entered.
+        let status = OperatorToolHandler.json(try JSONValue(encoding: #require(world.controller.tools.currentStatus(of: run))))
+        let expectedPrompt = ChallengeLaunch.gatePrompt(command: "npm install", directory: worktree,
+                                                        reason: "Check the worktree.", run: status)
         let answer = await gate(world, run, "npm install", in: worktree)
         #expect(answer["decision"] == "allow")
         #expect(asked.count == 1)
         let prompt = try #require(asked.last)
+        #expect(prompt == expectedPrompt)
         #expect(prompt.contains("npm install") && prompt.contains("Run in: \(worktree)") && prompt.contains("Check the worktree."))
         #expect(prompt.contains("run_status"))
         let recorded = try #require(await entries(world, run).first)

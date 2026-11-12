@@ -25,7 +25,7 @@ extension OperatorToolHandler {
         if let assignee = edit.assignee {
             // A publication assigning the request now read the older choice: it would write it after this one. Read with
             // the save below in one step, so one that starts after reads the new choice.
-            if state.task(id: task.id)?.operated?.publication?.assigning == true, publishing(task.id) {
+            if state.task(id: task.id)?.operated?.publication?.assigning == true, finisher.running.contains(task.id) {
                 throw ToolRefusal("AiTerm is assigning \(reference) now, from finish_task: call update_request again once it answers.")
             }
             mutate(in: run.id) { state in
@@ -78,10 +78,10 @@ extension OperatorToolHandler {
         if publication.wasMerged { throw ToolRefusal("\(reference) is merged: there is no pipeline of it to retry.") }
         // Two calls at once would both find it failed and retry it twice.
         let flight = WriteInFlight(kind: .pipelineRetry, run: run.id, key: task.id.uuidString)
-        guard writesInFlight.insert(flight).inserted else {
+        guard beginWrite(flight) else {
             throw ToolRefusal("AiTerm is retrying \(reference)’s pipeline now: call retry_pipeline again for what it found.")
         }
-        defer { writesInFlight.remove(flight) }
+        defer { endWrite(flight) }
         let host = try await reviewHost(of: task, request: publication)
         let check = writeCheck(task, number: number, in: run.id, review: false)
         let key = operated.key, branch = task.branch
