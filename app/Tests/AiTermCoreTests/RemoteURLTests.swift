@@ -33,11 +33,36 @@ struct RemoteURLTests {
         "https://github.com/acme/my%20app.git", "git@host:team/a%2Fb", "/srv/repos/caf%C3%A9.git",
     ]
 
-    /// The check reads every URL as it did before phase 2, a percent-encoded path included: decoding it, as provider
-    /// detection does, is the maintainer's to approve (`RemoteURL.decodesPath`).
-    @Test(arguments: urls) func theSameLocationRuleIsTodays(url: String) {
-        let today = Self.reference(url), now = RemoteURL.location(of: url)
-        #expect(now.host == today.host)
-        #expect(now.path == today.path)
+    /// The rows the same-location check now reads differently (the maintainer's decision of 2026-11-12): it
+    /// percent-decodes a path, on both sides of the comparison, as provider detection does. Host and path before, and
+    /// the path now; the host does not move.
+    static let changed: [String: (before: String, now: String)] = [
+        "https://github.com/acme/my%20app.git": ("acme/my%20app", "acme/my app"),
+        "git@host:team/a%2Fb": ("team/a%2Fb", "team/a/b"),
+        "/srv/repos/caf%C3%A9.git": ("/srv/repos/caf%C3%A9", "/srv/repos/café"),
+    ]
+
+    /// The check reads every URL as it did before phase 2, kept above as the reference, but the percent-encoded rows in
+    /// `changed`.
+    @Test(arguments: urls) func theSameLocationRuleIsTodaysButForPercentEncodedPaths(url: String) {
+        let before = Self.reference(url), now = RemoteURL.location(of: url)
+        #expect(now.host == before.host)
+        if let moved = Self.changed[url] {
+            #expect(before.path == moved.before, "before")
+            #expect(now.path == moved.now, "now")
+        } else {
+            #expect(now.path == before.path)
+        }
+    }
+
+    /// A push to a remote whose path is percent-encoded on one side only is now the same location.
+    @Test func aPercentEncodedPathIsTheSameLocationAsItsDecodedForm() {
+        let encoded = RemoteURL.location(of: "https://github.com/acme/my%20app.git")
+        let plain = RemoteURL.location(of: "https://github.com/acme/my app.git")
+        #expect(encoded.host == plain.host && encoded.path == plain.path)
+    }
+
+    @Test func theRowsThatMoveAreAmongTheRows() {
+        #expect(Set(Self.changed.keys).isSubset(of: Set(Self.urls)))
     }
 }
