@@ -6,6 +6,11 @@ import AiTermCore
 /// board shows. Interactive review tabs are owned separately by TabOpener.
 struct SecondOpinionRunner: Sendable {
     enum Verdict: Equatable, Sendable { case critique(String), unchallenged(String) }
+    /// The existing runner failure words when cancellation prevents a verdict.
+    static var cancelled: Verdict {
+        .unchallenged(NoOutput.failed(CancellationError().localizedDescription).text(of: "The second opinion"))
+    }
+
     typealias Run = @Sendable (_ executable: String, _ arguments: [String], _ environment: [String: String], _ directory: String,
                                _ timeout: Duration) async throws -> ProcessOutput
 

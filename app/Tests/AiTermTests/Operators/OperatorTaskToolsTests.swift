@@ -537,3 +537,21 @@ extension OperatorTaskToolsTests {
         #expect(diff["commits"]?.stringValue?.contains("Add own.swift") == true)
     }
 }
+
+
+extension OperatorTaskToolsTests {
+    @Test func parsingAnOutcomeKeepsTheCurrentRefusalOrder() async throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .working)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        #expect(await world.call(run.id, "mark_task", ["task": "missing", "outcome": "invalid"]).message == "No task missing in this broadcast.")
+        #expect(await world.call(run.id, "mark_task", ["task": "A"]).message == "mark_task needs `outcome`.")
+        #expect(await world.call(run.id, "mark_task", ["task": "A", "outcome": "invalid"]).message == "mark_task’s outcome is accepted, noChange, blocked or failed.")
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.takenOver = true } }
+        #expect(await world.call(run.id, "mark_task", ["task": "A", "outcome": "invalid"]).message == "The person took over A. Leave it until they hand it back.")
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.state = .paused } }
+        #expect(await world.call(run.id, "mark_task", ["task": "A", "outcome": "invalid"]).message == "The person paused this broadcast. Wait until they resume it.")
+        await world.ports.work.settled()
+    }
+}

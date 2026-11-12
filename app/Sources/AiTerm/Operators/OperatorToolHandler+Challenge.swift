@@ -15,9 +15,10 @@ extension OperatorToolHandler {
     /// Operator's verdict on the goal is right; with it off, nothing is. A message to a worker never is.
     static func isChallenged(_ call: ToolCall, oracleIsOn: Bool, backlog: BacklogBudget.Verdict = .free, merges: Bool = false) -> Bool {
         guard oracleIsOn else { return false }
-        switch call.operatorTool {
+        guard let tool = call.operatorTool, tool.challengeClass == .critique || tool.challengeClass == .veto else { return false }
+        switch tool {
         case .submitPlan: return true
-        case .markTask: return ["accepted", "blocked", "failed"].contains(call.optionalString("outcome") ?? "")
+        case .markTask: return [ToolCall.MarkOutcome.accepted, .blocked, .failed].contains { $0 == call.markOutcome }
         case .createTask: return backlog == .needsOracle
         case .finishTask: return merges || call.optionalBool("noVerify") == true
         case .checkGoal: return true
@@ -60,7 +61,7 @@ extension OperatorToolHandler {
     /// publication went on: it decides nothing new, so it is neither judged nor fetched for, and never starts a publication.
     func finishJoins(_ call: ToolCall, in run: OperatorRun) -> Bool {
         guard call.operatorTool == .finishTask, let task = try? task(call, in: run) else { return false }
-        if pendingFinish(task.id) { return true }
+        if finisher.pending(task.id) { return true }
         guard let id = call.optionalString("challengeId"),
               let kept = state.run(id: run.id)?.challenges.first(where: { $0.id == id && $0.tool == call.tool }),
               kept.stage == .acted, kept.actedArguments == Self.invocation(call), let result = kept.result,
@@ -84,7 +85,7 @@ extension OperatorToolHandler {
     private func tried(_ call: ToolCall, on task: TaskItem, in run: OperatorRun) async -> String {
         if let reason = call.optionalString("reason") { return reason }
         // The lines of the calls already answered are written first.
-        await lastRecording?.value
+        await recordingsSettled()
         let folder = OperatorCommand.runFolder(run.id, home: ports.home), id = task.id
         let lines = await BackgroundWork.run {
             ActivityLog.read(runFolder: folder).entries.filter { $0.tool == "shell" && $0.task == id }.suffix(5).map(\.line)
@@ -151,14 +152,14 @@ extension OperatorToolHandler {
                 return answer
             case _ where kept.role == .veto:
                 return try await vetoAnswer(call, kept, in: run)
-            case .running where runningChallenges[id] != nil:
+            case .running where isOracleRunning(.challenge(id)):
                 return Self.pendingAnswer(id)
             case .running:
                 // Its second opinion was lost with AiTerm's restart, and never holds the act up (spec §4.4).
                 let reason = "AiTerm restarted before the second opinion answered."
                 updateChallenge(id, in: run.id) { $0.stage = .unchallenged; $0.unchallengedReason = reason }
                 record(call, in: run, challenge: "unchallenged: \(reason)", reply: reply ?? "proceeded")
-                actingChallenges.insert(id)
+                beginChallengeAct(id)
                 return nil
             case .ready:
                 updateChallenge(id, in: run.id) { $0.stage = .delivered }
@@ -166,11 +167,11 @@ extension OperatorToolHandler {
             case .delivered:
                 // Answered and kept as it was, the act goes against the critique: the Operator's decision, with the objection.
                 record(call, in: run, challenge: kept.critique ?? "", reply: reply ?? "revised the call", objection: reply.flatMap { _ in kept.critique })
-                actingChallenges.insert(id)
+                beginChallengeAct(id)
                 return nil
             case .unchallenged:
                 record(call, in: run, challenge: "unchallenged: \(kept.unchallengedReason ?? "")", reply: reply ?? "proceeded")
-                actingChallenges.insert(id)
+                beginChallengeAct(id)
                 return nil
             }
         }
@@ -219,24 +220,14 @@ extension OperatorToolHandler {
         mutate(in: run.id) { $0.updateRun(id: run.id) { $0.challenges.append(asked) } }
         let runner = ports.secondOpinion, folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
-        // The runner turns every thrown error, a cancellation included, into `.unchallenged`; a challenge
-        // cancelled (AiTerm quitting) is not an answer, so it settles as nil, and its record stays `.running`.
-        let challenge = Task { () -> SecondOpinionRunner.Verdict? in
-            let verdict = await runner.challenge(opinion, prompt: prompt, runFolder: folder, projects: projects)
-            return Task.isCancelled ? nil : Self.capped(verdict)
-        }
-        // The Oracle is consulted until it answers, however long that outlasts the call: the lines say so.
         let consulting = OperatorActivity(run: run.id, task: call.optionalString("task").flatMap { state.task(inRun: run.id, named: $0)?.id },
                                           act: .consultingTheOracle)
-        onActing(consulting, true)
-        // Kept for the operator's next call, when it outlasts this one's reply.
-        let settled = Task { [weak self] in
-            let verdict = await withTaskCancellationHandler { await challenge.value } onCancel: { challenge.cancel() }
+        let challenge = startOracleJob(.challenge(id), run: run.id, runner: runner, opinion: opinion,
+                                         prompt: prompt, folder: folder, projects: projects,
+                                         acting: { [weak self] on in self?.onActing(consulting, on) }) { [weak self] verdict in
             guard let self else { return }
-            runningChallenges[id] = nil
-            onActing(consulting, false)
             guard oracleGeneration(run.id) == generation else { return }
-            guard let verdict, state.run(id: run.id)?.challenges.first(where: { $0.id == id })?.stage == .running else { return }
+            guard state.run(id: run.id)?.challenges.first(where: { $0.id == id })?.stage == .running else { return }
             updateChallenge(id, in: run.id) { kept in
                 switch verdict {
                 case .critique(let critique) where kind == .veto:
@@ -247,15 +238,12 @@ extension OperatorToolHandler {
                 }
             }
         }
-        runningChallenges[id] = settled
-        lastChallenge = settled
         // Nil out of budget, or cancelled with AiTerm quitting.
         // A finish_task answers by its deadline, the Oracle's wait in it too.
         let wait = call.operatorTool == .finishTask
             ? deadline.map { min(ports.challengeReplyBudget, max(.zero, $0 - ContinuousClock.now)) } ?? ports.challengeReplyBudget
             : ports.challengeReplyBudget
-        let answered = try? await Self.within(wait, cancelling: false) { await challenge.value }.get()
-        refreshOracleSettings()
+        let answered = try? await BackgroundWork.within(wait, cancelling: false) { await challenge.value }.get()
         if oracleGeneration(run.id) != generation {
             guard state.run(id: run.id)?.profile.oracle.isOn != false else { return nil }
             throw ToolRefusal("The Oracle settings changed while this check ran. Call \(call.tool) again without challengeId for a fresh check.")
@@ -304,7 +292,7 @@ extension OperatorToolHandler {
         let merges = kept.asksMerge
         try validateMergeEvidence(kept.askedEvidence, call: call, in: run)
         switch kept.stage {
-        case .running where runningChallenges[id] != nil:
+        case .running where isOracleRunning(.challenge(id)):
             return try vetoPendingAnswer(call, id, merges: merges, in: run)
         case .running:
             updateChallenge(id, in: run.id) { $0.stage = .unchallenged; $0.unchallengedReason = "AiTerm restarted before the Oracle answered." }
@@ -317,7 +305,7 @@ extension OperatorToolHandler {
             guard kept.approved == true else { try await refuseVetoed(call, in: run, why: kept.critique, merges: merges) }
             try approve(call, in: run, askedSHA: kept.askedSHA, merges: merges)
             updateChallenge(id, in: run.id) { $0.stage = .delivered }
-            actingChallenges.insert(id)
+            beginChallengeAct(id)
             return nil
         }
     }
@@ -333,7 +321,7 @@ extension OperatorToolHandler {
     /// merge's later polls hold to it; a push past the hook needs only this call to go on. Refused, and nothing recorded,
     /// when the task was accepted again on another commit meanwhile.
     private func approve(_ call: ToolCall, in run: OperatorRun, askedSHA: String?, merges: Bool) throws {
-        guard call.operatorTool == .finishTask else { vettedCalls.insert(Self.invocation(call)); return }
+        guard call.operatorTool == .finishTask else { vet(call); return }
         let task = try task(call, in: run)
         guard let sha = askedSHA, let operated = task.operated, operated.acceptance?.resultSHA == sha else {
             throw ToolRefusal("\(task.operated?.key ?? "The task") was accepted again on another commit while the Oracle judged its "
@@ -544,7 +532,7 @@ extension OperatorToolHandler {
     /// Cancels the second opinions still running, as AiTerm quits. Their records stay running, so the next
     /// call with each id after a restart proceeds unchallenged, with that reason, rather than as an answer.
     func cancelChallenges() {
-        for task in runningChallenges.values { task.cancel() }
+        cancelOracleJobs()
     }
 
     /// JSON text, keys sorted, so the same value always reads the same.

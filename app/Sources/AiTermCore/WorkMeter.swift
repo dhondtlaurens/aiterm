@@ -10,6 +10,8 @@ public final class WorkMeter: Sendable {
     public enum Work: String, Sendable {
         /// `RunStatus.build`: one whole `run_status` snapshot.
         case statusBuild
+        /// One Oracle settings synchronization read, from its save notification, tick or tool call.
+        case oracleSettingsRead
         /// `OperatorRequests.open`: what a run needs from the person.
         case requests
         /// `TaskItem.workerTabs`: one task's worker tabs matched to the sessions.

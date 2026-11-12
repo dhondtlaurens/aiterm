@@ -124,33 +124,6 @@ extension OperatorToolHandler {
         return Self.requestAnswer(operated, reviewers: all, requested: true)
     }
 
-    /// A cancelled waiter leaves the queue immediately. An owner always releases in defer, including
-    /// cancellation after handoff; other requests have independent queues.
-    private func acquireReviewAssignment(_ key: ReviewRequestKey) async throws {
-        try Task.checkCancellation()
-        guard reviewAssignments[key] != nil else { reviewAssignments[key] = []; return }
-        let id = UUID()
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                if Task.isCancelled { continuation.resume(throwing: CancellationError()); return }
-                reviewAssignments[key, default: []].append(ReviewWaiter(id: id, continuation: continuation))
-            }
-        } onCancel: {
-            Task { @MainActor [weak self] in
-                guard let self, let index = reviewAssignments[key]?.firstIndex(where: { $0.id == id }) else { return }
-                let waiter = reviewAssignments[key]!.remove(at: index)
-                waiter.continuation.resume(throwing: CancellationError())
-            }
-        }
-    }
-
-    private func releaseReviewAssignment(_ key: ReviewRequestKey) {
-        guard var waiting = reviewAssignments[key], !waiting.isEmpty else { reviewAssignments[key] = nil; return }
-        let next = waiting.removeFirst()
-        reviewAssignments[key] = waiting
-        next.continuation.resume()
-    }
-
     /// A reply in one of the task's review threads, once per key. The key is saved as pending before the reply is
     /// sent and as answered before the call is: a retry of a key still pending (its answer lost, AiTerm quit meanwhile)
     /// may find the reply posted, so it posts nothing and clears the mark.
@@ -166,8 +139,8 @@ extension OperatorToolHandler {
         }
         // Another call with this key is posting now: this one would post it twice.
         let flight = WriteInFlight(kind: .threadReply, run: run.id, key: callKey)
-        guard writesInFlight.insert(flight).inserted else { throw ToolRefusal("reply_thread with this key is still posting: call it again for its result.") }
-        defer { writesInFlight.remove(flight) }
+        guard beginWrite(flight) else { throw ToolRefusal("reply_thread with this key is still posting: call it again for its result.") }
+        defer { endWrite(flight) }
         let pending = "reply_thread/\(callKey)"
         if state.run(id: run.id)?.pendingWrites.contains(pending) == true {
             settle(pending, in: run.id)
@@ -239,7 +212,7 @@ extension OperatorToolHandler {
             return Self.critiqueAnswer(kept, recorded: true)
         }
         let job: Task<SecondOpinionRunner.Verdict?, Never>
-        if let running = runningCritiques[key] {
+        if let running = runningOracle(.critique(key)) {
             job = running
         } else {
             let detail = try await host.threadDetail(number, thread: thread)
@@ -253,11 +226,11 @@ extension OperatorToolHandler {
             guard now.ownership == operated.ownership, now.publication?.mergeRequestNumber == number else {
                 throw ToolRefusal("This task changed while AiTerm read the thread; call critique_thread again.")
             }
-            job = runningCritiques[key] ?? startCritique(key, of: current, detail, request: Self.request(of: now), opinion: fresh.profile.oracle,
+            job = runningOracle(.critique(key)) ?? startCritique(key, of: current, detail, request: Self.request(of: now), opinion: fresh.profile.oracle,
                                                          in: fresh)
         }
         let verdict: SecondOpinionRunner.Verdict?
-        switch await Self.within(ports.challengeReplyBudget, cancelling: false, { await job.value }) {
+        switch await BackgroundWork.within(ports.challengeReplyBudget, cancelling: false, { await job.value }) {
         case .success(let answered): verdict = answered
         case .failure: verdict = nil
         }
@@ -293,26 +266,18 @@ extension OperatorToolHandler {
         let runner = ports.secondOpinion, folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
         let consulting = OperatorActivity(run: run.id, task: task.id, act: .consultingTheOracle)
-        onActing(consulting, true)
-        let job = Task { @MainActor [weak self] () -> SecondOpinionRunner.Verdict? in
-            let verdict = await runner.challenge(opinion, prompt: prompt, runFolder: folder, projects: projects)
-            guard let self else { return nil }
-            runningCritiques[key] = nil
-            onActing(consulting, false)
-            guard !Task.isCancelled else { return nil }
-            let capped = Self.capped(verdict)
+        return startOracleJob(.critique(key), run: run.id, runner: runner, opinion: opinion,
+                                prompt: prompt, folder: folder, projects: projects,
+                                acting: { [weak self] on in self?.onActing(consulting, on) }) { [weak self] capped in
+            guard let self else { return }
             // Kept only for the task as it was asked about: one taken over or handed back since is someone else's now.
-            guard let now = state.task(id: key.task)?.operated, now.ownership == ownership, !now.takenOver else { return capped }
+            guard let now = state.task(id: key.task)?.operated, now.ownership == ownership, !now.takenOver else { return }
             if case .critique(let text) = capped {
                 let critique = ThreadCritique(thread: key.thread, note: key.note, head: key.head, critique: text, at: ports.now())
                 mutate(in: run.id) { $0.updateOperated(key.task) { $0.threadCritiques.append(critique) } }
                 _ = workspace.flush()
             }
-            return capped
         }
-        runningCritiques[key] = job
-        lastCritique = Task { _ = await job.value }
-        return job
     }
 
     // -- writes read fresh, and kept as pending while they may have landed ----------------------------
@@ -378,8 +343,10 @@ extension OperatorToolHandler {
 
     /// The host of the task's request, refused unless the project's origin still resolves to the repository it was
     /// opened in.
-    func reviewHost(of task: TaskItem, request publication: TaskPublication?) async throws -> any MergeRequestPublishing {
-        let host = try await reviewHost(of: task)
+    func reviewHost(of task: TaskItem, request publication: TaskPublication?, using hosts: StatusHosts? = nil) async throws -> any MergeRequestPublishing {
+        let host: any MergeRequestPublishing
+        if let hosts { host = try await hosts.host(of: task) }
+        else { host = try await reviewHost(of: task) }
         if let publication, let why = PublicationGuard.otherRepository(publication, repository: host.repository) { throw ToolRefusal(why) }
         return host
     }
