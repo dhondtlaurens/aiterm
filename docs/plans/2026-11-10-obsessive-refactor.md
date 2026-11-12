@@ -1,8 +1,9 @@
 # Obsessive review and refactor, round two
 
-Status: plan agreed on 2026-11-10. Phase 0 is done, reviewed and merged; its numbers are in the
-[record](../reviews/2026-11-10-refactor.md). Phases 1 to 9 are not started; "Running phases 1 to 9 as a
-broadcast" below says how they are handed to the Operator.
+Status: plan agreed on 2026-11-10. Phases 0 to 9 are done; phases 0 to 8, 9a and 9b are reviewed and
+merged, and 9c, the close-out, ends the [record](../reviews/2026-11-10-refactor.md) with every budget,
+defect, drop and decision. "Running phases 1 to 9 as a broadcast" below says how they were handed to the
+Operator.
 
 ## Goal
 
@@ -568,7 +569,8 @@ Each box leaves the project working and is one or a few commits.
   still run git on the main actor. They overlapped the suites phases 5 and 6 were rewriting. Nobody finishes them in this
   plan; they are left for the maintainer (record, names and counts).
 - [x] 9b. Concurrency measurement; gate history; release gate check; routing entries.
-- [ ] 9c. Docs, design-system page, review record, full gate, bundle check, adversarial review.
+- [x] 9c. Docs, design-system page, review record, full gate, bundle check, adversarial review. The adversarial review's
+  one finding, `read_task`'s diff bound, is product code and left open for the Operator (record).
 
 ## Left out
 
