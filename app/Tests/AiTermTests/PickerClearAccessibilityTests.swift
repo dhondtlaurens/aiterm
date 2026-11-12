@@ -44,13 +44,23 @@ import AiTermUI
         }
     }
 
-    /// Enable semantic-tree construction in this test process only. No system preference changes.
-    private static let accessibility: Void = {
-        NSApplication.shared.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
-    }()
+    private let enhancedUI = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+
+    /// Enhanced UI is an application attribute, so scope it to one synchronous host check.
+    /// Restore the process's previous value on every exit, including a thrown test failure.
+    private func withAccessibilityTree<T>(_ body: () throws -> T) rethrows -> T {
+        let app = NSApplication.shared
+        let previous = app.accessibilityAttributeValue(enhancedUI) as? Bool ?? false
+        app.accessibilitySetValue(true, forAttribute: enhancedUI)
+        defer { app.accessibilitySetValue(previous, forAttribute: enhancedUI) }
+        return try body()
+    }
 
     private func check(_ copy: Copy) throws {
-        _ = Self.accessibility
+        try withAccessibilityTree { try checkHostedButton(copy) }
+    }
+
+    private func checkHostedButton(_ copy: Copy) throws {
         let (view, expected) = field(copy)
         let host = testHost(view, size: CGSize(width: Sheet.width, height: Sheet.height))
         let window = testWindow(hosting: host, styleMask: [])
@@ -65,6 +75,29 @@ import AiTermUI
         let control = try #require(button())
         #expect(value(.description, getter: "accessibilityLabel", of: control) as? String == expected)
         #expect(value(.help, getter: "accessibilityHelp", of: control) as? String == expected, "the tooltip is unchanged")
+    }
+
+    @Test func enhancedAccessibilityIsRestoredAfterSuccessAndFailure() {
+        let app = NSApplication.shared
+        let original = app.accessibilityAttributeValue(enhancedUI) as? Bool ?? false
+        defer { app.accessibilitySetValue(original, forAttribute: enhancedUI) }
+        enum Probe: Error { case failed }
+        for previous in [false, true] {
+            for fails in [false, true] {
+                app.accessibilitySetValue(previous, forAttribute: enhancedUI)
+                do {
+                    try withAccessibilityTree {
+                        #expect(app.accessibilityAttributeValue(enhancedUI) as? Bool == true)
+                        if fails { throw Probe.failed }
+                    }
+                } catch Probe.failed {
+                } catch {
+                    Issue.record(error)
+                }
+                #expect(app.accessibilityAttributeValue(enhancedUI) as? Bool == previous,
+                        "restore enhanced UI \(previous) after \(fails ? "failure" : "success")")
+            }
+        }
     }
 
     /// SwiftUI's virtual nodes expose accessibility methods without conforming to the
