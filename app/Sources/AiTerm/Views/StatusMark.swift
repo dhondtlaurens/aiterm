@@ -34,23 +34,23 @@ struct StatusMark: View {
         // box the idle ring, the track and the footer's `UsageRing` sit in.
         ZStack {
             switch status {
-            case .idle: Circle().strokeBorder(Palette.idleRing, lineWidth: size * 0.15)
+            case .idle: Circle().strokeBorder(Palette.idleRing, lineWidth: RingGeometry.strokeWidth(size))
             case .working:
                 // The whole track: a trim that left out the arc's resting slice showed that slice
                 // as a gap at four o'clock once the arc turned away from it.
-                Circle().strokeBorder(surface.isOnAccent ? Palette.spinnerTrackOnAccent : Palette.spinnerTrack, lineWidth: size * 0.15)
+                Circle().strokeBorder(surface.isOnAccent ? Palette.spinnerTrackOnAccent : Palette.spinnerTrack, lineWidth: RingGeometry.strokeWidth(size))
                 ZStack {
                     // Preserve Reduce Motion's half-circle; the snapshot pose below is a shorter arc.
                     if motionStill == .reduceMotion {
-                        Circle().trim(from: 0, to: 0.5).stroke(surface.isOnAccent ? Palette.onAccent : Palette.spinner, style: StrokeStyle(lineWidth: size * 0.15, lineCap: .round))
+                        Circle().trim(from: 0, to: 0.5).stroke(surface.isOnAccent ? Palette.onAccent : Palette.spinner, style: StrokeStyle(lineWidth: RingGeometry.strokeWidth(size), lineCap: .round))
                     } else {
                         SpinnerArc(size: size, color: surface.isOnAccent ? Palette.onAccent : Palette.spinner)
                     }
                 }
-                .padding(size * 0.15 / 2)
+                .padding(RingGeometry.inset(size))
             // Amber stays amber on the accent: it reads there, and it is the one being asked for.
             case .needsInput:
-                Circle().strokeBorder(Palette.amber, lineWidth: size * 0.15)
+                Circle().strokeBorder(Palette.amber, lineWidth: RingGeometry.strokeWidth(size))
             // A turn ended with work still running, which wakes the agent again (proposal Background work on your own
             // tasks B): the ring dashed, turning slowly, in the arc's ink. Reduce Motion keeps it still.
             case .background:
@@ -61,11 +61,11 @@ struct StatusMark: View {
                         SpinnerArc(size: size, color: surface.isOnAccent ? Palette.onAccent : Palette.spinner, style: .dashed)
                     }
                 }
-                .padding(size * 0.15 / 2)
+                .padding(RingGeometry.inset(size))
             // The accent on the accent is blue on blue, so a selected row's done ring is white, as
             // its arc is.
             case .done:
-                Circle().strokeBorder(surface.isOnAccent ? Palette.onAccent : Palette.done, lineWidth: size * 0.15)
+                Circle().strokeBorder(surface.isOnAccent ? Palette.onAccent : Palette.done, lineWidth: RingGeometry.strokeWidth(size))
             }
         }.frame(width: size, height: size)
     }
@@ -92,7 +92,7 @@ private struct SpinnerArc: View {
         if motionStill == .snapshot {
             switch style {
             case .arc:
-                Circle().trim(from: 0, to: 0.15).stroke(color, style: StrokeStyle(lineWidth: size * 0.15, lineCap: .round))
+                Circle().trim(from: 0, to: 0.15).stroke(color, style: StrokeStyle(lineWidth: RingGeometry.strokeWidth(size), lineCap: .round))
                     .rotationEffect(.degrees(300))
             case .dashed: DashedRing(size: size, color: color)
             }
@@ -109,8 +109,8 @@ private struct DashedRing: View {
 
     var body: some View {
         // Inside the mark's half-stroke padding, so the path's radius is the padded box's.
-        let radius = size / 2 - size * 0.15 / 2
-        Circle().stroke(color, style: StrokeStyle(lineWidth: size * 0.15, dash: StatusMark.backgroundDash(radius: radius)))
+        let radius = size / 2 - RingGeometry.inset(size)
+        Circle().stroke(color, style: StrokeStyle(lineWidth: RingGeometry.strokeWidth(size), dash: StatusMark.backgroundDash(radius: radius)))
     }
 }
 
@@ -125,7 +125,7 @@ private struct SpinningArc: NSViewRepresentable {
         #if DEBUG
         StatusMark.arcUpdates += 1
         #endif
-        view.lineWidth = size * 0.15
+        view.lineWidth = RingGeometry.strokeWidth(size)
         view.color = NSColor(color)
     }
 }

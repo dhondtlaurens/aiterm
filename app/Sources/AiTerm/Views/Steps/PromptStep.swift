@@ -18,11 +18,7 @@ struct PromptStep<Extra: View>: View {
     let help: String?
     let extra: () -> Extra
     @Environment(\.isEnabled) private var isEnabled
-    private var _editorFocused = State(initialValue: false)
-    private var editorFocused: Bool {
-        get { _editorFocused.wrappedValue }
-        nonmutating set { _editorFocused.wrappedValue = newValue }
-    }
+    @State private var editorFocused: Bool = false
 
     init(text: @autoclosure @escaping () -> Binding<String>, agent: AgentKind, completions: PromptCompletions,
          label: String = "First prompt (optional)", placeholder: String? = "Describe what the agent should do.", help: String? = nil,

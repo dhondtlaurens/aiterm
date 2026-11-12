@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import AiTermUI
+import AiTermCore
 
 /// A field with its results hanging under it: the ticket picker, the merge request picker and the
 /// branch picker are the same shape. Results overlay the field rather than pushing the rest of the
@@ -26,13 +27,8 @@ struct SearchPicker<Item: Identifiable, Row: View, Selected: View>: View {
     /// The toggle's tooltip, given whether the list is currently open. Each picker words this for
     /// what it lists — "Show my open tickets" reads wrong above a branch list.
     let toggleHelp: (Bool) -> String
-    // `@State` is a macro in the macOS 26 SDK and its SwiftUIMacros plugin ships only with Xcode;
-    // these are the storage and accessors the macro would generate. Private, and so kept out of
-    // the initialiser: no caller seeds the picker's own state.
-    private var _index = State(initialValue: 0)
-    private var index: Int { get { _index.wrappedValue } nonmutating set { _index.wrappedValue = newValue } }
-    private var _focused = State(initialValue: false)
-    private var focused: Bool { get { _focused.wrappedValue } nonmutating set { _focused.wrappedValue = newValue } }
+    @State private var index: Int = 0
+    @State private var focused: Bool = false
     /// At most six rows, as the ticket list has always shown.
     static var visibleLimit: Int { 6 }
 
@@ -53,7 +49,7 @@ struct SearchPicker<Item: Identifiable, Row: View, Selected: View>: View {
             } else {
                 SearchField(placeholder: placeholder,
                             text: Binding(get: { query }, set: { query = $0; open = true; index = 0 }),
-                            focused: _focused.projectedValue,
+                            focused: $focused,
                             onCommand: command)
                     .fieldChrome(focused: focused)
                     .overlay(alignment: .trailing) { toggle.padding(.trailing, Space.tight) }
@@ -85,12 +81,12 @@ struct SearchPicker<Item: Identifiable, Row: View, Selected: View>: View {
 
     @ViewBuilder private var results: some View {
         if open, !visible.isEmpty, selection == nil {
-            DropdownList(items: visible, index: _index.projectedValue, onPick: pick, row: row)
+            DropdownList(items: visible, index: $index, onPick: pick, row: row)
         }
     }
 
     private func command(_ selector: Selector) -> Bool {
-        DropdownKeys.perform(selector, on: visible, index: _index.projectedValue, open: $open, listening: open && selection == nil, pick: pick)
+        DropdownKeys.perform(selector, on: visible, index: $index, open: $open, listening: open && selection == nil, pick: pick)
     }
 
     private func pick(_ item: Item) {
@@ -134,9 +130,7 @@ struct PickedItemField<Trailing: View>: View {
                 .lineLimit(1).truncationMode(monospaced ? .middle : .tail)
             Spacer(minLength: Space.snug)
             trailing
-            Button(action: clear) {
-                Image(systemName: "xmark").font(Typography.micro).foregroundStyle(Palette.muted)
-            }.buttonStyle(.plain).help(clearHelp)
+            PickerClearButton(help: clearHelp, accessibilityLabel: clearHelp, action: clear)
         }
         .fieldChrome()
     }
@@ -188,7 +182,31 @@ struct LaneChip: View {
     var body: some View {
         Text(lane).font(Typography.label)
             .padding(.horizontal, Space.snug).frame(height: Size.chip)
-            .background(RoundedRectangle(cornerRadius: Radius.chip).fill(brand.wash))
+            .chipChrome(fill: brand.wash)
             .foregroundStyle(ink)
+    }
+}
+
+/// The ticket field used by New Task and New Review. Their surrounding help and the
+/// effects of picking or clearing remain the caller's.
+struct TicketPickerField: View {
+    let placeholder: String
+    @Binding var query: String
+    @Binding var open: Bool
+    let items: [JiraTicket]
+    let selection: JiraTicket?
+    let onPick: (JiraTicket) -> Void
+    let onClear: () -> Void
+
+    var body: some View {
+        SearchPicker(placeholder: placeholder, query: $query, open: $open, items: items, selection: selection,
+                     row: { ticket in
+                         PickerResultRow(mark: .brand(ticket.brand), key: ticket.key, keyWidth: Size.pickerTicketKey,
+                                         title: ticket.summary, detail: ticket.status ?? "")
+                     }, selected: { ticket in
+                         PickedItemField(mark: .brand(ticket.brand), key: ticket.key, title: ticket.summary, trailing: {
+                             if let status = ticket.status { LaneChip(lane: status, brand: ticket.brand, ink: ticket.laneInk) }
+                         }, clearHelp: "Clear ticket", clear: onClear)
+                     }, onPick: onPick, toggleHelp: { $0 ? "Hide tickets" : "Show open tickets" })
     }
 }

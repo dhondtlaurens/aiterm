@@ -113,8 +113,7 @@ struct BroadcastBoardSheet: View, Equatable {
     /// What Activity lists without a feed, and the row it opens with: the snapshots' (`seeded(tab:entries:open:)`).
     private(set) var entries: [ActivityEntry] = []
     private(set) var openEntry: UUID?
-    private var _tab: State<BroadcastBoard.Tab>
-    private var tab: BroadcastBoard.Tab { get { _tab.wrappedValue } nonmutating set { _tab.wrappedValue = newValue } }
+    @State private var tab: BroadcastBoard.Tab
     @Environment(\.dismiss) private var dismiss
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
@@ -202,12 +201,8 @@ struct BroadcastBoardSheet: View, Equatable {
             }
         }
         // ⌘1–⌘3, on hidden buttons, as Settings' ⌘1–⌘4: the tab bar's segments are not buttons of their own.
-        .background {
-            ForEach(BroadcastBoard.Tab.allCases, id: \.self) { item in
-                Button(item.title) { select(item) }.keyboardShortcut(Self.key(of: item), modifiers: .command)
-            }
-            .hidden()
-        }
+        .modifier(TabShortcuts(items: BroadcastBoard.Tab.allCases, title: \.title, key: Self.key(of:), select: select))
+
         // A question asked for: Board, then its block, once the tab has drawn it.
         .task(id: focus?.id) {
             guard let focus, focus.run == board.runId else { return }
@@ -525,11 +520,7 @@ struct BoardEndLine: View {
 struct BoardTabLine: View {
     let tab: BroadcastBoard.TabLine
     let choose: () -> Void
-    private var _hovered = State(initialValue: false)
-    private var hovered: Bool {
-        get { _hovered.wrappedValue }
-        nonmutating set { _hovered.wrappedValue = newValue }
-    }
+    @State private var hovered: Bool = false
 
     init(tab: BroadcastBoard.TabLine, choose: @escaping () -> Void) {
         self.tab = tab; self.choose = choose
@@ -584,16 +575,10 @@ struct TaskBadges: View {
 
     var body: some View {
         let host = mrHost ?? .gitLab
-        if ticketIsGitLabIssue, let ticket, let mr, host == .gitLab {
-            HStack(spacing: Space.snug) {
-                Badge(ticket, icon: .brand(Palette.gitlab), help: ticketSummary, style: .quiet).fixedSize()
-                Badge(mr, help: mrTitle, style: .quiet).fixedSize()
-            }
-        } else {
-            if let ticket {
-                Badge(ticket, icon: .brand(ticketIsGitLabIssue ? Palette.gitlab : Palette.jira), help: ticketSummary, style: .quiet).fixedSize()
-            }
-            if let mr { Badge(mr, icon: .brand(host.brand), help: mrTitle, style: .quiet).fixedSize() }
-        }
+        QuietBadgeLine(ticket: ticket.map { QuietBadgeValue(label: $0, icon: .brand(ticketIsGitLabIssue ? Palette.gitlab : Palette.jira), help: ticketSummary) },
+                       request: mr.map { QuietBadgeValue(label: $0, icon: .brand(host.brand), help: mrTitle) },
+                       sharesMark: ticketIsGitLabIssue && host == .gitLab,
+                       fixed: true)
     }
+
 }

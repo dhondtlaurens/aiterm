@@ -30,7 +30,7 @@ struct DividerRow: View {
             }
         }
         .frame(height: scale(Size.menuRow))
-        .padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
+        .modifier(SidebarHeadingInset())
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(name.isEmpty ? "Divider" : "\(name) divider")

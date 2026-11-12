@@ -20,8 +20,7 @@ struct BroadcastBoardHost: View {
     let source: Source
     let controller: AppController
     /// Made with the first `init` of a presentation and kept across redraws.
-    private var _feed: State<ActivityFeed>
-    private var feed: ActivityFeed { _feed.wrappedValue }
+    @State private var feed: ActivityFeed
     @Environment(\.dismiss) private var dismiss
 
     init(runId: UUID, source: Source = .live, controller: AppController) {

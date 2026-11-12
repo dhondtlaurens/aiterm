@@ -24,7 +24,7 @@ struct SettingsToggleLayoutTests {
         let trimmed = BadgeDetails(jiraProject: true, jiraTicket: false, mergeRequest: true, diff: false)
         preferences.badgeDetails = trimmed
         let settings = settings(preferences)
-        #expect(settings._badgeDetails.wrappedValue == trimmed)
+        #expect(settings.badgeDetails == trimmed)
         preferences.badgeDetails = BadgeDetails()
         settings.saveInterface()
         #expect(preferences.badgeDetails == trimmed)
@@ -38,8 +38,8 @@ struct SettingsToggleLayoutTests {
         preferences.matchItermBackground = true
         var size: InterfaceSize?, background: Bool?
         let settings = settings(preferences, setMatchItermBackground: { background = $0 }, setInterfaceSize: { size = $0 })
-        #expect(settings._interfaceSize.wrappedValue == .large)
-        #expect(settings._matchItermBackground.wrappedValue)
+        #expect(settings.interfaceSize == .large)
+        #expect(settings.matchItermBackground)
         settings.saveInterface()
         #expect(size == .large)
         #expect(background == true)
@@ -66,7 +66,7 @@ struct SettingsToggleLayoutTests {
         let preferences = InterfacePreferences.scratch()
         preferences.matchItermBackground = true
         let settings = settings(preferences)
-        #expect(settings._matchItermBackground.wrappedValue)
+        #expect(settings.matchItermBackground)
         let host = testHost(settings, size: CGSize(width: Sheet.width, height: Sheet.settingsHeight))
         let window = testWindow(contentRect: host.frame, styleMask: [])
         window.appearance = NSAppearance(named: .darkAqua)

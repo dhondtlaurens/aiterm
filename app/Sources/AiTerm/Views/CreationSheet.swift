@@ -36,17 +36,11 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
     }
 
     var body: some View {
-        SheetLayout(title: title, height: Sheet.height,
-                    onBackgroundTap: { for picker in pickers { picker.wrappedValue = false } }) {
-            StepBar(step: step, names: stepNames)
-        } content: {
-            // Front to back: the prompt step's completion popup hangs out of the step and over the
-            // command preview below it.
-            FrontToBackStack(spacing: Space.block) {
-                content
-                if Kind.steps.showsCommand(onStep: step) { CommandPreview(model: model) }
-                if Kind.steps.showsDestination(onStep: step), let destination { DestinationLine(destination) }
-            }
+        SteppedSheetFrame(title: title, step: step, stepNames: stepNames,
+                          onBackgroundTap: { for picker in pickers { picker.wrappedValue = false } }) {
+            content
+            if Kind.steps.showsCommand(onStep: step) { CommandPreview(model: model) }
+            if Kind.steps.showsDestination(onStep: step), let destination { DestinationLine(destination) }
         } footer: {
             CreationFooter(step: step, steps: Kind.steps, error: model.error, availableAgents: model.availableAgents, createLabel: createLabel,
                            creating: model.creating, canAdvance: canAdvance && model.canChangeWorkspace(),

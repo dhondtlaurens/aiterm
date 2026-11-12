@@ -111,8 +111,8 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 | `SymbolMark` | SF Symbol on the standard paper/ink disc. |
 | `Hairline` | Shared unscaled border/separator; use instead of a bare Divider. |
 
-Foundations are `Palette`/`Brand`, Metrics (`Motion.settle` shares the toast/fold ease-out), `TypeStyle`, `Surface`, `InterfaceScale`, `IconSource`
-and `ControlChrome` modifiers: `focusRing`, `fieldChrome`, `chipChrome`, `fieldBox`, `menuChrome`,
+Foundations are `Palette`/`Brand`, Metrics (`Motion.settle` shares the toast/fold ease-out), `TypeStyle`, `Surface`, `InterfaceScale`, `IconSource`,
+`RingGeometry` (the shared proportional ring stroke/inset), and `ControlChrome` modifiers: `focusRing`, `fieldChrome`, `chipChrome`, `fieldBox`, `menuChrome`,
 `menuRowHighlight`, `groupChrome`. They are rules/data rather than component cards. `Logos`,
 `LogoGlyph` and text-editing coordinators remain implementation details.
 

@@ -612,14 +612,10 @@ enum OperatorSnapshots {
     /// The list's rows as the sidebar stacks them: OPERATOR and the broadcast's group, then PROJECTS and the projects.
     private static func sidebar(_ scene: OperatorScene) -> some View {
         let controller = scene.controller, rows = controller.rows
-        return VStack(alignment: .leading, spacing: Space.hairline) {
+        return SnapshotColumn(fitsVertically: true) {
             SidebarView.operatorRows(in: rows, controller: controller)
             SidebarView.projectRows(in: rows, controller: controller)
         }
-        .padding(.horizontal, Space.inset)
-        .frame(width: Size.sidebarWidth + 2 * Space.inset)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(Palette.sidebar)
         .surface(.sidebar)
     }
 
@@ -698,7 +694,7 @@ enum OperatorSnapshots {
 
         let scenes = [planning, oracle, watched, background(selected: false), asked, several, review, paused, closed,
                       done, selectedDone, acting, background(selected: true), needsYou]
-        return VStack(alignment: .leading, spacing: Space.hairline) {
+        return SnapshotColumn(verticalInset: Space.tight, fitsVertically: true) {
             ForEach(scenes.indices, id: \.self) { index in
                 let controller = scenes[index].controller
                 if let section = controller.rows.broadcast {
@@ -707,10 +703,6 @@ enum OperatorSnapshots {
                 }
             }
         }
-        .padding(.horizontal, Space.inset).padding(.vertical, Space.tight)
-        .frame(width: Size.sidebarWidth + 2 * Space.inset)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(Palette.sidebar)
         .surface(.sidebar)
     }
 
@@ -849,19 +841,9 @@ enum OperatorSnapshots {
     /// New Broadcast on `step`, as the drawing fills it: PAY · Payments picked, which picked webshop and
     /// payments-api, then the prompt, each task's review prompt and the broadcast's goal.
     private static func newBroadcast(step: Int, readiness: BroadcastReadiness = .ready) -> some View {
-        let projects = [OperatorScene.project("webshop"), OperatorScene.project("payments-api")]
-        // What `/` lists: seeded, and found again by the load the sheet starts when hosted.
-        let skills = [brainstorming]
-        let model = NewBroadcastModel(projects: projects, context: broadcastContext, skills: { _, _ in skills },
-                                      readiness: { readiness }) { _ in UUID() }
-        model.received([OperatorScene.payments])
-        model.add(jiraProject: OperatorScene.payments)
-        model.completions.all = skills
-        model.prompt = "Implement PAY-230 to PAY-236, the new checkout. PAY-232 needs the Adyen SDK; keep the old provider "
+        let prompt = "Implement PAY-230 to PAY-236, the new checkout. PAY-232 needs the Adyen SDK; keep the old provider "
             + "behind a flag until it ships. Start each task with /superpowers:brainstorming."
-        model.review = "An adversarial review with /code-review. It passes with no Critical or Important findings. After 3 rounds "
-            + "of fixes, ask me."
-        model.done = "Every PAY ticket in sprint 12 is merged, and its Jira ticket is in Review."
+        let model = NewBroadcastFixture.model(context: broadcastContext, prompt: prompt, skills: [brainstorming], readiness: readiness)
         return NewBroadcastSheet(model: model).seeded(step: step)
     }
 

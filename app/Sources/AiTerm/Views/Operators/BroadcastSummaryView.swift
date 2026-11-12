@@ -39,10 +39,7 @@ struct BroadcastSummaryView: View {
     /// Copy All's text; nil leaves it out.
     let copyAll: String?
     @Environment(\.footerClock) private var clock
-    private var _justCopied = State<(target: CopyTarget, id: UUID)?>(initialValue: nil)
-    private var justCopied: (target: CopyTarget, id: UUID)? {
-        get { _justCopied.wrappedValue } nonmutating set { _justCopied.wrappedValue = newValue }
-    }
+    @State private var justCopied: (target: CopyTarget, id: UUID)? = nil
 
     /// The Summary of `board`: its summary, how its goal went, what is left for you and what the Operator worked around.
     init(board: BroadcastBoard) {

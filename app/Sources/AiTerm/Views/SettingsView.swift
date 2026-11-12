@@ -66,34 +66,19 @@ struct SettingsView: View {
     /// Asks the helper for a fresh snapshot and reads iTerm2's own installation and API setting.
     let checkIterm: () async -> ItermEnvironment
     @Environment(\.dismiss) private var dismiss
-    // `@State` is a macro in the macOS 26 SDK and its SwiftUIMacros plugin ships only with Xcode,
-    // which this machine does not have; these are the storage and accessors the macro would make.
-    /// The Integrations tab's fields and tests, kept from the first `init` of a presentation and
-    /// made from the connections Settings was opened with.
-    private var _integrations: State<IntegrationSettingsModel>
-    private var integrations: IntegrationSettingsModel { _integrations.wrappedValue }
+    /// The Integrations tab's fields and tests, kept from the first init of a presentation.
+    @State private var integrations: IntegrationSettingsModel
     /// Settings › Operator's edits, staged until Save and handed to the Operator tab, its one
     /// observer. Made once per presentation, as the sheet's task starts, not in `init`, which SwiftUI
     /// runs again on every redraw of the view that presents it; a test or a snapshot hands one in.
-    private var _operatorSettings: State<OperatorSettingsModel?>
-    var operatorSettings: OperatorSettingsModel? {
-        get { _operatorSettings.wrappedValue }
-        nonmutating set { _operatorSettings.wrappedValue = newValue }
-    }
-    var _tab = State<SettingsTab>(initialValue: .agents)
-    private var tab: SettingsTab { get { _tab.wrappedValue } nonmutating set { _tab.wrappedValue = newValue } }
-    var _matchItermBackground: State<Bool>
-    private var matchItermBackground: Bool { get { _matchItermBackground.wrappedValue } nonmutating set { _matchItermBackground.wrappedValue = newValue } }
-    var _badgeDetails: State<BadgeDetails>
-    private var badgeDetails: BadgeDetails { get { _badgeDetails.wrappedValue } nonmutating set { _badgeDetails.wrappedValue = newValue } }
-    var _interfaceSize: State<InterfaceSize>
-    private var interfaceSize: InterfaceSize { get { _interfaceSize.wrappedValue } nonmutating set { _interfaceSize.wrappedValue = newValue } }
-    private var _result = State<String?>(initialValue: nil)
-    private var result: String? { get { _result.wrappedValue } nonmutating set { _result.wrappedValue = newValue } }
-    private var _itermEnvironment = State<ItermEnvironment?>(initialValue: nil)
-    private var itermEnvironment: ItermEnvironment? { get { _itermEnvironment.wrappedValue } nonmutating set { _itermEnvironment.wrappedValue = newValue } }
-    private var _itermTesting = State<Bool>(initialValue: false)
-    private var itermTesting: Bool { get { _itermTesting.wrappedValue } nonmutating set { _itermTesting.wrappedValue = newValue } }
+    @State var operatorSettings: OperatorSettingsModel?
+    @State var tab: SettingsTab = .agents
+    @State var matchItermBackground: Bool
+    @State var badgeDetails: BadgeDetails
+    @State var interfaceSize: InterfaceSize
+    @State private var result: String? = nil
+    @State private var itermEnvironment: ItermEnvironment? = nil
+    @State private var itermTesting: Bool = false
     /// Backpack Mode: the Mac card shows its setup live.
     let backpack: BackpackController
     /// Claude Code's and Codex's Messaging, read for as long as Settings is open.
@@ -155,12 +140,8 @@ struct SettingsView: View {
         }
         // ⌘1–⌘4, on hidden buttons: a view carries one shortcut, and the tab bar's segments are
         // not buttons of their own.
-        .background {
-            ForEach(SettingsTab.allCases) { item in
-                Button(item.rawValue) { select(item) }.keyboardShortcut(item.key, modifiers: .command)
-            }
-            .hidden()
-        }
+        .modifier(TabShortcuts(items: SettingsTab.allCases, title: \.rawValue, key: \.key, select: select))
+
         // A result is only true for the moment it was taken, so every opening checks again rather
         // than showing a remembered answer: iTerm2, each saved service, every harness and the Mac.
         // The Operator's profile is read beside them, so a slow catalogue holds none of them up.
@@ -194,8 +175,8 @@ struct SettingsView: View {
             case .operator: if let operatorSettings { OperatorSettingsPane(model: operatorSettings) }
             case .integrations: integrationSettings
             case .interface:
-                InterfaceSettingsPane(matchItermBackground: _matchItermBackground.projectedValue,
-                                      badgeDetails: _badgeDetails.projectedValue,
+                InterfaceSettingsPane(matchItermBackground: $matchItermBackground,
+                                      badgeDetails: $badgeDetails,
                                       interfaceSize: Binding(get: { interfaceSize }, set: { pickInterfaceSize($0) }))
             }
         }
