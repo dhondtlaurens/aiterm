@@ -20,7 +20,7 @@ line-length = 140
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "UP", "B"]
+select = ["E", "F", "W", "UP", "B", "BLE", "RUF100"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -33,6 +33,7 @@ ignore_missing_imports = true
 # Its package __init__ re-exports its submodules' names by plain import, as untyped libraries do.
 implicit_reexport = true
 
+# iterm_port and screens inherit strict checking above, from their first commit.
 # The one module that imports iterm2. The library ships types since 2.30, but the bridge, written
 # against 2.23, which shipped none, keeps its notification callbacks and privates unannotated.
 [[tool.mypy.overrides]]

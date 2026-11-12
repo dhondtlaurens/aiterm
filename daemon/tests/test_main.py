@@ -44,7 +44,7 @@ async def test_ctl_request_round_trip(sock_dir):
         await server.wait_closed()
 
 
-def test_run_exits_with_already_running_status_without_touching_iterm2(capsys, sock_dir):
+def test_run_exits_with_already_running_status_without_touching_iterm2(capsys, sock_dir, tmp_path):
     # `run_daemon` starts the RPC socket before ever touching iTerm2, so a
     # bare listening Unix socket at the same path is enough to make
     # `rpc_server.start()` raise before `Service.start()` reaches
@@ -54,7 +54,7 @@ def test_run_exits_with_already_running_status_without_touching_iterm2(capsys, s
     srv_sock.bind(sock_path)
     srv_sock.listen(1)
     try:
-        result = main(["run", "--socket", sock_path, "--hook-port", "0"])
+        result = main(["run", "--socket", sock_path, "--hook-port", "0"], test_records=tmp_path / "test-runs")
         # A status of its own, not the generic 1: it is what lets the supervisor tell
         # "another daemon owns the socket" (adopt it) from "the daemon crashed"
         # (restart it). Sharing 1 made the app restart-loop forever against an orphan.
@@ -66,13 +66,14 @@ def test_run_exits_with_already_running_status_without_touching_iterm2(capsys, s
         srv_sock.close()
 
 
-def test_run_reports_a_hook_port_in_use_cleanly(capsys, sock_dir):
+def test_run_reports_a_hook_port_in_use_cleanly(capsys, sock_dir, tmp_path):
     blocker = socket.socket()
     blocker.bind(("127.0.0.1", 0))
     blocker.listen(1)
     try:
         sock_path = os.path.join(sock_dir, "s.sock")
-        result = main(["run", "--socket", sock_path, "--hook-port", str(blocker.getsockname()[1])])
+        result = main(["run", "--socket", sock_path, "--hook-port", str(blocker.getsockname()[1])],
+                      test_records=tmp_path / "test-runs")
         assert result == 1
         err = capsys.readouterr().err
         assert "Traceback" not in err and "could not start" in err
@@ -183,7 +184,7 @@ async def test_run_daemon_quits_once_its_last_app_has_left(monkeypatch, tmp_path
     monkeypatch.setattr(entry, "IDLE_CHECK_SECONDS", 0.02)
     sock = os.path.join(sock_dir, "d.sock")
     ns = build_parser().parse_args(["run", "--socket", sock, "--hook-port", "0", "--idle-exit-seconds", "0.2"])
-    daemon = asyncio.create_task(entry.run_daemon(ns))
+    daemon = asyncio.create_task(entry.run_daemon(ns, test_records=tmp_path / "test-runs"))
     try:
         await wait_until(lambda: os.path.exists(sock))
         r, w = await asyncio.open_unix_connection(sock)

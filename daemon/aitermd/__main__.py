@@ -6,6 +6,7 @@ import logging
 import signal
 import sys
 import time
+from pathlib import Path
 from collections.abc import Callable
 from typing import Any
 
@@ -84,7 +85,7 @@ async def ctl_request(socket_path: str, method: str, params: Any) -> dict[str, A
     raise RuntimeError("daemon closed the connection")
 
 
-async def run_daemon(ns: argparse.Namespace) -> None:
+async def run_daemon(ns: argparse.Namespace, *, test_records: Path | None = None) -> None:
     from .claude_sessions import ClaudeSessionFiles
     from .codex_sessions import CodexSessionFiles
     from .connection import ItermSupervisor
@@ -93,6 +94,7 @@ async def run_daemon(ns: argparse.Namespace) -> None:
     from .operator_mcp import RUNS_ROOT
     from .rpc_server import RpcServer
     from .service import Service
+    from .test_activity import TestActivityReader
 
     # The idle watchdog signals this: an app that died without a graceful quit never sends
     # SIGTERM, and the watchdog is the only way the daemon learns it is no longer needed.
@@ -101,7 +103,8 @@ async def run_daemon(ns: argparse.Namespace) -> None:
     supervisor = ItermSupervisor(iterm, rpc.broadcast, lambda: rpc.client_count, cookies_from_app=ns.cookies_from_app)
     svc = Service(iterm=iterm, rpc=rpc, hooks=HookServer(port=ns.hook_port),
                   claude_files=ClaudeSessionFiles(), codex_files=CodexSessionFiles(),
-                  clock=time.time, supervisor=supervisor, operator_runs=RUNS_ROOT)
+                  clock=time.time, supervisor=supervisor, operator_runs=RUNS_ROOT,
+                  test_activity=TestActivityReader(test_records) if test_records is not None else None)
     await svc.start()
     watchdog = asyncio.get_running_loop().create_task(
         IdleWatchdog(lambda: rpc.client_count, ns.idle_exit_seconds, stop.set, check_seconds=IDLE_CHECK_SECONDS).run())
@@ -116,12 +119,12 @@ async def run_daemon(ns: argparse.Namespace) -> None:
         await svc.stop()
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, test_records: Path | None = None) -> int:
     ns = build_parser().parse_args(argv)
     if ns.command == "run":
         logging.basicConfig(level=ns.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
         try:
-            asyncio.run(run_daemon(ns))
+            asyncio.run(run_daemon(ns, test_records=test_records))
         except AlreadyRunning as exc:
             print(str(exc), file=sys.stderr)
             return EXIT_ALREADY_RUNNING

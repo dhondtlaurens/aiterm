@@ -63,7 +63,7 @@ with `{}` before handling and carries no decision. Harness test IDs are echoed a
 state. Strict decimal Content-Length, a 1 MiB body cap, 100-header/32 KiB head limits and
 `100-continue` support bound the receiver.
 
-Operator MCP has a separate token/ownership-controlled surface. Its 32 schemas are frozen in
+Operator MCP has a separate token/ownership-controlled surface. Its 37 schemas are frozen in
 `tests/fixtures/operator-current-tools.json`; Python schema and forwarded-reply tests plus Swift's
 current journey protect it. Update transcript/vendor parsers for actual supported CLI versions,
 without adding a historical broadcast execution path.

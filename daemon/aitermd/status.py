@@ -8,8 +8,8 @@ from typing import Literal
 from .claude_subagents import TranscriptTail
 from .claude_background import ShellReading
 from .hook_events import HookEvent
-from .text import shows
-from .models import HARNESS_BY_AGENT, AgentKind, BackgroundJob, DisplayWork, DisplayWorkItem, State, StoppedOn
+from .models import BackgroundJob, DisplayWork, DisplayWorkItem, State, StoppedOn
+from .screens import shows_trust_prompt as shows_trust_prompt
 from .sessions import SessionRegistry
 
 CLAUDE_FILE_STATUS: dict[str, State | None] = {
@@ -72,14 +72,6 @@ class Turn:
     shell_snapshot_at: float = float("-inf")
     shell_snapshot_valid: bool = True
     generation: int = 0
-
-
-def shows_trust_prompt(agent: AgentKind, screen: str) -> bool:
-    """Whether `screen` shows the agent's folder-trust dialog. Compared without whitespace: a line
-    can come back with its spaces drawn as cursor moves, or wrapped where the window is narrow."""
-    if (harness := HARNESS_BY_AGENT.get(agent)) is None:
-        return False
-    return shows(screen, harness.trust_prompt)
 
 
 def _has_spinner(title: str) -> bool:
