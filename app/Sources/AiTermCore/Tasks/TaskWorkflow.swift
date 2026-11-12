@@ -118,16 +118,15 @@ public struct TaskWorkflow: Sendable {
     }
 
     /// What a removal or an archive reads of the task's worktree before it asks or closes anything, from one listing of
-    /// the repository's worktrees: what `head(of:in:)` says, whether to ask before deleting a folder git does not list, and
-    /// whether git status is worth asking (`hasUnsavedWork(task:project:after:)`).
+    /// the repository's worktrees: what `head(of:in:)` says, and whether to ask before deleting a folder git does not
+    /// list. Whether it holds unsaved work is asked after, by `hasUnsavedWork(task:project:)` with a listing of its own,
+    /// right before git status: only that listing says the folder is still this repository's worktree then.
     public struct Preflight: Equatable, Sendable {
         /// What the worktree is on, as `head(of:in:)` says it.
         public let head: WorktreeHead
         /// An unlisted directory is not evidence of our failed removal: ask before deleting it. True when the folder is
         /// there, git does not list it, and this workflow's own removal of it never reached git.
         public let needsRemovalConfirmation: Bool
-        /// The folder was there and git listed a worktree at it: only then can it hold unsaved work.
-        let listed: Bool
     }
 
     /// The task's `Preflight`, its repository's worktrees listed once, on the shared pool. A task with no checkout, or
@@ -136,25 +135,11 @@ public struct TaskWorkflow: Sendable {
         let git = git, attempts = removalAttempts
         return try await BackgroundWork.run {
             guard task.hasCheckout, FileManager.default.fileExists(atPath: task.worktreePath) else {
-                return Preflight(head: .missing, needsRemovalConfirmation: false, listed: false)
+                return Preflight(head: .missing, needsRemovalConfirmation: false)
             }
             let worktree = try Repository(project.path, git: git).worktree(at: task.worktreePath)
             return Preflight(head: worktree.map { $0.branch.map(WorktreeHead.branch) ?? .detached } ?? .missing,
-                             needsRemovalConfirmation: worktree == nil && !attempts.paths.withLock { $0[task.id] == task.worktreePath },
-                             listed: worktree != nil)
-        }
-    }
-
-    /// `hasUnsavedWork(task:project:)` from the preflight's listing: git status is asked only of a worktree git listed,
-    /// whose folder is still that worktree when status is asked (`Worktree.isLinkedCheckout`). A worktree removed outside
-    /// AiTerm since the listing, its folder made again, is skipped as one git no longer lists was: status there would
-    /// answer for the project's own checkout.
-    public func hasUnsavedWork(task: TaskItem, project: Project, after preflight: Preflight) async throws -> Bool {
-        guard preflight.listed else { return false }
-        let git = git
-        return try await BackgroundWork.run {
-            guard Worktree.isLinkedCheckout(at: task.worktreePath) else { return false }
-            return try !Repository(project.path, git: git).isClean(at: task.worktreePath, untracked: true)
+                             needsRemovalConfirmation: worktree == nil && !attempts.paths.withLock { $0[task.id] == task.worktreePath })
         }
     }
 

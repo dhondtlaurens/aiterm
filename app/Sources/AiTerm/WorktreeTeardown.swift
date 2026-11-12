@@ -61,9 +61,9 @@ struct WorktreeTeardown {
                   still.worktreePath == task.worktreePath, still.projectId == project.id else { return nil }
             task = still
         }
-        // Read again after that question, as before the preflight: the folder may be git's again by now.
-        let unsaved = unlisted ? try await workflow.hasUnsavedWork(task: task, project: project)
-                               : try await workflow.hasUnsavedWork(task: task, project: project, after: preflight)
+        // Its own listing, right before git status, as before the preflight: only it says the folder is still this
+        // repository's worktree now — a worktree removed outside AiTerm since, its folder made again, is not.
+        let unsaved = try await workflow.hasUnsavedWork(task: task, project: project)
         var force = false
         if unsaved {
             guard await confirmDeletingUnsavedWork(of: task, verb: verb), let still = workspace.state.task(id: task.id) else { return nil }
