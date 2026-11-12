@@ -37,7 +37,7 @@ struct ArchiveSheet: View {
                     .font(Typography.body).foregroundStyle(Palette.text)
             } else {
                 ScrollViewReader { scroller in
-                    VStack(spacing: Space.hairline) {
+                    LazyVStack(spacing: Space.hairline) {
                         ForEach(rows) { row in
                             let date = ArchiveDate.label(row.shelvedAt, now: now, calendar: calendar, locale: calendar.locale ?? .current)
                             Group {
@@ -102,7 +102,14 @@ struct ArchiveRow: View {
                           ticketIsGitLabIssue: task.jira?.isGitLabIssue ?? false)
     }
 
+    #if DEBUG
+    @Environment(\.rowBodyCounter) private var bodyCounter
+    #endif
+
     var body: some View {
+        #if DEBUG
+        let _ = bodyCounter?.count(entry.archived.id)
+        #endif
         let task = entry.archived.task
         HStack(spacing: Space.inset) {
             VendorMark(agent: task.agent.session, size: Size.avatar)
@@ -136,7 +143,14 @@ struct ShelvedBroadcastRow: View {
     let broadcast: ShelvedBroadcast
     let date: String
 
+    #if DEBUG
+    @Environment(\.rowBodyCounter) private var bodyCounter
+    #endif
+
     var body: some View {
+        #if DEBUG
+        let _ = bodyCounter?.count(broadcast.runId)
+        #endif
         HStack(spacing: Space.inset) {
             ProviderIcon(.symbol(OperatorHeading.glyph))
             HStack(alignment: .firstTextBaseline, spacing: Space.tight) {

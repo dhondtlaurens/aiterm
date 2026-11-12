@@ -94,7 +94,7 @@ import AiTermUI
     @Test func thePickChipKeepsItsExistingLabel() throws { try check(.chip) }
 }
 
-private struct NoPickerGit: GitRunning {
+struct NoPickerGit: GitRunning {
     func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
         throw GitError(args: args, code: 128, stderr: "No checkout in this picker fixture")
     }

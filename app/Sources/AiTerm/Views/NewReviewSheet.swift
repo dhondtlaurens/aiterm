@@ -34,7 +34,7 @@ struct NewReviewSheet: View {
 
     @ViewBuilder private var content: some View {
         switch step {
-        case 1: branchStep
+        case 1: NewReviewFirstStep(model: model, mrOpen: $mrOpen, branchOpen: $branchOpen, ticketsOpen: $ticketsOpen)
         case 2: AgentStep(model: model)
         default: PromptStep(text: $model.promptText, agent: model.draft.agent, completions: model.completions) {
             if model.draft.ticket != nil {
@@ -45,9 +45,68 @@ struct NewReviewSheet: View {
         }
     }
 
+    // -- what the scaffold is handed ------------------------------------------------
+
+    /// Step 1 needs both a name and a branch. A review derives neither — there is nothing to fall
+    /// back on if the branch is blank, unlike a task whose branch follows its title.
+    static func canAdvance(step: Int, title: String, branch: String, creating: Bool) -> Bool {
+        guard !creating else { return false }
+        let named = TaskCreator.isNamed(title)
+        guard step == 1 else { return named }
+        return named && !branch.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// The rule above, and past step 1 an agent that can run.
+    static func canAdvance(step: Int, model: ReviewCreationModel) -> Bool {
+        guard canAdvance(step: step, title: model.draft.title, branch: model.draft.branch, creating: model.creating) else { return false }
+        return step == 1 || model.agentIsReady
+    }
+
+    // A branch that is already a task's opens in that task (see `TaskLauncher.createReview`), and
+    // each of these says so before anything is created — never a surprise after.
+
+    /// Where the review opens, on steps 1 and 3, once it has a branch: the task that already has it,
+    /// or a new worktree. `slug` is read only when the new worktree is named — finding the unused
+    /// slug looks at the disk.
+    static func destination(step: Int, project: Project, owner: TaskItem?, slug: @autoclosure () -> String,
+                            branch: String) -> Destination? {
+        guard ReviewCreation.steps.showsDestination(onStep: step), !branch.isEmpty else { return nil }
+        if let owner { return .existing(owner) }
+        return .worktree(project: project, slug: slug(), branch: branch)
+    }
+
+    static func createLabel(owner: TaskItem?) -> String { owner.map { "Open in \($0.kindName)" } ?? "Create Review" }
+
+    /// What step 1's checkbox offers: the project's `.worktreeinclude` files, or none when the
+    /// review opens in `owner`, the task that already has its branch — no worktree is made there.
+    static func worktreeIncludes(_ files: [String], owner: TaskItem?) -> [String] { owner == nil ? files : [] }
+}
+
+#if DEBUG
+extension NewReviewSheet {
+    /// The sheet already on `step`, with its lists open or not: what only clicks reach in the app,
+    /// for the snapshots and the tests that host the sheet.
+    func seeded(step: Int, mergeRequestsOpen: Bool = false, branchesOpen: Bool = false, ticketsOpen: Bool = false) -> Self {
+        var sheet = self
+        sheet._step = State(initialValue: step)
+        sheet._mrOpen = State(initialValue: mergeRequestsOpen)
+        sheet._branchOpen = State(initialValue: branchesOpen)
+        sheet._ticketsOpen = State(initialValue: ticketsOpen)
+        return sheet
+    }
+}
+#endif
+
+/// Step one's branch and ticket derivations belong to this leaf, apart from the frame's footer and destination.
+struct NewReviewFirstStep: View {
+    @Bindable var model: ReviewCreationModel
+    @Binding var mrOpen: Bool
+    @Binding var branchOpen: Bool
+    @Binding var ticketsOpen: Bool
+
     // -- step 1: branch -------------------------------------------------------------
 
-    private var branchStep: some View {
+    var body: some View {
         FrontToBackStack(spacing: Space.block) {
             FormField(model.codeHost.reviewField) {
                 SearchPicker(placeholder: model.codeHost.reviewPlaceholder,
@@ -105,7 +164,7 @@ struct NewReviewSheet: View {
 
             // As New Task's: the step's last field, above the destination line — and only when
             // the review gets a worktree of its own.
-            let includes = Self.worktreeIncludes(model.worktreeIncludes, owner: model.owningTask)
+            let includes = NewReviewSheet.worktreeIncludes(model.worktreeIncludes, owner: model.owningTask)
             if !includes.isEmpty {
                 WorktreeIncludeToggle(files: includes, isOn: $model.draft.copiesWorktreeInclude)
             }
@@ -148,54 +207,4 @@ struct NewReviewSheet: View {
         }
     }
 
-    // -- what the scaffold is handed ------------------------------------------------
-
-    /// Step 1 needs both a name and a branch. A review derives neither — there is nothing to fall
-    /// back on if the branch is blank, unlike a task whose branch follows its title.
-    static func canAdvance(step: Int, title: String, branch: String, creating: Bool) -> Bool {
-        guard !creating else { return false }
-        let named = TaskCreator.isNamed(title)
-        guard step == 1 else { return named }
-        return named && !branch.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-
-    /// The rule above, and past step 1 an agent that can run.
-    static func canAdvance(step: Int, model: ReviewCreationModel) -> Bool {
-        guard canAdvance(step: step, title: model.draft.title, branch: model.draft.branch, creating: model.creating) else { return false }
-        return step == 1 || model.agentIsReady
-    }
-
-    // A branch that is already a task's opens in that task (see `TaskLauncher.createReview`), and
-    // each of these says so before anything is created — never a surprise after.
-
-    /// Where the review opens, on steps 1 and 3, once it has a branch: the task that already has it,
-    /// or a new worktree. `slug` is read only when the new worktree is named — finding the unused
-    /// slug looks at the disk.
-    static func destination(step: Int, project: Project, owner: TaskItem?, slug: @autoclosure () -> String,
-                            branch: String) -> Destination? {
-        guard ReviewCreation.steps.showsDestination(onStep: step), !branch.isEmpty else { return nil }
-        if let owner { return .existing(owner) }
-        return .worktree(project: project, slug: slug(), branch: branch)
-    }
-
-    static func createLabel(owner: TaskItem?) -> String { owner.map { "Open in \($0.kindName)" } ?? "Create Review" }
-
-    /// What step 1's checkbox offers: the project's `.worktreeinclude` files, or none when the
-    /// review opens in `owner`, the task that already has its branch — no worktree is made there.
-    static func worktreeIncludes(_ files: [String], owner: TaskItem?) -> [String] { owner == nil ? files : [] }
 }
-
-#if DEBUG
-extension NewReviewSheet {
-    /// The sheet already on `step`, with its lists open or not: what only clicks reach in the app,
-    /// for the snapshots and the tests that host the sheet.
-    func seeded(step: Int, mergeRequestsOpen: Bool = false, branchesOpen: Bool = false, ticketsOpen: Bool = false) -> Self {
-        var sheet = self
-        sheet._step = State(initialValue: step)
-        sheet._mrOpen = State(initialValue: mergeRequestsOpen)
-        sheet._branchOpen = State(initialValue: branchesOpen)
-        sheet._ticketsOpen = State(initialValue: ticketsOpen)
-        return sheet
-    }
-}
-#endif

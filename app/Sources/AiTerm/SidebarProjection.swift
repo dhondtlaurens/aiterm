@@ -24,6 +24,9 @@ final class SidebarProjection {
     /// The broadcast's group under the OPERATOR heading, above the projects: the Operator's row and the tasks it
     /// holds, which `entries` leaves out; nil while no broadcast exists.
     private(set) var broadcast: BroadcastSection?
+    /// Values read only by their headings, written only when those inputs change.
+    private(set) var operatorHeading: OperatorHeadingValue?
+    private(set) var projectsHeading = ProjectsHeadingValue()
     /// Each live or ended run by id: what the broadcast's menu reads.
     private(set) var runs: [UUID: OperatorRun] = [:]
     /// The broadcast's board, what its sheet draws (`BroadcastBoardHost`); nil while no broadcast exists, and while its
@@ -167,9 +170,14 @@ final class SidebarProjection {
             let terminals = Dictionary(next.terminals.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             if terminals != self.terminals { self.terminals = terminals }
         }
-        guard entries != self.entries else { return broadcastChanged }
+        let entriesChanged = entries != self.entries
+        let sections = entriesChanged ? entries.compactMap { if case .project(let section) = $0 { section } else { nil } } : self.sections
+        let operatorHeading = broadcast.map(OperatorHeadingValue.init)
+        if operatorHeading != self.operatorHeading { self.operatorHeading = operatorHeading }
+        let projectsHeading = ProjectsHeadingValue(sections: sections, broadcast: broadcast)
+        if projectsHeading != self.projectsHeading { self.projectsHeading = projectsHeading }
+        guard entriesChanged else { return broadcastChanged }
         self.entries = entries
-        let sections = entries.compactMap { if case .project(let section) = $0 { section } else { nil } }
         guard sections != self.sections else { return broadcastChanged }
         self.sections = sections
         return true

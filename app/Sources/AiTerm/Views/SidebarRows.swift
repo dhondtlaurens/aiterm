@@ -48,27 +48,33 @@ struct SidebarHeader: View {
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
     @State private var hovering = false
+    #if DEBUG
+    @Environment(\.rowBodyCounter) private var bodyCounter
+    #endif
 
     var body: some View {
-        let rows = controller.rows, folds = rows.broadcast != nil && controller.canChangeWorkspace
+        #if DEBUG
+        let _ = bodyCounter?.countHeading("projects")
+        #endif
+        let heading = controller.rows.projectsHeading, folds = heading.runID != nil && controller.canChangeWorkspace
         HStack(spacing: scale(Space.base)) {
             HStack(spacing: scale(Space.base)) {
                 SidebarHeading("Projects")
                 Spacer(minLength: scale(Space.tight))
-                if let broadcast = rows.broadcast {
-                    let attention = rows.projectsNeedingAttention.count
-                    if rows.projectsFolded, attention > 0 {
+                if heading.runID != nil {
+                    let attention = heading.attention
+                    if heading.folded, attention > 0 {
                         Button { controller.openProjectsAttention() } label: {
                             StatusCountChips(counts: [StatusCount(status: .needsInput, count: attention)])
                         }
                         .buttonStyle(.plain)
                     }
-                    SectionFoldChevron(folded: !broadcast.folded, hovering: hovering)
+                    SectionFoldChevron(folded: heading.folded, hovering: hovering)
                 }
             }
-            .modifier(FoldOnTap(enabled: folds) { if let id = rows.broadcast?.id { controller.projects.toggleFolded(run: id) } })
+            .modifier(FoldOnTap(enabled: folds) { if let id = heading.runID { controller.projects.toggleFolded(run: id) } })
             .accessibilityLabel("Projects")
-            .accessibilityValue(rows.projectsFolded ? "folded" : "")
+            .accessibilityValue(heading.folded ? "folded" : "")
             AddMenu(help: "Add project or divider", enabled: controller.canChangeWorkspace) {
                 Button("Add Project…") { Task { await controller.projects.addProject() } }
                 Button("Add Divider…") { controller.sheets.presentNewDivider() }
@@ -100,15 +106,19 @@ extension DividerRow {
 /// The arrows stop on it, as on a row: selected, it is drawn in the same `RowPill` on
 /// `Surface.accent`, and shows no window.
 struct ProjectHeaderRow: View {
-    let section: ProjectSection
+    let heading: ProjectHeadingValue
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
     #endif
 
-    private var project: Project { section.project }
-    private var collapses: Bool { Self.collapses(section, canChangeWorkspace: controller.canChangeWorkspace) }
+    init(section: ProjectSection, controller: AppController) {
+        heading = ProjectHeadingValue(section); self.controller = controller
+    }
+
+    private var project: Project { heading.project }
+    private var collapses: Bool { !heading.isEmpty && controller.canChangeWorkspace }
 
     /// Whether the header's label collapses and expands the section — by click, and for VoiceOver as
     /// its default action and button trait. An empty project has nothing to disclose, and a locked
@@ -126,8 +136,8 @@ struct ProjectHeaderRow: View {
             // Only the label collapses the section; the "+" menu keeps its own click, which a tap
             // gesture on the whole row would have swallowed.
             HStack(spacing: scale(Space.base)) {
-                HeaderChevron(collapsed: section.collapsed).frame(width: SidebarRowLayout.chevronWidth(scale))
-                    .opacity(section.isEmpty ? 0 : 1)
+                HeaderChevron(collapsed: heading.collapsed).frame(width: SidebarRowLayout.chevronWidth(scale))
+                    .opacity(heading.isEmpty ? 0 : 1)
                 ProviderIcon(provider: project.provider)
                 // The name, then its Jira project count, `Space.gap` apart as a task row's quiet
                 // badges and branch are. They keep their width; the name is what truncates.
@@ -142,8 +152,8 @@ struct ProjectHeaderRow: View {
                 Spacer(minLength: scale(Space.tight))
                 // Only when collapsed: expanded, the task and terminal rows say all of this and more, and a
                 // second copy on the header would just be noise above them.
-                if section.collapsed {
-                    StatusCountChips(counts: SidebarModel.statusCounts(tasks: section.tasks, terminals: section.terminals))
+                if heading.collapsed {
+                    StatusCountChips(counts: heading.counts)
                 }
             }
             .modifier(FoldOnTap(enabled: collapses, selected: selected) { controller.projects.toggleCollapsed(project) })
@@ -175,9 +185,9 @@ struct ProjectHeaderRow: View {
             // Disabled at the edges rather than absent: a menu that changes shape with the row's
             // position is worse than a greyed item, and this menu already greys "Remove" when locked.
             Button("Move Up") { controller.projects.move(itemId: project.id, .up) }
-                .disabled(!controller.canChangeWorkspace || !section.canMoveUp)
+                .disabled(!controller.canChangeWorkspace || !heading.canMoveUp)
             Button("Move Down") { controller.projects.move(itemId: project.id, .down) }
-                .disabled(!controller.canChangeWorkspace || !section.canMoveDown)
+                .disabled(!controller.canChangeWorkspace || !heading.canMoveDown)
             Divider()
             Button("Remove Project…", role: .destructive) { Task { await controller.projects.confirmRemove(project: project) } }
                 .disabled(!controller.canChangeWorkspace)
@@ -554,13 +564,15 @@ struct TerminalRowView: View {
 }
 
 #if DEBUG
-/// Counts the sidebar rows' body evaluations by row id, for the tests that hold an arrow key, a
-/// removal and a missing checkout to the rows they touch. Unset everywhere else.
+/// Counts row and section-heading bodies for hosted work budgets. Each test host supplies
+/// its own counter; normal app presentations leave it unset.
 @MainActor
 final class RowBodyCounter {
     private(set) var counts: [UUID: Int] = [:]
+    private(set) var headings: [String: Int] = [:]
     func count(_ id: UUID) { counts[id, default: 0] += 1 }
-    func reset() { counts = [:] }
+    func countHeading(_ name: String) { headings[name, default: 0] += 1 }
+    func reset() { counts = [:]; headings = [:] }
 }
 
 private struct RowBodyCounterKey: EnvironmentKey { static let defaultValue: RowBodyCounter? = nil }

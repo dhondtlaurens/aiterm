@@ -24,6 +24,10 @@ public final class WorkMeter: Sendable {
         case stateSave
         /// One file a `StateStore` writes the bytes of: the workspace, or its backup.
         case stateWrite
+        /// The Activity view's calendar-day grouping and day-heading formatting.
+        case activityDays, activityDayTitle
+        /// A Shelf projection's search ranking.
+        case archiveRank
     }
 
     @TaskLocal public static var current: WorkMeter?

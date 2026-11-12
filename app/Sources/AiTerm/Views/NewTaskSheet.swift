@@ -7,14 +7,6 @@ struct NewTaskSheet: View {
     @Bindable var model: TaskCreationModel
     @State private var step: Int = 1
     @State private var ticketsOpen: Bool = false
-    /// The branch-type popup's column: its longest type, `chore`, in monospace plus the popup's
-    /// chevron and bezel — no wider, since every point it takes comes out of the branch name
-    /// beside it.
-    private static let branchTypeWidth: CGFloat = 96
-    /// The base-branch popup's column: room for `main`, `develop` or a short release branch in
-    /// monospace, the rest of the row left to the new branch's name.
-    private static let baseBranchWidth: CGFloat = 190
-
     init(model: TaskCreationModel) { self.model = model }
 
     var body: some View {
@@ -27,7 +19,7 @@ struct NewTaskSheet: View {
 
     @ViewBuilder private var content: some View {
         switch step {
-        case 1: ticketStep
+        case 1: NewTaskFirstStep(model: model, ticketsOpen: $ticketsOpen)
         case 2: AgentStep(model: model)
         default: PromptStep(text: $model.promptText, agent: model.draft.agent, completions: model.completions) {
             if model.draft.ticket != nil {
@@ -38,9 +30,55 @@ struct NewTaskSheet: View {
         }
     }
 
+    // -- what the scaffold is handed ------------------------------------------------
+
+    /// Step 1 needs a name and nothing else: the branch follows the title. The agent and prompt
+    /// steps need an agent that can run too — with no CLI installed, Create Task is dead and the
+    /// footer says why.
+    static func canAdvance(step: Int, model: TaskCreationModel) -> Bool {
+        guard !model.creating, TaskCreator.isNamed(model.draft.title) else { return false }
+        return step == 1 || model.agentIsReady
+    }
+
+    /// Where the task opens: its new worktree, on steps 1 and 3 only — finding the unused slug
+    /// looks at the disk. Nothing until the task has a name to make a worktree of.
+    private var destination: Destination? {
+        guard TaskCreation.steps.showsDestination(onStep: step) else { return nil }
+        let slug = model.worktreeSlug
+        guard !slug.isEmpty else { return nil }
+        return .worktree(project: model.project, slug: slug, branch: model.draft.branchName.isEmpty ? "" : model.draft.branch)
+    }
+}
+
+#if DEBUG
+extension NewTaskSheet {
+    /// The sheet already on `step`, its ticket list open or not: what only clicks reach in the app,
+    /// for the snapshots and the tests that host the sheet.
+    func seeded(step: Int, ticketsOpen: Bool = false) -> Self {
+        var sheet = self
+        sheet._step = State(initialValue: step)
+        sheet._ticketsOpen = State(initialValue: ticketsOpen)
+        return sheet
+    }
+}
+#endif
+
+/// Step one's derived picker values are read here, so a catalogue refresh does not rebuild the sheet frame.
+struct NewTaskFirstStep: View {
+    @Bindable var model: TaskCreationModel
+    @Binding var ticketsOpen: Bool
+    /// The branch-type popup's column: its longest type, `chore`, in monospace plus the popup's
+    /// chevron and bezel — no wider, since every point it takes comes out of the branch name
+    /// beside it.
+    private static let branchTypeWidth: CGFloat = 96
+    /// The base-branch popup's column: room for `main`, `develop` or a short release branch in
+    /// monospace, the rest of the row left to the new branch's name.
+    private static let baseBranchWidth: CGFloat = 190
+
+
     // -- step 1: ticket -------------------------------------------------------------
 
-    private var ticketStep: some View {
+    var body: some View {
         FrontToBackStack(spacing: Space.block) {
             FormField("Ticket (optional)") {
                 TicketPickerField(placeholder: model.ticketPlaceholder,
@@ -88,35 +126,4 @@ struct NewTaskSheet: View {
         model.branches.contains(model.draft.baseBranch) || model.draft.baseBranch.isEmpty ? model.branches : [model.draft.baseBranch] + model.branches
     }
 
-    // -- what the scaffold is handed ------------------------------------------------
-
-    /// Step 1 needs a name and nothing else: the branch follows the title. The agent and prompt
-    /// steps need an agent that can run too — with no CLI installed, Create Task is dead and the
-    /// footer says why.
-    static func canAdvance(step: Int, model: TaskCreationModel) -> Bool {
-        guard !model.creating, TaskCreator.isNamed(model.draft.title) else { return false }
-        return step == 1 || model.agentIsReady
-    }
-
-    /// Where the task opens: its new worktree, on steps 1 and 3 only — finding the unused slug
-    /// looks at the disk. Nothing until the task has a name to make a worktree of.
-    private var destination: Destination? {
-        guard TaskCreation.steps.showsDestination(onStep: step) else { return nil }
-        let slug = model.worktreeSlug
-        guard !slug.isEmpty else { return nil }
-        return .worktree(project: model.project, slug: slug, branch: model.draft.branchName.isEmpty ? "" : model.draft.branch)
-    }
 }
-
-#if DEBUG
-extension NewTaskSheet {
-    /// The sheet already on `step`, its ticket list open or not: what only clicks reach in the app,
-    /// for the snapshots and the tests that host the sheet.
-    func seeded(step: Int, ticketsOpen: Bool = false) -> Self {
-        var sheet = self
-        sheet._step = State(initialValue: step)
-        sheet._ticketsOpen = State(initialValue: ticketsOpen)
-        return sheet
-    }
-}
-#endif
