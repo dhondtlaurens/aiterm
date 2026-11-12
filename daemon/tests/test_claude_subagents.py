@@ -1,10 +1,13 @@
-import json
 import os
 
 import pytest
 
 from aitermd import claude_subagents
 from aitermd.claude_subagents import SubagentTranscripts
+
+from tests.builders import (
+    write_child_transcript as write,
+)
 
 # The records a Claude subagent transcript ends with, as Claude Code 2.1.285 writes them.
 PROMPT = {"type": "user", "isSidechain": True, "agentId": "c1", "message": {"role": "user", "content": "Fix the tests"}}
@@ -31,12 +34,6 @@ REMINDED = {"type": "user", "isSidechain": True, "agentId": "c1", "isMeta": True
 HANDED_BACK = {"type": "user", "isSidechain": True, "agentId": "c1", "message": {"role": "user", "content": [
     {"tool_use_id": "toolu_1", "type": "tool_result",
      "content": [{"type": "text", "text": '{"success":true,"message":"Report delivered to your caller."}'}]}]}}
-
-
-def write(path, *records, tail=""):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(r) + "\n" for r in records) + tail)
-    return str(path)
 
 
 def has_ended(path):
@@ -154,3 +151,31 @@ def test_a_tail_ending_in_a_record_without_a_time_ends_at_its_write(tmp_path):
     assert SubagentTranscripts().read(path).ended_at == 1_900_000_000
     path = write(tmp_path / "agent-c2.jsonl", PROMPT, ASSISTANT)
     assert SubagentTranscripts().read(path).ended_at is None
+
+
+def test_a_nested_transcript_path_is_remembered_but_a_missing_target_is_retried(tmp_path, monkeypatch):
+    from aitermd.claude_subagents import SubagentTranscripts
+
+    requested = tmp_path / "agent-a.jsonl"
+    nested = tmp_path / "run" / requested.name
+    nested.parent.mkdir()
+    nested.write_text('{}\n')
+    reader = SubagentTranscripts()
+    assert reader.read(str(requested)) is not None
+    searches, original = [], type(requested).glob
+
+    def glob(path, pattern):
+        searches.append(pattern)
+        return original(path, pattern)
+
+    monkeypatch.setattr(type(requested), "glob", glob)
+    assert reader.read(str(requested)) is not None
+    assert searches == []  # Before: one nested-path search on every read.
+    nested.unlink()
+    assert reader.read(str(requested)) is None
+    nested.write_text('{}\n')
+    assert reader.read(str(requested)) is not None
+    reader.read_all([])
+    searches.clear()
+    assert reader.read(str(requested)) is not None
+    assert searches == [f"*/{requested.name}"]

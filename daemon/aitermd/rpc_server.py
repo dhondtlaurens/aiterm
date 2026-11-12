@@ -182,7 +182,7 @@ class RpcServer:
             result = await handler(msg.get("params"))
         except RpcError as exc:
             return protocol.error(request_id, exc.code, exc.message)
-        except Exception as exc:  # noqa: BLE001 - surfaced to the client
+        except Exception as exc:  # surfaced to the client
             log.exception("handler %s failed", method)
             return protocol.error(request_id, protocol.INTERNAL, str(exc))
         return protocol.response(request_id, result)

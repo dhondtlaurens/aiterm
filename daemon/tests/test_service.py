@@ -21,6 +21,11 @@ from aitermd.hook_events import HookEvent
 from tests.conftest import FRAME, call, http, post_hook, task_tab, wait_until
 from tests.fake_iterm import FakeIterm
 
+from tests.builders import (
+    append_transcript as _append,
+    write_claude_session,
+)
+
 
 @pytest.fixture
 async def stack(make_service):
@@ -139,7 +144,11 @@ async def background_session(make_service, tmp_path):
 
 
 async def test_background_shell_lifecycle_is_published_without_changing_state(make_service, tmp_path, monkeypatch):
-    from tests.test_claude_background import completed, launch, write
+    from tests.builders import (
+        shell_completed as completed,
+        shell_launch as launch,
+        write_transcript as write,
+    )
     svc, sid, path = await background_session(make_service, tmp_path)
     events = []
 
@@ -177,8 +186,8 @@ async def test_background_read_cannot_attach_to_replaced_identity(make_service, 
             svc.registry.apply_snapshot([])
         return reading
 
-    monkeypatch.setattr(svc, "_off_loop", replace_during_read)
-    assert await svc._apply_background_shells(svc.registry.all()) == []
+    monkeypatch.setattr(svc, "run_check", replace_during_read)
+    assert await svc.observe_background(svc.registry.all()) == []
     session = svc.registry.get(sid)
     assert session is None or session.display_work is None or session.display_work.shells is None
 
@@ -611,7 +620,7 @@ async def test_a_screen_that_cannot_be_read_leaves_the_row_alone(stack):
 
 def write_claude_file(files, pid, status, written_at):
     path = files.root / f"{pid}.json"
-    path.write_text(json.dumps({"pid": pid, "sessionId": f"c{pid}", "cwd": "/wt", "status": status, "updatedAt": 1}))
+    write_claude_session(files.root, pid, sessionId=f"c{pid}", cwd="/wt", status=status)
     os.utime(path, (written_at, written_at))
 
 
@@ -1009,7 +1018,10 @@ async def test_codex_usage_is_read_from_the_rollout_file_on_tick(tmp_path, make_
     # Codex writes its account rate limits into every `token_count` record of its rollout
     # file. That is the whole feed: no subprocess, and the number's age is the record's own
     # timestamp rather than the moment the daemon looked.
-    from tests.test_codex_sessions import rate_limited, write_rollout
+    from tests.builders import (
+        rate_limited,
+        write_rollout,
+    )
     root = tmp_path / "codex-sessions"
     path = write_rollout(root, "thread-1", [rate_limited({"used_percent": 52.0, "window_minutes": 10080, "resets_at": 1790582049},
                                                          plan="self_serve_business_prolite")])
@@ -1434,7 +1446,7 @@ async def test_a_stopped_child_waits_out_a_transcript_read_that_hangs(stack, tmp
         assert svc.registry.get(sid).state == "working"
     finally:
         release.set()
-    await wait_until(lambda: all(check.done() for check in svc._checks.values()))
+    await svc.settle_reads()
     await svc.tick()
     assert svc.registry.get(sid).state == "done"
 
@@ -1908,11 +1920,6 @@ async def _claude_child_in_background(svc, r, w, tmp_path, pid, *work):
     return sid, base, child
 
 
-def _append(path, *records):
-    with path.open("a") as f:
-        f.write("".join(json.dumps(record) + "\n" for record in records))
-
-
 async def _published_until(r, matches):
     while True:
         payload = await next_event(r, "session.changed")
@@ -2090,7 +2097,7 @@ async def test_an_off_loop_check_that_raises_answers_what_it_was_given_for_nothi
         raise ValueError("boom")
 
     with caplog.at_level("ERROR", logger="aitermd.service"):
-        assert await svc._off_loop("a check", broken, "nothing") == "nothing"
+        assert await svc.run_check("a check", broken, "nothing") == "nothing"
     assert any("a check" in rec.getMessage() for rec in caplog.records)
 
 
@@ -2105,11 +2112,10 @@ async def test_an_off_loop_check_that_fails_after_the_tick_gave_up_on_it_is_not_
         raise ValueError("too late for anyone")
 
     with caplog.at_level("WARNING", logger="aitermd.service"):
-        assert await svc._off_loop("a check", late_failure, "nothing") == "nothing"
+        assert await svc.run_check("a check", late_failure, "nothing") == "nothing"
         release.set()
-        await wait_until(lambda: svc._checks["a check"].done())
+        await svc.settle_reads()
         await asyncio.sleep(0.01)
-    svc._checks.clear()
     gc.collect()
     await asyncio.sleep(0.01)
     assert handled == [], "Future exception was never retrieved"
@@ -2127,7 +2133,7 @@ async def test_an_off_loop_check_that_hangs_does_not_hold_the_process_open(make_
         release.wait(5)
 
     try:
-        await svc._off_loop("a check", hung, None)
+        await svc.run_check("a check", hung, None)
         assert threads[0].daemon, "a non-daemon worker is joined when the interpreter exits"
     finally:
         release.set()
@@ -2183,9 +2189,9 @@ async def test_codex_rollouts_are_read_off_the_event_loop(stack):
         def _note(self, what):
             reader.setdefault(what, set()).add(threading.get_ident())
 
-        def context_percent(self, session_id):
+        def reading(self, session_id):
             self._note("context")
-            return super().context_percent(session_id)
+            return super().reading(session_id)
 
         def rate_limits(self):
             self._note("limits")
@@ -2220,11 +2226,11 @@ async def test_a_codex_context_read_that_timed_out_holds_back_both_reads_until_i
     calls = {"context": 0, "limits": 0}
 
     class FirstReadHangs(CodexSessionFiles):
-        def context_percent(self, session_id):
+        def reading(self, session_id):
             calls["context"] += 1
             if calls["context"] == 1:
                 release.wait(5)
-            return super().context_percent(session_id)
+            return super().reading(session_id)
 
         def rate_limits(self):
             calls["limits"] += 1
@@ -2247,7 +2253,7 @@ async def test_a_codex_context_read_that_timed_out_holds_back_both_reads_until_i
         assert calls == {"context": 1, "limits": 1}
     finally:
         release.set()
-    await asyncio.wait_for(asyncio.shield(svc._checks[service.CODEX_READ]), 2)
+    await asyncio.wait_for(svc.settle_reads(), 2)
 
     await svc.tick()
 
@@ -2346,8 +2352,8 @@ async def test_codex_rollout_cannot_change_a_replacement_thread(stack, monkeypat
         svc.resolver.bind(sid, "codex", "new-thread", "SessionStart")
         return {"old-thread": (90, "old-version")}
 
-    monkeypatch.setattr(svc, "_off_loop", replaced_during_read)
-    assert await svc._apply_codex_rollouts({sid: "old-thread"}) == []
+    monkeypatch.setattr(svc, "run_check", replaced_during_read)
+    assert await svc.observe_codex({sid: "old-thread"}) == []
     session = svc.registry.get(sid)
     assert (session.context_percent, session.cli_version) == (None, None)
 
@@ -2483,3 +2489,37 @@ async def test_a_conversation_a_hook_named_is_not_replaced_by_the_session_file(s
     svc.status.apply_metadata(sid, conversation="after")
     await svc.tick()
     assert svc.registry.get(sid).conversation_id == "after"
+
+
+@pytest.mark.parametrize("reader", ["claude", "test_activity"])
+async def test_tick_bounds_file_reads_and_does_not_overlap_a_stuck_reader(make_service, monkeypatch, reader):
+    monkeypatch.setattr(service, "OFF_LOOP_CHECK_SECONDS", 0.02)
+    svc = make_service()
+    _, sid = await svc.iterm.create_window("/wt", "worker", {}, Frame(0, 0, 10, 10))
+    await svc.iterm.user_runs(sid, "claude", job_pid=710)
+    release, entered = threading.Event(), asyncio.Event()
+    loop = asyncio.get_running_loop()
+    calls = []
+
+    def stuck(*args):
+        calls.append(args)
+        loop.call_soon_threadsafe(entered.set)
+        release.wait(5)
+        raise OSError("mount gone")
+
+    target, method = (svc.claude_files, "read") if reader == "claude" else (svc.test_activity, "read")
+    monkeypatch.setattr(target, method, stuck)
+    try:
+        tick = asyncio.create_task(svc.tick())
+        await asyncio.wait_for(entered.wait(), 2)
+        await asyncio.wait_for(tick, 2)
+        await asyncio.wait_for(svc.tick(), 2)
+        assert len(calls) == 1
+    finally:
+        release.set()
+
+
+def test_optional_hook_fields_are_keyword_only():
+    with pytest.raises(TypeError):
+        HookEvent("claude", "subagentStart", None, "conversation", "/wt", "child")
+    assert HookEvent("claude", "subagentStart", None, "conversation", "/wt", subagent_id="child").subagent_id == "child"

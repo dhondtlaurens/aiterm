@@ -23,7 +23,7 @@ FRESH = 1000.0
 
 def hook(kind, subagent_id=None, **fields):
     """A hook that reports `kind`: the engine reads only what it says of the turn, not whose it is."""
-    return HookEvent("claude", kind, None, None, None, subagent_id, **fields)
+    return HookEvent("claude", kind, None, None, None, subagent_id=subagent_id, **fields)
 
 
 @pytest.fixture

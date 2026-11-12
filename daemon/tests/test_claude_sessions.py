@@ -1,14 +1,12 @@
-import json
 import os
 
 import pytest
 
 from aitermd.claude_sessions import ClaudeSessionFiles
 
-
-def write(root, pid, **fields):
-    (root / f"{pid}.json").write_text(json.dumps({"pid": pid, "sessionId": f"sid-{pid}", "cwd": "/w", "status": "busy",
-                                                  "updatedAt": 1, **fields}))
+from tests.builders import (
+    write_claude_session as write,
+)
 
 
 def test_read_existing_and_missing(tmp_path):

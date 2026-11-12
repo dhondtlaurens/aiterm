@@ -66,6 +66,7 @@ class TestActivityReader:
     def __init__(self, directory: Path = Path("/tmp/aiterm-test.lock.runs"),
                  clock: Callable[[], float] = time.time):
         self.directory, self.clock = directory, clock
+        self._records: dict[Path, tuple[tuple[int, int, int, int, int], dict[str, Any]]] = {}
         self._results: dict[tuple[str, int | None, str | None], tuple[str, TestActivity]] = {}
         self._identity: dict[str, tuple[int | None, str | None]] = {}
         self._replaced_at: dict[str, float] = {}
@@ -74,24 +75,32 @@ class TestActivityReader:
         """Blocking observation only. The caller captures session values before leaving the loop."""
         records: list[tuple[dict[str, Any], bool]] = []
         now = self.clock()
+        seen: set[Path] = set()
         for path in self.directory.glob("*.json"):
+            seen.add(path)
             try:
-                data = json.loads(path.read_text())
-                if not isinstance(data, dict) or data.get("version", FORMAT_VERSION) != FORMAT_VERSION:
+                data = self._record(path)
+                if data is None:
                     continue
-                if not all(isinstance(data.get(key), str) and data[key] for key in ("run_id", "root", "suite")):
-                    continue
-                if not Path(data["root"]).is_absolute() or data.get("state") not in ("queued", "running", "completed"):
-                    continue
-                live = _live(path)
-                # An unlocked queued/running record is interrupted, never assumed successful. Old
-                # results are bounded in the UI as well as by the runner's disk retention policy.
+                # Compute age before touching the lock, but an old locked run still counts.
+                # Kernel lock ownership cannot be cached by a file stamp.
                 stamp = _number(data.get("finished_at")) or _number(data.get("queued_at"))
-                if not live and now - stamp > RESULT_SECONDS:
+                expired = now - stamp > RESULT_SECONDS
+                if expired:
+                    try:
+                        path.with_suffix(".lock").stat()
+                    except FileNotFoundError:
+                        continue
+                    except OSError:
+                        pass  # Absence was not proved; use the original kernel check.
+                live = _live(path)
+                if expired and not live:
                     continue
                 records.append((data, live))
             except (OSError, ValueError, TypeError):
+                self._records.pop(path, None)
                 continue
+        self._records = {path: value for path, value in self._records.items() if path in seen}
         live_queued = sorted((data for data, live in records if live and data["state"] == "queued"),
                              key=lambda data: (_number(data.get("ticket")) or _number(data.get("queued_at")), data["run_id"]))
         positions = {data["run_id"]: i + 1 for i, data in enumerate(live_queued)}
@@ -112,10 +121,34 @@ class TestActivityReader:
                 exit_code=exit_code if state == "completed" and type(exit_code) is int else None,
                 finished_at=_number(data.get("finished_at")) or None)
         locations: dict[str, tuple[SessionInfo, Path | None, Path | None]] = {}
+        locate = bool(result) or bool(self._results)
         for session in sessions:
-            cwd = Path(session.agent_cwd or session.cwd).resolve() if session.cwd or session.agent_cwd else None
+            cwd = (Path(session.agent_cwd or session.cwd).resolve()
+                   if locate and (session.cwd or session.agent_cwd) else None)
             locations[session.session_id] = (session, cwd, _worktree_boundary(cwd))
         return ActivityRead(result, locations)
+
+    def _record(self, path: Path) -> dict[str, Any] | None:
+        stat = path.stat()
+        stamp = (stat.st_dev, stat.st_ino, stat.st_ctime_ns, stat.st_mtime_ns, stat.st_size)
+        cached = self._records.get(path)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+        self._records.pop(path, None)
+        with path.open() as stream:
+            before = os.fstat(stream.fileno())
+            data = json.load(stream)
+            after = os.fstat(stream.fileno())
+        if not isinstance(data, dict) or data.get("version", FORMAT_VERSION) != FORMAT_VERSION:
+            return None
+        if not all(isinstance(data.get(key), str) and data[key] for key in ("run_id", "root", "suite")):
+            return None
+        if not Path(data["root"]).is_absolute() or data.get("state") not in ("queued", "running", "completed"):
+            return None
+        actual = (after.st_dev, after.st_ino, after.st_ctime_ns, after.st_mtime_ns, after.st_size)
+        if actual == (before.st_dev, before.st_ino, before.st_ctime_ns, before.st_mtime_ns, before.st_size):
+            self._records[path] = (actual, data)
+        return data
 
     def apply(self, registry: SessionRegistry, reading: ActivityRead) -> list[str]:
         """Apply a still-current snapshot on the loop, retaining worktree ownership as one pass."""
