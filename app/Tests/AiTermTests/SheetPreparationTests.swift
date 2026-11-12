@@ -83,7 +83,7 @@ import Testing
                                 itermConnection: { .waitingForIterm }, checkIterm: { ItermEnvironment(installed: true, pythonAPIEnabled: true) },
                                 preferences: .scratch(), setMatchItermBackground: { _ in }, setInterfaceSize: { _ in },
                                 initialAgent: .codex)
-        #expect(view._tab.wrappedValue == .agents, "on Agents, though iTerm2 would open it on Integrations")
+        #expect(view.tab == .agents, "on Agents, though iTerm2 would open it on Integrations")
         #expect(view.initialAgent == .codex)
     }
 

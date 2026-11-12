@@ -544,7 +544,7 @@ Each box leaves the project working and is one or a few commits.
 - [ ] 7a. Shared teardown prepare and run.
 - [ ] 7b. Debounced search; hook list; grouped ports.
 - [ ] 7c. Blocking checks off the main actor; reconciler trigger; scan projection; row chooser.
-- [ ] 8a. Plain `@State` (one file first, then the rest).
+- [x] 8a. Plain `@State` (one file first, build, then the rest).
 - [ ] 8b. Badge line, row content, fold modifier, heading inset, ring helper.
 - [ ] 8c. Stepped-sheet frame; picker field, clear button, Metrics tokens, chrome reuse.
 - [ ] 8d. Narrow header values with the redraw test; lazy Activity and Shelf; leaf reads.

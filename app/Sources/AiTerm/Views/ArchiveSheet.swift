@@ -13,13 +13,7 @@ struct ArchiveSheet: View {
     /// The snapshots' fixed calendar and locale, so a row's date reads the same on every machine; the
     /// app's own otherwise.
     @Environment(\.footerClock) private var clock
-    // `@State` is a macro shipping only with Xcode; this is the storage it would generate.
-    private var _focused = State(initialValue: true)
-
-    private var focused: Bool {
-        get { _focused.wrappedValue }
-        nonmutating set { _focused.wrappedValue = newValue }
-    }
+    @State private var focused: Bool = true
 
     var body: some View {
         let archive = model.projection
@@ -29,7 +23,7 @@ struct ArchiveSheet: View {
             HStack(spacing: Space.base) {
                 Image(systemName: "magnifyingglass").font(Typography.caption).foregroundStyle(Palette.muted)
                 SearchField(placeholder: "Search title, ticket, !MR, branch, project",
-                            text: Bindable(model).query, focused: _focused.projectedValue, onCommand: command)
+                            text: Bindable(model).query, focused: $focused, onCommand: command)
             }
             .fieldChrome(focused: focused)
         } content: {

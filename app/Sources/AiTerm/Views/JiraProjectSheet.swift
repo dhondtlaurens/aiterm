@@ -24,12 +24,12 @@ struct JiraProjectSheet: View {
     let submit: ([JiraProjectRef]) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    private var _projects = State(initialValue: [JiraProjectRef]())
-    private var _linked: State<[JiraProjectRef]>
-    private var _loading = State(initialValue: true)
-    private var _error = State<String?>(initialValue: nil)
-    private var _query = State(initialValue: "")
-    private var _open = State(initialValue: false)
+    @State private var projects: [JiraProjectRef] = [JiraProjectRef]()
+    @State private var linked: [JiraProjectRef]
+    @State private var loading: Bool = true
+    @State private var error: String? = nil
+    @State private var query: String = ""
+    @State private var open: Bool = false
 
     init(projectName: String, linked: [JiraProjectRef], canSubmit: Bool,
          loadProjects: @escaping () async throws -> [JiraProjectRef], submit: @escaping ([JiraProjectRef]) -> Void) {
@@ -42,31 +42,6 @@ struct JiraProjectSheet: View {
     /// A project key is a ticket key without its number, so the column is narrower than New Task's.
     private static let keyColumnWidth: CGFloat = 64
 
-    private var projects: [JiraProjectRef] {
-        get { _projects.wrappedValue }
-        nonmutating set { _projects.wrappedValue = newValue }
-    }
-    private var linked: [JiraProjectRef] {
-        get { _linked.wrappedValue }
-        nonmutating set { _linked.wrappedValue = newValue }
-    }
-    private var loading: Bool {
-        get { _loading.wrappedValue }
-        nonmutating set { _loading.wrappedValue = newValue }
-    }
-    private var error: String? {
-        get { _error.wrappedValue }
-        nonmutating set { _error.wrappedValue = newValue }
-    }
-    private var query: String {
-        get { _query.wrappedValue }
-        nonmutating set { _query.wrappedValue = newValue }
-    }
-    private var open: Bool {
-        get { _open.wrappedValue }
-        nonmutating set { _open.wrappedValue = newValue }
-    }
-
     private var matches: [JiraProjectRef] { JiraProjectSearch.rank(projects, query: query, excluding: linked) }
 
     var body: some View {
@@ -78,7 +53,7 @@ struct JiraProjectSheet: View {
                 // Never handed a selection: a pick joins the list above, and the field stays
                 // for the next one.
                 SearchPicker(placeholder: "Add a Jira project by key or name",
-                             query: _query.projectedValue, open: _open.projectedValue,
+                             query: $query, open: $open,
                              items: matches, selection: nil,
                              row: projectRow,
                              selected: { _ in EmptyView() },

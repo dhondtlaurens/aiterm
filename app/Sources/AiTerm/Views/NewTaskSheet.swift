@@ -5,10 +5,8 @@ import AiTermCore
 
 struct NewTaskSheet: View {
     @Bindable var model: TaskCreationModel
-    private var _step = State(initialValue: 1)
-    private var step: Int { get { _step.wrappedValue } nonmutating set { _step.wrappedValue = newValue } }
-    private var _ticketsOpen = State(initialValue: false)
-    private var ticketsOpen: Bool { get { _ticketsOpen.wrappedValue } nonmutating set { _ticketsOpen.wrappedValue = newValue } }
+    @State private var step: Int = 1
+    @State private var ticketsOpen: Bool = false
     /// A result row's key column: a Jira key of up to eight characters in the mono code face, so
     /// the summaries after it start on one line.
     private static let ticketKeyWidth: CGFloat = 74
@@ -23,9 +21,9 @@ struct NewTaskSheet: View {
     init(model: TaskCreationModel) { self.model = model }
 
     var body: some View {
-        CreationSheet(model: model, step: _step.projectedValue, title: "New task in \(model.project.name)",
+        CreationSheet(model: model, step: $step, title: "New task in \(model.project.name)",
                       stepNames: ["Task", "Agent", "Prompt"], destination: destination, createLabel: "Create Task",
-                      canAdvance: Self.canAdvance(step: step, model: model), pickers: [_ticketsOpen.projectedValue]) {
+                      canAdvance: Self.canAdvance(step: step, model: model), pickers: [$ticketsOpen]) {
             content
         }
     }
@@ -50,7 +48,7 @@ struct NewTaskSheet: View {
             FormField("Ticket (optional)") {
                 SearchPicker(placeholder: model.ticketPlaceholder,
                              query: Binding(get: { model.query }, set: { model.setQuery($0) }),
-                             open: _ticketsOpen.projectedValue,
+                             open: $ticketsOpen,
                              items: model.results, selection: model.draft.ticket,
                              row: { ticket in
                                  // The lane column stays for a ticket without one, so every summary

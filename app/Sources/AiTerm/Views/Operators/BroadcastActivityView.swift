@@ -14,8 +14,7 @@ struct BroadcastActivityView: View {
     let entries: [ActivityEntry]
     /// The broadcast's task titles by id, to set a line's task name in medium weight.
     var titles: [UUID: String] = [:]
-    private var _openId = State<UUID?>(initialValue: nil)
-    private var openId: UUID? { get { _openId.wrappedValue } nonmutating set { _openId.wrappedValue = newValue } }
+    @State private var openId: UUID? = nil
     @Environment(\.footerClock) private var clock
 
     init(entries: [ActivityEntry], titles: [UUID: String] = [:], openId: UUID? = nil) {

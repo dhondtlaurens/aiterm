@@ -22,13 +22,7 @@ struct NameSheet: View {
     let canSubmit: Bool
     let submit: (String) -> Void
     @Environment(\.dismiss) private var dismiss
-    // `@State` is a macro in the macOS 26 SDK and its SwiftUIMacros plugin ships only with Xcode,
-    // which this machine does not have; this is the storage and accessor the macro would generate.
-    private var _name: State<String>
-    private var name: String {
-        get { _name.wrappedValue }
-        nonmutating set { _name.wrappedValue = newValue }
-    }
+    @State private var name: String
 
     init(title: String, subtitle: String, fieldLabel: String, placeholder: String, help: String? = nil,
          destination: Destination? = nil, confirmLabel: String, initialName: String, canSubmit: Bool,
@@ -46,7 +40,7 @@ struct NameSheet: View {
             SheetSubtitle(subtitle)
         } content: {
             FormField(fieldLabel) {
-                Input(placeholder: placeholder, text: _name.projectedValue)
+                Input(placeholder: placeholder, text: $name)
                 if let help { HelpText(help) }
                 if let destination { DestinationLine(destination) }
             }

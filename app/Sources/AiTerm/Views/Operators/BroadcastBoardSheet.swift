@@ -113,8 +113,7 @@ struct BroadcastBoardSheet: View, Equatable {
     /// What Activity lists without a feed, and the row it opens with: the snapshots' (`seeded(tab:entries:open:)`).
     private(set) var entries: [ActivityEntry] = []
     private(set) var openEntry: UUID?
-    private var _tab: State<BroadcastBoard.Tab>
-    private var tab: BroadcastBoard.Tab { get { _tab.wrappedValue } nonmutating set { _tab.wrappedValue = newValue } }
+    @State private var tab: BroadcastBoard.Tab
     @Environment(\.dismiss) private var dismiss
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
@@ -525,11 +524,7 @@ struct BoardEndLine: View {
 struct BoardTabLine: View {
     let tab: BroadcastBoard.TabLine
     let choose: () -> Void
-    private var _hovered = State(initialValue: false)
-    private var hovered: Bool {
-        get { _hovered.wrappedValue }
-        nonmutating set { _hovered.wrappedValue = newValue }
-    }
+    @State private var hovered: Bool = false
 
     init(tab: BroadcastBoard.TabLine, choose: @escaping () -> Void) {
         self.tab = tab; self.choose = choose

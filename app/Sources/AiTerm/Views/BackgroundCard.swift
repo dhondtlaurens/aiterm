@@ -138,8 +138,7 @@ private struct BackgroundCardOverlay: ViewModifier {
     #if DEBUG
     @Environment(\.seededHover) private var seededHover
     #endif
-    // `@State`'s storage, written out as `SelectableRow`'s is.
-    private var _own = State(initialValue: BackgroundCardHover())
+    @State private var own = BackgroundCardHover()
 
     init(jobs: [BackgroundJob]) { self.jobs = jobs }
 
@@ -147,7 +146,7 @@ private struct BackgroundCardOverlay: ViewModifier {
         #if DEBUG
         if let hover = seededHover?.backgroundCard { return hover }
         #endif
-        return _own.wrappedValue
+        return own
     }
 
     func body(content: Content) -> some View {

@@ -173,13 +173,7 @@ struct CheckFailureDetails: View {
     static let title = "Why it failed"
 
     let failure: String
-    // `@State` is a macro shipping only with Xcode; this is the storage it would generate.
-    private var _open: State<Bool>
-
-    private var open: Bool {
-        get { _open.wrappedValue }
-        nonmutating set { _open.wrappedValue = newValue }
-    }
+    @State private var open: Bool
 
     init(failure: String) {
         self.failure = failure
@@ -241,7 +235,6 @@ struct HelpWithProblemsGroup: View {
         }
     }
 }
-
 
 // The Mac and agent cards use the same check status and ink.
 struct CheckChip: View {

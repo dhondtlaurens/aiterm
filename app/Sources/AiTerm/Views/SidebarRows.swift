@@ -217,13 +217,7 @@ struct SelectableRow<Content: View>: View {
     let activate: () -> Void
     @ViewBuilder let content: () -> Content
     @Environment(\.interfaceScale) private var scale
-    // `@State` is a macro in the macOS 26 SDK and its SwiftUIMacros plugin ships only with Xcode,
-    // which the pinned toolchain does not need; this is the storage the macro would generate.
-    private var _hovered = State(initialValue: false)
-    private var hovered: Bool {
-        get { _hovered.wrappedValue }
-        nonmutating set { _hovered.wrappedValue = newValue }
-    }
+    @State private var hovered: Bool = false
     #if DEBUG
     @Environment(\.seededHover) private var seededHover
     #endif

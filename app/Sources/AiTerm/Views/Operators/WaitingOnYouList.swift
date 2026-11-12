@@ -14,9 +14,8 @@ struct WaitingOnYouList: View {
 
     /// The list's width: the sheet's content, not the columns', which scroll sideways under it.
     static let width = Sheet.width - 2 * Space.margin
-    // `@State` is a macro in the macOS 26 SDK; this is the storage the macro would generate. The block whose field was
-    // focused or typed in last, the one ⌘↩ sends: with drafts in two blocks, only one claims the shortcut.
-    private var _drafting = State<String?>(initialValue: nil)
+    /// The block last focused or edited, which alone claims ⌘↩.
+    @State private var drafting: String? = nil
 
     init(questions: [BroadcastBoard.ListedQuestion], actions: BoardActions, choose: @escaping (BroadcastBoard.Opens) -> Void) {
         self.questions = questions; self.actions = actions; self.choose = choose
@@ -27,7 +26,7 @@ struct WaitingOnYouList: View {
             BoardHeading(title: "Waiting on you", count: questions.count)
             VStack(alignment: .leading, spacing: Space.gap) {
                 ForEach(questions) { question in
-                    QuestionBlock(question: question, actions: actions, choose: choose, drafting: _drafting.projectedValue)
+                    QuestionBlock(question: question, actions: actions, choose: choose, drafting: $drafting)
                         .id(question.key)
                 }
             }
@@ -51,11 +50,8 @@ struct QuestionBlock: View {
     /// The key of the block focused or typed in last, which alone owns ⌘↩ (`WaitingOnYouList`).
     @Binding var drafting: String?
     @Environment(\.footerClock) private var clock
-    // `@State` is a macro in the macOS 26 SDK; this is the storage and accessor the macro would generate.
-    private var _typed = State(initialValue: "")
-    private var typed: String { get { _typed.wrappedValue } nonmutating set { _typed.wrappedValue = newValue } }
-    private var _discussing = State(initialValue: false)
-    private var discussing: Bool { get { _discussing.wrappedValue } nonmutating set { _discussing.wrappedValue = newValue } }
+    @State private var typed: String = ""
+    @State private var discussing: Bool = false
 
     init(question: BroadcastBoard.ListedQuestion, actions: BoardActions, choose: @escaping (BroadcastBoard.Opens) -> Void,
          drafting: Binding<String?>) {
@@ -127,7 +123,7 @@ struct QuestionBlock: View {
             }
             if field {
                 HStack(spacing: Space.base) {
-                    Input(placeholder: choices.isEmpty ? "Your answer" : "Another answer", text: _typed.projectedValue,
+                    Input(placeholder: choices.isEmpty ? "Your answer" : "Another answer", text: $typed,
                           onFocus: { drafting = question.key })
                         .onChange(of: typed) { _, now in if !now.isEmpty { drafting = question.key } }
                     let ready = !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

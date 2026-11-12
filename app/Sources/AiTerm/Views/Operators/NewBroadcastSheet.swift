@@ -12,10 +12,9 @@ import AiTermCore
 struct NewBroadcastSheet: View {
     @Bindable var model: NewBroadcastModel
     @Environment(\.dismiss) private var dismiss
-    private var _step = State(initialValue: 1)
-    private var step: Int { get { _step.wrappedValue } nonmutating set { _step.wrappedValue = newValue } }
-    private var _jiraOpen = State(initialValue: false)
-    private var _projectsOpen = State(initialValue: false)
+    @State private var step: Int = 1
+    @State private var jiraOpen = false
+    @State private var projectsOpen = false
     /// A Jira project result's key column, as the Jira projects sheet has it: a ticket key without its number.
     private static let jiraKeyWidth: CGFloat = 64
     private static let steps = CreationSteps.broadcast
@@ -23,7 +22,7 @@ struct NewBroadcastSheet: View {
     init(model: NewBroadcastModel) { _model = Bindable(wrappedValue: model) }
 
     /// Step 1's lists, in the order ⎋ closes them.
-    private var pickers: [Binding<Bool>] { [_jiraOpen.projectedValue, _projectsOpen.projectedValue] }
+    private var pickers: [Binding<Bool>] { [$jiraOpen, $projectsOpen] }
 
     var body: some View {
         SheetLayout(title: NewBroadcastModel.title, height: Sheet.height, onBackgroundTap: closeLists) {
@@ -72,7 +71,7 @@ struct NewBroadcastSheet: View {
             }
             FormField("Jira projects") {
                 ChipsPicker(placeholder: NewBroadcastModel.jiraProjectsPlaceholder, picks: model.jiraProjects,
-                            open: _jiraOpen.projectedValue, matches: model.matchingJiraProjects(query:),
+                            open: $jiraOpen, matches: model.matchingJiraProjects(query:),
                             mark: { _ in .brand(Palette.jira) }, label: { "\($0.key) · \($0.name)" },
                             row: { PickerResultRow(mark: .brand(Palette.jira), key: $0.key, keyWidth: Self.jiraKeyWidth, title: $0.name, detail: nil) },
                             onPick: { model.add(jiraProject: $0) }, onRemove: { model.remove(jiraProject: $0) })
@@ -81,7 +80,7 @@ struct NewBroadcastSheet: View {
             }
             FormField("Projects") {
                 ChipsPicker(placeholder: NewBroadcastModel.projectsPlaceholder, picks: model.projects,
-                            open: _projectsOpen.projectedValue, matches: model.matchingProjects(query:),
+                            open: $projectsOpen, matches: model.matchingProjects(query:),
                             mark: { ProviderIcon.source(of: $0.provider) }, label: \.name,
                             row: { ProjectResultRow(project: $0) },
                             onPick: { model.add(project: $0) }, onRemove: { model.remove(project: $0) })
@@ -203,12 +202,9 @@ struct ChipsPicker<Item: Identifiable, Row: View>: View {
     let row: (Item) -> Row
     let onPick: (Item) -> Void
     let onRemove: (Item) -> Void
-    private var _query = State(initialValue: "")
-    private var query: String { get { _query.wrappedValue } nonmutating set { _query.wrappedValue = newValue } }
-    private var _index = State(initialValue: 0)
-    private var index: Int { get { _index.wrappedValue } nonmutating set { _index.wrappedValue = newValue } }
-    private var _focused = State(initialValue: false)
-    private var focused: Bool { get { _focused.wrappedValue } nonmutating set { _focused.wrappedValue = newValue } }
+    @State private var query: String = ""
+    @State private var index: Int = 0
+    @State private var focused: Bool = false
 
     /// At most six rows, as `SearchPicker` shows.
     static var visibleLimit: Int { 6 }
@@ -227,7 +223,7 @@ struct ChipsPicker<Item: Identifiable, Row: View>: View {
             ForEach(picks) { item in PickChip(mark: mark(item), label: label(item)) { onRemove(item) } }
             SearchField(placeholder: placeholder,
                         text: Binding(get: { query }, set: { query = $0; open = true; index = 0 }),
-                        focused: _focused.projectedValue, onCommand: command)
+                        focused: $focused, onCommand: command)
                 .frame(height: PickChip.lineHeight)
         }
         .padding(.horizontal, Space.inset).padding(.vertical, Space.tight)
@@ -246,13 +242,13 @@ struct ChipsPicker<Item: Identifiable, Row: View>: View {
     @ViewBuilder private var results: some View {
         let shown = visible
         if open, !shown.isEmpty {
-            DropdownList(items: shown, index: _index.projectedValue, onPick: pick, row: row)
+            DropdownList(items: shown, index: $index, onPick: pick, row: row)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private func command(_ selector: Selector) -> Bool {
-        DropdownKeys.perform(selector, on: visible, index: _index.projectedValue, open: $open, listening: open, pick: pick)
+        DropdownKeys.perform(selector, on: visible, index: $index, open: $open, listening: open, pick: pick)
     }
 
     private func pick(_ item: Item) {

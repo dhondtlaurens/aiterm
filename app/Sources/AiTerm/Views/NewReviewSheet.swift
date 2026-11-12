@@ -9,14 +9,10 @@ import AiTermCore
 /// ticket fill each other: picking one looks the other up, and the field it filled says so.
 struct NewReviewSheet: View {
     @Bindable var model: ReviewCreationModel
-    private var _step = State(initialValue: 1)
-    private var step: Int { get { _step.wrappedValue } nonmutating set { _step.wrappedValue = newValue } }
-    private var _mrOpen = State(initialValue: false)
-    private var mrOpen: Bool { get { _mrOpen.wrappedValue } nonmutating set { _mrOpen.wrappedValue = newValue } }
-    private var _branchOpen = State(initialValue: false)
-    private var branchOpen: Bool { get { _branchOpen.wrappedValue } nonmutating set { _branchOpen.wrappedValue = newValue } }
-    private var _ticketsOpen = State(initialValue: false)
-    private var ticketsOpen: Bool { get { _ticketsOpen.wrappedValue } nonmutating set { _ticketsOpen.wrappedValue = newValue } }
+    @State private var step: Int = 1
+    @State private var mrOpen: Bool = false
+    @State private var branchOpen: Bool = false
+    @State private var ticketsOpen: Bool = false
     /// As New Task's ticket key column.
     private static let ticketKeyWidth: CGFloat = 74
 
@@ -29,12 +25,12 @@ struct NewReviewSheet: View {
     /// ⎋ closes the merge request list first, then the ticket list, then the branch list, and only
     /// then steps back.
     var body: some View {
-        CreationSheet(model: model, step: _step.projectedValue, title: "New review in \(model.project.name)",
+        CreationSheet(model: model, step: $step, title: "New review in \(model.project.name)",
                       stepNames: ["Branch", "Agent", "Prompt"],
                       destination: Self.destination(step: step, project: model.project, owner: model.owningTask,
                                                     slug: model.worktreeSlug, branch: model.draft.branch),
                       createLabel: Self.createLabel(owner: model.owningTask), canAdvance: Self.canAdvance(step: step, model: model),
-                      pickers: [_mrOpen.projectedValue, _ticketsOpen.projectedValue, _branchOpen.projectedValue]) {
+                      pickers: [$mrOpen, $ticketsOpen, $branchOpen]) {
             content
         }
         .task { await model.loadCheckouts() }
@@ -63,7 +59,7 @@ struct NewReviewSheet: View {
             FormField(model.codeHost.reviewField) {
                 SearchPicker(placeholder: model.codeHost.reviewPlaceholder,
                              query: Binding(get: { model.query }, set: { model.setQuery($0) }),
-                             open: _mrOpen.projectedValue,
+                             open: $mrOpen,
                              items: model.results, selection: model.draft.mr,
                              row: mrRow, selected: selectedMR,
                              onPick: { mr in model.pick(mr) },
@@ -84,7 +80,7 @@ struct NewReviewSheet: View {
             FormField("Ticket (optional)") {
                 SearchPicker(placeholder: model.ticketPlaceholder,
                              query: Binding(get: { model.ticketQuery }, set: { model.setTicketQuery($0) }),
-                             open: _ticketsOpen.projectedValue,
+                             open: $ticketsOpen,
                              items: model.ticketResults, selection: model.draft.ticket,
                              row: { ticket in
                                  PickerResultRow(mark: .brand(ticket.brand), key: ticket.key, keyWidth: Self.ticketKeyWidth,
@@ -111,7 +107,7 @@ struct NewReviewSheet: View {
             FormField("Branch") {
                 SearchPicker(placeholder: "Search branches",
                              query: $model.branchQuery,
-                             open: _branchOpen.projectedValue,
+                             open: $branchOpen,
                              items: model.branchMatches.map(BranchChoice.init),
                              selection: model.draft.branch.isEmpty ? nil : BranchChoice(model.draft.branch),
                              row: { BranchResultRow(name: $0.name) },
