@@ -511,9 +511,8 @@ Each box leaves the project working and is one or a few commits.
 - [x] 2d. Typed git queries, commit id, remote-URL parser; one preflight per removal and archive. Restore lists
   once (6 to 4 processes); the removal and archive preflight is dropped here, Shelve stays at 9: its listings are
   asked by `TaskArchiver` and `TaskRemover`'s removal, phase 7's files, which build it with the shared teardown.
-  One commit-id rule and one remote-URL rule are dropped for now: `CommitId` and `RemoteURL` keep today's rules
-  (three for commit ids, the push's own for the same-location check), because one rule changes refusals the
-  maintainer has not approved; the question is with them, and each answer is a one-line switch.
+  One commit-id rule and one remote-URL rule (the same-location check percent-decodes a path) were adopted on the
+  maintainer's decision of 2026-11-12, done with phase 7's task: each switch is on and gone (record).
 - [x] 2e. Cloned backup, path identity and stamp, priorities, dead code, monotonic clocks.
 - [x] 3a. Outcome-unknown classification in Core (test first); token trimming.
 - [x] 3b. Clients bound to their repository; forwarding removed; access narrowed; path encoding.
@@ -546,9 +545,18 @@ Each box leaves the project working and is one or a few commits.
   Oracle wait (published/merged true becomes waitingToMerge/merged false, with create/edit calls). Keep the second
   fetch and the regression test; no fetch-budget improvement is claimed (record).
 - [x] 6d. Finisher as a reference with one record per task; outcome kind; test layering.
-- [ ] 7a. Shared teardown prepare and run.
-- [ ] 7b. Debounced search; hook list; grouped ports.
-- [ ] 7c. Blocking checks off the main actor; reconciler trigger; scan projection; row chooser.
+- [x] 7a. Shared teardown prepare and run. With the one preflight per removal and archive phase 2 dropped (its 2d line):
+  Shelve 9 to 8 git processes. Remove stays at 7: its uncommitted-work check keeps the listing of its own that says,
+  right before status, that the folder is still the worktree (review round 2). Auto-close's own check still lists
+  twice: no budget counts it (record).
+- [x] 7b. Debounced search; hook list; grouped ports. The catalogue load keeps its own counter: SwiftUI's task, no query
+  and no pause (record). Both fields' rules for letting a search go are kept, each against its old code as reference.
+- [x] 7c. Blocking checks off the main actor; reconciler trigger; scan projection; row chooser. The trigger on the
+  Operator's option B, with a poll that checks the window plan in memory (reconciler passes 10 to 0). The row chooser
+  leaves a terminal row's click calling `RowFocus.select` from its view, which is what the chooser does for it: the
+  views are phase 8's. Dropped: Keychain writes off the main actor (an edit or a test answer could land mid-Save, which
+  only a visible change could stop), the slug resolving on draft change, which moves no count, and `LatestTask` for
+  counters whose lifetime does not match it (record).
 - [ ] 8a. Plain `@State` (one file first, then the rest).
 - [ ] 8b. Badge line, row content, fold modifier, heading inset, ring helper.
 - [ ] 8c. Stepped-sheet frame; picker field, clear button, Metrics tokens, chrome reuse.

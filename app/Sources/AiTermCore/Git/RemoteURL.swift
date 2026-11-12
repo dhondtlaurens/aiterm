@@ -43,9 +43,9 @@ extension RemoteURL {
     /// path, whatever the scheme, user, port, a trailing `.git` or slash. It reads a URL as that check
     /// always has, which is not quite the provider's reading above: `://` anywhere starts a host, a
     /// `file:` URL has none, a trailing slash goes before a trailing `.git` and not after (`team/.git`
-    /// is `team/`), and a local path keeps its leading slashes. It is the rule from before 2026-11-10;
-    /// decoding a percent-encoded path, as the provider's reading does, waits on the maintainer
-    /// (`decodesPath`), since it changes which pushes are refused.
+    /// is `team/`), and a local path keeps its leading slashes. It is the rule from before 2026-11-10,
+    /// but for a percent-encoded path, which it decodes, as the provider's reading does, on the
+    /// maintainer's decision of 2026-11-12.
     static func location(of url: String) -> (host: String, path: String) {
         var rest = url, host = ""
         if let scheme = rest.range(of: "://") {
@@ -62,9 +62,6 @@ extension RemoteURL {
         while rest.hasSuffix("/") { rest.removeLast() }
         if rest.hasSuffix(".git") { rest.removeLast(4) }
         while rest.hasPrefix("/") && !host.isEmpty { rest.removeFirst() }
-        return (host, decodesPath ? rest.removingPercentEncoding ?? rest : rest)
+        return (host, rest.removingPercentEncoding ?? rest)
     }
-
-    /// Whether the same-location check percent-decodes a path, as the provider's reading does.
-    static let decodesPath = false
 }

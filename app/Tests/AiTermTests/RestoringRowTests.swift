@@ -192,8 +192,13 @@ import Synchronization
         #expect(attempts == 1, "looked for once, then left for the monitor")
         #expect(!controller.checkouts.isMissing(task.id))
 
+        // The event the rest is about: the monitor reading the worktree missing. Waited for within a bound, rather than
+        // on the pass that was asked for, which an earlier pass still under way can carry as its trailing one.
+        let readMissing = TestLatch()
+        controller.checkouts.onMissingChanged { if $0.contains(task.id) { readMissing.signal() } }
         read.withLock { $0 = true }
-        await controller.checkouts.refresh().value
+        controller.checkouts.refresh()
+        await readMissing.wait()
         await controller.windows.lastRestore?.value
         #expect(controller.checkouts.isMissing(task.id))
         #expect(attempts == 1, "the monitor says it is missing: nothing more is tried")

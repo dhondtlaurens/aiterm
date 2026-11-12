@@ -522,8 +522,12 @@ import Testing
             state: .idle, title: "", cwd: fixture.task.worktreePath + "/deleted-subdirectory")]
         controller.checkouts.refresh()
         await eventually { controller.checkouts.projectBranch[fixture.project.id] != nil || !controller.checkouts.missingCheckouts.isEmpty }
-        #expect(controller.state.tasks == [fixture.task])
-        #expect(try controller.savedWorkspace().tasks == [fixture.task])
+        // Retained. A checkout read missing starts a window pass (phase 7), which adopts the window its tab is in, as a
+        // pass at the tab's own event would have: this test puts the tab in place without one.
+        var retained = fixture.task
+        if scenario != "existing" { retained.windowId = "alive" }
+        #expect(controller.state.tasks == [retained])
+        #expect(try controller.savedWorkspace().tasks == [retained])
     }
 }
 

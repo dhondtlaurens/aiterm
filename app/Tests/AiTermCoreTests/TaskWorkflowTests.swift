@@ -154,7 +154,7 @@ import Testing
         try git.run(["worktree", "remove", path], in: project.path)
         try FileManager.default.createDirectory(atPath: path + "/app/node_modules/.cache", withIntermediateDirectories: true)
 
-        #expect(try await workflow.needsRemovalConfirmation(task: created.task, project: project) == !triedRemoval)
+        #expect(try await workflow.preflight(task: created.task, project: project).needsRemovalConfirmation == !triedRemoval)
         let result = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: false,
                                                allowUnlisted: !triedRemoval)
 
@@ -178,7 +178,7 @@ import Testing
         try git.run(["worktree", "remove", path], in: project.path)
         try FileManager.default.createDirectory(atPath: path + "/app/node_modules/.cache", withIntermediateDirectories: true)
 
-        #expect(try await !workflow.needsRemovalConfirmation(task: created.task, project: project))
+        #expect(try await !workflow.preflight(task: created.task, project: project).needsRemovalConfirmation)
         try await workflow.archive(task: created.task, project: project, force: false)
 
         #expect(!FileManager.default.fileExists(atPath: path))
@@ -335,6 +335,142 @@ import Testing
         let slug = BranchNaming.unused(draft.worktreeSlug, in: project.path)
         let made = try await workflow.create(draft: draft, project: project, reserved: [slug])
         #expect(URL(fileURLWithPath: made.task.worktreePath).lastPathComponent == slug + "-2")
+    }
+
+    /// The preflight Remove and Shelve share, and the uncommitted-work check the teardown asks after it, answer what the
+    /// three reads before phase 7 answered, each with a listing of its own: the head (`head(of:in:)`), whether an
+    /// unlisted folder asks first (that rule, kept here as the reference), and whether the worktree holds unsaved work
+    /// (`hasUnsavedWork(task:project:)`). On real repositories, most of them dirty so the last answer means something:
+    /// a clean, a dirty, a detached, an unlocked worktree; one whose links are relative; one whose `.git` names another
+    /// worktree's administrative folder; one moved by hand and repaired; a folder git no longer lists, one this
+    /// workflow's own removal left, another repository checked out at a worktree's path, a prunable one (unlocked, its
+    /// folder deleted, as git lists it), a locked one whose folder was deleted, a task with no checkout yet; and, last, a
+    /// worktree listed at the preflight and removed before the check, its folder made again. The preflight lists the
+    /// worktrees at most once.
+    @Test func thePreflightAnswersAsTheThreeReadsItReplacedDid() async throws {
+        let (project, base) = try fixture()
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        let git = GitRunner.hermetic(), recording = RecordingGitRunner(forwardingTo: .hermetic())
+        let workflow = TaskWorkflow(git: recording)
+        func make(_ title: String) async throws -> TaskItem {
+            var draft = base
+            draft.setTitle(title)
+            return try await workflow.create(draft: draft, project: project).task
+        }
+        func row(_ title: String, at path: String, branch: String) -> TaskItem {
+            TaskItem(id: UUID(), projectId: project.id, title: title, branch: branch, worktreePath: path, baseBranch: "main",
+                     jira: nil, agent: .claude, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false,
+                     createdAt: Date(), windowId: nil)
+        }
+        func dirty(_ task: TaskItem) throws {
+            try "work".write(toFile: task.worktreePath + "/unsaved", atomically: true, encoding: .utf8)
+        }
+        /// The rule as `needsRemovalConfirmation` asked it before the preflight, with a listing of its own.
+        func referenceNeedsConfirmation(_ task: TaskItem) throws -> Bool {
+            guard task.hasCheckout, !workflow.removalAttempts.paths.withLock({ $0[task.id] == task.worktreePath }),
+                  FileManager.default.fileExists(atPath: task.worktreePath) else { return false }
+            return try Repository(project.path, git: git).worktree(at: task.worktreePath) == nil
+        }
+        /// What the teardown asks after the preflight about uncommitted work (`WorktreeTeardown.prepare`): the check with
+        /// a listing of its own, right before status. The preflight it follows is passed to show it is not read.
+        func teardownAsksUnsavedWork(_ task: TaskItem, after _: TaskWorkflow.Preflight) async throws -> Bool {
+            try await workflow.hasUnsavedWork(task: task, project: project)
+        }
+        let worktrees = project.path + "/.worktrees"
+
+        let clean = try await make("Clean")
+        let dirtyOne = try await make("Dirty")
+        try dirty(dirtyOne)
+        let detached = try await make("Detached")
+        try git.run(["checkout", "-q", "--detach"], in: detached.worktreePath)
+        try dirty(detached)
+        let unlocked = try await make("Unlocked")
+        try git.run(["worktree", "unlock", unlocked.worktreePath], in: project.path)
+        try dirty(unlocked)
+        let relative = row("Relative", at: worktrees + "/relative", branch: "feat/relative")
+        try git.run(["-c", "worktree.useRelativePaths=true", "worktree", "add", "-q", "-b", "feat/relative", relative.worktreePath],
+                    in: project.path)
+        #expect(try String(contentsOfFile: relative.worktreePath + "/.git", encoding: .utf8).hasPrefix("gitdir: .."), "a relative link")
+        try dirty(relative)
+        let crossed = try await make("Crossed")
+        let crossedTo = try await make("Crossed to")
+        let crossedAdmin = try git.run(["rev-parse", "--absolute-git-dir"], in: crossedTo.worktreePath)
+        try "gitdir: \(crossedAdmin)\n".write(toFile: crossed.worktreePath + "/.git", atomically: true, encoding: .utf8)
+        try dirty(crossed)
+        let movedFrom = try await make("Moved")
+        let moved = row("Moved", at: worktrees + "/moved-elsewhere", branch: movedFrom.branch)
+        try FileManager.default.moveItem(atPath: movedFrom.worktreePath, toPath: moved.worktreePath)
+        try git.run(["worktree", "repair", moved.worktreePath], in: project.path)
+        try dirty(moved)
+        let unlisted = try await make("Unlisted")
+        try git.run(["worktree", "unlock", unlisted.worktreePath], in: project.path)
+        try git.run(["worktree", "remove", unlisted.worktreePath], in: project.path)
+        try FileManager.default.createDirectory(atPath: unlisted.worktreePath + "/build", withIntermediateDirectories: true)
+        let leftover = try await make("Leftover")
+        try dirty(leftover)
+        await #expect(throws: GitError.self) { try await workflow.archive(task: leftover, project: project, force: false) }
+        try FileManager.default.removeItem(atPath: leftover.worktreePath + "/unsaved")
+        try git.run(["worktree", "unlock", leftover.worktreePath], in: project.path)
+        try git.run(["worktree", "remove", leftover.worktreePath], in: project.path)
+        try FileManager.default.createDirectory(atPath: leftover.worktreePath + "/build", withIntermediateDirectories: true)
+        let foreign = try await make("Foreign")
+        try git.run(["worktree", "unlock", foreign.worktreePath], in: project.path)
+        try git.run(["worktree", "remove", foreign.worktreePath], in: project.path)
+        try FileManager.default.createDirectory(atPath: foreign.worktreePath, withIntermediateDirectories: true)
+        try git.run(["init", "-q", "-b", "main"], in: foreign.worktreePath)
+        try dirty(foreign)
+        /// What `git worktree list --porcelain` says of the worktree at `path`: its lines, the path's own first.
+        func listed(_ path: String) throws -> [String] {
+            let blocks = try git.run(["worktree", "list", "--porcelain"], in: project.path).components(separatedBy: "\n\n")
+            let wanted = CanonicalPath.of(path)
+            return blocks.map { $0.components(separatedBy: "\n") }
+                .first { $0.first.map { CanonicalPath.of(String($0.dropFirst("worktree ".count))) == wanted } == true } ?? []
+        }
+        // A prunable entry: unlocked, its folder deleted outside AiTerm, and git says so.
+        let prunable = try await make("Prunable")
+        try git.run(["worktree", "unlock", prunable.worktreePath], in: project.path)
+        try FileManager.default.removeItem(atPath: prunable.worktreePath)
+        #expect(try listed(prunable.worktreePath).contains { $0.hasPrefix("prunable") }, "git lists it prunable")
+        // A missing locked checkout: its folder deleted with its lock still on, which keeps git from calling it prunable.
+        let missingLocked = try await make("Missing locked")
+        try FileManager.default.removeItem(atPath: missingLocked.worktreePath)
+        #expect(try listed(missingLocked.worktreePath).contains { $0.hasPrefix("locked") }, "git lists it locked")
+        #expect(try !listed(missingLocked.worktreePath).contains { $0.hasPrefix("prunable") }, "and not prunable")
+        let planned = row("Planned", at: "", branch: "feat/planned")
+
+        for task in [clean, dirtyOne, detached, unlocked, relative, crossed, moved, unlisted, leftover, foreign, prunable, missingLocked,
+                     planned] {
+            let mark = recording.calls.count
+            let preflight = try await workflow.preflight(task: task, project: project)
+            let listings = recording.calls.dropFirst(mark).filter { $0.args.starts(with: ["worktree", "list"]) }.count
+            #expect(listings <= 1, "\(task.title): one listing at most")
+            #expect(preflight.head == (try await workflow.head(of: task, in: project)), "\(task.title): head")
+            #expect(preflight.needsRemovalConfirmation == (try referenceNeedsConfirmation(task)), "\(task.title): unlisted")
+            #expect(try await teardownAsksUnsavedWork(task, after: preflight)
+                    == (try await workflow.hasUnsavedWork(task: task, project: project)), "\(task.title): unsaved work")
+        }
+        // Listed at the preflight, then removed outside AiTerm and its folder made again by something still writing
+        // there, before the uncommitted-work check: git status there would answer for the project's own checkout, which
+        // has an untracked file. The rule before phase 7 listed again and skipped status for a folder git no longer lists.
+        let vanished = try await make("Vanished")
+        let listedThen = try await workflow.preflight(task: vanished, project: project)
+        #expect(listedThen.head == .branch(vanished.branch))
+        try git.run(["worktree", "unlock", vanished.worktreePath], in: project.path)
+        try git.run(["worktree", "remove", vanished.worktreePath], in: project.path)
+        try FileManager.default.createDirectory(atPath: vanished.worktreePath + "/build", withIntermediateDirectories: true)
+        try "stray".write(toFile: project.path + "/untracked-in-the-project", atomically: true, encoding: .utf8)
+        #expect(try await teardownAsksUnsavedWork(vanished, after: listedThen)
+                == (try await workflow.hasUnsavedWork(task: vanished, project: project)), "Vanished: unsaved work")
+        #expect(try await !teardownAsksUnsavedWork(vanished, after: listedThen))
+        // The cases are the ones named: each answer is seen at least once.
+        #expect(try await workflow.hasUnsavedWork(task: relative, project: project), "a dirty worktree with relative links")
+        #expect(try await workflow.hasUnsavedWork(task: moved, project: project), "a dirty worktree moved and repaired")
+        #expect(try await workflow.preflight(task: detached, project: project).head == .detached)
+        #expect(try await workflow.preflight(task: unlisted, project: project).needsRemovalConfirmation)
+        #expect(try await !workflow.preflight(task: leftover, project: project).needsRemovalConfirmation)
+        #expect(try await workflow.preflight(task: foreign, project: project).needsRemovalConfirmation)
+        #expect(try await workflow.preflight(task: prunable, project: project).head == .missing)
+        #expect(try await workflow.preflight(task: missingLocked, project: project).head == .missing)
     }
 
     private func fixture() throws -> (Project, TaskDraft) {

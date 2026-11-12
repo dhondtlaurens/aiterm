@@ -23,9 +23,13 @@ final class WorkspaceStore {
     private(set) var state = AppState.empty
     /// Whether `state` came from the file. Nothing is saved until it has: a workspace that failed to
     /// load must not be overwritten with an empty one.
-    private(set) var loaded = false
+    private(set) var loaded = false {
+        didSet { heardChangeability(wasChangeable: oldValue && persistenceError == nil) }
+    }
     /// Why the latest save failed, until one succeeds.
-    private(set) var persistenceError: String?
+    private(set) var persistenceError: String? {
+        didSet { heardChangeability(wasChangeable: loaded && oldValue == nil) }
+    }
     /// Whether a command may change the workspace: loaded, and saving.
     var canChangeWorkspace: Bool { loaded && persistenceError == nil }
 
@@ -33,8 +37,9 @@ final class WorkspaceStore {
     let file: StateStore
     @ObservationIgnored private let writer: WorkspaceWriter
     /// Run once per change, in the order they were added.
-    @ObservationIgnored private var hooks: [(hook: Hook, run: @MainActor () -> Void)] = []
-    @ObservationIgnored private var hookCount = 0
+    @ObservationIgnored private let hooks = HookList<Void>()
+    /// Who hears that the workspace can change again.
+    @ObservationIgnored private let changeableHooks = HookList<Void>()
     /// Moves on with every change: the writer skips a save of a revision the file already holds,
     /// and a result that arrives after a newer revision's is old news.
     @ObservationIgnored private var revision = 0
@@ -46,22 +51,22 @@ final class WorkspaceStore {
     }
 
     /// A hook added by `onChange`, for taking it out again.
-    struct Hook: Equatable {
-        fileprivate let serial: Int
-    }
+    typealias Hook = HookList<Void>.Token
 
     /// Adds `hook` to what runs after every change, after the ones added before it.
     @discardableResult
-    func onChange(_ hook: @escaping @MainActor () -> Void) -> Hook {
-        hookCount += 1
-        let added = Hook(serial: hookCount)
-        hooks.append((added, hook))
-        return added
-    }
+    func onChange(_ hook: @escaping @MainActor () -> Void) -> Hook { hooks.add(hook) }
 
     /// Takes out a hook added by `onChange`, for an owner that goes before the workspace does.
-    func removeHook(_ hook: Hook) {
-        hooks.removeAll { $0.hook == hook }
+    func removeHook(_ hook: Hook) { hooks.remove(hook) }
+
+    /// Adds `hook` to what hears that the workspace can change again (`canChangeWorkspace`): loaded, or saving again
+    /// after a save failed. The window lock restores what waited on it.
+    @discardableResult
+    func onChangeable(_ hook: @escaping @MainActor () -> Void) -> HookList<Void>.Token { changeableHooks.add(hook) }
+
+    private func heardChangeability(wasChangeable: Bool) {
+        if !wasChangeable && canChangeWorkspace { changeableHooks() }
     }
 
     /// Changes the workspace: `body` edits a copy, which becomes `state` in one write — once a
@@ -120,9 +125,7 @@ final class WorkspaceStore {
         if changed { self.changed() }
     }
 
-    private func changed() {
-        for hook in hooks { hook.run() }
-    }
+    private func changed() { hooks() }
 
     /// A save's result, unless it is old news: a newer revision's result has been heard, or this
     /// revision has been saved already — by a flush, say, that overtook the save now failing late.

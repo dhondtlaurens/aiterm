@@ -103,10 +103,9 @@ import Testing
     /// again — still diverged here, since the stub's fix moves nothing, so the new failure names
     /// where the branch as it was is kept.
     @Test func aFixThatLandsPullsAgainAndAFailedPullNamesTheBackup() async throws {
-        let fixture = try await RaceFixture.diverged()
+        let fixture = try await RaceFixture.diverged(fixPipeline: { _ in .stub(look: .fix(proposal)) })
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
-        controller.fixPipeline = { _ in .stub(look: .fix(proposal)) }
 
         await controller.projects.pullDefault(project: fixture.project)?.value
         let session = try #require(controller.notices.fixSession)
@@ -125,10 +124,9 @@ import Testing
 
     /// A pull that succeeds after the fix says so, and where the old commits are.
     @Test func aPullAfterTheFixSaysWhereTheOldCommitsAre() async throws {
-        let fixture = try await RaceFixture.diverged()
+        let fixture = try await RaceFixture.diverged(fixPipeline: { _ in .stub(look: .fix(proposal)) })
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
-        controller.fixPipeline = { _ in .stub(look: .fix(proposal)) }
         await controller.projects.pullDefault(project: fixture.project)?.value
         let session = try #require(controller.notices.fixSession)
         session.start(); await session.settled()
@@ -170,12 +168,11 @@ import Testing
     /// A fix that landed on a branch that is no longer the project's default pulls nothing — that
     /// pull was for the old one — and the toast says where the branch as it was is kept.
     @Test func aFixForABranchNoLongerTheDefaultPullsNothing() async throws {
-        let fixture = try await RaceFixture.diverged()
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let controller = fixture.controller
         var pipeline = FixPipeline.stub(look: .fix(proposal))
         pipeline.land = { _, _ in FixLanding(branch: "release", old: "a", new: "b") }
-        controller.fixPipeline = { [pipeline] _ in pipeline }
+        let fixture = try await RaceFixture.diverged(fixPipeline: { [pipeline] _ in pipeline })
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
         await controller.projects.pullDefault(project: fixture.project)?.value
         let session = try #require(controller.notices.fixSession)
         session.start(); await session.settled()
@@ -189,10 +186,9 @@ import Testing
     /// Two projects: while A's fix holds the banner, B's refusal waits; once A's fix lands it comes
     /// up with a Fix of its own, and A's pull, run again, leaves it be.
     @Test func anotherProjectsIssueWaitsForTheFixAndIsLeftAlone() async throws {
-        let fixture = try await RaceFixture.diverged()
+        let fixture = try await RaceFixture.diverged(fixPipeline: { _ in .stub(look: .fix(proposal)) })
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
-        controller.fixPipeline = { _ in .stub(look: .fix(proposal)) }
         let other = Project(id: UUID(), name: "Other", path: fixture.root.appendingPathComponent("other").path, provider: .git,
                             remoteUrl: nil, addedAt: Date(), collapsed: false)
         controller.workspace.mutate { $0.append(project: other) }
@@ -220,10 +216,9 @@ import Testing
 
     /// Quitting stops a Look: its agent's process group would outlive the app.
     @Test func shutdownStopsALook() async throws {
-        let fixture = try await RaceFixture.diverged()
+        let fixture = try await RaceFixture.diverged(fixPipeline: { _ in .stub(look: .none("n"), slowLook: true) })
         defer { fixture.cleanUp() }
         let controller = fixture.controller
-        controller.fixPipeline = { _ in .stub(look: .none("n"), slowLook: true) }
         await controller.projects.pullDefault(project: fixture.project)?.value
         let session = try #require(controller.notices.fixSession)
         session.start()

@@ -37,8 +37,9 @@ public struct TaskWorkflow: Sendable {
     /// Kept in memory, so after a relaunch an own leftover asks again; and written before `git
     /// worktree remove` runs, so a removal git refused outright counts as reached too. Both err
     /// towards asking.
-    private final class RemovalAttempts: Sendable { let paths = Mutex<[UUID: String]>([:]) }
-    private let removalAttempts = RemovalAttempts()
+    final class RemovalAttempts: Sendable { let paths = Mutex<[UUID: String]>([:]) }
+    /// Internal for the preflight's reference test, which reads the rule as it was asked before the preflight.
+    let removalAttempts = RemovalAttempts()
     /// Runs every git command through the injected runner.
     let git: any GitRunning
     public init(git: any GitRunning) { self.git = git }
@@ -116,18 +117,34 @@ public struct TaskWorkflow: Sendable {
         }
     }
 
-    /// An unlisted directory is not evidence of our failed removal: ask before deleting it.
-    public func needsRemovalConfirmation(task: TaskItem, project: Project) async throws -> Bool {
+    /// What a removal or an archive reads of the task's worktree before it asks or closes anything, from one listing of
+    /// the repository's worktrees: what `head(of:in:)` says, and whether to ask before deleting a folder git does not
+    /// list. Whether it holds unsaved work is asked after, by `hasUnsavedWork(task:project:)` with a listing of its own,
+    /// right before git status: only that listing says the folder is still this repository's worktree then.
+    public struct Preflight: Equatable, Sendable {
+        /// What the worktree is on, as `head(of:in:)` says it.
+        public let head: WorktreeHead
+        /// An unlisted directory is not evidence of our failed removal: ask before deleting it. True when the folder is
+        /// there, git does not list it, and this workflow's own removal of it never reached git.
+        public let needsRemovalConfirmation: Bool
+    }
+
+    /// The task's `Preflight`, its repository's worktrees listed once, on the shared pool. A task with no checkout, or
+    /// whose folder is gone, lists nothing.
+    public func preflight(task: TaskItem, project: Project) async throws -> Preflight {
         let git = git, attempts = removalAttempts
         return try await BackgroundWork.run {
-            guard task.hasCheckout, !attempts.paths.withLock({ $0[task.id] == task.worktreePath }),
-                  FileManager.default.fileExists(atPath: task.worktreePath) else { return false }
-            return try Repository(project.path, git: git).worktree(at: task.worktreePath) == nil
+            guard task.hasCheckout, FileManager.default.fileExists(atPath: task.worktreePath) else {
+                return Preflight(head: .missing, needsRemovalConfirmation: false)
+            }
+            let worktree = try Repository(project.path, git: git).worktree(at: task.worktreePath)
+            return Preflight(head: worktree.map { $0.branch.map(WorktreeHead.branch) ?? .detached } ?? .missing,
+                             needsRemovalConfirmation: worktree == nil && !attempts.paths.withLock { $0[task.id] == task.worktreePath })
         }
     }
 
     /// `allowUnlisted` is the person's consent to delete a folder git no longer lists
-    /// (`needsRemovalConfirmation`).
+    /// (`Preflight.needsRemovalConfirmation`).
     public func remove(task: TaskItem, project: Project, deleteBranch: Bool, force: Bool,
                        allowUnlisted: Bool = false) async throws -> Removed {
         let git = git, attempts = removalAttempts

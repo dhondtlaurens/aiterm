@@ -25,9 +25,9 @@ final class Notices {
     /// Whether an issue names a task or a project the workspace no longer has.
     private let isStale: @MainActor (OperationIssue) -> Bool
     /// Who hears that the banner about a task was dismissed, or replaced by one about something else.
-    @ObservationIgnored private var withdrawnHooks: [@MainActor (UUID) -> Void] = []
+    @ObservationIgnored private let withdrawnHooks = HookList<UUID>()
     /// Who hears the banner's issue change: the one it showed and the one it shows now, either nil.
-    @ObservationIgnored private var issueHooks: [@MainActor (_ old: OperationIssue?, _ new: OperationIssue?) -> Void] = []
+    @ObservationIgnored private let issueHooks = HookList<(old: OperationIssue?, new: OperationIssue?)>()
     /// Makes the session for an issue's problem: nil when there is none to make — no pipeline for
     /// it, or the project it is about gone.
     @ObservationIgnored private var makeFix: @MainActor (FixRequest) -> FixSession?
@@ -47,14 +47,17 @@ final class Notices {
 
     /// Adds `hook` to what hears that the banner about a task was dismissed, or replaced by one
     /// about something else: whatever the task's row says in the banner's stead goes with it.
-    func onWithdrawn(_ hook: @escaping @MainActor (UUID) -> Void) {
-        withdrawnHooks.append(hook)
+    @discardableResult
+    func onWithdrawn(_ hook: @escaping @MainActor (UUID) -> Void) -> HookList<UUID>.Token {
+        withdrawnHooks.add(hook)
     }
 
     /// Adds `hook` to what hears the banner's issue change — shown, replaced, dismissed or answered —
     /// with the one it showed and the one it shows now: a driven task's `problem` follows it.
-    func onIssueChanged(_ hook: @escaping @MainActor (_ old: OperationIssue?, _ new: OperationIssue?) -> Void) {
-        issueHooks.append(hook)
+    @discardableResult
+    func onIssueChanged(_ hook: @escaping @MainActor (_ old: OperationIssue?, _ new: OperationIssue?) -> Void)
+        -> HookList<(old: OperationIssue?, new: OperationIssue?)>.Token {
+        issueHooks.add { hook($0.old, $0.new) }
     }
 
     func showRemoval(of task: TaskItem, result: TaskWorkflow.Removed) {
@@ -123,7 +126,7 @@ final class Notices {
         let old = issue
         issue = new
         guard old != new else { return }
-        for hook in issueHooks { hook(old, new) }
+        issueHooks((old, new))
     }
 
     /// The banner's Cancel: stops the Look or declines the proposal — nothing while a fix is
@@ -182,6 +185,6 @@ final class Notices {
 
     private func withdraw(_ issue: OperationIssue) {
         guard let subject = issue.subject else { return }
-        for hook in withdrawnHooks { hook(subject) }
+        withdrawnHooks(subject)
     }
 }

@@ -80,23 +80,12 @@ final class TaskArchiver {
 
     private func archive(_ task: TaskItem, in project: Project, holding token: WorkInFlight.Token) async throws {
         // A detached worktree is refused before anything is asked or closed. Read again once the
-        // window is closed (below): until then its agent can still move it.
-        let head = try await workflow.head(of: task, in: project)
-        if head == .detached { throw Stop.detached }
-        var task = task, force = false
-        // Remove's question about a folder git no longer lists, and Keep keeps it, unshelved.
-        let unlisted = try await workflow.needsRemovalConfirmation(task: task, project: project)
-        if unlisted {
-            let answer = await prompter.ask(TaskRemover.unlistedFolderQuestion(for: task))
-            guard answer.button == 1, let still = workspace.state.task(id: task.id),
-                  still.worktreePath == task.worktreePath, still.projectId == project.id else { throw Stop.kept }
-            task = still
-        }
-        if try await workflow.hasUnsavedWork(task: task, project: project) {
-            guard await teardown.confirmDeletingUnsavedWork(of: task, verb: .archive),
-                  workspace.state.task(id: task.id) != nil else { throw Stop.kept }
-            force = true
-        }
+        // window is closed (below): until then its agent can still move it. Remove's question about a
+        // folder git no longer lists comes next, and Keep keeps it, unshelved.
+        guard let prepared = try await teardown.prepare(task, in: project, verb: .archive, refusing: {
+            if $0.head == .detached { throw Stop.detached }
+        }) else { throw Stop.kept }
+        let task = prepared.task, head = prepared.head
         try await teardown.closeWindow(of: task, holding: token, requiringDaemon: true, operation: { .archiving(windowLetGo: $0) })
         // The branch it is on now — a task's worktree can have moved since it was created, or while
         // the question was up and its window closing. Detached by now, its commits would go with the
@@ -118,12 +107,11 @@ final class TaskArchiver {
             throw ActionUnavailable("Its place on the shelf couldn’t be saved, so nothing was deleted.")
         }
         do {
-            do { try await workflow.archive(task: task, project: project, force: force, allowUnlisted: unlisted) }
-            catch let error as GitError where error.refusedForUnsavedWork {
-                // Written after the check, before the window closed.
-                guard await teardown.confirmDeletingUnsavedWork(of: task, verb: .archive) else { throw Stop.keptLate }
-                try await workflow.archive(task: task, project: project, force: true, allowUnlisted: unlisted)
+            // The row is on the shelf by now, so a late question goes on with the task it had.
+            let archived: Void? = try await teardown.run(prepared, verb: .archive, current: { $0 }) { task, force in
+                try await workflow.archive(task: task, project: project, force: force, allowUnlisted: prepared.allowUnlisted)
             }
+            guard archived != nil else { throw Stop.keptLate }
         } catch {
             // Back in the sidebar, owed its window, which the window lock brings back.
             workspace.mutate { $0.moveFromArchive(id: task.id) }
