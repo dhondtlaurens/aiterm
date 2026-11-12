@@ -343,9 +343,10 @@ import Testing
     /// (`hasUnsavedWork(task:project:)`). On real repositories, most of them dirty so the last answer means something:
     /// a clean, a dirty, a detached, an unlocked worktree; one whose links are relative; one whose `.git` names another
     /// worktree's administrative folder; one moved by hand and repaired; a folder git no longer lists, one this
-    /// workflow's own removal left, another repository checked out at a worktree's path, a prunable one whose folder was
-    /// deleted, a task with no checkout yet; and, last, a worktree listed at the preflight and removed before the check,
-    /// its folder made again. The preflight lists the worktrees at most once.
+    /// workflow's own removal left, another repository checked out at a worktree's path, a prunable one (unlocked, its
+    /// folder deleted, as git lists it), a locked one whose folder was deleted, a task with no checkout yet; and, last, a
+    /// worktree listed at the preflight and removed before the check, its folder made again. The preflight lists the
+    /// worktrees at most once.
     @Test func thePreflightAnswersAsTheThreeReadsItReplacedDid() async throws {
         let (project, base) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }
@@ -418,11 +419,27 @@ import Testing
         try FileManager.default.createDirectory(atPath: foreign.worktreePath, withIntermediateDirectories: true)
         try git.run(["init", "-q", "-b", "main"], in: foreign.worktreePath)
         try dirty(foreign)
+        /// What `git worktree list --porcelain` says of the worktree at `path`: its lines, the path's own first.
+        func listed(_ path: String) throws -> [String] {
+            let blocks = try git.run(["worktree", "list", "--porcelain"], in: project.path).components(separatedBy: "\n\n")
+            let wanted = CanonicalPath.of(path)
+            return blocks.map { $0.components(separatedBy: "\n") }
+                .first { $0.first.map { CanonicalPath.of(String($0.dropFirst("worktree ".count))) == wanted } == true } ?? []
+        }
+        // A prunable entry: unlocked, its folder deleted outside AiTerm, and git says so.
         let prunable = try await make("Prunable")
+        try git.run(["worktree", "unlock", prunable.worktreePath], in: project.path)
         try FileManager.default.removeItem(atPath: prunable.worktreePath)
+        #expect(try listed(prunable.worktreePath).contains { $0.hasPrefix("prunable") }, "git lists it prunable")
+        // A missing locked checkout: its folder deleted with its lock still on, which keeps git from calling it prunable.
+        let missingLocked = try await make("Missing locked")
+        try FileManager.default.removeItem(atPath: missingLocked.worktreePath)
+        #expect(try listed(missingLocked.worktreePath).contains { $0.hasPrefix("locked") }, "git lists it locked")
+        #expect(try !listed(missingLocked.worktreePath).contains { $0.hasPrefix("prunable") }, "and not prunable")
         let planned = row("Planned", at: "", branch: "feat/planned")
 
-        for task in [clean, dirtyOne, detached, unlocked, relative, crossed, moved, unlisted, leftover, foreign, prunable, planned] {
+        for task in [clean, dirtyOne, detached, unlocked, relative, crossed, moved, unlisted, leftover, foreign, prunable, missingLocked,
+                     planned] {
             let mark = recording.calls.count
             let preflight = try await workflow.preflight(task: task, project: project)
             let listings = recording.calls.dropFirst(mark).filter { $0.args.starts(with: ["worktree", "list"]) }.count
@@ -453,6 +470,7 @@ import Testing
         #expect(try await !workflow.preflight(task: leftover, project: project).needsRemovalConfirmation)
         #expect(try await workflow.preflight(task: foreign, project: project).needsRemovalConfirmation)
         #expect(try await workflow.preflight(task: prunable, project: project).head == .missing)
+        #expect(try await workflow.preflight(task: missingLocked, project: project).head == .missing)
     }
 
     private func fixture() throws -> (Project, TaskDraft) {
