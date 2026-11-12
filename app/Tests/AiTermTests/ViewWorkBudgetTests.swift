@@ -121,6 +121,33 @@ import AiTermUI
         #expect(counter.counts[entries.last!.id] != nil)
     }
 
+    @Test func theActivityListMaterializesTheBoardSheetViewportAndStillReachesTheLastEntry() throws {
+        let entries = (0..<100).map(entry), entryIDs = Set(entries.map(\.id)), counter = RowBodyCounter()
+        let run = OperatorUIFixtures.run(taskSettings: OperatorUIFixtures.taskSettings, goal: OperatorUIFixtures.goal)
+        var state = AppState.empty
+        state.runs = [run]
+        let board = BroadcastBoard.make(run: run, state: state, acting: .none, requests: [])
+        let sheet = BroadcastBoardSheet(board: board, reopenFailed: false, actions: BoardActions(), activity: nil)
+            .seeded(tab: .activity, entries: entries)
+        let host = testHost(sheet.environment(\.rowBodyCounter, counter).environment(\.footerClock, Snapshots.clock),
+                            size: CGSize(width: Sheet.width, height: Sheet.height), appearance: NSAppearance(named: .darkAqua))
+        let window = testWindow(hosting: host, styleMask: [])
+        defer { window.orderOut(nil) }
+        settle(host, describing: "the board sheet's Activity rows") { !entryIDs.isDisjoint(with: counter.counts.keys) }
+        let initial = entryIDs.intersection(counter.counts.keys).count
+        print("Board sheet Activity initial materialized rows: \(initial) of 100")
+        #expect(initial == 10, "baseline 100; final 10 Activity rows in the real board sheet")
+        let scroll = try #require(host.firstDescendant(NSScrollView.self))
+        let document = try #require(scroll.documentView)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: document.bounds.maxY - scroll.contentView.bounds.height))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        settle(host, describing: "the last Activity entry at the board sheet's bottom") {
+            counter.counts[entries.last!.id] != nil && scroll.documentVisibleRect.minY > 0
+                && abs((scroll.documentView?.bounds.maxY ?? 0) - scroll.documentVisibleRect.maxY) <= 32
+        }
+        #expect(counter.counts[entries.last!.id] != nil)
+    }
+
     @Test func theShelfMaterializesItsViewportAndKeepsHighlightScrolling() throws {
         let project = Project.make()
         let rows: [ShelfRow] = (0..<100).map { index in
