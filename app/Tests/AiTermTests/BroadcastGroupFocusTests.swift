@@ -412,7 +412,7 @@ struct BroadcastGroupFocusTests {
         controller.workspace.mutate { state in state.append(project: project); state.tasks = [held] }
         let section = try #require(controller.rows.sections.first)
         #expect(section.isEmpty && section.collapsed)
-        #expect(!ProjectHeaderRow.collapses(section, canChangeWorkspace: true))
+        #expect(!ProjectHeaderRow(section: section, controller: controller).collapses)
         #expect(section.operatorHelp == "The Operator holds 1 worktree in this project.")
         controller.projects.toggleCollapsed(project)
         #expect(controller.state.project(id: project.id)?.collapsed == false, "nothing to fold")

@@ -102,7 +102,7 @@ import AiTermCore
     }
 
     /// The header's click, VoiceOver default action and button trait follow one rule.
-    @Test func aProjectHeaderCollapsesOnlyWithRowsInAnUnlockedWorkspace() {
+    @Test func aProjectHeaderCollapsesOnlyWithRowsInAnUnlockedWorkspace() throws {
         func section(withTerminal: Bool) -> ProjectSection? {
             var state = AppState.empty
             let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
@@ -117,9 +117,15 @@ import AiTermCore
         guard let full = section(withTerminal: true), let empty = section(withTerminal: false) else {
             Issue.record("expected project sections"); return
         }
-        #expect(ProjectHeaderRow.collapses(full, canChangeWorkspace: true))
-        #expect(!ProjectHeaderRow.collapses(full, canChangeWorkspace: false))
-        #expect(!ProjectHeaderRow.collapses(empty, canChangeWorkspace: true))
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        let fullRow = ProjectHeaderRow(section: full, controller: controller)
+        let emptyRow = ProjectHeaderRow(section: empty, controller: controller)
+        #expect(!fullRow.collapses, "an unloaded workspace is locked")
+        #expect(!emptyRow.collapses)
+        try controller.workspace.load()
+        #expect(fullRow.collapses)
+        #expect(!emptyRow.collapses)
     }
 
     @Test func aDividerOffersOnlyWhatItsMenuHasEnabled() {

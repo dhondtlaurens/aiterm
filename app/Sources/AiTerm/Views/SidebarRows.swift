@@ -118,14 +118,10 @@ struct ProjectHeaderRow: View {
     }
 
     private var project: Project { heading.project }
-    private var collapses: Bool { !heading.isEmpty && controller.canChangeWorkspace }
-
     /// Whether the header's label collapses and expands the section — by click, and for VoiceOver as
     /// its default action and button trait. An empty project has nothing to disclose, and a locked
     /// workspace changes nothing.
-    static func collapses(_ section: ProjectSection, canChangeWorkspace: Bool) -> Bool {
-        !section.isEmpty && canChangeWorkspace
-    }
+    var collapses: Bool { !heading.isEmpty && controller.canChangeWorkspace }
 
     var body: some View {
         #if DEBUG
