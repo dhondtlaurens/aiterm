@@ -7,9 +7,6 @@ struct NewTaskSheet: View {
     @Bindable var model: TaskCreationModel
     @State private var step: Int = 1
     @State private var ticketsOpen: Bool = false
-    /// A result row's key column: a Jira key of up to eight characters in the mono code face, so
-    /// the summaries after it start on one line.
-    private static let ticketKeyWidth: CGFloat = 74
     /// The branch-type popup's column: its longest type, `chore`, in monospace plus the popup's
     /// chevron and bezel — no wider, since every point it takes comes out of the branch name
     /// beside it.
@@ -46,22 +43,11 @@ struct NewTaskSheet: View {
     private var ticketStep: some View {
         FrontToBackStack(spacing: Space.block) {
             FormField("Ticket (optional)") {
-                SearchPicker(placeholder: model.ticketPlaceholder,
-                             query: Binding(get: { model.query }, set: { model.setQuery($0) }),
-                             open: $ticketsOpen,
-                             items: model.results, selection: model.draft.ticket,
-                             row: { ticket in
-                                 // The lane column stays for a ticket without one, so every summary
-                                 // is cut at the same place.
-                                 PickerResultRow(mark: .brand(ticket.brand), key: ticket.key, keyWidth: Self.ticketKeyWidth,
-                                                 title: ticket.summary, detail: ticket.status ?? "")
-                             },
-                             selected: { selectedTicket($0) },
-                             onPick: { ticket in
-                                 model.cancelSearch()
-                                 model.draft.apply(ticket: ticket)
-                             },
-                             toggleHelp: { $0 ? "Hide tickets" : "Show open tickets" })
+                TicketPickerField(placeholder: model.ticketPlaceholder,
+                                  query: Binding(get: { model.query }, set: { model.setQuery($0) }),
+                                  open: $ticketsOpen, items: model.results, selection: model.draft.ticket,
+                                  onPick: { ticket in model.cancelSearch(); model.draft.apply(ticket: ticket) },
+                                  onClear: { model.draft.apply(ticket: nil); model.reopenSearch(); ticketsOpen = true })
                 if model.draft.ticket == nil {
                     if let message = model.searchError {
                         HelpText(message, tone: .warning)
@@ -100,14 +86,6 @@ struct NewTaskSheet: View {
     /// an `NSPopUpButton` whose selection is not in its menu shows nothing at all.
     private var baseBranchChoices: [String] {
         model.branches.contains(model.draft.baseBranch) || model.draft.baseBranch.isEmpty ? model.branches : [model.draft.baseBranch] + model.branches
-    }
-
-    private func selectedTicket(_ ticket: JiraTicket) -> some View {
-        PickedItemField(mark: .brand(ticket.brand), key: ticket.key, title: ticket.summary, trailing: {
-            if let status = ticket.status { LaneChip(lane: status, brand: ticket.brand, ink: ticket.laneInk) }
-        }, clearHelp: "Clear ticket") {
-            model.draft.apply(ticket: nil); model.reopenSearch(); ticketsOpen = true
-        }
     }
 
     // -- what the scaffold is handed ------------------------------------------------

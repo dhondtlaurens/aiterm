@@ -38,10 +38,6 @@ struct JiraProjectSheet: View {
         _linked = State(initialValue: linked)
     }
 
-    /// A result row's key column, in the mono code face, so the names after it start on one line.
-    /// A project key is a ticket key without its number, so the column is narrower than New Task's.
-    private static let keyColumnWidth: CGFloat = 64
-
     private var matches: [JiraProjectRef] { JiraProjectSearch.rank(projects, query: query, excluding: linked) }
 
     var body: some View {
@@ -83,7 +79,7 @@ struct JiraProjectSheet: View {
     }
 
     private func projectRow(_ project: JiraProjectRef) -> some View {
-        PickerResultRow(mark: .brand(Palette.jira), key: project.key, keyWidth: Self.keyColumnWidth,
+        PickerResultRow(mark: .brand(Palette.jira), key: project.key, keyWidth: Size.pickerProjectKey,
                         title: project.name, detail: nil)
     }
 

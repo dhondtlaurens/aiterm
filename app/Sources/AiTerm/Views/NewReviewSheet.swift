@@ -13,13 +13,6 @@ struct NewReviewSheet: View {
     @State private var mrOpen: Bool = false
     @State private var branchOpen: Bool = false
     @State private var ticketsOpen: Bool = false
-    /// As New Task's ticket key column.
-    private static let ticketKeyWidth: CGFloat = 74
-
-    /// A result row's `!iid` column: a four-digit merge request number in the mono code face, so
-    /// the titles after it start on one line.
-    private static let mrNumberWidth: CGFloat = 44
-
     init(model: ReviewCreationModel) { self.model = model }
 
     /// ⎋ closes the merge request list first, then the ticket list, then the branch list, and only
@@ -78,17 +71,11 @@ struct NewReviewSheet: View {
             }
 
             FormField("Ticket (optional)") {
-                SearchPicker(placeholder: model.ticketPlaceholder,
-                             query: Binding(get: { model.ticketQuery }, set: { model.setTicketQuery($0) }),
-                             open: $ticketsOpen,
-                             items: model.ticketResults, selection: model.draft.ticket,
-                             row: { ticket in
-                                 PickerResultRow(mark: .brand(ticket.brand), key: ticket.key, keyWidth: Self.ticketKeyWidth,
-                                                 title: ticket.summary, detail: ticket.status ?? "")
-                             },
-                             selected: selectedTicket,
-                             onPick: { model.pickTicket($0) },
-                             toggleHelp: { $0 ? "Hide tickets" : "Show open tickets" })
+                TicketPickerField(placeholder: model.ticketPlaceholder,
+                                  query: Binding(get: { model.ticketQuery }, set: { model.setTicketQuery($0) }),
+                                  open: $ticketsOpen, items: model.ticketResults, selection: model.draft.ticket,
+                                  onPick: { model.pickTicket($0) },
+                                  onClear: { model.clearTicket(); model.reopenTicketSearch(); ticketsOpen = true })
                 if let reference = model.draft.ticketFoundFrom {
                     HelpText("Found from \(reference).")
                 } else if model.draft.ticket == nil {
@@ -143,7 +130,7 @@ struct NewReviewSheet: View {
     }
 
     private func mrRow(_ mr: MergeRequest) -> some View {
-        PickerResultRow(mark: .brand(mr.host.brand), key: mr.reference, keyWidth: Self.mrNumberWidth,
+        PickerResultRow(mark: .brand(mr.host.brand), key: mr.reference, keyWidth: Size.pickerRequestKey,
                         title: mr.title, detail: mr.lane)
     }
 
@@ -152,14 +139,6 @@ struct NewReviewSheet: View {
             LaneChip(lane: mr.lane, brand: mr.host.brand, ink: mr.host.brand.color)
         }, clearHelp: "Clear \(model.codeHost.reviewNoun)") {
             model.clearPick(); model.reopenSearch(); mrOpen = true
-        }
-    }
-
-    private func selectedTicket(_ ticket: JiraTicket) -> some View {
-        PickedItemField(mark: .brand(ticket.brand), key: ticket.key, title: ticket.summary, trailing: {
-            if let status = ticket.status { LaneChip(lane: status, brand: ticket.brand, ink: ticket.laneInk) }
-        }, clearHelp: "Clear ticket") {
-            model.clearTicket(); model.reopenTicketSearch(); ticketsOpen = true
         }
     }
 

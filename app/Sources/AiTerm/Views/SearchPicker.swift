@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import AiTermUI
+import AiTermCore
 
 /// A field with its results hanging under it: the ticket picker, the merge request picker and the
 /// branch picker are the same shape. Results overlay the field rather than pushing the rest of the
@@ -129,9 +130,7 @@ struct PickedItemField<Trailing: View>: View {
                 .lineLimit(1).truncationMode(monospaced ? .middle : .tail)
             Spacer(minLength: Space.snug)
             trailing
-            Button(action: clear) {
-                Image(systemName: "xmark").font(Typography.micro).foregroundStyle(Palette.muted)
-            }.buttonStyle(.plain).help(clearHelp)
+            PickerClearButton(help: clearHelp, action: clear)
         }
         .fieldChrome()
     }
@@ -183,7 +182,31 @@ struct LaneChip: View {
     var body: some View {
         Text(lane).font(Typography.label)
             .padding(.horizontal, Space.snug).frame(height: Size.chip)
-            .background(RoundedRectangle(cornerRadius: Radius.chip).fill(brand.wash))
+            .chipChrome(fill: brand.wash)
             .foregroundStyle(ink)
+    }
+}
+
+/// The ticket field used by New Task and New Review. Their surrounding help and the
+/// effects of picking or clearing remain the caller's.
+struct TicketPickerField: View {
+    let placeholder: String
+    @Binding var query: String
+    @Binding var open: Bool
+    let items: [JiraTicket]
+    let selection: JiraTicket?
+    let onPick: (JiraTicket) -> Void
+    let onClear: () -> Void
+
+    var body: some View {
+        SearchPicker(placeholder: placeholder, query: $query, open: $open, items: items, selection: selection,
+                     row: { ticket in
+                         PickerResultRow(mark: .brand(ticket.brand), key: ticket.key, keyWidth: Size.pickerTicketKey,
+                                         title: ticket.summary, detail: ticket.status ?? "")
+                     }, selected: { ticket in
+                         PickedItemField(mark: .brand(ticket.brand), key: ticket.key, title: ticket.summary, trailing: {
+                             if let status = ticket.status { LaneChip(lane: status, brand: ticket.brand, ink: ticket.laneInk) }
+                         }, clearHelp: "Clear ticket", clear: onClear)
+                     }, onPick: onPick, toggleHelp: { $0 ? "Hide tickets" : "Show open tickets" })
     }
 }

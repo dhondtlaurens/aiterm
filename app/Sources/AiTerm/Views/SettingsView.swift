@@ -140,12 +140,8 @@ struct SettingsView: View {
         }
         // ⌘1–⌘4, on hidden buttons: a view carries one shortcut, and the tab bar's segments are
         // not buttons of their own.
-        .background {
-            ForEach(SettingsTab.allCases) { item in
-                Button(item.rawValue) { select(item) }.keyboardShortcut(item.key, modifiers: .command)
-            }
-            .hidden()
-        }
+        .modifier(TabShortcuts(items: SettingsTab.allCases, title: \.rawValue, key: \.key, select: select))
+
         // A result is only true for the moment it was taken, so every opening checks again rather
         // than showing a remembered answer: iTerm2, each saved service, every harness and the Mac.
         // The Operator's profile is read beside them, so a slow catalogue holds none of them up.

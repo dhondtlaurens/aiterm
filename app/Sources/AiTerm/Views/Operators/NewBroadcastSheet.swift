@@ -15,8 +15,6 @@ struct NewBroadcastSheet: View {
     @State private var step: Int = 1
     @State private var jiraOpen = false
     @State private var projectsOpen = false
-    /// A Jira project result's key column, as the Jira projects sheet has it: a ticket key without its number.
-    private static let jiraKeyWidth: CGFloat = 64
     private static let steps = CreationSteps.broadcast
 
     init(model: NewBroadcastModel) { _model = Bindable(wrappedValue: model) }
@@ -25,13 +23,10 @@ struct NewBroadcastSheet: View {
     private var pickers: [Binding<Bool>] { [$jiraOpen, $projectsOpen] }
 
     var body: some View {
-        SheetLayout(title: NewBroadcastModel.title, height: Sheet.height, onBackgroundTap: closeLists) {
-            StepBar(step: step, names: NewBroadcastModel.stepNames)
-        } content: {
-            FrontToBackStack(spacing: Space.block) {
-                content
-                if Self.steps.showsDestination(onStep: step) { DestinationLine(NewBroadcastModel.destination) }
-            }
+        SteppedSheetFrame(title: NewBroadcastModel.title, step: step, stepNames: NewBroadcastModel.stepNames,
+                          onBackgroundTap: closeLists) {
+            content
+            if Self.steps.showsDestination(onStep: step) { DestinationLine(NewBroadcastModel.destination) }
         } footer: {
             // What Start waits for is said on every step, so it can be put right before the prompt is written.
             CreationFooter(step: step, steps: Self.steps, error: model.error, availableAgents: [],
@@ -73,7 +68,7 @@ struct NewBroadcastSheet: View {
                 ChipsPicker(placeholder: NewBroadcastModel.jiraProjectsPlaceholder, picks: model.jiraProjects,
                             open: $jiraOpen, matches: model.matchingJiraProjects(query:),
                             mark: { _ in .brand(Palette.jira) }, label: { "\($0.key) · \($0.name)" },
-                            row: { PickerResultRow(mark: .brand(Palette.jira), key: $0.key, keyWidth: Self.jiraKeyWidth, title: $0.name, detail: nil) },
+                            row: { PickerResultRow(mark: .brand(Palette.jira), key: $0.key, keyWidth: Size.pickerProjectKey, title: $0.name, detail: nil) },
                             onPick: { model.add(jiraProject: $0) }, onRemove: { model.remove(jiraProject: $0) })
                 HelpText(NewBroadcastModel.jiraProjectsHelp)
                 jiraStatus
@@ -176,10 +171,7 @@ struct PickChip: View {
             Icon(mark, size: Size.pickerRowLogo)
             // The label gives way when the chip is narrower than it wants to be: the mark and the ✕ keep their size.
             Text(label).font(Typography.caption).foregroundStyle(Palette.text).lineLimit(1).truncationMode(.tail)
-            Button(action: remove) {
-                Image(systemName: "xmark").font(Typography.micro).foregroundStyle(Palette.muted)
-            }
-            .buttonStyle(.plain).help(removeHelp).accessibilityLabel(removeHelp)
+            PickerClearButton(help: removeHelp, accessibilityLabel: removeHelp, action: remove)
         }
         .padding(.horizontal, Space.snug).frame(height: Self.lineHeight)
         .chipChrome(fill: Palette.badge)

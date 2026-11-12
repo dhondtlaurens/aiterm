@@ -53,9 +53,8 @@ struct InterfaceSettingsPane: View {
 
     private var backgroundToggle: some View {
         HStack(alignment: .top, spacing: Space.gap) {
-            RoundedRectangle(cornerRadius: Radius.group).fill(Palette.surface)
-                .frame(width: Self.swatch, height: Self.swatch)
-                .overlay(RoundedRectangle(cornerRadius: Radius.group).strokeBorder(Palette.border, lineWidth: 1))
+            Color.clear.frame(width: Self.swatch, height: Self.swatch)
+                .groupChrome()
                 .overlay(Text("#1E").font(Typography.monoChip).foregroundStyle(Palette.muted))
             VStack(alignment: .leading, spacing: Space.tight) {
                 Text("Use dark terminal background")

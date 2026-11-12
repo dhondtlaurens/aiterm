@@ -201,12 +201,8 @@ struct BroadcastBoardSheet: View, Equatable {
             }
         }
         // ⌘1–⌘3, on hidden buttons, as Settings' ⌘1–⌘4: the tab bar's segments are not buttons of their own.
-        .background {
-            ForEach(BroadcastBoard.Tab.allCases, id: \.self) { item in
-                Button(item.title) { select(item) }.keyboardShortcut(Self.key(of: item), modifiers: .command)
-            }
-            .hidden()
-        }
+        .modifier(TabShortcuts(items: BroadcastBoard.Tab.allCases, title: \.title, key: Self.key(of:), select: select))
+
         // A question asked for: Board, then its block, once the tab has drawn it.
         .task(id: focus?.id) {
             guard let focus, focus.run == board.runId else { return }
