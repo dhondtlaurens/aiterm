@@ -202,16 +202,16 @@ struct UsageRing: View {
 
     var body: some View {
         ZStack {
-            Circle().strokeBorder(Palette.spinnerTrack, lineWidth: size * 0.15)
+            Circle().strokeBorder(Palette.spinnerTrack, lineWidth: RingGeometry.strokeWidth(size))
             Circle()
                 .trim(from: 0, to: Self.fill(percent))
                 .stroke(warning ? Palette.amber : Palette.text,
-                        style: StrokeStyle(lineWidth: size * 0.15, lineCap: .round))
+                        style: StrokeStyle(lineWidth: RingGeometry.strokeWidth(size), lineCap: .round))
                 // `trim` starts at three o'clock; a fill reads as rising from the top.
                 .rotationEffect(.degrees(-90))
                 // `strokeBorder` insets by half its width, `stroke` straddles the path — inset the
                 // fill to match, or it paints a hair outside the track it is supposed to fill.
-                .padding(size * 0.15 / 2)
+                .padding(RingGeometry.inset(size))
         }
         .frame(width: size, height: size)
     }

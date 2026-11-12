@@ -28,6 +28,6 @@ struct ToneRing: View {
     let size: CGFloat
 
     var body: some View {
-        Circle().strokeBorder(tone.color, lineWidth: size * 0.15).frame(width: size, height: size)
+        Circle().strokeBorder(tone.color, lineWidth: RingGeometry.strokeWidth(size)).frame(width: size, height: size)
     }
 }

@@ -103,7 +103,9 @@ struct QuestionBlock: View {
 
     private func head(now: Date) -> some View {
         HStack(spacing: Space.gap) {
-            if let ticket = question.ticket { Badge(ticket, icon: .brand(Palette.jira), style: .quiet).fixedSize() }
+            if let ticket = question.ticket {
+                QuietBadgeLine(ticket: QuietBadgeValue(label: ticket, icon: .brand(Palette.jira)), fixed: true)
+            }
             Text(question.title).font(Typography.help).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.tail)
             Spacer(minLength: Space.gap)
             Text(verbatim: BroadcastBoard.age(since: question.askedAt, now: now)).font(Typography.monoChip).foregroundStyle(Palette.muted)

@@ -66,20 +66,15 @@ struct SidebarHeader: View {
                     SectionFoldChevron(folded: !broadcast.folded, hovering: hovering)
                 }
             }
-            .contentShape(Rectangle())
-            .gesture(TapGesture().onEnded { if let id = rows.broadcast?.id { controller.projects.toggleFolded(run: id) } },
-                     including: folds ? .all : .subviews)
-            .accessibilityElement(children: .combine)
+            .modifier(FoldOnTap(enabled: folds) { if let id = rows.broadcast?.id { controller.projects.toggleFolded(run: id) } })
             .accessibilityLabel("Projects")
             .accessibilityValue(rows.projectsFolded ? "folded" : "")
-            .accessibilityAddTraits(folds ? .isButton : [])
-            .modifier(DefaultAccessibilityAction(enabled: folds) { if let id = rows.broadcast?.id { controller.projects.toggleFolded(run: id) } })
             AddMenu(help: "Add project or divider", enabled: controller.canChangeWorkspace) {
                 Button("Add Project…") { Task { await controller.projects.addProject() } }
                 Button("Add Divider…") { controller.sheets.presentNewDivider() }
             }
         }
-        .frame(height: scale(Size.menuRow)).padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
+        .frame(height: scale(Size.menuRow)).modifier(SidebarHeadingInset())
         .padding(.top, scale(Space.base)).padding(.bottom, scale(Space.tight))
         .onHover { hovering = $0 }
     }
@@ -151,18 +146,10 @@ struct ProjectHeaderRow: View {
                     StatusCountChips(counts: SidebarModel.statusCounts(tasks: section.tasks, terminals: section.terminals))
                 }
             }
-            .contentShape(Rectangle())
-            // A locked workspace turns off the collapse and only that: `.subviews` keeps the Jira
-            // badges' links, which change nothing and so have no reason to lock.
-            .gesture(TapGesture().onEnded { controller.projects.toggleCollapsed(project) },
-                     including: collapses ? .all : .subviews)
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(collapses ? .isButton : [])
-            .accessibilityAddTraits(selected ? .isSelected : [])
-            .modifier(DefaultAccessibilityAction(enabled: collapses) { controller.projects.toggleCollapsed(project) })
+            .modifier(FoldOnTap(enabled: collapses, selected: selected) { controller.projects.toggleCollapsed(project) })
             AddMenu(help: "New task, review or terminal", enabled: controller.canChangeWorkspace) { newItems }
         }
-        .frame(height: scale(Size.projectRow)).padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
+        .frame(height: scale(Size.projectRow)).modifier(SidebarHeadingInset())
         .modifier(RowPill(selected: selected))
         // ↩ on an empty header opens this menu, which it has in place of a fold.
         .background(RowMenuAnchor(id: project.id))
@@ -387,8 +374,7 @@ struct TaskRowView: View {
         let jobs = removing || row.queued ? [] : row.background
         // A row being removed is not activated: its window is closing, or gone.
         SelectableRow(id: row.id, selected: selected, activate: { if let task, !removing { controller.choose(task: task.id) } }) {
-            HStack(spacing: scale(Space.inset)) {
-                AvatarGroupView(group: row.avatars)
+            SidebarRowContent(avatars: row.avatars) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
                     // A queued task's title in secondary ink, as one on its way out: it has not started.
                     RowTitle(row.title, dimmed: removing || row.queued)
@@ -422,7 +408,7 @@ struct TaskRowView: View {
                     }
                 }
                 .animation(motionStill == nil ? Motion.settle : nil, value: folded)
-                Spacer(minLength: scale(Space.tight))
+            } mark: {
                 // The status mark's spinner: the row's agents went with its window. An ended driven task's is the
                 // check, a queued or paused one's the pause sign. Known work opens the same card on hover.
                 TaskRowMarkView(mark: mark, size: SidebarRowLayout.trailingGlyph(scale))
@@ -476,19 +462,9 @@ struct TaskRowView: View {
     /// and the last of them from the branch.
     private func badgeLine(_ fit: TaskRowBadges.Fit, of badges: TaskRowBadges, beforeBranch: Bool) -> some View {
         HStack(spacing: scale(Space.gap)) {
-            if fit.ticket, fit.mergeRequest, let ticket = badges.ticket, let mr = badges.mergeRequest, badges.sharesGitLabMark {
-                gitLabPair(issue: ticket, request: mr)
-            } else {
-                if fit.ticket, let ticket = badges.ticket {
-                    Badge(ticket.label, icon: .brand(ticket.host == .gitLab ? Palette.gitlab : Palette.jira), help: ticket.help,
-                          style: .quiet, action: ticket.url.map { url in { ExternalApps.open(link: url) } })
-                }
-                if fit.mergeRequest, let mr = badges.mergeRequest {
-                    Badge(mr.label, icon: .brand((mr.host ?? .gitLab).brand), help: mr.help, suffix: mr.threads,
-                          style: .quiet, accessibilityLabel: mr.accessibilityLabel,
-                          action: mr.url.map { url in { ExternalApps.open(link: url) } })
-                }
-            }
+            QuietBadgeLine(ticket: fit.ticket ? badges.ticket.map { badgeValue($0, ticket: true) } : nil,
+                           request: fit.mergeRequest ? badges.mergeRequest.map { badgeValue($0, ticket: false) } : nil,
+                           sharesMark: badges.sharesGitLabMark)
             // Off its base it extends to `+12 −3` unless Settings has turned that off or the row is too
             // narrow, the base named only in the tooltip, which keeps the counts; a click opens the worktree.
             if fit.editor != .none, let task {
@@ -501,27 +477,13 @@ struct TaskRowView: View {
         .padding(.trailing, beforeBranch && !fit.wearsNone ? scale(Space.gap) : 0)
     }
 
-    /// A GitLab issue and a GitLab merge request on one row: one mark, then `#53`, then `!29` and its
-    /// threads, `Space.snug` apart — two quiet badges, so each number opens its own page, the mark
-    /// the issue's. Each number follows its own switch; with both off the bare mark opens the merge
-    /// request, and its tooltip names both.
-    @ViewBuilder
-    private func gitLabPair(issue: TaskRowBadges.Link, request: TaskRowBadges.Link) -> some View {
-        let open = { (link: TaskRowBadges.Link) in link.url.map { url in { ExternalApps.open(link: url) } } }
-        let mark = IconSource.brand(Palette.gitlab)
-        if issue.label == nil, request.label == nil {
-            Badge(icon: mark, help: "\(issue.help) · \(request.help)", suffix: request.threads, style: .quiet,
-                  accessibilityLabel: request.accessibilityLabel, action: open(request))
-        } else {
-            HStack(spacing: scale(Space.snug)) {
-                Badge(issue.label, icon: mark, help: issue.help, style: .quiet, action: open(issue))
-                if request.label != nil || request.threads != nil {
-                    Badge(request.label, help: request.help, suffix: request.threads, style: .quiet,
-                          accessibilityLabel: request.accessibilityLabel, action: open(request))
-                }
-            }
-        }
+    private func badgeValue(_ link: TaskRowBadges.Link, ticket: Bool) -> QuietBadgeValue {
+        QuietBadgeValue(label: link.label,
+                        icon: .brand(ticket ? (link.host == .gitLab ? Palette.gitlab : Palette.jira) : (link.host ?? .gitLab).brand),
+                        help: link.help, suffix: link.threads, accessibilityLabel: link.accessibilityLabel,
+                        action: link.url.map { url in { ExternalApps.open(link: url) } })
     }
+
 }
 
 /// A terminal is selectable exactly like a task and drawn like one: two lines, the branch on its own
@@ -544,8 +506,7 @@ struct TerminalRowView: View {
         #endif
         let selected = controller.focus.isSelected(row.id)
         SelectableRow(id: row.id, selected: selected, activate: { if let terminal { controller.focus.select(.terminal(terminal.id)) } }) {
-            HStack(spacing: scale(Space.inset)) {
-                AvatarGroupView(group: row.avatars)
+            SidebarRowContent(avatars: row.avatars) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
                     RowTitle(row.name)
                     HStack(spacing: scale(Space.gap)) {
@@ -557,7 +518,7 @@ struct TerminalRowView: View {
                         BranchLabelView(label: row.branch).layoutPriority(1)
                     }
                 }
-                Spacer(minLength: scale(Space.tight))
+            } mark: {
                 StatusMark(status: row.status, size: SidebarRowLayout.trailingGlyph(scale))
                     .opensBackgroundCard(slot: SidebarRowLayout.trailingSlot(scale))
             }

@@ -579,16 +579,10 @@ struct TaskBadges: View {
 
     var body: some View {
         let host = mrHost ?? .gitLab
-        if ticketIsGitLabIssue, let ticket, let mr, host == .gitLab {
-            HStack(spacing: Space.snug) {
-                Badge(ticket, icon: .brand(Palette.gitlab), help: ticketSummary, style: .quiet).fixedSize()
-                Badge(mr, help: mrTitle, style: .quiet).fixedSize()
-            }
-        } else {
-            if let ticket {
-                Badge(ticket, icon: .brand(ticketIsGitLabIssue ? Palette.gitlab : Palette.jira), help: ticketSummary, style: .quiet).fixedSize()
-            }
-            if let mr { Badge(mr, icon: .brand(host.brand), help: mrTitle, style: .quiet).fixedSize() }
-        }
+        QuietBadgeLine(ticket: ticket.map { QuietBadgeValue(label: $0, icon: .brand(ticketIsGitLabIssue ? Palette.gitlab : Palette.jira), help: ticketSummary) },
+                       request: mr.map { QuietBadgeValue(label: $0, icon: .brand(host.brand), help: mrTitle) },
+                       sharesMark: ticketIsGitLabIssue && host == .gitLab,
+                       fixed: true)
     }
+
 }

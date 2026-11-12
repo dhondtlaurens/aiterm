@@ -43,7 +43,7 @@ struct OperatorHeading: View {
             }
         }
         // `PROJECTS`' anatomy (`SidebarHeader`), so the two headings line up with and without the "+".
-        .frame(height: scale(Size.menuRow)).padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
+        .frame(height: scale(Size.menuRow)).modifier(SidebarHeadingInset())
         .padding(.top, scale(Space.base)).padding(.bottom, scale(Space.tight))
         .onHover { hovering = $0 }
     }
@@ -63,13 +63,9 @@ struct OperatorHeading: View {
             }
             SectionFoldChevron(folded: broadcast.folded, hovering: hovering)
         }
-        .contentShape(Rectangle())
-        .gesture(TapGesture().onEnded { controller.projects.toggleFolded(run: broadcast.id) }, including: folds ? .all : .subviews)
-        .accessibilityElement(children: .combine)
+        .modifier(FoldOnTap(enabled: folds) { controller.projects.toggleFolded(run: broadcast.id) })
         .accessibilityLabel("Operator")
         .accessibilityValue(Self.spoken(broadcast))
-        .accessibilityAddTraits(folds ? .isButton : [])
-        .modifier(DefaultAccessibilityAction(enabled: folds) { controller.projects.toggleFolded(run: broadcast.id) })
         // Open Board, then the menu's other items, as named actions.
         .accessibilityActions {
             ForEach(Self.voiceOverActions(header, canChangeWorkspace: controller.canChangeWorkspace), id: \.self) { item in

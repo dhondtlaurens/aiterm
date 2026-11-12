@@ -26,15 +26,14 @@ struct OperatorRowView: View {
         #endif
         let selected = controller.focus.isSelected(row.id)
         SelectableRow(id: row.id, selected: selected, washed: true, activate: { controller.chooseOperatorRow(row) }) {
-            HStack(spacing: scale(Space.inset)) {
-                AvatarGroupView(group: AvatarGroup(marks: [row.agent], overflow: 0))
+            SidebarRowContent(avatars: AvatarGroup(marks: [row.agent], overflow: 0)) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
                     RowTitle(row.title)
                     OperatorBadge(line: row.line)
                 }
                 // Laid out before the spacer, so the line takes the row's width before it is cut.
                 .layoutPriority(1)
-                Spacer(minLength: scale(Space.tight))
+            } mark: {
                 TaskRowMarkView(mark: TaskRowMark(status: row.status, line: row.line, removing: false, paused: row.paused),
                                 size: SidebarRowLayout.trailingGlyph(scale))
                     .frame(width: SidebarRowLayout.trailingSlot(scale))
