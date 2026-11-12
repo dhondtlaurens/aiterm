@@ -90,7 +90,7 @@ import Testing
 
     /// The summary is a change the Operator has seen: the call counts as its own news, so the wake does not echo it.
     @Test func writeSummaryIsAMutatingTool() {
-        #expect(OperatorToolHandler.mutating.contains(.writeSummary))
+        #expect(OperatorTool.writeSummary.isMutating)
     }
 
     /// An off-brief find goes to the summary, once per key, and run_status shows it.
@@ -174,7 +174,7 @@ import Testing
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)
         world.controller.handle(.operatorRequest(OperatorRequest(requestId: "r7", runId: run.id.uuidString, tool: "merge_everything", arguments: [:])))
-        await world.controller.tools.lastReply?.value
+        await world.ports.work.settled()
         let reply = try #require(world.daemon.requests("operator.reply").first)
         #expect(reply.params["requestId"] as? String == "r7")
         #expect(reply.params["error"] as? String == "AiTerm has no tool called merge_everything.")
@@ -491,9 +491,9 @@ import Testing
         #expect(act(.finishTask, .inReview, end: .merge, request: true) == .merging)
         #expect(act(.finishTask, end: .mergeLocal) == .merging)
         #expect(act(.runStatus) == nil && act(.readTask) == nil)
-        #expect(OperatorToolHandler.actsOnBroadcast[.submitPlan] == .loadingTheConstruct)
-        #expect(OperatorToolHandler.actsOnBroadcast[.jiraCreate] == .filingATicket)
-        #expect(OperatorToolHandler.actsOnBroadcast[.reportSnag] == nil, "it files nothing")
+        #expect(OperatorTool.submitPlan.actKind == .onBroadcast(.loadingTheConstruct))
+        #expect(OperatorTool.jiraCreate.actKind == .onBroadcast(.filingATicket))
+        #expect(OperatorTool.reportSnag.actKind == .none, "it files nothing")
     }
 
     @Test func leftForYouIsRecordOnlyAndIdempotentAfterRestart() async throws {

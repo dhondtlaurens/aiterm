@@ -72,3 +72,18 @@ import Testing
         #expect(ActivityLine.reads == Set(OperatorTool.allCases.filter(\.isReadOnly).map(\.rawValue) + ["shell_read"]))
     }
 }
+
+
+extension OperatorToolTests {
+    /// Read the daemon's declared list itself; the served schema and its frozen fixture stay untouched.
+    @Test func theDaemonAndSwiftChallengeTheSameTools() throws {
+        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("daemon/aitermd/operator_mcp.py")
+        let python = try String(contentsOf: file, encoding: .utf8)
+        let list = try #require(python.firstMatch(of: try Regex(#"(?s)CHALLENGED_TOOLS\s*=\s*\((.*?)\)"#))?.output[1].substring)
+        let names = String(list).matches(of: try Regex(#""([a-z_]+)""#)).compactMap { $0.output[1].substring.map(String.init) }
+        #expect(!names.isEmpty)
+        #expect(Set(names) == Set(OperatorTool.allCases.filter { $0.challengeClass != .never }.map(\.rawValue)))
+    }
+}

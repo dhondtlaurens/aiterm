@@ -619,11 +619,16 @@ import Testing
             state.runs.append(other)
             state.updateRun(id: other.id) { $0.challenges = [ChallengeRecord(id: "theirs", tool: "submit_plan", askedAt: Date(timeIntervalSince1970: 0))] }
         }
-        let mine = Task { _ = try? await Task.sleep(for: .seconds(600)) }, theirs = Task { _ = try? await Task.sleep(for: .seconds(600)) }
-        world.controller.tools.runningChallenges = ["mine": mine, "theirs": theirs]
+        let gate = OracleGate(), tools = world.controller.tools
+        for (key, id) in [("mine", run.id), ("theirs", other.id)] {
+            tools.startOracleJob(.challenge(key), run: id, runner: .answering("Late.", gate: gate),
+                       opinion: run.profile.oracle, prompt: key, folder: world.ports.home, projects: [], acting: { _ in })
+        }
         try await world.controller.end(run: run.id)
-        #expect(mine.isCancelled && !theirs.isCancelled)
-        theirs.cancel()
+        #expect(!tools.isOracleRunning(.challenge("mine")) && tools.isOracleRunning(.challenge("theirs")))
+        tools.cancelOracleJobs()
+        await gate.open()
+        await world.ports.work.settled()
     }
 
     @Test func anEndThatCannotBeSavedIsTakenBackAndDoesNothingElse() async throws {

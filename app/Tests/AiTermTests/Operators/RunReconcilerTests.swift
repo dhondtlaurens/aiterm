@@ -543,9 +543,9 @@ import Testing
         #expect(world.task(fresh.id)?.operated?.state == .working)
     }
 
-    /// Only time with a worker at work counts: a task with no tab (its window closed, a relaunch pending) uses none, once its
-    /// launch is over. During its launch window a first worker not listed yet is launching, as `run_status` reads it, and
-    /// counts (`aRelaunchedWindowCountsAsLaunchingForTheLimitsDuringItsLaunchWindow`).
+    /// This reconciler test covers a task with no tab after its launch window: it uses no runtime.
+    /// The relaunched-window test covers a listed idle worker inside that window. An unlisted first
+    /// worker's launch facts are covered in Core, not by either of these reconciler cases.
     @Test func aWorkingTaskWithNoWorkerTabCountsNoRuntime() throws {
         let project = OperatorServiceFixtures.project()
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)

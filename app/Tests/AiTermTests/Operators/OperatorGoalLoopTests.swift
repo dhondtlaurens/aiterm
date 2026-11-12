@@ -206,7 +206,7 @@ import Synchronization
         #expect(world.run(run.id)?.goalChecks.isEmpty == true)
         let id = try #require(first["challengeId"]?.stringValue)
         await gate.open()
-        await world.controller.tools.lastChallenge?.value
+        await world.ports.work.settled()
         #expect(await world.call(run.id, "check_goal", met.adding("challengeId", .string(id))).value?["answer"] == "complete")
         #expect(world.run(run.id)?.goalChecks.map(\.oracleAgreed) == [true])
     }

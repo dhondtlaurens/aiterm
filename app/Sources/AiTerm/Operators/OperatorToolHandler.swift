@@ -20,6 +20,13 @@ struct ToolRefusal: Error, Equatable {
 /// One call's arguments, read with the error the operator needs when one is missing.
 struct ToolCall {
     let tool: String, arguments: JSONValue
+    enum MarkOutcome: String { case accepted, noChange, blocked, failed }
+    let markOutcome: MarkOutcome?
+
+    init(tool: String, arguments: JSONValue) {
+        self.tool = tool; self.arguments = arguments
+        self.markOutcome = (arguments["outcome"]?.stringValue).said.flatMap(MarkOutcome.init(rawValue:))
+    }
 
     /// The tool by its name; nil for a name AiTerm has no tool for.
     var operatorTool: OperatorTool? { OperatorTool(rawValue: tool) }
@@ -102,57 +109,48 @@ final class OperatorToolHandler {
     let transcripts: TranscriptLocator
     /// Each run's last `run_status`, and the revision it was numbered.
     private var numbered: [UUID: (content: RunStatus, revision: Int)] = [:]
-    /// The second opinions running now, by challenge id: one in a run's records but not here was lost
-    /// with AiTerm's restart.
-    var runningChallenges: [String: Task<Void, Never>] = [:]
-    var lastOracleRevision: Int?
-    var oracleGenerations: [UUID: Int] = [:]
+    private let oracleJobs: OracleJobs
+    private var lastOracleRevision: Int?
+    private var oracleGenerations: [UUID: Int] = [:]
     /// The challenges whose acting call is performing now: a second call for one is refused, not performed too.
-    var actingChallenges: Set<String> = []
+    private(set) var actingChallenges: Set<String> = []
     /// The `create_task` and `check_goal` invocations the Oracle said yes to, while the call performs: an addition past the
     /// threshold, a goal check it agreed with.
-    var vettedCalls: Set<String> = []
+    private(set) var vettedCalls: Set<String> = []
     /// A message to one worker tab: `tab` is an extra tab's key, nil for the first worker.
     struct MessageKey: Hashable { let task: UUID; let tab: String?; let text: String }
-    var deliveredMessages: [MessageKey: (at: Date, answer: JSONValue)] = [:]
+    private var deliveredMessages: [MessageKey: (at: Date, answer: JSONValue)] = [:]
     /// How long the same text to the same tab is answered from `deliveredMessages` instead of typed again: a retry of a
     /// call whose answer the daemon gave up waiting for (`OperatorTiming.operatorRequestTimeout`) comes within it; a
     /// later one is a new message.
     static let messageReplayWindow = 2 * OperatorTiming.operatorRequestTimeout
-    var sendingMessages: Set<MessageKey> = []
+    private var sendingMessages: Set<MessageKey> = []
     /// A keyed write being sent now: a second call for the same one leaves it to the first.
     struct WriteInFlight: Hashable {
         enum Kind { case jiraCreate, jiraComment, threadReply, find, pipelineRetry }
         let kind: Kind, run: UUID, key: String
     }
-    var writesInFlight: Set<WriteInFlight> = []
+    private var writesInFlight: Set<WriteInFlight> = []
     /// Host reviewer assignment is a read/replace sequence, owned once per published request.
     struct ReviewRequestKey: Hashable { let repository: String?; let number: Int }
     struct ReviewWaiter { let id: UUID; let continuation: CheckedContinuation<Void, any Error> }
-    var reviewAssignments: [ReviewRequestKey: [ReviewWaiter]] = [:]
+    private var reviewAssignments: [ReviewRequestKey: [ReviewWaiter]] = [:]
     /// A request reading belongs to this repository and accepted commit, even when its URL stays the same.
-    struct HostReadKey: Hashable {
+    struct HostReadKey: Hashable, Sendable {
         let project: UUID, repository: String?, url: String, number: Int, acceptedSHA: String?
     }
     struct HostRead { let id: UUID; let task: Task<HostReading, Never> }
-    var hostStates: [HostReadKey: (at: Date, state: MergeRequestState)] = [:]
-    var hostReads: [HostReadKey: HostRead] = [:]
+    private var hostStates: [HostReadKey: (at: Date, state: MergeRequestState)] = [:]
+    private var hostReads: [HostReadKey: HostRead] = [:]
     /// When `diffBase` last fetched, or tried to fetch, each task base from origin, by worktree and branch: within
     /// `OperatorTiming.diffBaseFetchInterval` it reads origin's copy as it is.
-    var diffBaseFetches: [String: Date] = [:]
-    /// The latest challenge's run, for a test to await. Set by `OperatorToolHandler+Challenge.swift`.
-    var lastChallenge: Task<Void, Never>?
+    private(set) var diffBaseFetches: [String: Date] = [:]
     /// The Oracle's critiques of review threads running now (`critique_thread`), by task, thread, note and commit: a call
     /// that comes while one runs waits for that one, and each is recorded on its task when it answers, whoever waits.
     struct CritiqueKey: Hashable { let task: UUID, thread: String, note: String, head: String? }
-    var runningCritiques: [CritiqueKey: Task<SecondOpinionRunner.Verdict?, Never>] = [:]
-    /// The latest critique asked for, recorded once it ends: for a test to await.
-    var lastCritique: Task<Void, Never>?
-    /// The latest reply sent, for a test to await.
-    private(set) var lastReply: Task<Void, Never>?
-    /// The latest line written to a run's activity log, for a test to await: each waits for the one before it, so the
-    /// lines land in the order the calls ended. Set by `OperatorToolHandler+Activity.swift`.
-    var lastRecording: Task<Void, Never>?
+    /// The activity log's serial tail: each write waits for the one before it, so the
+    /// lines land in the order the calls ended.
+    private var lastRecording: Task<Void, Never>?
     /// Said once a call's line has landed in its run's `activity.jsonl`: the controller's counter the Operator sheet watches.
     var onActivity: @MainActor (UUID) -> Void = { _ in }
     /// Told when one of the Operator's acts starts and ends: the controller's `acting`, which the status
@@ -171,34 +169,13 @@ final class OperatorToolHandler {
     let prompts: WorkerPrompts
     /// What `run_status` would answer now (`RunStatusSource`).
     let statuses: RunStatusSource
-    /// Carries out a task's recorded end (G10), past the push hooks when told (`noVerify`), opening its request with the
-    /// Operator's content when given, within the call's reply budget: the controller's `TaskFinisher`.
-    var finish: @MainActor (UUID, TaskFinisher.Call) async -> TaskFinisher.Result = { _, _ in
-        TaskFinisher.Result(result: .refused, reason: "AiTerm isn’t ready to publish yet.")
-    }
-    /// Whether a `finish_task` of the task now only joins a publication in flight or answers one that outlived its call
-    /// (`TaskFinisher.pending`): the challenge gate leaves such a call alone.
-    var pendingFinish: @MainActor (UUID) -> Bool = { _ in false }
+    let finisher: TaskFinisher
 
     /// Starts a retried task now and waits for its launch within the call's reply budget: what `retry_task` answers of it
     /// (the controller's `launchNow`).
     var launchNow: @MainActor (UUID, Duration?) async -> LaunchReport = { _, _ in
         LaunchReport(result: "queued", note: "AiTerm isn’t ready to start it yet.")
     }
-    /// Whether a publication of the task is in flight (`TaskFinisher.running`): finish_task, a retry or a merge watch's poll.
-    var publishing: @MainActor (UUID) -> Bool = { _ in false }
-    /// Holds an accepted task's publication while message_task or open_tab steers it, and lets it go once the call ends
-    /// (`TaskFinisher.hold`, `release`): no merge of it runs meanwhile.
-    var holdPublication: @MainActor (UUID) -> Void = { _ in }
-    var releasePublication: @MainActor (UUID) -> Void = { _ in }
-
-    /// The tools that act on one task while they run: its line says the act meanwhile (`act(for:on:)`).
-    static let actsOnTask: Set<OperatorTool> = [.messageTask, .markTask, .finishTask, .reviewTask, .requestReview, .replyThread]
-    /// The tools that are the broadcast's own acts while they run.
-    static let actsOnBroadcast: [OperatorTool: OperatorAct] = [.createTask: .loadingTheConstruct, .updateTask: .loadingTheConstruct,
-                                                               .submitPlan: .loadingTheConstruct, .jiraCreate: .filingATicket,
-                                                               .reportFind: .filingATicket]
-
     /// What a call on `task` is, as its status line says it: answering its agent, or, with people's review
     /// under way, relaying their feedback; checking the work; opening the MR or merging, by the task's end.
     static func act(for tool: OperatorTool, on task: TaskItem) -> OperatorAct? {
@@ -222,28 +199,22 @@ final class OperatorToolHandler {
     /// The act a call carries out while it runs, if it is one of the Operator's.
     func activity(for call: ToolCall, in run: UUID) -> OperatorActivity? {
         guard let tool = call.operatorTool else { return nil }
-        if Self.actsOnTask.contains(tool) {
+        switch tool.actKind {
+        case .onTask:
             guard let task = call.optionalString("task").flatMap({ state.task(inRun: run, named: $0) }),
                   let act = Self.act(for: tool, on: task) else { return nil }
             return OperatorActivity(run: run, task: task.id, act: act)
+        case .onBroadcast(let act): return OperatorActivity(run: run, task: nil, act: act)
+        case .none: return nil
         }
-        return Self.actsOnBroadcast[tool].map { OperatorActivity(run: run, task: nil, act: $0) }
     }
 
-    /// The tools that change the run, its tasks or its records: the operator has seen what they changed.
-    /// `finish_task` is one: a publication changes the run, and may complete it.
-    static let mutating: Set<OperatorTool> = [.createTask, .updateTask, .submitPlan, .messageTask, .openTab, .markTask, .resumeTask,
-                                              .retryTask, .finishTask, .askYou, .relayQuestion, .resolveQuestion, .logDecision, .leaveForYou, .reportFind,
-                                              .reportSnag, .writeSummary, .jiraCreate, .jiraMove, .jiraLink, .jiraSprint, .jiraEdit,
-                                              .jiraComment, .reviewTask, .requestReview, .replyThread, .resolveThread, .critiqueThread, .updateRequest, .retryPipeline, .recordReview,
-                                              .checkGoal]
-
-    /// Whether `call` is one of the tools that change the run (`mutating`).
-    static func isMutating(_ call: ToolCall) -> Bool { call.operatorTool.map(mutating.contains) ?? false }
+    /// Whether `call` changes the run, its tasks or its records.
+    static func isMutating(_ call: ToolCall) -> Bool { call.operatorTool?.isMutating ?? false }
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
          waker: OperatorWaker, tabs: TabOpener, transcripts: TranscriptLocator, turns: WorkerTurnReader, quiet: WorkerQuietWatch,
-         prompts: WorkerPrompts, statuses: RunStatusSource) {
+         prompts: WorkerPrompts, statuses: RunStatusSource, finisher: TaskFinisher) {
         self.workspace = workspace
         self.live = live
         self.daemon = daemon
@@ -255,14 +226,52 @@ final class OperatorToolHandler {
         self.quiet = quiet
         self.prompts = prompts
         self.statuses = statuses
+        self.finisher = finisher
+        self.oracleJobs = OracleJobs(work: ports.work)
     }
 
     var state: AppState { workspace.state }
 
+    func recordingsSettled() async { await lastRecording?.value }
+
+    func vet(_ call: ToolCall) { vettedCalls.insert(Self.invocation(call)) }
+    func beginChallengeAct(_ id: String) { actingChallenges.insert(id) }
+    func endChallengeAct(_ id: String) { actingChallenges.remove(id) }
+    func beginWrite(_ flight: WriteInFlight) -> Bool { writesInFlight.insert(flight).inserted }
+    func endWrite(_ flight: WriteInFlight) { writesInFlight.remove(flight) }
+    func recordDiffFetch(_ key: String, at date: Date) { diffBaseFetches[key] = date }
+    func oracleGeneration(_ run: UUID) -> Int { oracleGenerations[run, default: 0] }
+    func advanceOracleGeneration(_ run: UUID) { oracleGenerations[run, default: 0] += 1 }
+    func observeOracleRevision(_ revision: Int) -> Bool {
+        let changed = lastOracleRevision.map { $0 != revision } ?? false
+        lastOracleRevision = revision
+        return changed
+    }
+    func replayedDelivery(_ key: MessageKey, at now: Date) -> JSONValue? {
+        deliveredMessages = deliveredMessages.filter { now.timeIntervalSince($0.value.at) < Self.messageReplayWindow }
+        return deliveredMessages[key]?.answer
+    }
+    func beginMessage(_ key: MessageKey) -> Bool { sendingMessages.insert(key).inserted }
+    func endMessage(_ key: MessageKey) { sendingMessages.remove(key) }
+    func recordDelivery(_ answer: JSONValue, for key: MessageKey) { deliveredMessages[key] = (ports.now(), answer) }
+    func cancelOracleJobs(inRun run: UUID? = nil) { oracleJobs.cancel(inRun: run) }
+    func cancelOracleChallenges(_ ids: [String]) { oracleJobs.cancelChallenges(ids) }
+    func isOracleRunning(_ key: OracleJobs.Key) -> Bool { oracleJobs.contains(key) }
+    func runningOracle(_ key: OracleJobs.Key) -> Task<SecondOpinionRunner.Verdict?, Never>? { oracleJobs.running(key) }
+    @discardableResult
+    func startOracleJob(_ key: OracleJobs.Key, run: UUID, runner: SecondOpinionRunner, opinion: OracleSetting,
+                        prompt: String, folder: URL, projects: [String], capped: Bool = true, keepCancelled: Bool = false,
+                        acting: @escaping @MainActor (Bool) -> Void,
+                        settle: @escaping @MainActor (SecondOpinionRunner.Verdict) -> Void = { _ in }) -> Task<SecondOpinionRunner.Verdict?, Never> {
+        oracleJobs.start(key, run: run, runner: runner, opinion: opinion, prompt: prompt, folder: folder,
+                         projects: projects, capped: capped, keepCancelled: keepCancelled, acting: acting, settle: settle)
+    }
+
     /// Answers `request` through the helper. A reply that cannot be sent is the daemon's to time out:
     /// the operator reads "AiTerm isn't answering" and calls again, which the tool's key makes safe.
-    func handle(_ request: OperatorRequest) {
-        lastReply = Task {
+    @discardableResult
+    func handle(_ request: OperatorRequest) -> Task<Void, Never> {
+        ports.work.start { [self] in
             let answer = await self.answer(request)
             guard let daemon = daemon() else { return }
             await Log.daemon.attempt("Replying to the operator’s \(request.tool) request \(request.requestId)") {
@@ -287,7 +296,6 @@ final class OperatorToolHandler {
         // A finish_task answers by then, its publication done or not, and a retry_task, its launch done or not: the daemon
         // stops waiting soon after.
         let deadline = ContinuousClock.now + ports.finishReplyBudget
-        refreshOracleSettings()
         // A shell command is the gate's alone: never a tool, a challenge or a replayed message. It answers an ended
         // broadcast itself, with a deny rather than an error, which the hook would let run.
         if request.tool == Self.gateTool { return (.result(await gate(request)), .ok) }
@@ -405,7 +413,7 @@ final class OperatorToolHandler {
             let content = RequestContent(title: call.optionalString("title"), description: call.optionalString("description"),
                                          assignee: call.optionalString("assignee"))
             let budget = deadline.map { max(.zero, $0 - ContinuousClock.now) }
-            let result = await finish(task.id, TaskFinisher.Call(noVerify: call.optionalBool("noVerify") ?? false,
+            let result = await finisher.finish(task.id, call: TaskFinisher.Call(noVerify: call.optionalBool("noVerify") ?? false,
                                                                  content: content.isEmpty ? nil : content, budget: budget,
                                                                  joinOnly: joinOnly))
             return try JSONValue(encoding: result)
@@ -436,16 +444,19 @@ final class OperatorToolHandler {
         let delivery = await deliveryStatus()
         var agents = await agentChoices()
         for (agent, messaging) in delivery ?? [:] { agents[agent]?.delivery = messaging }
-        let threads = await readThreads(inRun: run.id)
+        let hosts = StatusHosts(workspace: workspace, codeHost: ports.codeHost)
+        let requests = ports.work.start { [self] in await readMergeRequests(inRun: run.id, hosts: hosts) }
+        let threads = await readThreads(inRun: run.id, hosts: hosts)
         guard let current = state.run(id: run.id),
               var content = currentStatus(of: current, hostThreads: threads.compactMapValues(\.resolutions)) else {
+            requests.cancel()
             throw ToolRefusal("This broadcast is no longer in AiTerm.")
         }
         for index in content.tasks.indices {
             if case .note(let note)? = threads[content.tasks[index].id] { content.tasks[index].peopleReview?.threadsNote = note }
         }
         content.run.agents.installed = Dictionary(agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
-        await fillMergeRequests(&content)
+        await fillMergeRequests(&content, hosts: hosts, ready: await requests.value)
         let previous = numbered[run.id]
         let revision = previous?.content == content ? previous?.revision ?? 1 : (previous?.revision ?? 0) + 1
         numbered[run.id] = (content, revision)
@@ -491,9 +502,9 @@ final class OperatorToolHandler {
         // so the Operator reads why instead of "AiTerm isn't answering"; the search is cancelled.
         let budget = ports.jiraSearchBudget
         let tickets: [JiraTicket]
-        switch await Self.within(budget, { try await jira.search(jql: jql, in: scope) }) {
+        switch await BackgroundWork.within(budget, { try await jira.search(jql: jql, in: scope) }) {
         case .success(let found): tickets = found
-        case .failure(let error) where error is NoAnswer:
+        case .failure(let error) where error is BackgroundWork.NoAnswer:
             throw ToolRefusal("Jira didn’t answer within \(Int(budget.components.seconds)) s; try a narrower JQL.")
         case .failure(let error): throw error
         }
@@ -689,5 +700,90 @@ final class OperatorToolHandler {
                                            "resolution": question.resolution.map(JSONValue.string) ?? .null]
         if question.withdrawn == true { answer["withdrawn"] = true }
         return .object(answer)
+    }
+}
+
+extension OperatorToolHandler {
+    /// Successful prefetches go through hostState again, so expiry or a newer pending read still wins.
+    /// A failed prefetch is used only for this response and never enters the success cache.
+    func prefetchedHostNote(_ kept: StatusHostReading, for task: TaskItem) -> HostReading? {
+        guard Self.hostReadKey(of: task) == kept.key, case .note = kept.reading else { return nil }
+        if hostReads[kept.key] != nil { return nil }
+        if let cached = hostStates[kept.key], ports.now().timeIntervalSince(cached.at) < ports.hostCache {
+            return .state(cached.state)
+        }
+        return kept.reading
+    }
+
+    /// A successful request-state reading is retained for hostCache; a failed read is never kept.
+    func hostState(of task: TaskItem, hosts: StatusHosts? = nil) async -> HostReading? {
+        guard let publication = task.operated?.publication, let number = publication.mergeRequestNumber,
+              let url = publication.mergeRequestURL else { return nil }
+        let key = HostReadKey(project: task.projectId, repository: publication.repository, url: url,
+                              number: number, acceptedSHA: task.operated?.acceptance?.resultSHA)
+        if let kept = hostStates[key], ports.now().timeIntervalSince(kept.at) < ports.hostCache { return .state(kept.state) }
+        if let pending = hostReads[key] { return await pending.task.value }
+        let id = UUID()
+        let reading = Task { await self.readHost(task, publication: publication, number: number, url: url, hosts: hosts) }
+        hostReads[key] = HostRead(id: id, task: reading)
+        let answer = await reading.value
+        // A stop may have discarded this job and a resumed caller started another one for the same request.
+        if hostReads[key]?.id == id {
+            hostReads[key] = nil
+            if case .state(let value) = answer {
+                let now = ports.now()
+                hostStates = hostStates.filter { now.timeIntervalSince($0.value.at) < ports.hostCache }
+                hostStates[key] = (now, value)
+            }
+        }
+        return answer
+    }
+
+    func cancelHostReads() {
+        for reading in hostReads.values { reading.task.cancel() }
+        hostReads.removeAll()
+        hostStates.removeAll()
+    }
+
+    /// Cancellation removes a queued waiter; other requests have independent queues.
+    func acquireReviewAssignment(_ key: ReviewRequestKey) async throws {
+        try Task.checkCancellation()
+        guard reviewAssignments[key] != nil else { reviewAssignments[key] = []; return }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                if Task.isCancelled { continuation.resume(throwing: CancellationError()); return }
+                reviewAssignments[key, default: []].append(ReviewWaiter(id: id, continuation: continuation))
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self, let index = reviewAssignments[key]?.firstIndex(where: { $0.id == id }) else { return }
+                let waiter = reviewAssignments[key]!.remove(at: index)
+                waiter.continuation.resume(throwing: CancellationError())
+            }
+        }
+    }
+
+    func releaseReviewAssignment(_ key: ReviewRequestKey) {
+        guard var waiting = reviewAssignments[key], !waiting.isEmpty else { reviewAssignments[key] = nil; return }
+        let next = waiting.removeFirst()
+        reviewAssignments[key] = waiting
+        next.continuation.resume()
+    }
+
+    /// Appends after the prior activity write, without exposing the serial tail to consumers.
+    func append(_ entry: ActivityEntry, to id: UUID) {
+        let folder = OperatorCommand.runFolder(id, home: ports.home), before = lastRecording
+        lastRecording = ports.work.start { [self] in
+            await before?.value
+            guard state.run(id: id) != nil else { return }
+            await Log.daemon.attempt("Recording the Operator’s \(entry.tool) call in broadcast \(id.uuidString)’s activity log") {
+                try await BackgroundWork.run {
+                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                    try ActivityLog.append(entry, runFolder: folder)
+                }
+            }
+            onActivity(id)
+        }
     }
 }

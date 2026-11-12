@@ -88,7 +88,7 @@ import Testing
 
     /// `work`'s answer if it comes within 20 seconds, which is far past the shortened budget; nil when it doesn't.
     func promptly(_ work: @escaping @MainActor @Sendable () async -> ToolAnswer) async -> ToolAnswer? {
-        try? await OperatorToolHandler.within(.seconds(20), cancelling: false) { await work() }.get()
+        try? await BackgroundWork.within(.seconds(20), cancelling: false) { await work() }.get()
     }
 
     /// The wake lines typed into the Operator's tab, once the waker has sent what it holds.
@@ -107,13 +107,18 @@ import Testing
     /// past the budget, the call answers running with the push it did; the run goes on, wakes the Operator when it ends,
     /// and the next call answers what it did without asking the host again.
     @Test func aPublicationSlowerThanTheBudgetAnswersRunningWithWhatIsDone() async throws {
-        let creating = OracleGate()
-        // Long enough for the push to be done on a loaded machine; the creation is held past it.
-        let f = try finishing(budget: .seconds(3), host: FakeMergeHost.Script(beforeCreate: { await creating.wait() }))
-        let first = Task { await f.call() }
-        let early = await promptly { await first.value }
+        let creating = OracleGate(), entered = OperatorMergeTests.Prompts()
+        let f = try finishing(host: FakeMergeHost.Script(beforeCreate: {
+            entered.append("creating")
+            await creating.wait()
+        }))
+        // Publication has pushed before the tool call starts its reply budget. The held creation,
+        // not the speed of a real push, makes this call answer running with its recorded progress.
+        f.world.ports.work.start { _ = await f.world.controller.finisher.finish(f.task.id) }
+        await eventually(describing: "request creation entered after the push") { entered.list == ["creating"] }
+        let early = await promptly { await f.call() }
         await creating.open()
-        _ = await first.value
+        await f.world.ports.work.settled()
         let answer = try #require(early?.value, "finish_task must answer within the budget while its publication goes on")
         #expect(answer["result"] == "running")
         #expect(answer["pushedSHA"]?.stringValue == f.sha)
@@ -375,5 +380,27 @@ import Testing
         #expect(f.operated?.state == .inReview)
         #expect(f.operated?.peopleReview?.ended != true)
         #expect(f.host.log.isEmpty)
+    }
+}
+
+extension OperatorFinishReplyTests {
+    /// The host merges while the Oracle waits: main's second landing fetch records that merge.
+    @Test func aHostMergeDuringTheOracleWaitIsRecordedWithoutOpeningARequest() async throws {
+        let gate = OracleGate(), git = GitRunner.hermetic()
+        let f = try finishing(end: .merge, oracle: true, answer: "YES", gate: gate,
+                              challengeBudget: .seconds(600), budget: .seconds(600)) { _, path, _ in
+            try git.run(["push", "-q", "origin", "feat/a"], in: path)
+        }
+        defer { f.world.controller.stop() }
+        var answer: ToolAnswer?
+        f.world.ports.work.start { answer = await f.call() }
+        await eventually(describing: "the Oracle to judge the not-yet-landed commit") { f.prompts.list.count == 1 }
+        // Only this test's bare origin: stand in for a host-side fast-forward merge.
+        try git.run(["update-ref", "refs/heads/main", f.sha], in: f.origin)
+        await gate.open()
+        await f.world.ports.work.settled()
+        #expect(answer?.value?["result"] == "published", "Main records the merge discovered after the Oracle wait")
+        #expect(answer?.value?["merged"] == true)
+        #expect(f.host.log == ["existing feat/a"], "Only the existing-request lookup; nothing opened or written on the host")
     }
 }
