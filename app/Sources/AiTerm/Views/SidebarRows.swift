@@ -511,7 +511,7 @@ struct TerminalRowView: View {
         let _ = bodyCounter?.count(row.id)
         #endif
         let selected = controller.focus.isSelected(row.id)
-        SelectableRow(id: row.id, selected: selected, activate: { if let terminal { controller.focus.select(.terminal(terminal.id)) } }) {
+        SelectableRow(id: row.id, selected: selected, activate: { if let terminal { controller.choose(.terminal(terminal.id)) } }) {
             SidebarRowContent(avatars: row.avatars) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
                     RowTitle(row.name)

@@ -558,10 +558,10 @@ Each box leaves the project working and is one or a few commits.
   only a visible change could stop), the slug resolving on draft change, which moves no count, and `LatestTask` for
   counters whose lifetime does not match it (record).
 - [x] 8a. Plain `@State` (one file first, build, then the rest).
-- [x] 8b. Badge line, row content, fold modifier, heading inset, ring helper. Conditional terminal-chooser routing dropped for this handoff while phase 7 is unmerged (record).
+- [x] 8b. Badge line, row content, fold modifier, heading inset, ring helper. Terminal-row clicks now use phase 7's row chooser; a test added before the change retains the old call as its reference and checks selection, focus and the window raised against the chooser, a hosted click and Return (record).
 - [x] 8c. Stepped-sheet frame; picker field, clear button, Metrics tokens, chrome reuse. Clear-button labels use their existing tooltips, approved by the maintainer on 2026-11-12; seven accessibility tests.
 - [x] 8d. Narrow header values with the redraw test; lazy Activity and Shelf; leaf reads. Grouping/day titles and Shelf ranking are cached with explicit invalidation; every retained performance item lowers its test budget (record).
-- [x] 8e. Snapshot helpers; before and after image comparison: all 119 images identical after every slice and merging phase 6. README --check reproduces an existing failure on unmodified main; it remains unpassed (record).
+- [x] 8e. Snapshot helpers; before and after image comparison: all 119 images identical through phase 6. Two images have two exact GitLab capture variants on unmodified main: 117 PNGs must stay byte-identical, and marks.png / new-broadcast-1.png must each equal variant A or B exactly (record). README --check fails alike on unmodified main and this branch, with identical captures; accepted by the Operator, committed picture unchanged.
 - [x] 9a. `AppControllerTests` split; template and off-main git fixtures; blocking check; latches. Off-main migration partial: 38 main-actor factory sites in 19 Operator/finisher files deferred at `4b79d95e` to avoid phases 5/6 overlap; post-setup git also remains. Host-only conversion: four review tests. See the record for names and counts.
 - [x] 9b. Concurrency measurement; gate history; release gate check; routing entries.
 - [ ] 9c. Docs, design-system page, review record, full gate, bundle check, adversarial review.

@@ -7,6 +7,66 @@ import Testing
 
 @MainActor
 struct SidebarInteractionTests {
+    /// Keep the old view call as the reference for the chooser, a real row click and Return.
+    @Test func aTerminalClickAndReturnMatchTheOldDirectSelection() async throws {
+        let server = RecordingDaemon()
+        var focusCalls: [[String]] = []
+        let controller = AppController(preferences: .scratch(), activateIterm: {
+            focusCalls.append(server.requests.map(\.method))
+        })
+        defer { controller.shutdown() }
+        try controller.workspace.load()
+        let project = Project.make()
+        let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Terminal",
+                                    windowId: "terminal-window", createdAt: Date())
+        controller.workspace.mutate { $0.items = [.project(project)]; $0.terminals = [terminal] }
+        controller.helper.setDaemonClient(server)
+        let (host, window) = HostedSidebar.make(controller, key: true)
+        defer { window.orderOut(nil) }
+        settle(host, describing: "the terminal row") {
+            host.firstDescendant(NSTableView.self)?.numberOfRows == 4
+        }
+        let list = try #require(host.firstDescendant(NSTableView.self))
+        var reference: [Data] = []
+        for path in ["old direct call", "chooser", "click", "Return"] {
+            controller.focus.browse(.project(project.id))
+            let requestStart = server.requests.count, focusStart = focusCalls.count
+            switch path {
+            case "old direct call":
+                await controller.focus.select(.terminal(terminal.id))?.value
+            case "chooser":
+                await controller.choose(.terminal(terminal.id))?.value
+            case "click":
+                list.scrollRowToVisible(3)
+                host.layoutSubtreeIfNeeded()
+                let point = list.convert(NSPoint(x: list.bounds.midX, y: list.rect(ofRow: 3).midY), to: nil)
+                for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
+                    let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                        timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1,
+                        clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+                    window.sendEvent(event)
+                }
+            default:
+                controller.focus.browse(.terminal(terminal.id))
+                #expect(window.makeFirstResponder(list))
+                let event = try #require(keyDown("\r", code: 36, in: window))
+                window.sendEvent(event)
+            }
+            await eventually(describing: "\(path) handing focus to iTerm2") { focusCalls.count == focusStart + 1 }
+            #expect(controller.focus.selection == .terminal(terminal.id), "\(path): same selection")
+            #expect(focusCalls.count == focusStart + 1, "\(path): one focus handoff")
+            #expect(focusCalls.last?.last == "window.activate", "\(path): focus follows the window raise")
+            let requests = Array(server.requests.dropFirst(requestStart))
+            #expect(requests.map(\.method) == ["window.setFrame", "window.activate"], "\(path): same effects")
+            #expect(requests.last?.params["windowId"] as? String == "terminal-window", "\(path): same raised window")
+            let encoded = try requests.map {
+                try JSONSerialization.data(withJSONObject: ["method": $0.method, "params": $0.params], options: .sortedKeys)
+            }
+            if path == "old direct call" { reference = encoded }
+            else { #expect(encoded == reference, "\(path): identical request parameters, including the frame") }
+        }
+    }
+
     @Test func inactiveWindowClicksSelectTerminalFirstThenTaskRowsOnTheFirstClick() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
