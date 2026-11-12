@@ -40,7 +40,7 @@ failures warn without changing the gate verdict or activity record.
 | `AiTermUITests` | Primitive layout, appearance, token use, palette distinction and module boundaries. |
 | `AiTermTestSupport` | Isolated repositories, scripted hosts/daemon, scratch defaults and current structured model fixtures. |
 | `daemon/tests` | Registry/status/delivery decisions, telemetry placement, RPC/HTTP framing, iTerm adapter behavior, wire/schema contracts and bounded polling work. |
-| Script guards/fixtures | Queue ownership/FIFO/crash recovery, route readers, compiler pin, result validation and bundle resources/signing. |
+| Script guards/fixtures | Queue ownership/FIFO/crash recovery, route readers, compiler pin, result validation, gate history and the release precondition, and bundle resources/signing. |
 
 Keep one rule test for each meaningful alternative, plus enough owner/real-adapter integration to
 prove wiring. Parameterize equivalent setup. A frozen complete contract replaces repeated paragraph
@@ -50,22 +50,43 @@ no unsaved-work deletion, foreign configuration overwrite, duplicate external wr
 takeover, stale-result mutation or visible test windows.
 
 Use latches/rendezvous to control asynchronous ordering; elapsed-speed assertions are poor evidence
-of overlap. Prefer deterministic work budgets for hot paths. Keep fixture timing measurements
-separate from installed-app latency claims. When consolidating safety tests, establish which
-surviving test detects the same failure rather than deleting by name or assertion sign.
+of overlap. `TestLatch` and `eventually` are bounded by `TestDeadline`, so a missing signal fails
+rather than hangs. Join Operator work with `settled()` (or `settled(leaving:)`) on its `OperatorWork`,
+not an owner's last-task handle. When consolidating safety tests, establish which surviving test
+detects the same failure rather than deleting by name or assertion sign.
+
+Prefer deterministic work budgets for hot paths. Swift budgets count through `WorkMeter`, a
+task-local a test binds, and assert exact numbers in `WorkBudgetTests`, `OperatorWorkBudgetTests`
+and `ViewWorkBudgetTests`; the daemon's steady-tick budgets in `test_tick_budgets.py` fix the scan's
+local and UTC dates. A change lowers a number with the work that earned it and never raises it.
+`AITERM_MEASURE=1` prints fixture timings and asserts nothing; keep them separate from installed-app
+latency claims.
+
+`AiTermTestSupport/Builders.swift` is the one place tests call the `Project`, `TaskItem`,
+`SessionInfo`, `OperatedTask` and `OperatorRun` initialisers. `ScratchFolder` hands out folders under
+one root per test process, removed at exit, and sweeps dead processes' roots at the next start.
+`GitFixture` copies one hermetic seed repository per process; each copy owns its refs and objects,
+and an explicit runner still owns setup for fault and count tests. A test that runs git, a process,
+a sleep or a semaphore off the main actor is marked `.blocking`; the window hook reports an unmarked
+process launch. Keep `.serialized` for suites that touch application-wide state: of the controller
+suites only `ControllerApplicationTests` is serialized.
 
 ## Current Operator contract
 
-These fixtures were captured once from unmodified product revision `f152f6e9`, before structural
-changes. Their provenance files describe the synthetic data. They contain no private broadcast.
+The operator-current fixtures were captured once from unmodified product revision `f152f6e9`, before
+structural changes. The saved-format fixtures have their own provenance files. Each provenance file
+describes the synthetic data. None contains a private broadcast.
 
 | Fixture | Always-on reader |
 | --- | --- |
-| `AiTermTests/Fixtures/operator-current/state.json` | `OperatorCurrentContractTests`: StateStore load, restart/reconnect, task/worker ownership. |
+| `AiTermTests/Fixtures/operator-current/state.json` | `OperatorCurrentContractTests`: StateStore load and a byte-for-byte save back, restart/reconnect, task/worker ownership. |
+| `AiTermTests/Fixtures/operator-records/sparse.json`, `full.json` | The same suite: an Operator run and task with only required fields, and with every field set, save to these bytes and load back equal. A new stored field goes into `full` by decision. |
+| `AiTermTests/Fixtures/operator-saved-format/state.json` | The same suite: the saved format with `problemKind` saves to its own bytes; without the key, each problem's kind is read from its wording. |
 | Same directory's `contract.json` | The same suite's current journey: tool/status replies across tabs, pause, acceptance/publication, goal rounds and summary. |
 | `AiTermCoreTests/Operators/Fixtures/operator-current/brief-*.md` | `OperatorCommandTests`: complete current brief variants, including resume. |
 | `daemon/tests/fixtures/operator-current-tools.json` | `test_operator_mcp.py`: all 37 served schemas, preserving order and descriptions. |
 | `daemon/tests/wire/` | Python producers and Swift `WireContractTests`: framing, event/reply decoding and protocol names. |
+| `daemon/tests/codex_reference.py` | `test_codex_sessions.py`: the rollout parser from before the tail-window reader, which large-rollout answers are compared with. |
 
 Swift fixture paths above are relative to `app/Tests/`. They are checkout-read fixtures, excluded
 from source discovery and registered in routing. Do not regenerate them to make a refactor green.
@@ -77,7 +98,7 @@ Focused rules and fake-host journeys still own policy; the golden is not a subst
 `OperatorEvalTests` uses current structured setup and deterministic grading preparation. Real-agent
 runs are opt-in (`AITERM_LIVE_OPERATOR=1`), require the local stub and incur agent use. Preserve the
 working brief/status wording unless capped before/after runs on the same model and effort prove an
-intended change. No such wording rewrite is part of this refactor.
+intended change. Neither refactor round rewrote that wording.
 
 ## Isolation
 
@@ -87,9 +108,11 @@ The runner rejects new AiTerm preference domains. The test-only window hook make
 transparent and click-through; a visible test window is a bug. Real modal questions use a scripted
 `Prompter`.
 
-For daemon iteration, run `daemon/.venv/bin/pytest -k <expression>` from `daemon/` (adjust the
-executable path to `.venv/bin/pytest` there). The full gate type-checks `aitermd tests tools` and
-runs ruff. `AITERMD_LIVE=1` opts into iTerm2 integration tests; never set it during an isolated gate.
+For daemon iteration, run `.venv/bin/pytest -k <expression>` from `daemon/`. The full gate
+type-checks `aitermd tests tools` and runs ruff. `AITERMD_LIVE=1` opts into iTerm2 integration
+tests; never set it during an isolated gate. An audit hook in `daemon/tests/conftest.py` fails any
+test, and the session, that opens or lists the live test-run records; service fixtures take a scratch
+records folder. Session files, transcripts and rollouts are built through `daemon/tests/builders.py`.
 
 ## Build and visual proof
 
@@ -100,7 +123,12 @@ scripts/readme-picture.sh --check
 ```
 
 Bundle checks do not launch the app. Debug snapshots enter before live app setup and use fixtures.
-The README check requires a Retina main display. Native WindowServer captures require screen
+The README check requires a Retina main display. It compares a fresh drawing with `docs/desktop.png`
+and fails when they differ, which it does on `main` today: the committed picture is out of date and
+the next `scripts/release.sh` redraws it. A visual change is proven by comparing `scripts/snapshots.sh`
+captures before and after. The GitLab artwork in `marks.png` and `new-broadcast-1.png` has come out in
+two exact variants across captures of the same commit; capture again before calling such a
+difference a regression. Native WindowServer captures require screen
 recording permission; a fallback capture does not establish VoiceOver behavior or multi-display
 placement. `scripts/run-dev.sh` deliberately replaces the live app/helper and is a separate manual
 switch.
