@@ -25,7 +25,8 @@ struct RaceFixture {
          now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }, scan: CheckoutMonitor.Scanner? = nil,
          checkoutPollInterval: Duration = .seconds(2),
          confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval = TaskRemover.diskConfirmsRemoval,
-         provider: Provider = .git, remoteUrl: String? = nil, controllerGit: (any GitRunning)? = nil) async throws {
+         provider: Provider = .git, remoteUrl: String? = nil, controllerGit: (any GitRunning)? = nil,
+         fixPipeline: (@MainActor (Project) -> FixPipeline)? = nil) async throws {
         root = try await BackgroundWork.run {
             let raw = try ScratchFolder.make("controller-").path
             return URL(fileURLWithPath: realpath(raw, nil).map { defer { free($0) }; return String(cString: $0) } ?? raw)
@@ -42,7 +43,7 @@ struct RaceFixture {
                                    git: controllerGit ?? GitRunner.hermetic(), scan: scan ?? {
                                        WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5,
                                                          defaultBranches: $6)
-                                   }, confirmsRemoval: confirmsRemoval)
+                                   }, confirmsRemoval: confirmsRemoval, fixPipeline: fixPipeline)
         try controller.workspace.load()
         controller.workspace.mutate { $0.items = [.project(project)] }
         #expect(controller.workspace.flush())
@@ -78,8 +79,8 @@ struct RaceFixture {
 
     func cleanUp() { try? FileManager.default.removeItem(at: root) }
     /// A repository whose `main` has one commit origin lacks while origin has one it lacks.
-    static func diverged() async throws -> RaceFixture {
-        let fixture = try await RaceFixture()
+    static func diverged(fixPipeline: (@MainActor (Project) -> FixPipeline)? = nil) async throws -> RaceFixture {
+        let fixture = try await RaceFixture(fixPipeline: fixPipeline)
         let remote = fixture.root.appendingPathComponent("remote.git").path, other = fixture.root.appendingPathComponent("other").path
         let repo = fixture.repo.path
         let git = fixture.git, root = fixture.root.path

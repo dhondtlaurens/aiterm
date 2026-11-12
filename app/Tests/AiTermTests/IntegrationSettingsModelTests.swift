@@ -16,6 +16,45 @@ import AiTermCore
         #expect(store.writes == 0)
     }
 
+    /// Save is one step, as before phase 7: an edit made while it runs lands after it, never between its writes and what it
+    /// notes, so the token Save stored is the one it says is saved and the edit stays on the card.
+    @Test func anEditMadeWhileSaveRunsLandsAfterIt() async {
+        let store = MemorySecretStore()
+        let m = model(store: store)
+        m.gitHub.fields = GitHubFields(GitHubConfig(token: "token-a"))
+        var order: [String] = []
+        let edit = Task { @MainActor in
+            m.gitHub.fields = GitHubFields(GitHubConfig(token: "token-b"))
+            order.append("edit")
+        }
+        let failure = m.save()
+        order.append("saved")
+        await edit.value
+
+        #expect(failure == nil)
+        #expect(order == ["saved", "edit"], "the edit lands after Save")
+        #expect(GitHubSettings.load(store: store) == GitHubConfig(token: "token-a"))
+        #expect(m.gitHub.fields == GitHubFields(GitHubConfig(token: "token-b")), "and stays on the card")
+    }
+
+    /// A connection test of the new credentials that answers while Save runs lands after it, as before phase 7: by then the
+    /// credentials it tested are the saved ones, so its failure is the saved service's last test, which the tab Settings
+    /// opens on reads.
+    @Test func aTestAnswerArrivingWhileSaveRunsIsTheSavedServicesLastTest() async {
+        let record = ServiceTestRecord()
+        // Each write takes a moment, as a Keychain can: long enough for the answer to come while Save still writes.
+        let m = IntegrationSettingsModel(jira: nil, gitLab: nil, gitHub: GitHubConfig(token: "token-a"), store: SlowSecretStore(),
+                                         defaults: ScratchDefaults.make(), record: record, retestDelay: .seconds(60),
+                                         testJira: { _ in "Jira Person" }, testGitLab: { _ in "GitLab Person" },
+                                         testGitHub: { _ in throw ActionUnavailable("Bad credentials") })
+        m.gitHub.fields = GitHubFields(GitHubConfig(token: "token-b"))
+        m.gitHub.runTest()
+        #expect(m.save() == nil)
+        await eventually(describing: "the test's answer") { m.gitHub.test?.failed == true }
+
+        #expect(record.gitHubFailed, "the failed test of the saved token is remembered")
+    }
+
     static let site = URL(string: "https://example.atlassian.net")!
     static let jira = JiraConfig(siteURL: site, email: "me@example.com", token: "jira-token")
     static let gitLab = GitLabConfig(hostURL: URL(string: "https://git.example.net")!, token: "gl-token")
@@ -418,6 +457,16 @@ private final class CountingSecretStore: SecretStore {
         writes += 1
         guard remaining > 0 else { return false }
         remaining -= 1
+        return wrapped.set(key, value)
+    }
+}
+
+/// A store whose every write takes a fifth of a second.
+private final class SlowSecretStore: SecretStore {
+    private let wrapped = MemorySecretStore()
+    func get(_ key: String) -> String? { wrapped.get(key) }
+    func set(_ key: String, _ value: String?) -> Bool {
+        Thread.sleep(forTimeInterval: 0.2)
         return wrapped.set(key, value)
     }
 }

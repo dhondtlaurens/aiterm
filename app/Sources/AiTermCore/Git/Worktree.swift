@@ -54,4 +54,5 @@ public struct Worktree: Equatable, Sendable {
 
     /// `path` as the kernel names it (`CanonicalPath`), which is how two names for one worktree are compared.
     static func resolved(_ path: String) -> String { CanonicalPath.of(path) }
+
 }

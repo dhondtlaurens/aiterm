@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
@@ -280,6 +281,47 @@ struct CheckoutMonitorTests {
         #expect(monitor.diffByTask == [removing.id: diff])
         monitor.dropDiff(for: removing.id)
         #expect(monitor.diffByTask.isEmpty)
+    }
+}
+
+extension CheckoutMonitorTests {
+    /// Work budget (phase 7): a checkout pass during which a task's title changes, which no scan reads, scans once and
+    /// keeps its answer — 2 scans before phase 7, when the pass compared whole tasks and projects at its end and read
+    /// the disk again for any change to them. A task the pass found removed outside AiTerm is handed to the cleanup as
+    /// the row is now, title and all, as the second scan handed it before. None may raise it.
+    @Test func aChangeNoScanReadsDoesNotReadTheCheckoutsAgain() async throws {
+        let entered = TestLatch()
+        let release = DispatchSemaphore(value: 0)
+        let scans = Mutex(0)
+        let gone = task("gone")
+        let scan: CheckoutMonitor.Scanner = { _, _, tasks, _, _, _, _ in
+            if scans.withLock({ $0 += 1; return $0 }) == 1 {
+                entered.signal()
+                _ = release.wait(timeout: .now() + TestDeadline.seconds)
+            }
+            return WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: Set(tasks.map(\.id)), removedTasks: tasks,
+                                 remotes: [:])
+        }
+        var state = AppState()
+        state.append(project: project)
+        state.tasks = [gone]
+        let workspace = WorkspaceStore.holding(state)
+        let monitor = CheckoutMonitor(live: LiveSessions(workspace: workspace), scan: scan, git: .hermetic(), workspace: workspace,
+                                      onTitles: { _ in })
+        var handed: [[TaskItem]] = []
+        let removals = Removals(forget: { handed.append($0) })
+        monitor.removals = removals
+
+        let pass = monitor.refresh()
+        await entered.wait()
+        workspace.mutate { $0.tasks[0].title = "renamed" }
+        release.signal()
+        await pass.value
+
+        #expect(scans.withLock { $0 } == 1, "scans per pass")
+        #expect(monitor.isMissing(gone.id))
+        #expect(handed.map { $0.map(\.title) } == [["renamed"]], "the cleanup gets the row as it is now")
+        withExtendedLifetime(removals) {}
     }
 }
 

@@ -32,7 +32,7 @@ import Testing
         fixture.controller.focus.browse(.task(task.id))
         #expect(focus.seen.isEmpty, "browsing leaves the focus in the sidebar")
 
-        await fixture.controller.focus.activateSelection()?.value
+        await fixture.controller.activateSelection()?.value
         #expect(focus.seen.count == 1)
     }
 
@@ -71,7 +71,7 @@ import Testing
         #expect(server.requests.map(\.method).last == "window.createTask")
         #expect(focus.seen.isEmpty)
 
-        await fixture.controller.focus.activateSelection()?.value
+        await fixture.controller.activateSelection()?.value
         #expect(focus.seen.count == 1)
     }
 
@@ -241,7 +241,7 @@ extension ItermFocusControllerTests {
 
         #expect(controller.focus.peek(.task(task.id)) == nil)
         #expect(controller.focus.selectedTaskId == task.id)
-        #expect(controller.focus.activateSelection() == nil)
+        #expect(controller.activateSelection() == nil)
         controller.focus.browse(nil)
         #expect(controller.showFocusView() == nil)
         #expect(controller.focus.selection == nil, "⌘F passes over it")

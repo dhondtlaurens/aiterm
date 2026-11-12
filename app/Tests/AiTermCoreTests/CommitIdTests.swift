@@ -26,12 +26,45 @@ struct CommitIdTests {
                 String(repeating: "a", count: 39) + " ", "e\u{301}" + String(repeating: "a", count: 39)]
     }()
 
-    /// The push, the local merge and `record_review` accept and refuse exactly what they did before phase 2. A single
-    /// rule for the three is the maintainer's to approve: it changes which inputs the merge and the review refuse.
-    @Test(arguments: rows) func eachReaderKeepsItsRuleFromBeforePhaseTwo(text: String) {
+    /// The rows one rule for every reader moves (the maintainer's decision of 2026-11-12), with what each reader said
+    /// before and says now: the local merge takes only a full object name, 40 or 64 ASCII hex digits, and
+    /// `record_review` only ASCII hex digits. The push's rule does not move.
+    static let changed: [String: (merge: (before: Bool, now: Bool)?, review: (before: Bool, now: Bool)?)] = {
+        let fullwidth = "\u{FF10}\u{FF11}\u{FF21}\u{FF41}"
+        return [
+            String(repeating: "a", count: 41): ((true, false), nil),
+            String(repeating: "a", count: 63): ((true, false), nil),
+            String(repeating: "a", count: 65): ((true, false), nil),
+            String(repeating: "a", count: 70): ((true, false), nil),
+            String(repeating: fullwidth, count: 10): ((true, false), (true, false)),
+            String(repeating: fullwidth, count: 16): ((true, false), (true, false)),
+            String(repeating: "a", count: 39) + "\u{FF11}": ((true, false), (true, false)),
+            String(repeating: fullwidth, count: 1): (nil, (true, false)),
+        ]
+    }()
+
+    /// Every reader agrees with its rule from before phase 2, kept above as the reference, on every row but `changed`,
+    /// where it says what the table says it says now, and the reference what it said before.
+    @Test(arguments: rows) func eachReaderKeepsItsRuleFromBeforePhaseTwoButTheRowsOneRuleMoves(text: String) {
         #expect(CommitId.isFull(text) == Self.pushRule(text), "push")
-        #expect(CommitId.isMergeable(text) == Self.mergeRule(text), "local merge")
-        #expect(CommitId.isAbbreviation(text) == Self.reviewRule(text), "record_review")
         #expect((CommitId(text) != nil) == Self.pushRule(text))
+        let moved = Self.changed[text]
+        if let merge = moved?.merge {
+            #expect(Self.mergeRule(text) == merge.before, "local merge, before")
+            #expect(CommitId.isMergeable(text) == merge.now, "local merge, now")
+        } else {
+            #expect(CommitId.isMergeable(text) == Self.mergeRule(text), "local merge")
+        }
+        if let review = moved?.review {
+            #expect(Self.reviewRule(text) == review.before, "record_review, before")
+            #expect(CommitId.isAbbreviation(text) == review.now, "record_review, now")
+        } else {
+            #expect(CommitId.isAbbreviation(text) == Self.reviewRule(text), "record_review")
+        }
+    }
+
+    /// Every row the table names is one of the rows tried.
+    @Test func theRowsThatMoveAreAmongTheRows() {
+        #expect(Set(Self.changed.keys).isSubset(of: Set(Self.rows)))
     }
 }

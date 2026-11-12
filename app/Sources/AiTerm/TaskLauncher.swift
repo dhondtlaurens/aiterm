@@ -84,7 +84,7 @@ final class TaskLauncher {
     /// sheet's: the draft is still there to retry.
     private func openReview(_ draft: ReviewDraft, in owner: TaskItem, project: Project) async throws {
         guard canChangeWorkspace else { throw ActionUnavailable("Save or recover the workspace before opening a review.") }
-        guard FileManager.default.fileExists(atPath: owner.worktreePath) else {
+        guard await FolderCheck.exists(owner.worktreePath) else {
             throw ActionUnavailable("“\(owner.title)” has this branch, but its worktree is missing at \(owner.worktreePath). Restore it or remove the task.")
         }
         guard let daemon = daemon() else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }

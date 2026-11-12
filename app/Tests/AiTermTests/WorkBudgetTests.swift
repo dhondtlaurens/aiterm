@@ -87,9 +87,9 @@ enum Budget {
     // MARK: - The window lock
 
     /// Ten `session.changed` events for a task's tab that move only its context fill and its title, which no row draws,
-    /// through the app's own routing (`HelperLink.handle`): 10 `WindowReconciler` passes, one per event, though none
-    /// has anything to do. A later change that passes only when a row's window could have changed lowers it; none may
-    /// raise it.
+    /// through the app's own routing (`HelperLink.handle`): 0 `WindowReconciler` passes (10 before phase 7, one per
+    /// event, none with anything to do). A pass now runs on a session event only when the tabs as a pass reads them
+    /// moved. None may raise it.
     @Test func sessionEventsThatChangeNoRowEachPassTheWindowLock() async throws {
         let controller = AppController(preferences: .scratch(), scan: Budget.noScan)
         defer { controller.shutdown() }
@@ -111,7 +111,33 @@ enum Budget {
         }
 
         #expect(controller.state.task(id: task.id)?.windowId == "w", "the row keeps its window")
-        #expect(work[.reconcilerPass] == 10, "passes for 10 events: \(work)")
+        #expect(work[.reconcilerPass, default: 0] == 0, "passes for 10 events: \(work)")
+    }
+
+    /// The checkout monitor's polls with every row in its window: 0 `WindowReconciler` passes for 5 polls. Each poll
+    /// does one check in memory — the window plan, acting on nothing — and passes only when a pass would act (phase 7,
+    /// new). None may raise it.
+    @Test func pollsWithNothingOwedPassTheWindowLockNever() async throws {
+        let controller = AppController(preferences: .scratch(), checkoutPollInterval: .milliseconds(10), scan: Budget.noScan)
+        defer { controller.shutdown() }
+        try controller.workspace.load()
+        let project = Project.make(path: "/repo")
+        let task = TaskItem.make(project: project.id, title: "a", worktreePath: "/repo/a", windowId: "w")
+        controller.workspace.mutate { $0.append(project: project); $0.tasks = [task] }
+        controller.helper.setDaemonClient(RecordingDaemon())
+        let tab = SessionInfo.make("s", window: "w", task: task.id, state: .working, cwd: "/repo/a")
+        controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [tab], usage: .empty)))
+        await controller.windows.lastRestore?.value
+        var polls = 0
+        controller.checkouts.onPolled { polls += 1 }
+
+        let work = await Budget.metered {
+            controller.checkouts.startMonitoring()
+            await eventually(describing: "five polls") { polls >= 5 }
+            controller.checkouts.stop()
+        }
+
+        #expect(work[.reconcilerPass, default: 0] == 0, "passes for \(polls) polls with nothing owed: \(work)")
     }
 
     // MARK: - Shelve and restore
@@ -119,10 +145,13 @@ enum Budget {
     /// Shelving a task with a clean worktree and an open window, then restoring it from the Shelf, as git sees it: the
     /// controller's own git, the checkout monitor's scan reading nothing.
     ///
-    /// Shelve: 9 spawns, `worktree list` five times (three before and two after the `status --porcelain` that looks for
-    /// unsaved work), then `worktree unlock`, `worktree remove` and `worktree prune`. Restore: 4 spawns, one `worktree
-    /// list`, then 2 `rev-parse` and `worktree add` (6 before phase 2 listed the worktrees once per restore, 3 `worktree
-    /// list`). A later change that lists the worktrees once per Shelve lowers that number; none may raise them.
+    /// Shelve: 8 spawns, `worktree list` four times — once for the preflight before any question, once right before the
+    /// `status --porcelain` that looks for unsaved work (only a listing then says the folder is still this repository's
+    /// worktree), once for the head once its window has closed, once by the removal itself — then `worktree unlock`,
+    /// `worktree remove` and `worktree prune` (9 before phase 7's one preflight, with `worktree list` five times: head,
+    /// unlisted folder and unsaved work each listed on their own). Restore: 4 spawns, one `worktree list`, then 2
+    /// `rev-parse` and `worktree add` (6 before phase 2 listed the worktrees once per restore, 3 `worktree list`). None
+    /// may raise them.
     @Test func shelvingAndRestoringATaskSpawnsGit() async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let fixture = try await RaceFixture(scan: Budget.noScan, controllerGit: git)
@@ -145,9 +174,34 @@ enum Budget {
         let restore = Budget.commands(git, since: mark)
         #expect(controller.state.tasks.map(\.id) == [task.id], "restored")
 
-        #expect(shelve.count == 9, "spawns per Shelve: \(shelve)")
+        #expect(shelve.count == 8, "spawns per Shelve: \(shelve)")
+        #expect(shelve.filter { $0 == "worktree list" }.count == 4, "\(shelve)")
         #expect(restore.count == 4, "spawns per restore: \(restore)")
         #expect(restore.filter { $0 == "worktree list" }.count == 1, "\(restore)")
+    }
+
+    /// The person's Remove of a task with a clean worktree and an open window, its branch kept, as git sees it: 7 spawns,
+    /// `worktree list` three times — the preflight, the listing right before `status --porcelain`, and the removal itself
+    /// — then `worktree unlock`, `worktree remove` and `worktree prune`. 7 before phase 7 too, counted by this test on the
+    /// code before the change: the preflight's one listing takes the place of the unlisted folder's, and the unsaved-work
+    /// check keeps the listing of its own that says, right before status, that the folder is still the worktree. None
+    /// may raise it.
+    @Test func removingATaskSpawnsGit() async throws {
+        let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove"), scan: Budget.noScan, controllerGit: git)
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let task = try await fixture.addTask(windowId: "alive")
+
+        let mark = git.calls.count
+        await (await controller.remover.confirmRemove(task: task))?.value
+        let remove = Budget.commands(git, since: mark)
+        #expect(controller.state.task(id: task.id) == nil, "removed")
+
+        #expect(remove.count == 7, "spawns per Remove: \(remove)")
+        #expect(remove.filter { $0 == "worktree list" }.count == 3, "\(remove)")
     }
 
     // MARK: - Saving

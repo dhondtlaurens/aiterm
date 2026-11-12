@@ -13,11 +13,11 @@ final class LiveSessions {
             let rows = sessions.map(\.rowRelevant)
             if rows != rowSessions {
                 rowSessions = rows
-                for hook in rowSessionsHooks { hook() }
+                rowSessionsHooks()
             }
             let state = workspace.state
             updateContexts { $0.seed(from: sessions, in: state) }
-            for hook in sessionsHooks { hook(sessions) }
+            sessionsHooks(sessions)
         }
     }
     /// The tabs as the sidebar's rows read them — where each is, which row it belongs to, its
@@ -33,22 +33,24 @@ final class LiveSessions {
 
     /// The workspace the tabs are matched to rows in.
     private let workspace: WorkspaceStore
-    @ObservationIgnored private var sessionsHooks: [@MainActor ([SessionInfo]) -> Void] = []
-    @ObservationIgnored private var rowSessionsHooks: [@MainActor () -> Void] = []
+    @ObservationIgnored private let sessionsHooks = HookList<[SessionInfo]>()
+    @ObservationIgnored private let rowSessionsHooks = HookList<Void>()
 
     init(workspace: WorkspaceStore) {
         self.workspace = workspace
     }
 
     /// Adds `hook` to what hears of every change to `sessions`.
-    func onSessionsChanged(_ hook: @escaping @MainActor ([SessionInfo]) -> Void) {
-        sessionsHooks.append(hook)
+    @discardableResult
+    func onSessionsChanged(_ hook: @escaping @MainActor ([SessionInfo]) -> Void) -> HookList<[SessionInfo]>.Token {
+        sessionsHooks.add(hook)
     }
 
     /// Adds `hook` to what hears only of the changes to `rowSessions` — the sidebar's rows and the
     /// Dock badge, which a context fill or a spinner title leaves as they were.
-    func onRowSessionsChanged(_ hook: @escaping @MainActor () -> Void) {
-        rowSessionsHooks.append(hook)
+    @discardableResult
+    func onRowSessionsChanged(_ hook: @escaping @MainActor () -> Void) -> HookList<Void>.Token {
+        rowSessionsHooks.add(hook)
     }
 
     /// The session and usage events; every other event is someone else's and is ignored.
