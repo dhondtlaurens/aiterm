@@ -1,8 +1,8 @@
 import SwiftUI
 import AiTermUI
 
-/// The picked field and chip's clear glyph. An omitted label preserves the field's
-/// current native accessibility name; chips already supply their tooltip as the label.
+/// The picked field and chip's clear glyph. Callers supply their existing tooltip as
+/// the label; omitting it retains the native accessibility name.
 struct PickerClearButton: View {
     let help: String
     var accessibilityLabel: String? = nil

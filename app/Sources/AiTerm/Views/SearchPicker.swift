@@ -130,7 +130,7 @@ struct PickedItemField<Trailing: View>: View {
                 .lineLimit(1).truncationMode(monospaced ? .middle : .tail)
             Spacer(minLength: Space.snug)
             trailing
-            PickerClearButton(help: clearHelp, action: clear)
+            PickerClearButton(help: clearHelp, accessibilityLabel: clearHelp, action: clear)
         }
         .fieldChrome()
     }
