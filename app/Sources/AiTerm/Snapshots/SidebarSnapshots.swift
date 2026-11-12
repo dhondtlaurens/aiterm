@@ -80,14 +80,11 @@ enum SidebarSnapshots {
                 controller.workspace.mutate { $0.tasks = [fixture.working, fixture.other, idle, done] }
                 controller.live.sessions += [Fixture.session("s6", "w4", done.id, "claude", "done", 0)].compactMap { $0 }
                 controller.workspace.mutate { $0.updateProject(id: project.id) { $0.collapsed = true } }
-                return VStack(alignment: .leading, spacing: Space.hairline) {
+                return SnapshotColumn(height: 76) {
                     SidebarHeader(controller: controller)
                     SidebarView.rows(of: controller.rows.entries[0], in: controller.rows, controller: controller)
                     Spacer()
                 }
-                .padding(.horizontal, Space.inset)
-                .frame(width: Size.sidebarWidth + 20, height: 76)
-                .background(Palette.sidebar)
             },
             // Every banner the sidebar can raise: the three Notices, then the grey connecting line.
             // Their text shares one leading edge.
@@ -160,16 +157,15 @@ enum SidebarSnapshots {
             terminal.name = "Codex with a reviewer"; terminal.status = .working; terminal.background = [jobs[1]]
             terminal.avatars = SidebarModel.avatars(for: [Fixture.session("work-codex", "w-work", fixture.codexTask.id,
                                                                          "codex", "working", 0)].compactMap { $0 })
-            return VStack(alignment: .leading, spacing: Space.base) {
+            return SnapshotColumn(width: scale(Size.sidebarWidth) + 2 * scale(Space.inset), spacing: Space.base,
+                                  horizontalInset: scale(Space.inset), verticalInset: scale(Space.base)) {
                 ForEach([TaskStatus.working, .background, .needsInput], id: \.self) { status in
                     TaskRowView(row: taskRow(status), task: fixture.working, controller: controller)
                 }
                 TerminalRowView(row: terminal, terminal: fixture.terminal, project: fixture.project, controller: controller)
             }
             .environment(\.seededHover, SeededHover(backgroundCard: hover))
-            .padding(.horizontal, scale(Space.inset)).padding(.vertical, scale(Space.base))
-            .frame(width: scale(Size.sidebarWidth) + 2 * scale(Space.inset))
-            .background(Palette.sidebar).surface(.sidebar).interfaceScale(scale)
+            .surface(.sidebar).interfaceScale(scale)
         }
     }
 
@@ -316,12 +312,9 @@ enum SidebarSnapshots {
 
     private static func taskRows(_ controller: AppController) -> some View {
         let rows = controller.rows
-        return VStack(alignment: .leading, spacing: Space.hairline) {
+        return SnapshotColumn {
             SidebarView.taskRows(of: rows.sections[0], in: rows, controller: controller)
         }
-        .padding(.horizontal, Space.inset)
-        .frame(width: Size.sidebarWidth + 20)
-        .background(Palette.sidebar)
     }
 
     private static func selectedHeader(_ file: String, collapsed: Bool) -> Snapshot {
@@ -329,12 +322,9 @@ enum SidebarSnapshots {
             let fixture = Fixture(), controller = fixture.controller()
             controller.focus.browse(.project(fixture.project.id))
             controller.workspace.mutate { $0.updateProject(id: fixture.project.id) { $0.collapsed = collapsed } }
-            return VStack(alignment: .leading, spacing: Space.hairline) {
+            return SnapshotColumn(verticalInset: Space.tight) {
                 SidebarView.rows(of: controller.rows.entries[0], in: controller.rows, controller: controller)
             }
-            .padding(.horizontal, Space.inset).padding(.vertical, Space.tight)
-            .frame(width: Size.sidebarWidth + 20)
-            .background(Palette.sidebar)
         }
     }
 
