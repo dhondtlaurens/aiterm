@@ -3,8 +3,9 @@
 Status: plan agreed on 2026-11-13. Part 1 is merged (merge 1) and ships in 0.47.0. On the same day,
 after the release, the maintainer dropped part 2 (Settings keeps its tabs) and asked for part 3 to
 be rethought: what the broadcast's sheet needs while a broadcast runs, with a live, trigger-started
-broadcast in mind. Its options are on the design page's Proposals tab ("The broadcast's sheet") and
-no Swift is written before one is picked. The sections on parts 2 and 3 below describe what was
+broadcast in mind. On 2026-11-14 the maintainer picked one list of tasks, kept simple, one question at a time, and one
+interface for every question, and asked for the proposal to be reworked first. The reworked proposal
+is on the design page's Proposals tab ("The broadcast's sheet"); no Swift is written before it is agreed. The sections on parts 2 and 3 below describe what was
 agreed before that and are not built.
 
 ## Goal
