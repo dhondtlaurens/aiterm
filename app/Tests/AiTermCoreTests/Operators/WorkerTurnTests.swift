@@ -5,7 +5,7 @@ import Foundation
 
 /// What a worker's ended turn says (spec §J): whether its last message asks the Operator something, the question it
 /// asks, and whether work was done after its task was accepted.
-@Suite struct WorkerTurnTests {
+@Suite(.blocking) struct WorkerTurnTests {
     @Test func aLastLineEndingInAQuestionMarkAsks() {
         #expect(WorkerTurn.endsWithQuestion("Done.\n\nShould I also bump eslint?"))
         #expect(WorkerTurn.endsWithQuestion("**Ready?**  "), "markdown emphasis and trailing spaces are stripped")

@@ -7,7 +7,11 @@ reuse; user workflows belong in the [README](../../README.md), [configuration](.
 
 ## Sidebar
 
-`SidebarRows` shares row geometry, titles/captions, selection and action semantics. Project headers
+`SidebarRows` shares row geometry, titles/captions, selection and action semantics.
+`SidebarRowContent` is the three rows' avatar, column and mark grid; `FoldOnTap` the label-only fold
+gesture and its accessibility action; `SidebarHeadingInset` the headings' gutter. `QuietBadgeLine`
+draws the ticket and request quiet badges for rows, board cards, the Shelf and question blocks, each
+caller keeping its own marks. Project headers
 use `HeaderChevron`, `HeaderTitle`, `ProviderIcon` and `AddMenu`; an empty project retains alignment
 but has no collapse action. `RowPill` declares its surface. A row's status owns the trailing slot;
 `TaskRowBadges` folds a diff to its mark and then drops whole badges so only the branch truncates.
@@ -44,7 +48,8 @@ Mac readings stay neutral unless platform warning signals warrant amber.
 `SheetPrimaryButton` own the title/band/content/actions anatomy. A primary button shows ⌘Return;
 plain Return remains with its field. `DestinationLine` states the real target window/worktree.
 `CreationSheet` and `CreationFooter` share steps, destination, command preview, recovery and Fix
-presentation for task/review creation. `StepBar` names the current step; it is not arbitrary step
+presentation for task/review creation. `SteppedSheetFrame` is the step bar, front-to-back content and
+footer frame of `CreationSheet` and `NewBroadcastSheet`, and knows nothing of their models. `StepBar` names the current step; it is not arbitrary step
 navigation. `AgentSegmented`, `AgentSegmentLabel`, `ModelReasoningFields`, `CommandPreview` and
 `CommandBlock` are the existing agent/command building blocks.
 
@@ -63,6 +68,9 @@ search field's keyboard ownership, meaningful restore/open actions and refusal b
 `ProjectResultRow` share result navigation and overhang. `DropdownKeys` handles arrows, Return and
 Escape only while a list is open. The parent field remains responsible for ordinary text keys.
 `NativeRowHighlight` and `RowMenuAnchor` bridge native selection/menu behavior where required.
+`TicketPickerField` is New Task's and New Review's ticket control. `PickedItemField` and `PickChip`
+clear through `PickerClearButton`, which uses its tooltip as its VoiceOver label. Key columns use
+`Size.pickerTicketKey`, `pickerProjectKey` and `pickerRequestKey`.
 
 `PromptStep` owns field chrome and help around the native `PromptEditor`. Its coordinator owns
 caret-based completion state; `CompletionPopup` alone observes popup movement. `/` discovers
@@ -98,7 +106,8 @@ summary/goal outcome. Pause/Resume, End and Close share the sheet footer across 
 
 ## Settings and native seams
 
-The Settings tab bar is the accent `SegmentedControl`; fields/cards use the shared chrome and
+The Settings tab bar is the accent `SegmentedControl`; `TabShortcuts` gives it, and the board's tabs,
+their ⌘-number keys. Fields/cards use the shared chrome and
 native text/popup controls. Credentials remain secure Input fields; changes wait for Save except
 explicit immediate actions and interface-size preview. Use existing integration card/check patterns
 for new settings. AppKit bridges retain weak coordinator links and native focus/editing semantics.

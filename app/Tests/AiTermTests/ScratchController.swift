@@ -47,8 +47,9 @@ extension AppController {
     ///
     /// Questions go to a ``ScriptedPrompter`` that answers none, so one a test did not expect fails
     /// it ("Unexpected prompt") rather than opening a modal `NSAlert` that blocks the run. A test
-    /// that expects one passes its own. The lookups come last, after `scan` and `confirmsRemoval`,
-    /// which is also what tells this initializer from the designated one.
+    /// that expects one passes its own. The lookups come last, after `scan` and `confirmsRemoval`. Every port
+    /// lands in one `AppPorts` and every wait in one `AppTimings`, the designated initializer's two groups; a Fix
+    /// pipeline named here stands in for the live one.
     convenience init(store: StateStore? = nil, preferences: InterfacePreferences,
                      harnessHome: URL = ScratchHome.bare, claudeConfig: ClaudeConfig = ClaudeConfig(),
                      bundledResourcesURL: URL? = nil,
@@ -73,16 +74,36 @@ extension AppController {
                      findPython: @escaping @Sendable () -> URL? = { nil },
                      jiraSettings: @escaping @Sendable () -> JiraConfig? = { nil },
                      gitLabSettings: @escaping @Sendable () -> GitLabConfig? = { nil },
-                     gitHubSettings: @escaping @Sendable () -> GitHubConfig? = { nil }) {
+                     gitHubSettings: @escaping @Sendable () -> GitHubConfig? = { nil },
+                     fixPipeline: (@MainActor (Project) -> FixPipeline)? = nil) {
         let scratch = ScratchFolder.path("aiterm-test-state-", suffix: ".json")
-        self.init(store: store ?? StateStore(url: scratch), preferences: preferences, harnessHome: harnessHome,
-                  claudeConfig: claudeConfig, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents, findPython: findPython,
-                  jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
-                  prompter: prompter, setBadge: setBadge, activateIterm: activateIterm, launchIterm: launchIterm,
-                  itermRunning: itermRunning, bringForward: bringForward, backpackPorts: backpackPorts,
-                  backpackSecrets: backpackSecrets, openLocationSettings: openLocationSettings, machineSensor: machineSensor, peekDelay: peekDelay,
-                  checkoutPollInterval: checkoutPollInterval, toastLifetime: toastLifetime, closedWindowHold: closedWindowHold, now: now,
-                  git: git, scan: scan,
-                  confirmsRemoval: confirmsRemoval, operatorPorts: operatorPorts ?? .scratch())
+        let ports = AppPorts(store: store ?? StateStore(url: scratch), harnessHome: harnessHome, claudeConfig: claudeConfig,
+                             bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents, findPython: findPython,
+                             jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
+                             prompter: prompter, setBadge: setBadge, activateIterm: activateIterm, launchIterm: launchIterm,
+                             itermRunning: itermRunning, bringForward: bringForward, backpackPorts: backpackPorts,
+                             backpackSecrets: backpackSecrets, openLocationSettings: openLocationSettings, machineSensor: machineSensor,
+                             git: git, scan: scan, confirmsRemoval: confirmsRemoval, operatorPorts: operatorPorts ?? .scratch(),
+                             fixPipeline: fixPipeline)
+        self.init(preferences: preferences, ports: ports,
+                  timings: AppTimings(peekDelay: peekDelay, checkoutPollInterval: checkoutPollInterval, toastLifetime: toastLifetime,
+                                      closedWindowHold: closedWindowHold, now: now))
     }
+}
+
+enum ControllerSnapshots {
+    /// A connected snapshot whose tabs name none of the task's windows.
+    static let empty = DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [], usage: .empty)
+}
+
+/// What the daemon had been asked each time iTerm2 was brought forward.
+@MainActor final class ControllerItermFocus {
+    var server: RecordingDaemon?
+    private(set) var seen: [[String]] = []
+    func activate() { seen.append(server?.requests.map(\.method) ?? []) }
+}
+
+@MainActor final class ControllerCallCounter {
+    private(set) var count = 0
+    func record() { count += 1 }
 }

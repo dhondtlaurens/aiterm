@@ -196,3 +196,10 @@ public enum ProtectionUnknown: Error, Equatable, LocalizedError {
         }
     }
 }
+
+/// Whether a failed host write may have reached the host. The transport mapping and preparation
+/// own this fact; callers choose their existing sentence from it.
+public protocol HostFailure: Error {
+    var outcomeUnknown: Bool { get }
+    static func notSent(_ error: Self) -> Self
+}

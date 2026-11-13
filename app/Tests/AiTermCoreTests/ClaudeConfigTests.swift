@@ -1,9 +1,10 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-struct ClaudeConfigTests {
+@Suite(.blocking) struct ClaudeConfigTests {
     @Test func resolvesUnsetEmptyAbsoluteAndTilde() {
         let home = ScratchHome.bare
         for value in [nil, ""] as [String?] {
@@ -100,5 +101,20 @@ extension ClaudeConfigTests {
 }
 
 extension ClaudeConfigTests {
-
+    /// A login shell that failed or ran out of time has said nothing about `CLAUDE_CONFIG_DIR`: the
+    /// next reader asks again, and only an answer is kept for the launch.
+    @Test func aFailedLoginShellIsNotKeptForTheLaunch() {
+        let shells = Mutex(0)
+        let locator = LoginShellLocator(names: ["true"], shell: { _ in
+            shells.withLock { count in
+                count += 1
+                return count == 1 ? nil : "--aiterm-claude-config-dir--\n~/Claude Profile\n--aiterm-python-candidates--\n"
+            }
+        })
+        let config = ClaudeConfig.loginShell(locator), home = ScratchHome.bare
+        #expect(config.directory(home: home) == home.appendingPathComponent(".claude"), "the shell failed: nothing is known")
+        #expect(config.directory(home: home) == home.appendingPathComponent("Claude Profile"))
+        #expect(config.directory(home: home) == home.appendingPathComponent("Claude Profile"))
+        #expect(shells.withLock { $0 } == 2, "an answer is kept")
+    }
 }

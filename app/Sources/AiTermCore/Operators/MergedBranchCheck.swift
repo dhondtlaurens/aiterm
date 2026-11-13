@@ -9,11 +9,11 @@ public enum MergedBranchCheck {
                               kind: TaskKind, path: String, git: any GitRunning,
                               saveDeletion: @MainActor () -> Bool) async -> Bool {
         guard kind != .review, let acceptedSHA, !acceptedSHA.isEmpty else { return false }
-        let merged = (try? await BackgroundWork.run(on: TaskWorkflow.queue) {
+        let merged = (try? await BackgroundWork.run(on: GitLanes.shared.lane(for: path)) {
             try isMerged(branch: branch, acceptedSHA: acceptedSHA, end: end, publication: publication, path: path, git: git)
         }) ?? false
         guard merged, await saveDeletion() else { return false }
-        return (try? await BackgroundWork.run(on: TaskWorkflow.queue) { () throws -> Bool in
+        return (try? await BackgroundWork.run(on: GitLanes.shared.lane(for: path)) { () throws -> Bool in
             let repository = Repository(path, git: git), ref = "refs/heads/" + branch
             guard try !repository.worktrees().contains(where: { $0.branch == branch }) else { return false }
             // The expected old value makes the deletion atomic with the head check. This handles
@@ -41,7 +41,7 @@ public enum MergedBranchCheck {
             .trimmingCharacters(in: .whitespacesAndNewlines) == acceptedSHA else { return false }
         let target = repository.defaultBranch()
         guard branch != target else { return false }
-        if publication?.merged == true && publication?.mergedHead == acceptedSHA { return true }
+        if publication?.mergeOutcome == .merged && publication?.mergedHead == acceptedSHA { return true }
         if try git.ask(["merge-base", "--is-ancestor", acceptedSHA, "refs/heads/" + target], in: path, none: [1, 128]) != nil {
             return true
         }

@@ -24,6 +24,35 @@ enum HTTPJSON {
         case status(Int)
         /// A 2xx whose body does not decode as the type asked for.
         case undecodable(status: Int)
+
+        var outcomeUnknown: Bool {
+            switch self {
+            // Even a connect failure can follow a redirect after the original write landed.
+            case .transport: return true
+            case .status(let status): return status >= 500
+            case .undecodable: return true
+            }
+        }
+    }
+
+    /// Reads that prepare a write cannot leave that write's outcome open. Preserve the host's
+    /// error and sentence, marking only failures the app would otherwise regard as uncertain.
+    static func preparingWrite<Value, Failure: HostFailure>(_ failure: Failure.Type,
+        read: () async throws -> Value) async throws -> Value {
+        do { return try await read() }
+        catch let error as Failure { throw error.outcomeUnknown ? Failure.notSent(error) : error }
+    }
+
+    /// A short page ends this listing. Count the raw entries, including ones that do not decode.
+    static func shortPages<Item>(perPage: Int, pages: Int,
+        read: (Int) async throws -> [Item]) async throws -> (items: [Item], complete: Bool) {
+        var all: [Item] = []
+        for page in 1...max(1, pages) {
+            let batch = try await read(page)
+            all += batch
+            if batch.count < perPage { return (all, true) }
+        }
+        return (all, false)
     }
 
     /// A bounded listing whose only terminal page is an empty one. Validation stays per page.

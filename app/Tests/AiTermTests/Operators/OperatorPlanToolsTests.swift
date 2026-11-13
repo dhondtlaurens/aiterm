@@ -7,7 +7,7 @@ import Testing
 
 /// The plan (spec §6, §8): unstarted tasks added and changed in the open revision, a revision
 /// submitted once, and queued at once when it is.
-@MainActor @Suite struct OperatorPlanToolsTests {
+@MainActor @Suite(.blocking) struct OperatorPlanToolsTests {
     let project = OperatorServiceFixtures.project(), other = OperatorServiceFixtures.project(path: "/tmp/aiterm-operators-other", name: "Web")
     let docs = OperatorServiceFixtures.project(path: "/tmp/aiterm-operators-docs", name: "Docs")
 
@@ -41,7 +41,7 @@ import Testing
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { ports in
             ModelSettings.save(ModelPreference(model: "claude-opus-5-5", reasoning: "high"), for: .claude,
-                               defaults: ports.preferences!)
+                               defaults: ports.preferences)
             ports.agentModels = { _ in [AgentModel(id: "claude-opus-5-5", label: "Opus", detail: nil,
                                                    efforts: ["medium", "high"], defaultEffort: "medium")] }
         }
@@ -225,7 +225,7 @@ import Testing
         #expect(first.value?["pending"] == true && operated(world, "PAST") == nil)
         let id = try #require(first.value?["challengeId"]?.stringValue)
         await gate.open()
-        await world.controller.tools.lastChallenge?.value
+        await world.ports.work.settled()
         let acted = await create(world, run, "PAST", challengeId: id)
         #expect(acted.value?["created"] == true && operated(world, "PAST")?.state == .planned)
         #expect(await create(world, run, "PAST", challengeId: id) == acted, "the acting call again replays")
@@ -239,7 +239,7 @@ import Testing
         let id = try #require(await create(world, run, "PAST").value?["challengeId"]?.stringValue)
         #expect(await create(world, run, "PAST", challengeId: id).value?["pending"] == true, "still judging")
         await gate.open()
-        await world.controller.tools.lastChallenge?.value
+        await world.ports.work.settled()
         #expect(await create(world, run, "PAST", challengeId: id).message == "The Oracle judged this off-brief. AiTerm noted it for the summary.")
         #expect(operated(world, "PAST") == nil && finds(world, run).map(\.why) == ["Not in the brief."])
     }
@@ -301,24 +301,25 @@ import Testing
         #expect(finds(world, run).last?.ticket == nil)
     }
 
-    /// What AiTerm tells the Operator speaks of its summary, never of the summary it replaced: no string in the
-    /// Operator's sources says it, as the daemon's schema test reads its tools. The finished broadcast's
-    /// notification id keeps its `debrief-` prefix, so notes already delivered are not posted again.
-    @Test func noRefusalSpeaksOfASummary() throws {
-        let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/AiTerm/Operators")
-        let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil).filter { $0.pathExtension == "swift" }
-        #expect(files.count > 5, "the Operator's sources, read from \(folder.path)")
-        let literal = try Regex(#""[^"\n]*""#)
-        for file in files {
-            let code = try String(contentsOf: file, encoding: .utf8).split(separator: "\n")
-                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            for line in code {
-                for match in line.matches(of: literal) where match.output[0].substring?.lowercased().contains("debrief") == true {
-                    #expect(match.output[0].substring?.hasPrefix("\"debrief-") == true, "\(file.lastPathComponent): \(line)")
-                }
-            }
-        }
+    /// The replies that speak of the broadcast's summary call it the summary, never by its old name (`write_debrief`):
+    /// `write_summary` refused before the broadcast is complete and while its goal is still to check, and an addition past
+    /// the backlog's limit refused with the find noted for the summary, filed and not filed. A focused test over the
+    /// refusals the deleted source scan (`noRefusalSpeaksOfASummary`) guarded (phase 5, review round 4).
+    @Test func noReplyThatSpeaksOfTheSummaryNamesItsOldTool() async throws {
+        var said: [String] = []
+        let (world, run) = try makeWorld()
+        said.append(await world.call(run.id, "write_summary", ["text": "Done."]).message ?? "")
+        world.controller.mutateRun(run.id) { $0.goalCheckDue = true }
+        said.append(await world.call(run.id, "write_summary", ["text": "Done."]).message ?? "")
+        let jira = FakeJira()
+        let (backlog, backlogRun) = try makeBacklogWorld(oracle: false, jira: jira)
+        _ = await create(backlog, backlogRun, "FREE")
+        said.append(await create(backlog, backlogRun, "PAST").message ?? "")
+        jira.failWrites()
+        said.append(await create(backlog, backlogRun, "LATER").message ?? "")
+        #expect(said.allSatisfy { !$0.isEmpty }, "each refused: \(said)")
+        #expect(said.contains { $0.contains("summary") }, "they speak of the summary: \(said)")
+        #expect(!said.contains { $0.lowercased().contains("debrief") }, "\(said)")
     }
 
     @Test func aTaskOutsideTheWorkspaceOrAnAgentTheOperatorCannotRunIsRefused() async throws {
@@ -379,7 +380,7 @@ import Testing
 
     /// M3 carries out every end; a stacked task whose end its parent can't carry is refused with the reason.
     @Test func aPlanWhoseStackedEndItsParentCannotCarryIsRefusedWithTheReason() async throws {
-        let fixture = try GitFixture.withOrigin(branch: "feat/source")
+        let fixture = try await BackgroundWork.run { try GitFixture.withOrigin(branch: "feat/source") }
         let project = OperatorServiceFixtures.project(path: fixture.path)
         var profile = OperatorServiceFixtures.profile()
         profile.slices.merge = true
@@ -477,7 +478,7 @@ extension OperatorPlanToolsTests {
     /// Git failing to read the origin is no answer that there is none: the call is refused with git's sentence, not
     /// told the project has no connected code host.
     @Test func anOriginGitCantReadIsRefusedWithGitsSentence() async throws {
-        let fixture = try GitFixture.withOrigin(branch: "feat/source")
+        let fixture = try await BackgroundWork.run { try GitFixture.withOrigin(branch: "feat/source") }
         let project = OperatorServiceFixtures.project(path: fixture.path)
         var run = OperatorServiceFixtures.run(projects: [project])
         run.taskSettings.end = .draftMR
@@ -493,7 +494,7 @@ extension OperatorPlanToolsTests {
     /// The origin is read only for an end that needs a code host: one git can't read holds up no task that ends at a
     /// commit, the broadcast's end or the one a legacy call names, nor a legacy update to one.
     @Test func anEndThatNeedsNoCodeHostReadsNoOrigin() async throws {
-        let fixture = try GitFixture.withOrigin(branch: "feat/source")
+        let fixture = try await BackgroundWork.run { try GitFixture.withOrigin(branch: "feat/source") }
         let project = OperatorServiceFixtures.project(path: fixture.path)
         var run = OperatorServiceFixtures.run(projects: [project])
         run.taskSettings = TaskSettings(review: nil, end: .commit)

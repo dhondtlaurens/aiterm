@@ -18,19 +18,27 @@ struct OperatorHeading: View {
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
     @State private var hovering = false
+    #if DEBUG
+    @Environment(\.rowBodyCounter) private var bodyCounter
+    #endif
 
     /// The broadcast's glyph, where a broadcast is drawn as a project would be: the Shelf's ended broadcasts.
     static let glyph = "dot.radiowaves.left.and.right"
 
     /// Whether the word decodes: while the broadcast runs, never while it is paused or done, nor while something
     /// in it needs you, which the heading's chip or its rows say then, nor while the Operator's window is closed.
-    static func decodes(_ broadcast: BroadcastSection) -> Bool {
+    static func decodes(_ broadcast: BroadcastSection) -> Bool { decodes(OperatorHeadingValue(broadcast)) }
+
+    private static func decodes(_ broadcast: OperatorHeadingValue) -> Bool {
         !broadcast.header.isPaused && !broadcast.header.isDone && !broadcast.needsAttention
-            && broadcast.operatorRow.line != .windowClosed
+            && broadcast.operatorLine != .windowClosed
     }
 
     var body: some View {
-        let broadcast = controller.rows.broadcast
+        #if DEBUG
+        let _ = bodyCounter?.countHeading("operator")
+        #endif
+        let broadcast = controller.rows.operatorHeading
         HStack(spacing: scale(Space.base)) {
             if let broadcast {
                 running(broadcast)
@@ -43,17 +51,17 @@ struct OperatorHeading: View {
             }
         }
         // `PROJECTS`' anatomy (`SidebarHeader`), so the two headings line up with and without the "+".
-        .frame(height: scale(Size.menuRow)).padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
+        .frame(height: scale(Size.menuRow)).modifier(SidebarHeadingInset())
         .padding(.top, scale(Space.base)).padding(.bottom, scale(Space.tight))
         .onHover { hovering = $0 }
     }
 
-    @ViewBuilder private func running(_ broadcast: BroadcastSection) -> some View {
+    @ViewBuilder private func running(_ broadcast: OperatorHeadingValue) -> some View {
         let header = broadcast.header, folds = controller.canChangeWorkspace
         // Only the label folds; the chip and the board button keep their own clicks.
         HStack(spacing: scale(Space.base)) {
             HStack(spacing: scale(Space.gap)) {
-                OperatorTitle(line: broadcast.operatorRow.line, decodes: Self.decodes(broadcast), hovering: hovering)
+                OperatorTitle(line: broadcast.operatorLine, decodes: Self.decodes(broadcast), hovering: hovering)
                 if let progress = header.headerProgress { HeaderProgress(text: progress) }
             }
             Spacer(minLength: scale(Space.tight))
@@ -63,13 +71,9 @@ struct OperatorHeading: View {
             }
             SectionFoldChevron(folded: broadcast.folded, hovering: hovering)
         }
-        .contentShape(Rectangle())
-        .gesture(TapGesture().onEnded { controller.projects.toggleFolded(run: broadcast.id) }, including: folds ? .all : .subviews)
-        .accessibilityElement(children: .combine)
+        .modifier(FoldOnTap(enabled: folds) { controller.projects.toggleFolded(run: broadcast.id) })
         .accessibilityLabel("Operator")
         .accessibilityValue(Self.spoken(broadcast))
-        .accessibilityAddTraits(folds ? .isButton : [])
-        .modifier(DefaultAccessibilityAction(enabled: folds) { controller.projects.toggleFolded(run: broadcast.id) })
         // Open Board, then the menu's other items, as named actions.
         .accessibilityActions {
             ForEach(Self.voiceOverActions(header, canChangeWorkspace: controller.canChangeWorkspace), id: \.self) { item in
@@ -94,7 +98,9 @@ struct OperatorHeading: View {
 
     /// The heading as VoiceOver reads it: the broadcast's name, its progress, every project, the whole status line,
     /// whether it is folded, and what needs you while it is.
-    static func spoken(_ section: BroadcastSection) -> String {
+    static func spoken(_ section: BroadcastSection) -> String { spoken(OperatorHeadingValue(section)) }
+
+    private static func spoken(_ section: OperatorHeadingValue) -> String {
         let row = section.header
         let attention = section.folded && !section.attention.isEmpty ? SidebarModel.statusCountsLabel(section.attention) : nil
         return [row.title, row.headerProgress, row.projectsHelp.isEmpty ? nil : row.projectsHelp, row.line.tooltip,

@@ -43,13 +43,13 @@ import Testing
     }
 
     /// The worker's turn ends having said `reply`: its tab goes idle, and AiTerm reads the turn.
-    func endTurn(saying reply: String = Self.t6, _ world: OperatorWorld, _ run: OperatorRun, _ task: TaskItem) async throws {
+    func endTurn(saying reply: String = Self.t6, _ world: OperatorWorld, _ run: OperatorRun, _ task: TaskItem, leavingOracle: Int = 0) async throws {
         let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": .string(reply)]]]]
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-1.jsonl"))
         world.show(sessions(run, task, .idle))
-        await world.controller.turns.lastRead?.value
+        await world.ports.work.settled(leaving: leavingOracle)
     }
 
     func relay(_ world: OperatorWorld, _ run: OperatorRun, key: String = "pay-236-bulk", _ more: [String: JSONValue] = [:]) async -> ToolAnswer {
@@ -179,7 +179,13 @@ import Testing
         let answers = ["IMPORTANT: The brief answers it.\nVERDICT: ANSWER", "MINOR: Say which screen.\nVERDICT: ANSWER"]
         let (world, run, task) = try makeWorld(check: .agreeFirst, runner: .answeringInTurn(answers, prompts: prompts))
         try await endTurn(world, run, task)
+        // Main 51f83d77's first-round construction; the later challenge record is not in run_status.
+        let current = try #require(world.run(run.id))
+        let status = OperatorToolHandler.json(try JSONValue(encoding: #require(world.controller.tools.currentStatus(of: current))))
+        let expectedPrompt = ChallengeLaunch.relayPrompt(task: task.operated?.key ?? task.title, question: Self.t6Question,
+                                                         lastMessage: Self.t6, brief: task.operated?.brief ?? "", run: status, discussion: [])
         let id = try #require(await relay(world, run).value?["challengeId"]?.stringValue)
+        #expect(await prompts.all.first == expectedPrompt)
         let made = await relay(world, run, ["challengeId": .string(id), "challengeReply": "The brief names one screen only."])
         #expect(made.value?["question"] == "pay-236-bulk", "only a minor point left: agreed")
         let said = await prompts.all
@@ -222,7 +228,7 @@ import Testing
         try await endTurn(world, run, task)
         let id = try #require(await relay(world, run).value?["challengeId"]?.stringValue)
         await gate.open()
-        await world.controller.tools.lastChallenge?.value
+        await world.ports.work.settled()
         let polled = await relay(world, run, ["challengeId": .string(id)])
         #expect(polled.value?["critique"]?.stringValue == critique)
         #expect(await relay(world, run, ["challengeId": .string(id)]) == polled)
@@ -265,8 +271,9 @@ import Testing
         let id = try #require(pending.value?["challengeId"]?.stringValue)
         #expect(slow.workspace.flush())
         let restarted = try OperatorWorld(try slow.workspace.file.load(), git: git)
-        restarted.show(sessions(slowRun, slowTask, .idle))
-        restarted.controller.tools.turnReadings = { [slowTask.id: slow.controller.turns.readings[slowTask.id]].compactMapValues { $0 } }
+        // The worker's question, read again after the restart.
+        try await endTurn(restarted, slowRun, slowTask)
+        #expect(restarted.controller.turns.readings[slowTask.id] != nil)
         _ = await restarted.call(slowRun.id, "relay_question", ["key": "pay-236-bulk", "task": "PAY-236", "challengeId": .string(id)])
         #expect(restarted.run(slowRun.id)?.questions.first?.history?.last?.text == "AiTerm restarted before the Oracle answered.")
         await gate.open()
@@ -316,7 +323,7 @@ import Testing
         try await endTurn(world, run, task)
         let id = try #require(await relay(world, run).value?["challengeId"]?.stringValue)
         world.show(sessions(run, task, .working))
-        try await endTurn(saying: "Done with the button.\n\nQuestion: Should the dialog name the item?", world, run, task)
+        try await endTurn(saying: "Done with the button.\n\nQuestion: Should the dialog name the item?", world, run, task, leavingOracle: 1)
         let late = await relay(world, run, ["challengeId": .string(id)])
         #expect(late.message == "PAY-236’s worker has asked something else since the Oracle read its question. "
                 + "Call relay_question again without challengeId.")

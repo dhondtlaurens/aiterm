@@ -10,16 +10,26 @@ public final class WorkMeter: Sendable {
     public enum Work: String, Sendable {
         /// `RunStatus.build`: one whole `run_status` snapshot.
         case statusBuild
+        /// One Oracle settings synchronization read, from its save notification, tick or tool call.
+        case oracleSettingsRead
         /// `OperatorRequests.open`: what a run needs from the person.
         case requests
         /// `TaskItem.workerTabs`: one task's worker tabs matched to the sessions.
         case workerTabs
         /// `WindowReconciler.pass`: one comparison of the rows with the windows.
         case reconcilerPass
-        /// `WorkerTurnReader`: one read of a worker's transcript tail and branch asked for.
+        /// `WorkerTurnReader`: one worker's turn read: its transcript's tail read in full (as on every reconcile tick and at
+        /// a turn's end, the file there or not) or past its stamp, or git asked about its branch. A turn whose transcript's
+        /// stamp did not change since it was last read, and whose reply is the same, costs neither between ticks.
         case turnRead
         /// `StateStore.save`: the workspace encoded and written by the caller itself, as a flush does.
         case stateSave
+        /// One file a `StateStore` writes the bytes of: the workspace, or its backup.
+        case stateWrite
+        /// The Activity view's calendar-day grouping and day-heading formatting.
+        case activityDays, activityDayTitle
+        /// A Shelf projection's search ranking.
+        case archiveRank
     }
 
     @TaskLocal public static var current: WorkMeter?

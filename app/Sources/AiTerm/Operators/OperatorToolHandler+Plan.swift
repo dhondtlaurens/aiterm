@@ -25,7 +25,7 @@ extension OperatorToolHandler {
         if let existing = existingTask(key, in: run) { return Self.taskAnswer(existing, created: false) }
         // The broadcast as it is now, not as the call began: a pause or an end since is the person's.
         guard let current = state.run(id: run.id), !current.hasEnded else { throw ToolRefusal.ended }
-        if current.intent == .paused { throw ToolRefusal("The person paused this broadcast. Wait until they resume it.") }
+        if current.youAsked == .pause { throw ToolRefusal("The person paused this broadcast. Wait until they resume it.") }
         let draft = try self.draft(call, in: current, connected: connected, delivery: delivery)
         // Past the first plan, the backlog grows by a quarter of it on the Operator's word, then by the Oracle's yes (spec §4.1).
         switch vettedCalls.contains(Self.invocation(call)) ? .free : backlogVerdict(current) {
@@ -156,15 +156,15 @@ extension OperatorToolHandler {
     }
 
     /// The agents' model lists, as the ports read them; none read is an empty list.
-    var agentModels: @Sendable (AgentKind) -> [AgentModel] { ports.agentModels ?? { _ in [] } }
+    var agentModels: @Sendable (AgentKind) -> [AgentModel] { ports.agentModels }
 
     /// Settings defaults remain visible under run_status; task selection uses only the frozen rows.
     func defaultModel(for agent: AgentKind) -> (model: String, reasoning: String?) {
-        AgentIntegrations.taskModel(agent, remembered: state.lastModelByAgent, defaults: ports.preferences ?? .standard)
+        AgentIntegrations.taskModel(agent, remembered: state.lastModelByAgent, defaults: ports.preferences)
     }
 
     /// The installed agents, as the ports say; every agent when nothing says.
-    var installedAgents: Set<AgentKind> { ports.installedAgents?() ?? Set(AgentKind.allCases) }
+    var installedAgents: Set<AgentKind> { ports.installedAgents() }
 
     /// Only an unstarted task changes here; a started one is steered with `message_task` (spec §6).
     /// A change joins the open revision, and a queued task waits for that revision again.

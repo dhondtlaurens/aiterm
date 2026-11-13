@@ -8,16 +8,16 @@ public struct FixPipeline: Sendable {
     /// Makes the clone the fix works in.
     public var prepare: @Sendable (FixRequest) async throws(FixRefusal) -> FixClone
     /// The agent's read-only run: a checked proposal or its reason for none, and the session to resume.
-    public var look: @Sendable (FixerAgent, FixClone, FixRequest) async throws(FixRefusal) -> (FixLook, session: String)
+    public var look: @Sendable (FixerAgent, FixClone, FixRequest) async throws(FixRefusal) -> (FixLook, session: FixLookSession)
     /// The agent's run that makes the fix in the clone, then AiTerm's own checks and the proposal's
     /// `verify`. Returns the tip the checks passed — the one commit `land` may bring in.
-    public var apply: @Sendable (FixerAgent, FixClone, FixProposal, String) async throws(FixRefusal) -> String
+    public var apply: @Sendable (FixerAgent, FixClone, FixProposal, FixLookSession) async throws(FixRefusal) -> String
     /// Brings the checked tip into the project, keeping the old one as a backup.
     public var land: @Sendable (FixClone, String) async throws(FixRefusal) -> FixLanding
 
     public init(prepare: @escaping @Sendable (FixRequest) async throws(FixRefusal) -> FixClone,
-                look: @escaping @Sendable (FixerAgent, FixClone, FixRequest) async throws(FixRefusal) -> (FixLook, session: String),
-                apply: @escaping @Sendable (FixerAgent, FixClone, FixProposal, String) async throws(FixRefusal) -> String,
+                look: @escaping @Sendable (FixerAgent, FixClone, FixRequest) async throws(FixRefusal) -> (FixLook, session: FixLookSession),
+                apply: @escaping @Sendable (FixerAgent, FixClone, FixProposal, FixLookSession) async throws(FixRefusal) -> String,
                 land: @escaping @Sendable (FixClone, String) async throws(FixRefusal) -> FixLanding) {
         self.prepare = prepare; self.look = look; self.apply = apply; self.land = land
     }
@@ -31,42 +31,34 @@ public struct FixPipeline: Sendable {
     public static func live(git: any GitRunning, workflow: TaskWorkflow, project: Project,
                             model: @escaping @Sendable () -> (model: String, reasoning: String?),
                             locate: @escaping @Sendable (String) -> String?) -> FixPipeline {
-        // Each clone's branch tips as Look found them, by the clone's path, for Apply's “moved only
-        // what it said” check. A pipeline serves every fix of its project, so one clone's tips must
-        // never be another's; an entry goes when its Apply ends, or once its clone is gone.
-        let tipsAtLook = Mutex<[String: [String: String]]>([:])
         return FixPipeline(
             prepare: { request throws(FixRefusal) in
                 try await BackgroundWork.run { () throws(FixRefusal) -> FixClone in try FixClone.make(for: request, git: git) }
             },
             look: { agent, clone, request throws(FixRefusal) in
                 let tips = try await read(clone) { try $0.branchTips() }
-                tipsAtLook.withLock { known in
-                    known = known.filter { FileManager.default.fileExists(atPath: $0.key) }   // declined proposals' clones
-                    known[clone.path] = tips
-                }
                 let choice = model()
-                let invocation = try FixerLaunch.look(agent, model: choice.model, reasoning: choice.reasoning, clone: clone,
+                let invocation = FixerLaunch.look(model: choice.model, reasoning: choice.reasoning, clone: clone,
                                                       request: request, sessionID: UUID().uuidString.lowercased())
                 let output = try await run(agent, invocation, in: clone, timeout: lookTimeout, locate: locate)
                 // Read-only is the agent's word: Claude's `git log --output=` can still write `.git/config`.
-                // The answer is read off the pool too: Codex's is a file in the clone's `.git`.
+                // The answer and clone checks are read off the pool too.
                 let (answer, session) = try await BackgroundWork.run { () throws(FixRefusal) -> (FixLookAnswer, sessionID: String) in
                     try clone.checkSettings()
                     return try FixerLaunch.lookAnswer(agent, output: output, invocation: invocation)
                 }
                 let localOnly = try await read(clone) { try $0.localOnly() }
-                return (try FixLook(validating: answer, request: request, localOnly: localOnly, agent: agent), session)
+                return (try FixLook(validating: answer, request: request, localOnly: localOnly, agent: agent), FixLookSession(id: session, before: tips))
             },
             apply: { agent, clone, proposal, session throws(FixRefusal) in
-                defer { tipsAtLook.withLock { $0[clone.path] = nil } }
-                guard let before = tipsAtLook.withLock({ $0[clone.path] }) else {
+                defer { session.finish() }
+                guard let before = session.tips else {
                     throw .checkFailed("Couldn’t check the fix: its branches were not read before it was made, so nothing was changed.")
                 }
                 let started = ContinuousClock.now
                 let choice = model()
-                let invocation = try FixerLaunch.apply(agent, model: choice.model, reasoning: choice.reasoning, clone: clone,
-                                                       proposal: proposal, sessionID: session)
+                let invocation = FixerLaunch.apply(model: choice.model, reasoning: choice.reasoning, clone: clone,
+                                                       proposal: proposal, sessionID: session.id)
                 let output = try await run(agent, invocation, in: clone, timeout: applyTimeout, locate: locate)
                 // `FixGuard.check` reads the clone's settings first, before any git.
                 let answer = try await BackgroundWork.run { () throws(FixRefusal) -> FixApplyAnswer in
@@ -124,4 +116,16 @@ public struct FixPipeline: Sendable {
             do { return try body(clone) } catch { throw .cloneFailed(GitError.displayReason(of: error)) }
         }
     }
+}
+
+/// The session to resume and the branch tips read for that Look. Only the pipeline makes one.
+/// Completion belongs to this answer, so an Apply cannot reuse an answer whose check already ended.
+public final class FixLookSession: Sendable {
+    let id: String
+    private let before: [String: String]?
+    private let finished = Mutex(false)
+
+    init(id: String, before: [String: String]?) { self.id = id; self.before = before }
+    var tips: [String: String]? { finished.withLock { $0 ? nil : before } }
+    func finish() { finished.withLock { $0 = true } }
 }

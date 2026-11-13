@@ -4,7 +4,58 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-@MainActor @Suite struct OperatorReviewTests {
+@MainActor @Suite(.blocking) struct OperatorReviewTests {
+    @Test func failureBeforeAHostWriteDoesNotHoldItsOutcomeOpen() async {
+        let stub = StubSession { _ in (200, Data(#"{"draft":true}"#.utf8)) }
+        let client = GitHubClient(config: GitHubConfig(token: "stub"), repo: "owner/repo", session: stub.session)
+        do {
+            try await client.markReady(1)
+            Issue.record("Missing node id must stop the write")
+        } catch {
+            #expect(!OperatorToolHandler.mayHaveLanded(error))
+            #expect(error.localizedDescription == GitHubError.decoding.localizedDescription)
+        }
+        #expect(stub.requests.map(\.httpMethod) == ["GET"])
+    }
+
+    /// The current switch is the reference for every existing host error, including edge statuses.
+    @Test func hostFailureClassificationKeepsTheCurrentRule() {
+        let errors: [any Error] = [
+            GitHubError.unauthorized, GitHubError.forbidden, GitHubError.repoNotFound("r"), GitHubError.refused("no"),
+            GitHubError.network("lost"), GitHubError.decoding,
+            GitLabError.unauthorized, GitLabError.projectNotFound("r"), GitLabError.noAPI("h"), GitLabError.noUser("u"),
+            GitLabError.network("lost"), GitLabError.decoding,
+            JiraError.unauthorized, JiraError.network("lost"), JiraError.decoding,
+            JiraError.refused(status: 503, detail: "no"), JiraError.unconfinedQuery,
+        ] + [0, 199, 200, 400, 429, 499, 500, 599, 600].flatMap { status -> [any Error] in
+            [GitHubError.badResponse(status), GitLabError.badResponse(status), JiraError.badResponse(status)]
+        }
+        func current(_ error: any Error) -> Bool {
+            switch error {
+            case let error as GitHubError:
+                switch error {
+                case .unauthorized, .forbidden, .repoNotFound, .refused, .notSent: return false
+                case .badResponse(let status): return status >= 500
+                case .network, .decoding: return true
+                }
+            case let error as GitLabError:
+                switch error {
+                case .unauthorized, .projectNotFound, .noAPI, .noUser, .notSent: return false
+                case .badResponse(let status): return status >= 500
+                case .network, .decoding: return true
+                }
+            case let error as JiraError:
+                switch error {
+                case .badResponse(let status): return status >= 500
+                case .network, .decoding: return true
+                default: return false
+                }
+            default: return true
+            }
+        }
+        for error in errors { #expect(OperatorToolHandler.mayHaveLanded(error) == current(error)) }
+    }
+
     let project = OperatorServiceFixtures.project()
 
     // MARK: - Reviews, by an agent (base) and by people (the Review slice), spec §3.1 and §5
@@ -13,13 +64,28 @@ import Testing
         let world: OperatorWorld, run: OperatorRun, task: TaskItem, host: FakeMergeHost, sha: String
     }
 
+    /// Host-only reads still bind the saved publication to its origin; no repository needs building.
+    private struct HostReadGit: GitRunning {
+        func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+            guard args == ["remote", "get-url", "origin"] else {
+                throw GitError(args: args, code: 128, stderr: "No git checkout in this host-only fixture")
+            }
+            return "https://git.example.net/web/acme-web.git"
+        }
+    }
+
     /// A broadcast whose Review is `review`, with `slices` frozen, and one task `A` on the branch of a repository
     /// with an origin; the Operator's tab idle. A task past working is accepted on the branch's commit, and one in
     /// review has its draft request open as !12.
     func reviewed(_ taskState: OperatedState, end: TaskEnd = .draftMR, slices: Slices = .none,
-                  review: String? = "Assign Jan, fix his feedback.", agent: AgentKind = .codex,
+                  review: String? = "Assign Jan, fix his feedback.", agent: AgentKind = .codex, checkout: Bool = true,
                   adjust: (inout OperatorPorts) -> Void = { _ in }) async throws -> Reviewed {
-        let fixture = try GitFixture.withOrigin(branch: "feat/a")
+        let fixture: (path: String, origin: String, sha: String)
+        if checkout {
+            fixture = try await BackgroundWork.run { try GitFixture.withOrigin(branch: "feat/a") }
+        } else {
+            fixture = (try GitFixture.folder("op-host-"), "", String(repeating: "a", count: 40))
+        }
         let project = OperatorServiceFixtures.project(path: fixture.path)
         var profile = OperatorServiceFixtures.profile()
         profile.slices = slices
@@ -38,7 +104,10 @@ import Testing
             task.operated?.peopleReview = PeopleReview()
         }
         let host = FakeMergeHost()
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), adjust: { ports in
+        let git: any GitRunning
+        if checkout { git = GitRunner.hermetic() }
+        else { git = HostReadGit() }
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), git: git, adjust: { ports in
             ports.publisher = { _ in host }
             // The fake host answers at once: a long wait, so a loaded machine never turns its answer into a timeout. A test
             // of the timeout itself sets a short one.
@@ -47,15 +116,17 @@ import Testing
         })
         world.live.sessions = [OperatorServiceFixtures.session("operator", tag: run.id), OperatorServiceFixtures.session("worker", tag: task.id)]
         // The idle worker's turn is read first (`WorkerTurnReader`), so its reading is the Operator's first look, not news.
-        world.controller.turns.observe()
-        await world.controller.turns.lastRead?.value
+        if checkout {
+            world.controller.turns.observe()
+            await world.settled()
+        }
         return Reviewed(world: world, run: run, task: task, host: host, sha: fixture.sha)
     }
 
     /// The wake lines typed into the Operator's tab, once the waker has sent what it holds.
     func wakes(_ world: OperatorWorld) async -> [String] {
-        await world.controller.waker.lastCoalesce?.value
-        await world.controller.waker.lastSend?.value
+        await world.settled()
+        await world.settled()
         return world.daemon.requests("session.deliver").filter { $0.params["wake"] as? Bool == true }.compactMap { $0.params["text"] as? String }
     }
 
@@ -83,7 +154,7 @@ import Testing
     }
 
     @Test func overlappingStatusConsumersShareOneHostRead() async throws {
-        let r = try await reviewed(.inReview)
+        let r = try await reviewed(.inReview, checkout: false)
         let release = AsyncStream<Void>.makeStream()
         r.host.update { $0.beforeState = { for await _ in release.stream { break } } }
         defer { release.continuation.finish() }
@@ -102,7 +173,7 @@ import Testing
     }
 
     @Test func acceptingAnotherCommitInvalidatesTheHostReading() async throws {
-        let r = try await reviewed(.inReview)
+        let r = try await reviewed(.inReview, checkout: false)
         _ = await r.world.controller.tools.hostState(of: r.task)
         var changed = r.task
         changed.operated?.acceptance?.resultSHA = "another-commit"
@@ -206,7 +277,7 @@ import Testing
     }
 
     @Test func readTaskReviewShowsTheRequestToo() async throws {
-        let r = try await reviewed(.inReview)
+        let r = try await reviewed(.inReview, checkout: false)
         r.host.update { $0.approvals = ["alice"] }
         let read = try #require(await r.world.call(r.run.id, "read_task", ["task": "A", "what": "review"]).value)
         #expect(read["mergeRequest"]?["iid"] == 12 && read["mergeRequest"]?["approvedBy"] == ["alice"])
@@ -214,7 +285,7 @@ import Testing
 
     /// Approvals the host can't read are said as its threads' are: a note, not an empty answer.
     @Test func approvalsTheHostCantReadAreSaidWithANote() async throws {
-        let r = try await reviewed(.inReview)
+        let r = try await reviewed(.inReview, checkout: false)
         r.host.update { $0.onCall = { [host = r.host] line in
             if line.hasPrefix("approvals") { host.update { $0.reviewError = URLError(.notConnectedToInternet) } }
         } }
@@ -268,30 +339,28 @@ import Testing
 
     @Test func independentlyDispatchedReviewRequestsPreserveBothReviewers() async throws {
         let gate = HeldGate()
-        let connections = AsyncStream<Void>.makeStream()
+        let connections = OperatorMergeTests.Prompts()
         let r = try await reviewed(.inReview, slices: Slices(review: true)) { ports in
             let publisher = ports.publisher
             ports.publisher = { connection in
-                connections.continuation.yield(())
+                connections.append("connected")
                 return try publisher(connection)
             }
         }
         r.host.update { $0.onCall = { if $0.hasPrefix("reviewers 12 jan") { await gate.wait() } } }
         let tools = r.world.controller.tools
-        func dispatch(_ reviewer: String) -> Task<Void, Never>? {
+        func dispatch(_ reviewer: String) {
             tools.handle(OperatorRequest(requestId: reviewer, runId: r.run.id.uuidString, tool: "request_review",
                                          arguments: ["task": "A", "reviewers": [.string(reviewer)]]))
-            return tools.lastReply
         }
-        var connected = connections.stream.makeAsyncIterator()
-        let first = dispatch("jan")
-        _ = await connected.next()
-        await gate.started()
-        let second = dispatch("sara")
-        _ = await connected.next()
+        dispatch("jan")
+        await eventually { connections.list.count == 1 }
+        let entered = await BackgroundWork.within(.seconds(TestDeadline.seconds), cancelling: false) { await gate.started(); return true }
+        #expect((try? entered.get()) == true)
+        dispatch("sara")
+        await eventually { connections.list.count == 2 }
         await gate.release()
-        await first?.value
-        await second?.value
+        await r.world.ports.work.settled()
         #expect(Set(r.host.reviewers) == ["jan", "sara"])
         #expect(Set(r.world.task(r.task.id)?.operated?.peopleReview?.reviewers ?? []) == ["jan", "sara"])
         #expect(r.host.log == ["ready 12", "reviewers 12 jan", "ready 12", "reviewers 12 sara"])
@@ -300,32 +369,30 @@ import Testing
     @Test(arguments: [true, false])
     func aWaitingReviewRequestRechecksCancellationAndOwnership(_ cancelled: Bool) async throws {
         let gate = HeldGate()
-        let connections = AsyncStream<Void>.makeStream()
+        let connections = OperatorMergeTests.Prompts()
         let r = try await reviewed(.inReview, slices: Slices(review: true)) { ports in
             let publisher = ports.publisher
             ports.publisher = { connection in
-                connections.continuation.yield(())
+                connections.append("connected")
                 return try publisher(connection)
             }
         }
         r.host.update { $0.onCall = { if $0.hasPrefix("reviewers 12 jan") { await gate.wait() } } }
         let tools = r.world.controller.tools
-        func dispatch(_ name: String) -> Task<Void, Never>? {
+        func dispatch(_ name: String) -> Task<Void, Never> {
             tools.handle(OperatorRequest(requestId: name, runId: r.run.id.uuidString, tool: "request_review",
                                          arguments: ["task": "A", "reviewers": [.string(name)]]))
-            return tools.lastReply
         }
-        var connected = connections.stream.makeAsyncIterator()
-        let first = dispatch("jan")
-        _ = await connected.next()
-        await gate.started()
+        _ = dispatch("jan")
+        await eventually { connections.list.count == 1 }
+        let entered = await BackgroundWork.within(.seconds(TestDeadline.seconds), cancelling: false) { await gate.started(); return true }
+        #expect((try? entered.get()) == true)
         let second = dispatch("sara")
-        _ = await connected.next()
-        if cancelled { second?.cancel() }
+        await eventually { connections.list.count == 2 }
+        if cancelled { second.cancel() }
         else { r.world.workspace.mutate { $0.updateOperated(r.task.id) { $0.ownership += 1 } } }
         await gate.release()
-        await first?.value
-        await second?.value
+        await r.world.ports.work.settled()
         #expect(!r.host.reviewers.contains("sara"))
         let savedReviewers = r.world.task(r.task.id)?.operated?.peopleReview?.reviewers ?? []
         #expect(!savedReviewers.contains("sara"))
@@ -406,21 +473,21 @@ import Testing
     @Test func approvalWithoutThreadsWakesTheOperatorOnce() async throws {
         let r = try await reviewed(.inReview, slices: Slices(review: true))
         let watcher = r.world.controller.reviewWatcher
-        watcher.poll(); await watcher.lastPoll?.value
+        watcher.poll(); await r.world.settled()
         #expect(await wakes(r.world).isEmpty)
         r.host.update { $0.approvals = ["jan"] }
-        watcher.poll(); await watcher.lastPoll?.value
+        watcher.poll(); await r.world.settled()
         #expect(await wakes(r.world) == ["[AiTerm] letter-ay has review feedback: call run_status"])
         #expect(r.world.task(r.task.id)?.operated?.peopleReview?.threads.isEmpty == true)
         #expect(r.world.task(r.task.id)?.operated?.peopleReview?.approvals == ["jan"])
-        watcher.poll(); await watcher.lastPoll?.value
+        watcher.poll(); await r.world.settled()
         #expect(await wakes(r.world).count == 1)
     }
 
     @Test func newFeedbackWakesTheOperator() async throws {
         let r = try await reviewed(.inReview, slices: Slices(review: true))
         let watcher = r.world.controller.reviewWatcher
-        func poll() async { watcher.poll(); await watcher.lastPoll?.value }
+        func poll() async { watcher.poll(); await r.world.settled() }
         await poll()
         #expect(await wakes(r.world) == [], "nothing new, no wake")
         r.host.update { $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this")] }
@@ -455,7 +522,7 @@ import Testing
             $0.publication?.mergeRequestURL = "https://github.com/acme/shop/pull/13"
         } }
         await gate.release()
-        await watcher.lastPoll?.value
+        await r.world.settled()
         #expect(r.world.task(r.task.id)?.operated?.peopleReview?.threads.isEmpty != false)
         #expect(await wakes(r.world) == [])
     }
@@ -465,14 +532,14 @@ import Testing
         let watcher = r.world.controller.reviewWatcher
         r.host.update { $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename")] }
         watcher.poll()
-        await watcher.lastPoll?.value
+        await r.world.settled()
         #expect(await wakes(r.world).count == 1)
         r.host.update {
             $0.me = "new-token-user"
             $0.threads[0] = ReviewThread(id: "d1", resolved: false, lastAuthor: "new-token-user", lastBody: "Done")
         }
         watcher.poll()
-        await watcher.lastPoll?.value
+        await r.world.settled()
         #expect(await wakes(r.world).count == 1, "a reply by the replacement token is its own, so it adds no wake")
     }
 
@@ -481,7 +548,7 @@ import Testing
         r.world.workspace.mutate { $0.updateOperated(r.task.id) { $0.takenOver = true } }
         r.host.update { $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this")] }
         r.world.controller.reviewWatcher.poll()
-        await r.world.controller.reviewWatcher.lastPoll?.value
+        await r.world.settled()
         #expect(r.host.log.isEmpty)
     }
 
@@ -490,7 +557,7 @@ import Testing
     @Test func aReviewersReplyWakesTheOperatorAndItsOwnDoesNot() async throws {
         let r = try await reviewed(.inReview, slices: Slices(review: true))
         let watcher = r.world.controller.reviewWatcher
-        func poll() async { watcher.poll(); await watcher.lastPoll?.value }
+        func poll() async { watcher.poll(); await r.world.settled() }
         r.host.update { $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this")] }
         await poll()
         #expect(await wakes(r.world).count == 1)
@@ -595,7 +662,7 @@ import Testing
         #expect(await r.world.call(r.run.id, "request_review", ["task": "A", "reviewers": ["jan"]]).message == refused)
         #expect(await r.world.call(r.run.id, "reply_thread", ["task": "A", "key": "r1", "thread": "d1", "body": "Done."]).message == refused)
         r.world.controller.reviewWatcher.poll()
-        await r.world.controller.reviewWatcher.lastPoll?.value
+        await r.world.settled()
         #expect(r.host.log.isEmpty, "another repository's !12 is neither read nor written")
     }
 
@@ -695,6 +762,13 @@ extension OperatorReviewTests {
         let answer = try #require(await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d64"]).value)
         #expect(answer["critique"] == "FIX: the target is not checked." && answer["recorded"] == false && answer["head"] == .string(r.sha))
         let prompt = try #require(prompts.list.first)
+        // Main 51f83d77's complete thread construction, before the job owner was shared.
+        let detail = ReviewThreadDetail(id: "d64", path: "app/redirect.ts", line: 42, notes: [
+            ReviewThreadDetail.Note(author: "aikido-bot", body: "Open redirect: the target comes from the query string."),
+            ReviewThreadDetail.Note(author: "aikido-bot", body: Self.finding.lastBody)])
+        let expectedPrompt = ChallengeLaunch.threadPrompt(task: "A", request: "!64", brief: r.task.operated?.brief ?? "",
+                                                          branch: r.task.branch, worktree: r.task.worktreePath, head: r.sha, thread: detail)
+        #expect(prompt == expectedPrompt)
         #expect(prompt.contains(Self.finding.lastBody) && prompt.contains("aikido-bot") && prompt.contains(r.task.worktreePath))
         #expect(prompt.contains("Open redirect: the target comes from the query string.") && prompt.contains("app/redirect.ts:42"))
         #expect(prompt.contains("Thread d64 on !64"))
@@ -729,7 +803,7 @@ extension OperatorReviewTests {
         let pending = await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d64"])
         #expect(pending.value?["pending"] == true && critiques(r).isEmpty)
         await gate.open()
-        await r.world.controller.tools.lastCritique?.value
+        await r.world.ports.work.settled()
         #expect(critiques(r).count == 1, "recorded once the Oracle answered, with no call waiting")
         #expect(await r.world.call(r.run.id, "critique_thread", ["task": "A", "thread": "d64"]).value?["recorded"] == true)
         #expect(prompts.list.count == 1)
@@ -771,5 +845,110 @@ extension OperatorReviewTests {
         let reply = await r.world.call(r.run.id, "reply_thread", ["task": "A", "key": "r64", "thread": "d64", "body": "Fixed in the next commit."])
         #expect(reply.value?["replied"] == true)
         #expect(prompts.list.isEmpty)
+    }
+}
+
+extension OperatorReviewTests {
+    /// A second task in review, on the same repository: !13.
+    func withASecondTask(_ r: Reviewed) async {
+        r.world.workspace.mutate { state in
+            var task = r.task
+            task.id = UUID()
+            task.title = "Task A1"
+            task.operated?.key = "A1"
+            task.operated?.publication?.mergeRequestNumber = 13
+            state.tasks.append(task)
+        }
+        await r.world.settled()
+    }
+
+    /// A pass keeps a project's host only once it was found (phase 5, review round 2): git failing to read the origin for
+    /// one task is tried again for the next of the same project, whose review is read.
+    @Test func aHostThatCouldNotBeFoundForOneTaskIsLookedForAgainForTheNext() async throws {
+        let git = FailingOnceGit()
+        let r = try await reviewed(.inReview, adjust: { $0.git = git })
+        await withASecondTask(r)
+        let logged = r.host.log.count
+        git.failNext(["remote", "get-url"])
+        r.world.controller.reviewWatcher.poll()
+        await r.world.settled()
+        #expect(git.failed == 1)
+        #expect(r.host.log.count - logged == 2, "one task's threads and approvals read: \(Array(r.host.log.dropFirst(logged)))")
+    }
+
+    /// A pass keeps the token's user only once the host named it: a lookup that failed for one task is asked again for the
+    /// next, so its notes are told apart from AiTerm's own.
+    @Test func aUserLookupThatFailedForOneTaskIsAskedAgainForTheNext() async throws {
+        let r = try await reviewed(.inReview)
+        await withASecondTask(r)
+        let users = r.host.userLookups
+        r.host.update { $0.userFailures = 1 }
+        r.world.controller.reviewWatcher.poll()
+        await r.world.settled()
+        #expect(r.host.userLookups - users == 2, "asked again after the failed lookup")
+    }
+}
+
+
+extension OperatorReviewTests {
+    /// Main 51f83d77's three call sites differ only in whether their surrounding sentence supplies punctuation.
+    @Test func theSharedHostFailureSentenceKeepsBothCurrentPunctuationRules() {
+        let errors: [any Error] = [BackgroundWork.NoAnswer(), ToolRefusal(""), ToolRefusal("."), ToolRefusal("..."),
+                                   ToolRefusal("Try again..."), ToolRefusal("Why?"), GitLabError.network("lost."),
+                                   GitHubError.badResponse(503), URLError(.timedOut)]
+        let limit = Duration.seconds(5)
+        for error in errors {
+            let current = error is BackgroundWork.NoAnswer ? "the host did not answer in \(Int(limit.components.seconds)) seconds"
+                : (error as? ToolRefusal)?.message ?? error.localizedDescription
+            var punctuated = current
+            while punctuated.hasSuffix(".") { punctuated.removeLast() }
+            #expect(OperatorToolHandler.hostFailure(error, limit: limit) == current)
+            #expect(OperatorToolHandler.hostFailure(error, limit: limit, trimmingPeriods: true) == punctuated)
+        }
+    }
+}
+
+
+extension OperatorReviewTests {
+    @Test func statusReadsThreadsAndRequestStateTogether() async throws {
+        let gate = OracleGate()
+        let r = try await reviewed(.inReview, checkout: false)
+        defer { r.world.controller.stop() }
+        r.host.update {
+            $0.beforeState = { await gate.wait() }
+            $0.onCall = { if $0 == "threads 12" { await gate.wait() } }
+        }
+        var answer: ToolAnswer?
+        r.world.ports.work.start { answer = await r.world.call(r.run.id, "run_status") }
+        await eventually(describing: "both host reads to enter before either is released") {
+            r.host.log.contains("threads 12") && r.host.log.contains("state 12")
+        }
+        await gate.open()
+        await r.world.ports.work.settled()
+        #expect(answer?.value?["tasks"]?.arrayValue?.first?["mergeRequest"] != nil)
+    }
+}
+
+extension OperatorReviewTests {
+    @Test func runStatusDoesNotReuseAStateThatExpiredWhileItsThreadsWereRead() async throws {
+        let clock = TestClock.operators(), gate = OracleGate()
+        let r = try await reviewed(.inReview, checkout: false) { $0.clock.now = { clock.now } }
+        defer { r.world.controller.stop() }
+        r.host.update {
+            $0.state = MergeRequestState(iid: 12, url: FakeMergeHost.url, draft: true, pipeline: "running", mergeable: "mergeable", approvedBy: [], head: r.sha)
+            $0.onCall = { if $0 == "threads 12" { await gate.wait() } }
+        }
+        var answer: ToolAnswer?
+        r.world.ports.work.start { answer = await r.world.call(r.run.id, "run_status") }
+        await eventually { r.host.log.contains("state 12") && r.host.log.contains("threads 12") }
+        await r.world.ports.work.settled(leaving: 1)
+        clock.advance(by: r.world.ports.hostCache + 1)
+        r.host.update {
+            $0.state = MergeRequestState(iid: 12, url: FakeMergeHost.url, draft: true, pipeline: "success", mergeable: "mergeable", approvedBy: [], head: r.sha)
+        }
+        await gate.open()
+        await r.world.ports.work.settled()
+        #expect(answer?.value?["tasks"]?.arrayValue?.first?["mergeRequest"]?["pipeline"] == "success")
+        #expect(r.host.log.filter { $0 == "state 12" }.count == 2)
     }
 }

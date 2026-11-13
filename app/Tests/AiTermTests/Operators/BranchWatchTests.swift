@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
@@ -33,7 +34,7 @@ import Testing
 
     func tick(_ world: OperatorWorld) async {
         world.controller.reconcileTick()
-        await world.controller.branchWatch.lastPoll?.value
+        await world.settled()
     }
 
     func driftLines(_ world: OperatorWorld) -> [String] {
@@ -155,7 +156,7 @@ import Testing
         world.live.sessions = [OperatorServiceFixtures.session("op", window: "wo", tag: run.id),
                                OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .working)]
         world.controller.branchWatch.poll()
-        await world.controller.branchWatch.lastPoll?.value
+        await world.settled()
         #expect(world.task(task.id)?.operated?.state == .blocked)
         #expect(world.notifications.posted.last?.target == .board(run.id))
     }
@@ -224,7 +225,7 @@ import Testing
             driftLines(world) == ["[AiTerm] PLUTO-one needs its branch checked, call run_status"]
         })
         await tick(world)
-        await world.controller.waker.lastSend?.value
+        await world.settled()
         #expect(driftLines(world).count == 1, "told once")
 
         try git.run(["checkout", "-q", "feat/pluto-1"], in: worktree)
@@ -355,8 +356,11 @@ import Testing
         #expect(drift.source == .lastMessage && drift.sha == sha && drift.branch == "feat/tests-elsewhere")
     }
 
-    /// An idle worker's transcript is read again only once it was written since the last pass: a tick that finds it
-    /// as it was reads what it read before, and one after it changed reads it afresh.
+    /// An idle worker's transcript is read again only once it was written since the last read (`TranscriptLocator.reply`,
+    /// which file it is, its length and its date): the branch watch's own pass that finds it as it was reads what it read
+    /// before. What its stamp cannot tell apart, the same file rewritten in place at the same length with its date put
+    /// back, the reconcile tick reads in full (the turn reader's `fullRead`), and the branch watch has the new reply from
+    /// it; one whose date moved is read on any pass.
     @Test func anUnchangedTranscriptIsReadOnceAndAChangedOneAgain() async throws {
         let (world, _, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-4")
         func offBranch(_ branch: String) throws -> String {
@@ -364,6 +368,10 @@ import Testing
             try git.run(["worktree", "add", "-q", "-b", branch, elsewhere], in: worktree)
             try git.run(["commit", "--allow-empty", "-q", "-m", "work on \(branch)"], in: elsewhere)
             return try git.run(["rev-parse", "HEAD"], in: elsewhere)
+        }
+        func pass() async {
+            world.controller.branchWatch.poll()
+            await world.settled()
         }
         let file = world.ports.home.appendingPathComponent(".claude/projects/-wt/conv-4.jsonl")
         let first = try offBranch("feat/first")
@@ -374,16 +382,24 @@ import Testing
         await tick(world)
         #expect(world.task(task.id)?.operated?.branchDrift?.sha == first)
 
-        // Rewritten with its date put back: as far as the watch can tell, unchanged, so it is not read again.
-        let second = try offBranch("feat/second")
-        try saveReply("Committed \(second) on feat/second.", conversation: "conv-4", in: world)
+        // Rewritten in place at the same length with its date put back: as far as a stat can tell, unchanged, so the
+        // branch watch's own pass does not read it again.
+        let second = try offBranch("feat/later")
+        try saveReply("Committed \(second) on feat/later.", conversation: "conv-4", in: world)
         try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
-        await tick(world)
+        await pass()
         #expect(world.task(task.id)?.operated?.branchDrift?.sha == first, "read once")
 
-        try FileManager.default.setAttributes([.modificationDate: written.addingTimeInterval(60)], ofItemAtPath: file.path)
+        // The tick reads every ended turn's transcript in full: the next pass has the new reply.
         await tick(world)
-        #expect(world.task(task.id)?.operated?.branchDrift?.sha == second, "read again once written")
+        await pass()
+        #expect(world.task(task.id)?.operated?.branchDrift?.sha == second, "read in full on the tick")
+
+        let third = try offBranch("feat/third")
+        try saveReply("Committed \(third) on feat/third.", conversation: "conv-4", in: world)
+        try FileManager.default.setAttributes([.modificationDate: written.addingTimeInterval(60)], ofItemAtPath: file.path)
+        await pass()
+        #expect(world.task(task.id)?.operated?.branchDrift?.sha == third, "read again once written")
     }
 
     /// A worker's last reply, in its Claude conversation file under the scratch home.
@@ -432,5 +448,81 @@ extension BranchWatchTests {
         try saveReply("Superseded \(old), current commit \(current).", conversation: "conv-amended", in: world)
         await tick(world)
         #expect(world.task(task.id)?.operated?.branchDrift == nil)
+    }
+}
+
+extension BranchWatchTests {
+    /// A lookup git could not finish is no answer (phase 5, review round 1): the next pass, with the same message, head
+    /// and refs, looks the commit up again and finds the drift.
+    @Test func aLookupGitCouldNotFinishIsTriedAgainOnTheNextPass() async throws {
+        let git = TimingOutGitRunner(["for-each-ref", "--contains"], times: 1)
+        let (world, _, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-1", adjust: { $0.git = git })
+        defer { world.controller.stop() }
+        let elsewhere = try GitFixture.folder("op-drift-tmp-") + "/other"
+        try self.git.run(["worktree", "add", "-q", "-b", "feat/my-own", elsewhere], in: worktree)
+        try self.git.run(["commit", "--allow-empty", "-q", "-m", "the fix"], in: elsewhere)
+        let sha = try self.git.run(["rev-parse", "HEAD"], in: elsewhere)
+        try saveReply("Done. Committed \(sha) on feat/my-own.", conversation: "conv-1", in: world)
+        world.controller.turns.observe()
+        await world.settled()
+        world.controller.branchWatch.poll()
+        await world.settled()
+        #expect(world.task(task.id)?.operated?.branchDrift == nil, "git timed out: nothing is said of the commit yet")
+        world.controller.branchWatch.poll()
+        await world.settled()
+        #expect(world.task(task.id)?.operated?.branchDrift?.sha == sha, "looked up again, and found")
+    }
+}
+
+extension BranchWatchTests {
+    /// The default branch git could not name is no answer either (phase 5, review round 2): a commit on the default
+    /// branch, `develop`, read once while git fails to name it and so taken for off its bases, is looked up again on the
+    /// next pass and is no drift.
+    @Test func aLookupThatCouldNotNameTheDefaultBranchIsTriedAgain() async throws {
+        let git = FailingOnceGit()
+        let (world, _, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-1", adjust: { $0.git = git })
+        defer { world.controller.stop() }
+        let elsewhere = try GitFixture.folder("op-drift-tmp-") + "/develop"
+        try self.git.run(["worktree", "add", "-q", "-b", "develop", elsewhere], in: worktree)
+        try self.git.run(["commit", "--allow-empty", "-q", "-m", "on develop"], in: elsewhere)
+        let sha = try self.git.run(["rev-parse", "HEAD"], in: elsewhere)
+        try self.git.run(["update-ref", "refs/remotes/origin/develop", sha], in: worktree)
+        try self.git.run(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop"], in: worktree)
+        try saveReply("Done. Committed \(sha) on develop.", conversation: "conv-1", in: world)
+        world.controller.turns.observe()
+        await world.settled()
+        git.failNext(["for-each-ref", "--format=%(refname) %(symref)"])
+        world.controller.branchWatch.poll()
+        await world.settled()
+        #expect(git.failed == 1, "the default branch's lookup failed once")
+        #expect(world.task(task.id)?.operated?.branchDrift?.sha == sha, "taken for off its bases while the default branch was unknown")
+        world.controller.branchWatch.poll()
+        await world.settled()
+        #expect(world.task(task.id)?.operated?.branchDrift == nil, "looked up again: on the default branch")
+    }
+}
+
+/// Git that fails the next command starting with the words a test names, once, as a git killed at its deadline does, and
+/// runs every other.
+final class FailingOnceGit: GitRunning {
+    private let inner: any GitRunning = GitRunner.hermetic()
+    private let armed = Mutex<[String]?>(nil)
+    private let failures = Mutex(0)
+    /// How many commands it failed.
+    var failed: Int { failures.withLock { $0 } }
+
+    func failNext(_ prefix: [String]) { armed.withLock { $0 = prefix } }
+
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        let fails = armed.withLock { armed -> Bool in
+            guard let words = armed, args.starts(with: words) else { return false }
+            armed = nil
+            return true
+        }
+        if fails {
+            failures.withLock { $0 += 1 }
+            throw GitError(args: args, code: 15, stderr: "git \(args.first ?? "") timed out after \(timeout) s", timedOut: true)
+        }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }
 }

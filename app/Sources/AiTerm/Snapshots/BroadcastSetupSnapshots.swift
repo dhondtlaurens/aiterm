@@ -43,17 +43,10 @@ enum BroadcastSetupSnapshots {
     }
 
     private static func model(slices: Slices, oracle: Bool) -> NewBroadcastModel {
-        let projects = [OperatorScene.project("webshop"), OperatorScene.project("payments-api")]
         let context = NewBroadcastContext(slices: slices, oracleIsOn: oracle, models: models,
                                           defaults: [.claude: opusHigh, .codex: astraMedium],
                                           lastAgents: [opusHigh, AgentChoice(agent: .claude, model: "claude-sonnet-5-5", reasoning: "medium"), astraMedium])
-        let model = NewBroadcastModel(projects: projects, context: context, skills: { _, _ in [] }) { _ in UUID() }
-        model.received([OperatorScene.payments])
-        model.add(jiraProject: OperatorScene.payments)
-        model.prompt = OperatorScene.prompt
-        model.review = "An adversarial review with /code-review. It passes with no Critical or Important findings. After 3 rounds of fixes, ask me."
-        if oracle { model.done = "Every PAY ticket in sprint 12 is merged, and its Jira ticket is in Review." }
-        return model
+        return NewBroadcastFixture.model(context: context, prompt: OperatorScene.prompt)
     }
 
     private static let opusHigh = AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high")

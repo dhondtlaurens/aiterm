@@ -23,8 +23,8 @@ final class ArchiveSheetModel: Identifiable {
         self.entries = entries; self.restore = restore; self.open = open; self.remove = remove
     }
 
-    /// One render or command's consistent view of the Shelf: ranked once, without caching a
-    /// closure's changing workspace inputs across renders.
+    /// One render or command's consistent view of the Shelf. Ranking is reused only while
+    /// the source's current rows and the query are equal.
     struct Projection {
         let rows: [ShelfRow]
         let total: Int
@@ -43,8 +43,20 @@ final class ArchiveSheetModel: Identifiable {
         }
     }
 
+    /// One retained ranking. The source is still read every time, under Observation,
+    /// so replacement rows, restored/removed entries and edits invalidate it immediately.
+    @ObservationIgnored private var rankedInput: [ShelfRow]?
+    @ObservationIgnored private var rankedQuery = ""
+    @ObservationIgnored private var rankedRows: [ShelfRow] = []
+
     var projection: Projection {
-        let entries = entries(), rows = ArchiveSearch.rank(entries, query: query)
+        let entries = entries()
+        if entries != rankedInput || query != rankedQuery {
+            WorkMeter.note(.archiveRank)
+            rankedRows = ArchiveSearch.rank(entries, query: query)
+            rankedInput = entries; rankedQuery = query
+        }
+        let rows = rankedRows
         let highlighted = rows.first { $0.id == highlightedId } ?? rows.first
         let status = query.trimmingCharacters(in: .whitespaces).isEmpty ? "\(entries.count) shelved" : "\(rows.count) of \(entries.count)"
         return Projection(rows: rows, total: entries.count, highlighted: highlighted, status: status)

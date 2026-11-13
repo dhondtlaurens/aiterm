@@ -22,7 +22,7 @@ public final class RemoteResolver: Sendable {
     private let resolver: RepositoryResolver<CachedRemote>
 
     /// Resolvers given the same `probe` ask git where a directory's files are once between them.
-    public init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30,
+    public init(git: any GitRunning, now: @escaping @Sendable () -> Date = MonotonicDate.now, negativeTTL: TimeInterval = 30,
                 probe: RepositoryProbe? = nil) {
         resolver = RepositoryResolver(git: git, now: now, negativeTTL: negativeTTL, probe: probe)
     }

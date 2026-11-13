@@ -5,7 +5,7 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-extension AppControllerTests {
+@MainActor @Suite(.blocking) struct DaemonConnectionControllerTests {
     /// How many times the app sends the background preference to a daemon whose first snapshot
     /// says `connectedAtAttach`, and which — when it was not — then connects iTerm2 and says so.
     private func backgroundSends(connectedAtAttach: Bool) async throws -> Int {
@@ -319,7 +319,7 @@ private final class Attempts: Sendable {
     func record(_ attempt: Int) { asked.withLock { $0.append(attempt) } }
 }
 
-extension AppControllerTests {
+extension DaemonConnectionControllerTests {
     @Test func everyConnectionSendsTheAppsClaudeDirectoryBeforeItsSnapshot() async throws {
         let log = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let server = try await PythonSocketServer.start(script: """
@@ -350,7 +350,7 @@ for _ in range(2):
     }
 }
 
-extension AppControllerTests {
+extension DaemonConnectionControllerTests {
     @Test func anOlderHelperCannotSilentlyIgnoreTheClaudeDirectory() async throws {
         let server = try await PythonSocketServer.start(script: """
 import json,socket,sys

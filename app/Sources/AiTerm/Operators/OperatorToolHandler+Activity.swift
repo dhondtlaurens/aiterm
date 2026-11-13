@@ -31,20 +31,4 @@ extension OperatorToolHandler {
         append(entry, to: id)
     }
 
-    /// Writes `entry` as a line of run `id`'s activity log, after the lines before it: a tool call's (`record`), or the
-    /// gate's for a shell command (`OperatorToolHandler+Gate.swift`).
-    func append(_ entry: ActivityEntry, to id: UUID) {
-        let folder = OperatorCommand.runFolder(id, home: ports.home), before = lastRecording
-        lastRecording = Task {
-            await before?.value
-            guard state.run(id: id) != nil else { return }
-            await Log.daemon.attempt("Recording the Operator’s \(entry.tool) call in broadcast \(id.uuidString)’s activity log") {
-                try await BackgroundWork.run {
-                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                    try ActivityLog.append(entry, runFolder: folder)
-                }
-            }
-            onActivity(id)
-        }
-    }
 }

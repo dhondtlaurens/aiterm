@@ -57,6 +57,13 @@ public enum Radius {
 /// Heights, widths and diameters: the sidebar's own widths, every control and row height, and the
 /// marks drawn inside them.
 public enum Size {
+    /// A ticket key of up to eight characters in the pickers' mono code face.
+    public static let pickerTicketKey: CGFloat = 74
+    /// A Jira project key without the ticket number, shared by both project pickers.
+    public static let pickerProjectKey: CGFloat = 64
+    /// A request's sigil and four-digit number in the picker results.
+    public static let pickerRequestKey: CGFloat = 44
+
     /// The width the sidebar opens at when there is no saved frame. It is sized to a task row rather
     /// than to the footer: at 360 a row carrying a Jira key, a diff and a `+n` squeezes its branch
     /// to `feat/f…t-side`; here the branch keeps its type, the ticket's prefix and its tail, and a

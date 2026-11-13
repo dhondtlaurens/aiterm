@@ -206,7 +206,7 @@ import Synchronization
         #expect(world.run(run.id)?.goalChecks.isEmpty == true)
         let id = try #require(first["challengeId"]?.stringValue)
         await gate.open()
-        await world.controller.tools.lastChallenge?.value
+        await world.ports.work.settled()
         #expect(await world.call(run.id, "check_goal", met.adding("challengeId", .string(id))).value?["answer"] == "complete")
         #expect(world.run(run.id)?.goalChecks.map(\.oracleAgreed) == [true])
     }
@@ -225,7 +225,7 @@ import Synchronization
 
     // -- the merge check ---------------------------------------------------------------------
     /// A new broadcast's merge check is given the review prompt and the task's verdicts, not the Review and Done text.
-    @Test func aNewBroadcastsMergeCheckReadsTheReviewPromptAndTheVerdicts() async throws {
+    @Test(.blocking) func aNewBroadcastsMergeCheckReadsTheReviewPromptAndTheVerdicts() async throws {
         let prompts = OperatorMergeTests.Prompts()
         let m = try OperatorMergeTests().merging(answer: nil, runner: .answering("YES", receivePrompt: { prompts.append($0) }))
         m.world.workspace.mutate { state in

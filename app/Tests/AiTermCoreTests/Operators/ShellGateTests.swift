@@ -1,8 +1,9 @@
 import Foundation
 import Testing
+@testable import AiTermTestSupport
 @testable import AiTermCore
 
-@Suite struct ShellGateTests {
+@Suite(.blocking) struct ShellGateTests {
     let directory = "/code/shop"
     let roots = ["/code/shop", "/runs/R"]
 

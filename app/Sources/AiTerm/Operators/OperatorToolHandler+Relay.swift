@@ -34,7 +34,7 @@ extension OperatorToolHandler {
         let check: RelayCheck = (state.run(id: run.id)?.profile.oracle ?? run.profile.oracle).isOn ? run.relayCheckOrDefault : .straight
         // The same call repeated after its answer was lost: the round it started, never another Oracle call.
         if let started = run.challenges.first(where: { $0.tool == call.tool && $0.askedArguments == Self.invocation(call)
-                                                       && $0.askedEvidence == worker.text && ($0.round ?? 1) == 1 }) {
+                                                       && $0.askedEvidence == worker.text && $0.relayRound == 1 }) {
             return try await answerRound(started.id, call, in: run, task: task, holds: holds, choices: choices)
         }
         guard check != .straight else {
@@ -55,16 +55,16 @@ extension OperatorToolHandler {
         let name = operated.key
         if operated.takenOver { throw ToolRefusal("\(name) is the person’s now: they answer its worker themselves.") }
         if operated.isFinished { throw ToolRefusal("\(name) has finished: nothing waits on its worker’s answer.") }
-        let tab = call.optionalString("tab") ?? WorkerTab.firstKey
+        let tab = TabReference(call.optionalString("tab")).name
         let reading: WorkerTurnReader.Reading?
-        if tab == WorkerTab.firstKey {
-            reading = turnReadings()[task.id]
+        if TabReference(tab) == .first {
+            reading = turns.readings[task.id]
         } else {
             guard operated.extraTabs.contains(where: { $0.key == tab }) else {
-                let tabs = [WorkerTab.firstKey] + operated.extraTabs.map(\.key)
+                let tabs = [TabReference.first.name] + operated.extraTabs.map(\.key)
                 throw ToolRefusal("\(name) has no tab \(tab). Its tabs are \(tabs.joined(separator: ", ")).")
             }
-            reading = extraTurnReadings()[task.id]?[tab]
+            reading = turns.extraReadings[task.id]?[tab]
         }
         guard let reading, let message = reading.lastMessage.said else {
             throw ToolRefusal("\(name)’s worker has no ended turn AiTerm has read: there is no question to pass on. Read it with read_task.")
@@ -97,14 +97,13 @@ extension OperatorToolHandler {
         let question = OperatorQuestion(id: key, text: worker.text, task: task.id, askedAt: ports.now(), holds: holds == false ? false : nil,
                                         choices: choices, relayedFrom: worker.tab, history: history)
         mutate(in: run.id) { state in
+            state.open(question, inRun: run.id)
             state.updateRun(id: run.id) { run in
-                run.questions.append(question)
                 if let round, let i = run.challenges.firstIndex(where: { $0.id == round }) {
                     run.challenges[i].stage = .acted
                     run.challenges[i].result = key
                 }
             }
-            if question.holdsTask { state.updateOperated(task.id) { $0.flags.insert(.waitingOnYou) } }
         }
         return Self.relayAnswer(question, task: task.operated?.key ?? task.title)
     }
@@ -125,18 +124,11 @@ extension OperatorToolHandler {
                                                  brief: task.operated?.brief ?? "", run: status, discussion: said)
         let runner = ports.secondOpinion, folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path) + (task.hasCheckout ? [task.worktreePath] : [])
-        let challenge = Task { () -> SecondOpinionRunner.Verdict? in
-            let verdict = await runner.challenge(opinion, prompt: prompt, runFolder: folder, projects: projects)
-            return Task.isCancelled ? nil : Self.capped(verdict)
-        }
         let consulting = OperatorActivity(run: run.id, task: task.id, act: .consultingTheOracle)
-        onActing(consulting, true)
-        let settled = Task { [weak self] in
-            let verdict = await withTaskCancellationHandler { await challenge.value } onCancel: { challenge.cancel() }
-            guard let self else { return }
-            runningChallenges[id] = nil
-            onActing(consulting, false)
-            guard let verdict, state.run(id: run.id)?.challenges.first(where: { $0.id == id })?.stage == .running else { return }
+        let challenge = startOracleJob(.challenge(id), run: run.id, runner: runner, opinion: opinion,
+                                         prompt: prompt, folder: folder, projects: projects,
+                                         acting: { [weak self] on in self?.onActing(consulting, on) }) { [weak self] verdict in
+            guard let self, state.run(id: run.id)?.challenges.first(where: { $0.id == id })?.stage == .running else { return }
             updateChallenge(id, in: run.id) { kept in
                 switch verdict {
                 case .critique(let critique): kept.stage = .ready; kept.critique = critique
@@ -144,9 +136,7 @@ extension OperatorToolHandler {
                 }
             }
         }
-        runningChallenges[id] = settled
-        lastChallenge = settled
-        let answered = try? await Self.within(ports.challengeReplyBudget, cancelling: false) { await challenge.value }.get()
+        let answered = try? await BackgroundWork.within(ports.challengeReplyBudget, cancelling: false) { await challenge.value }.get()
         // While the Oracle read, the person may have answered the worker in its tab, or the task changed hands or finished.
         if answered != nil { try stillAsks(worker, call, task: task, in: run) }
         switch answered {
@@ -206,14 +196,14 @@ extension OperatorToolHandler {
         // call still carries this round's reply, so a critique the next round delivered is said again here, not answered.
         if kept.stage == .acted, let next = run.challenges.first(where: { $0.tool == kept.tool && $0.askedArguments == kept.askedArguments
                                                                     && $0.askedEvidence == kept.askedEvidence
-                                                                    && $0.round == (kept.round ?? 1) + 1 }) {
+                                                                    && $0.relayRound == (kept.relayRound ?? 1) + 1 }) {
             if next.stage == .delivered { return Self.relayChallenged(next.id, next.critique ?? "", task: task.operated?.key ?? task.title) }
             return try await answerRound(next.id, call, in: run, task: task, holds: holds, choices: choices)
         }
         let discussion = discussion(before: kept, worker: worker, in: run)
-        let number = kept.round ?? 1
+        let number = kept.relayRound ?? 1
         switch kept.stage {
-        case .running where runningChallenges[id] != nil:
+        case .running where isOracleRunning(.challenge(id)):
             return Self.relayPending(id)
         case .running, .unchallenged:
             // Lost with AiTerm's restart, or the Oracle couldn't answer: it never holds the question up.
@@ -246,8 +236,8 @@ extension OperatorToolHandler {
     private func discussion(before kept: ChallengeRecord, worker: WorkerQuestion, in run: OperatorRun) -> [QuestionStep] {
         let earlier = run.challenges.filter { $0.tool == kept.tool && $0.askedArguments == kept.askedArguments
                                               && $0.askedEvidence == kept.askedEvidence
-                                              && ($0.round ?? 1) < (kept.round ?? 1) && $0.askedAt <= kept.askedAt }
-            .sorted { ($0.round ?? 1) < ($1.round ?? 1) }
+                                              && ($0.relayRound ?? 1) < (kept.relayRound ?? 1) && $0.askedAt <= kept.askedAt }
+            .sorted { ($0.relayRound ?? 1) < ($1.relayRound ?? 1) }
         var steps = [QuestionStep(kind: .asked, text: worker.message, at: earlier.first?.askedAt ?? kept.askedAt)]
         for round in earlier {
             steps.append(QuestionStep(kind: .oracle, text: round.critique ?? "", at: round.askedAt, round: round.round))

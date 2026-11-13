@@ -14,8 +14,8 @@ struct BroadcastActivityView: View {
     let entries: [ActivityEntry]
     /// The broadcast's task titles by id, to set a line's task name in medium weight.
     var titles: [UUID: String] = [:]
-    private var _openId = State<UUID?>(initialValue: nil)
-    private var openId: UUID? { get { _openId.wrappedValue } nonmutating set { _openId.wrappedValue = newValue } }
+    @State private var presentation = ActivityPresentation()
+    @State private var openId: UUID? = nil
     @Environment(\.footerClock) private var clock
 
     init(entries: [ActivityEntry], titles: [UUID: String] = [:], openId: UUID? = nil) {
@@ -36,9 +36,10 @@ struct BroadcastActivityView: View {
         if entries.isEmpty {
             HelpText("Nothing recorded yet.", fixedVerticalSize: false)
         } else {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Self.days(entries, calendar: calendar)) { day in
-                    SidebarHeading(Self.dayTitle(day.start, now: now, calendar: calendar))
+            let days = presentation.layout(entries, now: now, calendar: calendar)
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(days) { day in
+                    SidebarHeading(day.title)
                         .frame(height: Size.menuRow)
                         .padding(.horizontal, Space.base)
                     ForEach(day.entries) { entry in
@@ -56,7 +57,8 @@ struct BroadcastActivityView: View {
 
     /// `entries`, newest first, in runs of one calendar day.
     static func days(_ entries: [ActivityEntry], calendar: Calendar) -> [Day] {
-        entries.reduce(into: []) { days, entry in
+        WorkMeter.note(.activityDays)
+        return entries.reduce(into: []) { days, entry in
             let start = calendar.startOfDay(for: entry.at)
             if days.last?.start == start { days[days.count - 1].entries.append(entry) } else { days.append(Day(start: start, entries: [entry])) }
         }
@@ -64,6 +66,7 @@ struct BroadcastActivityView: View {
 
     /// A day's heading: `Today`, else the day (`10 Mar`), with the year once it is another year's.
     static func dayTitle(_ day: Date, now: Date, calendar: Calendar) -> String {
+        WorkMeter.note(.activityDayTitle)
         if calendar.isDate(day, inSameDayAs: now) { return "Today" }
         var style = Date.FormatStyle(date: .omitted, time: .omitted, locale: calendar.locale ?? .current, calendar: calendar,
                                      timeZone: calendar.timeZone).day().month(.abbreviated)
@@ -107,7 +110,14 @@ private struct ActivityRow: View {
     let isOpen: Bool
     let toggle: () -> Void
 
+    #if DEBUG
+    @Environment(\.rowBodyCounter) private var bodyCounter
+    #endif
+
     var body: some View {
+        #if DEBUG
+        let _ = bodyCounter?.count(entry.id)
+        #endif
         HStack(alignment: .firstTextBaseline, spacing: Space.gap) {
             Text(verbatim: time).font(Typography.mono).foregroundStyle(Palette.muted).fixedSize()
             VStack(alignment: .leading, spacing: Space.tight) {

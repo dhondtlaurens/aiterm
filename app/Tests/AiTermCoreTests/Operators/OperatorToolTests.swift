@@ -58,4 +58,32 @@ import Testing
             #expect(brief.contains(veto.tool.rawValue + " " + veto.unanswered.words), "\(veto.tool)")
         }
     }
+
+    /// Each tool's traits are one exhaustive answer: a tool only looks or changes something, a veto is the Oracle's yes
+    /// (`vetoes`), and the Activity tab mutes exactly the tools that look.
+    @Test func eachToolHasItsTraits() {
+        #expect(OperatorTool.allCases.filter(\.isReadOnly) == [.runStatus, .jiraSearch, .jiraBoard, .readTask, .findUser])
+        #expect(OperatorTool.allCases.allSatisfy { $0.isReadOnly != $0.isMutating })
+        #expect(OperatorTool.allCases.filter { $0.challengeClass == .veto } == OperatorTool.allCases.filter(\.isVeto))
+        #expect(OperatorTool.allCases.filter { $0.challengeClass == .critique } == [.submitPlan, .markTask])
+        #expect(OperatorTool.allCases.filter { $0.challengeClass == .relay } == [.relayQuestion])
+        #expect(OperatorTool.allCases.filter { $0.actKind == .onTask }
+                == [.reviewTask, .requestReview, .replyThread, .messageTask, .markTask, .finishTask])
+        #expect(ActivityLine.reads == Set(OperatorTool.allCases.filter(\.isReadOnly).map(\.rawValue) + ["shell_read"]))
+    }
+}
+
+
+extension OperatorToolTests {
+    /// Read the daemon's declared list itself; the served schema and its frozen fixture stay untouched.
+    @Test func theDaemonAndSwiftChallengeTheSameTools() throws {
+        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("daemon/aitermd/operator_mcp.py")
+        let python = try String(contentsOf: file, encoding: .utf8)
+        let list = try #require(python.firstMatch(of: try Regex(#"(?s)CHALLENGED_TOOLS\s*=\s*\((.*?)\)"#))?.output[1].substring)
+        let names = String(list).matches(of: try Regex(#""([a-z_]+)""#)).compactMap { $0.output[1].substring.map(String.init) }
+        #expect(!names.isEmpty)
+        #expect(Set(names) == Set(OperatorTool.allCases.filter { $0.challengeClass != .never }.map(\.rawValue)))
+    }
 }

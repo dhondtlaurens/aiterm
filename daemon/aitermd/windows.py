@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from . import protocol
-from .iterm_bridge import ItermPort, ItermUnavailable
+from .iterm_port import ItermPort, ItermUnavailable
 from .models import PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG
 from .rpc_params import frame_param, guard, optional_param, param, require_iterm
 from .rpc_server import RpcError
@@ -184,7 +184,7 @@ class WindowManager:
         """Runs `step`; its failure, logged, is returned as a sentence (the exception's own words), else None."""
         try:
             await coro
-        except Exception as exc:  # noqa: BLE001 - the window exists either way
+        except Exception as exc:  # the window exists either way
             log.exception("%s after creating a window or tab failed", step)
             return str(exc) or type(exc).__name__
         return None
@@ -310,5 +310,5 @@ class WindowManager:
             if tags and cwd:
                 await self.iterm.send_text(session_id, f" cd {shlex.quote(cwd)} && clear\n")
             await self.tick()
-        except Exception:  # noqa: BLE001 - must not escape into the iTerm2 library's dispatch
+        except Exception:  # must not escape into the iTerm2 library's dispatch
             log.exception("on_new_session failed for %s", session_id)

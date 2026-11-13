@@ -63,7 +63,6 @@ extension OperatorToolHandler {
             mutate(in: run.id) { $0.updateRun(id: run.id) { $0.gateAllowances.remove(at: allowed) } }
             return answer("allow", "allowed by you")
         }
-        refreshOracleSettings()
         let generation = oracleGeneration(run.id)
         let opinion = state.run(id: run.id)?.profile.oracle ?? run.profile.oracle
         guard opinion.isOn else {
@@ -75,12 +74,12 @@ extension OperatorToolHandler {
 
         // Awaited however long it takes: the hook waits `OperatorTiming.gateTimeout`, past the Oracle's own limit.
         let consulting = OperatorActivity(run: run.id, task: task?.id, act: .consultingTheOracle)
-        onActing(consulting, true)
-        let verdict = await ports.secondOpinion.challenge(opinion, prompt: prompt, runFolder: folder, projects: projects)
-        onActing(consulting, false)
+        let job = startOracleJob(.gate(UUID()), run: run.id, runner: ports.secondOpinion, opinion: opinion,
+                                   prompt: prompt, folder: folder, projects: projects, capped: false, keepCancelled: true,
+                                   acting: { [weak self] on in self?.onActing(consulting, on) })
+        let verdict = await job.value
         // The Oracle may take minutes: a broadcast that ended meanwhile runs nothing and asks nothing.
         if let ended = ended(run.id) { return answer("deny", ended, outcome: .refused) }
-        refreshOracleSettings()
         if oracleGeneration(run.id) != generation {
             return state.run(id: run.id)?.profile.oracle.isOn == false
                 ? answer("allow", "unchallenged: the Oracle is off")
@@ -88,8 +87,9 @@ extension OperatorToolHandler {
         }
         let critique: String
         switch verdict {
-        case .unchallenged(let why): return answer("allow", "unchallenged: \(why)")
-        case .critique(let text): critique = text
+        case .unchallenged(let why)?: return answer("allow", "unchallenged: \(why)")
+        case .critique(let text)?: critique = text
+        case nil: return answer("deny", Self.goneReason, outcome: .refused)
         }
         switch ChallengeLaunch.gateVerdict(critique) {
         case .allow:
@@ -132,10 +132,7 @@ extension OperatorToolHandler {
         let said = why.isEmpty ? "." : ": " + why
         let question = OperatorQuestion(id: key, text: "The Oracle stopped `\(request.command)` in \(request.directory)\(said)", task: task,
                                         askedAt: ports.now(), gate: request)
-        mutate(in: id) { state in
-            state.updateRun(id: id) { $0.questions.append(question) }
-            if let task { state.updateOperated(task) { $0.flags.insert(.waitingOnYou) } }
-        }
+        mutate(in: id) { $0.open(question, inRun: id) }
         return key
     }
 

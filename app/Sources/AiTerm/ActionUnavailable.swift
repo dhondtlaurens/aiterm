@@ -5,7 +5,13 @@ import Foundation
 /// Its description is the message too, for the reports that interpolate the error they caught.
 struct ActionUnavailable: LocalizedError, CustomStringConvertible {
     let message: String
-    init(_ message: String) { self.message = message }
+    /// Which refusal it is, for a caller that acts on one in particular; nil for every other. Its words are `message`.
+    let kind: Kind?
+    enum Kind: Equatable { case conversationGone }
+    init(_ message: String, kind: Kind? = nil) {
+        self.message = message
+        self.kind = kind
+    }
     var errorDescription: String? { message }
     var description: String { message }
 }

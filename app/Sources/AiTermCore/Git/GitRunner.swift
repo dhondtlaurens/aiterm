@@ -109,23 +109,49 @@ extension GitError: LogDetailed {
     }
 }
 
+/// What git printed for a bounded read (`GitRunning.read`): its standard output as printed, untrimmed,
+/// and whether it printed more than the read's limit, of which only the first `limit` bytes are here.
+public struct GitOutput: Equatable, Sendable {
+    public var text: String
+    public var truncated: Bool
+    public init(text: String, truncated: Bool) { self.text = text; self.truncated = truncated }
+}
+
 /// What runs git for a caller. Production runs the real binary (``GitRunner``); a test hands in one
 /// that counts, records or fails what it is asked, without a class for the tests to subclass.
 ///
-/// `run(_:in:timeout:environment:)` is the one requirement, and every other way to ask — the
-/// default deadline, `runRemote`, `ask` — is an extension that ends in it, so a conformer sees every
-/// command and none escapes.
+/// `run(_:in:timeout:environment:)` is the one requirement every conformer writes, and every other
+/// way to ask — the default deadline, `runRemote`, `ask` — is an extension that ends in it, so a
+/// conformer sees every command and none escapes. A bounded read (`output`) ends in it too unless the
+/// conformer runs git itself (``GitRunner``) or wraps one that does (``StallGuardedGit``), which bound
+/// the output where it is read.
 public protocol GitRunning: Sendable {
     /// Runs git with `args` in `dir`, with `environment` set over the runner's own for this one
     /// command; its trimmed stdout, or a `GitError`.
     @discardableResult
     func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String
+
+    /// `run`, keeping at most `limit` bytes of what git prints, as printed: untrimmed, and saying
+    /// whether more was dropped. A conformer that does not read git's output itself answers with
+    /// `run`'s trimmed text, never truncated.
+    func output(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String], limit: Int) throws -> GitOutput
 }
 
 extension GitRunning {
+    public func output(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String],
+                       limit: Int) throws -> GitOutput {
+        GitOutput(text: try run(args, in: dir, timeout: timeout, environment: environment), truncated: false)
+    }
+
     @discardableResult
     public func run(_ args: [String], in dir: String, timeout: TimeInterval = GitRunner.localTimeout) throws -> String {
         try run(args, in: dir, timeout: timeout, environment: [:])
+    }
+
+    /// What git prints for `args`, at most `limit` bytes of it, untrimmed: for output with no natural
+    /// size, a diff, which is then cut to what its reader can use.
+    public func read(_ args: [String], in dir: String, limit: Int, timeout: TimeInterval = GitRunner.localTimeout) throws -> GitOutput {
+        try output(args, in: dir, timeout: timeout, environment: [:], limit: limit)
     }
 
     /// `run` for a command that talks to a remote — `fetch`, `ls-remote` — with the remote
@@ -185,13 +211,25 @@ public struct GitRunner: GitRunning {
         self.git = git; self.environment = environment; self.ignoresInherited = ignoringInherited; self.searchPath = searchPath
     }
 
+    /// Git's output trimmed of the whitespace around it: what most callers compare or split.
     @discardableResult
     public func run(_ args: [String], in dir: String, timeout: TimeInterval, environment extra: [String: String]) throws -> String {
+        try spawn(args, in: dir, timeout: timeout, environment: extra, limit: nil).text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public func output(_ args: [String], in dir: String, timeout: TimeInterval, environment extra: [String: String],
+                       limit: Int) throws -> GitOutput {
+        try spawn(args, in: dir, timeout: timeout, environment: extra, limit: limit)
+    }
+
+    /// The one place git runs: its stdout as printed, the first `limit` bytes of it when there is a limit.
+    private func spawn(_ args: [String], in dir: String, timeout: TimeInterval, environment extra: [String: String],
+                       limit: Int?) throws -> GitOutput {
         let env = commandEnvironment(inheriting: ProcessRunner.inheritedEnvironment, extra: extra)
         // Process.currentDirectoryURL can fall back when a checkout disappeared.
         // Git must itself validate the directory before doing anything to a repository.
         let result = try ProcessRunner.run(URL(fileURLWithPath: git), ["-C", dir] + args, environment: env,
-                                           in: URL(fileURLWithPath: dir), timeout: timeout)
+                                           in: URL(fileURLWithPath: dir), timeout: timeout, limit: limit)
         if result.timedOut {
             throw GitError(args: args, code: result.status,
                            stderr: "\(Self.command(args)) timed out after \(String(format: "%g", timeout)) s", timedOut: true,
@@ -201,7 +239,7 @@ public struct GitRunner: GitRunning {
             throw GitError(args: args, code: result.status, stderr: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines),
                            stdout: result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return GitOutput(text: result.stdout, truncated: result.stdoutTruncated)
     }
 
     /// What git runs with: what is inherited, less what the runner ignores, with the `searchPath`, the

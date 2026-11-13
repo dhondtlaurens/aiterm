@@ -36,7 +36,7 @@ import AiTermUI
             SettingsView(jiraConfig: nil, gitLabConfig: nil, harnessModel: HarnessSettingsModel.preview(),
                          itermConnection: { iterm }, checkIterm: { ItermEnvironment(installed: true, pythonAPIEnabled: true) },
                          preferences: .scratch(), setMatchItermBackground: { _ in }, setInterfaceSize: { _ in },
-                         testRecord: record)._tab.wrappedValue
+                         testRecord: record).tab
         }
         #expect(open(.connected(version: "3.7.2")) == .agents)
         #expect(open(.waitingForIterm) == .integrations)

@@ -387,8 +387,8 @@ import Testing
         #expect(line(StoppedOn(error: "billing_error")) == OperatorLine("blocked · billing error", look: .needsYou,
                                                                          tooltip: "Its worker stopped on a billing error; it won’t carry on by itself."))
         #expect(line(StoppedOn(error: "authentication_failed"))?.text == "blocked · sign-in failed")
-        #expect(!working.isReadyForAcceptance(in: [tab(StoppedOn(error: "rate_limit"))]))
-        #expect(working.isReadyForAcceptance(in: [tab(nil)]), "once it works again and ends its turn, it is")
+        #expect(!working.isReadyForAcceptance(in: [tab(StoppedOn(error: "rate_limit"))], now: now))
+        #expect(working.isReadyForAcceptance(in: [tab(nil)], now: now), "once it works again and ends its turn, it is")
     }
 
     /// A driven task with several worker tabs keeps one row (P5 A): its line counts the tabs still open, and a

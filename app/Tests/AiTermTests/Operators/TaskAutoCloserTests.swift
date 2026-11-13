@@ -4,13 +4,13 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-@MainActor @Suite struct TaskAutoCloserTests {
-    private func prepare(_ fixture: RaceFixture) throws -> (OperatorRun, TaskItem) {
+@MainActor @Suite(.blocking) struct TaskAutoCloserTests {
+    private func prepare(_ fixture: RaceFixture) async throws -> (OperatorRun, TaskItem) {
         var run = OperatorServiceFixtures.run(projects: [fixture.project], state: .complete,
                                               taskSettings: TaskSettings(review: nil, end: .commit))
         run.completedAt = Date(timeIntervalSince1970: 10)
         run.summaryGivenUp = true
-        var task = try fixture.addTask(windowId: "alive")
+        var task = try await fixture.addTask(windowId: "alive")
         let sha = try fixture.git.run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
         task.operated = OperatedTask(runId: run.id, key: "A", state: .accepted, end: .commit, brief: "Work", revision: 1,
                                      acceptance: TaskAcceptance(resultSHA: sha, prerequisiteSHAs: [], checkOutput: "", note: nil, at: Date()))
@@ -47,9 +47,9 @@ import Testing
     }
 
     @Test func statusDistinguishesCompletionFromLockedUntrackedWorktreeCleanup() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         app.helper.setDaemonClient(RecordingDaemon())
         app.workspace.mutate { state in
@@ -105,9 +105,9 @@ import Testing
     }
 
     @Test(arguments: [false, true]) func appWiringClosesOnCompletionAndEnd(ending: Bool) async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         app.helper.setDaemonClient(RecordingDaemon())
         if ending {
@@ -123,9 +123,9 @@ import Testing
     }
 
     @Test(arguments: [false, true]) func startupWaitsForSessionsThenResumesInterruptedClosing(ended: Bool) async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         // What a quit mid-removal leaves: the record written, the row still there, the pass not closed.
         let interrupted = try #require(TaskAutoCloser.record(task, in: run, at: Date()))
@@ -149,9 +149,9 @@ import Testing
     }
 
     @Test func reconnectResumesAHelperDeferredRemoval() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller, closer = closer(fixture)
         try await swept(closer)
         #expect(app.state.task(id: task.id) != nil)
@@ -166,11 +166,11 @@ import Testing
     }
 
     @Test func recordsBeforeRemovalAndRemovesWithoutShelvingOrQuestions() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let server = RecordingDaemon()
         fixture.controller.helper.setDaemonClient(server)
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         let closer = closer(fixture) { task, starting in
             try await app.remover.removeAutomatically(task) {
@@ -194,11 +194,11 @@ import Testing
     }
 
     @Test(arguments: [false, true]) func dirtyAndUntrackedWorktreesAreUntouched(tracked: Bool) async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let server = RecordingDaemon()
         fixture.controller.helper.setDaemonClient(server)
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         try "work".write(toFile: task.worktreePath + "/file", atomically: true, encoding: .utf8)
         if tracked { try fixture.git.run(["add", "file"], in: task.worktreePath) }
         try await swept(closer(fixture))
@@ -214,11 +214,11 @@ import Testing
     }
 
     @Test func changesMadeWhileClosingAreRefusedByGitAndKeptAsUnsavedWork() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let server = RecordingDaemon()
         fixture.controller.helper.setDaemonClient(server)
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         // The file lands after the unsaved-work check, so only git's own refusal can keep it.
         try await swept(closer(fixture) { task, starting in
@@ -234,9 +234,9 @@ import Testing
     }
 
     @Test func workspaceEditsAloneDoNotStartClosing() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, _) = try prepare(fixture)
+        let (run, _) = try await prepare(fixture)
         let app = fixture.controller
         // Not due yet as the closer's first sweep reads it.
         app.workspace.mutate { $0.updateRun(id: run.id) { $0.summaryGivenUp = false } }
@@ -255,9 +255,9 @@ import Testing
     /// A task you are driving waits for your turn to end, edits in its worktree or not: the turn is checked before its
     /// unsaved work, which the turn may still be making. Once the turn ends it is tried again.
     @Test(arguments: [false, true]) func aDrivingTabWaitsWithItsReasonOnTheRowAndNoRecord(edited: Bool) async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         let server = RecordingDaemon()
         app.helper.setDaemonClient(server)
@@ -284,9 +284,9 @@ import Testing
     }
 
     @Test(arguments: [SessionState.working, .needsInput]) func anAgentMidTurnWaitsUntilItsTurnEnds(state: SessionState) async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         let server = RecordingDaemon()
         app.helper.setDaemonClient(server)
@@ -307,9 +307,9 @@ import Testing
     }
 
     @Test func aFailedRemovalTakesBackItsRecordAndLeavesTheRow() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         var attempts = 0
         let closer = closer(fixture) { _, starting in
@@ -327,16 +327,15 @@ import Testing
     }
 
     @Test func aTurnStartedDuringTheWorktreeCheckDefersUntilItEnds() async throws {
-        let fixture = try RaceFixture()
+        // Hold Remove's worktree check, git's `status`, so the person's turn starts after the closer's first check,
+        // while Remove is waiting for it. The check leaves its repository's lane, so it is held in git itself.
+        let gate = DispatchSemaphore(value: 0)
+        let fixture = try await RaceFixture(controllerGit: StatusHeldGit(gate))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         app.helper.setDaemonClient(RecordingDaemon())
         let closer = closer(fixture)
-        // Hold the workflow queue so the person's turn starts after the closer's first check,
-        // while Remove is waiting for its own worktree check.
-        let gate = DispatchSemaphore(value: 0)
-        TaskWorkflow.queue.async { gate.wait() }
         defer { gate.signal() }
         let closing = try #require(closer.lastClose, "the closer's sweep starts the closing")
         await eventually { app.remover.isRemoving(task.id) }
@@ -348,14 +347,15 @@ import Testing
         #expect(app.state.task(id: task.id) != nil)
         session.yourPrompt = nil
         app.live.sessions = [session]
-        await closer.close(run.id)
+        // The session change schedules the retry. A second close can return while that retry runs.
+        await closer.lastClose?.value
         #expect(app.state.task(id: task.id) == nil)
     }
 
     @Test func aWaitingTaskResumesAfterTheCloserIsRecreated() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         app.helper.setDaemonClient(RecordingDaemon())
         var session = OperatorServiceFixtures.session("s", window: "alive", tag: task.id, agent: .codex)
@@ -383,9 +383,9 @@ import Testing
     }
 
     @Test(arguments: [false, true]) func mergedBranchDeletionIsRecordedOnlyWhenEnabled(enabled: Bool) async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         app.helper.setDaemonClient(RecordingDaemon())
         try "merged work".write(toFile: task.worktreePath + "/work", atomically: true, encoding: .utf8)
@@ -404,9 +404,9 @@ import Testing
     }
 
     @Test(arguments: [false, true]) func aMergedTaskKeepsItsLiveDiffAcrossACloserRestart(closeWhenDone: Bool) async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, original) = try prepare(fixture)
+        let (run, original) = try await prepare(fixture)
         let app = fixture.controller
         let base = try fixture.git.run(["rev-parse", "HEAD"], in: original.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
         for file in ["first", "second"] {
@@ -440,9 +440,9 @@ import Testing
     }
 
     @Test func aBranchDeletionFailureDoesNotUndoRemoval() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         app.helper.setDaemonClient(RecordingDaemon())
         app.workspace.mutate { state in
@@ -463,9 +463,9 @@ import Testing
     }
 
     @Test func aMergeOnlyOnOriginIsFetchedThroughTheCloser() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller, git = fixture.git
         let remote = fixture.root.appendingPathComponent("remote.git").path
         try git.run(["clone", "--bare", fixture.repo.path, remote], in: fixture.root.path)
@@ -488,9 +488,9 @@ import Testing
     }
 
     @Test func endBroadcastRetriesAnEarlierFailure() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         app.helper.setDaemonClient(RecordingDaemon())
         let closer = closer(fixture)
@@ -507,9 +507,9 @@ import Testing
     }
 
     @Test func aStackedTasksDiffBaseIsItsParentsAcceptedCommit() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, parent) = try prepare(fixture)
+        let (run, parent) = try await prepare(fixture)
         let app = fixture.controller, parentSHA = try #require(parent.operated?.acceptance?.resultSHA)
         let path = fixture.repo.path + "/.worktrees/child"
         try fixture.git.run(["worktree", "add", "-b", "child", path, parent.branch], in: fixture.repo.path)
@@ -532,9 +532,9 @@ import Testing
     }
 
     @Test func stackedChildKeepsItsParentsAcceptedCommitBeforeEitherRowGoes() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, parent) = try prepare(fixture)
+        let (run, parent) = try await prepare(fixture)
         let path = fixture.repo.path + "/.worktrees/child"
         try fixture.git.run(["worktree", "add", "-b", "child", path, parent.branch], in: fixture.repo.path)
         var child = OperatorServiceFixtures.task(in: run, project: fixture.project, key: "child", state: .accepted,
@@ -554,9 +554,9 @@ import Testing
     }
 
     @Test func anAcceptanceWhoseBaseCannotBeReadStillSucceedsWithoutOne() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "work"], in: task.worktreePath)
         let sha = try fixture.git.run(["rev-parse", "HEAD"], in: task.worktreePath).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -574,9 +574,9 @@ import Testing
     }
 
     @Test func aBranchDeletionThatCannotBeSavedNeverReadsAsDeleted() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         app.helper.setDaemonClient(RecordingDaemon())
         app.workspace.mutate { state in
@@ -593,9 +593,9 @@ import Testing
     }
 
     @Test func aRemovalThatStopsAfterItsWorktreeKeepsItsOwnNote() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         app.helper.setDaemonClient(RecordingDaemon())
         // Hold the worktree's removal so its window can come back, with the helper gone, before the row goes.
@@ -603,7 +603,7 @@ import Testing
         defer { gate.signal() }
         let closer = closer(fixture) { task, starting in
             try await app.remover.removeAutomatically(task) {
-                TaskWorkflow.queue.async { gate.wait() }
+                GitLanes.shared.lane(for: fixture.project.path).async { gate.wait() }
                 return starting()
             }
         }
@@ -622,9 +622,9 @@ import Testing
     }
 
     @Test func aRowWhoseGoingCannotBeSavedIsNotMovedBack() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         app.helper.setDaemonClient(RecordingDaemon())
         let other = OperatorServiceFixtures.task(in: run, project: fixture.project, key: "B", state: .working, end: .commit)
@@ -644,9 +644,9 @@ import Testing
     }
 
     @Test func aRestartSweepFindsARecordedDeletionWhoseBranchStayed() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, task) = try prepare(fixture)
+        let (run, task) = try await prepare(fixture)
         let app = fixture.controller
         // What a quit between saving the deletion and update-ref leaves: the row gone, the branch still here.
         var stayed = try #require(TaskAutoCloser.record(task, in: run, at: Date()))
@@ -666,9 +666,9 @@ import Testing
     }
 
     @Test func aSaveThatFailsStopsThePass() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, _) = try prepare(fixture)
+        let (run, _) = try await prepare(fixture)
         let app = fixture.controller
         var second = OperatorServiceFixtures.task(in: run, project: fixture.project, key: "B", state: .accepted, end: .commit)
         second.operated?.acceptance = TaskAcceptance(resultSHA: "abc", prerequisiteSHAs: [], checkOutput: "", note: nil, at: Date())
@@ -691,9 +691,9 @@ import Testing
 
     @Test(arguments: ["disabled", "summary", "active"])
     func runsThatMustNotCloseAreUnchanged(_ mode: String) async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let (run, _) = try prepare(fixture)
+        let (run, _) = try await prepare(fixture)
         fixture.controller.workspace.mutate { state in
             state.updateRun(id: run.id) {
                 switch mode {
@@ -733,6 +733,21 @@ private struct SaveBreakingGit: GitRunning {
         if args.first == on {
             try? FileManager.default.removeItem(at: backup)
             try? FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
+        }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
+    }
+}
+
+/// Hermetic git whose worktree checks (`Repository.hasUnsavedWork`'s `status`) wait until `gate` opens; it stays open.
+private struct StatusHeldGit: GitRunning {
+    let gate: DispatchSemaphore
+    let inner = GitRunner.hermetic()
+    init(_ gate: DispatchSemaphore) { self.gate = gate }
+
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        if args.starts(with: ["status", "--porcelain", "--ignore-submodules=none"]) {
+            gate.wait()
+            gate.signal()
         }
         return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }

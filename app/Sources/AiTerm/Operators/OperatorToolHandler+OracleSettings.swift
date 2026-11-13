@@ -5,17 +5,16 @@ extension OperatorToolHandler {
     /// Only Oracle preferences follow Settings during a broadcast. Autonomy remains the person's
     /// original grant. Repository pipeline, review and commit checks remain the finisher's own gates.
     func refreshOracleSettings() {
-        guard let defaults = ports.preferences, let profile = OperatorProfileStore.saved(defaults) else { return }
+        WorkMeter.note(.oracleSettingsRead)
+        let defaults = ports.preferences
+        guard let profile = OperatorProfileStore.saved(defaults) else { return }
         let revision = OperatorProfileStore.oracleRevision(defaults)
-        let changed = lastOracleRevision.map { $0 != revision } ?? false
-        lastOracleRevision = revision
+        let changed = observeOracleRevision(revision)
         let runs = state.runs.filter { !$0.hasEnded && (changed || $0.profile.oracle != profile.oracle) }
         guard !runs.isEmpty else { return }
         for run in runs {
-            oracleGenerations[run.id, default: 0] += 1
-            for challenge in run.challenges where challenge.stage != .acted {
-                runningChallenges.removeValue(forKey: challenge.id)?.cancel()
-            }
+            advanceOracleGeneration(run.id)
+            cancelOracleChallenges(run.challenges.filter { $0.stage != .acted }.map(\.id))
         }
         workspace.mutate { state in
             for run in runs {
@@ -33,5 +32,4 @@ extension OperatorToolHandler {
         }
     }
 
-    func oracleGeneration(_ run: UUID) -> Int { oracleGenerations[run, default: 0] }
 }

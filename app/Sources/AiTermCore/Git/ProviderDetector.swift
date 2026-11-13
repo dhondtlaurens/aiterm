@@ -8,30 +8,10 @@ public struct RemoteInfo: Equatable, Sendable {
 
 public enum ProviderDetector {
     public static func detect(remoteUrl raw: String?, repoPath: String? = nil) -> RemoteInfo {
-        guard var s = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else {
+        guard let url = RemoteURL(raw) else {
             return RemoteInfo(host: nil, path: "", provider: repoPath.map { looksLikeGitLabCheckout($0) ? .gitlab : .git } ?? .none)
         }
-        while s.hasSuffix("/") { s.removeLast() }
-        var host: String? = nil, path = s
-        if let range = s.range(of: #"^[A-Za-z][A-Za-z0-9+.-]*://"#, options: .regularExpression) {
-            var rest = String(s[range.upperBound...])
-            if let at = rest.lastIndex(of: "@"), !rest[..<at].contains("/") { rest = String(rest[rest.index(after: at)...]) }
-            let slash = rest.firstIndex(of: "/") ?? rest.endIndex
-            var hostPort = String(rest[..<slash])
-            if let colon = hostPort.lastIndex(of: ":") { hostPort = String(hostPort[..<colon]) }
-            host = hostPort.isEmpty ? nil : hostPort.lowercased()
-            path = slash < rest.endIndex ? String(rest[rest.index(after: slash)...]) : ""
-        } else if let colon = s.firstIndex(of: ":"), !s[..<colon].contains("/") {   // scp-like
-            var hostPart = String(s[..<colon])
-            if let at = hostPart.lastIndex(of: "@") { hostPart = String(hostPart[hostPart.index(after: at)...]) }
-            host = hostPart.lowercased()
-            path = String(s[s.index(after: colon)...])
-        }
-        while path.hasPrefix("/") { path.removeFirst() }
-        if path.hasSuffix(".git") { path.removeLast(4) }
-        while path.hasSuffix("/") { path.removeLast() }
-        path = path.removingPercentEncoding ?? path
-        return RemoteInfo(host: host, path: path, provider: classify(host: host, path: path, repoPath: repoPath))
+        return RemoteInfo(host: url.host, path: url.path, provider: classify(host: url.host, path: url.path, repoPath: repoPath))
     }
 
     static func classify(host: String?, path: String, repoPath: String?) -> Provider {

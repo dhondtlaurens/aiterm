@@ -6,7 +6,8 @@ import Foundation
 ///
 /// The one record of a timeout for everything that backs off after one: ``WatchedFileCache`` and
 /// ``RepositoryProbe`` per directory, ``DiffStatResolver`` per worktree, ``StallGuardedGit`` per
-/// project.
+/// project. `at` is read from their `now`, the monotonic clock in the app (`MonotonicDate`), so a
+/// wall clock set back an hour does not hold a key back for that hour.
 struct TimedOut: Sendable {
     /// How long a key whose git ran out of time is left alone: long enough that a dead mount costs
     /// its deadline once in a while rather than on every pass, short enough that a git that merely

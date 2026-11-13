@@ -34,7 +34,7 @@ public final class RepositoryProbe: Sendable {
     private let failureBackoff: TimeInterval
     private let states = KeyedStates<State>(State())
 
-    public init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30) {
+    public init(git: any GitRunning, now: @escaping @Sendable () -> Date = MonotonicDate.now, negativeTTL: TimeInterval = 30) {
         self.git = git; self.now = now; self.negativeTTL = negativeTTL; self.failureBackoff = TimedOut.backoff
     }
 

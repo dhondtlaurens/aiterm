@@ -37,12 +37,11 @@ import Testing
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
         let projects = ["Repo", "Other repo"].map { name in
-            Project(id: UUID(), name: name, path: "/\(name)", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+            Project.make(name: name, path: "/\(name)", addedAt: Date())
         }
         let tasks = (0..<7).map { index in
-            TaskItem(id: UUID(), projectId: projects[index < 4 ? 0 : 1].id, title: "Task \(index)", branch: "feat/\(index)",
-                     worktreePath: "/wt\(index)", baseBranch: "main", jira: nil, agent: .claude, model: "sonnet",
-                     reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: nil)
+            TaskItem.make(project: projects[index < 4 ? 0 : 1].id, title: "Task \(index)", branch: "feat/\(index)",
+                          worktreePath: "/wt\(index)", model: "sonnet", createdAt: Date())
         }
         let terminals = (0..<2).map { index in
             TerminalItem(id: UUID(), projectId: projects[0].id, name: "Shell \(index)", windowId: nil, createdAt: Date())
@@ -177,4 +176,40 @@ import Testing
         settle(sidebar.host, for: 0.5)
         #expect(sidebar.counter.counts[acted.id] == nil, "the acting row was redrawn \(sidebar.counter.counts[acted.id] ?? 0) times in 0.5 s")
     }
+    /// Baseline 1, final 0: a status the expanded header does not draw.
+    @Test func anExpandedProjectHeaderDoesNotRedrawForItsTasksStatus() throws {
+        let sidebar = try hostedSidebar()
+        defer { sidebar.window.orderOut(nil); sidebar.controller.shutdown() }
+        let session = SessionInfo.make("header-worker", task: sidebar.tasks[0].id)
+        sidebar.controller.live.sessions = [session]
+        sidebar.settleRows()
+        sidebar.counter.reset()
+        var changed = session; changed.state = .working
+        sidebar.controller.live.sessions = [changed]
+        sidebar.settleRows { sidebar.counter.counts[sidebar.tasks[0].id] != nil }
+        print("Project header status redraws: \(sidebar.counter.counts[sidebar.project.id] ?? 0)")
+        #expect(sidebar.counter.counts[sidebar.project.id] ?? 0 == 0, "baseline 1; final 0")
+    }
+
+    /// A taken-over worker's status changes its row, leaving the heading's words and attention unchanged.
+    @Test func theSectionHeadingsDoNotRedrawForAStatusTheyDoNotDraw() throws {
+        let sidebar = try hostedSidebar()
+        defer { sidebar.window.orderOut(nil); sidebar.controller.shutdown() }
+        let run = OperatorUIFixtures.run(windowId: nil)
+        var task = sidebar.tasks[0]
+        task.windowId = "header-worker"
+        task.operated = .make(run: run.id, key: "T1", state: .working, takenOver: true, launched: true)
+        let session = SessionInfo.make("header-worker", window: "header-worker", task: task.id)
+        sidebar.controller.workspace.mutate { $0.runs = [run]; $0.tasks[0] = task }
+        sidebar.controller.live.sessions = [session]
+        sidebar.settleRows { sidebar.list.numberOfRows == 4 }
+        sidebar.counter.reset()
+        var changed = session; changed.state = .working
+        sidebar.controller.live.sessions = [changed]
+        sidebar.settleRows { sidebar.counter.counts[task.id] != nil }
+        print("Section heading status redraws: \(sidebar.counter.headings)")
+        #expect(sidebar.counter.headings["operator"] ?? 0 == 0, "baseline 1; final 0")
+        #expect(sidebar.counter.headings["projects"] ?? 0 == 0, "baseline 1; final 0")
+    }
+
 }

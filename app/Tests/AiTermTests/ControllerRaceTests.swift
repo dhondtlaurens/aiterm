@@ -7,11 +7,11 @@ import Testing
 /// Work the controller awaits — a daemon reply, git, a modal question — lets anything else run
 /// meanwhile. Each test here makes something happen in that gap and checks the work that resumes
 /// acts on the workspace as it is then, not as it was when the work started.
-extension AppControllerTests {
+@MainActor @Suite(.blocking) struct AppControllerRaceTests {
     /// A terminal row whose project is gone fails every save (`StateStore.validate`), so the project
     /// stays until its terminal has opened — and says why it cannot go yet.
     @Test func aProjectCannotBeRemovedWhileItsTerminalOpens() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "OK", "Cancel"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "OK", "Cancel"))
         let server = RecordingDaemon(holding: "window.createTerminal")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -38,15 +38,15 @@ extension AppControllerTests {
 
     /// A task's window opening — restored here, or for a review — holds the project too.
     @Test func aProjectCannotBeRemovedWhileATaskWindowOpensInIt() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "OK"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "OK"))
         let server = RecordingDaemon(holding: "window.createTask")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
 
         // A restore opens only into an iTerm2 known to be there, and quiet.
-        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         let reopening = controller.windows.restore(.task(task.id))
         try await server.received("window.createTask")
         await controller.projects.confirmRemove(project: fixture.project)
@@ -59,7 +59,7 @@ extension AppControllerTests {
 
     /// So does a terminal whose window is closing (or reopening).
     @Test func aProjectCannotBeRemovedWhileOneOfItsTerminalsCloses() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "OK"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "OK"))
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -80,7 +80,7 @@ extension AppControllerTests {
     /// Only work in the project holds it. A task being removed in "Repo" is no reason to refuse
     /// "Other"; it is a reason to refuse "Repo".
     @Test func aProjectIsNotHeldByAnotherProjectsTaskBeingChanged() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Remove", "Remove", "OK"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove", "Remove", "OK"))
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -88,7 +88,7 @@ extension AppControllerTests {
         let other = Project(id: UUID(), name: "Other", path: fixture.root.appendingPathComponent("other").path, provider: .git,
                             remoteUrl: nil, addedAt: Date(), collapsed: false)
         controller.workspace.mutate { $0.append(project: other) }
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
 
         let removal = await controller.remover.confirmRemove(task: task)
         try await server.received("window.close")
@@ -106,7 +106,7 @@ extension AppControllerTests {
     /// The project can still go while the window opens — a restored backup replaces the whole
     /// workspace. The window is then closed rather than adopted by a row nothing can save.
     @Test func aTerminalWhoseProjectWentWhileItOpenedIsClosed() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon(holding: "window.createTerminal")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -127,10 +127,10 @@ extension AppControllerTests {
 
     /// ⌘⌫ on a selected task is its Remove Task…: the same question, and nothing without a yes.
     @Test func removingTheSelectionAsksBeforeATaskGoes() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         controller.focus.browse(.task(task.id))
 
         await controller.removeSelection()?.value
@@ -141,7 +141,7 @@ extension AppControllerTests {
 
     /// A terminal's Remove asks nothing, so ⌘⌫ closes its window straight away.
     @Test func removingTheSelectionClosesATerminal() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter())
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter())
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -158,9 +158,9 @@ extension AppControllerTests {
 
     /// With nothing selected the key does nothing.
     @Test func removingNoSelectionDoesNothing() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter())
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter())
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        _ = try fixture.addTask(windowId: "alive")
+        _ = try await fixture.addTask(windowId: "alive")
         #expect(await fixture.controller.removeSelection() == nil)
         #expect(fixture.prompter.asked.isEmpty)
     }
@@ -169,12 +169,12 @@ extension AppControllerTests {
     /// window can have come back — a snapshot reattached it by its tag — and that is the window
     /// removal closes, not the none the click saw.
     @Test func removingATaskClosesTheWindowItHasWhenTheAlertIsAnswered() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Remove"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove"))
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let clicked = try fixture.addTask(windowId: nil)
+        let clicked = try await fixture.addTask(windowId: nil)
         fixture.prompter.whileAsking = { _ in controller.helper.handle(.snapshot(fixture.snapshot(tagging: clicked, in: "alive"))) }
 
         await controller.remover.confirmRemove(task: clicked)?.value
@@ -187,12 +187,12 @@ extension AppControllerTests {
     /// A second Remove for the same row, started while the first alert was up, owns the removal;
     /// the first answer finds the task busy and does nothing, rather than running git twice.
     @Test func aRemovalStartedDuringTheAlertIsTheOnlyOneThatRuns() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Remove", "Remove"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove", "Remove"))
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         var nested = false, nestedRemoval: Task<Void, Never>?
         fixture.prompter.whileAsking = { _ in
             guard !nested else { return }
@@ -212,12 +212,12 @@ extension AppControllerTests {
     /// The second alert — uncommitted changes — is a reentrancy point too: what it closes is the
     /// window the task has once it is answered.
     @Test func forcingARemovalClosesTheWindowTheTaskHasAfterTheSecondAlert() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Remove", "Delete Changes and Remove"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove", "Delete Changes and Remove"))
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         try "draft\n".write(toFile: task.worktreePath + "/notes.txt", atomically: true, encoding: .utf8)
         fixture.prompter.whileAsking = { prompt in
             guard prompt.message == "The worktree has uncommitted changes" else { return }
@@ -234,7 +234,7 @@ extension AppControllerTests {
     /// Adding a project asks whether to import its worktrees. If the project goes while that is
     /// asked, nothing is imported: a task whose project is gone fails every save.
     @Test func worktreesAreNotImportedIntoAProjectRemovedDuringTheAlert() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Import"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Import"))
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         controller.workspace.mutate { $0.items = [] }
@@ -252,7 +252,7 @@ extension AppControllerTests {
     }
 
     @Test func aNewTaskUsesTheSavedModelFromTheControllersPreferences() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let model = try #require(ScratchHome.catalogue(.claude).dropFirst().first).id
         ModelSettings.save(ModelPreference(model: model, reasoning: nil), for: .claude,
@@ -266,14 +266,14 @@ extension AppControllerTests {
     }
 
     @Test func aSuccessfulTerminalReopenClearsItsFailureBanner() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         let daemon = RecordingDaemon(failing: ["window.createTerminal": "temporary_failure"])
         controller.helper.setDaemonClient(daemon)
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
         controller.workspace.mutate { $0.terminals = [terminal] }
-        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         await controller.windows.restore(.terminal(terminal.id))?.value
         #expect(controller.issue != nil)
         daemon.failing = [:]
@@ -286,7 +286,7 @@ extension AppControllerTests {
 
     /// Like a task's removal, a terminal's closes the window the terminal has now.
     @Test func removingATerminalClosesTheWindowItHasNow() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -304,7 +304,7 @@ extension AppControllerTests {
 
     /// Remove while the terminal's window is still reopening says so; the restore then finishes.
     @Test func removingATerminalWhileItReopensSaysWhy() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon(holding: "window.createTerminal")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -313,7 +313,7 @@ extension AppControllerTests {
         controller.workspace.mutate { $0.terminals = [terminal] }
 
         // A restore opens only into an iTerm2 known to be there, and quiet.
-        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         let reopening = controller.windows.restore(.terminal(terminal.id))
         try await server.received("window.createTerminal")
         #expect(controller.terminals.close(terminal: terminal) == nil)
@@ -327,7 +327,7 @@ extension AppControllerTests {
 
     /// A second Remove while the first is still closing the window asks nothing of the daemon.
     @Test func aTerminalIsClosedOnceWhileItsCloseIsInFlight() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -347,7 +347,7 @@ extension AppControllerTests {
 
     /// Restoring a terminal whose row went while its window opened closes that window.
     @Test func aWindowReopenedForATerminalThatWentMeanwhileIsClosed() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon(holding: "window.createTerminal")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -356,7 +356,7 @@ extension AppControllerTests {
         controller.workspace.mutate { $0.terminals = [terminal] }
 
         // A restore opens only into an iTerm2 known to be there, and quiet.
-        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         let reopening = controller.windows.restore(.terminal(terminal.id))
         try await server.received("window.createTerminal")
         controller.workspace.mutate { $0.terminals = [] }
@@ -371,7 +371,7 @@ extension AppControllerTests {
     /// A second create in the same project while one runs used to return as though it had
     /// succeeded, closing its sheet with nothing made. It says why instead, and the sheet stays.
     @Test func aCreateWhileAnotherRunsInTheProjectSaysSo() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon(holding: "window.createTask")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -390,12 +390,12 @@ extension AppControllerTests {
     /// A create selects its new row, and a selection change makes an activation still in flight for
     /// the old row stale: that click's window must not take focus from the new task's.
     @Test func creatingATaskCancelsAnActivationStillInFlight() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon(holding: "window.setFrame")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let old = try fixture.addTask(windowId: "old")
+        let old = try await fixture.addTask(windowId: "old")
         let click = controller.focus.select(.task(old.id))
         try await server.received("window.setFrame")
 
@@ -413,7 +413,7 @@ extension AppControllerTests {
     /// iTerm2's background preference goes to the daemon once per iTerm2 connection, by the path that
     /// reports a failure — not also, unreported, whenever the socket connects.
     @Test func theBackgroundPreferenceIsSentOncePerItermConnection() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -428,7 +428,7 @@ extension AppControllerTests {
 
     /// Settings' Save hands the switch over whether or not it moved; only a move is stored and sent.
     @Test func settingsSendsTheBackgroundOnlyWhenItChanges() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -448,7 +448,7 @@ extension AppControllerTests {
     enum SlowSheet: CaseIterable { case newTask, newReview, newTerminal, settings }
 
     @Test(arguments: SlowSheet.allCases) func aSheetOpenedWhileAnotherPreparesIsNotReplacedByIt(_ slow: SlowSheet) async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         switch slow {
@@ -467,7 +467,7 @@ extension AppControllerTests {
 
     /// The same for a sheet the controller did not open itself: whatever fills the slot first keeps it.
     @Test(arguments: SlowSheet.allCases) func aPreparedSheetNeverReplacesOneAlreadyUp(_ slow: SlowSheet) async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         switch slow {
@@ -486,10 +486,10 @@ extension AppControllerTests {
 
     /// Opening another sheet by any route cancels the preparation, so nothing is left to finish.
     @Test func everySheetPresenterCancelsAPendingPreparation() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
-        let task = try fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
         controller.workspace.mutate { $0.terminals = [terminal] }
         // With the project's branch read, New Terminal opens at once too.
@@ -549,7 +549,7 @@ extension AppControllerTests {
 
     /// The row can go while its window opens. The window is then closed, not left behind unowned.
     @Test func aWindowOpenedForATaskThatWentMeanwhileIsClosed() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         let server = RecordingDaemon(holding: "window.createTask")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller

@@ -7,7 +7,7 @@ import Testing
 /// The request `finish_task` opens, and `update_request` after it: snags !62–!65 of broadcast "Aikido findings 2026-11",
 /// where drafts opened with the worker's brief as description, "KEY title" and no assignee, and the Operator had no way
 /// to correct them.
-@MainActor @Suite struct OperatorRequestTests {
+@MainActor @Suite(.blocking) struct OperatorRequestTests {
     struct Opened {
         let world: OperatorWorld, run: OperatorRun, task: TaskItem, host: FakeMergeHost
     }
@@ -15,7 +15,7 @@ import Testing
     /// A broadcast with no slices on and one accepted task `A` ending in a draft MR, on the branch of a repository with an
     /// origin; `open` records its draft as !12, opened by an earlier finish_task.
     func accepted(open: Bool = false) async throws -> Opened {
-        let fixture = try GitFixture.withOrigin(branch: "feat/a")
+        let fixture = try await BackgroundWork.run { try GitFixture.withOrigin(branch: "feat/a") }
         let project = OperatorServiceFixtures.project(path: fixture.path)
         let run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(), projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .accepted, agent: .codex,

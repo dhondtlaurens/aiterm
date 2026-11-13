@@ -13,13 +13,7 @@ struct ArchiveSheet: View {
     /// The snapshots' fixed calendar and locale, so a row's date reads the same on every machine; the
     /// app's own otherwise.
     @Environment(\.footerClock) private var clock
-    // `@State` is a macro shipping only with Xcode; this is the storage it would generate.
-    private var _focused = State(initialValue: true)
-
-    private var focused: Bool {
-        get { _focused.wrappedValue }
-        nonmutating set { _focused.wrappedValue = newValue }
-    }
+    @State private var focused: Bool = true
 
     var body: some View {
         let archive = model.projection
@@ -29,7 +23,7 @@ struct ArchiveSheet: View {
             HStack(spacing: Space.base) {
                 Image(systemName: "magnifyingglass").font(Typography.caption).foregroundStyle(Palette.muted)
                 SearchField(placeholder: "Search title, ticket, !MR, branch, project",
-                            text: Bindable(model).query, focused: _focused.projectedValue, onCommand: command)
+                            text: Bindable(model).query, focused: $focused, onCommand: command)
             }
             .fieldChrome(focused: focused)
         } content: {
@@ -43,7 +37,7 @@ struct ArchiveSheet: View {
                     .font(Typography.body).foregroundStyle(Palette.text)
             } else {
                 ScrollViewReader { scroller in
-                    VStack(spacing: Space.hairline) {
+                    LazyVStack(spacing: Space.hairline) {
                         ForEach(rows) { row in
                             let date = ArchiveDate.label(row.shelvedAt, now: now, calendar: calendar, locale: calendar.locale ?? .current)
                             Group {
@@ -108,7 +102,14 @@ struct ArchiveRow: View {
                           ticketIsGitLabIssue: task.jira?.isGitLabIssue ?? false)
     }
 
+    #if DEBUG
+    @Environment(\.rowBodyCounter) private var bodyCounter
+    #endif
+
     var body: some View {
+        #if DEBUG
+        let _ = bodyCounter?.count(entry.archived.id)
+        #endif
         let task = entry.archived.task
         HStack(spacing: Space.inset) {
             VendorMark(agent: task.agent.session, size: Size.avatar)
@@ -142,7 +143,14 @@ struct ShelvedBroadcastRow: View {
     let broadcast: ShelvedBroadcast
     let date: String
 
+    #if DEBUG
+    @Environment(\.rowBodyCounter) private var bodyCounter
+    #endif
+
     var body: some View {
+        #if DEBUG
+        let _ = bodyCounter?.count(broadcast.runId)
+        #endif
         HStack(spacing: Space.inset) {
             ProviderIcon(.symbol(OperatorHeading.glyph))
             HStack(alignment: .firstTextBaseline, spacing: Space.tight) {

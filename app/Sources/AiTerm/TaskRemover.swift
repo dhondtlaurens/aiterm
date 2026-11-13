@@ -34,6 +34,9 @@ final class TaskRemover: CheckoutRemovals {
     /// Each removed checkout being confirmed gone again before it is acted on: one at a time per task,
     /// so passes over a mount that has stopped answering do not pile up threads stuck on it.
     private var confirmations: [UUID: Task<Void, Never>] = [:]
+    /// Each confirmed-gone checkout whose git record is being cleared (`TaskWorkflow.forgetDeletedCheckout`). Apart from
+    /// `confirmations`, which a later pass must find empty to act on the task again.
+    private var recordCleanups: [UUID: Task<Void, Never>] = [:]
     /// Whether a task's checkout is gone for good, asked off the main actor just before the cleanup
     /// acts on it.
     private let confirmsRemoval: ConfirmsRemoval
@@ -47,7 +50,7 @@ final class TaskRemover: CheckoutRemovals {
     private let checkouts: CheckoutMonitor
     private let live: LiveSessions
     private let daemon: @MainActor () -> (any DaemonCommands)?
-    private var removalsHooks: [@MainActor () -> Void] = []
+    private let removalsHooks = HookList<Void>()
 
     /// Whether a task's checkout — at `projectPath`'s project, if it still has one — is gone for good.
     typealias ConfirmsRemoval = @Sendable (_ task: TaskItem, _ projectPath: String?) -> Bool
@@ -78,8 +81,9 @@ final class TaskRemover: CheckoutRemovals {
 
     /// Adds `hook` to what hears that a row's removal changed: a task on its way out is not counted
     /// on the Dock.
-    func onRemovalsChanged(_ hook: @escaping @MainActor () -> Void) {
-        removalsHooks.append(hook)
+    @discardableResult
+    func onRemovalsChanged(_ hook: @escaping @MainActor () -> Void) -> HookList<Void>.Token {
+        removalsHooks.add(hook)
     }
 
     /// The task's removal, as its row draws it.
@@ -104,6 +108,7 @@ final class TaskRemover: CheckoutRemovals {
     func waitForRemoval(of id: UUID) async {
         await confirmations[id]?.value
         await running[id]?.value
+        await recordCleanups[id]?.value
     }
 
     #if DEBUG
@@ -139,7 +144,7 @@ final class TaskRemover: CheckoutRemovals {
         guard removals[id] != now else { return }
         removals[id] = now
         rows[id] = now
-        for hook in removalsHooks { hook() }
+        removalsHooks()
     }
 
     // -- the person's Remove ------------------------------------------------------------
@@ -262,12 +267,10 @@ final class TaskRemover: CheckoutRemovals {
         }
     }
 
-    /// Whether the task's worktree folder is there, asked on a thread of its own: a mount that stopped answering stalls
-    /// that thread, not the app or the shared pool.
+    /// Whether the task's worktree folder is there (`FolderCheck`).
     private func hasWorktreeFolder(_ task: TaskItem) async -> Bool {
         guard task.hasCheckout else { return false }
-        let path = task.worktreePath
-        return await ThreadWork.run { FileManager.default.fileExists(atPath: path) }
+        return await FolderCheck.exists(task.worktreePath)
     }
 
     /// The banner's Keep: the removal that stopped with the branch kept finishes, the branch left.
@@ -346,33 +349,18 @@ final class TaskRemover: CheckoutRemovals {
         return removal
     }
 
-    /// The task's window, then its worktree and its branch when asked for, through `TaskWorkflow`. A
-    /// worktree with uncommitted changes asks first, while the window is still open; nil means it
-    /// was kept. Unsaved work written after that check is only found once the window has closed:
-    /// kept then, the task's window comes back. Without a daemon the window is left open, and
-    /// `finishRemoval` asks for it to be closed by hand.
+    /// The task's window, then its worktree and its branch when asked for, through `TaskWorkflow` and the teardown Shelve
+    /// shares (`WorktreeTeardown`). A worktree with uncommitted changes asks first, while the window is still open; nil
+    /// means it was kept. Unsaved work written after that check is only found once the window has closed: kept then, the
+    /// task is a task again, and its window, if this removal closed it, is owed and comes back (`WindowReconciler`).
+    /// Without a daemon the window is left open, and `finishRemoval` asks for it to be closed by hand.
     private func removeWorktree(task: TaskItem, project: Project, deleteBranch: Bool,
                                 holding token: WorkInFlight.Token) async throws -> TaskWorkflow.Removed? {
-        var task = task, force = false
-        let unlisted = try await workflow.needsRemovalConfirmation(task: task, project: project)
-        if unlisted {
-            let answer = await prompter.ask(Self.unlistedFolderQuestion(for: task))
-            guard answer.button == 1, let still = workspace.state.task(id: task.id),
-                  still.worktreePath == task.worktreePath, still.projectId == project.id else { return nil }
-            task = still
-        }
-        if try await workflow.hasUnsavedWork(task: task, project: project) {
-            guard await teardown.confirmDeletingUnsavedWork(of: task, verb: .remove), let still = workspace.state.task(id: task.id) else { return nil }
-            task = still
-            force = true
-        }
-        try await teardown.closeWindow(of: task, holding: token, requiringDaemon: false, operation: { .removing(windowLetGo: $0) })
-        do { return try await workflow.remove(task: task, project: project, deleteBranch: deleteBranch, force: force, allowUnlisted: unlisted) }
-        catch let error as GitError where error.refusedForUnsavedWork {
-            // Written after the check, before the window closed. Kept, the task is a task again: its
-            // window, if this removal closed it, is owed and comes back (`WindowReconciler`).
-            guard await teardown.confirmDeletingUnsavedWork(of: task, verb: .remove), let still = workspace.state.task(id: task.id) else { return nil }
-            return try await workflow.remove(task: still, project: project, deleteBranch: deleteBranch, force: true, allowUnlisted: unlisted)
+        guard let prepared = try await teardown.prepare(task, in: project, verb: .remove) else { return nil }
+        try await teardown.closeWindow(of: prepared.task, holding: token, requiringDaemon: false, operation: { .removing(windowLetGo: $0) })
+        return try await teardown.run(prepared, verb: .remove, current: { [workspace] in workspace.state.task(id: $0.id) }) { task, force in
+            try await workflow.remove(task: task, project: project, deleteBranch: deleteBranch, force: force,
+                                      allowUnlisted: prepared.allowUnlisted)
         }
     }
 
@@ -435,7 +423,7 @@ final class TaskRemover: CheckoutRemovals {
     /// back since the pass looked — and off the main actor: a `stat` on a mount that has stopped
     /// answering holds a thread of its own, not the sidebar. The task is then checked again as it
     /// is now, back on the main actor, and only a task that is still gone and still waiting is
-    /// closed.
+    /// closed. Git's record of the checkout, which its lock keeps, is cleared beside the closing.
     func forgetRemovedCheckouts(_ removed: [TaskItem]) {
         // A task still closing whose checkout came back is not closing any more.
         let gone = Set(removed.map(\.id))
@@ -448,6 +436,13 @@ final class TaskRemover: CheckoutRemovals {
                 defer { confirmations[task.id] = nil }
                 let confirmed = await ThreadWork.run { confirms(task, projectPath) }
                 guard confirmed, awaitsCleanup(task) else { return }
+                if let project = workspace.state.project(id: task.projectId), recordCleanups[task.id] == nil {
+                    let workflow = workflow
+                    recordCleanups[task.id] = Task {
+                        defer { recordCleanups[task.id] = nil }
+                        await workflow.forgetDeletedCheckout(of: task, in: project)
+                    }
+                }
                 automaticallyForgetRemovedTask(task.id)
             }
         }

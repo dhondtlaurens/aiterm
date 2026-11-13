@@ -76,22 +76,21 @@ final class ReviewCreation: CreationKind {
 
     // The ticket field: its own search, as the merge request field's is `CreationModel`'s.
     fileprivate let tickets: ReviewTicketLookup
-    fileprivate(set) var ticketQuery = ""
-    fileprivate(set) var ticketResults: [JiraTicket] = []
-    fileprivate(set) var ticketSearchError: String?
+    /// The ticket field's search. Its typing cancels only its own typed search (`DebouncedSearch.Superseding`), as it
+    /// did before it shared the pickers' type.
+    fileprivate let ticketSearch: DebouncedSearch<JiraTicket>
     /// What the ticket's lookup said when it filled nothing: several requests, none, or none among
     /// those it read. Shown under the merge request field.
     var ticketLookupNote: String?
     /// Bumped when the lookup found several requests and the merge request list should open on them.
     fileprivate(set) var requestListOffers = 0
-    @ObservationIgnored fileprivate var ticketSearchTask: Task<Void, Never>?
-    @ObservationIgnored fileprivate var ticketSearchGeneration = 0
     /// The lookup in flight, if any: a newer pick cancels it, and a test awaits it.
     @ObservationIgnored var lookupTask: Task<Void, Never>?
 
     init(codeHost: CodeHost, findOwner: @escaping (String, [Worktree]) -> TaskItem?,
          fix: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void, tickets: ReviewTicketLookup = .none) {
         self.codeHost = codeHost; self.findOwner = findOwner; self.fix = fix; self.tickets = tickets
+        ticketSearch = DebouncedSearch(superseding: .typedSearchOnly) { try await tickets.search($0) }
     }
 
     /// The reviewer's prompt carries the ticket too, when step 3's checkbox was kept.
@@ -192,9 +191,9 @@ extension CreationModel where Kind == ReviewCreation {
     /// keystroke on the main actor, so a connection changed in Settings meanwhile applies from the
     /// next sheet. Which host is searched is Core's to say (`MergeRequestSearch`); why none can be
     /// is the sheet's search error, on every search.
-    static func searcher(gitLab: GitLabConfig?, gitHub: GitHubConfig? = nil, remote: RemoteInfo) -> @MainActor (String) async throws -> [MergeRequest] {
+    static func searcher(gitLab: GitLabConfig?, gitHub: GitHubConfig? = nil, remote: RemoteInfo, session: URLSession = .shared) -> @MainActor (String) async throws -> [MergeRequest] {
         let source = Result(catching: { () throws(MergeRequestSearch.Unavailable) -> any MergeRequestSearching in
-            try MergeRequestSearch.source(for: remote, gitLab: gitLab, gitHub: gitHub)
+            try MergeRequestSearch.source(for: remote, gitLab: gitLab, gitHub: gitHub, session: session)
         })
         return { text in
             switch source {
@@ -233,57 +232,32 @@ extension CreationModel where Kind == ReviewCreation {
 
     // -- the ticket field ----------------------------------------------------------------------
 
-    var ticketQuery: String { kind.ticketQuery }
-    var ticketResults: [JiraTicket] { kind.ticketResults }
-    var ticketSearchError: String? { kind.ticketSearchError }
+    var ticketQuery: String { kind.ticketSearch.query }
+    var ticketResults: [JiraTicket] { kind.ticketSearch.results }
+    var ticketSearchError: String? { kind.ticketSearch.error }
     var ticketLookupNote: String? { kind.ticketLookupNote }
     var requestListOffers: Int { kind.requestListOffers }
 
     /// As New Task's ticket field says what it searches.
     var ticketPlaceholder: String {
         TaskCreationModel.ticketPlaceholder(jiraProjects: kind.tickets.jiraProjects, jiraConnected: kind.tickets.jiraConnected,
-                                            gitLabIssues: kind.ticketResults.contains { $0.issueNumber != nil })
+                                            gitLabIssues: kind.ticketSearch.results.contains { $0.issueNumber != nil })
     }
 
-    func setTicketQuery(_ text: String) {
-        kind.ticketQuery = text
-        scheduleTicketSearch(text)
-    }
+    func setTicketQuery(_ text: String) { kind.ticketSearch.type(text) }
 
     func reopenTicketSearch() { setTicketQuery("") }
 
-    private func scheduleTicketSearch(_ text: String) {
-        kind.ticketSearchTask?.cancel()
-        kind.ticketSearchTask = Task { await searchTickets(text: text, debounce: true) }
-    }
-
     /// As `search(text:debounce:)`: a stale answer is dropped, a failure clears the list, and one
     /// source failing beside another's rows shows both.
-    func searchTickets(text: String, debounce: Bool = false) async {
-        kind.ticketSearchGeneration += 1
-        let generation = kind.ticketSearchGeneration
-        do {
-            if debounce { try await Task.sleep(for: .milliseconds(250)) }
-            try Task.checkCancellation()
-            let found = try await kind.tickets.search(text)
-            guard !Task.isCancelled, generation == kind.ticketSearchGeneration else { return }
-            kind.ticketResults = found; kind.ticketSearchError = nil
-        } catch {
-            guard !Task.isCancelled, generation == kind.ticketSearchGeneration else { return }
-            if let partial = error as? PartialSearch<JiraTicket> {
-                kind.ticketResults = partial.items; kind.ticketSearchError = partial.message
-            } else {
-                kind.ticketResults = []; kind.ticketSearchError = error.localizedDescription
-            }
-        }
-    }
+    func searchTickets(text: String, debounce: Bool = false) async { await kind.ticketSearch.search(text, debounce: debounce) }
 
     /// A ticket picked by hand, then its merge requests looked up in this repository: one is picked,
     /// several open the merge request list on them, none says so and starts the branch search from
     /// the key. A merge request picked by hand stays.
     func pickTicket(_ ticket: JiraTicket) {
-        kind.ticketSearchTask?.cancel()
-        kind.ticketSearchError = nil
+        kind.ticketSearch.cancel()
+        kind.ticketSearch.error = nil
         kind.ticketLookupNote = nil
         draft.apply(ticket: ticket)
         guard draft.mr == nil || draft.mrFoundFrom != nil else { return }

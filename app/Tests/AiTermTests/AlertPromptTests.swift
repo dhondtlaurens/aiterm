@@ -2,10 +2,11 @@ import AppKit
 import Testing
 import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// Every alert has one default button, on ↩, blue — or red only when it deletes — and ⎋ answers
 /// its safe choice. Built, never run: `ModalPrompter.alert(for:)` is the alert `ask` would show.
-@Suite @MainActor struct AlertPromptTests {
+@Suite(.blocking) @MainActor struct AlertPromptTests {
     private static let escape = "\u{1b}", enter = "\r"
 
     @Test func onlyADefaultThatDeletesIsRed() {
@@ -39,7 +40,7 @@ import AiTermCore
     /// The table in the consistency spec's section 9, as the app asks it.
     @Test func theRemoveTaskAlertHasARedDefaultAndCancelOnEscape() async throws {
         let prompter = ScriptedPrompter(answering: "⎋")
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.cleanUp() }
         let task = TaskItem(id: UUID(), projectId: fixture.project.id, title: "Work", branch: "feat/work",
                             worktreePath: fixture.repo.path + "/.worktrees/work", baseBranch: "main", jira: nil,
@@ -69,7 +70,7 @@ import AiTermCore
 
     @Test func theRemoveProjectAlertIsBlueBecauseItKeepsTheFiles() async throws {
         let prompter = ScriptedPrompter(answering: "⎋")
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.cleanUp() }
 
         await fixture.controller.projects.confirmRemove(project: fixture.project)
@@ -83,7 +84,7 @@ import AiTermCore
 
     @Test func theRemoveProjectAlertCountsItsTasksRatherThanListingTheirPaths() async throws {
         let prompter = ScriptedPrompter(answering: "⎋", "⎋")
-        let fixture = try RaceFixture(prompter: prompter)
+        let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.cleanUp() }
         func task(_ name: String) -> TaskItem {
             TaskItem(id: UUID(), projectId: fixture.project.id, title: name, branch: "feat/" + name,
@@ -103,7 +104,7 @@ import AiTermCore
     }
 
     @Test func escapeSkipsTheWorktreeImport() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "⎋"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "⎋"))
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         controller.workspace.mutate { $0.items = [] }

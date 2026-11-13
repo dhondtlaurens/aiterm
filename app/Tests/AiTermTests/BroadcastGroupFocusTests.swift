@@ -51,7 +51,7 @@ struct BroadcastGroupFocusTests {
         let (controller, daemon) = try controller(run, activateIterm: { itermActivated += 1 })
         defer { controller.shutdown() }
         controller.live.sessions = [Self.operatorTab(of: run)]
-        controller.focus.onChoosingOperationWithoutWindow { _ in Issue.record("its window is open"); return nil }
+        controller.focus.setReopenOperatorWindow { _ in Issue.record("its window is open"); return nil }
 
         // ↓ onto the row: the window comes forward beside the sidebar; iTerm2 stays behind.
         await controller.focus.peek(id: OperatorRow.id(of: run.id))?.value
@@ -77,7 +77,7 @@ struct BroadcastGroupFocusTests {
         let (controller, daemon) = try controller(run)
         defer { controller.shutdown() }
         var asked: [UUID] = []
-        controller.focus.onChoosingOperationWithoutWindow { id in asked.append(id); return nil }
+        controller.focus.setReopenOperatorWindow { id in asked.append(id); return nil }
         controller.focus.select(.operation(run.id))
         controller.activateSelection()
         #expect(asked == [run.id, run.id])
@@ -93,7 +93,7 @@ struct BroadcastGroupFocusTests {
         let (controller, daemon) = try controller(run, failing: ["window.activate": .notFound])
         defer { controller.shutdown() }
         var asked: [UUID] = []
-        controller.focus.onChoosingOperationWithoutWindow { id in asked.append(id); return nil }
+        controller.focus.setReopenOperatorWindow { id in asked.append(id); return nil }
         await controller.focus.peek(.operation(run.id))?.value
         #expect(asked.isEmpty, "a peek only looks")
         await controller.focus.select(.operation(run.id))?.value
@@ -205,8 +205,8 @@ struct BroadcastGroupFocusTests {
         let (controller, daemon) = try controller(run)
         defer { controller.shutdown() }
         controller.workspace.mutate { state in state.append(project: project); state.tasks = [queued] }
-        controller.focus.onChoosingOperatedTaskWithoutWindow { _ in Issue.record("nothing reopens"); return nil }
-        controller.focus.onChoosingOwedRow { _ in Issue.record("nothing restores"); return nil }
+        controller.focus.setReopenWorkerWindow { _ in Issue.record("nothing reopens"); return nil }
+        controller.focus.setRestoreOwedRow { _ in Issue.record("nothing restores"); return nil }
         #expect(controller.rows.broadcast?.tasks.map(\.queued) == [true])
         #expect(controller.choose(task: queued.id) == nil, "a click")
         #expect(controller.focus.select(.task(queued.id)) == nil)
@@ -318,11 +318,11 @@ struct BroadcastGroupFocusTests {
                                                                                      sha: "4f2a91c"))
         controller.workspace.mutate { state in state.append(project: project); state.tasks += [working, accepted] }
         var asked: [UUID] = [], restored: [RowSelection] = []
-        controller.focus.onChoosingOperatedTaskWithoutWindow { asked.append($0); return nil }
-        controller.focus.onChoosingOwedRow { restored.append($0); return nil }
+        controller.focus.setReopenWorkerWindow { asked.append($0); return nil }
+        controller.focus.setRestoreOwedRow { restored.append($0); return nil }
         controller.focus.select(.task(working.id))                 // a click
         controller.focus.browse(.task(accepted.id))
-        controller.focus.activateSelection()                       // ↩, on a finished one
+        controller.activateSelection()                       // ↩, on a finished one
         #expect(asked == [working.id, accepted.id])
         #expect(restored.isEmpty, "not the reconciler's to restore")
         #expect(controller.focus.selectedTaskId == accepted.id)
@@ -338,7 +338,7 @@ struct BroadcastGroupFocusTests {
         let task = OperatorUIFixtures.task("Schema", project: project.id, windowId: nil,
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "a", state: .working))
         controller.workspace.mutate { state in state.append(project: project); state.tasks.append(task) }
-        controller.focus.onChoosingOperatedTaskWithoutWindow { _ in
+        controller.focus.setReopenWorkerWindow { _ in
             Task { @MainActor in controller.workspace.mutate { $0.tasks[0].windowId = "worker-window" } }
         }
         await controller.focus.select(.task(task.id))?.value
@@ -394,7 +394,7 @@ struct BroadcastGroupFocusTests {
         let driven = OperatorUIFixtures.task("Schema", project: project.id, windowId: nil,
                                              operated: OperatorUIFixtures.operated(run: run.id, key: "a", state: .working))
         controller.workspace.mutate { state in state.append(project: project); state.tasks.append(driven) }
-        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         #expect(controller.windows.choose(.task(driven.id)) == nil)
         #expect(controller.windows.restore(.task(driven.id)) == nil)
         #expect(daemon.requests("window.createTask").isEmpty)
@@ -412,7 +412,7 @@ struct BroadcastGroupFocusTests {
         controller.workspace.mutate { state in state.append(project: project); state.tasks = [held] }
         let section = try #require(controller.rows.sections.first)
         #expect(section.isEmpty && section.collapsed)
-        #expect(!ProjectHeaderRow.collapses(section, canChangeWorkspace: true))
+        #expect(!ProjectHeaderRow(section: section, controller: controller).collapses)
         #expect(section.operatorHelp == "The Operator holds 1 worktree in this project.")
         controller.projects.toggleCollapsed(project)
         #expect(controller.state.project(id: project.id)?.collapsed == false, "nothing to fold")

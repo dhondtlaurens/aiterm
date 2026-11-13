@@ -111,6 +111,19 @@ public struct Repository: Sendable {
 
     // MARK: Refs and origin, for the jobs in the other files
 
+    /// The commit the checkout at `checkout` — the repository's own folder unless named — is at.
+    public func head(at checkout: String? = nil) throws -> String {
+        try git.run(["rev-parse", "HEAD"], in: checkout ?? path)
+    }
+
+    /// Whether the checkout at `checkout` — the repository's own folder unless named — has nothing
+    /// uncommitted: no tracked change, staged or not, in it or its submodules, and, when `untracked`
+    /// counts, no untracked file.
+    public func isClean(at checkout: String? = nil, untracked: Bool) throws -> Bool {
+        try git.run(["status", "--porcelain"] + (untracked ? [] : ["--untracked-files=no"]) + ["--ignore-submodules=none"],
+                    in: checkout ?? path).isEmpty
+    }
+
     /// The commit `ref` names; `nil` when there is none or git could not be asked.
     func sha(_ ref: String) -> String? {
         Log.git.attempt("Reading \(ref) in \(path)") { try commit(ref) } ?? nil

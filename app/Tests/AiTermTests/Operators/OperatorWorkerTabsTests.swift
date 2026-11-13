@@ -125,7 +125,7 @@ import Testing
         let waiting = try #require(world.task(task.id)?.operated)
         #expect(waiting.state == .working && waiting.runtimeUsed == 95 * 60, "finished work waits for acceptance, unblocked")
         // Ready once AiTerm has read what the first worker's turn left (`WorkerTurnReader`).
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         let status = try status(world, run)
         #expect(status.obligations.readyForAcceptance == ["PLUTO-1"])
         show(world, run, task, first: .idle, review: .working)
@@ -172,7 +172,7 @@ import Testing
         daemon.prompts["s-review"] = .permission
         let (world, run, task) = try makeWorld(daemon: daemon)
         show(world, run, task, first: .working, review: .needsInput)
-        await world.controller.lastProbe?.value
+        await world.settled()
         let question = try #require(world.run(run.id)?.questions.last)
         #expect(question.text == "Codex asks for permission" && question.task == task.id && question.tab == "review")
         #expect(question.resolution == nil && question.id == "prompt-\(task.id.uuidString)-1")
@@ -183,7 +183,7 @@ import Testing
         clock.advance(by: OperatorTiming.promptProbeInterval)
         daemon.prompts["s-review"] = nil
         show(world, run, task, first: .working, review: .working)
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
     }
@@ -194,7 +194,7 @@ import Testing
         let (world, run, task) = try makeWorld(daemon: daemon)
         show(world, run, task, first: .working, review: .working)
         world.controller.probePrompts(.reconcile)
-        await world.controller.lastProbe?.value
+        await world.settled()
         let snapshot = try #require(OperatorController.status(of: run.id, state: world.state,
                                                               sessions: world.live.sessions, revision: 0, turns: [:], quiet: [task.id]))
         #expect(snapshot.obligations.promptsWaitingOnYou == ["PLUTO-1/review"])
@@ -210,7 +210,7 @@ import Testing
         daemon.prompts["s-review"] = .menu
         _ = await world.call(run.id, "message_task", ["task": "PLUTO-1", "tab": "review", "text": "/model"])
         try await daemon.received("session.prompt")
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(daemon.requests("session.prompt").map { $0.params["sessionId"] as? String } == ["s-review"])
         #expect(try status(world, run).obligations.promptsWaitingOnYou == ["PLUTO-1/review"])
     }
@@ -284,7 +284,7 @@ import Testing
         #expect(line.tabs?.map(\.liveModel) == ["claude-opus-5-5", nil] && line.tabs?.map(\.liveReasoning) == ["high", nil])
     }
 
-    /// A Claude tab the Operator added says what it runs now and what became of its slash commands, as `liveFacts`
+    /// A Claude tab the Operator added says what it runs now and what became of its slash commands, as `TaskLiveFacts.of`
     /// builds its line, and reads as needing input while a prompt it opened waits on you, though its session says working.
     @Test func anAddedClaudeTabSaysWhatItRunsNowWhileItsPromptWaitsOnYou() async throws {
         let daemon = RecordingDaemon()
@@ -301,7 +301,7 @@ import Testing
         world.show([OperatorServiceFixtures.session("op", window: "wop", tag: run.id),
                     OperatorServiceFixtures.session("s1", tag: task.id, state: .working), review])
         world.controller.probePrompts(.reconcile)
-        await world.controller.lastProbe?.value
+        await world.settled()
         let status = try status(world, run)
         #expect(status.obligations.promptsWaitingOnYou == ["PLUTO-1/review"])
         let tabs = try #require(status.tasks.first?.tabs)
@@ -430,7 +430,7 @@ import Testing
                                                               launch: LaunchAttempt(number: 1, requestedAt: clock.now)))
         }
         show(world, run, task, first: .working, review: .needsInput)
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.run(run.id)?.questions.last?.tab == "review")
         #expect(TabOpener.holds(try #require(world.task(task.id)), in: world.state))
 
@@ -442,7 +442,7 @@ import Testing
         }
         clock.advance(by: 61)
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastTab?.value
+        await world.settled()
         #expect(daemon.requests("tab.create").isEmpty && delivered(world).isEmpty)
     }
 
@@ -463,7 +463,7 @@ import Testing
                               RunStatus.TabLine(key: "review", agent: .claude, model: "gpt-6-mini", closed: true)])
         clock.advance(by: 61)
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastTab?.value
+        await world.settled()
         #expect(world.daemon.requests("tab.create").isEmpty, "not by the reconciler")
 
         // The whole window closed, the extra tab's conversation remembered before the first worker's.
@@ -485,7 +485,7 @@ import Testing
         restarted.controller.reconcileTick()
         clock.advance(by: 61)
         restarted.controller.reconcileTick()
-        await restarted.controller.reconciler.lastTab?.value
+        await restarted.settled()
         #expect(restarted.daemon.requests("tab.create").isEmpty && restarted.daemon.requests("window.createTask").isEmpty,
                 "not after a restart")
         let after = try #require(try status(restarted, run).tasks.first?.tabs)

@@ -62,8 +62,8 @@ final class RowFocus {
     /// Whether a task is on its way out. Its row can be selected, but its window — closing, or
     /// gone — is never raised.
     private let isRemoving: @MainActor (UUID) -> Bool
-    @ObservationIgnored private var windowGoneHooks: [@MainActor (String) -> Void] = []
-    @ObservationIgnored private var selectionHooks: [@MainActor (RowSelection?) -> Void] = []
+    @ObservationIgnored private let windowGoneHooks = HookList<String>()
+    @ObservationIgnored private let selectionHooks = HookList<RowSelection?>()
     /// Who restores a row's window when the row is chosen without one: `WindowReconciler`, which adds
     /// itself as it is built. Its answer is the restore under way, or nil when nothing opens now.
     @ObservationIgnored private var restoreOwed: (@MainActor (RowSelection) -> Task<Void, Never>?)?
@@ -104,29 +104,33 @@ final class RowFocus {
     }
 
     /// Adds `hook` to what hears of a window a request found already gone.
-    func onWindowGone(_ hook: @escaping @MainActor (String) -> Void) {
-        windowGoneHooks.append(hook)
+    @discardableResult
+    func onWindowGone(_ hook: @escaping @MainActor (String) -> Void) -> HookList<String>.Token {
+        windowGoneHooks.add(hook)
     }
 
     /// Adds `hook` to what hears that another row — or none — is now selected: once per selection
     /// write that changes the row, by an arrow key, a click, a new row or a row that went.
-    func onSelectionChanged(_ hook: @escaping @MainActor (RowSelection?) -> Void) {
-        selectionHooks.append(hook)
+    @discardableResult
+    func onSelectionChanged(_ hook: @escaping @MainActor (RowSelection?) -> Void) -> HookList<RowSelection?>.Token {
+        selectionHooks.add(hook)
     }
 
-    /// Sets who restores a row's window when the row is chosen — a click or Return — without one.
-    func onChoosingOwedRow(_ restore: @escaping @MainActor (RowSelection) -> Task<Void, Never>?) {
+    /// Sets who restores a row's window when the row is chosen — a click or Return — without one. A single slot:
+    /// a later call replaces the one before.
+    func setRestoreOwedRow(_ restore: @escaping @MainActor (RowSelection) -> Task<Void, Never>?) {
         restoreOwed = restore
     }
 
     /// Sets who reopens the Operator's window, in front, when its row is chosen — a click or Return —
-    /// without one.
-    func onChoosingOperationWithoutWindow(_ open: @escaping @MainActor (UUID) -> Task<Void, Never>?) {
+    /// without one. A single slot, as `setRestoreOwedRow`.
+    func setReopenOperatorWindow(_ open: @escaping @MainActor (UUID) -> Task<Void, Never>?) {
         operatorWindowOwed = open
     }
 
-    /// Sets who reopens a driven task's window when its row is chosen — a click or Return — without one.
-    func onChoosingOperatedTaskWithoutWindow(_ reopen: @escaping @MainActor (UUID) -> Task<Void, Never>?) {
+    /// Sets who reopens a driven task's window when its row is chosen — a click or Return — without one. A single
+    /// slot, as `setRestoreOwedRow`.
+    func setReopenWorkerWindow(_ reopen: @escaping @MainActor (UUID) -> Task<Void, Never>?) {
         operatedTaskOwed = reopen
     }
 
@@ -182,18 +186,18 @@ final class RowFocus {
         guard row?.id != old else { return }
         if let old { selectedRows[old] = false }
         if let new = row?.id { selectedRows[new] = true }
-        for hook in selectionHooks { hook(row) }
+        selectionHooks(row)
     }
 
     /// A click or Return: selects the row, brings its window forward and iTerm2 with it, and marks a
-    /// task seen. A row whose window is owed has it restored first (`onChoosingOwedRow`), then raised
+    /// task seen. A row whose window is owed has it restored first (`setRestoreOwedRow`), then raised
     /// as any other — unless the selection has moved on by then; with nothing restoring it, it is only
     /// selected, as it has no window to raise nor tab to mark seen. A project's header is
     /// only selected: it has no window. So is a task the Operator has queued (2B, 21 Oct 2026): nothing opens,
     /// not even the error a window it does not have yet would raise. The Operator's row without a window, or
     /// whose window turns out gone, asks the operator controller for it, in front
-    /// (`onChoosingOperationWithoutWindow`); a driven task's row without one asks it too
-    /// (`onChoosingOperatedTaskWithoutWindow`), and its reopened window is then raised as any other.
+    /// (`setReopenOperatorWindow`); a driven task's row without one asks it too
+    /// (`setReopenWorkerWindow`), and its reopened window is then raised as any other.
     @discardableResult
     func select(_ row: RowSelection) -> Task<Void, Never>? {
         switch row {
@@ -226,13 +230,6 @@ final class RowFocus {
         case .project:
             return nil
         }
-    }
-
-    /// Return on the list: the selected row, as a click would choose it.
-    @discardableResult
-    func activateSelection() -> Task<Void, Never>? {
-        guard let selection, row(id: selection.id) != nil else { return nil }
-        return select(selection)
     }
 
     /// The arrow keys: selects the row and shows its window — placed beside the sidebar and raised
@@ -284,7 +281,7 @@ final class RowFocus {
                     activateIterm()
                 } catch let error as DaemonError where error.isNotFound {
                     if selfRaised == window { selfRaised = nil }
-                    for hook in windowGoneHooks { hook(window) }
+                    windowGoneHooks(window)
                     // An operator's window closed before the app heard: on a click — not a peek — its
                     // chat is asked back, as a missing one is.
                     if case .operation(let id) = row, focus, isCurrent() { _ = operatorWindowOwed?(id) }

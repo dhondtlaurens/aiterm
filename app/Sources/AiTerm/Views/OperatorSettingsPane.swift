@@ -152,11 +152,7 @@ private struct OperatorInstructionsGroup: View {
     /// The editor's height: the drawing's, a few lines of rules. Shorter than `PromptStep`'s,
     /// which is a sheet's one field; one view reads it.
     private static let editorHeight: CGFloat = 96
-    private var _editorFocused = State(initialValue: false)
-    private var editorFocused: Bool {
-        get { _editorFocused.wrappedValue }
-        nonmutating set { _editorFocused.wrappedValue = newValue }
-    }
+    @State private var editorFocused: Bool = false
 
     var body: some View {
         SettingsGroup(title: "Instructions", help: OperatorSettingsPane.instructionsHelp) {

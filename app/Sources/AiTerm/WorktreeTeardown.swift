@@ -1,10 +1,11 @@
 import Foundation
 import AiTermCore
 
-/// The part of taking a task's worktree down that Remove and Archive share: the question about its
-/// uncommitted work, and its window closed — and confirmed closed — before git deletes anything. A
-/// process still running in the window — a dev server's watcher — writes files back into a checkout
-/// being deleted, and git then gives up halfway. What follows — a branch, the row — is each owner's.
+/// The part of taking a task's worktree down that Remove and Archive share: one preflight of its worktree and the
+/// questions it raises (`prepare`), its window closed — and confirmed closed — before git deletes anything, and git's
+/// removal, asking again about unsaved work written meanwhile (`run`). A process still running in the window — a dev
+/// server's watcher — writes files back into a checkout being deleted, and git then gives up halfway. What follows — a
+/// branch, the row — is each owner's.
 @MainActor
 struct WorktreeTeardown {
     /// The action the questions are worded for.
@@ -28,8 +29,60 @@ struct WorktreeTeardown {
 
     let workspace: WorkspaceStore
     let work: WorkInFlight
+    let workflow: TaskWorkflow
     let prompter: Prompter
     let daemon: @MainActor () -> (any DaemonCommands)?
+
+    /// What the questions before a teardown agreed to: the row to take down, whether git may discard its unsaved work,
+    /// and whether a folder git no longer lists may go.
+    struct Prepared {
+        var task: TaskItem
+        var force: Bool
+        var allowUnlisted: Bool
+        /// What the preflight read the worktree on, before any question.
+        let head: WorktreeHead
+    }
+
+    /// The questions before anything closes, from one preflight (`TaskWorkflow.preflight`): a folder git no longer
+    /// lists asks first, then uncommitted work. `refusing` sees the preflight before any question is asked, and throws
+    /// to stop there. Nil when a question was answered Keep, the row went or changed folder, or the workspace locked.
+    ///
+    /// After the uncommitted-work question Remove goes on with the row as it is then; Shelve with the row it had, as
+    /// each did before they shared this.
+    func prepare(_ task: TaskItem, in project: Project, verb: Verb,
+                 refusing: (TaskWorkflow.Preflight) throws -> Void = { _ in }) async throws -> Prepared? {
+        let preflight = try await workflow.preflight(task: task, project: project)
+        try refusing(preflight)
+        var task = task
+        let unlisted = preflight.needsRemovalConfirmation
+        if unlisted {
+            let answer = await prompter.ask(TaskRemover.unlistedFolderQuestion(for: task))
+            guard answer.button == 1, let still = workspace.state.task(id: task.id),
+                  still.worktreePath == task.worktreePath, still.projectId == project.id else { return nil }
+            task = still
+        }
+        // Its own listing, right before git status, as before the preflight: only it says the folder is still this
+        // repository's worktree now — a worktree removed outside AiTerm since, its folder made again, is not.
+        let unsaved = try await workflow.hasUnsavedWork(task: task, project: project)
+        var force = false
+        if unsaved {
+            guard await confirmDeletingUnsavedWork(of: task, verb: verb), let still = workspace.state.task(id: task.id) else { return nil }
+            if verb == .remove { task = still }
+            force = true
+        }
+        return Prepared(task: task, force: force, allowUnlisted: unlisted, head: preflight.head)
+    }
+
+    /// Git's part of the teardown, `force` as agreed. Unsaved work written after the question, before the window closed,
+    /// is git's to refuse: asked again then, and run forced on a yes, with the row `current` gives. Nil when kept then.
+    func run<Result>(_ prepared: Prepared, verb: Verb, current: (TaskItem) -> TaskItem?,
+                     _ removal: (_ task: TaskItem, _ force: Bool) async throws -> Result) async throws -> Result? {
+        do { return try await removal(prepared.task, prepared.force) }
+        catch let error as GitError where error.refusedForUnsavedWork {
+            guard await confirmDeletingUnsavedWork(of: prepared.task, verb: verb), let task = current(prepared.task) else { return nil }
+            return try await removal(task, true)
+        }
+    }
 
     /// Whether deleting the task's unsaved work is agreed to. Keeping is the default, on ↩ and ⎋
     /// both; deleting is the plain grey button beside it, never marked red — the red default is for

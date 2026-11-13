@@ -81,12 +81,15 @@ import Foundation
         let pipeline = live(script)
         let clone = try await pipeline.prepare(request)
         defer { clone.remove() }
-        #expect(clone.path.hasPrefix(VerifySandbox.realPath(NSTemporaryDirectory())), "a clone in the temporary directory")
+        #expect(clone.path.hasPrefix(CanonicalPath.of(NSTemporaryDirectory())), "a clone in the temporary directory")
         let (look, session) = try await pipeline.look(.claude, clone, request)
-        #expect(session == "S1")
+        #expect(session.id == "S1")
         guard case .fix(let proposal) = look else { Issue.record("expected a proposal, got \(look)"); return }
         #expect(proposal.drops == [mine], "the short sha is the full one once validated")
         let checked = try await pipeline.apply(.claude, clone, proposal, session)
+        await #expect(throws: FixRefusal.checkFailed("Couldn’t check the fix: its branches were not read before it was made, so nothing was changed.")) {
+            _ = try await pipeline.apply(.claude, clone, proposal, session)
+        }
         let landing = try await pipeline.land(clone, checked)
         #expect(landing == FixLanding(branch: "feat/x", old: mine, new: try world.sha("origin/feat/x", in: world.repo)))
         #expect(try world.sha("feat/x", in: world.repo) == world.sha("origin/feat/x", in: world.repo))
@@ -129,7 +132,7 @@ import Foundation
         defer { clone.remove() }
         let proposal = FixProposal(headline: "h", why: "w", steps: ["s"], moves: ["feat/x"], drops: [], verify: nil)
         await #expect(throws: FixRefusal.checkFailed("Couldn’t check the fix: its branches were not read before it was made, so nothing was changed.")) {
-            _ = try await pipeline.apply(.claude, clone, proposal, "S")
+            _ = try await pipeline.apply(.claude, clone, proposal, FixLookSession(id: "S", before: nil))
         }
     }
 

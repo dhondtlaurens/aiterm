@@ -380,3 +380,10 @@ public struct PromptDetails: Codable, Equatable, Sendable {
     public var text: String?
     public init(kind: PromptKind?, text: String? = nil) { self.kind = kind; self.text = text }
 }
+
+extension DaemonError {
+    /// Whether what the request asked for may still happen: it timed out, or the helper or iTerm2 went before it
+    /// answered, so a window or a tab asked for may open yet, and a token sent may be registered. Any other failure
+    /// is a refusal: nothing was done.
+    public var leavesOutcomeUnknown: Bool { [.timeout, .disconnected, .itermUnavailable].contains(code) }
+}

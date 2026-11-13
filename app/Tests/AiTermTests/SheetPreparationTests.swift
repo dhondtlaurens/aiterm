@@ -5,7 +5,7 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-extension AppControllerTests {
+@MainActor @Suite(.blocking) struct SheetPreparationControllerTests {
     /// The footer's "not installed" is read from the harness home the controller was given — in a
     /// test a temporary one — not from the developer's own `~/.claude`. Both answers are checked, so
     /// reading the real home fails whichever state it is in.
@@ -83,7 +83,7 @@ extension AppControllerTests {
                                 itermConnection: { .waitingForIterm }, checkIterm: { ItermEnvironment(installed: true, pythonAPIEnabled: true) },
                                 preferences: .scratch(), setMatchItermBackground: { _ in }, setInterfaceSize: { _ in },
                                 initialAgent: .codex)
-        #expect(view._tab.wrappedValue == .agents, "on Agents, though iTerm2 would open it on Integrations")
+        #expect(view.tab == .agents, "on Agents, though iTerm2 would open it on Integrations")
         #expect(view.initialAgent == .codex)
     }
 

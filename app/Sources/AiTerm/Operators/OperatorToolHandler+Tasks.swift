@@ -40,7 +40,7 @@ extension OperatorToolHandler {
             let base = try repository.taskDiffBase(stackedOn: stacked, baseBranch: named, savedBase: saved) ?? named
             return (base, fetching ? key : nil)
         }
-        if let fetched { diffBaseFetches[fetched] = now }
+        if let fetched { recordDiffFetch(fetched, at: now) }
         return base
     }
 
@@ -55,7 +55,7 @@ extension OperatorToolHandler {
     func worker(_ call: ToolCall, of task: TaskItem) throws(ToolRefusal) -> WorkerTab {
         let key = call.optionalString("tab")
         if let tab = task.workerTab(key, in: live.sessions) { return tab }
-        let keys = [WorkerTab.firstKey] + workerTabs(of: task).compactMap(\.key)
+        let keys = workerTabs(of: task).map(\.reference.name)
         throw ToolRefusal("\(task.operated?.key ?? task.title) has no tab \(key ?? ""). Its tabs are \(keys.joined(separator: ", ")).")
     }
 
@@ -85,7 +85,7 @@ extension OperatorToolHandler {
         switch reading {
         case .lastMessage:
             let worker = try self.worker(call, of: task)
-            var context: [String: JSONValue] = ["task": .string(key), "tab": .string(worker.key ?? WorkerTab.firstKey),
+            var context: [String: JSONValue] = ["task": .string(key), "tab": .string(worker.reference.name),
                                               "sessionId": worker.session.map { .string($0.sessionId) } ?? .null,
                                               "agent": .string(worker.agent.rawValue)]
             guard let conversation = worker.conversation else {
@@ -117,15 +117,15 @@ extension OperatorToolHandler {
             // The committed work mark_task accepts: from where the branch left its base to HEAD, so a base that
             // moved on is not read back as the worker's changes; edits not yet committed are told apart.
             let git = ports.git, path = task.worktreePath
-            let read: (head: String, commits: String, stat: String, diff: String, uncommitted: String)
+            let read: (head: String, commits: String, stat: String, diff: GitOutput, uncommitted: String)
             let working: (text: String, truncated: Bool)
             let base: String
             do {
                 base = try await diffBase(of: task, in: run)
                 read = try await BackgroundWork.run {
-                    (try git.run(["rev-parse", "HEAD"], in: path),
+                    (try Repository(path, git: git).head(),
                      try git.run(["log", "--oneline", "\(base)..HEAD"], in: path), try git.run(["diff", "--stat", "\(base)...HEAD"], in: path),
-                     try git.run(["diff", "\(base)...HEAD"], in: path), try git.run(["status", "--porcelain"], in: path))
+                     try Self.boundedDiff(["diff", "\(base)...HEAD"], in: path, git: git), try git.run(["status", "--porcelain"], in: path))
                 }
                 working = try await BackgroundWork.run { try Self.workingDiff(in: path, git: git) }
             } catch {
@@ -141,8 +141,8 @@ extension OperatorToolHandler {
             guard let daemon = daemon() else { throw ToolRefusal("AiTerm’s helper isn’t connected; try again in a moment.") }
             let details: PromptDetails
             do { details = try await daemon.promptDetails(sessionId: tab.sessionId) }
-            catch { throw ToolRefusal("AiTerm couldn’t read \(key)/\(worker.key ?? WorkerTab.firstKey)’s prompt (session \(tab.sessionId)): \(error.localizedDescription)") }
-            var answer: JSONValue = ["task": .string(key), "tab": .string(worker.key ?? WorkerTab.firstKey),
+            catch { throw ToolRefusal("AiTerm couldn’t read \(key)/\(worker.reference.name)’s prompt (session \(tab.sessionId)): \(error.localizedDescription)") }
+            var answer: JSONValue = ["task": .string(key), "tab": .string(worker.reference.name),
                 "sessionId": .string(tab.sessionId), "prompt": details.kind.map { .string($0.rawValue) } ?? .null,
                 "promptText": details.text.map(JSONValue.string) ?? .null]
             if details.kind != nil, details.text?.isEmpty != false {
@@ -166,11 +166,11 @@ extension OperatorToolHandler {
                 if let base {
                     return (head: sha, commits: try git.run(["log", "--oneline", "\(base)..\(sha)"], in: path),
                             stat: try git.run(["diff", "--stat", "\(base)...\(sha)"], in: path),
-                            diff: try git.run(["diff", "\(base)...\(sha)"], in: path), uncommitted: "")
+                            diff: try Self.boundedDiff(["diff", "\(base)...\(sha)"], in: path, git: git), uncommitted: "")
                 }
                 return (head: sha, commits: try git.run(["show", "-s", "--oneline", sha], in: path),
                         stat: try git.run(["show", "--format=", "--stat", sha], in: path),
-                        diff: try git.run(["show", "--format=", sha], in: path), uncommitted: "")
+                        diff: try Self.boundedDiff(["show", "--format=", sha], in: path, git: git), uncommitted: "")
             }
             return Self.diffReading(base: base ?? "", read: read)
         } catch {
@@ -178,8 +178,19 @@ extension OperatorToolHandler {
         }
     }
 
+    /// The most of a patch a reading keeps: far more than its answer has room for (`DiffDigest`), so
+    /// only a patch beyond it reads differently, with fewer of its files counted.
+    nonisolated static let diffReadLimit = 8 * 1024 * 1024
+
+    /// A patch as `git.run` gives it — trimmed — read no further than `diffReadLimit`, and whether it was cut there.
+    nonisolated static func boundedDiff(_ args: [String], in path: String, git: any GitRunning) throws -> GitOutput {
+        let read = try git.read(args, in: path, limit: diffReadLimit)
+        return GitOutput(text: read.text.trimmingCharacters(in: .whitespacesAndNewlines), truncated: read.truncated)
+    }
+
+    /// A patch cut at the reading's bound is not complete: the file it stops in, and the reply, say they are truncated.
     private static func diffReading(base: String,
-                                    read: (head: String, commits: String, stat: String, diff: String, uncommitted: String),
+                                    read: (head: String, commits: String, stat: String, diff: GitOutput, uncommitted: String),
                                     workingDiff: String = "", workingTruncated: Bool = false) -> JSONValue {
         // The whole answer is small, not only its patches: a wide diff lists some of its files, and the stat, the
         // commits and the uncommitted edits keep their ends.
@@ -201,7 +212,8 @@ extension OperatorToolHandler {
         let workingSize = workingShown.reduce(0) { $0 + ($1.patch?.count ?? 0) + ($1.summary?.count ?? 0) }
         // Share the existing answer budget: adding dirty patches must not double the response size.
         let budget = max(0, initialBudget - workingSize - workingFiles.count * 120)
-        let digest = DiffDigest.build(diff: read.diff, total: budget)
+        var digest = DiffDigest.build(diff: read.diff.text, total: budget)
+        if read.diff.truncated, !digest.files.isEmpty { digest.files[digest.files.count - 1].truncated = true }
         var files = digest.files.prefix(DiffDigest.listedFiles).map { file -> JSONValue in
             var entry: [String: JSONValue] = ["path": .string(file.path), "truncated": .bool(file.truncated)]
             if let patch = file.patch { entry["patch"] = .string(patch) }
@@ -211,7 +223,7 @@ extension OperatorToolHandler {
         let unlisted = digest.files.count - files.count
         if unlisted > 0 { files.append(["path": .string("and \(unlisted) more files"), "truncated": true]) }
         return ["base": .string(base), "head": .string(read.head), "stat": .string(stat.text), "commits": .string(commits.text),
-                "files": .array(files), "truncated": .bool(digest.truncated || unlisted > 0 || stat.cut || commits.cut || uncommitted.cut
+                "files": .array(files), "truncated": .bool(read.diff.truncated || digest.truncated || unlisted > 0 || stat.cut || commits.cut || uncommitted.cut
                                                             || working.truncated || workingTruncated || workingUnlisted > 0),
                 "uncommitted": .string(uncommitted.text), "uncommittedFiles": .array(workingFiles),
                 "uncommittedTruncated": .bool(working.truncated || workingTruncated || workingUnlisted > 0)]
@@ -220,12 +232,11 @@ extension OperatorToolHandler {
     func replayedMessage(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> JSONValue? {
         guard call.operatorTool == .messageTask else { return nil }
         let task = try self.task(call, in: run), text = try call.string("text"), now = ports.now()
-        deliveredMessages = deliveredMessages.filter { now.timeIntervalSince($0.value.at) < Self.messageReplayWindow }
-        return deliveredMessages[MessageKey(task: task.id, tab: Self.tabKey(call), text: text)]?.answer
+        return replayedDelivery(MessageKey(task: task.id, tab: Self.tabKey(call), text: text), at: now)
     }
 
     /// The extra tab the call's `tab` names; nil for the first worker, named or not.
-    static func tabKey(_ call: ToolCall) -> String? { call.optionalString("tab").flatMap { $0 == WorkerTab.firstKey ? nil : $0 } }
+    static func tabKey(_ call: ToolCall) -> String? { TabReference(call.optionalString("tab")).key }
 
     /// Delivered by the daemon's rules (spec §7.1) with the task's ownership generation, so a send begun
     /// before a takeover cannot land after it. Never retried here: the result says what happened. To the first
@@ -246,37 +257,36 @@ extension OperatorToolHandler {
         defer { release() }
         try await requestStillOpen(task, operated, by: "message_task", in: run.id)
         let key = MessageKey(task: task.id, tab: worker.key, text: text), now = ports.now()
-        deliveredMessages = deliveredMessages.filter { now.timeIntervalSince($0.value.at) < Self.messageReplayWindow }
-        if let recorded = deliveredMessages[key] { return recorded.answer }
-        guard sendingMessages.insert(key).inserted else { throw ToolRefusal("This message is still being delivered; call again for its result.") }
-        defer { sendingMessages.remove(key) }
+        if let recorded = replayedDelivery(key, at: now) { return recorded }
+        guard beginMessage(key) else { throw ToolRefusal("This message is still being delivered; call again for its result.") }
+        defer { endMessage(key) }
         guard let tab = worker.session, !worker.isOpening else { throw ToolRefusal(Self.noAgent(in: worker, of: task)) }
         guard let daemon = daemon() else { throw ToolRefusal("AiTerm’s helper isn’t connected; try again in a moment.") }
         let delivery = try await daemon.deliver(sessionId: tab.sessionId, text: text, ownership: operated.ownership, wake: false,
                                                 worktree: task.worktreePath)
         // Its worker has the Operator's word: what its last turn asked or left is answered (spec §J).
-        if delivery.result == .delivered { onMessaged(task.id, worker.key) }
+        if delivery.result == .delivered { turns.messaged(task.id, tab: worker.key) }
         var fields: [String: JSONValue] = ["result": .string(delivery.result.rawValue), "reason": delivery.reason.map(JSONValue.string) ?? .null]
         // Steered, an accepted task is at work again; accepting it on its commit or another says what came of it.
         if delivery.result == .delivered, operated.state == .accepted, reopen(task) { fields["reopened"] = true }
         if delivery.result == .delivered || delivery.code == .prompt || delivery.code == .unrecognisedScreen {
-            onMessageResult(task.id, worker.key)
+            // Reading a screen must not delay the delivery result or its replay cache.
+            prompts.afterMessage(task.id, tab: worker.key)
         }
         let answer = JSONValue.object(fields)
-        if delivery.result == .delivered { deliveredMessages[key] = (ports.now(), answer) }
+        if delivery.result == .delivered { recordDelivery(answer, for: key) }
         return answer
     }
 
     /// An accepted task steered by `tool` (`message_task`, `open_tab`): refused while a publication of it runs, else its
     /// publication held from now, before anything is awaited, until the returned release is called at the call's end
     /// (`TaskFinisher.hold`). Nothing is held for a task in any other state.
-    func holdForSteering(_ task: TaskItem, _ operated: OperatedTask, by tool: String) throws(ToolRefusal) -> () -> Void {
+    func holdForSteering(_ task: TaskItem, _ operated: OperatedTask, by tool: String) throws(ToolRefusal) -> @MainActor () -> Void {
         guard operated.state == .accepted else { return {} }
-        guard !publishing(task.id) else {
+        guard !finisher.running.contains(task.id) else {
             throw ToolRefusal("AiTerm is publishing \(operated.key) now: call \(tool) again once finish_task answers.")
         }
-        holdPublication(task.id)
-        return { [weak self] in self?.releasePublication(task.id) }
+        return finisher.hold(task.id)
     }
 
     /// For an accepted task whose commit is on origin, steered while its request is open (snag G, T1's !65): the host must
@@ -290,7 +300,7 @@ extension OperatorToolHandler {
               OperatedTransitions.sameCommit(pushed, accepted) else { return }
         let reference = publication.mergeRequestURL.map { CodeHost(webURL: $0).reference(number) } ?? "#\(number)"
         let limit = ports.hostTimeout, branch = task.branch
-        let answer = await Self.within(limit) { [self] in
+        let answer = await BackgroundWork.within(limit) { [self] in
             let host = try await reviewHost(of: task, request: publication)
             return try await host.existingRequest(from: branch)
         }
@@ -300,9 +310,7 @@ extension OperatorToolHandler {
                 throw ToolRefusal("\(reference) is no longer open on the host: AiTerm steers an accepted task only while its request is open.")
             }
         case .failure(let error):
-            var why = error is NoAnswer ? "the host did not answer in \(Int(limit.components.seconds)) seconds"
-                : (error as? ToolRefusal)?.message ?? error.localizedDescription
-            while why.hasSuffix(".") { why.removeLast() }
+            let why = Self.hostFailure(error, limit: limit, trimmingPeriods: true)
             throw ToolRefusal("AiTerm couldn’t read \(reference) on the host to see that it is still open: \(why). Try again in a moment.")
         }
         guard let fresh = state.run(id: runId), let current = state.task(id: task.id) else {
@@ -339,7 +347,9 @@ extension OperatorToolHandler {
     /// The operator's outcome (spec §6, §8). Accepted needs the commit its branch is on, unmoved, and the
     /// worker's check output; the same outcome for the same commit returns what was recorded.
     func markTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
-        let task = try self.task(call, in: run), outcome = try call.string("outcome")
+        let task = try self.task(call, in: run)
+        _ = try call.string("outcome")
+        let outcome = call.markOutcome
         // A repeat of what was recorded changes nothing, so it answers even while paused or taken over.
         if let operated = task.operated, try await isRepeat(of: outcome, call, operated, in: task) { return Self.taskAnswer(task, created: false) }
         try recheck(task)
@@ -348,7 +358,7 @@ extension OperatorToolHandler {
         var acceptedBase: String?
         var acceptedFingerprint: String?
         switch outcome {
-        case "accepted":
+        case .accepted?:
             let given = try call.string("sha"), check = try call.string("checkOutput")
             let sha = try await commit(given, in: task)
             try recheck(task)
@@ -400,21 +410,21 @@ extension OperatorToolHandler {
                 return try reacceptReopened(task, as: acceptance, branchHead: tip, diffBase: acceptedBase, fingerprint: acceptedFingerprint)
             }
             action = .accept(acceptance, branchHead: tip)
-        case "noChange":
+        case .noChange?:
             action = .noChange(note: call.optionalString("note"))
-        case "blocked", "failed":
+        case .blocked?, .failed?:
             let reason = try call.string("note")
-            action = outcome == "blocked" ? .block(reason: reason) : .fail(reason: reason)
+            action = outcome == .blocked ? .block(reason: reason) : .fail(reason: reason)
         default:
             throw ToolRefusal("mark_task’s outcome is accepted, noChange, blocked or failed.")
         }
         try apply(action, to: task) { state in
-            guard outcome == "accepted" else { return }
+            guard outcome == .accepted else { return }
             Self.keepDiffBase(acceptedBase, of: task.id, in: &state)
             state.updateOperated(task.id) { $0.acceptanceWorktreeFingerprint = acceptedFingerprint }
         }
         // Its result holds each code parent's accepted commit (`upstreamRefusal` said so): the flag is done with.
-        if outcome == "accepted" { mutate(in: run.id) { $0.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) } } }
+        if outcome == .accepted { mutate(in: run.id) { $0.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) } } }
         let marked = state.task(id: task.id) ?? task
         return Self.taskAnswer(marked, created: false)
     }
@@ -427,15 +437,15 @@ extension OperatorToolHandler {
     }
 
     /// Whether `outcome` is what the task already records: the same commit accepted, no change, or the same reason.
-    private func isRepeat(of outcome: String, _ call: ToolCall, _ operated: OperatedTask, in task: TaskItem) async throws -> Bool {
+    private func isRepeat(of outcome: ToolCall.MarkOutcome?, _ call: ToolCall, _ operated: OperatedTask, in task: TaskItem) async throws -> Bool {
         switch outcome {
-        case "accepted":
+        case .accepted?:
             guard [.accepted, .published, .inReview].contains(operated.state), let given = call.optionalString("sha") else { return false }
             return operated.acceptance?.resultSHA == (try await commit(given, in: task))
                 && operated.acceptance?.checkOutput == call.optionalString("checkOutput")
                 && operated.acceptance?.note == call.optionalString("note")
-        case "noChange": return operated.state == .noChange
-        case "blocked", "failed": return operated.state.rawValue == outcome && operated.blockedReason == call.optionalString("note")
+        case .noChange?: return operated.state == .noChange
+        case .blocked?, .failed?: return operated.state.rawValue == outcome?.rawValue && operated.blockedReason == call.optionalString("note")
         default: return false
         }
     }
@@ -501,8 +511,7 @@ extension OperatorToolHandler {
         let keys = revoked.compactMap { id in state.task(id: id)?.operated.map { ($0.runId, $0.key) } }
         for (run, keys) in Dictionary(grouping: keys, by: \.0) {
             let seen = run == task.operated?.runId ? state.run(id: run).flatMap(currentStatus(of:)) : nil
-            waker.say(keys.count == 1 ? "one task needs rebasing: another was accepted again" : "some tasks need rebasing: another was accepted again",
-                       to: run, unlessAcknowledged: seen)
+            waker.say(.needRebasing(several: keys.count > 1), to: run, unlessAcknowledged: seen)
         }
         let marked = state.task(id: task.id) ?? task
         guard case .object(var fields) = Self.taskAnswer(marked, created: false) else { return Self.taskAnswer(marked, created: false) }
@@ -551,8 +560,8 @@ extension OperatorToolHandler {
 
     /// Work moves only in an active or complete broadcast (spec §9).
     func acceptsWork(_ run: OperatorRun) throws(ToolRefusal) {
-        if run.intent == .stopped { throw ToolRefusal("This broadcast was stopped; its tools no longer act.") }
-        if run.intent == .paused { throw ToolRefusal("The person paused this broadcast. Wait until they resume it.") }
+        if run.youAsked == .stop { throw ToolRefusal("This broadcast was stopped; its tools no longer act.") }
+        if run.youAsked == .pause { throw ToolRefusal("The person paused this broadcast. Wait until they resume it.") }
         switch run.state {
         case .active, .complete: return
         case .planning: throw ToolRefusal("This broadcast’s plan isn’t under way yet.")

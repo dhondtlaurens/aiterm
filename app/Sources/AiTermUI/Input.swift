@@ -20,11 +20,7 @@ public struct Input: View {
     var caretAtEnd: Bool
     var onFocus: (() -> Void)?
     @Environment(\.interfaceScale) private var scale
-    // `@State` is a macro in the macOS 26 SDK and its SwiftUIMacros plugin ships only with Xcode;
-    // this is the storage and accessor the macro would generate. Private, and so kept out of the
-    // initialiser: whether the field has the keyboard is the field's own business.
-    private var _focused = State(initialValue: false)
-    private var focused: Bool { get { _focused.wrappedValue } nonmutating set { _focused.wrappedValue = newValue } }
+    @State private var focused: Bool = false
 
     public init(placeholder: String, text: Binding<String>, monospaced: Bool = false, secure: Bool = false,
                 caretAtEnd: Bool = false, onFocus: (() -> Void)? = nil) {
@@ -37,7 +33,7 @@ public struct Input: View {
     }
 
     public var body: some View {
-        InputField(placeholder: placeholder, text: $text, focused: _focused.projectedValue,
+        InputField(placeholder: placeholder, text: $text, focused: $focused,
                    font: (monospaced ? Typography.monoCode : Typography.body).scaled(by: scale).nsFont,
                    secure: secure, caretAtEnd: caretAtEnd)
             .fieldChrome(focused: focused)

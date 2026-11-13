@@ -17,6 +17,18 @@ import Testing
     }
 
     /// A child that reads its input gets EOF at once instead of waiting on the app.
+    /// A limit keeps the first bytes of standard output and says the rest was dropped; the child, writing
+    /// far past a pipe's buffer, still runs to its end. Standard error is not limited.
+    @Test func aLimitKeepsTheFirstBytesAndSaysSo() throws {
+        let script = "i=0; while [ $i -lt 4000 ]; do echo 'stdout line padded to make it long enough'; i=$((i+1)); done; echo done >&2"
+        let result = try ProcessRunner.run(URL(fileURLWithPath: "/bin/sh"), ["-c", script], timeout: 20, limit: 100)
+        #expect(result.status == 0 && !result.timedOut)
+        #expect(result.stdout.utf8.count == 100 && result.stdoutTruncated)
+        #expect(result.stderr == "done\n")
+        let whole = try ProcessRunner.run(URL(fileURLWithPath: "/bin/echo"), ["hi"], limit: 3)
+        #expect(whole.stdout == "hi\n" && !whole.stdoutTruncated, "exactly the limit is not truncated")
+    }
+
     @Test func standardInputIsClosed() throws {
         let result = try ProcessRunner.run(URL(fileURLWithPath: "/bin/cat"), [], timeout: 5)
         #expect(!result.timedOut)

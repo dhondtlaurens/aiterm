@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
@@ -49,7 +50,7 @@ import Testing
         let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": .string(reply)]]]]
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-1.jsonl"))
         world.show(sessions(run, task, .idle))
-        await world.controller.turns.lastRead?.value
+        await world.settled()
     }
 
     func status(_ world: OperatorWorld, _ run: OperatorRun) throws -> RunStatus.Obligations {
@@ -93,11 +94,11 @@ import Testing
     /// commit, so it is ready, not held as a turn still to read.
     @Test func aTaskHandedBackWithItsWorkerIdleIsReadAgainAndReady() async throws {
         let (world, run, task, worktree) = try makeWorld(worker: .idle)
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         try git.run(["commit", "--allow-empty", "-q", "-m", "work"], in: worktree)
         func takenOver(_ value: Bool) async {
             world.workspace.mutate { $0.updateOperated(task.id) { $0.takenOver = value } }
-            await world.controller.turns.lastRead?.value
+            await world.settled()
         }
         await takenOver(true)
         #expect(world.controller.turns.readings[task.id] == nil, "a task you took over is not read")
@@ -127,7 +128,7 @@ import Testing
         let (world, run, task, _) = try makeWorld(worker: .idle, agent: .codex, launchedAt: clock.now, conversation: nil, clock: clock)
         clock.advance(by: 20)
         world.controller.reconcileTick()
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         let current = try #require(world.run(run.id))
         var line = try #require(world.controller.status(of: current)?.tasks.first)
         #expect(line.opening == true)
@@ -139,7 +140,7 @@ import Testing
 
         clock.advance(by: OperatorTiming.firstWorkerOpening)
         world.controller.reconcileTick()
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         line = try #require(world.controller.status(of: current)?.tasks.first)
         #expect(line.opening == nil)
         obligations = try status(world, run)
@@ -213,8 +214,8 @@ import Testing
         #expect(try Repository(project.path, git: git).isAncestor(head, of: "main"))
         try await endTurn(saying: "The accepted work is merged locally.", world, run, task)
         #expect(try status(world, run).changedAfterAcceptance.isEmpty)
-        await world.controller.waker.lastCoalesce?.value
-        await world.controller.waker.lastSend?.value
+        await world.settled()
+        await world.settled()
         #expect(!wakeLines(world).contains { $0.contains("changed after acceptance") })
         #expect(world.workspace.flush())
         let restored = try world.workspace.file.load()
@@ -260,7 +261,7 @@ import Testing
         let refreshed = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(head),
                                                                "checkOutput": "checks run again"])
         #expect(refreshed.value?["state"] == "accepted")
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(world.run(run.id)?.state == .active)
         #expect(world.controller.turns.readings[task.id]?.changedAfterAcceptance == false)
         #expect(try status(world, run).changedAfterAcceptance.isEmpty, "the old reading's baseline no longer holds")
@@ -312,7 +313,7 @@ import Testing
         let head = try git.run(["rev-parse", "HEAD"], in: worktree)
         world.workspace.mutate { $0.updateOperated(task.id) { $0.acceptance?.resultSHA = head } }
         #expect(try status(world, run).changedAfterAcceptance.isEmpty, "not served while it is read again")
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).changedAfterAcceptance.isEmpty)
         #expect(world.controller.turns.readings[task.id]?.changedAfterAcceptance == false, "read again")
     }
@@ -331,7 +332,7 @@ import Testing
         world.workspace.mutate { $0.updateOperated(task.id) {
             $0.state = .working; $0.reopenedFrom = accepted; $0.acceptance = nil
         } }
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         let obligations = try status(world, run)
         #expect(obligations.finishedWithoutCommit == ["PLUTO-1"] && obligations.readyForAcceptance.isEmpty)
         #expect(obligations.changedAfterAcceptance.isEmpty)
@@ -348,10 +349,8 @@ import Testing
         let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": "Committed the fix."]]]]
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-1.jsonl"))
         world.show(sessions(run, task, .idle))
-        let first = world.controller.turns.lastRead
         world.workspace.mutate { $0.updateOperated(task.id) { $0.acceptance?.resultSHA = head } }
-        await first?.value
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(world.controller.turns.readings[task.id]?.changedAfterAcceptance == false)
         #expect(try status(world, run).changedAfterAcceptance.isEmpty)
     }
@@ -364,7 +363,7 @@ import Testing
         let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": "Should I include archived orders?"]]]]
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-2.jsonl"))
         world.show(sessions(run, task, .idle, conversation: "conv-2"))
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).workerAsks == [RunStatus.WorkerAsk(key: "PLUTO-1", question: "Should I include archived orders?")])
         #expect(try status(world, run).readyForAcceptance.isEmpty)
     }
@@ -385,7 +384,7 @@ import Testing
         review.tabKey = "review"
         tabs.append(review)
         world.show(tabs)
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).workerAsks == [RunStatus.WorkerAsk(key: "PLUTO-1", question: "Should I review the migration too?", tab: "review")])
         #expect(world.controller.acting.turns[task.id] == .asks)
     }
@@ -409,7 +408,7 @@ import Testing
         #expect(world.task(task.id)?.operated?.flags.contains(.uncertain) == false)
         replacement.state = .idle
         world.show([op, replacement])
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).readyForAcceptance == ["PLUTO-1"])
         #expect(try status(world, run).finishedWithoutCommit.isEmpty)
         let line = try #require(world.controller.status(of: run)?.tasks.first)
@@ -425,7 +424,7 @@ import Testing
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-claude.jsonl"))
         let replacement = OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .claude, state: .idle, conversation: "conv-claude")
         world.show([OperatorServiceFixtures.session("op", window: "wo", tag: run.id), replacement])
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).workerAsks == [RunStatus.WorkerAsk(key: "PLUTO-1", question: "Should I update the fixtures too?")])
         #expect(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "lastMessage"]).value?["lastMessage"] == "Should I update the fixtures too?")
     }
@@ -439,7 +438,7 @@ import Testing
         // The next Stop snapshot is also idle: no working snapshot reached the app.
         try await endTurn(saying: "Should archived orders include cancelled ones?", world, run, task)
         world.controller.reconcileTick()
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).workerAsks == [RunStatus.WorkerAsk(key: "PLUTO-1", question: "Should archived orders include cancelled ones?")])
     }
 
@@ -453,7 +452,7 @@ import Testing
 
     @Test func anExtraWorkersFreshCommitSupersedesTheIdleMainWorkersOldCount() async throws {
         let (world, run, task, worktree) = try makeWorld(worker: .idle)
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).finishedWithoutCommit == ["PLUTO-1"])
         world.workspace.mutate { $0.updateOperated(task.id) {
             $0.extraTabs = [ExtraTab(key: "fix", agent: .claude, model: "m", reasoning: nil, modelReason: "Fix", brief: "Fix",
@@ -470,7 +469,7 @@ import Testing
         try (JSONEncoder().encode(record) + Data("\n".utf8)).write(to: folder.appendingPathComponent("conv-fix.jsonl"))
         fix.state = .idle
         world.show(sessions(run, task, .idle) + [fix])
-        await world.controller.turns.lastRead?.value
+        await world.settled()
         #expect(try status(world, run).readyForAcceptance == ["PLUTO-1"])
         #expect(try status(world, run).finishedWithoutCommit.isEmpty)
     }
@@ -498,5 +497,255 @@ extension WorkerTurnReaderTests {
         #expect(obligations.readyForAcceptance.isEmpty)
         let diff = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value)
         #expect(diff["commits"] == "" && diff["files"] == .array([]))
+    }
+}
+
+// -- the stamp gate (phase 5, review round 1): what it sees, and the tick's full read for what it cannot -----------------
+
+extension WorkerTurnReaderTests {
+    /// A reply line as Claude writes it.
+    func replyLine(_ text: String) throws -> Data {
+        let record: JSONValue = ["type": "assistant", "message": ["content": [["type": "text", "text": .string(text)]]]]
+        return try JSONEncoder().encode(record) + Data("\n".utf8)
+    }
+
+    /// The worker's tab reports something that is not its turn ending: its context fill.
+    func contextMoved(_ world: OperatorWorld, _ task: TaskItem, to percent: Int) async throws {
+        var tab = try #require(world.live.sessions.first { $0.taskUUID == task.id })
+        tab.contextPercent = percent
+        world.live.handle(.sessionChanged(tab))
+        world.controller.handle(.sessionChanged(tab))
+        await world.settled()
+    }
+
+    /// A conversation file that is a link: what is read is its target, so the target is what is stamped, and a reply
+    /// appended to it is read on the next change.
+    @Test func aReplyAppendedToALinkedTranscriptIsRead() async throws {
+        let (world, _, task, _) = try makeWorld(worker: .idle)
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = ScratchFolder.path("aiterm-linked-transcript-", suffix: ".jsonl")
+        try replyLine("First.").write(to: target)
+        try FileManager.default.createSymbolicLink(at: folder.appendingPathComponent("conv-1.jsonl"), withDestinationURL: target)
+        world.controller.turns.observe()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "First.")
+        let handle = try FileHandle(forWritingTo: target)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: try replyLine("Second."))
+        try handle.close()
+        try await contextMoved(world, task, to: 40)
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Second.")
+    }
+
+    /// A transcript replaced by another file of the same length, its date put back: another file, so read again.
+    @Test func aTranscriptReplacedAtTheSameLengthAndDateIsRead() async throws {
+        let (world, _, task, _) = try makeWorld(worker: .idle)
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("conv-1.jsonl")
+        try replyLine("Wired A.").write(to: file, options: .atomic)
+        let written = Date(timeIntervalSince1970: 1_800_000_000)
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        world.controller.turns.observe()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired A.")
+        try replyLine("Wired B.").write(to: file, options: .atomic)
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        try await contextMoved(world, task, to: 40)
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.")
+    }
+
+    /// A transcript that could not be read is not taken for one with no reply: once it can be, it is read.
+    @Test func aTranscriptThatCouldNotBeReadIsReadOnceItCan() async throws {
+        let (world, _, task, _) = try makeWorld(worker: .idle)
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("conv-1.jsonl")
+        try replyLine("Ready for review.").write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path) }
+        world.controller.turns.observe()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == nil, "unreadable")
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+        try await contextMoved(world, task, to: 40)
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Ready for review.")
+    }
+
+    /// What no stat can tell apart — the same file rewritten in place at the same length, its date put back — is read on
+    /// the next reconcile tick, which reads every ended turn's transcript in full.
+    @Test func aChangeTheStampCannotSeeIsReadOnTheNextTick() async throws {
+        let (world, _, task, _) = try makeWorld(worker: .idle)
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("conv-1.jsonl")
+        try replyLine("Wired A.").write(to: file)
+        let written = Date(timeIntervalSince1970: 1_800_000_000)
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        world.controller.turns.observe()
+        await world.settled()
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.write(contentsOf: try replyLine("Wired B."))
+        try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        try await contextMoved(world, task, to: 40)
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired A.", "the stamp is the same")
+        world.controller.reconcileTick()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.")
+    }
+}
+
+extension WorkerTurnReaderTests {
+    /// The tick's full read is not lost to a read already under way (phase 5, review round 2): a sibling task at work has
+    /// its runtime counted on each tick, and that change reads the idle worker's turn past its stamp before the tick's full
+    /// read comes; the full read takes its place, and a change no stat can see is read within the tick.
+    @Test func aChangeTheStampCannotSeeIsReadOnTheNextTickWhileASiblingWorks() async throws {
+        let clock = TestClock.operators()
+        let (world, run, task, _) = try makeWorld(worker: .idle, clock: clock)
+        let project = try #require(world.state.projects.first)
+        var busy = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-2", state: .working, worktree: "/tmp/aiterm-wt-busy")
+        busy.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now.addingTimeInterval(-3600),
+                                              openedAt: clock.now.addingTimeInterval(-3600))
+        world.workspace.mutate { $0.tasks.append(busy) }
+        world.show(sessions(run, task, .idle) + [OperatorServiceFixtures.session("w2", window: "w10", tag: busy.id, state: .working,
+                                                                                  conversation: "conv-busy")])
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("conv-1.jsonl")
+        try replyLine("Wired A.").write(to: file)
+        let written = Date(timeIntervalSince1970: 1_800_000_000)
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        world.controller.reconcileTick()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired A.")
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.write(contentsOf: try replyLine("Wired B."))
+        try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        let counted = world.task(busy.id)?.operated?.totalRuntimeUsed ?? 0
+        clock.advance(by: OperatorTiming.reconcileInterval)
+        world.controller.reconcileTick()
+        await world.settled()
+        #expect((world.task(busy.id)?.operated?.totalRuntimeUsed ?? 0) > counted, "the sibling's work was counted on the tick")
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.")
+    }
+}
+
+/// A gate a read's thread waits at until the test lets it go, once: the first read to reach it is held, every later one
+/// passes (phase 5, review round 3).
+final class FirstReadHold: Sendable {
+    private let release = DispatchSemaphore(value: 0)
+    private let state = Mutex<(arrived: Bool, used: Bool)>((false, false))
+    /// Whether a full read can be the one held; by default only a stamp-only read is.
+    private let fullReads: Bool
+    var arrived: Bool { state.withLock { $0.arrived } }
+
+    init(fullReads: Bool = false) { self.fullReads = fullReads }
+
+    /// Holds the first read (stamp-only, unless `fullReads`) until `letGo`; every read after it passes.
+    func hold(fullRead: Bool) {
+        guard fullReads || !fullRead, state.withLock({ state -> Bool in
+            guard !state.used else { return false }
+            state.used = true
+            state.arrived = true
+            return true
+        }) else { return }
+        release.wait()
+    }
+
+    func letGo() { release.signal() }
+}
+
+extension WorkerTurnReaderTests {
+    /// A read that a newer one replaced keeps nothing (phase 5, review round 3): a stamp-only read of reply A held between
+    /// its read and what it keeps, the file rewritten in place to B with its stamp put back, the tick's full read reads B
+    /// and applies it; the older read let go after it keeps nothing and applies nothing, and the next change still reads B.
+    @Test func aReadANewerOneReplacedKeepsNothingWhenItEndsLast() async throws {
+        let (world, _, task, _) = try makeWorld(worker: .idle)
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("conv-1.jsonl")
+        try replyLine("Wired 0.").write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_800_000_000)], ofItemAtPath: file.path)
+        world.controller.turns.observe()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired 0.")
+
+        let hold = FirstReadHold()
+        world.controller.transcripts.holdBeforeKeeping { hold.hold(fullRead: $0) }
+        defer { world.controller.transcripts.holdBeforeKeeping(nil) }
+        // A, written a minute later: a stamp-only read reads it, and is held before it keeps it.
+        let written = Date(timeIntervalSince1970: 1_800_000_060)
+        try replyLine("Wired A.").write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        var tab = try #require(world.live.sessions.first { $0.taskUUID == task.id })
+        tab.contextPercent = 40
+        world.live.handle(.sessionChanged(tab))
+        world.controller.handle(.sessionChanged(tab))
+        await eventually(describing: "the stamp-only read held") { hold.arrived }
+        // B, in place at the same length, its date put back: the tick's full read reads it, keeps it and applies it.
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.write(contentsOf: try replyLine("Wired B."))
+        try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        world.controller.reconcileTick()
+        await eventually(describing: "B applied") { world.controller.turns.readings[task.id]?.lastMessage == "Wired B." }
+        // A ends last.
+        hold.letGo()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.", "the older read applies nothing")
+        try await contextMoved(world, task, to: 50)
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.", "the older read kept nothing")
+    }
+}
+
+extension WorkerTurnReaderTests {
+    /// A read's number does not come back when its conversation is let go and returns (phase 5, review round 4): read A
+    /// begins and is held, the conversation leaves the listing and the branch watch lets its replies go, it returns, read B
+    /// begins, keeps B and applies it; A, ending last, keeps nothing and applies nothing, and the next change still reads B.
+    @Test func aReadFromBeforeItsConversationWasLetGoKeepsNothingWhenItEndsLast() async throws {
+        let (world, run, task, _) = try makeWorld(worker: .idle)
+        let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("conv-1.jsonl")
+        try replyLine("Wired 0.").write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_800_000_000)], ofItemAtPath: file.path)
+        world.controller.turns.observe()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired 0.")
+        let listed = sessions(run, task, .idle), operatorOnly = listed.filter { $0.taskUUID != task.id }
+        func leave() {
+            world.show(operatorOnly)
+            // The branch watch's pass lets go of the replies of conversations no longer listed.
+            world.controller.branchWatch.poll()
+        }
+
+        // A, written a minute later, then the conversation leaves and returns: its first read since, A, is held.
+        let written = Date(timeIntervalSince1970: 1_800_000_060)
+        try replyLine("Wired A.").write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        leave()
+        await world.settled()
+        let hold = FirstReadHold(fullReads: true)
+        world.controller.transcripts.holdBeforeKeeping { hold.hold(fullRead: $0) }
+        defer { world.controller.transcripts.holdBeforeKeeping(nil) }
+        world.show(listed)
+        await eventually(describing: "read A held") { hold.arrived }
+        // It leaves again while A is under way, and returns after B was written in place, its date put back: read B.
+        leave()
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.write(contentsOf: try replyLine("Wired B."))
+        try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: written], ofItemAtPath: file.path)
+        world.show(listed)
+        await eventually(describing: "B applied") { world.controller.turns.readings[task.id]?.lastMessage == "Wired B." }
+        // A ends last.
+        hold.letGo()
+        await world.settled()
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.", "the older read applies nothing")
+        try await contextMoved(world, task, to: 50)
+        #expect(world.controller.turns.readings[task.id]?.lastMessage == "Wired B.", "the older read kept nothing")
     }
 }

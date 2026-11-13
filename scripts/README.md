@@ -1,7 +1,8 @@
 # Repository scripts
 
 Run commands from the repository root in a Git worktree. All Swift operations use `swift.sh` and
-`.swift-version` (Swift 6.4). The test queue serializes builds/tests across worktrees; start long
+`.swift-version` (Swift 6.4). The test queue admits one `scripts/test.sh` at a time across
+worktrees; builds outside it (`make-app.sh`, `snapshots.sh`, `run-dev.sh`) are not queued. Start long
 checks in the background and follow their own logs.
 
 ## Build and inspect
@@ -59,7 +60,17 @@ filter, even when no Swift suite was selected; daemon does not accept Swift argu
 release tickets. A queued run selects again after admission. Per-run metadata records the run's
 own queue/result state; a missing completion never becomes success. Leave other runs alone.
 
-`test-swift-toolchain.sh` proves the pin and runner behavior. `test-test-select.sh` guards fixture
+Completed runs retain suite timings, failing test names, the tested commit and clean-tree state for
+seven days in `<lock>.history.jsonl` (normally `/tmp/aiterm-test.lock.history.jsonl`). Gate duration
+excludes queue wait. This runner-owned file is beside the activity records; their schema and
+retention are unchanged. The supervisor inherits stdout and stderr directly; history reads the
+Swift logs and a pytest finish report after the command exits. History I/O failures only warn and
+never change the command's verdict or activity record. Release still requires a recorded full pass.
+
+`test-history.py` writes that history, and `release.sh` asks it (`require-full`) for the full pass.
+`test-queue.sh` is the sourced shim into `test-queue.py`. `test-swift-toolchain.sh` proves the pin and
+runs the queue guard (`test-test-queue.sh`), the history guard (`test-test-history.sh`) and the build
+and bundle checks in `scripts/fixtures/`. `test-test-select.sh` guards fixture
 readers and routing. `test.sh` creates `daemon/.venv` with the `dev` extra when needed, runs pytest,
 then its own venv's mypy/ruff over implementation, tests and tools. `PYTEST` can override the pytest
 executable; lint still uses the repository venv.
@@ -76,7 +87,7 @@ See [testing](../docs/testing.md) for coverage ownership and opt-in live boundar
 ```sh
 scripts/snapshots.sh                         # build/snapshots
 scripts/snapshots.sh build/my-snapshots
-scripts/readme-picture.sh --check
+scripts/readme-picture.sh --check           # fails when docs/desktop.png differs (it does now)
 scripts/readme-picture.sh                    # update docs/desktop.png (release.sh does this)
 ```
 
@@ -85,7 +96,8 @@ clock and stationary working arcs. `snapshots.sh` builds the app product, then r
 PNG files at the output folder's top level; failed builds preserve previous images.
 
 The README renderer draws the actual sidebar beside a fixture terminal. Its hosted capture
-requires a Retina main display. To capture native AppKit/selection materials:
+requires a Retina main display. `docs/desktop.png` is out of date on `main` today, so `--check` exits
+1; the next `release.sh` redraws it. To capture native AppKit/selection materials:
 
 ```sh
 AITERM_SNAPSHOT_HOSTED=1 AITERM_SNAPSHOT_NATIVE_CAPTURE=1 scripts/snapshots.sh build/native-dark
@@ -106,8 +118,13 @@ scripts/release.sh <version>
 version, signature and Applications link. Layout is in `dmg-settings.py`.
 
 `release.sh` publishes externally: it requires clean pushed `main`, the expected GitHub origin,
-logged-in `gh`, a newer version, the release certificate and Python 3.11+. It redraws the README
-picture and commits and pushes it to `main` when it changed.
+logged-in `gh`, a newer version, the release certificate and Python 3.11+. It requires a recorded
+green `scripts/test.sh all` for the exact clean `HEAD` in the last seven days before contacting
+external services. Only a plain `scripts/test.sh all` counts, with no `SWIFT`, `PYTEST`,
+`PYTEST_ADDOPTS` or `AITERM_TEST_PATHS` override; the tree must be clean and `HEAD` unchanged
+throughout, and a later failed full gate for the same `HEAD` revokes the pass. It redraws the README picture and commits and pushes it to `main` when it
+changed; that new commit needs its own full gate before retrying the release.
 It stamps the built bundle, creates/pushes the version tag, uploads the DMG to a draft, then
-publishes. The development bundle marker is refused. Complete the full gate first. Signing setup, version numbering and interrupted-release recovery live in
+publishes. The development bundle marker is refused. Signing setup, version numbering and
+interrupted-release recovery live in
 [releasing](../docs/workflow/release.md). A build/test command never implies permission to release.

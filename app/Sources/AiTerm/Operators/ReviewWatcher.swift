@@ -9,20 +9,20 @@ import AiTermCore
 /// the Operator is woken once for the task (`review feedback on PAY-2`, a reason its key keeps out of the line
 /// typed: `OperatorWaker.isPlain`). What was read
 /// is kept on the task (`PeopleReview`), so a restart wakes it for what came meanwhile and for nothing else.
-/// A task taken over, or one whose broadcast is paused or ended, is not read.
+/// A task taken over, or one whose broadcast is paused or ended, is not read. Each pass finds a project's host, and the
+/// token's user there, once (`Hosts`), however many of its tasks are in review.
 @MainActor
 final class ReviewWatcher {
     private let workspace: WorkspaceStore
     private let ports: OperatorPorts
     private let waker: OperatorWaker
-    private let pass = TickPass()
-    /// The latest pass, for a test to await.
-    var lastPoll: Task<Void, Never>? { pass.last }
+    private let pass: TickPass
 
     init(workspace: WorkspaceStore, ports: OperatorPorts, waker: OperatorWaker) {
         self.workspace = workspace
         self.ports = ports
         self.waker = waker
+        pass = TickPass(work: ports.work)
     }
 
     private var state: AppState { workspace.state }
@@ -31,24 +31,39 @@ final class ReviewWatcher {
     /// and that you have neither paused nor ended.
     func isWatched(_ task: TaskItem) -> Bool {
         guard let operated = task.operated, operated.state == .inReview, !operated.takenOver,
-              operated.publication?.mergeRequestNumber != nil, let run = state.run(id: operated.runId), run.intent == nil
+              operated.publication?.mergeRequestNumber != nil, let run = state.run(id: operated.runId), run.youAsked == nil
         else { return false }
         return run.state == .active || run.state == .complete
     }
 
     /// One pass over every watched task, unless the last is still reading.
     func poll() {
-        pass.run(state.tasks.filter(isWatched).map(\.id)) { [weak self] in await self?.check($0) }
+        let hosts = Hosts()
+        pass.run(state.tasks.filter(isWatched).map(\.id)) { [weak self] in await self?.check($0, hosts: hosts) }
+    }
+
+    /// One pass's code hosts, by project path: each kept once found, and its token's user once the host named it, the first
+    /// time a task of the project needs them; a lookup that failed is not kept, so the project's next task asks again. The
+    /// connection is fresh each pass: Settings may name another host or token user since.
+    @MainActor private final class Hosts {
+        var found: [String: any MergeRequestPublishing] = [:]
+        var users: [String: String] = [:]
     }
 
     func stop() { pass.cancel() }
 
-    private func check(_ id: UUID) async {
+    private func check(_ id: UUID, hosts: Hosts) async {
         guard let task = state.task(id: id), isWatched(task), let number = task.operated?.publication?.mergeRequestNumber,
               let project = state.project(id: task.projectId) else { return }
         let threads: [ReviewThread], approvals: [String]?, own: String?
         do {
-            let host = try await ports.codeHost.host(of: project)
+            let host: any MergeRequestPublishing
+            if let known = hosts.found[project.path] {
+                host = known
+            } else {
+                host = try await ports.codeHost.host(of: project)
+                hosts.found[project.path] = host
+            }
             // Another repository's request of the same number is not this one: origin changed since it was opened.
             if let publication = task.operated?.publication, let why = PublicationGuard.otherRepository(publication, repository: host.repository) {
                 Log.network.error("Not reading the review of \(task.operated?.key ?? task.title, privacy: .public): \(why, privacy: .public)")
@@ -57,8 +72,12 @@ final class ReviewWatcher {
             threads = try await host.threads(of: number)
             // Approvals only where the host gives them: one that cannot leaves them as they were.
             approvals = try? await host.approvals(of: number)
-            // The connection is fresh each check; Settings may now name a different token user.
-            own = try? await host.currentUser()
+            if let user = hosts.users[project.path] {
+                own = user
+            } else {
+                own = try? await host.currentUser()
+                if let own { hosts.users[project.path] = own }
+            }
         } catch {
             Log.network.error("Reading the review of \(task.operated?.key ?? task.title, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             return
@@ -81,7 +100,7 @@ final class ReviewWatcher {
         guard next != seen else { return }
         let news = Self.isNews(threads: threads, approvals: approvals ?? seen.approvals, seen: seen, me: own)
         workspace.mutate { $0.updateOperated(id) { $0.peopleReview = next } }
-        if news { waker.say("\(OperatorWaker.taskReference(operated.key)) has review feedback", to: operated.runId, colon: true) }
+        if news { waker.say(.reviewFeedback(key: operated.key), to: operated.runId) }
     }
 
     /// A thread that is new and unresolved, one whose resolution changed, a new last note on an unresolved thread

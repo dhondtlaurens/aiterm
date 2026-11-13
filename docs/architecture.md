@@ -14,9 +14,17 @@ terminal windows and running agents, which keep running when AiTerm quits.
 | `aitermd` | asyncio composition of iTerm2, session registry, hooks, delivery, RPC and Operator MCP. |
 
 Use concrete owners for stable behavior and protocols for real I/O seams. A new feature should use an
-existing operation before adding a parallel service. Blocking Git, filesystem and short process
-probes run through `BackgroundWork`/thread adapters; putting blocking work in an actor would still
-block its executor. `AgentProcess` separately owns long-running cancellable process groups.
+existing operation before adding a parallel service. Blocking work never runs on the cooperative
+executor; putting it in an actor would still block that executor. Work that ends within a deadline
+(git, a file read, a process with a timeout) runs through `BackgroundWork`, on the shared pool or on
+a repository's lane. Jobs that block for seconds run on a `SerialThread`; one such call runs on
+`ThreadWork`. `FolderCheck` asks whether a folder exists on a thread of its own. `AgentProcess`
+separately owns long-running cancellable process groups.
+
+Commit ids, remote URLs, real paths and file stamps each have one Core home: `CommitId` (one rule
+for the push, the local merge and `record_review`), `RemoteURL` (the provider's reading and the
+push's same-location key, which compares percent-decoded paths), `CanonicalPath` and
+`FileStamps.Stamp`. Process and git output take an optional limit and report truncation.
 
 ## Workspace and observation
 
@@ -30,20 +38,29 @@ broadcasts require cleanup in the installed build before switching, as described
 
 `AppState` stores projects, tasks, terminals, the shelf and structured Operator runs. Runtime jobs,
 current sessions and derived attention/readiness are separate. `LiveSessions`, `PerRow` and
-`SidebarProjection` keep observation scoped to what a row draws. `CheckoutMonitor` samples Git off
+`SidebarProjection` keep observation scoped to what a row draws. One `SidebarPass` per derivation
+matches the live runs' requests and their tasks' worker tabs once, as of one time, for the headers,
+the rows and the board; the headings read only their own values. `CheckoutMonitor` samples Git off
 the main actor, reuses unchanged facts and coalesces title updates. Avoid whole-workspace reads in a
 leaf view or I/O in `body`.
 
-`AppController` composes owners. `SheetCoordinator` owns the single sheet slot and cancels stale
+`AppController` composes owners. It takes its outside dependencies as `AppPorts` (live or scratch,
+the Fix pipeline among them) and its waits as `AppTimings`, and `choose(_:)` owns what choosing a row
+does. Owners publish changes through `HookList`, whose hooks return removal tokens; a hook with one
+slot says so in its name. `SheetCoordinator` owns the single sheet slot and cancels stale
 preparation. Creation models share `CreationModel`, `CreationSheet` and model/reasoning controls;
 provider lookup and missing-model policy remain with the caller. `LatestTask` replaces a prior
-request, whereas `TickPass` drops overlapping polling passes. These lifetimes are deliberately
+request, whereas `TickPass` drops overlapping polling passes, and `DebouncedSearch` keeps the latest
+search after a pause for the pickers and the ticket field. These lifetimes are deliberately
 different.
 
 ## Task and window operations
 
-`TaskWorkflow` supplies the serial queue for checkout mutations used by manual creation, worker
-checkout, restore, removal, pull, Fix landing and local merge. `TaskCreator` owns branch/worktree
+Git work that changes a repository runs on that repository's lane (`GitLanes`), keyed by its git
+common directory, so a project's folder and its worktrees share one and work on one repository never
+waits for another's. Manual creation, worker checkout, restore, removal, pull, rebase, Fix landing,
+local merge and the merged-branch check run there through `TaskWorkflow` or the lanes directly; a
+head or an unsaved-work question runs on the shared pool. `TaskCreator` owns branch/worktree
 creation; worker retry reuses the existing worktree and its original baseline. Scheduling, focus,
 claim validation and uncertainty belong to their callers.
 
@@ -54,9 +71,14 @@ through tags, never a blind duplicate launch. Closing AiTerm prevents unstarted 
 allowing an already-requested window to be recorded.
 
 `WindowReconciler` compares desired rows with tagged sessions. It adopts, restores, asks about a
-single user close or removes a terminal row. `ClosedWindowTriage` distinguishes a lone close from
-iTerm2 shutting down. `TaskRemover`, `TaskArchiver` and `WorktreeTeardown` coordinate saved state,
-window closure and Git safety. A failed removal retains a recoverable task. See [windows](windows.md).
+single user close or removes a terminal row. A pass runs when the tabs as a pass reads them move, a
+checkout reads missing or back, the workspace can change again, or a workspace change leaves a row
+owed a window; each checkout poll checks in memory whether a pass would act. `ClosedWindowTriage`
+distinguishes a lone close from iTerm2 shutting down. `TaskRemover`, `TaskArchiver` and
+`WorktreeTeardown` coordinate saved state, window closure and Git safety: Remove and Shelve share its
+prepare (one `TaskWorkflow.preflight` listing, the unlisted-folder and unsaved-work questions) and
+its run (git's removal, asking again about work written while the window closed). A failed removal
+retains a recoverable task. See [windows](windows.md).
 
 ## Operator ownership
 
@@ -67,20 +89,27 @@ round-trip machinery are absent.
 
 | Owner | Decisions/effects |
 | --- | --- |
-| `RunScheduler`, `OperatedTransitions`, plan rules | Pure readiness, ownership and task/plan transitions. |
+| `RunScheduler`, `OperatedTransitions`, plan rules | Pure readiness, ownership and task/plan transitions; every edge is an `OperatedEdge` recorded through `OperatedTransitions.record`. |
+| `TaskLiveFacts`, `TaskItem.workerTabs(in:now:)` | One live projection per pass, with the launch window: the one readiness input for `run_status`, the reconciler, the row line and the board. |
 | `BroadcastCompletion` | Shared completion and goal-loop decisions used by runtime and tool adapters. |
-| `OperatorController` | Compose owners, schedule work, connect callbacks, reconcile runs and summaries. |
-| `OperatorToolHandler` | Parse/validate MCP calls, invoke rules/effects and produce current tool replies. |
+| `OperatorController` | Build owners in dependency order and hand them references (callbacks only carry events up), schedule work, reconcile runs and summaries. |
+| `OperatorWork` | The finite work owners start, which tests await as one `settled()`; the reconcile loop and a wake retry stay out of it. |
+| `RunStatusSource` | The one status builder every reader uses; a tick builds one snapshot per open run. |
+| `OperatorToolHandler` | Parse/validate MCP calls through the `OperatorTool` traits, invoke rules/effects and produce current tool replies; its tables change only through its own methods. |
+| `OracleJobs` | Challenge, relay, critique and gate jobs: Stop and quit cancel all, End its run's, a Settings save the unacted challenges; a late completion cannot settle its replacement. |
 | `WorkerPrompts` | Per-session prompt probes, post-delivery probes and generation-based cancellation. |
-| `WorkerTurnReader`, `WorkerQuietWatch` | Ended-turn facts and quiet/stall evidence; consume an immutable `WorkerSessions` index per pass. |
-| `OperatorWaker` | Coalesced notifications and safe wake delivery, invalidated on stop/takeover. |
-| `BranchWatch`, `ReviewWatcher` | Bounded asynchronous reads, dropping late replies after cancellation. |
-| `TaskFinisher` / `TaskPublisher` | One publication per task; durable step recording, current authority checks and merge watches. |
+| `WorkerTurnReader`, `WorkerQuietWatch` | Ended-turn facts and quiet/stall evidence; consume an immutable `WorkerSessions` index per pass. One record per worker. |
+| `TranscriptLocator` | Transcript tails read again only when the file's stamp changed, shared by the turn reader and `BranchWatch`; only a conversation's newest read keeps what it found. |
+| `OperatorWaker` | Coalesced notifications and safe wake delivery over the closed set of `WakeReason`s, invalidated on stop/takeover. |
+| `OperatorWindows`, `PauseSignaller` | Reopening the Operator's window and the closing sweep; the pause and carry-on notes. |
+| `BranchWatch`, `ReviewWatcher` | Bounded asynchronous reads, dropping late replies after cancellation; a host and its user found once per pass. |
+| `TaskFinisher` / `TaskPublisher` | One publication per task, one work record per task in the finisher; durable step recording, current authority checks and merge watches. `TaskPublication.problemKind` is saved beside a problem and read instead of its wording. |
 | `TaskAutoCloser` | Close eligible completed tasks while preserving unsaved work and recorded evidence. |
 
 Host reads share only when repository, request and accepted commit match. An in-flight identity
 prevents an old response from replacing a newer owner's cache. Stop cancels owned reads, probes,
-ticks, watches and summary waits. After every suspension, an effect owner checks cancellation and
+ticks, watches, summary waits, pause notes, the closing sweep, replaced registrations and Oracle
+jobs; End cancels its own run's Oracle jobs. After every suspension, an effect owner checks cancellation and
 current identity/authority before starting consequential work. A completed external write is still
 recorded; shutdown prevents the next step, rather than pretending the completed step never happened.
 
@@ -93,7 +122,10 @@ workspace writer. [Operator guide](operators.md); [contract protection](testing.
 
 `HTTPJSON` and `HostAPI` share JSON transport and credential-safe redirects. GitHub, GitLab and Jira
 retain their actual pagination and error semantics: a picker may show a bounded subset, while
-publication must refuse an incomplete safety read. Commands use typed arguments and hermetic Git
+publication must refuse an incomplete safety read. Each GitHub and GitLab client is bound to one
+repository when it is made (`HostRepository`). `HostFailure.outcomeUnknown` says whether a failed
+write may have reached the host; a failure before sending is not. A token's user is kept per host
+and token until Settings saves. Commands use typed arguments and hermetic Git
 configuration in tests.
 
 `HarnessDriver` describes agent installation/checks. `UserConfigFile` protects symlinks and foreign
@@ -112,10 +144,14 @@ keep their existing focused seams rather than using a generic job/workflow frame
 
 ## Daemon
 
-`Service` composes the iTerm2 bridge, registry, status readers, delivery adapters, hook receiver,
-window manager, RPC and Operator MCP. `ItermSupervisor` owns reconnect/cookie handling. A locked
-refresh serializes snapshots and creation; tick consumers reuse that pass's session view. Transcript
-and filesystem reads run off the asyncio loop. Generation/session identity prevents late telemetry
+`Service` composes the iTerm2 port, registry, status readers, delivery adapters, hook receiver,
+window manager, RPC and Operator MCP. It talks to iTerm2 through `ItermPort` (`iterm_port.py`);
+`ItermBridge` is the one SDK adapter and patches authentication when it connects. Screen recognition
+is pure (`screens.py`). `ItermSupervisor` owns reconnect/cookie handling. A locked refresh serializes
+snapshots and creation; tick consumers reuse that pass's session view, and task lookups use its
+index. `CorroboratingReaders` captures each corroborating read on the loop, runs it off the loop
+under a deadline and applies it on the loop. `SessionNotFound` marks a session that is truly
+absent. Generation/session identity prevents late telemetry
 from attaching to a replacement process.
 
 The app-resolved Claude configuration directory travels in `workspace.snapshot` and is echoed as a
@@ -151,7 +187,7 @@ as though it belonged to the current app. [Protocol reference](daemon-protocol.m
 | --- | --- |
 | Workspace, recovery and logs | `~/Library/Application Support/AiTerm/`; `StateStore`, `WorkspaceStore`, logging and daemon supervisor. |
 | Credentials | Keychain service `com.laurensdhondt.aiterm`, account `secrets`: service tokens and hotspot password. Settings validates before writing and rolls back failed changes. |
-| Task worktrees | `<repo>/.worktrees/<slug>`; task operations reserve shelved paths and check branch/worktree ownership before deletion. `.worktreeinclude` copies selected ignored files. |
+| Task worktrees | `<repo>/.worktrees/<slug>`; task operations reserve shelved paths and check branch/worktree ownership before deletion. A folder git still lists counts as taken, and cleanup prunes git's record of a worktree deleted outside AiTerm. `.worktreeinclude` copies selected ignored files. |
 | Agent drivers | Claude's resolved config directory, `~/.codex/` and `~/.pi/agent/extensions/`; explicit Install/Repair keeps backups and foreign entries. Hook resources ship in the app bundle. |
 | Operator artifacts | Per-run brief/configuration and local token-managed access under application support; large worker messages under the task's `.aiterm/messages/`. |
 | Preferences | Interface and integration choices, hotspot name and engagement marker. Tests use scratch defaults. |
@@ -167,7 +203,7 @@ remains necessary even though historical broadcast compatibility is removed.
 
 The app is dark-only. Palette and Metrics are the source of visual values; the
 [UI README](../app/Sources/AiTermUI/README.md) defines component rules. The design-system HTML mirrors
-the code and holds proposed visual changes separately. No visual redesign accompanies this refactor.
+the code and holds proposed visual changes separately. Refactors change no visual values.
 
 [Testing](testing.md) describes the gate, current-format fixtures, real adapter proofs and opt-in
 live checks. Debug snapshot entry occurs before live workspace migration/controller construction,

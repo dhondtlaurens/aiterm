@@ -16,20 +16,9 @@ enum Budget {
         return meter.take()
     }
 
-    /// Waits until the Operator's owners have finished what they started: the turn and transcript reads, prompt probes,
-    /// branch and review passes, wake lines, launches. A finished task may start another, so it waits until a round
-    /// finds the same handles it awaited.
-    static func settle(_ controller: OperatorController) async {
-        var awaited: [Task<Void, Never>?] = []
-        while true {
-            let handles = [controller.turns.lastRead, controller.quiet.lastRead, controller.lastProbe, controller.branchWatch.lastPoll,
-                           controller.reviewWatcher.lastPoll, controller.waker.lastCoalesce, controller.waker.lastSend,
-                           controller.lastStart, controller.reconciler.lastLaunch, controller.reconciler.lastTab]
-            if handles == awaited { return }
-            awaited = handles
-            for handle in handles { await handle?.value }
-        }
-    }
+    /// Waits until the Operator's owners have finished what they started (`OperatorWork`): the turn and transcript
+    /// reads, prompt probes, branch and review passes, wake lines, launches, and the work those started.
+    static func settle(_ controller: OperatorController) async { await controller.ports.work.settled() }
 
     /// A checkout monitor's scan that reads nothing: no git runs, and no branch or diff moves.
     static let noScan: CheckoutMonitor.Scanner = { _, _, _, _, _, _, _ in
@@ -66,11 +55,11 @@ enum Budget {
     /// One derivation of the sidebar's rows (`SidebarProjection.refresh`) for the frozen broadcast — 4 tasks, 6 extra
     /// tabs, the run active — after its working worker's tab went to needs-input, a status a row draws.
     ///
-    /// Board closed: 3 `OperatorRequests.open` and 5 `TaskItem.workerTabs`. The broadcast's group derives the requests for
-    /// its header, and the operated-row lookup (`SidebarModel.OperatedLookup`) derives them again each time it is built,
-    /// once for the group's task rows and once for the projects' entries. Board open: 4 and 18, the board deriving the
-    /// requests a fourth time and matching worker tabs 13 more times for its 4 cards. A later change that derives each
-    /// once per refresh lowers these numbers; none may raise them.
+    /// 1 `OperatorRequests.open` and 4 `TaskItem.workerTabs`, board closed or open: the derivation's pass (`SidebarPass`)
+    /// derives the live run's requests once and matches each of its 4 tasks' worker tabs once, and the group's header, its
+    /// rows, the projects' entries and the board read them. Before it (phase 0): 3 and 5 with the board closed, the header
+    /// and the operated-row lookup, built twice, deriving the requests each; 4 and 18 open, the board deriving them again
+    /// and matching worker tabs 13 more times for its 4 cards. None may raise them.
     @Test(arguments: [false, true]) func aSidebarRefreshDerivesTheRequestsAndTheWorkerTabs(boardShown: Bool) async throws {
         let state = try OperatorCurrentContractTests.load()
         let workspace = WorkspaceStore.holding(state)
@@ -91,16 +80,16 @@ enum Budget {
         let work = await Budget.metered { rows.refresh() }
 
         #expect(rows.derivations == start + 1, "one derivation")
-        #expect(work[.requests] == (boardShown ? 4 : 3), "requests per refresh: \(work)")
-        #expect(work[.workerTabs] == (boardShown ? 18 : 5), "worker-tab matches per refresh: \(work)")
+        #expect(work[.requests] == 1, "requests per refresh: \(work)")
+        #expect(work[.workerTabs] == 4, "worker-tab matches per refresh: \(work)")
     }
 
     // MARK: - The window lock
 
     /// Ten `session.changed` events for a task's tab that move only its context fill and its title, which no row draws,
-    /// through the app's own routing (`HelperLink.handle`): 10 `WindowReconciler` passes, one per event, though none
-    /// has anything to do. A later change that passes only when a row's window could have changed lowers it; none may
-    /// raise it.
+    /// through the app's own routing (`HelperLink.handle`): 0 `WindowReconciler` passes (10 before phase 7, one per
+    /// event, none with anything to do). A pass now runs on a session event only when the tabs as a pass reads them
+    /// moved. None may raise it.
     @Test func sessionEventsThatChangeNoRowEachPassTheWindowLock() async throws {
         let controller = AppController(preferences: .scratch(), scan: Budget.noScan)
         defer { controller.shutdown() }
@@ -122,7 +111,33 @@ enum Budget {
         }
 
         #expect(controller.state.task(id: task.id)?.windowId == "w", "the row keeps its window")
-        #expect(work[.reconcilerPass] == 10, "passes for 10 events: \(work)")
+        #expect(work[.reconcilerPass, default: 0] == 0, "passes for 10 events: \(work)")
+    }
+
+    /// The checkout monitor's polls with every row in its window: 0 `WindowReconciler` passes for 5 polls. Each poll
+    /// does one check in memory — the window plan, acting on nothing — and passes only when a pass would act (phase 7,
+    /// new). None may raise it.
+    @Test func pollsWithNothingOwedPassTheWindowLockNever() async throws {
+        let controller = AppController(preferences: .scratch(), checkoutPollInterval: .milliseconds(10), scan: Budget.noScan)
+        defer { controller.shutdown() }
+        try controller.workspace.load()
+        let project = Project.make(path: "/repo")
+        let task = TaskItem.make(project: project.id, title: "a", worktreePath: "/repo/a", windowId: "w")
+        controller.workspace.mutate { $0.append(project: project); $0.tasks = [task] }
+        controller.helper.setDaemonClient(RecordingDaemon())
+        let tab = SessionInfo.make("s", window: "w", task: task.id, state: .working, cwd: "/repo/a")
+        controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [tab], usage: .empty)))
+        await controller.windows.lastRestore?.value
+        var polls = 0
+        controller.checkouts.onPolled { polls += 1 }
+
+        let work = await Budget.metered {
+            controller.checkouts.startMonitoring()
+            await eventually(describing: "five polls") { polls >= 5 }
+            controller.checkouts.stop()
+        }
+
+        #expect(work[.reconcilerPass, default: 0] == 0, "passes for \(polls) polls with nothing owed: \(work)")
     }
 
     // MARK: - Shelve and restore
@@ -130,24 +145,28 @@ enum Budget {
     /// Shelving a task with a clean worktree and an open window, then restoring it from the Shelf, as git sees it: the
     /// controller's own git, the checkout monitor's scan reading nothing.
     ///
-    /// Shelve: 9 spawns, `worktree list` five times (three before and two after the `status --porcelain` that looks for
-    /// unsaved work), then `worktree unlock`, `worktree remove` and `worktree prune`. Restore: 6 spawns, of which 3 `worktree list`, then 2 `rev-parse` and `worktree add`. A later
-    /// change that lists the worktrees once per step lowers these numbers; none may raise them.
+    /// Shelve: 8 spawns, `worktree list` four times — once for the preflight before any question, once right before the
+    /// `status --porcelain` that looks for unsaved work (only a listing then says the folder is still this repository's
+    /// worktree), once for the head once its window has closed, once by the removal itself — then `worktree unlock`,
+    /// `worktree remove` and `worktree prune` (9 before phase 7's one preflight, with `worktree list` five times: head,
+    /// unlisted folder and unsaved work each listed on their own). Restore: 4 spawns, one `worktree list`, then 2
+    /// `rev-parse` and `worktree add` (6 before phase 2 listed the worktrees once per restore, 3 `worktree list`). None
+    /// may raise them.
     @Test func shelvingAndRestoringATaskSpawnsGit() async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
-        let fixture = try RaceFixture(scan: Budget.noScan, controllerGit: git)
+        let fixture = try await RaceFixture(scan: Budget.noScan, controllerGit: git)
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
 
         var mark = git.calls.count
         await (await controller.archiver.archive(task: task))?.value
         let shelve = Budget.commands(git, since: mark)
         #expect(controller.state.archive.map(\.id) == [task.id], "shelved")
 
-        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         await controller.windows.lastRestore?.value
         mark = git.calls.count
         await controller.archiver.restore(task.id)?.value
@@ -155,8 +174,52 @@ enum Budget {
         let restore = Budget.commands(git, since: mark)
         #expect(controller.state.tasks.map(\.id) == [task.id], "restored")
 
-        #expect(shelve.count == 9, "spawns per Shelve: \(shelve)")
-        #expect(restore.count == 6, "spawns per restore: \(restore)")
+        #expect(shelve.count == 8, "spawns per Shelve: \(shelve)")
+        #expect(shelve.filter { $0 == "worktree list" }.count == 4, "\(shelve)")
+        #expect(restore.count == 4, "spawns per restore: \(restore)")
+        #expect(restore.filter { $0 == "worktree list" }.count == 1, "\(restore)")
+    }
+
+    /// The person's Remove of a task with a clean worktree and an open window, its branch kept, as git sees it: 7 spawns,
+    /// `worktree list` three times — the preflight, the listing right before `status --porcelain`, and the removal itself
+    /// — then `worktree unlock`, `worktree remove` and `worktree prune`. 7 before phase 7 too, counted by this test on the
+    /// code before the change: the preflight's one listing takes the place of the unlisted folder's, and the unsaved-work
+    /// check keeps the listing of its own that says, right before status, that the folder is still the worktree. None
+    /// may raise it.
+    @Test func removingATaskSpawnsGit() async throws {
+        let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove"), scan: Budget.noScan, controllerGit: git)
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let task = try await fixture.addTask(windowId: "alive")
+
+        let mark = git.calls.count
+        await (await controller.remover.confirmRemove(task: task))?.value
+        let remove = Budget.commands(git, since: mark)
+        #expect(controller.state.task(id: task.id) == nil, "removed")
+
+        #expect(remove.count == 7, "spawns per Remove: \(remove)")
+        #expect(remove.filter { $0 == "worktree list" }.count == 3, "\(remove)")
+    }
+
+    // MARK: - Saving
+
+    /// A save of the frozen workspace over the one it saved before: 1 file written, the workspace; the backup is a clone
+    /// of the file it replaces (2 before phase 2, when the backup was written as bytes too). None may raise it.
+    @Test func aSaveOverAnEarlierOneWritesItsFiles() throws {
+        let state = try OperatorCurrentContractTests.load()
+        let folder = try ScratchFolder.make("aiterm-budget-writes-")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = StateStore(url: folder.appendingPathComponent("state.json"))
+        try store.save(state)
+        let first = try Data(contentsOf: store.url)
+        let meter = WorkMeter()
+        try WorkMeter.$current.withValue(meter) { try store.save(state) }
+        #expect(meter[.stateWrite] == 1, "files written per save: \(meter.take())")
+        #expect(try Data(contentsOf: store.backupURL) == first, "the backup is the save before")
+        #expect(try Data(contentsOf: store.url) == first)
     }
 
     // MARK: - Fixture timings, printed only

@@ -5,9 +5,11 @@ extension OperatorToolHandler {
     /// Tracked index/worktree edits and a bounded set of untracked patches. Git reads symlinks as
     /// links, so a new link never makes this read the target outside the worktree.
     nonisolated static func workingDiff(in path: String, git: any GitRunning) throws -> (text: String, truncated: Bool) {
-        var text = try git.run(["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--"], in: path)
+        // Read no further than a little over what is kept: the text is cut at 80,000 characters below.
+        let tracked = try git.read(["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--"], in: path, limit: 1024 * 1024)
+        var text = tracked.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let names = try git.run(["ls-files", "--others", "--exclude-standard", "-z"], in: path).split(separator: "\0")
-        var truncated = names.count > 20
+        var truncated = names.count > 20 || tracked.truncated
         for name in names.prefix(20) {
             guard text.count < 80_000 else { truncated = true; break }
             guard let attributes = try? FileManager.default.attributesOfItem(atPath: path + "/" + String(name)),

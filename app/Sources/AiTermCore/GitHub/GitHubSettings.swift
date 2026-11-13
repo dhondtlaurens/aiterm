@@ -9,6 +9,8 @@ public enum GitHubSettings {
 
     @discardableResult
     public static func save(_ cfg: GitHubConfig?, store: SecretStore = Keychain.shared) -> Bool {
-        store.set("github.token", cfg?.token)
+        let saved = store.set("github.token", cfg?.token)
+        if saved { HostUserMemo.invalidate(.gitHub) }
+        return saved
     }
 }

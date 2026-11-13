@@ -14,8 +14,45 @@ final class FixSession {
         case done(FixLanding), noFix(String), failed(String), unavailable
     }
 
-    /// Written only through `set(_:)`, which skips an equal value.
-    private(set) var state: State
+    private struct Ready {
+        let clone: FixClone, proposal: FixProposal, session: FixLookSession
+    }
+
+    private enum Phase {
+        case offered, unavailable, looking(FixClone?), proposal(Ready), applying(Ready)
+        case done(FixLanding), noFix(String), failed(String)
+        #if DEBUG
+        case snapshot(State)
+        #endif
+
+        var presentation: State {
+            switch self {
+            case .offered: .offered
+            case .unavailable: .unavailable
+            case .looking: .looking
+            case .proposal(let ready): .proposal(ready.proposal)
+            case .applying: .applying
+            case .done(let landing): .done(landing)
+            case .noFix(let reason): .noFix(reason)
+            case .failed(let reason): .failed(reason)
+            #if DEBUG
+            case .snapshot(let state): state
+            #endif
+            }
+        }
+
+        var clone: FixClone? {
+            switch self {
+            case .looking(let clone): clone
+            case .proposal(let ready), .applying(let ready): ready.clone
+            default: nil
+            }
+        }
+    }
+
+    @ObservationIgnored private var phase: Phase
+    /// The surface observes only a changed presentation, including while a Look acquires its clone.
+    var state: State { access(keyPath: \.state); return phase.presentation }
     /// The last proposal shown, which the footer keeps on screen while it is applied.
     private(set) var lastProposal: FixProposal?
     /// The problem; a Try Again adds why the last fix failed.
@@ -24,22 +61,19 @@ final class FixSession {
     @ObservationIgnored private let pipeline: FixPipeline
     @ObservationIgnored private let retry: @MainActor (FixLanding) async -> Void
     @ObservationIgnored private var work: Task<Void, Never>?
-    /// The clone a proposal was made in, and the agent's session in it, kept for Apply.
-    @ObservationIgnored private var clone: FixClone?
-    @ObservationIgnored private var session: String?
 
     init(request: FixRequest, fixer: FixerResolution, pipeline: FixPipeline, retry: @escaping @MainActor (FixLanding) async -> Void) {
         self.request = request; self.pipeline = pipeline; self.retry = retry
         self.fixer = fixer.agent
-        state = fixer.agent == nil ? .unavailable : .offered
+        phase = fixer.agent == nil ? .unavailable : .offered
     }
 
     isolated deinit {
-        if let clone { Task { await Self.discard(clone) } }
+        if let clone = phase.clone { Task { await Self.discard(clone) } }
     }
 
     var isBusy: Bool { state == .looking || state == .applying }
-    var clonePath: String? { clone?.path }
+    var clonePath: String? { phase.clone?.path }
 
     /// Prepares a clone and asks the agent for a proposal.
     func start() {
@@ -54,11 +88,9 @@ final class FixSession {
         case .looking:
             // The task removes its clone once the agent's process group is gone.
             work?.cancel()
-            clone = nil; session = nil
             set(.offered)
         case .proposal:
-            let declined = clone
-            clone = nil; session = nil
+            let declined = phase.clone
             set(.offered)
             work = Task { await Self.discard(declined) }
         default:
@@ -76,14 +108,14 @@ final class FixSession {
 
     /// Has the agent make the proposal in the clone, checks it, lands it and runs the failed action again.
     func apply() {
-        guard case .proposal(let proposal) = state, let fixer, let clone, let session else { return }
-        set(.applying)
+        guard case .proposal(let ready) = phase, let fixer else { return }
+        let clone = ready.clone
+        set(.applying(ready))
         work = Task {
             do throws(FixRefusal) {
-                let checked = try await pipeline.apply(fixer, clone, proposal, session)
+                let checked = try await pipeline.apply(fixer, clone, ready.proposal, ready.session)
                 guard !Task.isCancelled else { throw FixRefusal.cancelled }
                 let landing = try await pipeline.land(clone, checked)
-                self.clone = nil; self.session = nil
                 set(.done(landing))
                 // The action again first: removing the clone is file work it need not wait for. A
                 // landing that finished as the app quits (`stop()`) starts no git write after it.
@@ -104,12 +136,12 @@ final class FixSession {
 
     /// Test hooks: the running task's end, and the clone's existence.
     func settled() async { await work?.value }
-    func waitForClone() async { while clone == nil, state == .looking { await Task.yield() } }
+    func waitForClone() async { while phase.clone == nil, state == .looking { await Task.yield() } }
 
     /// Every write to `self` comes after a check that this task was not cancelled: a cancelled Look
     /// has handed the surface back, and a new one may be running.
     private func look(_ fixer: FixerAgent) {
-        set(.looking)
+        set(.looking(nil))
         let request = request
         work = Task {
             var made: FixClone?
@@ -117,14 +149,13 @@ final class FixSession {
                 let clone = try await pipeline.prepare(request)
                 made = clone
                 guard !Task.isCancelled else { return await Self.discard(clone) }
-                self.clone = clone
+                set(.looking(clone))
                 let (look, session) = try await pipeline.look(fixer, clone, request)
                 guard !Task.isCancelled else { return await Self.discard(clone) }
                 switch look {
                 case .fix(let proposal):
-                    self.session = session
                     if lastProposal != proposal { lastProposal = proposal }
-                    set(.proposal(proposal))
+                    set(.proposal(Ready(clone: clone, proposal: proposal, session: session)))
                 case .none(let reason):
                     await end(.noFix("\(fixer.shortName) found no fix it can stand behind: \(reason)"), removing: clone)
                 }
@@ -136,20 +167,24 @@ final class FixSession {
     }
 
     /// A state no task continues from: shown at once, then the clone removed.
-    private func end(_ end: State, removing clone: FixClone?) async {
-        self.clone = nil; session = nil
+    private func end(_ end: Phase, removing clone: FixClone?) async {
         set(end)
         await Self.discard(clone)
     }
 
-    private func set(_ new: State) { if state != new { state = new } }
+    private func set(_ new: Phase) {
+        if phase.presentation != new.presentation {
+            withMutation(keyPath: \.state) { phase = new }
+        } else {
+            phase = new
+        }
+    }
 
     /// Removing a checkout is blocking file work: off the main actor, and awaited so `settled()` covers it.
     private nonisolated static func discard(_ clone: FixClone?) async {
         guard let clone else { return }
         await BackgroundWork.run { clone.remove() }
     }
-
 }
 
 extension FixSession.State {
@@ -176,7 +211,7 @@ extension FixSession {
                                   land: { _, _ throws(FixRefusal) in throw .cancelled })
         let session = FixSession(request: request, fixer: fixer, pipeline: refuses, retry: { _ in })
         session.lastProposal = proposal
-        if let state { session.set(state) }
+        if let state { session.set(.snapshot(state)) }
         return session
     }
 }

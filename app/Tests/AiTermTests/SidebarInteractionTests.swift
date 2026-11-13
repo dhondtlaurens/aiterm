@@ -7,6 +7,66 @@ import Testing
 
 @MainActor
 struct SidebarInteractionTests {
+    /// Keep the old view call as the reference for the chooser, a real row click and Return.
+    @Test func aTerminalClickAndReturnMatchTheOldDirectSelection() async throws {
+        let server = RecordingDaemon()
+        var focusCalls: [[String]] = []
+        let controller = AppController(preferences: .scratch(), activateIterm: {
+            focusCalls.append(server.requests.map(\.method))
+        })
+        defer { controller.shutdown() }
+        try controller.workspace.load()
+        let project = Project.make()
+        let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Terminal",
+                                    windowId: "terminal-window", createdAt: Date())
+        controller.workspace.mutate { $0.items = [.project(project)]; $0.terminals = [terminal] }
+        controller.helper.setDaemonClient(server)
+        let (host, window) = HostedSidebar.make(controller, key: true)
+        defer { window.orderOut(nil) }
+        settle(host, describing: "the terminal row") {
+            host.firstDescendant(NSTableView.self)?.numberOfRows == 4
+        }
+        let list = try #require(host.firstDescendant(NSTableView.self))
+        var reference: [Data] = []
+        for path in ["old direct call", "chooser", "click", "Return"] {
+            controller.focus.browse(.project(project.id))
+            let requestStart = server.requests.count, focusStart = focusCalls.count
+            switch path {
+            case "old direct call":
+                await controller.focus.select(.terminal(terminal.id))?.value
+            case "chooser":
+                await controller.choose(.terminal(terminal.id))?.value
+            case "click":
+                list.scrollRowToVisible(3)
+                host.layoutSubtreeIfNeeded()
+                let point = list.convert(NSPoint(x: list.bounds.midX, y: list.rect(ofRow: 3).midY), to: nil)
+                for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
+                    let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                        timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1,
+                        clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+                    window.sendEvent(event)
+                }
+            default:
+                controller.focus.browse(.terminal(terminal.id))
+                #expect(window.makeFirstResponder(list))
+                let event = try #require(keyDown("\r", code: 36, in: window))
+                window.sendEvent(event)
+            }
+            await eventually(describing: "\(path) handing focus to iTerm2") { focusCalls.count == focusStart + 1 }
+            #expect(controller.focus.selection == .terminal(terminal.id), "\(path): same selection")
+            #expect(focusCalls.count == focusStart + 1, "\(path): one focus handoff")
+            #expect(focusCalls.last?.last == "window.activate", "\(path): focus follows the window raise")
+            let requests = Array(server.requests.dropFirst(requestStart))
+            #expect(requests.map(\.method) == ["window.setFrame", "window.activate"], "\(path): same effects")
+            #expect(requests.last?.params["windowId"] as? String == "terminal-window", "\(path): same raised window")
+            let encoded = try requests.map {
+                try JSONSerialization.data(withJSONObject: ["method": $0.method, "params": $0.params], options: .sortedKeys)
+            }
+            if path == "old direct call" { reference = encoded }
+            else { #expect(encoded == reference, "\(path): identical request parameters, including the frame") }
+        }
+    }
+
     @Test func inactiveWindowClicksSelectTerminalFirstThenTaskRowsOnTheFirstClick() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -98,10 +158,10 @@ struct SidebarInteractionTests {
     /// ⌘⌫ reaches the list's handler rather than dying in the table: the selected task's Remove
     /// question comes up, and a plain ⌫ asks nothing.
     @Test func commandDeleteRemovesTheSelectedRow() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"))
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
-        let task = try fixture.addTask(windowId: "alive")
+        let task = try await fixture.addTask(windowId: "alive")
         controller.focus.browse(.task(task.id))
         let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 340, height: 500), key: true)
         defer { window.orderOut(nil) }
@@ -180,11 +240,11 @@ struct SidebarInteractionTests {
 
     /// ↩ on a header folds and opens it; ⌘↩ and ← → do nothing. A header shows no window and raises
     /// nothing, and ⌘⌫ on one removes nothing.
-    @Test func returnFoldsAndOpensAHeader() throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"))
+    @Test func returnFoldsAndOpensAHeader() async throws {
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller, project = fixture.project
-        let task = try fixture.addTask(windowId: "work")
+        let task = try await fixture.addTask(windowId: "work")
         let server = RecordingDaemon()
         controller.helper.setDaemonClient(server)
         #expect(task.projectId == project.id)
@@ -219,14 +279,14 @@ struct SidebarInteractionTests {
         #expect(server.requests.filter { $0.method.hasPrefix("window.") }.isEmpty, "a header raises nothing")
 
         try press(51, "\u{7F}", .command)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        turnRunLoop(0.05)
         #expect(fixture.prompter.asked.isEmpty, "⌘⌫ removes nothing from a header")
         #expect(controller.state.projects.map(\.id) == [project.id])
     }
 
     /// ↩ on an empty header, which has nothing to fold, opens its context menu instead.
-    @Test func returnOnAnEmptyHeaderOpensItsMenu() throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"))
+    @Test func returnOnAnEmptyHeaderOpensItsMenu() async throws {
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller, project = fixture.project
         controller.focus.browse(.project(project.id))
@@ -243,7 +303,7 @@ struct SidebarInteractionTests {
                                                 characters: "\r", charactersIgnoringModifiers: "\r",
                                                 isARepeat: false, keyCode: 36))
         window.sendEvent(key)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        turnRunLoop(0.05)
         #expect(asked == [project.id], "↩ asks for the header's menu")
         #expect(controller.state.project(id: project.id)?.collapsed == false)
 
@@ -264,9 +324,11 @@ struct SidebarInteractionTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let first = dir.appendingPathComponent("first"), second = dir.appendingPathComponent("second")
-        for (url, branch) in [(first, "first"), (second, "second")] {
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            try GitRunner.hermetic().run(["init", "-q", "-b", branch], in: url.path)
+        try await BackgroundWork.run {
+            for (url, branch) in [(first, "first"), (second, "second")] {
+                try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+                try GitRunner.hermetic().run(["init", "-q", "-b", branch], in: url.path)
+            }
         }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
@@ -328,7 +390,7 @@ struct SidebarInteractionTests {
 
     /// The block's button is the header's "Add Project…": it asks for a folder.
     @Test func theEmptySidebarsButtonAsksForAFolder() async throws {
-        let fixture = try RaceFixture()
+        let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let block = SidebarEmptyState(controller: fixture.controller)
         #expect(block.canAdd)

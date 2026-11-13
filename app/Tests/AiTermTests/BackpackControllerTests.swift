@@ -548,7 +548,7 @@ import Testing
     }
 }
 
-extension AppControllerTests {
+@MainActor @Suite(.blocking) struct BackpackAppControllerTests {
     /// The sheet's actual popup follows workspace broadcasts, including one starting after the
     /// sheet opens. Ending a broadcast enables the option again and Connect carries that choice.
     @Test func unpluggedChoicesFollowTheLiveBroadcast() async throws {

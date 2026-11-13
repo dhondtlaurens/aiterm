@@ -58,6 +58,34 @@ import Testing
         #expect(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value?["uncommitted"] == "")
     }
 
+    /// A patch past the reading's bound is cut, and a cut patch never reads as complete: one lockfile of more than
+    /// `diffReadLimit` bytes, summarised in a line whose counts stop where the read did, says it is truncated, and so
+    /// does the reply.
+    @Test func aPatchPastTheReadingsBoundSaysItIsCut() async throws {
+        let (world, run, task) = try makeWorld()
+        let line = String(repeating: "x", count: 99) + "\n"
+        let lines = OperatorToolHandler.diffReadLimit / line.utf8.count + 1_000
+        try String(repeating: line, count: lines).write(toFile: task.worktreePath + "/yarn.lock", atomically: true, encoding: .utf8)
+        try git.run(["add", "yarn.lock"], in: task.worktreePath)
+        try git.run(["commit", "-q", "-m", "Add yarn.lock"], in: task.worktreePath)
+        let diff = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value)
+        let lockfile = try #require(diff["files"]?.arrayValue?.first { $0["path"] == "yarn.lock" })
+        #expect(lockfile["truncated"] == true, "\(lockfile)")
+        #expect(diff["truncated"] == true)
+    }
+
+    /// Below the bound a bounded read is what `run` gave, to the byte: the reply is built from the same text.
+    @Test func aPatchBelowTheBoundReadsAsRunReadIt() throws {
+        let (_, _, task) = try makeWorld()
+        try "\n  indented first line\nlast line  \n\n".write(toFile: task.worktreePath + "/spaced.txt", atomically: true, encoding: .utf8)
+        try git.run(["add", "spaced.txt"], in: task.worktreePath)
+        try git.run(["commit", "-q", "-m", "Add spaced.txt"], in: task.worktreePath)
+        for args in [["show", "--format=", "HEAD"], ["diff", "HEAD~1...HEAD"]] {
+            let read = try OperatorToolHandler.boundedDiff(args, in: task.worktreePath, git: git)
+            #expect(read.text == (try git.run(args, in: task.worktreePath)) && !read.truncated, "\(args)")
+        }
+    }
+
     @Test func aBranchGitCannotReadIsRefusedInAiTermsWords() async throws {
         let (world, run, task) = try makeWorld()
         world.workspace.mutate { state in if let i = state.tasks.firstIndex(where: { $0.id == task.id }) { state.tasks[i].baseBranch = "no-such-base" } }
@@ -390,7 +418,7 @@ import Testing
         // Queued again, AiTerm starts it again at once, and the answer says how its launch went.
         let retried = await world.call(run.id, "retry_task", ["task": "PLUTO-1"]).value
         #expect(retried?["state"] == "working" && retried?["launch"]?["result"] == "opened")
-        await world.controller.lastStart?.value
+        await world.settled()
         let afterRetry = try #require(world.task(task.id)?.operated)
         #expect(afterRetry.retriesUsed == 1 && [.queued, .working].contains(afterRetry.state))
         #expect(afterRetry.lastFailure == "The build broke.")
@@ -412,7 +440,7 @@ import Testing
         #expect(await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "noChange"]).message
                 == "The person paused this broadcast. Wait until they resume it.")
         // Nothing of the Operator's is typed; AiTerm's own pause note may go to a worker still starting.
-        #expect(world.daemon.requests("session.deliver").allSatisfy { $0.params["text"] as? String == OperatorController.pauseNote })
+        #expect(world.daemon.requests("session.deliver").allSatisfy { $0.params["text"] as? String == PauseSignaller.pauseNote })
     }
 }
 
@@ -507,5 +535,23 @@ extension OperatorTaskToolsTests {
         #expect(diff["base"] == .string(baseline))
         #expect(paths(diff) == ["own.swift"])
         #expect(diff["commits"]?.stringValue?.contains("Add own.swift") == true)
+    }
+}
+
+
+extension OperatorTaskToolsTests {
+    @Test func parsingAnOutcomeKeepsTheCurrentRefusalOrder() async throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .working)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        #expect(await world.call(run.id, "mark_task", ["task": "missing", "outcome": "invalid"]).message == "No task missing in this broadcast.")
+        #expect(await world.call(run.id, "mark_task", ["task": "A"]).message == "mark_task needs `outcome`.")
+        #expect(await world.call(run.id, "mark_task", ["task": "A", "outcome": "invalid"]).message == "mark_task’s outcome is accepted, noChange, blocked or failed.")
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.takenOver = true } }
+        #expect(await world.call(run.id, "mark_task", ["task": "A", "outcome": "invalid"]).message == "The person took over A. Leave it until they hand it back.")
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.state = .paused } }
+        #expect(await world.call(run.id, "mark_task", ["task": "A", "outcome": "invalid"]).message == "The person paused this broadcast. Wait until they resume it.")
+        await world.ports.work.settled()
     }
 }

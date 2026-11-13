@@ -64,11 +64,11 @@ import Testing
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         world.show([OperatorServiceFixtures.session("op", tag: run.id)])
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastLaunch?.value
+        await world.settled()
         #expect(world.daemon.requests("window.createTask").isEmpty)
         clock.advance(by: 61)
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastLaunch?.value
+        await world.settled()
         #expect(world.daemon.requests("window.createTask").first?.params["background"] as? Bool == true)
         #expect(world.task(task.id)?.operated?.launch?.number == 2)
         #expect(try world.workspace.file.load().task(id: task.id)?.operated?.launch?.number == 2)
@@ -92,7 +92,7 @@ import Testing
         world.show([op])
         clock.advance(by: 120)
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastLaunch?.value
+        await world.settled()
         #expect(world.daemon.requests("window.createTask").isEmpty)
         #expect(world.task(task.id)?.operated?.launch?.number == 1)
     }
@@ -166,7 +166,7 @@ import Testing
         world.controller.reconcileTick()
         // A second line would be armed with no coalescing delay and typed within a few turns of the main actor.
         for _ in 0..<50 { await Task.yield() }
-        await world.controller.waker.lastSend?.value
+        await world.settled()
         #expect(stalledLines().count == 1, "told once")
         worker.title = "editing"
         show()
@@ -182,7 +182,7 @@ import Testing
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         world.controller.daemonAttached()
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id)])
-        await world.controller.resending?.value
+        await world.settled()
         let sent = try #require(world.daemon.requests("session.setOwnership").first)
         #expect(sent.params["sessionId"] as? String == "w1" && sent.params["ownership"] as? Int == 3)
     }
@@ -199,7 +199,7 @@ import Testing
         world.daemon.prompts["w1"] = .menu
         world.show(sessions)
         world.controller.probePrompts(.reconcile)
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
         let snapshot = try #require(OperatorController.status(of: run.id, state: world.workspace.state,
                                                               sessions: sessions, revision: 0, turns: [:], quiet: [task.id]))
@@ -208,13 +208,13 @@ import Testing
         #expect(snapshot.obligations.possiblyStalled.isEmpty)
         #expect(snapshot.obligations.uncertain.isEmpty)
         world.controller.probePrompts()
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.run(run.id)?.questions.count == 1)
         #expect(world.run(run.id)?.questions.last?.resolution == nil)
         world.daemon.failing["session.prompt"] = .itermUnavailable
         clock.advance(by: OperatorTiming.promptProbeInterval)
         world.controller.probePrompts()
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.run(run.id)?.questions.last?.resolution == nil)
         world.daemon.failing["session.prompt"] = nil
         world.controller.reconcileTick()
@@ -222,11 +222,11 @@ import Testing
         world.controller.reconcileTick()
         #expect(world.task(task.id)?.operated?.runtimeUsed == 0)
         #expect(world.task(task.id)?.operated?.flags.contains(.possiblyStalled) == false)
-        await world.controller.lastProbe?.value
+        await world.settled()
         clock.advance(by: OperatorTiming.promptProbeInterval)
         world.daemon.prompts["w1"] = nil
         world.controller.probePrompts()
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
     }
@@ -242,11 +242,11 @@ import Testing
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         world.daemon.prompts["w1"] = .permission
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .codex, state: .needsInput)])
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
         world.daemon.prompts["w1"] = nil
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .codex, state: .working)])
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
         #expect(world.run(run.id)?.questions.first?.resolution == nil, "the Operator's question stays open")
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == holds)
@@ -259,7 +259,7 @@ import Testing
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         world.daemon.prompts["w1"] = .permission
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .codex, state: .needsInput)])
-        await world.controller.lastProbe?.value
+        await world.settled()
         let question = try #require(world.run(run.id)?.questions.last)
         #expect(question.text == "Codex asks for permission" && question.task == task.id && question.resolution == nil)
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
@@ -268,7 +268,7 @@ import Testing
         #expect(world.notifications.withdrawn.isEmpty)
         world.daemon.prompts["w1"] = nil
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .codex, state: .working)])
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
         #expect(world.notifications.withdrawn == ["request-\(run.id.uuidString)-\(task.id.uuidString)-permission"], "answered in its window, it is taken back")
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
@@ -286,12 +286,12 @@ import Testing
         world.daemon.dismissible = ["w1"]
         let op = OperatorServiceFixtures.session("op", tag: run.id)
         world.show([op, OperatorServiceFixtures.session("w1", window: "w9", tag: update.id, agent: .codex, state: .needsInput)])
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.daemon.requests("session.dismissStartup").map { $0.params["sessionId"] as? String } == ["w1"])
         #expect(world.run(run.id)?.questions.isEmpty == true && world.notifications.posted.isEmpty)
         world.show([op, OperatorServiceFixtures.session("w1", window: "w9", tag: update.id, agent: .codex, state: .working),
                     OperatorServiceFixtures.session("w2", window: "w8", tag: trust.id, agent: .codex, state: .needsInput)])
-        await world.controller.lastProbe?.value
+        await world.settled()
         let question = try #require(world.run(run.id)?.questions.last)
         #expect(question.text == "Codex shows a startup question" && question.task == trust.id)
         #expect(world.notifications.posted.last?.target == .question(run: run.id, key: question.id))
@@ -317,7 +317,7 @@ import Testing
         }
         clock.advance(by: 120)
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastLaunch?.value
+        await world.settled()
         #expect(world.task(task.id)?.operated?.launch?.openedAt != nil)
         #expect(world.daemon.requests("window.createTask").isEmpty)
     }
@@ -343,7 +343,7 @@ import Testing
         world.show([op])
         clock.advance(by: 300)
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastLaunch?.value
+        await world.settled()
         #expect(world.daemon.requests("window.createTask").isEmpty)
     }
 
@@ -357,7 +357,8 @@ import Testing
         task.operated?.launch = attempt
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id)])
-        await world.controller.starter.relaunch(task.id, attempt: attempt)?.value
+        world.controller.starter.relaunch(task.id, attempt: attempt)
+        await world.settled()
         #expect(world.daemon.requests("window.createTask").isEmpty)
         let adopted = try #require(world.task(task.id))
         #expect(adopted.windowId == "w9" && adopted.operated?.launch?.openedAt != nil)
@@ -373,7 +374,7 @@ import Testing
         world.show([OperatorServiceFixtures.session("op", tag: run.id)])
         world.controller.reconcileTick()
         #expect(world.run(run.id)?.state == .active)
-        await world.controller.lastStart?.value
+        await world.settled()
         #expect(world.daemon.requests("window.createTask").count == 1)
         #expect(world.task(task.id)?.operated?.state == .working)
         // A queued task whose start was held back for want of a helper starts on the first connected snapshot.
@@ -387,7 +388,7 @@ import Testing
         world.link.attached = true
         world.controller.daemonAttached()
         world.show([OperatorServiceFixtures.session("op", tag: run.id)])
-        await world.controller.lastStart?.value
+        await world.settled()
         #expect(world.task(later.id)?.operated?.state == .working)
     }
 
@@ -431,7 +432,7 @@ import Testing
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         world.show([OperatorServiceFixtures.session("op", tag: run.id),
                     OperatorServiceFixtures.session("w1", tag: task.id, state: .working)])
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
         #expect(world.run(run.id)?.state == .complete)
     }
@@ -472,14 +473,18 @@ import Testing
 
     /// Only a busy worker's time counts: one idle at its prompt, its turn over, waits for review or acceptance, and
     /// is never blocked for its runtime, even one already past it. Once it works again the limit holds.
+    /// Its launch over (`OperatorTiming.firstWorkerOpening` since its window showed), a worker idle at its prompt is not at
+    /// work: it counts no runtime, and a finished task waits for acceptance, never blocked for its runtime. Once at work
+    /// again, past its limit, it is.
     @Test func anIdleWorkerCountsNoRuntimeAndIsNeverBlockedWhileItWaitsForAcceptance() throws {
         let project = OperatorServiceFixtures.project()
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
+        let launched = clock.now.addingTimeInterval(-OperatorTiming.firstWorkerOpening - 60)
         var fresh = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-23", state: .working, worktree: "/tmp/aiterm-wt")
-        fresh.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
+        fresh.operated?.launch = LaunchAttempt(number: 1, requestedAt: launched, openedAt: launched)
         fresh.operated?.runtimeUsed = 10 * 60
         var spent = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-24", state: .working, worktree: "/tmp/aiterm-wt2")
-        spent.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
+        spent.operated?.launch = LaunchAttempt(number: 1, requestedAt: launched, openedAt: launched)
         spent.operated?.runtimeUsed = 95 * 60
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [fresh, spent]))
         world.show([OperatorServiceFixtures.session("op", tag: run.id),
@@ -501,12 +506,52 @@ import Testing
         #expect(world.task(spent.id)?.operated?.state == .blocked)
     }
 
-    /// Only time with a worker at work counts: a task with no tab (its window closed, a relaunch pending) uses none.
+    /// The reconciler reads a worker as `run_status`, the row line and the board do: through the pass's live projection as
+    /// of now, with the launch window (`TaskItem.workerTabs(in:now:)`). A first worker whose window was relaunched less
+    /// than `OperatorTiming.firstWorkerOpening` ago, naming no conversation yet, is launching whatever its tab says: it is
+    /// at work and not ready for acceptance. So it counts runtime, and a finished task over its limit is blocked for it
+    /// during the window, where it waited for acceptance before (phase 4 left this; the maintainer accepted the change on
+    /// 2026-11-11). Once the window is over it waits for acceptance again, counting nothing.
+    @Test func aRelaunchedWindowCountsAsLaunchingForTheLimitsDuringItsLaunchWindow() throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
+        var fresh = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-23", state: .working, worktree: "/tmp/aiterm-wt")
+        fresh.operated?.launch = LaunchAttempt(number: 2, requestedAt: clock.now, openedAt: clock.now)
+        fresh.operated?.runtimeUsed = 10 * 60
+        var spent = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-24", state: .working, worktree: "/tmp/aiterm-wt2")
+        spent.operated?.launch = LaunchAttempt(number: 2, requestedAt: clock.now, openedAt: clock.now)
+        spent.operated?.runtimeUsed = 95 * 60
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [fresh, spent]))
+        world.show([OperatorServiceFixtures.session("op", tag: run.id),
+                    OperatorServiceFixtures.session("w1", window: "w9", tag: fresh.id, state: .idle),
+                    OperatorServiceFixtures.session("w2", window: "w8", tag: spent.id, state: .done)])
+        world.controller.reconcileTick()
+        clock.advance(by: 50)
+        world.controller.reconcileTick()
+        #expect(world.task(fresh.id)?.operated?.runtimeUsed == 10 * 60 + 50.0, "launching: at work")
+        let blocked = try #require(world.task(spent.id)?.operated)
+        #expect(blocked.state == .blocked && blocked.blockedReason == "Worked 90 minutes without a new commit.",
+                "launching, so not waiting for acceptance: blocked for its runtime")
+
+        // Its window's launch over, an idle worker counts nothing again.
+        clock.advance(by: OperatorTiming.firstWorkerOpening)
+        world.controller.reconcileTick()
+        let counted = try #require(world.task(fresh.id)?.operated?.runtimeUsed)
+        clock.advance(by: 50)
+        world.controller.reconcileTick()
+        #expect(world.task(fresh.id)?.operated?.runtimeUsed == counted, "launch over: idle, not at work")
+        #expect(world.task(fresh.id)?.operated?.state == .working)
+    }
+
+    /// This reconciler test covers a task with no tab after its launch window: it uses no runtime.
+    /// The relaunched-window test covers a listed idle worker inside that window. An unlisted first
+    /// worker's launch facts are covered in Core, not by either of these reconciler cases.
     @Test func aWorkingTaskWithNoWorkerTabCountsNoRuntime() throws {
         let project = OperatorServiceFixtures.project()
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-22", state: .working, worktree: "/tmp/aiterm-wt")
-        task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
+        let launched = clock.now.addingTimeInterval(-OperatorTiming.firstWorkerOpening - 60)
+        task.operated?.launch = LaunchAttempt(number: 1, requestedAt: launched, openedAt: launched)
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         world.show([OperatorServiceFixtures.session("op", tag: run.id)])
         world.controller.reconcileTick()
@@ -530,15 +575,15 @@ import Testing
         clock.advance(by: 90)   // the claim is old by the time the request times out
         daemon.failing["window.createTask"] = .timeout
         daemon.release()
-        await world.controller.lastStart?.value
+        await world.settled()
         #expect(world.task(task.id)?.operated?.launch?.openedAt == nil)
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastLaunch?.value
+        await world.settled()
         #expect(daemon.requests("window.createTask").count == 1, "its window may still be listed: a minute from the end, not the claim")
         clock.advance(by: 61)
         daemon.failing = [:]
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastLaunch?.value
+        await world.settled()
         #expect(daemon.requests("window.createTask").count == 2)
         #expect(world.task(task.id)?.operated?.launch?.number == 2)
     }
@@ -553,11 +598,11 @@ import Testing
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         world.show([OperatorServiceFixtures.session("op", tag: run.id)])
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastLaunch?.value
+        await world.settled()
         #expect(world.daemon.requests("window.createTask").isEmpty)
         clock.advance(by: 61)
         world.controller.reconcileTick()
-        await world.controller.reconciler.lastLaunch?.value
+        await world.settled()
         #expect(world.daemon.requests("window.createTask").count == 1)
     }
 
@@ -579,7 +624,7 @@ import Testing
         world.controller.reconcileTick()
         #expect(daemon.requests("window.createTask").count == 1)
         daemon.release()
-        await world.controller.reconciler.lastLaunch?.value
+        await world.settled()
         #expect(daemon.requests("window.createTask").count == 1)
         #expect(world.task(task.id)?.operated?.launch?.number == 2)
     }
@@ -605,7 +650,7 @@ import Testing
         world.daemon.prompts["w1"] = .permission
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", tag: task.id, state: .needsInput)])
         world.controller.reconcileTick()
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.daemon.requests("session.prompt").isEmpty)
     }
 
@@ -617,7 +662,7 @@ import Testing
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", tag: task.id, state: .needsInput)])
         world.controller.reconcileTick()
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.daemon.requests("session.prompt").isEmpty)
     }
 
@@ -633,7 +678,7 @@ import Testing
             world.daemon.prompts["w1"] = .permission
             world.live.sessions = [OperatorServiceFixtures.session("w1", tag: task.id, state: source == .event ? .needsInput : .working)]
             world.controller.probePrompt(task.id, source: source)
-            await world.controller.lastProbe?.value
+            await world.settled()
             #expect(world.run(run.id)?.questions.count == 1)
             #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
             #expect(world.notifications.posted.contains { $0.target == .question(run: run.id, key: "prompt-\(task.id.uuidString)-1") && $0.body.contains("asks for permission") })
@@ -650,7 +695,7 @@ import Testing
         world.daemon.prompts["w1"] = .menu
         world.live.sessions = [OperatorServiceFixtures.session("w1", tag: task.id, state: .working)]
         world.controller.probePrompt(task.id, source: .reconcile)
-        await world.controller.lastProbe?.value
+        await world.settled()
         let expected = taskState == .working && runState == .active ? 1 : 0
         #expect(world.daemon.requests("session.prompt").count == expected)
         #expect(world.run(run.id)?.questions.count == expected)
@@ -660,13 +705,13 @@ import Testing
         let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask { [clock] ports in ports.clock.now = { clock.now } }
         _ = await world.call(run.id, "message_task", ["task": "A", "text": "Continue"])
         try await world.daemon.received("session.prompt")
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.run(run.id)?.questions.isEmpty == true)
         clock.advance(by: 3)
         world.daemon.prompts["worker"] = .permission
         world.live.sessions[0].state = .needsInput
         world.show(world.live.sessions)
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.daemon.requests("session.prompt").count == 2)
         #expect(world.run(run.id)?.questions.count == 1)
         #expect(world.notifications.posted.contains { $0.target == .question(run: run.id, key: "prompt-\(task.id.uuidString)-1") && $0.body.contains("asks for permission") })
@@ -707,7 +752,7 @@ import Testing
         world.workspace.mutate { state in state.updateRun(id: run.id) { $0.intent = .stopped } }
         world.controller.probePrompt(task.id, source: .delivery)
         daemon.release()
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.run(run.id)?.questions.isEmpty == true)
         #expect(!world.notifications.posted.contains { $0.body.contains("asks for permission") })
     }
@@ -718,12 +763,12 @@ import Testing
         world.daemon.failing["session.prompt"] = .itermUnavailable
         for _ in 0..<5 {
             world.controller.probePrompt(task.id)
-            await world.controller.lastProbe?.value
+            await world.settled()
             clock.advance(by: 2)
         }
         #expect(world.daemon.requests("session.prompt").count == 1)
         world.controller.probePrompt(task.id)
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.daemon.requests("session.prompt").count == 2)
     }
 
@@ -731,15 +776,15 @@ import Testing
         let (world, run, task) = try OperatorServiceFixtures.oneWorkingTask()
         world.daemon.prompts["worker"] = .menu
         world.controller.probePrompt(task.id, source: .reconcile)
-        await world.controller.lastProbe?.value
+        await world.settled()
         world.live.sessions[0].state = .needsInput
         world.controller.probePrompt(task.id)
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.daemon.requests("session.prompt").count == 2)
         world.daemon.prompts["worker"] = nil
         world.live.sessions[0].state = .working
         world.controller.probePrompt(task.id)
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.daemon.requests("session.prompt").count == 3)
         #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
     }
@@ -759,7 +804,7 @@ import Testing
         world.live.sessions[0].state = .working
         world.controller.probePrompt(task.id)
         daemon.release()
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(await eventually(describing: "answered prompt resolved after stale read") {
             world.run(run.id)?.questions.last?.resolution != nil
         })
@@ -773,21 +818,21 @@ import Testing
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         let sessions = [OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", tag: task.id, state: .working)]
         world.show(sessions)
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.daemon.requests("session.prompt").isEmpty)
         world.controller.reconcileTick()
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.daemon.requests("session.prompt").count == 1)
         for _ in 0..<4 {
             clock.advance(by: 2)
             world.show(sessions)
             world.controller.reconcileTick()
-            await world.controller.lastProbe?.value
+            await world.settled()
         }
         #expect(world.daemon.requests("session.prompt").count == 1)
         clock.advance(by: 2)
         world.controller.reconcileTick()
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.daemon.requests("session.prompt").count == 2)
     }
 
@@ -802,7 +847,7 @@ import Testing
         run.questions = [OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Claude has a menu open", task: task.id, askedAt: clock.now)]
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .idle)])
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.daemon.requests("session.prompt").count == 1)
         #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
@@ -816,16 +861,16 @@ import Testing
         let sessions = [OperatorServiceFixtures.session("w1", tag: task.id, state: .needsInput)]
         world.daemon.prompts["w1"] = .menu
         world.show(sessions)
-        await world.controller.lastProbe?.value
+        await world.settled()
         for _ in 0..<4 {
             clock.advance(by: 2)
             world.show(sessions)
-            await world.controller.lastProbe?.value
+            await world.settled()
         }
         #expect(world.daemon.requests("session.prompt").count == 1)
         clock.advance(by: 2)
         world.show(sessions)
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.daemon.requests("session.prompt").count == 2)
     }
 
@@ -839,7 +884,7 @@ import Testing
             }
         }
         world.controller.probePrompts(.reconcile)
-        await world.controller.lastProbe?.value
+        await world.settled()
         world.daemon.deliveries = [Delivery(result: result == "delivered" ? .delivered : .refused,
                                            reason: nil, code: DeliveryCode(rawValue: result))]
         _ = await world.call(run.id, "message_task", ["task": "A", "text": "/effort high"])
@@ -849,14 +894,15 @@ import Testing
             return
         }
         try await world.daemon.received("session.prompt", count: 2)
-        await world.controller.lastProbe?.value
+        // The message probe's second read waits on its delay.
+        await world.settled(leaving: 1)
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
         await delay.started()
         // Claude draws the menu after Enter and the first read, without any hook or session event.
         world.daemon.prompts["worker"] = .menu
         await delay.release()
         try await world.daemon.received("session.prompt", count: 3)
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
     }
 
@@ -883,7 +929,7 @@ import Testing
         await sending.value
         await replay.value
         try await daemon.received("session.prompt", count: 2)
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
     }
 
@@ -903,7 +949,7 @@ import Testing
             }
         }
         world.controller.probePrompts(.reconcile)
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.run(run.id)?.questions.isEmpty == (change != "metadata"))
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == (change == "metadata"))
     }
@@ -915,10 +961,9 @@ import Testing
         daemon.prompts["worker"] = .menu
         world.controller.probePrompts(.reconcile)
         try await daemon.received("session.prompt")
-        let read = world.controller.lastProbe
         world.controller.stop()
         daemon.release()
-        await read?.value
+        await world.settled()
         #expect(world.run(run.id)?.questions.isEmpty == true)
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
     }
@@ -944,12 +989,12 @@ import Testing
         world.daemon.failing["session.prompt"] = .disconnected
         world.daemon.prompts["w1"] = .permission
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .codex, state: .needsInput)])
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.run(run.id)?.questions.isEmpty == true && world.notifications.posted.isEmpty)
         world.daemon.failing = [:]
         clock.advance(by: OperatorTiming.promptProbeInterval)
         world.controller.probePrompts()
-        await world.controller.lastProbe?.value
+        await world.settled()
         #expect(world.run(run.id)?.questions.last?.text == "Codex asks for permission")
     }
 
@@ -975,5 +1020,43 @@ import Testing
         world.controller.start()
         await eventually(describing: "the loop to see the tab back") { world.run(run.id)?.state == .active }
         world.controller.stop()
+    }
+}
+
+extension RunReconcilerTests {
+    /// Start Fresh's first message (`first-message.md`) is what it was before the status builder was shared (phase 5,
+    /// review round 1): where the broadcast stands as the controller's snapshot showed it — each agent's weekly use only
+    /// while its week runs, and no usage telemetry — built here the way `main` built it. With no usage reading, and with
+    /// readings whose week has reset.
+    @Test(arguments: [false, true]) func startFreshsFirstMessageIsTheSnapshotItWasBefore(expiredReadings: Bool) async throws {
+        let project = OperatorServiceFixtures.project()
+        var run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
+        run.operatorConversation = "c-gone"
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working, worktree: "/tmp/aiterm-wt")
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        if expiredReadings {
+            let reset = Int(clock.now.timeIntervalSince1970) - 60
+            world.live.usage = UsageSnapshot(
+                claude: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 91, resetsAt: reset), spend: nil, updatedAt: reset - 600),
+                codex: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 47, resetsAt: reset), spend: nil, updatedAt: reset - 600))
+        }
+        world.show([OperatorServiceFixtures.session("op", tag: run.id, conversation: "c-gone")])
+        world.show([])
+        world.controller.mutateRun(run.id) { $0.operatorConversation = nil }
+        // As `main` built it: the controller's snapshot of the run, numbered 0, with the weekly use of the weeks not reset.
+        let now = clock.now, state = world.state
+        let snapshot = OperatorController.status(of: run.id, state: state, sessions: world.live.sessions, revision: 0,
+                                                 usage: SidebarModel.weeklyUsage(world.live.usage, now: now),
+                                                 turns: world.controller.turns.readings, extraTurns: world.controller.turns.extraReadings,
+                                                 quiet: world.controller.quiet.quiet, quietTabs: world.controller.quiet.quietExtraTabs, now: now)
+        let expected = OperatorCommand.freshStartMessage(
+            for: try #require(state.run(id: run.id)),
+            status: snapshot.flatMap { try? String(decoding: $0.json(), as: UTF8.self) } ?? "{}")
+
+        try await world.controller.startFresh(run: run.id)
+
+        let folder = OperatorCommand.runFolder(run.id, home: world.ports.home)
+        let first = try Data(contentsOf: folder.appendingPathComponent(OperatorCommand.firstMessageFile))
+        #expect(first == Data(expected.utf8), "\(String(decoding: first, as: UTF8.self))")
     }
 }

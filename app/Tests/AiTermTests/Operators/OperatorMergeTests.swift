@@ -88,7 +88,7 @@ import Synchronization
         let m = try merging(answer: "YES")
         try GitRunner.hermetic().run(["commit", "--allow-empty", "-q", "-m", "new work"], in: m.task.worktreePath)
         var profile = m.run.profile; profile.oracle.isOn = false
-        try OperatorProfileStore.save(profile, m.world.ports.preferences!)
+        try OperatorProfileStore.save(profile, m.world.ports.preferences)
         let answer = await m.world.call(m.run.id, "mark_task", ["task": "A", "outcome": "accepted", "sha": .string(m.sha),
             "checkOutput": "Fresh pass for old commit"])
         #expect(answer.message?.contains("accept the commit its branch is on") == true)
@@ -98,12 +98,12 @@ import Synchronization
     @Test func savedOracleOffAndOnChangesSubsequentMergeChecks() async throws {
         let m = try merging(answer: "NO\nRequired review is missing.")
         var profile = m.run.profile; profile.oracle.isOn = false
-        try OperatorProfileStore.save(profile, m.world.ports.preferences!)
+        try OperatorProfileStore.save(profile, m.world.ports.preferences)
         let without = await m.world.call(m.run.id, "finish_task", ["task": "A"])
         #expect(without.value?["result"] == "waitingToMerge")
         #expect(m.prompts.list.isEmpty)
         profile.oracle.isOn = true
-        try OperatorProfileStore.save(profile, m.world.ports.preferences!)
+        try OperatorProfileStore.save(profile, m.world.ports.preferences)
         let checked = await m.world.call(m.run.id, "finish_task", ["task": "A"])
         #expect(checked.message?.contains("Required review is missing") == true)
         #expect(m.prompts.list.count == 1 && publication(m)?.merged != true)
@@ -116,7 +116,7 @@ import Synchronization
         let id = try #require(pending.value?["challengeId"]?.stringValue)
         m.world.workspace.mutate { $0.updateOperated(m.task.id) { $0.acceptance?.checkOutput = "New verification evidence" } }
         await gate.open()
-        await m.world.controller.tools.lastChallenge?.value
+        await m.world.ports.work.settled()
         let answer = await m.world.call(m.run.id, "finish_task", ["task": "A", "challengeId": .string(id)])
         #expect(answer.message?.contains("acceptance evidence or required checks changed") == true)
         #expect(publication(m)?.conditionsHeld == nil && m.host.log.isEmpty)
@@ -261,7 +261,7 @@ import Synchronization
         #expect(pending.value?["pending"] == true)
         #expect(publication(m)?.mergeRefusal == nil)
         await gate.open()
-        await m.world.controller.tools.lastChallenge?.value
+        await m.world.ports.work.settled()
     }
 
     @Test func theOracleReadsVerdictsWithTheCommitsTheyReviewed() async throws {
@@ -334,7 +334,7 @@ import Synchronization
         let id = try #require(first.value?["challengeId"]?.stringValue)
         #expect(m.host.log.isEmpty)
         await gate.open()
-        await m.world.controller.tools.lastChallenge?.value
+        await m.world.ports.work.settled()
         let second = await m.world.call(m.run.id, "finish_task", ["task": "A", "challengeId": .string(id)])
         #expect(second.value?["result"] == "waitingToMerge")
         #expect(publication(m)?.conditionsHeld == m.sha)
@@ -420,7 +420,7 @@ import Synchronization
         let id = try #require(first.value?["challengeId"]?.stringValue)
         reaccept(m)
         await gate.open()
-        await m.world.controller.tools.lastChallenge?.value
+        await m.world.ports.work.settled()
         let second = await m.world.call(m.run.id, "finish_task", ["task": "A", "challengeId": .string(id)])
         #expect(second.message == Self.acceptedAgain)
         #expect(publication(m)?.conditionsHeld == nil)

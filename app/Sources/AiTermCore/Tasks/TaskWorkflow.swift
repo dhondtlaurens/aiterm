@@ -1,8 +1,10 @@
 import Foundation
 import Synchronization
 
-/// Git work runs on one user-initiated queue, away from presentation and the cooperative
-/// executor. Creation and removal share it so mutations cannot race in one app.
+/// Git work that changes a repository runs on that repository's lane (`GitLanes`), away from
+/// presentation and the cooperative executor: creation, removal, a pull and a landing in one
+/// repository cannot race, and never wait for another repository's. Questions that change nothing —
+/// a head, whether a checkout has unsaved work — leave the lane for the shared pool.
 public struct TaskWorkflow: Sendable {
     public struct Created: Sendable {
         public let task: TaskItem
@@ -28,15 +30,16 @@ public struct TaskWorkflow: Sendable {
         case other(reason: String)
     }
 
-    /// Internal, not private, for the workflow jobs that live in the folder of the feature they serve
-    /// (`TaskWorkflow+FixLanding`).
-    static let queue = DispatchQueue(label: "aiterm.task-workflows", qos: .userInitiated)
+    /// The lane of `project`'s repository. Internal, not private, for the workflow jobs that live in the
+    /// folder of the feature they serve (`TaskWorkflow+FixLanding`).
+    static func lane(of project: Project) -> DispatchQueue { GitLanes.shared.lane(for: project.path) }
     /// Only a removal that reached git, Remove's or Shelve's, may clean up an unlisted folder on retry.
     /// Kept in memory, so after a relaunch an own leftover asks again; and written before `git
     /// worktree remove` runs, so a removal git refused outright counts as reached too. Both err
     /// towards asking.
-    private final class RemovalAttempts: Sendable { let paths = Mutex<[UUID: String]>([:]) }
-    private let removalAttempts = RemovalAttempts()
+    final class RemovalAttempts: Sendable { let paths = Mutex<[UUID: String]>([:]) }
+    /// Internal for the preflight's reference test, which reads the rule as it was asked before the preflight.
+    let removalAttempts = RemovalAttempts()
     /// Runs every git command through the injected runner.
     let git: any GitRunning
     public init(git: any GitRunning) { self.git = git }
@@ -44,7 +47,7 @@ public struct TaskWorkflow: Sendable {
     /// The person's explicit choice to create an empty first commit, serialized with checkouts.
     public func initializeRepository(_ project: Project, on branch: String) async throws {
         let git = git
-        try await BackgroundWork.run(on: Self.queue) {
+        try await BackgroundWork.run(on: Self.lane(of: project)) {
             try Repository(project.path, git: git).initializeEmptyRepository(on: branch)
         }
     }
@@ -52,22 +55,22 @@ public struct TaskWorkflow: Sendable {
     /// `reserved` is the worktree folders archived rows come back to, which a new one must not take.
     public func create(draft: TaskDraft, project: Project, reserved: Set<String> = []) async throws -> Created {
         let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: draft.ticket, appendTicket: draft.appendTicket)
-        return try await checkOut(draft, prompt: prompt) { try TaskCreator.create(draft: draft, project: project, reserved: reserved, git: $0) }
+        return try await checkOut(draft, prompt: prompt, in: project) { try TaskCreator.create(draft: draft, project: project, reserved: reserved, git: $0) }
     }
 
     public func createReview(draft: ReviewDraft, project: Project, reserved: Set<String> = []) async throws -> Created {
         // The ticket, when one was picked and step 3's checkbox kept, so the reviewer reads it too.
         let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: draft.ticket, appendTicket: draft.appendTicket)
-        return try await checkOut(draft, prompt: prompt) { try TaskCreator.createReview(draft: draft, project: project, reserved: reserved, git: $0) }
+        return try await checkOut(draft, prompt: prompt, in: project) { try TaskCreator.createReview(draft: draft, project: project, reserved: reserved, git: $0) }
     }
 
-    /// Creates or adopts a worker checkout on the same mutation queue as manual tasks. A new branch's baseline is the
+    /// Creates or adopts a worker checkout on its repository's lane, as manual tasks are. A new branch's baseline is the
     /// commit it started at, origin's or local (`fromOrigin`). Adoption records its fork: work already on the branch must
     /// not become the worker's starting baseline.
     public func checkOutWorker(_ task: TaskItem, project: Project, start: String, fromOrigin: Bool = true,
                                reserved: Set<String> = []) async throws -> (made: TaskCreator.Made, baseline: String?) {
         let git = git
-        return try await BackgroundWork.run(on: Self.queue) {
+        return try await BackgroundWork.run(on: Self.lane(of: project)) {
             let made = try TaskCreator.checkOutWorker(task, project: project, start: start, fromOrigin: fromOrigin, reserved: reserved,
                                                       git: git)
             if let started = made.startCommit { return (made, started) }
@@ -81,7 +84,7 @@ public struct TaskWorkflow: Sendable {
     public func reviewCommand(draft: ReviewDraft, in task: TaskItem) async throws -> String {
         let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: draft.ticket, appendTicket: draft.appendTicket)
         let git = git
-        return try await BackgroundWork.run(on: Self.queue) {
+        return try await BackgroundWork.run(on: GitLanes.shared.lane(for: task.worktreePath)) {
             try AgentCommand.build(agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
                                    prompt: prompt, worktreePath: task.worktreePath, git: git)
         }
@@ -89,10 +92,10 @@ public struct TaskWorkflow: Sendable {
 
     /// Makes the checkout, then the agent command for it. A command that cannot be built is a
     /// launch warning, never a failure: it must not discard a real checkout.
-    private func checkOut(_ draft: some AgentDraft & Sendable, prompt: String?,
+    private func checkOut(_ draft: some AgentDraft & Sendable, prompt: String?, in project: Project,
                           _ make: @escaping @Sendable (any GitRunning) throws -> TaskCreator.Made) async throws -> Created {
         let git = git
-        return try await BackgroundWork.run(on: Self.queue) {
+        return try await BackgroundWork.run(on: Self.lane(of: project)) {
             let made = try make(git), task = made.task
             do {
                 let command = try AgentCommand.build(agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
@@ -109,27 +112,43 @@ public struct TaskWorkflow: Sendable {
     public func hasUnsavedWork(task: TaskItem, project: Project) async throws -> Bool {
         guard task.hasCheckout else { return false }
         let git = git
-        return try await BackgroundWork.run(on: Self.queue) {
+        return try await BackgroundWork.run {
             try Repository(project.path, git: git).hasUnsavedWork(at: task.worktreePath)
         }
     }
 
-    /// An unlisted directory is not evidence of our failed removal: ask before deleting it.
-    public func needsRemovalConfirmation(task: TaskItem, project: Project) async throws -> Bool {
+    /// What a removal or an archive reads of the task's worktree before it asks or closes anything, from one listing of
+    /// the repository's worktrees: what `head(of:in:)` says, and whether to ask before deleting a folder git does not
+    /// list. Whether it holds unsaved work is asked after, by `hasUnsavedWork(task:project:)` with a listing of its own,
+    /// right before git status: only that listing says the folder is still this repository's worktree then.
+    public struct Preflight: Equatable, Sendable {
+        /// What the worktree is on, as `head(of:in:)` says it.
+        public let head: WorktreeHead
+        /// An unlisted directory is not evidence of our failed removal: ask before deleting it. True when the folder is
+        /// there, git does not list it, and this workflow's own removal of it never reached git.
+        public let needsRemovalConfirmation: Bool
+    }
+
+    /// The task's `Preflight`, its repository's worktrees listed once, on the shared pool. A task with no checkout, or
+    /// whose folder is gone, lists nothing.
+    public func preflight(task: TaskItem, project: Project) async throws -> Preflight {
         let git = git, attempts = removalAttempts
-        return try await BackgroundWork.run(on: Self.queue) {
-            guard task.hasCheckout, !attempts.paths.withLock({ $0[task.id] == task.worktreePath }),
-                  FileManager.default.fileExists(atPath: task.worktreePath) else { return false }
-            return try Repository(project.path, git: git).worktree(at: task.worktreePath) == nil
+        return try await BackgroundWork.run {
+            guard task.hasCheckout, FileManager.default.fileExists(atPath: task.worktreePath) else {
+                return Preflight(head: .missing, needsRemovalConfirmation: false)
+            }
+            let worktree = try Repository(project.path, git: git).worktree(at: task.worktreePath)
+            return Preflight(head: worktree.map { $0.branch.map(WorktreeHead.branch) ?? .detached } ?? .missing,
+                             needsRemovalConfirmation: worktree == nil && !attempts.paths.withLock { $0[task.id] == task.worktreePath })
         }
     }
 
     /// `allowUnlisted` is the person's consent to delete a folder git no longer lists
-    /// (`needsRemovalConfirmation`).
+    /// (`Preflight.needsRemovalConfirmation`).
     public func remove(task: TaskItem, project: Project, deleteBranch: Bool, force: Bool,
                        allowUnlisted: Bool = false) async throws -> Removed {
         let git = git, attempts = removalAttempts
-        return try await BackgroundWork.run(on: Self.queue) {
+        return try await BackgroundWork.run(on: Self.lane(of: project)) {
             try Self.takeWorktree(of: task, from: project, force: force, git: git, allowUnlisted: allowUnlisted, attempts: attempts)
             let result = Self.releaseBranch(of: task, in: project, deleteBranch: deleteBranch, git: git)
             if result.branchRefusal == nil { attempts.paths.withLock { _ = $0.removeValue(forKey: task.id) } }
@@ -141,9 +160,24 @@ public struct TaskWorkflow: Sendable {
     /// for `remove`.
     public func archive(task: TaskItem, project: Project, force: Bool, allowUnlisted: Bool = false) async throws {
         let git = git, attempts = removalAttempts
-        try await BackgroundWork.run(on: Self.queue) {
+        try await BackgroundWork.run(on: Self.lane(of: project)) {
             try Self.takeWorktree(of: task, from: project, force: force, git: git, allowUnlisted: allowUnlisted, attempts: attempts)
             attempts.paths.withLock { _ = $0.removeValue(forKey: task.id) }
+        }
+    }
+
+    /// A checkout deleted outside AiTerm: git's record of it cleared — unlocked, then pruned. Its lock
+    /// keeps the record from `git worktree prune`, and git refuses its folder and its branch to every
+    /// later worktree while the record is there. Nothing is done once the folder is back. Best-effort:
+    /// the task goes either way, and Remove's own pass clears a record that is still there.
+    public func forgetDeletedCheckout(of task: TaskItem, in project: Project) async {
+        guard task.hasCheckout else { return }
+        let git = git
+        await BackgroundWork.run(on: Self.lane(of: project)) {
+            guard !FileManager.default.fileExists(atPath: task.worktreePath) else { return }
+            Log.git.attempt("Forgetting the deleted checkout \(task.worktreePath)") {
+                try Repository(project.path, git: git).forgetWorktreeRecord(at: task.worktreePath)
+            }
         }
     }
 
@@ -151,17 +185,17 @@ public struct TaskWorkflow: Sendable {
     /// as Remove does.
     public func forgetArchived(task: TaskItem, project: Project, deleteBranch: Bool) async throws -> Removed {
         let git = git
-        return await BackgroundWork.run(on: Self.queue) { Self.releaseBranch(of: task, in: project, deleteBranch: deleteBranch, git: git) }
+        return await BackgroundWork.run(on: Self.lane(of: project)) { Self.releaseBranch(of: task, in: project, deleteBranch: deleteBranch, git: git) }
     }
 
     public func head(of task: TaskItem, in project: Project) async throws -> WorktreeHead {
         let git = git
-        return try await BackgroundWork.run(on: Self.queue) { try Repository(project.path, git: git).head(at: task.worktreePath) }
+        return try await BackgroundWork.run { try Repository(project.path, git: git).head(at: task.worktreePath) }
     }
 
     public func restore(_ task: TaskItem, project: Project) async throws -> TaskCreator.Made {
         let git = git
-        return try await BackgroundWork.run(on: Self.queue) { try TaskCreator.restore(task, project: project, git: git) }
+        return try await BackgroundWork.run(on: Self.lane(of: project)) { try TaskCreator.restore(task, project: project, git: git) }
     }
 
     /// The task's worktree removed — or, already gone, unlocked and pruned. A folder git no longer
@@ -216,34 +250,34 @@ public struct TaskWorkflow: Sendable {
         }
     }
 
-    /// "Pull main", on the queue creation and removal use: all three move branches.
+    /// "Pull main", on the lane creation and removal use: all three move branches.
     public func pullDefaultBranch(of project: Project) async throws -> DefaultBranchPull {
         let git = git
-        return try await BackgroundWork.run(on: Self.queue) {
+        return try await BackgroundWork.run(on: Self.lane(of: project)) {
             try Repository(project.path, git: git).pullDefaultBranch()
         }
     }
 
-    /// The rebase a diverged pull offers, on the same queue.
+    /// The rebase a diverged pull offers, on the same lane.
     public func rebaseDefaultBranch(of project: Project) async throws -> BranchRebase {
         let git = git
-        return try await BackgroundWork.run(on: Self.queue) {
+        return try await BackgroundWork.run(on: Self.lane(of: project)) {
             try Repository(project.path, git: git).rebaseDefaultBranch()
         }
     }
 
-    /// The rebase a review's diverged branch offers, on the same queue.
+    /// The rebase a review's diverged branch offers, on the same lane.
     public func rebaseOntoOrigin(_ branch: String, in project: Project) async throws -> BranchRebase {
         let git = git
-        return try await BackgroundWork.run(on: Self.queue) {
+        return try await BackgroundWork.run(on: Self.lane(of: project)) {
             try Repository(project.path, git: git).rebaseOntoOrigin(branch)
         }
     }
 
-    /// The switch a review of a branch in the project's own folder offers, on the same queue.
+    /// The switch a review of a branch in the project's own folder offers, on the same lane.
     public func switchProjectFolder(of project: Project, off branch: String, to target: String) async throws {
         let git = git
-        try await BackgroundWork.run(on: Self.queue) {
+        try await BackgroundWork.run(on: Self.lane(of: project)) {
             try Repository(project.path, git: git).switchProjectFolder(off: branch, to: target)
         }
     }
@@ -252,7 +286,7 @@ public struct TaskWorkflow: Sendable {
     /// to lose them, after `remove` refused with `.notMerged`.
     public func deleteUnmergedBranch(of task: TaskItem, in project: Project) async throws {
         let git = git
-        try await BackgroundWork.run(on: Self.queue) {
+        try await BackgroundWork.run(on: Self.lane(of: project)) {
             _ = try git.run(["branch", "-D", task.branch], in: project.path)
         }
     }

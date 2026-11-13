@@ -104,7 +104,7 @@ public struct TaskPublisher: Sendable {
                        record: @escaping @Sendable (TaskPublication) async throws -> Void) async throws -> String? {
         guard publication.assigning == true, !publication.merged, let number = publication.mergeRequestNumber else { return nil }
         if let why = await recheck() { return why }
-        var name = Self.said(publication.requested?.assignee)
+        var name = publication.requested?.assignee.saidAsWritten
         do {
             if name == nil { name = try await host.currentUser() }
             try await host.updateRequest(number, RequestContent(assignee: name), beforeWrite: { _ in
@@ -143,8 +143,8 @@ public struct TaskPublisher: Sendable {
         guard let operated = task.operated else { return .refused(PublicationGuard.notOperated) }
         var publication = operated.publication ?? TaskPublication()
         // A repeat of what is done answers what was done, whatever has changed since.
-        if operated.state == .published || publication.merged { return .published(publication) }
-        if publication.mergedSHA != nil {
+        if operated.state == .published || publication.mergeOutcome == .merged { return .published(publication) }
+        if publication.mergeOutcome == .mergedWithAnotherHead {
             return .blocked(publication, publication.problem ?? Self.mergedUnaccepted(operated.key, publication))
         }
         if operated.end == .mergeLocal {
@@ -159,9 +159,9 @@ public struct TaskPublisher: Sendable {
         // A request already opened is acted on only in the repository it was opened in: origin may name another now.
         if let why = PublicationGuard.otherRepository(publication, repository: host.repository) { return .refused(why) }
         let sha = acceptance.resultSHA
-        let parentMerged = context.parent?.operated?.publication?.merged == true
+        let parentMerged = context.parent?.operated?.publication?.mergeOutcome == .merged
         // Nothing builds on a parent merged outside its accepted publication.
-        if let parent = context.parent?.operated, !parentMerged, parent.publication?.mergedSHA != nil {
+        if let parent = context.parent?.operated, parent.publication?.mergeOutcome == .mergedWithAnotherHead {
             let reason = parent.publication?.problem ?? "\(parent.key) was merged on the host with commits that weren't accepted"
             return try await blocked(publication, "\(reason): AiTerm publishes nothing on top of it.", record)
         }
@@ -220,8 +220,8 @@ public struct TaskPublisher: Sendable {
             } else {
                 let draft = operated.end == .draftMR || context.forReview, asked = publication.requested
                 request = try await host.createRequest(from: branch, into: target,
-                                                       title: Self.said(asked?.title) ?? Self.title(of: task),
-                                                       description: Self.said(asked?.description) ?? Self.description(of: task, acceptance: acceptance),
+                                                       title: asked?.title.saidAsWritten ?? Self.title(of: task),
+                                                       description: asked?.description.saidAsWritten ?? Self.description(of: task, acceptance: acceptance),
                                                        draft: draft)
                 noted(.opened(draft: draft))
             }
@@ -402,7 +402,7 @@ public struct TaskPublisher: Sendable {
     private func blocked(_ publication: TaskPublication, _ why: String,
                          _ record: @Sendable (TaskPublication) async throws -> Void) async throws -> Outcome {
         var publication = publication
-        publication.problem = why
+        publication.setProblem(why, kind: .failure)
         try await record(publication)
         return .blocked(publication, why)
     }
@@ -448,11 +448,5 @@ public struct TaskPublisher: Sendable {
             lines += ["Checks run by the agent:", "```", String(acceptance.checkOutput.suffix(4000)), "```", ""]
         }
         return (lines + ["Opened by AiTerm."]).joined(separator: "\n")
-    }
-
-    /// `text` when it says something; nil for none, or only whitespace.
-    static func said(_ text: String?) -> String? {
-        guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return text
     }
 }

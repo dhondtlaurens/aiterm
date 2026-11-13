@@ -34,9 +34,9 @@ import Synchronization
             """
     }
 
-    private func makeClient(_ handler: @escaping StubURLProtocol.Handler) -> (client: GitLabClient, stub: StubSession) {
+    private func makeClient(project: String = "web/acme-web", _ handler: @escaping StubURLProtocol.Handler) -> (client: GitLabClient, stub: StubSession) {
         let stub = StubSession(handler: handler)
-        return (GitLabClient(config: config, session: stub.session), stub)
+        return (GitLabClient(config: config, project: project, session: stub.session), stub)
     }
 
     private func body(_ request: URLRequest?) throws -> [String: Any] {
@@ -46,9 +46,7 @@ import Synchronization
 
     @Test func aDraftIsOpenedFromTheTasksBranch() async throws {
         let (client, stub) = makeClient { _ in (201, Data(Self.created.utf8)) }
-        let request = try await client.createMergeRequest(project: "web/acme-web", source: "feat/pluto-231-add-gift-card",
-                                                          target: "main", title: "PLUTO-231 Add gift card",
-                                                          description: "Opened by AiTerm", draft: true)
+        let request = try await client.createRequest(from: "feat/pluto-231-add-gift-card", into: "main", title: "PLUTO-231 Add gift card", description: "Opened by AiTerm", draft: true)
         #expect(request == MergeRequest(iid: 12, title: "Draft: PLUTO-231 Add gift card", sourceBranch: "feat/pluto-231-add-gift-card",
                                         targetBranch: "main", author: "Laurens", state: "opened", draft: true,
                                         url: "https://git.example.net/web/acme-web/-/merge_requests/12", description: "Opened by AiTerm"))
@@ -66,21 +64,20 @@ import Synchronization
 
     @Test func aMergeEndsRequestIsNoDraft() async throws {
         let (client, stub) = makeClient { _ in (201, Data(Self.created.utf8)) }
-        _ = try await client.createMergeRequest(project: "web/acme-web", source: "feat/x", target: "main",
-                                                title: "PLUTO-231 Add gift card", description: "", draft: false)
+        _ = try await client.createRequest(from: "feat/x", into: "main", title: "PLUTO-231 Add gift card", description: "", draft: false)
         #expect(try body(stub.lastRequest)["title"] as? String == "PLUTO-231 Add gift card")
     }
 
     @Test func theOpenRequestFromABranchIsFoundNotOpenedAgain() async throws {
         let list = "[" + Self.status(detailed: "mergeable", pipeline: "success") + "]"
         let (client, stub) = makeClient { _ in (200, Data(list.utf8)) }
-        #expect(try await client.openMergeRequest(project: "web/acme-web", source: "feat/pluto-231-add-gift-card")?.iid == 12)
+        #expect(try await client.existingRequest(from: "feat/pluto-231-add-gift-card")?.iid == 12)
         let url = try #require(stub.lastRequest?.url?.absoluteString)
         #expect(url.hasPrefix(Self.base + "?"))
         #expect(url.contains("state=opened"))
         #expect(url.contains("source_branch=feat/pluto-231-add-gift-card"))
         let (none, _) = makeClient { _ in (200, Data("[]".utf8)) }
-        #expect(try await none.openMergeRequest(project: "web/acme-web", source: "feat/x") == nil)
+        #expect(try await none.existingRequest(from: "feat/x") == nil)
     }
 
     @Test func readinessIsGitLabsOwnVerdictWithItsPipeline() async throws {
@@ -103,7 +100,7 @@ import Synchronization
         for item in cases {
             let answer = Self.status(state: item.state, detailed: item.detailed, pipeline: item.pipeline)
             let (client, stub) = makeClient { _ in (200, Data(answer.utf8)) }
-            #expect(try await client.mergeReadiness(project: "web/acme-web", iid: 12) == item.expected,
+            #expect(try await client.readiness(of: 12) == item.expected,
                     "\(item.state) \(item.pipeline ?? "no pipeline") \(item.detailed)")
             #expect(stub.lastRequest?.url?.absoluteString == Self.base + "/12")
         }
@@ -118,7 +115,7 @@ import Synchronization
         }
         let request = MergeRequest(iid: 12, title: "PLUTO-231", sourceBranch: "feat/pluto-231-add-gift-card", targetBranch: "main", author: nil,
                                    state: "opened", draft: false, url: "https://git.example.net/web/acme-web/-/merge_requests/12")
-        let state = try await GitLabPublisher(client: client, project: "web/acme-web").state(of: request)
+        let state = try await client.state(of: request)
         #expect(state == MergeRequestState(iid: 12, url: request.url, draft: true, pipeline: "failed", mergeable: "ci_must_pass",
                                            approvedBy: ["alice"], head: Self.head))
         #expect(stub.requests.count == 2 && stub.requests.contains { $0.url?.path.hasSuffix("/12/approvals") == true })
@@ -127,7 +124,7 @@ import Synchronization
     @Test func itIsMergedAtTheAcceptedCommit() async throws {
         let answer = Self.status(state: "merged", detailed: "not_open", pipeline: "success")
         let (client, stub) = makeClient { _ in (200, Data(answer.utf8)) }
-        #expect(try await client.merge(project: "web/acme-web", iid: 12, sha: Self.head) == .merged(commit: Self.mergeCommit, head: Self.head, target: "main"))
+        #expect(try await client.merge(12, at: Self.head) == .merged(commit: Self.mergeCommit, head: Self.head, target: "main"))
         let sent = try #require(stub.lastRequest)
         #expect(sent.httpMethod == "PUT")
         #expect(sent.url?.absoluteString == Self.base + "/12/merge")
@@ -137,13 +134,13 @@ import Synchronization
     @Test func aRefusedMergeIsBlockedNotThrown() async throws {
         let refusal = Data(#"{"message":"SHA does not match HEAD of source branch"}"#.utf8)
         let (moved, _) = makeClient { _ in (409, refusal) }
-        #expect(try await moved.merge(project: "web/acme-web", iid: 12, sha: Self.head) == .blocked("the branch moved past the accepted commit"))
+        #expect(try await moved.merge(12, at: Self.head) == .blocked("the branch moved past the accepted commit"))
         for status in [405, 406, 422] {
             let (client, _) = makeClient { _ in (status, Data(#"{"message":"Method Not Allowed"}"#.utf8)) }
-            #expect(try await client.merge(project: "web/acme-web", iid: 12, sha: Self.head) == .blocked("GitLab refused to merge it (HTTP \(status))"))
+            #expect(try await client.merge(12, at: Self.head) == .blocked("GitLab refused to merge it (HTTP \(status))"))
         }
         await #expect(throws: GitLabError.unauthorized) {
-            _ = try await self.makeClient { _ in (401, Data()) }.client.merge(project: "web/acme-web", iid: 12, sha: Self.head)
+            _ = try await self.makeClient { _ in (401, Data()) }.client.merge(12, at: Self.head)
         }
     }
 
@@ -155,9 +152,7 @@ import Synchronization
             return (200, Data(Self.created.utf8))
         }
         let seen = Mutex<MergeRequest?>(nil)
-        try await client.updateMergeRequest(project: "web/acme-web", iid: 12, title: "draft: PLUTO-231: Add gift card",
-                                            description: "Adds the gift card.", assignee: "nathan",
-                                            beforeWrite: { request in seen.withLock { $0 = request } })
+        try await client.updateRequest(12, RequestContent(title: "draft: PLUTO-231: Add gift card", description: "Adds the gift card.", assignee: "nathan"), beforeWrite: { request in seen.withLock { $0 = request } })
         #expect(seen.withLock { $0 }?.draft == true, "the request as read is handed over before the write")
         let sent = try #require(stub.lastRequest)
         #expect(sent.httpMethod == "PUT")
@@ -173,9 +168,9 @@ import Synchronization
             if request.url?.path.hasSuffix("/users") == true { return (200, Data(#"[{"id":7,"username":"laurens"}]"#.utf8)) }
             return (200, Data(Self.status(detailed: "mergeable", pipeline: "success").utf8))
         }
-        try await client.updateMergeRequest(project: "web/acme-web", iid: 12, title: nil, description: nil, assignee: "laurens")
+        try await client.updateRequest(12, RequestContent(title: nil, description: nil, assignee: "laurens"))
         #expect(try fieldNames(stub.lastRequest) == ["assignee_ids"])
-        try await client.updateMergeRequest(project: "web/acme-web", iid: 12, title: "PLUTO-231: Add gift card", description: nil, assignee: nil)
+        try await client.updateRequest(12, RequestContent(title: "PLUTO-231: Add gift card", description: nil, assignee: nil))
         #expect(try body(stub.lastRequest)["title"] as? String == "PLUTO-231: Add gift card", "a request that is no draft gets no prefix")
     }
 
@@ -189,7 +184,7 @@ import Synchronization
                 : (200, Data(Self.status(detailed: "ci_must_pass", pipeline: "failed").utf8))
         }
         let seen = Mutex<MergeRequest?>(nil)
-        let retried = try await client.retryPipeline(project: "web/acme-web", iid: 12, beforeWrite: { request in seen.withLock { $0 = request } })
+        let retried = try await client.retryPipeline(12, beforeWrite: { request in seen.withLock { $0 = request } })
         #expect(retried == .retried("pipeline 5501"))
         #expect(seen.withLock { $0 }?.sourceBranch == "feat/pluto-231-add-gift-card")
         let sent = try #require(stub.lastRequest)
@@ -200,7 +195,7 @@ import Synchronization
     @Test(arguments: ["running", "success", "canceled", nil] as [String?])
     func aPipelineThatDidntFailIsNotRetried(_ pipeline: String?) async throws {
         let (client, stub) = makeClient { _ in (200, Data(Self.status(detailed: "mergeable", pipeline: pipeline).utf8)) }
-        let answer = try await client.retryPipeline(project: "web/acme-web", iid: 12, beforeWrite: { _ in Issue.record("nothing to write") })
+        let answer = try await client.retryPipeline(12, beforeWrite: { _ in Issue.record("nothing to write") })
         #expect(answer == .notFailed(pipeline.map { "its pipeline is \($0)" } ?? "it has no pipeline"))
         #expect(!stub.requests.contains { $0.httpMethod != "GET" })
     }
@@ -211,7 +206,7 @@ import Synchronization
             + #""position":{"new_path":"app/redirect.ts","new_line":42,"old_path":"app/redirect.ts","old_line":40}},"#
             + #"{"body":"changed this line","system":true},{"body":"Still open.","author":{"username":"jan"},"system":false}]}"#
         let (client, stub) = makeClient { _ in (200, Data(discussion.utf8)) }
-        let detail = try await client.threadDetail(project: "web/acme-web", iid: 64, discussion: "d64")
+        let detail = try await client.threadDetail(64, thread: "d64")
         #expect(detail == ReviewThreadDetail(id: "d64", path: "app/redirect.ts", line: 42, notes: [
             ReviewThreadDetail.Note(author: "aikido-bot", body: "Open redirect."), ReviewThreadDetail.Note(author: "jan", body: "Still open.")]))
         #expect(stub.lastRequest?.url?.absoluteString == Self.base + "/64/discussions/d64")
@@ -219,7 +214,7 @@ import Synchronization
 
     @Test func aDiscussionIsResolved() async throws {
         let (client, stub) = makeClient { _ in (200, Data(#"{"id":"d64","notes":[]}"#.utf8)) }
-        try await client.resolve(project: "web/acme-web", iid: 64, discussion: "d64")
+        try await client.resolve(64, thread: "d64")
         let sent = try #require(stub.lastRequest)
         #expect(sent.httpMethod == "PUT")
         #expect(sent.url?.absoluteString == Self.base + "/64/discussions/d64")
@@ -232,21 +227,20 @@ import Synchronization
             return (200, Data(Self.created.utf8))
         }
         await #expect(throws: GitLabError.noUser("ghost")) {
-            try await client.updateMergeRequest(project: "web/acme-web", iid: 12, title: "T", description: nil, assignee: "ghost")
+            try await client.updateRequest(12, RequestContent(title: "T", description: nil, assignee: "ghost"))
         }
         #expect(!stub.requests.contains { $0.httpMethod == "PUT" })
     }
 
     @Test func anOperatorsTitleWithADraftPrefixIsNotDoubled() async throws {
         let (client, stub) = makeClient { _ in (201, Data(Self.created.utf8)) }
-        _ = try await client.createMergeRequest(project: "web/acme-web", source: "feat/x", target: "main",
-                                                title: "Draft: PLUTO-231: Add gift card", description: "", draft: true)
+        _ = try await client.createRequest(from: "feat/x", into: "main", title: "Draft: PLUTO-231: Add gift card", description: "", draft: true)
         #expect(try body(stub.lastRequest)["title"] as? String == "Draft: PLUTO-231: Add gift card")
     }
 
     @Test func aRequestIsRetargeted() async throws {
         let (client, stub) = makeClient { _ in (200, Data(Self.status(detailed: "mergeable", pipeline: "success").utf8)) }
-        try await client.retarget(project: "web/acme-web", iid: 12, to: "main")
+        try await client.retarget(12, to: "main")
         let sent = try #require(stub.lastRequest)
         #expect(sent.httpMethod == "PUT")
         #expect(sent.url?.absoluteString == Self.base + "/12")
@@ -294,7 +288,7 @@ import Synchronization
     }
 
     private func protection(_ branch: String, _ client: GitLabClient) async throws -> BranchProtection {
-        try await client.branchProtection(project: "web/acme-web", branch: branch)
+        try await client.protection(of: branch)
     }
 
     @Test func aBranchGitLabProtectsByNameOrWildcardIsSaid() async throws {
@@ -325,11 +319,11 @@ import Synchronization
     /// What cannot be read is no answer: the caller pushes nothing.
     @Test func protectionThatCannotBeReadThrows() async throws {
         await #expect(throws: GitLabError.unauthorized) {
-            _ = try await self.makeClient { _ in (403, Data()) }.client.branchProtection(project: "web/acme-web", branch: "feat/x")
+            _ = try await self.makeClient { _ in (403, Data()) }.client.protection(of: "feat/x")
         }
         let full = Self.rules((1...100).map { "keep/\($0)" })
         await #expect(throws: ProtectionUnknown.tooManyRules(GitLabClient.protectedPages * 100)) {
-            _ = try await self.protectionClient(rules: { _ in full }).client.branchProtection(project: "web/acme-web", branch: "feat/x")
+            _ = try await self.protectionClient(rules: { _ in full }).client.protection(of: "feat/x")
         }
     }
 
@@ -340,33 +334,33 @@ import Synchronization
 
     @Test func noWriteAsksGitLabToMergeSquashOrDeleteAnything() async throws {
         let (creator, created) = makeClient { _ in (201, Data(Self.created.utf8)) }
-        _ = try await creator.createMergeRequest(project: "web/acme-web", source: "feat/x", target: "main", title: "T", description: "D", draft: false)
+        _ = try await creator.createRequest(from: "feat/x", into: "main", title: "T", description: "D", draft: false)
         #expect(try fieldNames(created.lastRequest) == ["source_branch", "target_branch", "title", "description", "remove_source_branch"])
         let merged = Self.status(state: "merged", detailed: "not_open", pipeline: "success")
         let (merger, merge) = makeClient { _ in (200, Data(merged.utf8)) }
-        _ = try await merger.merge(project: "web/acme-web", iid: 12, sha: Self.head)
+        _ = try await merger.merge(12, at: Self.head)
         #expect(try fieldNames(merge.lastRequest) == ["sha"], "no auto-merge, no squash, no source-branch removal")
         let (mover, move) = makeClient { _ in (200, Data(Self.status(detailed: "mergeable", pipeline: "success").utf8)) }
-        try await mover.retarget(project: "web/acme-web", iid: 12, to: "main")
+        try await mover.retarget(12, to: "main")
         #expect(try fieldNames(move.lastRequest) == ["target_branch"])
     }
 
     @Test func aMergeGitLabHasNotRunYetIsWaitingNotMerged() async throws {
         let open = Self.status(detailed: "mergeable", pipeline: "success")
         let (client, _) = makeClient { _ in (200, Data(open.utf8)) }
-        #expect(try await client.merge(project: "web/acme-web", iid: 12, sha: Self.head) == .waiting("GitLab has not finished merging it"))
+        #expect(try await client.merge(12, at: Self.head) == .waiting("GitLab has not finished merging it"))
     }
 
     @Test func aFastForwardMergeIsTheAcceptedCommit() async throws {
         let answer = #"{"iid":12,"state":"merged","sha":"\#(Self.head)","merge_commit_sha":null,"squash_commit_sha":null}"#
         let (client, _) = makeClient { _ in (200, Data(answer.utf8)) }
-        #expect(try await client.merge(project: "web/acme-web", iid: 12, sha: Self.head) == .merged(commit: Self.head, head: Self.head))
+        #expect(try await client.merge(12, at: Self.head) == .merged(commit: Self.head, head: Self.head))
     }
 
     @Test func aDraftIsNeverReady() async throws {
         let draft = Self.status(detailed: "mergeable", pipeline: "success").replacingOccurrences(of: #""draft":false"#, with: #""draft":true"#)
         let (client, _) = makeClient { _ in (200, Data(draft.utf8)) }
-        #expect(try await client.mergeReadiness(project: "web/acme-web", iid: 12) == .blocked("it is a draft"))
+        #expect(try await client.readiness(of: 12) == .blocked("it is a draft"))
     }
 
     /// Many CIs skip the pipeline of a draft: skipped is no failure while it is one, so the draft is all that stops it and
@@ -374,7 +368,7 @@ import Synchronization
     @Test func aDraftsSkippedPipelineLeavesTheDraftAsItsOnlyBlocker() async throws {
         func readiness(_ json: String) async throws -> MergeReadiness {
             let (client, _) = makeClient { _ in (200, Data(json.utf8)) }
-            return try await client.mergeReadiness(project: "web/acme-web", iid: 12)
+            return try await client.readiness(of: 12)
         }
         let draft = { (json: String) in json.replacingOccurrences(of: #""draft":false"#, with: #""draft":true"#) }
         #expect(try await readiness(draft(Self.status(detailed: "draft_status", pipeline: "skipped"))) == .blocked("it is a draft"))
@@ -388,19 +382,19 @@ import Synchronization
     @Test func aDraftsPipelineIsSaidBeforeTheDraft() async throws {
         let draft = Self.status(detailed: "draft_status", pipeline: "failed").replacingOccurrences(of: #""draft":false"#, with: #""draft":true"#)
         let (client, _) = makeClient { _ in (200, Data(draft.utf8)) }
-        #expect(try await client.mergeReadiness(project: "web/acme-web", iid: 12) == .blocked("its pipeline failed"))
+        #expect(try await client.readiness(of: 12) == .blocked("its pipeline failed"))
     }
 
     @Test func anUnknownPipelineStatusIsNotGreen() async throws {
         let (client, _) = makeClient { _ in (200, Data(Self.status(detailed: "mergeable", pipeline: "on_hold").utf8)) }
-        #expect(try await client.mergeReadiness(project: "web/acme-web", iid: 12) == .waiting("its pipeline is on hold"))
+        #expect(try await client.readiness(of: 12) == .waiting("its pipeline is on hold"))
     }
 
     @Test func aRequestThatCannotBeReadIsNotAnAbsentOne() async throws {
         // Reading it as "none" would open a second request for the branch.
         let (client, _) = makeClient { _ in (200, Data(#"[{"iid":12}]"#.utf8)) }
         await #expect(throws: GitLabError.decoding) {
-            _ = try await client.openMergeRequest(project: "web/acme-web", source: "feat/x")
+            _ = try await client.existingRequest(from: "feat/x")
         }
     }
 
@@ -408,14 +402,14 @@ import Synchronization
         let fork = Self.status(detailed: "mergeable", pipeline: "success").replacingOccurrences(of: #""project_id":42"#, with: #""source_project_id":99,"target_project_id":42"#)
         let own = fork.replacingOccurrences(of: #""iid":12"#, with: #""iid":13"#).replacingOccurrences(of: "99", with: "42")
         let (client, _) = makeClient { _ in (200, Data("[\(fork),\(own)]".utf8)) }
-        #expect(try await client.openMergeRequest(project: "web/acme-web", source: "feat/x")?.iid == 13)
+        #expect(try await client.existingRequest(from: "feat/x")?.iid == 13)
         let (onlyFork, _) = makeClient { _ in (200, Data("[\(fork)]".utf8)) }
-        #expect(try await onlyFork.openMergeRequest(project: "web/acme-web", source: "feat/x") == nil)
+        #expect(try await onlyFork.existingRequest(from: "feat/x") == nil)
     }
 
     @Test func aBranchNameIsEscapedWhereAQueryWouldReadItAsSomethingElse() async throws {
         let (client, stub) = makeClient { _ in (200, Data("[]".utf8)) }
-        _ = try await client.openMergeRequest(project: "web/acme-web", source: "feat/a+b&c=d")
+        _ = try await client.existingRequest(from: "feat/a+b&c=d")
         let query = try #require(stub.lastRequest?.url?.query)
         #expect(!query.contains("+") && !query.contains("&c") && query.contains("feat/a%2Bb%26c%3Dd"), "\(query)")
     }
@@ -571,7 +565,7 @@ import Synchronization
         let toRelease = Self.status(detailed: "mergeable", pipeline: "success").replacingOccurrences(of: #""target_branch":"main""#, with: #""target_branch":"release/1.0""#)
         let toMain = Self.status(detailed: "mergeable", pipeline: "success").replacingOccurrences(of: #""iid":12"#, with: #""iid":13"#)
         let (client, _) = makeClient { _ in (200, Data("[\(toRelease),\(toMain)]".utf8)) }
-        let found = try #require(try await client.openMergeRequest(project: "web/acme-web", source: "feat/pluto-231-add-gift-card"))
+        let found = try #require(try await client.existingRequest(from: "feat/pluto-231-add-gift-card"))
         #expect(found.iid == 12 && found.targetBranch == "release/1.0" && found.sourceBranch == "feat/pluto-231-add-gift-card")
     }
 
@@ -583,7 +577,7 @@ import Synchronization
         for item in cases {
             let answer = Self.status(detailed: "mergeable", pipeline: item.pipeline)
             let (client, _) = makeClient { _ in (200, Data(answer.utf8)) }
-            #expect(try await client.mergeReadiness(project: "web/acme-web", iid: 12) == item.expected, "\(item.pipeline)")
+            #expect(try await client.readiness(of: 12) == item.expected, "\(item.pipeline)")
         }
     }
 }

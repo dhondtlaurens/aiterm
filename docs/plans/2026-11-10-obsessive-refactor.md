@@ -1,8 +1,9 @@
 # Obsessive review and refactor, round two
 
-Status: plan agreed on 2026-11-10. Phase 0 is done, reviewed and merged; its numbers are in the
-[record](../reviews/2026-11-10-refactor.md). Phases 1 to 9 are not started; "Running phases 1 to 9 as a
-broadcast" below says how they are handed to the Operator.
+Status: plan agreed on 2026-11-10. Phases 0 to 9 are done; phases 0 to 8, 9a and 9b are reviewed and
+merged, and 9c, the close-out, ends the [record](../reviews/2026-11-10-refactor.md) with every budget,
+defect, drop and decision. "Running phases 1 to 9 as a broadcast" below says how they were handed to the
+Operator.
 
 ## Goal
 
@@ -497,49 +498,80 @@ Each box leaves the project working and is one or a few commits.
 - [x] 0c. Daemon budgets: agent-path registry sorts and the audit-hook counts.
 - [x] 0d. Shared test builders, per-process scratch root, the `@testable` note.
 - [x] 0e. Review record started with the baselines.
-- [ ] 1a. Deadlines on the unbounded reads; Codex Stop answered first (tests first).
-- [ ] 1b. Background reader offset and prefilter; one rollout cursor with a cap; subagent path memo.
-- [ ] 1c. Test activity: injectable directory, stamp cache, age before lock.
-- [ ] 1d. Readers own plan and apply; `Service` runs the fixed list; test seams.
-- [ ] 1e. Port and screens modules, strict typing, auth patch at connect.
-- [ ] 1f. Task index, `SessionNotFound`, ruff rules, keyword-only hook fields, test builders, README.
-- [ ] 2a. Locked worktree record (test first); successful-only login-shell answer.
-- [ ] 2b. One lane per repository, with the rendezvous test.
-- [ ] 2c. Bounded output and untrimmed runner; bounded diff readers.
-- [ ] 2d. Typed git queries, commit id, remote-URL parser; one preflight per removal and archive.
-- [ ] 2e. Cloned backup, path identity and stamp, priorities, dead code, monotonic clocks.
-- [ ] 3a. Outcome-unknown classification in Core (test first); token trimming.
-- [ ] 3b. Clients bound to their repository; forwarding removed; access narrowed; path encoding.
-- [ ] 3c. `find_user`, symlinked catalogue stamps (tests first); listing and user reuse.
-- [ ] 3d. Jira on `JSONValue`; Fix state; dead code; small shared helpers.
-- [ ] 4a. Tool traits and exhaustive Activity lines (test first for `update_request`).
-- [ ] 4b. One live projection and one readiness predicate (test first for the launch window).
-- [ ] 4c. Requests and tabs once per refresh; `RunStatus.build` split.
-- [ ] 4d. Transition table covers every edge; one question writer.
-- [ ] 4e. Computed views: question kind, tab reference, merge outcome, record role, run intent.
-- [ ] 4f. Persisted publication outcome kind with its migration read and new fixture.
-- [ ] 4g. Synthesized Codable with the two wrappers; housekeeping moves.
-- [ ] 5a. Settle seam; suites moved to it; `last*` handles private.
-- [ ] 5b. Stop cancels everything it owns (test first); observer removed.
-- [ ] 5c. Gated, shared transcript reads; one status builder and one snapshot per pass.
-- [ ] 5d. Owners in dependency order with references; deferred start pass; ports non-optional.
-- [ ] 5e. Per-key records; the listing-wait value; batched mutations; typed errors.
-- [ ] 5f. Window owner and pause signaller; branch-watch and review-watch caches; closed wake reasons.
-- [ ] 6a. One Oracle-job owner, cancelled on Stop and End (test first).
-- [ ] 6b. Handler on tool traits; private tables; `mark_task` enum; sentence and timeout helpers.
-- [ ] 6c. Concurrent `run_status` host reads; reused landing check; settings sync sites.
-- [ ] 6d. Finisher as a reference with one record per task; outcome kind; test layering.
-- [ ] 7a. Shared teardown prepare and run.
-- [ ] 7b. Debounced search; hook list; grouped ports.
-- [ ] 7c. Blocking checks off the main actor; reconciler trigger; scan projection; row chooser.
-- [ ] 8a. Plain `@State` (one file first, then the rest).
-- [ ] 8b. Badge line, row content, fold modifier, heading inset, ring helper.
-- [ ] 8c. Stepped-sheet frame; picker field, clear button, Metrics tokens, chrome reuse.
-- [ ] 8d. Narrow header values with the redraw test; lazy Activity and Shelf; leaf reads.
-- [ ] 8e. Snapshot helpers; before and after image comparison.
-- [ ] 9a. `AppControllerTests` split; template and off-main git fixtures; blocking check; latches.
-- [ ] 9b. Concurrency measurement; gate history; release gate check; routing entries.
-- [ ] 9c. Docs, design-system page, review record, full gate, bundle check, adversarial review.
+- [x] 1a. Deadlines on the unbounded reads; Codex Stop answered first (tests first).
+- [x] 1b. One rollout cursor with a tail window and exact head fallback; subagent path memo.
+  Background offset and prefilter dropped: restore has no byte checkpoint, and skipping pre-marker lines
+  changes gap evidence; its first-read byte and parse budgets do not move (record).
+- [x] 1c. Test activity: injectable directory, stamp cache, age before lock.
+- [x] 1d. Readers own plan and apply; `Service` runs the fixed list; test seams.
+- [x] 1e. Port and screens modules, strict typing, auth patch at connect.
+- [x] 1f. Task index, `SessionNotFound`, ruff rules, keyword-only hook fields, test builders, README.
+- [x] 2a. Locked worktree record (test first); successful-only login-shell answer.
+- [x] 2b. One lane per repository, with the rendezvous test.
+- [x] 2c. Bounded output and untrimmed runner; bounded diff readers.
+- [x] 2d. Typed git queries, commit id, remote-URL parser; one preflight per removal and archive. Restore lists
+  once (6 to 4 processes); the removal and archive preflight is dropped here, Shelve stays at 9: its listings are
+  asked by `TaskArchiver` and `TaskRemover`'s removal, phase 7's files, which build it with the shared teardown.
+  One commit-id rule and one remote-URL rule (the same-location check percent-decodes a path) were adopted on the
+  maintainer's decision of 2026-11-12, done with phase 7's task: each switch is on and gone (record).
+- [x] 2e. Cloned backup, path identity and stamp, priorities, dead code, monotonic clocks.
+- [x] 3a. Outcome-unknown classification in Core (test first); token trimming.
+- [x] 3b. Clients bound to their repository; forwarding removed; access narrowed; path encoding.
+- [x] 3c. `find_user`, symlinked catalogue stamps (tests first); listing and user reuse. GitLab closing-issue
+  concurrency dropped: one issue's two source listings stay at 2 host requests (record).
+- [x] 3d. Jira on `JSONValue`; Fix state; dead code; small shared helpers.
+- [x] 4a. Tool traits and exhaustive Activity lines (test first for `update_request`).
+- [x] 4b. One live projection and one readiness predicate (test first for the launch window). The reconciler reads
+  through it too since phase 5, on the maintainer's decision of 2026-11-11, which accepted the changed blocking (record).
+- [x] 4c. Requests and tabs once per refresh; `RunStatus.build` split.
+- [x] 4d. Transition table covers every edge; one question writer.
+- [x] 4e. Computed views: question kind, tab reference, merge outcome, record role, run intent.
+- [x] 4f. Persisted publication outcome kind with its migration read and new fixture.
+- [x] 4g. Synthesized Codable with the two wrappers; housekeeping moves. Dropped for `OperatedTask`, whose
+  `firstRevision` default and unknown-flag rule neither wrapper expresses: it keeps its hand-written coder (record).
+- [x] 5a. Settle seam; suites moved to it; `last*` handles private.
+- [x] 5b. Stop cancels everything it owns (test first); observer removed.
+- [x] 5c. Gated, shared transcript reads; one status builder and one snapshot per pass. The status builder landed with
+  5d, which gave the handler the references it reads (record).
+- [x] 5d. Owners in dependency order with references; deferred start pass; ports non-optional.
+- [x] 5e. Per-key records; the listing-wait value; batched mutations; typed errors.
+- [x] 5f. Window owner and pause signaller; branch-watch and review-watch caches; closed wake reasons. The shelved
+  board's one derivation is dropped: no budget counts it (record).
+- [x] 6a. One Oracle-job owner, cancelled on Stop and End (test first). Review round 1 restores main’s
+  settings-save policy (non-acted challenge/relay jobs only); task/workspace removal cancels no Oracle job.
+- [x] 6b. Handler on tool traits; private tables; `mark_task` enum; sentence and timeout helpers.
+- [x] 6c. Concurrent `run_status` host reads; settings sync sites. Status-build skipping dropped: its probe leaves
+  the primed call at 3 and the frozen journey at 47, so its code is left out. "A judged merge reuses the gate's
+  landing check" is dropped on the Operator's decision: reuse changes the reply when the host merges during the
+  Oracle wait (published/merged true becomes waitingToMerge/merged false, with create/edit calls). Keep the second
+  fetch and the regression test; no fetch-budget improvement is claimed (record).
+- [x] 6d. Finisher as a reference with one record per task; outcome kind; test layering.
+- [x] 7a. Shared teardown prepare and run. With the one preflight per removal and archive phase 2 dropped (its 2d line):
+  Shelve 9 to 8 git processes. Remove stays at 7: its uncommitted-work check keeps the listing of its own that says,
+  right before status, that the folder is still the worktree (review round 2). Auto-close's own check still lists
+  twice: no budget counts it (record).
+- [x] 7b. Debounced search; hook list; grouped ports. The catalogue load keeps its own counter: SwiftUI's task, no query
+  and no pause (record). Both fields' rules for letting a search go are kept, each against its old code as reference.
+- [x] 7c. Blocking checks off the main actor; reconciler trigger; scan projection; row chooser. The trigger on the
+  Operator's option B, with a poll that checks the window plan in memory (reconciler passes 10 to 0). The row chooser
+  leaves a terminal row's click calling `RowFocus.select` from its view, which is what the chooser does for it: the
+  views are phase 8's. Dropped: Keychain writes off the main actor (an edit or a test answer could land mid-Save, which
+  only a visible change could stop), the slug resolving on draft change, which moves no count, and `LatestTask` for
+  counters whose lifetime does not match it (record).
+- [x] 8a. Plain `@State` (one file first, build, then the rest).
+- [x] 8b. Badge line, row content, fold modifier, heading inset, ring helper. Terminal-row clicks now use phase 7's row chooser; a test added before the change retains the old call as its reference and checks selection, focus and the window raised against the chooser, a hosted click and Return (record).
+- [x] 8c. Stepped-sheet frame; picker field, clear button, Metrics tokens, chrome reuse. Clear-button labels use their existing tooltips, approved by the maintainer on 2026-11-12; seven accessibility tests.
+- [x] 8d. Narrow header values with the redraw test; lazy Activity and Shelf; leaf reads. Activity materialization is measured in the real 560-by-560 board sheet, 100 to 10; the original 100-to-7 test measures a 200-point stand-in viewport. Grouping/day titles and Shelf ranking are cached with explicit invalidation; every retained performance item lowers its test budget (record).
+- [x] 8e. Snapshot helpers; before and after image comparison: the final capture is 119 of 119 PNGs byte-identical to the before set, with no tolerance rule. Separately, GitLab artwork in two images varied on repeated captures of unmodified main; observation and maintainer find only (record). scripts/readme-picture.sh --check exits 1 on unmodified main and this branch alike, with identical captures and the committed picture unchanged; the maintainer waived the check for this phase on 2026-11-12 and leaves the redraw to their next release.
+- [x] 9a. `AppControllerTests` split; template and off-main git fixtures; blocking check; latches. Host-only conversion:
+  four review tests. The rest of the off-main git fixture migration is dropped: 38 main-actor factory sites in 19
+  Operator and finisher test files (counted at `4b79d95e`), and 36 post-setup `git.run` calls in `TaskAutoCloserTests`,
+  still run git on the main actor. They overlapped the suites phases 5 and 6 were rewriting. Nobody finishes them in this
+  plan; they are left for the maintainer (record, names and counts).
+- [x] 9b. Concurrency measurement; gate history; release gate check; routing entries.
+- [x] 9c. Docs, design-system page, review record, full gate, bundle check, adversarial review. The adversarial review's
+  one finding, `read_task`'s 8 MiB diff bound, is kept as a difference from main, approved by the maintainer on
+  2026-11-13 while it is enough for most broadcasts (record).
 
 ## Left out
 

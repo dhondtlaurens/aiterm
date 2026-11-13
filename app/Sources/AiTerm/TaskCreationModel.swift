@@ -93,7 +93,7 @@ extension CreationModel where Kind == TaskCreation {
     nonisolated static func gitLabIssueSource(gitLab: GitLabConfig?, remote: RemoteInfo?) -> TicketSearch.Source? {
         guard let remote, case .gitLab(let config, let path)? = try? MergeRequestSearch.connection(for: remote, gitLab: gitLab, gitHub: nil)
         else { return nil }
-        let client = GitLabClient(config: config)
-        return { text in try await client.issues(project: path, search: text) }
+        let client = GitLabClient(config: config, project: path)
+        return { text in try await client.issues(search: text) }
     }
 }

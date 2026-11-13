@@ -40,17 +40,16 @@ private struct ThrowingSource: ReleaseSource {
     }
 
     @Test func everyErrorHasItsExactLine() {
-        #expect(UpdateError.noRelease(.gitLab).message == "GitLab has no AiTerm release yet.")
-        #expect(UpdateError.noRelease(.gitHub).message == "GitHub has no AiTerm release yet.")
-        #expect(UpdateError.projectNotFound(.gitHub, "octocat/hello").message == "GitHub has no repository at octocat/hello.")
+        #expect(UpdateError.noRelease.message == "GitHub has no AiTerm release yet.")
+        #expect(UpdateError.projectNotFound("octocat/hello").message == "GitHub has no repository at octocat/hello.")
         #expect(UpdateError.unreachable("git.example.net").message == "Couldn’t reach git.example.net.")
         #expect(UpdateError.unverified.message == "The downloaded update couldn’t be verified. Nothing was changed.")
         #expect(UpdateError.translocated.message == "Move AiTerm to the Applications folder to get updates.")
         #expect(UpdateError.noFeed.message == "This build of AiTerm has no update source.")
-        #expect(UpdateError.badResponse(.gitLab, 500).message == "GitLab returned an error (HTTP 500). Try again.")
-        #expect(UpdateError.badResponse(.gitHub, 502).message == "GitHub returned an error (HTTP 502). Try again.")
-        #expect(UpdateError.unreadableTag(.gitHub, "nightly").message == "GitHub’s latest release, nightly, has no version AiTerm understands.")
-        #expect(UpdateError.missingAsset(.gitHub, "0.3.0").message == "GitHub’s release 0.3.0 has no AiTerm-0.3.0.dmg.")
+        #expect(UpdateError.badResponse(500).message == "GitHub returned an error (HTTP 500). Try again.")
+        #expect(UpdateError.badResponse(502).message == "GitHub returned an error (HTTP 502). Try again.")
+        #expect(UpdateError.unreadableTag("nightly").message == "GitHub’s latest release, nightly, has no version AiTerm understands.")
+        #expect(UpdateError.missingAsset("0.3.0").message == "GitHub’s release 0.3.0 has no AiTerm-0.3.0.dmg.")
         #expect(UpdateError.rateLimited.message == "GitHub is limiting update checks from this network. Try again later.")
         #expect(UpdateError.installFailed("Permission denied.").message == "AiTerm couldn’t start the update. Permission denied.")
         #expect(UpdateError.other("Something odd.").message == "Something odd.")

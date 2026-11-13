@@ -49,9 +49,9 @@ final class TabOpener {
     }
 
     /// A tab whose request showed none, asked for again as `attempt`, saved by the caller first.
-    func relaunch(_ id: ID, attempt: LaunchAttempt) -> Task<Void, Never>? {
-        guard !isStopped, opening.insert(id).inserted else { return nil }
-        return Task { _ = await ask(id, attempt: attempt) }
+    func relaunch(_ id: ID, attempt: LaunchAttempt) {
+        guard !isStopped, opening.insert(id).inserted else { return }
+        ports.work.start { _ = await self.ask(id, attempt: attempt) }
     }
 
     /// Its command built off the main actor, then, if its record and its task still hold, the daemon asked for the tab
@@ -93,7 +93,7 @@ final class TabOpener {
             let session = try await daemon.createTab(windowId: window, cwd: worktree, agentCommand: command, tabKey: id.key, background: true)
             recordSession(session, of: id)
             return .opened
-        } catch let error as DaemonError where [.timeout, .disconnected, .itermUnavailable].contains(error.code) {
+        } catch let error as DaemonError where error.leavesOutcomeUnknown {
             Log.daemon.info("An operator's extra worker tab may still open; the run reconciler looks again: \(error.message, privacy: .public)")
             return .opening
         } catch {
@@ -152,7 +152,7 @@ final class TabOpener {
     static func holds(_ task: TaskItem, in state: AppState) -> Bool {
         guard let operated = task.operated, [.working, .inReview].contains(operated.state), !operated.takenOver,
               task.hasCheckout, task.windowId != nil, let run = state.run(id: operated.runId) else { return false }
-        return [.active, .complete].contains(run.state) && run.intent == nil
+        return [.active, .complete].contains(run.state) && run.youAsked == nil
     }
 
     /// An extra tab's first prompt: AiTerm's line on where it works (`WorkerStarter.worktreeLine`), its line on the

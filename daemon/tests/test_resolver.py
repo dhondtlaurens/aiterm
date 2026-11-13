@@ -1,11 +1,10 @@
-import json
-
 import pytest
 
 from aitermd.claude_sessions import ClaudeSessionFiles
 from aitermd.models import RawSession
 from aitermd.resolver import SessionResolver
 from aitermd.sessions import SessionRegistry
+from tests.builders import write_claude_session
 
 
 @pytest.fixture
@@ -22,7 +21,7 @@ def world(tmp_path):
 
 
 def claude_file(files, pid, session_id):
-    (files.root / f"{pid}.json").write_text(json.dumps({"pid": pid, "sessionId": session_id, "cwd": "/repo", "status": "busy"}))
+    write_claude_session(files.root, pid, sessionId=session_id, cwd="/repo")
 
 
 async def test_claude_resolves_by_pid_before_anything_else(world):
@@ -85,3 +84,81 @@ async def test_pi_resolves_directly_by_iterm_session(tmp_path):
     resolver = SessionResolver(reg, ClaudeSessionFiles(tmp_path))
     # $ITERM_SESSION_ID carries a pane prefix; iTerm2's API reports only the suffix.
     assert await resolver.resolve_directly("pi", "p-1", "w0t0p0:tab-1") == "tab-1"
+
+
+async def test_a_stuck_pid_scan_has_a_deadline_and_no_overlapping_retry(world, monkeypatch):
+    import asyncio
+    import threading
+    from aitermd import resolver as module
+
+    resolver, _, files = world
+    monkeypatch.setattr(module, "SCAN_SECONDS", 0.02, raising=False)
+    release, calls = threading.Event(), []
+
+    def stuck(session_id):
+        calls.append(session_id)
+        release.wait(5)
+        return None
+
+    monkeypatch.setattr(files, "pid_for_session", stuck)
+    try:
+        assert await asyncio.wait_for(resolver.resolve_directly("claude", "conv"), 0.3) is None
+        assert await asyncio.wait_for(resolver.resolve_directly("claude", "conv"), 0.3) is None
+        assert calls == ["conv"]
+    finally:
+        release.set()
+
+
+@pytest.mark.parametrize("late_error", [False, True])
+async def test_an_abandoned_scan_keeps_indexed_pid_evidence_and_reports_a_late_error(world, monkeypatch, late_error):
+    import asyncio
+    import threading
+    from aitermd import resolver as module
+
+    import logging
+    logged, errors = asyncio.Event(), []
+
+    class Capture(logging.Handler):
+        def emit(self, record):
+            errors.append(record)
+            logged.set()
+
+    logger, capture = logging.getLogger("aitermd.resolver"), Capture()
+    logger.addHandler(capture)
+    resolver, _, files = world
+    claude_file(files, 101, "indexed")
+    assert files.read(101) is not None
+    monkeypatch.setattr(module, "SCAN_SECONDS", 0.02)
+    loop = asyncio.get_running_loop()
+    entered, release, finished = asyncio.Event(), threading.Event(), asyncio.Event()
+
+    def slow(session_id):
+        loop.call_soon_threadsafe(entered.set)
+        try:
+            release.wait(5)
+            if late_error:
+                raise ValueError("late scan error")
+            return None
+        finally:
+            loop.call_soon_threadsafe(finished.set)
+
+    monkeypatch.setattr(files, "pid_for_session", slow)
+    pending = asyncio.create_task(resolver.resolve_directly("claude", "unknown"))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        assert await asyncio.wait_for(pending, 2) is None
+        if not late_error:
+            assert await resolver.resolve_directly("claude", "indexed") == "a"
+            assert await resolver.resolve_directly("claude", "another-unknown") is None
+    finally:
+        release.set()
+        try:
+            await asyncio.wait_for(finished.wait(), 2)
+            await resolver.settle_reads()
+            await asyncio.gather(pending, return_exceptions=True)
+            if late_error:
+                await asyncio.wait_for(logged.wait(), 2)
+        finally:
+            logger.removeHandler(capture)
+    if late_error:
+        assert any(rec.exc_info and str(rec.exc_info[1]) == "late scan error" for rec in errors)

@@ -59,12 +59,12 @@ public enum OperatorRequests {
             // Of several tabs' prompts, the first by tab order: the first worker's, then the extra tabs' as they opened.
             let order = [nil] + operated.extraTabs.map(\.key)
             let rank = { (tab: String?) in order.firstIndex(of: tab) ?? order.count }
-            let recorded = run.questions.filter { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix("prompt-") }
+            let recorded = run.questions.filter { $0.task == task.id && $0.resolution == nil && $0.kind == .prompt }
                 .min { rank($0.tab) < rank($1.tab) }
             if let recorded {
                 requests.append(BroadcastRequest(kind: .permission, runId: run.id, taskId: task.id,
                                                  text: sentence("\(recorded.text) in \(task.title)"), key: recorded.id,
-                                                 tab: recorded.tab ?? WorkerTab.firstKey))
+                                                 tab: TabReference(recorded.tab).name))
             }
             // What waits for the Operator's finish_task asks you nothing (`TaskPublication.operatorHolds`), and a publication's
             // problem is read as it stands now: a task back in review is past it (`OperatedTask.currentPublicationProblem`).
@@ -77,7 +77,7 @@ public enum OperatorRequests {
                 requests.append(BroadcastRequest(kind: .blocked, runId: run.id, taskId: task.id, text: sentence("\(task.title) is blocked: \(reason)")))
             }
         }
-        for question in run.questions where question.resolution == nil && !question.id.hasPrefix("prompt-") {
+        for question in run.questions where question.resolution == nil && question.kind != .prompt {
             if let task = question.task, takenOver.contains(task) || (silent.contains(task) && question.holdsTask) { continue }
             let asker = switch question.asker {
             case .aiterm: "AiTerm"
