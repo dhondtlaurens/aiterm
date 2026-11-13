@@ -62,8 +62,9 @@ local and UTC dates. A change lowers a number with the work that earned it and n
 `AITERM_MEASURE=1` prints fixture timings and asserts nothing; keep them separate from installed-app
 latency claims.
 
-`AiTermTestSupport/Builders.swift` is the one place tests call the `Project`, `TaskItem`,
-`SessionInfo`, `OperatedTask` and `OperatorRun` initialisers. `ScratchFolder` hands out folders under
+`AiTermTestSupport/Builders.swift` holds the shared builders for `Project`, `TaskItem`,
+`SessionInfo`, `OperatedTask` and `OperatorRun`; new tests use them, and older tests still call the
+initialisers directly. `ScratchFolder` hands out folders under
 one root per test process, removed at exit, and sweeps dead processes' roots at the next start.
 `GitFixture` copies one hermetic seed repository per process; each copy owns its refs and objects,
 and an explicit runner still owns setup for fault and count tests. A test that runs git, a process,

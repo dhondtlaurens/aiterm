@@ -570,7 +570,8 @@ Each box leaves the project working and is one or a few commits.
   plan; they are left for the maintainer (record, names and counts).
 - [x] 9b. Concurrency measurement; gate history; release gate check; routing entries.
 - [x] 9c. Docs, design-system page, review record, full gate, bundle check, adversarial review. The adversarial review's
-  one finding, `read_task`'s diff bound, is product code and left open for the Operator (record).
+  one finding, `read_task`'s 8 MiB diff bound, is kept as a difference from main, approved by the maintainer on
+  2026-11-13 while it is enough for most broadcasts (record).
 
 ## Left out
 
