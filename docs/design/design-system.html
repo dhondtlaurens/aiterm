@@ -3656,6 +3656,7 @@
             <li><strong>2B, one question at a time.</strong> A pager in the heading, oldest first.</li>
             <li><strong>One interface for every question.</strong> I read “unified” as: the same block, the same parts in the same order, whoever asks and however it is answered. Today’s three shapes become one.</li>
             <li>Not picked: one line per task, the wide board, the detail pane, the stacked blocks.</li>
+            <li><strong>Still open:</strong> Summary and Activity, in 4 and 5 below.</li>
           </ul>
         </div>
       </div>
@@ -3710,14 +3711,77 @@
             <ul><li>Clicking a single worker tab’s line to bring that tab forward. The row opens the task’s window, where its tabs are.</li></ul></div></div>
 
         <div class="option">
-          <header><span class="letter">4</span><h3>Part by part</h3></header>
+          <header><span class="letter">4</span><h3>Summary and Activity: do we need them</h3></header>
+          <p><b>Yes to both, but neither as it is.</b> The summary is the only place the run’s story is told, and Left for you is the one
+            list you have to act on; today both hide on a tab that is switched off until the last task is done. Activity is the record
+            behind the trust: what the Operator decided and what was refused. But about half of it is the Operator looking. In three real
+            broadcasts, 955 calls: 266 status checks and reads, 226 shell commands, against 39 decisions and 16 questions to you.</p>
+          <div class="bx-scroll"><table class="bx-audit">
+            <thead><tr><th>Part</th><th></th><th>Why</th></tr></thead>
+            <tbody>
+              <tr><td>The Operator’s summary</td><td><span class="v keep">Keep</span></td><td>Its prose, as written, with its byline. Nothing else says what went on the first try and what did not.</td></tr>
+              <tr><td>How the goal went</td><td><span class="v keep">Keep</span></td><td>One line under the summary, as today.</td></tr>
+              <tr><td>Left for you</td><td><span class="v keep">Keep</span></td><td>And show it from its first item, not only at the end: it is addressed to you when it is written.</td></tr>
+              <tr><td>Worked around in AiTerm</td><td><span class="v keep">Keep</span></td><td>With Copy and Copy All. It is feedback on AiTerm, so it sits last.</td></tr>
+              <tr><td>Activity’s lines</td><td><span class="v keep">Keep</span></td><td>In plain words, newest first, by day, the reason under a line.</td></tr>
+              <tr><td>Status checks, reads, shell commands</td><td><span class="v fold">Fold</span></td><td>Behind Show everything, unless one was refused, challenged or failed.</td></tr>
+              <tr><td>The call under a line</td><td><span class="v keep">Keep</span></td><td>The detail: tool, arguments and answer, on a click, as today. It costs nothing while closed and is what settles a doubt.</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+
+        <div class="option pick">
+          <header><span class="letter">4A</span><h3>Summary on the first view, no tab of its own</h3><span class="rec">Recommended</span></header>
+          <p><b>The format.</b> Once written, the summary takes the top of the sheet; Left for you is a section as soon as it has an item,
+            during the run too; Worked around in AiTerm closes the page. The tabs become Tasks and Activity, and the sheet always opens on
+            the same view. Left: complete. Right: running, with something left for you.</p>
+        </div>
+        <div class="bx-stage bx-bleed"><div id="bx-sum-a"></div><div id="bx-sum-a2"></div>
+          <div class="cap"><span class="h g" style="margin-top:0">Gains</span>
+            <ul><li>No tab that is dead for the whole run.</li>
+              <li>What is left for you is seen when it is left. A live broadcast has no end to wait for.</li>
+              <li>One order, always: what waits on you, the summary, what is left for you, the tasks.</li></ul>
+            <span class="h c">Costs</span>
+            <ul><li>A long summary pushes the tasks down once the broadcast is complete. By then they are all done.</li>
+              <li>Left for you takes a few lines above the tasks during the run.</li></ul></div></div>
+
+        <div class="option">
+          <header><span class="letter">4B</span><h3>Summary on its own tab, as today</h3></header>
+          <p>The same parts on a third tab, switched off until the broadcast completes, where the sheet then opens.</p>
+        </div>
+        <div class="bx-stage bx-bleed"><div id="bx-sum-b"></div>
+          <div class="cap"><span class="h g" style="margin-top:0">Gains</span>
+            <ul><li>Nothing to build. The first view is questions and tasks only.</li></ul>
+            <span class="h c">Costs</span>
+            <ul><li>Left for you stays out of sight until the end.</li><li>The sheet opens on a different tab depending on the broadcast’s state.</li>
+              <li>A live broadcast would never reach it.</li></ul></div></div>
+
+        <div class="option pick">
+          <header><span class="letter">5A</span><h3>Activity shows what changed</h3><span class="rec">Recommended</span></header>
+          <p><b>The format.</b> The same lines, less the looking: status checks, reads and shell commands that went through are hidden until
+            Show everything. Anything refused, challenged or failed always shows. A click still opens the call itself. Left: as it opens.
+            Right: everything, which is today’s tab.</p>
+        </div>
+        <div class="bx-stage bx-bleed"><div id="bx-act-a"></div><div id="bx-act-b"></div>
+          <div class="cap"><span class="h g" style="margin-top:0">Gains</span>
+            <ul><li>About half as long, and every line left is something the Operator did.</li>
+              <li>Decisions, with their why, are no longer between two status checks.</li>
+              <li>Nothing is lost: one link away, and the log on disk does not change.</li></ul>
+            <span class="h c">Costs</span>
+            <ul><li>One link and one remembered choice.</li></ul>
+            <span class="h" style="color:var(--muted)">Not recommended</span>
+            <ul><li><b>5B, as today:</b> everything, always.</li>
+              <li><b>5C, no tab:</b> the Operator’s own window is the record. But that is gone once its window closes, it is not in plain words, and the Shelf’s ended broadcasts would have no record at all.</li></ul></div></div>
+
+        <div class="option">
+          <header><span class="letter">6</span><h3>Part by part</h3></header>
           <p>Each part of today’s sheet, and what happens to it.</p>
           <div class="bx-scroll"><table class="bx-audit">
             <thead><tr><th>Part</th><th></th><th>What happens</th></tr></thead>
             <tbody>
               <tr><td>Title, status line, progress</td><td><span class="v keep">Keep</span></td><td>As they are.</td></tr>
               <tr><td>Asked, Goal, Each task</td><td><span class="v fold">Fold</span></td><td>One line, Asked, cut at its end. The whole brief, all three, is its tooltip. The header drops from 167 to 136 pt.</td></tr>
-              <tr><td>Board · Activity · Summary</td><td><span class="v keep">Keep</span></td><td>Board is named Tasks. Activity and Summary do not change.</td></tr>
+              <tr><td>Board · Activity · Summary</td><td><span class="v keep">Keep</span></td><td>Board is named Tasks. Summary and Activity: see 4, 4A and 5A.</td></tr>
               <tr><td>Waiting on you</td><td><span class="v fold">Fold</span></td><td>One block and a pager in place of the stack.</td></tr>
               <tr><td>The three question shapes</td><td><span class="v fold">Fold</span></td><td>One block: who, the question, one line of context, buttons, a field when words are taken.</td></tr>
               <tr><td>The four columns</td><td><span class="v fold">Fold</span></td><td>The headings of one list.</td></tr>
@@ -3733,7 +3797,7 @@
         </div>
 
         <div class="option">
-          <header><span class="letter">5</span><h3>A live broadcast on the same sheet</h3></header>
+          <header><span class="letter">7</span><h3>A live broadcast on the same sheet</h3></header>
           <p><b>Not part of this change.</b> A sketch to check that the sheet holds when a broadcast is started by a trigger, such as a
             Jira label, and never completes. The words on it are placeholders.</p>
         </div>
@@ -3875,6 +3939,16 @@
   .bx-stage.bx-bleed { margin-top: 0; }
   .bx .vm.claude { background: var(--claude); color: #FFFFFF; } .bx .vm.codex { background: #FFFFFF; color: #000000; }
   .bx .sub { padding: 0 0 var(--space-base) 38px; margin-top: -4px; }
+  .bx .prose { display: flex; flex-direction: column; gap: var(--space-gap); }
+  .bx .prose p { margin: 0; font: 13px/16px var(--font); color: var(--text); }
+  .bx .ar { display: flex; align-items: baseline; gap: var(--space-gap); padding: var(--space-snug) var(--space-base); margin-inline: calc(-1 * var(--space-base)); border-radius: var(--radius-control); }
+  .bx .ar.open { background: var(--selected); }
+  .bx .ar .tm { font: 11px/16px var(--font); color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+  .bx .ar .al { display: flex; align-items: baseline; gap: var(--space-gap); font: 12px/16px var(--font); color: var(--text); }
+  .bx .ar .al b { font-weight: 500; }
+  .bx .ar .well { margin-top: var(--space-tight); padding: var(--space-base) var(--space-inset); border-radius: var(--radius-control); background: var(--well);
+                  font: 11px/15px var(--mono); color: var(--muted); white-space: pre-wrap; }
+  .bx .ar .well b { font-weight: 500; color: var(--text); }
 </style>
 <script>
   /* Proposal · the broadcast's sheet. Draws every frame from one set of builders and one fixture, so the
@@ -3937,11 +4011,13 @@
 
     /* ---- the sheet --------------------------------------------------------------------------- */
     function SHEET(o) {
-      var tabs = ['Tasks', 'Activity', 'Summary'].map(function (t) { return `<span class="${t === 'Tasks' ? 'on' : ''}${t === 'Summary' ? ' off' : ''}">${t}</span>`; }).join('');
+      var names = o.tabs || ['Tasks', 'Activity', 'Summary'], on = o.on || 'Tasks';
+      var tabs = names.map(function (t) { return `<span class="${t === on ? 'on' : ''}${t === 'Summary' && !o.summary ? ' off' : ''}">${t}</span>`; }).join('');
+      var foot = o.done ? `<span class="sp"></span>${B('Close')}${B('End Broadcast', 'pri', 1)}` : `${B('Pause Broadcast')}${B('End Broadcast…')}<span class="sp"></span>${B('Close')}`;
       return `<div class="bx"><div class="sheet" style="width:560px;height:640px"><div class="hd"><h4>${o.title}</h4><div class="sl">${o.status}</div>` +
         `<div class="bl"><span class="cut"><b>${o.brief[0]}</b> ${o.brief[1]}</span></div><div class="xtabs">${tabs}</div></div><div class="hl"></div>` +
         `<div class="bodyc">${o.body}</div>` +
-        `<div class="hl"></div><div class="ft">${B('Pause Broadcast')}${B('End Broadcast…')}<span class="sp"></span>${B('Close')}</div></div></div>`;
+        `<div class="hl"></div><div class="ft">${foot}</div></div></div>`;
     }
     function put(id, html) { var el = document.getElementById(id); if (el) { el.innerHTML = html; } }
 
@@ -4010,6 +4086,56 @@
       ['Done and removed: no click', { vm: ['claude'], title: 'Basket icon', status: ['merged · 77d02ce · removed'], mark: 'done', dim: 1 }]
     ];
     put('bx-rows', `<div class="bx"><div class="frag">${M.map(function (m) { return `<div class="lab">${m[0]}</div>${ROW(m[1])}`; }).join('')}</div></div>`);
+
+    /* ---- the summary: on the first view, or on its own tab ----------------------------------- */
+    var TWO = ['Tasks', 'Activity'];
+    var PROSE = ['All eight checkout tasks are merged. Most went in on the first try: the layout, the cart drawer and price formatting needed nothing from you. The payment provider switch took longest: Codex’s first attempt broke partial refunds, so I sent it back with the failing test and the retry passed.',
+      'I added one task of my own, retrying failed payments, after the switch showed nothing retried them. I kept the old provider behind a flag although the Oracle objected, since rolling back without it means a redeploy. Along the way Claude noticed the tax module rounds per line instead of per order: I filed PAY-241 rather than fixing it here.'];
+    var LEFT = 'Remove the old provider’s flag once the switch has run a week in production.';
+    function SUMMARY(head) {
+      return `<div class="grp">${head ? GH('Summary') : ''}<div class="prose">${PROSE.map(function (p) { return `<p>${p}</p>`; }).join('')}</div>` +
+        `<div class="help" style="margin-top:8px">Written by the Operator at 16:05</div><div class="cap12" style="color:var(--text);margin-top:8px">Goal met</div></div>`;
+    }
+    function LEFTS(items) { return `<div class="grp">${GH('Left for you', items.length)}${items.map(function (t) { return `<div class="cap12" style="color:var(--text);padding:2px 0">${t}</div>`; }).join('')}</div>`; }
+    var SNAGS = `<div class="grp"><div class="gh"><span>Worked around in AiTerm</span><span class="n">1</span><span class="pg">${LINK('Copy')}</span></div>` +
+      `<div class="cap12" style="color:var(--text)">Waiting on you showed a task with no prompt open</div><div class="help">No prompt was open: read_task what: prompt was null and Codex had ended its turn.</div></div>`;
+    var DONE8 = [R.layout, R.ship, calm(R.pps, ''), R.cart].map(function (r, i) { var c = {}; for (var k in r) { c[k] = r[k]; } c.mark = 'done'; c.status = ['merged · ' + ['9b3e07d', '41c0a7e', 'c2d5e19', '0aa41f7'][i]]; return c; });
+    var DONE_STATUS = `${OB('done · summary ready')} · 8 of 8 done`;
+    put('bx-sum-a', SHEET({ title: 'Checkout redesign', status: DONE_STATUS, brief: BRIEF, tabs: TWO, done: 1,
+      body: SUMMARY(1) + LEFTS([LEFT]) + `<div class="lst8">${GROUP('Done', DONE8).replace('<span class="n">4</span>', '<span class="n">8</span>')}</div>` }));
+    put('bx-sum-a2', SHEET({ title: 'Checkout redesign', status: `${OB('waiting on you · 3 tasks', 'you')} · 2 of 8 done`, brief: BRIEF, tabs: TWO,
+      body: WAIT(Q1, 1, 3) + LEFTS(['The tax module rounds per line instead of per order: filed as PAY-241, not fixed here.']) + LIST([R.pps, R.cart, R.order, R.addr]) }));
+    put('bx-sum-b', SHEET({ title: 'Checkout redesign', status: DONE_STATUS, brief: BRIEF, on: 'Summary', summary: 1, done: 1,
+      body: SUMMARY(0) + LEFTS([LEFT]) + SNAGS }));
+
+    /* ---- activity: what changed, or everything ----------------------------------------------- */
+    function AR(a) {
+      var lab = a.label ? `<b style="color:${a.label === 'Challenged' ? 'var(--muted)' : 'var(--amber)'}">${a.label}</b> · ` : '';
+      return `<div class="ar ${a.open ? 'open' : ''}"><span class="tm">${a.at}</span><div class="grow"><div class="al"><span class="grow ${a.read ? 'mu' : ''}">${lab}${a.line}</span>${a.key ? `<span class="ob num">${a.key}</span>` : ''}</div>` +
+        (a.why ? `<div class="help">${a.why}</div>` : '') + (a.open ? `<div class="well"><b>${a.open[0]}</b>\n${a.open[1]}</div>` : '') + `</div></div>`;
+    }
+    var ACTS = [
+      { at: '14:41', line: 'Told <b>Cart drawer</b>’s worker: keep the drawer’s focus trap', key: 'PAY-231' },
+      { at: '14:38', line: 'Asked you: Should the retries cover subscriptions too?' },
+      { at: '14:37', line: 'Checked the broadcast’s status', read: 1 },
+      { at: '14:36', line: 'Read Payment provider switch’s diff', key: 'PAY-232', read: 1 },
+      { at: '14:35', line: 'Marked <b>Payment provider switch</b> failed', key: 'PAY-232', why: 'refund flow returns 500 on partial refunds',
+        open: ['mark_task', '{\n  "note" : "refund flow returns 500 on partial refunds",\n  "outcome" : "failed",\n  "task" : "PAY-232"\n}\n→ ok · {"ok":true,"retriesLeft":1}'] },
+      { at: '14:33', line: 'Ran <code>npm test -- refunds</code>', read: 1 },
+      { at: '14:31', label: 'Challenged', line: 'mark <b>Payment provider switch</b> accepted', key: 'PAY-232', why: 'The refund test still fails on partial refunds.' },
+      { at: '14:29', line: 'Read Payment provider switch’s work', key: 'PAY-232', read: 1 },
+      { at: '14:25', line: 'Decided: keep the old provider behind a flag', why: 'Rolling back without it means a redeploy.' },
+      { at: '14:22', line: 'Noted a find: the tax module rounds per line' },
+      { at: '14:21', line: 'Checked the broadcast’s status', read: 1 },
+      { at: '14:20', line: 'Recorded <b>Address autocomplete</b>’s review: not passed', key: 'PAY-233' },
+      { at: '14:12', line: 'Added Retry failed payments to the plan' }
+    ];
+    function ACTIVITY(all, link) {
+      var rows = ACTS.filter(function (a) { return all || !a.read; }).map(function (a) { var c = {}; for (var k in a) { c[k] = a[k]; } if (all) { c.open = null; } return c; });
+      return `<div class="grp">${GH('Today', null, link ? `<span class="pg">${LINK(link)}</span>` : '')}${rows.map(AR).join('')}</div>`;
+    }
+    put('bx-act-a', SHEET({ title: 'Checkout redesign', status: `${OB('watching 4 tasks')} · 2 of 8 done`, brief: BRIEF, tabs: TWO, on: 'Activity', body: ACTIVITY(0, 'Show everything') }));
+    put('bx-act-b', SHEET({ title: 'Checkout redesign', status: `${OB('watching 4 tasks')} · 2 of 8 done`, brief: BRIEF, tabs: TWO, on: 'Activity', body: ACTIVITY(1, '') }));
 
     /* ---- a live broadcast on the same sheet -------------------------------------------------- */
     var LV = {
