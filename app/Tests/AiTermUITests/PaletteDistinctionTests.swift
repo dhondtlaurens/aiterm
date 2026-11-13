@@ -5,7 +5,7 @@ import Foundation
 
 /// After the 4b unification, two `Palette` members that are written differently must not resolve
 /// to the same value — that is precisely the defect 6d0c853 introduced. Members that are *written*
-/// as aliases (`sidebar = surface`) are exempt: they declare their sameness honestly.
+/// as aliases (`codeBackground = well`) are exempt: they declare their sameness honestly.
 @MainActor
 struct PaletteDistinctionTests {
     /// Every semantic colour `Palette` declares, by its Swift name. Kept here rather than generated:
@@ -14,17 +14,24 @@ struct PaletteDistinctionTests {
     /// `everyPaletteColourIsInTheManifest` below fails the build if you forget. Aliases and vendor
     /// marks need nothing more: both are read from the source.
     private static let colors: [(name: String, color: Color)] = [
+        ("well", Palette.well),
+        ("codeBackground", Palette.codeBackground),
+        ("field", Palette.field),
+        ("sidebar", Palette.sidebar),
+        ("sidebarFooter", Palette.sidebarFooter),
         ("surface", Palette.surface),
         ("surfaceRaised", Palette.surfaceRaised),
         ("menu", Palette.menu),
-        ("border", Palette.border),
+        ("button", Palette.button),
         ("controlActive", Palette.controlActive),
-        ("codeBackground", Palette.codeBackground),
         ("text", Palette.text),
         ("muted", Palette.muted),
+        ("tertiary", Palette.tertiary),
+        ("border", Palette.border),
+        ("borderStrong", Palette.borderStrong),
         ("accent", Palette.accent),
         ("focusRing", Palette.focusRing),
-        ("tabActive", Palette.tabActive),
+        ("focusEdge", Palette.focusEdge),
         ("link", Palette.link),
         ("green", Palette.green),
         ("amber", Palette.amber),
@@ -44,13 +51,19 @@ struct PaletteDistinctionTests {
         ("faint", Palette.faint),
         ("markPaper", Palette.markPaper),
         ("markInk", Palette.markInk),
+        ("selected", Palette.selected),
+        ("selectedEdge", Palette.selectedEdge),
+        ("selectedSolid", Palette.selectedSolid),
+        ("selectedOnSheetSolid", Palette.selectedOnSheetSolid),
         ("badge", Palette.badge),
         ("badgeSelected", Palette.badgeSelected),
         ("badgeHovered", Palette.badgeHovered),
         ("badgeSelectedHovered", Palette.badgeSelectedHovered),
-        ("sidebar", Palette.sidebar),
+        ("menuHighlight", Palette.menuHighlight),
+        ("menuHighlightPressed", Palette.menuHighlightPressed),
         ("rowHover", Palette.rowHover),
         ("rowHoverSolid", Palette.rowHoverSolid),
+        ("cardHoverSolid", Palette.cardHoverSolid),
         ("operatorRow", Palette.operatorRow),
         ("operatorRowSolid", Palette.operatorRowSolid),
         ("operatorRowHoveredSolid", Palette.operatorRowHoveredSolid),
@@ -60,7 +73,6 @@ struct PaletteDistinctionTests {
         ("statusChipAttentionStroke", Palette.statusChipAttentionStroke),
         ("statusChipDoneFill", Palette.statusChipDoneFill),
         ("statusChipDoneStroke", Palette.statusChipDoneStroke),
-        ("selection", Palette.selection),
         ("idleRing", Palette.idleRing),
         ("spinnerTrack", Palette.spinnerTrack),
         ("spinner", Palette.spinner),
@@ -105,7 +117,7 @@ struct PaletteDistinctionTests {
         Set(try captures(#"static (?:let|var) (\w+)"#, in: body).map(\.name))
     }
 
-    /// The members written as another member's name — `sidebar = surface` — which declare their
+    /// The members written as another member's name — `codeBackground = well` — which declare their
     /// sameness in the source and so are exempt from the distinctness check. Read from the source,
     /// so declaring an alias there is the whole of the work.
     private static func aliases(in body: String) throws -> Set<String> {
@@ -135,11 +147,16 @@ struct PaletteDistinctionTests {
                 "PaletteDistinctionTests.colors lists what Palette does not declare: \(listed.subtracting(declared).sorted())")
     }
 
+    /// A token's value is what it resolves to in both appearances AiTerm draws in: the dark one and
+    /// Increase Contrast's. Two tokens that agree in the first but not the second — the firm hairline
+    /// and a hovered badge's wash, both 12 % white until Increase Contrast strengthens the hairline —
+    /// are different colours, and are not an accident to catch.
     @Test func everyDistinctNameMeansADistinctValue() throws {
         let aliases = try Self.aliases(in: Self.paletteBody())
         var byValue: [String: [String]] = [:]
         for token in Self.colors where !aliases.contains(token.name) {
-            byValue[ColorProbe.rgba(token.color), default: []].append(token.name)
+            let value = ColorProbe.rgba(token.color) + " / " + ColorProbe.rgba(token.color, in: .accessibilityHighContrastDarkAqua)
+            byValue[value, default: []].append(token.name)
         }
         let collisions = byValue.filter { $0.value.count > 1 }
         let description = collisions.map { "\($0.value.sorted().joined(separator: " == ")) → \($0.key)" }
@@ -154,29 +171,36 @@ struct PaletteDistinctionTests {
     @Test func theScansFindTheAliasesAndTheMarks() throws {
         let body = try Self.paletteBody()
         let aliases = try Self.aliases(in: body)
-        #expect(aliases.isSuperset(of: ["sidebar", "menu", "tabActive", "devBuildInk", "operatorRow"]))
-        #expect(!aliases.contains("surface") && !aliases.contains("onAccentSecondary"))
+        #expect(aliases.isSuperset(of: ["codeBackground", "devBuildInk", "idleRing", "selectedEdge", "focusEdge"]))
+        // The sidebar, the popover and the Operator's wash are grounds and washes of their own now,
+        // no longer the sheet's, the card's and the badge's.
+        for distinct in ["surface", "sidebar", "menu", "operatorRow", "onAccentSecondary"] {
+            #expect(!aliases.contains(distinct), "\(distinct) is read as an alias")
+        }
         #expect(try Self.brandMarks(in: body).isSuperset(of: ["claude", "jira", "gitlab", "github", "vscode"]))
     }
 
     /// `rowHoverSolid` exists because a wash can't correctly occlude what's behind it — it has to be
     /// the opaque composite of `rowHover` painted over `sidebar`. This measures that relationship
     /// through `ColorProbe`, to one 8-bit step per channel, so a hardcoded or stale `rowHoverSolid`
-    /// fails here rather than only showing up as a hover halo. The Operator row's rings, at rest and
-    /// hovered, are on the same rule: its wash, and its hover's, composited over the sidebar.
+    /// fails here rather than only showing up as a hover halo. Every other solid is on the same
+    /// rule over its own ground: the Operator row's rings at rest and hovered and a selected row's
+    /// over the sidebar, a selected Archive row's over the sheet, a hovered board card over the card.
     ///
     /// Both sides are resolved live, in-process, through `ColorProbe` — never against a literal
-    /// hex — because dynamic `NSColor`s can resolve to different absolute values depending on the
-    /// host process (a plain command-line tool vs. a test bundle); what must hold everywhere is
-    /// that each solid tracks its wash composited over `sidebar`, not any fixed number.
-    @Test(arguments: [("rowHoverSolid", Palette.rowHoverSolid, Palette.rowHover),
-                      ("operatorRowSolid", Palette.operatorRowSolid, Palette.operatorRow),
-                      ("operatorRowHoveredSolid", Palette.operatorRowHoveredSolid, Palette.badgeHovered)])
-    func aSolidIsItsWashCompositedOverSidebar(name: String, solid: Color, wash: Color) {
-        expectComposite(solid, of: wash, named: name)
+    /// hex — so what is pinned is the relationship: each solid tracks its wash composited over its
+    /// ground, whatever the ground's number becomes.
+    @Test(arguments: [("rowHoverSolid", Palette.rowHoverSolid, Palette.rowHover, Palette.sidebar),
+                      ("operatorRowSolid", Palette.operatorRowSolid, Palette.operatorRow, Palette.sidebar),
+                      ("operatorRowHoveredSolid", Palette.operatorRowHoveredSolid, Palette.badgeHovered, Palette.sidebar),
+                      ("selectedSolid", Palette.selectedSolid, Palette.selected, Palette.sidebar),
+                      ("selectedOnSheetSolid", Palette.selectedOnSheetSolid, Palette.selected, Palette.surface),
+                      ("cardHoverSolid", Palette.cardHoverSolid, Palette.rowHover, Palette.surfaceRaised)])
+    func aSolidIsItsWashCompositedOverItsGround(name: String, solid: Color, wash: Color, ground: Color) {
+        expectComposite(solid, of: wash, over: ground, named: name)
     }
 
-    private func expectComposite(_ solid: Color, of washColor: Color, named name: String) {
+    private func expectComposite(_ solid: Color, of washColor: Color, over ground: Color, named name: String) {
         func components(_ rgba: String) -> (r: Double, g: Double, b: Double, a: Double) {
             let inner = rgba.trimmingCharacters(in: CharacterSet(charactersIn: "rgba() "))
             let parts = inner.split(separator: ",").map {
@@ -191,7 +215,7 @@ struct PaletteDistinctionTests {
         }
 
         let wash = components(ColorProbe.rgba(washColor))
-        let base = components(ColorProbe.rgba(Palette.sidebar))
+        let base = components(ColorProbe.rgba(ground))
         let alpha = wash.a
 
         func blended(_ washChannel: Double, _ baseChannel: Double) -> Int {
@@ -203,10 +227,10 @@ struct PaletteDistinctionTests {
         let actual = (r: channel(actualHex, 0), g: channel(actualHex, 1), b: channel(actualHex, 2))
 
         #expect(abs(actual.r - expected.r) <= 1,
-                "\(name) (\(actualHex)) red channel \(actual.r) is not its wash composited over sidebar (expected \(expected.r))")
+                "\(name) (\(actualHex)) red channel \(actual.r) is not its wash composited over its ground (expected \(expected.r))")
         #expect(abs(actual.g - expected.g) <= 1,
-                "\(name) (\(actualHex)) green channel \(actual.g) is not its wash composited over sidebar (expected \(expected.g))")
+                "\(name) (\(actualHex)) green channel \(actual.g) is not its wash composited over its ground (expected \(expected.g))")
         #expect(abs(actual.b - expected.b) <= 1,
-                "\(name) (\(actualHex)) blue channel \(actual.b) is not its wash composited over sidebar (expected \(expected.b))")
+                "\(name) (\(actualHex)) blue channel \(actual.b) is not its wash composited over its ground (expected \(expected.b))")
     }
 }

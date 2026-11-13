@@ -1,21 +1,24 @@
 import SwiftUI
 
-/// A heading in the sidebar's own voice — `PROJECTS` and a divider's name: the micro face,
-/// uppercase, tracked out, in secondary ink.
+/// A heading in the sidebar's own voice — Projects, System, Usage, a divider's name, a board column's:
+/// the section face (`Typography.section`, 11 semibold) in the third ink (`Palette.tertiary`), its
+/// words as given. Sentence case, never uppercased and never tracked (the layered foundation, 13 Nov
+/// 2026): the caller's string is what is drawn, so a divider keeps its name as the person typed it.
 ///
 /// Drawn in the sidebar, so it is drawn at the sidebar's scale: its one token is
-/// `Typography.micro`, which scales by itself. It has no states; it is a label, never a control.
+/// `Typography.section`, which scales by itself. It has no states; it is a label, never a control.
 public struct SidebarHeading: View {
     private let title: String
 
-    /// The tracking an uppercase run needs at this size to read as a word rather than a row of
-    /// capitals. An optical correction, not a size: it is not tokenised and does not scale. Public for
-    /// the one heading that draws its own words, OPERATOR's while it decodes, which must track alike.
-    public static let tracking: CGFloat = 0.45
+    /// The heading's face. Public for the one heading that draws its own words, the Operator's while
+    /// it decodes, which must set them alike.
+    public static let style = Typography.section
+    /// The heading's ink, public for the same reason.
+    public static let ink = Palette.tertiary
 
     public init(_ title: String) { self.title = title }
 
     public var body: some View {
-        Text(title).font(Typography.micro).kerning(Self.tracking).textCase(.uppercase).foregroundStyle(Palette.muted)
+        Text(title).font(Self.style).foregroundStyle(Self.ink)
     }
 }

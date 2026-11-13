@@ -10,8 +10,8 @@ struct StatusMark: View {
     /// count chips pass `scale(Size.statusMarkSmall)`. Every measurement below is a fraction of it,
     /// and at 10 they are the values this view was written with.
     let size: CGFloat
-    /// Replaces the `onSelection: Bool` this view used to take: a selected row's surface is
-    /// `.accent`, and `isOnAccent` is exactly the condition the mark used to be handed directly.
+    /// The ground under the mark. Only the accent — a busy primary button — turns it white; a
+    /// selected row is neutral (`Surface.selected`), so there the mark keeps its own colours.
     @Environment(\.surface) private var surface
     @Environment(\.motionStill) private var motionStill
     static let spinDuration = 1.1
@@ -48,7 +48,7 @@ struct StatusMark: View {
                     }
                 }
                 .padding(RingGeometry.inset(size))
-            // Amber stays amber on the accent: it reads there, and it is the one being asked for.
+            // Amber stays amber on every ground, the accent too: it is the one being asked for.
             case .needsInput:
                 Circle().strokeBorder(Palette.amber, lineWidth: RingGeometry.strokeWidth(size))
             // A turn ended with work still running, which wakes the agent again (proposal Background work on your own
@@ -62,8 +62,8 @@ struct StatusMark: View {
                     }
                 }
                 .padding(RingGeometry.inset(size))
-            // The accent on the accent is blue on blue, so a selected row's done ring is white, as
-            // its arc is.
+            // The accent on the accent is blue on blue, so on the accent the done ring is white, as
+            // the arc is; on a selected row it keeps the accent.
             case .done:
                 Circle().strokeBorder(surface.isOnAccent ? Palette.onAccent : Palette.done, lineWidth: RingGeometry.strokeWidth(size))
             }

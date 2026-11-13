@@ -136,7 +136,9 @@ import AiTermUI
         settle(host, describing: "the board sheet's Activity rows") { !entryIDs.isDisjoint(with: counter.counts.keys) }
         let initial = entryIDs.intersection(counter.counts.keys).count
         print("Board sheet Activity initial materialized rows: \(initial) of 100")
-        #expect(initial == 10, "baseline 100; final 10 Activity rows in the real board sheet")
+        // 11 rows fill the viewport since the tabs stand on the header's rule: the header lost the band's
+        // padding under the tab bar, and the list gained a row's height. Still a viewport, not all 100.
+        #expect(initial == 11, "baseline 100; final 11 Activity rows in the real board sheet")
         let scroll = try #require(host.firstDescendant(NSScrollView.self))
         let document = try #require(scroll.documentView)
         scroll.contentView.scroll(to: NSPoint(x: 0, y: document.bounds.maxY - scroll.contentView.bounds.height))

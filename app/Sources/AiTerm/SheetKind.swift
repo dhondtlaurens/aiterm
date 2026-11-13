@@ -39,7 +39,7 @@ extension AppController {
             case .broadcast: return "Broadcast name"
             }
         }
-        /// The band's one sentence: what the new name changes, and what keeps its own.
+        /// The sentence under the title: what the new name changes, and what keeps its own.
         var subtitle: String {
             switch self {
             case .divider: return "Changes the heading over the projects under it."

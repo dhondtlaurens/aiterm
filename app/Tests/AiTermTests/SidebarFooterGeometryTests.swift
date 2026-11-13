@@ -11,7 +11,7 @@ struct SidebarFooterGeometryTests {
     private let fiveHour = UsageLine(window: .fiveHour, percent: 84, reset: "16:40", warning: true)
     private let week = UsageLine(window: .weekly, percent: 84, reset: "Wed 16:28", warning: true)
 
-    /// Each ring and number is hovered and read as its words — the glyphs alone say "wk", a ring
+    /// Each ring and number is hovered and read as its words — the labels alone say "wk", a ring
     /// and "Wed". SwiftUI builds no accessibility tree for a test, so the words are checked here, and
     /// the footer hands them to `.help` and `.accessibilityLabel` as they are.
     @Test func everyRingAndNumberIsReadInWords() {
@@ -36,6 +36,9 @@ struct SidebarFooterGeometryTests {
         #expect(SidebarFooter.noteInk(UsageVendorRow(vendor: .claude, lines: [], note: "Usage disconnected")) == Palette.muted)
         #expect(SidebarFooter.noteInk(UsageVendorRow(vendor: .codex, lines: [], note: "Reconnecting", warning: true)) == Palette.amber)
     }
+
+    /// The telemetry's face: words in the system face at the help size, with tabular figures.
+    private static let telemetryFont = Typography.help.tabular.nsFont
 
     private func host(_ rows: [UsageVendorRow], task: UsageTaskRow? = nil, machine: [UsageLine] = [], mode: MacMode = .desk,
                       width: CGFloat = Size.sidebarMinWidth, scale: InterfaceScale = .standard) -> NSHostingView<AnyView> {
@@ -81,7 +84,7 @@ struct SidebarFooterGeometryTests {
     /// packed against the leading edge exactly as a vendor's `wk` is, not pushed to the trailing edge, and with no title or avatar group beside it.
     @Test func theTaskRowDrawsOnlyItsMarkAndContext() throws {
         let host = host([], task: UsageTaskRow(agent: .claude, context: context), width: 600)
-        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        let font = Self.telemetryFont
         let label = ("ctx " as NSString).size(withAttributes: [.font: font]).width
         let text = (" 84%" as NSString).size(withAttributes: [.font: font]).width
         let expected = Space.inset + Space.base + Size.vendorMark + Space.inset + label + Size.statusMark + text
@@ -97,7 +100,7 @@ struct SidebarFooterGeometryTests {
     /// is the ring, and it has to be a ring's worth.
     @Test func eachSegmentDrawsARingBesideItsNumber() throws {
         let rows = [UsageVendorRow(vendor: .claude, lines: [week.withoutReset], note: nil)]
-        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        let font = Self.telemetryFont
         let text = ("wk  84%" as NSString).size(withAttributes: [.font: font]).width
         // The row also carries the vendor mark and the footer's leading edge: the list's inset
         // plus a row's `Space.base`.
@@ -126,7 +129,7 @@ struct SidebarFooterGeometryTests {
         let bare = [UsageVendorRow(vendor: .claude,
                                    lines: [fiveHour.withoutReset, week.withoutReset], note: nil)]
         let dated = [UsageVendorRow(vendor: .claude, lines: [week, fiveHour], note: nil)]
-        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        let font = Self.telemetryFont
         let resets = (" \(fiveHour.reset!) \(week.reset!)" as NSString).size(withAttributes: [.font: font]).width
         let grown = try paintedWidth(dated, width: 600) - paintedWidth(bare, width: 600)
         #expect(abs(grown - resets) < 2,
@@ -200,7 +203,24 @@ extension SidebarFooterGeometryTests {
         return 0
     }
 
-    /// The first group is SYSTEM (spec 2026-10-05): with the Mac's row beside it, the heading no
+    /// The footer sits on a ground of its own, a step darker than the window (`Palette.sidebarFooter`),
+    /// across its whole width: here over a black backdrop, past every reading's ink.
+    @Test func theFooterSitsOnItsOwnGround() throws {
+        let host = host([], width: 400)
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+        // Inside the System heading's band, at the trailing edge, where nothing is drawn but the ground.
+        let y = Int((Space.tight + Size.menuRow / 2) * scale)
+        let drawn = try #require(bitmap.colorAt(x: bitmap.pixelsWide - 2, y: y)?.usingColorSpace(.sRGB))
+        let ground = try #require(NSColor(Palette.sidebarFooter).usingColorSpace(.sRGB))
+        for (a, b) in [(drawn.redComponent, ground.redComponent), (drawn.greenComponent, ground.greenComponent),
+                       (drawn.blueComponent, ground.blueComponent)] {
+            #expect(abs(a - b) < 0.02, "the footer's ground is \(drawn), not \(ground)")
+        }
+    }
+
+    /// The first group is System (spec 2026-10-05): with the Mac's row beside it, the heading no
     /// longer says what the context number is, so its row carries `ctx` (measured in
     /// `theTaskRowDrawsOnlyItsMarkAndContext`).
     @Test func theFirstGroupIsSystem() {

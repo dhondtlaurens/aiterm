@@ -15,7 +15,7 @@ import AiTermCore
 /// already pages the whole list in, so the field filters what is in hand — `JiraProjectSearch`,
 /// which also leaves out what is linked — and never asks Jira again.
 struct JiraProjectSheet: View {
-    /// The band's one sentence: what linking changes.
+    /// The sentence under the title: what linking changes.
     static let subtitle = "New Task searches for tickets in the Jira projects linked here."
 
     let projectName: String
@@ -41,7 +41,7 @@ struct JiraProjectSheet: View {
     private var matches: [JiraProjectRef] { JiraProjectSearch.rank(projects, query: query, excluding: linked) }
 
     var body: some View {
-        SheetLayout(title: "Jira projects for \(projectName)", height: Sheet.height, onBackgroundTap: { open = false }) {
+        SheetLayout(title: "Jira projects for \(projectName)", height: .fixed(Sheet.height), onBackgroundTap: { open = false }) {
             SheetSubtitle(Self.subtitle)
         } content: {
             FormField("Jira projects") {

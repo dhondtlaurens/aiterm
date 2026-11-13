@@ -26,9 +26,9 @@ public extension IconSource {
 /// `size` × `size` box; a symbol keeps its glyph's own width at that point size, which is what the
 /// Settings check chips are measured by.
 ///
-/// A brand keeps its vendor colour unless `tint` overrides it — which is what a selected row does,
-/// where a brand colour on the accent would read as a mistake. A symbol with no tint takes the ink
-/// of the surface it sits on, so it turns white on the accent by itself.
+/// A brand keeps its vendor colour unless `tint` overrides it — which is what the accent does,
+/// where a brand colour would read as a mistake; a selected row is neutral and keeps it. A symbol
+/// with no tint takes the ink of the surface it sits on, so it turns white on the accent by itself.
 public struct Icon: View {
     private let source: IconSource
     private let size: CGFloat

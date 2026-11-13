@@ -21,6 +21,9 @@ enum SidebarSnapshots {
             // The two larger sizes, for judging the scale by eye.
             scaled("sidebar-large.png", .large),
             scaled("sidebar-extra-large.png", .extraLarge),
+            // Settings › Interface › Sidebar badges with Brand colours on: the marks in their vendors'
+            // colours, everything else as `sidebar.png`.
+            scaled("sidebar-brand-colours.png", .standard, brandColours: true),
             // A task stacking two providers draws only its active tab's provider.
             Snapshot("sidebar-footer-agents.png") {
                 let fixture = Fixture(), controller = fixture.controller()
@@ -114,7 +117,7 @@ enum SidebarSnapshots {
             empty("sidebar-empty.png", .standard),
             empty("sidebar-empty-extra-large.png", .extraLarge),
             // Reviews and their merge requests' threads: none yet, some resolved, all resolved, and a
-            // GitHub pull request selected, where the count turns white with the badge.
+            // GitHub pull request selected, its badge on the selection's stronger wash.
             reviewThreads("sidebar-review-threads.png"),
             gitLabIssues("sidebar-gitlab-issues.png"),
             // Pull main's Find a Fix in the banner, in the states the Operator's images leave out (offered,
@@ -223,9 +226,11 @@ enum SidebarSnapshots {
     /// The rows the list draws, inset as the List insets them, over the footer, which is a direct
     /// child of the real sidebar and adds that inset back itself — so the frame carries the inset
     /// on top of `sidebarWidth`.
-    private static func scaled(_ file: String, _ scale: InterfaceScale) -> Snapshot {
+    private static func scaled(_ file: String, _ scale: InterfaceScale, brandColours: Bool = false) -> Snapshot {
         Snapshot(file) {
-            let controller = Fixture().controller()
+            let preferences = InterfacePreferences(defaults: brandColours ? ScratchDefaults.make() : Fixture.defaults)
+            if brandColours { preferences.badgeDetails.brandColours = true }
+            let controller = Fixture().controller(preferences: preferences)
             return VStack(alignment: .leading, spacing: scale(Space.hairline)) {
                 VStack(alignment: .leading, spacing: scale(Space.hairline)) { listRows(controller) }
                     .padding(.horizontal, scale(Space.inset))

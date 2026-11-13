@@ -17,6 +17,28 @@ import SwiftUI
         #expect(button.controlSize == .large)
     }
 
+    /// One control shape: the pop-up draws no bezel or arrows of its own, so the field chrome around
+    /// it is the only chrome, as around an `Input`, and `Select` draws the picked title. The menu keeps
+    /// its items and the pick.
+    @Test func thePopUpDrawsNoBezelOfItsOwn() throws {
+        let host = Self.host(Select(values: ["feat", "fix"], selection: .constant("fix"), label: { $0 }))
+        let button = try #require(host.firstDescendant(NSPopUpButton.self))
+        #expect(!button.isBordered)
+        #expect((button.cell as? NSPopUpButtonCell)?.arrowPosition == .noArrow)
+        #expect((button.cell as? NSPopUpButtonCell)?.usesItemFromMenu == false)
+        #expect(button.numberOfItems == 2)
+        #expect(button.titleOfSelectedItem == "fix")
+    }
+
+    /// With no width offered, a select is as wide as its widest title needs inside the chrome, not as
+    /// wide as the empty item the button itself shows: the Done step's sizes itself this way.
+    @Test func aSelectLeftToItselfFitsItsWidestTitle() {
+        let narrow = NativePopUp.naturalWidth(titles: ["Never"], monospaced: false)
+        let wide = NativePopUp.naturalWidth(titles: ["Never", "Challenged once"], monospaced: false)
+        #expect(wide > narrow)
+        #expect(narrow > Space.inset + Size.menuRow)
+    }
+
     /// Two models can share a label. `addItem(withTitle:)` drops a title already in the menu, which
     /// left the menu a row short and every later index pointing at the wrong value.
     @Test func equalTitlesEachGetARow() throws {

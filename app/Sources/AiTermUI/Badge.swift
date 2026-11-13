@@ -14,10 +14,13 @@ import SwiftUI
 /// resolved review threads of all of them — both in the label's ink, so on a quiet badge they sit
 /// back with it and on the accent they turn white with it.
 ///
-/// A `.quiet` badge drops the box at rest: its mark and text sit on the row in secondary ink, and
-/// the wash only appears under the pointer, outset by `Space.tight` so the text does not move. The
-/// sidebar's project headers and task and terminal rows draw their badges this way, where four
-/// boxes in a row read as clutter; everywhere else a badge keeps its box.
+/// A `.quiet` badge drops the box at rest: its text sits on the row in secondary ink, and the wash
+/// only appears under the pointer, outset by `Space.tight` so the text does not move. The sidebar's
+/// project headers and task and terminal rows draw their badges this way, where four boxes in a row
+/// read as clutter; everywhere else a badge keeps its box. `markInk: .label` inks the mark with the
+/// text — the sidebar's badge line, where a row of brand colours competed with the status marks,
+/// until its Brand colours setting is turned on — and the default `.own` keeps the vendor's colour:
+/// a board card, a picker.
 ///
 /// What this is *not*: a status count. `StatusCountChip` varies its tint, its ink and both its
 /// fill and stroke opacity by status — a deliberate three-dimensional progression keyed to
@@ -36,12 +39,13 @@ public struct Badge: View {
     /// What VoiceOver reads in place of the label, when the label alone says too little — a count.
     private let accessibilityText: String?
     /// Exists for the Settings check chips, whose checkmark is green and whose warning is amber.
-    /// Off the accent it replaces the icon's own ink; on the accent it yields to white like
-    /// everything else on a selected row.
+    /// Off the accent it replaces the icon's own ink — a selected row included; on the accent it
+    /// yields to white like everything else there.
     private let iconTint: Color?
     private let diff: Diff?
     private let suffix: Suffix?
     private let style: Style
+    private let markInk: MarkInk
 
     /// Whether the badge draws its box at rest.
     public enum Style: Equatable, Sendable {
@@ -49,6 +53,14 @@ public struct Badge: View {
         case boxed
         /// No wash until the pointer is over it; the label in the surface's secondary ink.
         case quiet
+    }
+
+    /// What inks the badge's mark off the accent.
+    public enum MarkInk: Equatable, Sendable {
+        /// The icon's own colour: a vendor mark in its brand's. The default.
+        case own
+        /// The label's ink: on a quiet badge, the surface's secondary ink.
+        case label
     }
 
     /// Lines added and removed, drawn after the label as `+added −removed`. A standard shape, not an
@@ -90,10 +102,11 @@ public struct Badge: View {
                 diff: Diff? = nil,
                 suffix: Suffix? = nil,
                 style: Style = .boxed,
+                markInk: MarkInk = .own,
                 accessibilityLabel: String? = nil,
                 action: (() -> Void)? = nil) {
         self.init(label, icon: icon, help: help, iconTint: iconTint, diff: diff, suffix: suffix, style: style,
-                  accessibilityLabel: accessibilityLabel, action: action, menu: nil)
+                  markInk: markInk, accessibilityLabel: accessibilityLabel, action: action, menu: nil)
     }
 
     /// A badge that opens a menu of `items` when clicked.
@@ -101,14 +114,15 @@ public struct Badge: View {
                              icon: IconSource? = nil,
                              help: String? = nil,
                              style: Style = .boxed,
+                             markInk: MarkInk = .own,
                              accessibilityLabel: String? = nil,
                              @ViewBuilder menu items: () -> Items) {
         self.init(label, icon: icon, help: help, iconTint: nil, diff: nil, suffix: nil, style: style,
-                  accessibilityLabel: accessibilityLabel, action: nil, menu: AnyView(items()))
+                  markInk: markInk, accessibilityLabel: accessibilityLabel, action: nil, menu: AnyView(items()))
     }
 
     private init(_ label: String?, icon: IconSource?, help: String?, iconTint: Color?, diff: Diff?, suffix: Suffix?,
-                 style: Style, accessibilityLabel: String?, action: (() -> Void)?, menu: AnyView?) {
+                 style: Style, markInk: MarkInk, accessibilityLabel: String?, action: (() -> Void)?, menu: AnyView?) {
         self.label = label
         self.icon = icon
         self.help = help
@@ -116,6 +130,7 @@ public struct Badge: View {
         self.diff = diff.flatMap { $0.isEmpty ? nil : $0 }
         self.suffix = suffix
         self.style = style
+        self.markInk = markInk
         self.accessibilityText = accessibilityLabel
         self.action = action
         self.menu = menu
@@ -173,8 +188,8 @@ public struct Badge: View {
             }
     }
 
-    /// A diff count's ink, isolated the same way `labelInk` is: green and red off the accent, and
-    /// on it the surface's own white, like everything else on a selected row.
+    /// A diff count's ink, isolated the same way `labelInk` is: green and red off the accent — a
+    /// selected row included — and on it the surface's own white, like everything else there.
     static func diffInk(surface: Surface, side: Diff.Side) -> Color {
         if surface.isOnAccent { return surface.ink }
         return side == .added ? Palette.diffAdded : Palette.diffRemoved
@@ -203,11 +218,14 @@ public struct Badge: View {
         }
     }
 
-    /// The icon's tint, isolated the same way `labelInk` is. Off the accent it is the caller's
-    /// `override`, and `nil` lets `Icon` fall back to the brand's own colour; on it, the surface's
-    /// ink — the same "everything on it turns white" rule the label follows.
-    static func iconTint(surface: Surface, override: Color? = nil) -> Color? {
-        surface.isOnAccent ? surface.ink : override
+    /// The icon's tint, isolated the same way `labelInk` is. Off the accent — a selected row
+    /// included — it is the caller's `override`, else the label's ink under `markInk: .label`, and
+    /// `nil` lets `Icon` fall back to the brand's own colour; on it, the surface's ink — the same
+    /// "everything on it turns white" rule the label follows.
+    static func iconTint(surface: Surface, override: Color? = nil, markInk: MarkInk = .own, style: Style = .boxed) -> Color? {
+        if surface.isOnAccent { return surface.ink }
+        if let override { return override }
+        return markInk == .label ? labelInk(surface: surface, style: style) : nil
     }
 
     /// The icon's own drawn size inside the badge — smaller than `Size.chip` so it sits inside the
@@ -215,7 +233,8 @@ public struct Badge: View {
     private static let iconSize: CGFloat = 10
 
     private func iconView(_ source: IconSource) -> some View {
-        Icon(source, size: scale(Self.iconSize), tint: Self.iconTint(surface: surface, override: iconTint))
+        Icon(source, size: scale(Self.iconSize),
+             tint: Self.iconTint(surface: surface, override: iconTint, markInk: markInk, style: style))
     }
 
     /// `+12 −3`: the two counts sit `Space.hairline` apart, closer than the label before them, so
@@ -224,7 +243,7 @@ public struct Badge: View {
         HStack(spacing: scale(Space.hairline)) {
             ForEach(diff.segments, id: \.text) { segment in
                 Text(segment.text)
-                    .font(Typography.monoChip)
+                    .font(Typography.chip.tabular)
                     .foregroundStyle(Self.diffInk(surface: surface, side: segment.side))
             }
         }
@@ -232,18 +251,18 @@ public struct Badge: View {
 
     private func labelView(_ text: String) -> some View {
         Text(text)
-            .font(Typography.monoChip)
+            .font(Typography.chip.tabular)
             .foregroundStyle(Self.labelInk(surface: surface, style: style))
     }
 
-    /// `[bubble] 2/5`: the glyph at the badge's icon size and its text in the chip face,
+    /// `[bubble] 2/5`: the glyph at the badge's icon size and its text in the chip face (tabular),
     /// `Space.hairline` apart, both in the label's ink (`labelInk`).
     private func suffixView(_ suffix: Suffix) -> some View {
         let ink = Self.labelInk(surface: surface, style: style)
         return HStack(spacing: scale(Space.hairline)) {
             Icon(suffix.icon, size: scale(Self.iconSize), tint: ink)
             Text(suffix.text)
-                .font(Typography.monoChip)
+                .font(Typography.chip.tabular)
                 .foregroundStyle(ink)
         }
     }

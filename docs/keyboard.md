@@ -131,7 +131,7 @@ Add Project… has no sheet: the folder chooser adds the project at once.
 |---|---|---|
 | ⌘↩ | Create Terminal · Add Divider · Rename · Save · End Broadcast · Start Fresh | The same `SheetPrimaryButton` and keycaps. A plain ↩ in a name field does nothing. |
 | ⎋ | Cancel | Plain `.cancelAction` where there is no list. Jira projects has one, so ⎋ closes it first, on a hidden button as in New Task. |
-| ← → | Move between segments | Any focused `SegmentedControl`: the Settings tabs, the agent picker, Sidebar size. |
+| ← → | Move between segments or tabs | Any focused `SegmentedControl` or `TabBar`: the Settings and board tabs, the agent picker, Sidebar size. |
 
 The broadcast's sheet takes ⌘1 ⌘2 ⌘3 for Board, Activity and Summary, on hidden buttons as in Settings; Summary only once the broadcast has reached it. Its ⌘↩ is the moment's, the same on every tab: End Broadcast once every task is done, asking nothing; Start Fresh when the Operator's window couldn't be reopened behind it; nothing while it runs, where Pause Broadcast (Resume Broadcast while paused) and End Broadcast… are plain buttons. A card's click closes the board, then opens what resolves it: the task's window for a permission prompt or a started task, the Operator's window for a question or a blocked task, the sidebar's banner for a problem AiTerm hit. A Todo card is not a button. ⎋ is Close.
 
@@ -139,7 +139,7 @@ The broadcast's sheet takes ⌘1 ⌘2 ⌘3 for Board, Activity and Summary, on h
 
 | Keys | Action | Notes |
 |---|---|---|
-| ⌘1 ⌘2 ⌘3 ⌘4 | Agents, Operator, Integrations, Interface | The tabs in the tab bar's order, from anywhere in the sheet. On hidden buttons, since a view carries one shortcut and the bar's segments are not buttons. |
+| ⌘1 ⌘2 ⌘3 ⌘4 | Agents, Operator, Integrations, Interface | The tabs in the tab bar's order, from anywhere in the sheet. On hidden buttons, since a view carries one shortcut and the bar's tabs are not buttons. |
 
 ## Alerts
 

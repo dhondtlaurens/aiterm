@@ -35,8 +35,8 @@ enum DropdownKeys {
 }
 
 /// The panel every dropdown hangs in: a menu-shaped list of rows, `Size.menuRow` tall, with the
-/// accent behind the row `index` names — the keyboard's or the pointer's, which moves it by
-/// hovering — and dimmed while a row is held down. The ticket, merge request and branch pickers
+/// neutral highlight behind the row `index` names — the keyboard's or the pointer's, which moves it by
+/// hovering — stronger while a row is held down. The ticket, merge request and branch pickers
 /// draw their results in it, and so does the prompt's completion popup.
 ///
 /// It owns the panel and the rows' frame, not the row: `row` draws one item's content, which reads

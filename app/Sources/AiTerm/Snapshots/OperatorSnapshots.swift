@@ -919,7 +919,7 @@ enum OperatorSnapshots {
         let session = failure.fix.map { FixSession.snapshot(.offered, fixer: .ready(.claude), request: $0) }
         return CreationFooter(step: 3, error: failure, availableAgents: [.claude], createLabel: "Create Review", creating: false,
                               canAdvance: true, closeList: { false }, back: {}, advance: {}, recover: {}, fix: session)
-            .padding(Space.margin).frame(width: Sheet.width).background(Palette.surfaceRaised)
+            .padding(Space.margin).frame(width: Sheet.width).background(Palette.surface)
     }
 }
 #endif

@@ -12,9 +12,9 @@ import AiTermCore
 /// agent is not on the branch the row is bound to; the tooltip then names both.
 struct BranchLabelView: View {
     let label: BranchLabel
-    /// Replaces the `onSelection: Bool` this view used to take. `Surface.secondaryInk` is exactly
-    /// the resting/selected pair (`Palette.muted` / `Palette.onAccentSecondary`) the drift-free
-    /// branch name used, computed by hand, below.
+    /// Replaces the `onSelection: Bool` this view used to take. `Surface.secondaryInk` is the
+    /// drift-free branch name's ink on every ground — `Palette.muted`, a selected row's too, and
+    /// `Palette.onAccentSecondary` only on the accent. A drifted branch is amber everywhere.
     @Environment(\.surface) private var surface
     @Environment(\.interfaceScale) private var scale
 

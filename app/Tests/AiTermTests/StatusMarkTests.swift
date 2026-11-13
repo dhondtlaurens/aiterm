@@ -71,11 +71,44 @@ struct StatusMarkTests {
         #expect(isBlack(try pixel(bitmap, radius: size * 0.25, degrees: 90)), "\(status) is filled in")
     }
 
-    /// On the accent the done ring is white, as the arc is: the accent on the accent would vanish.
-    /// Amber stays amber.
+    /// On the accent — a busy primary button — the done ring is white, as the arc is: the accent on
+    /// the accent would vanish. Amber stays amber.
     @Test func onTheAccentDoneIsWhiteAndNeedsInputStaysAmber() throws {
         #expect(try matches(pixel(drawn(.done, on: .accent), radius: band, degrees: 90), Palette.onAccent))
         #expect(try matches(pixel(drawn(.needsInput, on: .accent), radius: band, degrees: 90), Palette.amber))
+    }
+
+    /// A selected row is neutral (the layered foundation, 13 Nov 2026), not the accent: every mark
+    /// on it keeps its own colour — the working arc its grey, needs-input amber, the done ring the
+    /// accent — and none turns white, as it does on the accent.
+    @Test(arguments: [(TaskStatus.working, Palette.spinner), (.needsInput, Palette.amber), (.done, Palette.done)])
+    func onASelectedRowAMarkKeepsItsColour(status: TaskStatus, ink: Color) throws {
+        for surface in [Surface.selected, .selectedOnSheet] {
+            let bitmap = try drawn(status, on: surface)
+            let ring = try (0..<360).map { try pixel(bitmap, radius: band, degrees: CGFloat($0)) }
+            #expect(try ring.contains { try matches($0, ink) }, "\(status) on \(surface) lost its colour")
+            #expect(try !ring.contains { try matches($0, Palette.onAccent) }, "\(status) on \(surface) turned white")
+        }
+    }
+
+    /// A drifted branch is amber on a selected row too: the selection no longer whitens a row's words.
+    @Test func onASelectedRowADriftedBranchStaysAmber() throws {
+        let label = BranchLabel(name: "feat/wrong-branch", extra: 0, drifted: true, detail: "")
+        let host = testHost(BranchLabelView(label: label).surface(.selected).padding(Space.base).background(Color.black),
+                            appearance: NSAppearance(named: .darkAqua))
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        // The warmest pixel of the words: amber's red stands well clear of its blue, where white or
+        // grey words would have the two equal.
+        var warmest: CGFloat = -1
+        for x in 0..<bitmap.pixelsWide {
+            for y in 0..<bitmap.pixelsHigh {
+                guard let pixel = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                warmest = max(warmest, pixel.redComponent - pixel.blueComponent)
+            }
+        }
+        #expect(warmest > 0.3, "the drifted branch is not amber on a selected row")
     }
 
     /// The track is whole. It used to leave out the slice the arc rests on, from three o'clock to
@@ -238,7 +271,7 @@ struct StatusMarkTests {
         defer { window.close() }
         pump(0.1)
         model.status = .background
-        model.surface = .accent
+        model.surface = .selected
         pump(0.1)
         let waiting = try arc(in: host)
         #expect(waiting.style == .dashed && waiting.arc.lineDashPattern?.count == 2)
@@ -295,7 +328,7 @@ struct StatusMarkTests {
         let (window, host) = hostInWindow(Mark(model: model, size: size))
         defer { window.close() }
         pump(0.35)
-        for surface in [Surface.hover, .accent, .sidebar] {
+        for surface in [Surface.hover, .selected, .accent, .sidebar] {
             model.surface = surface
             pump(0.17)
             #expect(try offsetFromClock(host) < 3, "on \(surface) the arc left the clock")

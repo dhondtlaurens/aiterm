@@ -6,8 +6,9 @@ import AiTermCore
 /// review, a terminal and a divider: every flow whose whole question is "what should this be
 /// called?".
 ///
-/// It has no steps, so its band always holds its one sentence (`SheetSubtitle`). A sheet that opens
-/// a window — New terminal — ends its content with its `DestinationLine`.
+/// It has no steps, so its title always has its one sentence under it (`SheetSubtitle`). A sheet that opens
+/// a window — New terminal — ends its content with its `DestinationLine`. It is as tall as that content,
+/// never past `Sheet.height` (`SheetHeight.fitting`): one field does not stand in an empty sheet.
 ///
 /// It is a pattern, not a primitive: it composes `SheetLayout` and `SheetFooter`, which encode
 /// where *this app* puts a sheet's nav, content and actions.
@@ -36,7 +37,7 @@ struct NameSheet: View {
     private var trimmed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
-        SheetLayout(title: title, height: Sheet.height) {
+        SheetLayout(title: title, height: .fitting(upTo: Sheet.height)) {
             SheetSubtitle(subtitle)
         } content: {
             FormField(fieldLabel) {

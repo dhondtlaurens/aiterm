@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The ground a component is drawn on. A component reads this from the environment instead of
-/// taking a `selected` flag, so a badge inside a selected sidebar row turns white by itself.
+/// taking a `selected` flag, so a badge inside a selected sidebar row strengthens its wash by itself.
 ///
 /// This replaces the `onSelection: Bool` that `EditorBadge`, `JiraChip`, `BranchLabelView` and
 /// `StatusMark` each took and each re-derived the same colours from.
@@ -14,17 +14,27 @@ public enum Surface: Equatable, Sendable {
     case washed
     /// That row hovered: the sidebar plus `Palette.badgeHovered`, in the wash's place.
     case washedHover
-    /// A selected row. Everything on it turns white.
+    /// A selected sidebar row: `Palette.selected` over the sidebar. Neutral, not the accent: the
+    /// title lifts to white, the secondary ink stays `muted`, and every mark keeps its own colour —
+    /// amber, green, the spinner, the done ring, a brand.
+    case selected
+    /// A selected row on a sheet — the Archive's: `Palette.selected` over the sheet. Inked as
+    /// `selected`; only the ground beneath, and so `occludingBackground`, differs.
+    case selectedOnSheet
+    /// The accent: a primary button's label.
+    /// Everything on it turns white.
     case accent
     /// A sheet or any other surface away from the sidebar. The default.
     case sheet
 
     public var isOnAccent: Bool { self == .accent }
+    /// A selected row, on the sidebar or on a sheet.
+    public var isSelected: Bool { self == .selected || self == .selectedOnSheet }
 
-    public var ink: Color { isOnAccent ? Palette.onAccent : Palette.text }
+    public var ink: Color { isOnAccent || isSelected ? Palette.onAccent : Palette.text }
     public var secondaryInk: Color { isOnAccent ? Palette.onAccentSecondary : Palette.muted }
-    public var badgeWash: Color { isOnAccent ? Palette.badgeSelected : Palette.badge }
-    public var badgeWashHovered: Color { isOnAccent ? Palette.badgeSelectedHovered : Palette.badgeHovered }
+    public var badgeWash: Color { isOnAccent || isSelected ? Palette.badgeSelected : Palette.badge }
+    public var badgeWashHovered: Color { isOnAccent || isSelected ? Palette.badgeSelectedHovered : Palette.badgeHovered }
 
     /// The surface's own colour, opaque. A ring or divider painted *over* content needs this rather
     /// than a wash: `AvatarGroupView`'s ring has to occlude the avatar behind it, and a translucent
@@ -35,7 +45,9 @@ public enum Surface: Equatable, Sendable {
         case .hover: Palette.rowHoverSolid
         case .washed: Palette.operatorRowSolid
         case .washedHover: Palette.operatorRowHoveredSolid
-        case .accent: Palette.selection
+        case .selected: Palette.selectedSolid
+        case .selectedOnSheet: Palette.selectedOnSheetSolid
+        case .accent: Palette.accent
         case .sheet: Palette.surface
         }
     }

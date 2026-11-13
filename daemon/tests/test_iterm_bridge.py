@@ -550,7 +550,8 @@ async def test_aiterm_background_is_session_scoped_and_restorable(monkeypatch):
     await bridge.set_aiterm_background(["s1", "s2", "gone"], True)
     assert app.fetches == 1
     color = json.loads(session.changes[0]["Background Color"])
-    assert color["Red Component"] == color["Green Component"] == color["Blue Component"] == 30 / 255
+    # The sidebar's ground, #17181B: the terminal and the sidebar are one surface.
+    assert (color["Red Component"], color["Green Component"], color["Blue Component"]) == (0x17 / 255, 0x18 / 255, 0x1B / 255)
     assert "Background Color (Light)" in session.changes[0]
     assert "Background Color (Dark)" in session.changes[0]
 

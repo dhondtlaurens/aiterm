@@ -160,10 +160,10 @@ private struct DesktopWindow<Content: View>: View {
 
 /// The iTerm2 profile the picture draws: the default profile's Monokai colours, in MesloLGS NF,
 /// with Interface → "Use dark terminal background" on, so the daemon paints AiTerm's tabs the
-/// `#1E1E1E` it sets in `set_aiterm_background`. The profile's tab style is Minimal, so the title
+/// `#17181B` it sets in `set_aiterm_background` — the sidebar's own ground. The profile's tab style is Minimal, so the title
 /// bar and the tabs take that background too.
 private enum Monokai {
-    static let background = Color(hex: 0x1E1E1E), foreground = Color(hex: 0xFDFFF1)
+    static let background = Color(hex: 0x17181B), foreground = Color(hex: 0xFDFFF1)
     static let red = Color(hex: 0xF92672), green = Color(hex: 0xA6E22E), yellow = Color(hex: 0xE6DB74)
     static let magenta = Color(hex: 0xAE81FF), cyan = Color(hex: 0x66D9EF)
     /// The profile's bold colour: iTerm2 draws bold text in the default foreground in it.

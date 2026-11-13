@@ -1,6 +1,7 @@
 # Give the app a professional finish: a layered foundation, two-pane Settings and a wide board
 
-Status: plan agreed on 2026-11-13. Nothing is built yet.
+Status: plan agreed on 2026-11-13. Part 1 is built, gated and reviewed, not yet merged. Parts 2 and
+3 are not started.
 
 ## Goal
 
@@ -56,8 +57,10 @@ What the grilling decided:
   command-number keys. The footer sits on the sheet's own ground under a hairline. A single-step
   sheet is as tall as its content; a stepped flow takes one named height, so its steps do not jump.
 - **Sidebar details.** Vendor marks on a task's badge line take secondary ink (diff counts keep green
-  and red), the divider's label joins the heading grid, and the footer says Context, Week and
-  Battery on its own darker ground.
+  and red) unless Settings › Interface › Sidebar badges turns Brand colours on, the divider's label
+  joins the heading grid, and the footer keeps its short labels (`ctx`, `wk`, `5h`, `cpu`, `ram`,
+  `bat`) in the system face on its own darker ground. The maintainer asked for both after trying the
+  dev build: the proposal drew words in the footer and no switch.
 
 `Select` over a borderless popup is the one known risk: the README and four code comments call the
 native bezel deliberate. It is built first in this part. If AppKit will not behave, `Select` keeps
@@ -183,27 +186,28 @@ count per task state it does not already expose; then that count is added there 
 
 ## To-dos
 
-- [ ] Merge `main` into `feat/design-polish`; run the gate; re-check this plan's files and the
+- [x] Merge `main` into `feat/design-polish`; run the gate; re-check this plan's files and the
       proposal frames against 0.46 and correct the plan where the refactor moved something.
 
 Part 1, foundation:
 
-- [ ] `Select` in field chrome over a borderless popup, with its tests. Decide here whether the
+- [x] `Select` in field chrome over a borderless popup, with its tests. Decide here whether the
       one-shape rule holds for `Select` or it keeps its bezel.
-- [ ] The ramp, inks and hairlines in `Palette` with their Increase Contrast variants; the sidebar
+- [x] The ramp, inks and hairlines in `Palette` with their Increase Contrast variants; the sidebar
       distinct from the sheet; solids recomposited; palette tests updated.
-- [ ] The terminal background follows the sidebar: daemon, protocol doc, settings swatch.
-- [ ] The neutral selected surface on sidebar rows, Shelf rows and dropdown highlights; marks keep
+- [x] The terminal background follows the sidebar: daemon, protocol doc, settings swatch.
+- [x] The neutral selected surface on sidebar rows, Shelf rows and dropdown highlights; marks keep
       their colours; surface and mark tests updated.
-- [ ] Radii and the new type styles; sentence-case headings, Operator's decode included.
-- [ ] The house button style everywhere a native push button stands in a sheet, a card or the empty
+- [x] Radii and the new type styles; sentence-case headings, Operator's decode included.
+- [x] The house button style everywhere a native push button stands in a sheet, a card or the empty
       state; fields as wells; cards and groups on the card ground.
-- [ ] Words out of mono, view by view, from the code map.
-- [ ] Sheet chrome: the title-row stepper, the underline tab bar on Settings and the board, the
+- [x] Words out of mono, view by view, from the code map.
+- [x] Sheet chrome: the title-row stepper, the underline tab bar on Settings and the board, the
       footer's ground, fitted heights.
-- [ ] Sidebar details: badge-line marks, divider label, footer words and ground.
-- [ ] README, patterns doc and the design page's Foundations and Components synced; publish.
-- [ ] Snapshots read; `scripts/test.sh all`; merge 1.
+- [x] Sidebar details: badge-line marks, divider label, footer words and ground.
+- [x] README, patterns doc and the design page's Foundations and Components synced; publish.
+- [x] Snapshots read after every slice; the gate green on the whole part.
+- [ ] Review, one commit, `scripts/test.sh all`, merge 1.
 
 Part 2, Settings:
 
