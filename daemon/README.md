@@ -3,6 +3,10 @@
 AiTerm's Python helper owns iTerm2 access, agent telemetry and local transport. The Swift app owns
 the persisted workspace and scheduling decisions. `Service` composes small registry, status,
 delivery, window, hook and RPC owners; blocking file reads run off the asyncio loop.
+`iterm_port.py` is the typed iTerm2 boundary, and only `iterm_bridge.py` imports the SDK;
+`FakeIterm` is type-checked against the port. `screens.py` holds pure screen recognition.
+`corroboration.py` plans each corroborating read: captured on the loop, read off it under a
+deadline, applied on the loop.
 
 ## Develop and verify
 
@@ -23,8 +27,9 @@ The runner creates `daemon/.venv`, installs the `dev` extra, then runs pytest, s
 
 The default suite uses `FakeIterm`, fake clocks and temporary homes. Live integration tests require
 `AITERMD_LIVE=1`; delivery checks open isolated agent sessions and are separate from ordinary tests.
-See [testing](../docs/testing.md). Do not start another helper on the installed app's socket/port.
-For a deliberately separate development instance, `python -m aitermd run` accepts `--socket`,
+Tests never touch the live test-run records: an audit hook fails any that tries. Shared session,
+transcript and rollout builders are in `tests/builders.py`. See [testing](../docs/testing.md). Do
+not start another helper on the installed app's socket/port. For a deliberately separate development instance, `python -m aitermd run` accepts `--socket`,
 `--hook-port`, `--idle-exit-seconds` and `--cookies-from-app`; `ctl METHOD [JSON] --socket PATH`
 sends one RPC. The app normally starts and supervises the bundled helper.
 
@@ -71,6 +76,9 @@ without adding a historical broadcast execution path.
 ## Polling
 
 A tick owns one coherent registry snapshot, reused across consumers. `TestActivityReader` takes one
-view per apply. Tests enforce six registry sorts for 0/18/150-session tick fixtures (eleven before
-the refactor). Identity checks and fresh reads after asynchronous effects remain necessary; the
-snapshot is not a global mutable cache.
+view per apply and caches valid records by file stamp; each retained run still costs one lock
+check. Task lookups use a per-snapshot index. Tests enforce six registry sorts for 0/18/150-session
+tick fixtures (eleven before the first refactor round), and `test_tick_budgets.py` holds a steady
+tick to 6 sorts, no opens (20 lock checks with 20 retained runs), 2 listings and no spawns. Identity
+checks and fresh reads after asynchronous effects remain necessary; the snapshot is not a global
+mutable cache.

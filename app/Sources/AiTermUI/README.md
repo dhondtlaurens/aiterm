@@ -34,7 +34,8 @@ rendered colours, including washes against their grounds. Add derived tokens to 
 A component reads `@Environment(\.surface)` for the ground beneath it, rather than taking a
 `selected` flag to derive colours. `Surface.sidebar`, `.hover`, `.washed`, `.washedHover`, `.accent`
 and `.sheet` supply ink, secondary ink, badge washes and occluding background. The container drawing
-the ground declares it: `RowPill`, `menuRowHighlight`, or `SegmentedControl`. The label does not
+the ground declares it: `RowPill`, `menuRowHighlight`, `SegmentedControl` or a primary button's
+label. The label does not
 repeat the selection decision.
 
 AiTerm is dark-only. AppKit/SwiftUI hosts, sheets and alerts inherit the same dark appearance.
@@ -42,12 +43,13 @@ AiTerm is dark-only. AppKit/SwiftUI hosts, sheets and alerts inherit the same da
 ## Measurements
 
 Every height, width, radius, spacing and text size comes from `Metrics`: `Space`, `Radius`, `Size`,
-`Typography`, `Sheet` and `Opacity`. Zero is allowed directly. System text styles, AppKit control
+`Typography`, `Sheet`, `Opacity` and `Motion`. Zero is allowed directly. System text styles, AppKit control
 sizes and AppKit corner radii supply the native scales; Space supplies the house rhythm. Equal
 numbers across measurement roles are fine: their names let those roles change independently.
 
 `Opacity.disabled` is the shared disabled fade. Apply it to the part actually disabled: a rejected
-segment, the Oracle-off goal editor/rounds field (not their labels/help), or the entire switched-off
+segment, the Oracle-off goal editor, Goal rounds field and Worker questions menu (not their
+labels/help), or the entire switched-off
 Oracle group as its pattern specifies.
 
 If no token fits, add a documented member explaining its role and mention it in the change summary.
@@ -75,8 +77,9 @@ sizes. Settings' `InterfaceSize` maps to this UI environment.
   scales with its diameter. `Select` remains a native unscaled bezel.
 - A sheet-only primitive moved to the sidebar must first scale its own tokens.
 
-Round status marks are rings, never discs: stroke width is 15% of their size, kept inside the box
-using `strokeBorder` or a half-stroke inset. `UsageRing` and `ToneRing` follow the same recipe.
+Round status marks are rings, never discs: `RingGeometry` supplies the stroke, 15% of their size,
+and the half-stroke inset that keeps a trimmed or centred stroke inside the box (`strokeBorder`
+insets by itself). `StatusMark`, `UsageRing` and `ToneRing` all read it.
 `StatusMark` draws idle, working arc/track, amber input, done and an eight-dash background-work ring
 rotating once per six seconds. Accent-ground marks use the surface's accent ink. Reduce Motion
 keeps the shapes and removes rotation.
@@ -97,23 +100,24 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 
 | Type | Responsibility |
 | --- | --- |
-| `Badge` | Shared chip, quiet style, icon/diff/suffix/count variants, action/menu and accessibility label. |
+| `Badge` | Shared chip, boxed/quiet styles, icon (optional tint)/diff/suffix, action/menu and accessibility label (words for a count). |
 | `Icon` / `IconSource` | SF Symbol, branded glyph or full-colour artwork with a fallback; caller supplies size. |
 | `FormField` | Label/control stack with dropdown overhang above following content. |
 | `FrontToBackStack` | Earlier children draw above later ones, including nested overhangs. |
 | `HelpText` | String or composed Text in surface-aware secondary or warning ink; paragraph or inline sizing. |
-| `Input` | Native plain/secure text field in shared chrome; optional caret-at-end on focus, optional `onFocus`. |
+| `Input` | Native plain/secure text field in shared chrome; optional caret-at-end on focus, optional `onFocus`, monospaced option. |
 | `SearchField` | Native single-line field that delegates navigation to an open popup first. |
-| `Select` | Native full-column popup button; optional per-value tooltip and selectable predicate, with disabled items retained in the menu. |
-| `SegmentedControl` | Neutral/focus or accent styles, selectable predicate, labels inked for their grounds. |
+| `Select` | Native full-column popup button; optional per-value tooltip and selectable predicate, with disabled items retained in the menu; monospaced option. |
+| `SegmentedControl` | Neutral/focus or accent styles, selectable predicate, per-segment tooltip, labels inked for their grounds. |
 | `Kbd` | Shortcut keycaps using the current surface's ink/wash. |
 | `SidebarHeading` | Micro uppercase tracked heading. |
 | `SymbolMark` | SF Symbol on the standard paper/ink disc. |
 | `Hairline` | Shared unscaled border/separator; use instead of a bare Divider. |
 
-Foundations are `Palette`/`Brand`, Metrics (`Motion.settle` shares the toast/fold ease-out), `TypeStyle`, `Surface`, `InterfaceScale`, `IconSource`,
-`RingGeometry` (the shared proportional ring stroke/inset), and `ControlChrome` modifiers: `focusRing`, `fieldChrome`, `chipChrome`, `fieldBox`, `menuChrome`,
-`menuRowHighlight`, `groupChrome`. They are rules/data rather than component cards. `Logos`,
+Foundations are `Palette`/`Brand`, Metrics (`Motion.settle` shares the toast/fold ease-out),
+`TypeStyle`, `Surface`, `InterfaceScale`, `IconSource`, `RingGeometry` (the shared proportional ring
+stroke/inset), and `ControlChrome` modifiers: `focusRing`, `fieldChrome`, `chipChrome`, `fieldBox`,
+`menuChrome`, `menuRowHighlight`, `groupChrome`. They are rules/data rather than component cards. `Logos`,
 `LogoGlyph` and text-editing coordinators remain implementation details.
 
 ## Human reference and proposals
@@ -125,5 +129,5 @@ page to change a token or invent an absent type.
 Proposals stays present and contains only unimplemented visual options, drawn from the current
 tokens (or explicitly proposed new ones). Publish the options and wait for a choice before changing
 the affected Swift. After implementation, remove only that proposal and sync the shipped reference.
-An empty Proposals tab retains its intro and “No open proposals.” This structural refactor selects
-no visual change.
+An empty Proposals tab retains its intro and “No open proposals.” A structural refactor selects no
+visual change.

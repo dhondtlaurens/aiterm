@@ -1,8 +1,9 @@
 # Obsessive review and refactor, round two
 
-Status: plan agreed on 2026-11-10. Phase 0 is done, reviewed and merged; its numbers are in the
-[record](../reviews/2026-11-10-refactor.md). Phases 1 to 9 are not started; "Running phases 1 to 9 as a
-broadcast" below says how they are handed to the Operator.
+Status: plan agreed on 2026-11-10. Phases 0 to 9 are done; phases 0 to 8, 9a and 9b are reviewed and
+merged, and 9c, the close-out, ends the [record](../reviews/2026-11-10-refactor.md) with every budget,
+defect, drop and decision. "Running phases 1 to 9 as a broadcast" below says how they were handed to the
+Operator.
 
 ## Goal
 
@@ -562,9 +563,15 @@ Each box leaves the project working and is one or a few commits.
 - [x] 8c. Stepped-sheet frame; picker field, clear button, Metrics tokens, chrome reuse. Clear-button labels use their existing tooltips, approved by the maintainer on 2026-11-12; seven accessibility tests.
 - [x] 8d. Narrow header values with the redraw test; lazy Activity and Shelf; leaf reads. Activity materialization is measured in the real 560-by-560 board sheet, 100 to 10; the original 100-to-7 test measures a 200-point stand-in viewport. Grouping/day titles and Shelf ranking are cached with explicit invalidation; every retained performance item lowers its test budget (record).
 - [x] 8e. Snapshot helpers; before and after image comparison: the final capture is 119 of 119 PNGs byte-identical to the before set, with no tolerance rule. Separately, GitLab artwork in two images varied on repeated captures of unmodified main; observation and maintainer find only (record). scripts/readme-picture.sh --check exits 1 on unmodified main and this branch alike, with identical captures and the committed picture unchanged; the maintainer waived the check for this phase on 2026-11-12 and leaves the redraw to their next release.
-- [x] 9a. `AppControllerTests` split; template and off-main git fixtures; blocking check; latches. Off-main migration partial: 38 main-actor factory sites in 19 Operator/finisher files deferred at `4b79d95e` to avoid phases 5/6 overlap; post-setup git also remains. Host-only conversion: four review tests. See the record for names and counts.
+- [x] 9a. `AppControllerTests` split; template and off-main git fixtures; blocking check; latches. Host-only conversion:
+  four review tests. The rest of the off-main git fixture migration is dropped: 38 main-actor factory sites in 19
+  Operator and finisher test files (counted at `4b79d95e`), and 36 post-setup `git.run` calls in `TaskAutoCloserTests`,
+  still run git on the main actor. They overlapped the suites phases 5 and 6 were rewriting. Nobody finishes them in this
+  plan; they are left for the maintainer (record, names and counts).
 - [x] 9b. Concurrency measurement; gate history; release gate check; routing entries.
-- [ ] 9c. Docs, design-system page, review record, full gate, bundle check, adversarial review.
+- [x] 9c. Docs, design-system page, review record, full gate, bundle check, adversarial review. The adversarial review's
+  one finding, `read_task`'s 8 MiB diff bound, is kept as a difference from main, approved by the maintainer on
+  2026-11-13 while it is enough for most broadcasts (record).
 
 ## Left out
 

@@ -94,7 +94,8 @@ def results(output: str) -> dict[str, object]:
             suites.append({"pass": label, "name": match[1], "result": match[2],
                            "seconds": float(match[3].replace(",", "."))})
         match = re.search(r"✘ Test (.+?) (?:failed after|recorded an issue)", line)
-        if match:
+        # Swift Testing's closing summary ("Test run with 1915 tests in 170 suites failed after ...") names no test.
+        if match and not re.fullmatch(r"run with \d+ tests?(?: in \d+ suites?)?", match[1]):
             failures.add(re.sub(r" with \d+ test cases?$", "", match[1]))
         if line.startswith("FAILED "):
             failures.add(line.removeprefix("FAILED ").split(" - ", 1)[0])

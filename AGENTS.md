@@ -32,7 +32,9 @@ Swift is written.
     from `daemon/` with its venv (`daemon/.venv/bin/pytest`).
   - Before each commit: plain `scripts/test.sh`. It runs only what the branch's changes can affect
     and says what it picked; a docs-only branch exits at once.
-  - Once before merging to `main`: `scripts/test.sh all`, the full suite.
+  - Once before merging to `main`: `scripts/test.sh all`, the full suite. Run it plain, with no
+    `SWIFT`, `PYTEST` or `AITERM_TEST_PATHS` override: only such a run counts as the release's proof
+    for that `HEAD`.
   - Test windows are hidden (transparent, click-through), so a visible one is a bug.
 - Never type `/model`, `/effort` or `/config` into a live Claude Code session: it saves the choice in
   `~/.claude/settings.json` as the person's default for every new session. Probe with launch flags

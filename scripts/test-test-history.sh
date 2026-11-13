@@ -90,6 +90,8 @@ parsed = history["results"]('''Gate pass: main
 ━ Suite Known passed after 0.020 seconds with 1 known issue.
 ✘ Test broken(x:) recorded an issue at X.swift:2
 ✘ Test broken(x:) with 2 test cases failed after 0.010 seconds.
+✘ Test run with 1915 tests in 170 suites failed after 412.500 seconds with 3 issues.
+✘ Test run with 1 test in 1 suite failed after 0.500 seconds with 1 issue.
 1521 passed, 1 skipped in 18.32s
 FAILED tests/test_example.py::test_nope - AssertionError
 FAIL route fixture
