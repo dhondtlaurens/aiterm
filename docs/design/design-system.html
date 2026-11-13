@@ -3286,19 +3286,19 @@
             <li><strong>Busy rows.</strong> Up to four vendor and diff colours sit on a task’s badge line, beside the one mark that matters.</li>
           </ul>
         </div>
-        <div class="yes"><p class="h">Recommendation</p>
+        <div class="yes"><p class="h">Picked · 13 Nov 2026</p>
           <ul>
-            <li><strong>Take proposal 2 as the base.</strong> It is the smallest change that gives the app depth and a calm selection, and it changes no behaviour.</li>
-            <li><strong>Take two surfaces from proposal 3:</strong> the wide board and two-pane Settings. They fix the two sheets that fight their 560 pt most, and each stands alone.</li>
-            <li><strong>Leave the one-page New Task for a second round.</strong> It is the best idea here and the one that changes habits, so it deserves use before a decision.</li>
-            <li>Proposal 1 is the fallback if the ramp in proposal 2 is not wanted: its eight fixes all survive into 2 and 3.</li>
+            <li><strong>Proposal 2 is the base:</strong> the graphite ramp, neutral selection, the new type and radii, one control shape, the stepper in the title row and underline tabs.</li>
+            <li><strong>From proposal 3, two surfaces:</strong> the 980 pt board with its Activity inspector, and two-pane Settings with its own Keyboard pane.</li>
+            <li><strong>Not picked:</strong> the status-first sidebar and its footer bar, the one-page New Task and New Review, and the one-scroll New Broadcast. Those surfaces ship as proposal 2 draws them.</li>
+            <li>The frames stay here until the Swift ships, then this proposal leaves the tab.</li>
           </ul>
         </div>
       </div>
       <div class="pz-switch" role="group" aria-label="Proposal">
         <button type="button" data-p="1" aria-pressed="false">1 · Polish</button>
-        <button type="button" data-p="2" aria-pressed="true">2 · Layered</button>
-        <button type="button" data-p="3" aria-pressed="false">3 · Workbench</button>
+        <button type="button" data-p="2" aria-pressed="true">2 · Layered · picked</button>
+        <button type="button" data-p="3" aria-pressed="false">3 · Workbench · board and Settings picked</button>
         <span class="hint">Same frames, same order, in each. Kept across reloads.</span>
       </div>
       <div class="pz-bleed"><div id="pz-root"></div></div>
@@ -4248,7 +4248,7 @@
     };
     function LEDEHTML(p) {
       var l = LEDE[p];
-      return '<div class="pz-lede"><div><p class="tag">Proposal ' + p + (p === 2 ? ' · recommended base' : '') + '</p><h3>' + l[0] + '</h3><p>' + l[1] + '</p><ol>' + l[2].map(function (x) { return '<li>' + x + '</li>'; }).join('') +
+      return '<div class="pz-lede"><div><p class="tag">Proposal ' + p + (p === 2 ? ' · picked as the base' : p === 3 ? ' · the board and Settings are picked' : '') + '</p><h3>' + l[0] + '</h3><p>' + l[1] + '</p><ol>' + l[2].map(function (x) { return '<li>' + x + '</li>'; }).join('') +
         '</ol></div><div><p class="tag" style="color:var(--muted)">What it costs in Swift</p><ul>' + l[3].map(function (x) { return '<li>' + x + '</li>'; }).join('') + '</ul></div></div>';
     }
     function PANEL(p) {
@@ -4260,18 +4260,18 @@
           FIG('<b>Operator-driven rows</b>, one selected and waiting on you, and the background-work card over its row.', DRIVEN()), FIG('<b>Notices</b> above the list.', NOTICES()), FIG('<b>Empty.</b>', EMPTY())]);
         h += GRP('New Task', 'Three steps, one sheet height.', NEWTASK());
         h += GRP('New Review and the small sheets', '', NEWREVIEW().concat(SMALL()));
-        h += GRP('Settings', '', SETTINGS());
+        h += GRP('Settings', p === 2 ? 'Not shipping in this shape: proposal 3’s two-pane Settings is picked.' : '', SETTINGS());
         h += GRP('New Broadcast', 'Five steps. The editors are sized so no step hides a field below the fold.', NEWBROADCAST());
-        h += GRP('Broadcast board', '', BOARD());
+        h += GRP('Broadcast board', p === 2 ? 'Not shipping in this shape: proposal 3’s wide board is picked.' : '', BOARD());
       } else {
         h += GRP('Sidebar', 'At its 420 pt opening width.', [FIG('<b>The whole sidebar.</b> Scan the left edge for amber: the status mark leads every row. Fix rounding in cart totals is selected, the release notes row is hovered.', SIDEBAR3()),
           FIG('<b>Operator-driven rows</b> and the background-work card.', DRIVEN3()), FIG('<b>The footer bar opened:</b> the same System and Usage readings as today, on demand.', FOOT3()),
           FIG('<b>Notices</b> above the list.', NOTICES()), FIG('<b>Empty.</b>', EMPTY())]);
         h += GRP('New Task', 'One page instead of three steps.', COMPOSER());
         h += GRP('New Review and the small sheets', 'The small sheets are proposal 2’s.', REVIEW3().concat(SMALL()));
-        h += GRP('Settings', 'Two panes, each drawn at full scroll height.', SETTINGS3());
+        h += GRP('Settings · picked', 'Two panes, each drawn at full scroll height.', SETTINGS3());
         h += GRP('New Broadcast', 'One page instead of five steps.', BROADCAST3());
-        h += GRP('Broadcast board', '', BOARD3());
+        h += GRP('Broadcast board · picked', '', BOARD3());
       }
       h += GRP('Shelf and Unplugged', p === 3 ? 'As in proposal 2.' : '', OTHER());
       h += GRP('When something fails', p === 3 ? 'As in proposal 2.' : '', FAILURE());
