@@ -173,6 +173,11 @@ class StatusEngine:
             if at <= max(turn.hook_at, turn.rollout_at):
                 return []
             turn.rollout_at = at
+        # Claude's file stays busy while children run past their parent's StopFailure. Only
+        # the parent's transcript can corroborate recovery then; a busy child proves none.
+        child_file = source == "claude_file" and turn is not None and bool(turn.children)
+        active = target in ("working", "needsInput") and not (child_file and target == "working")
+        changed = self.reg.set_stopped_on(session_id, None) if active else False
         if target == "done" and turn is not None and turn.children:
             # A Claude file cannot cover an input request, or even defer its completion.
             if source == "claude_file" and s.state == "needsInput":
@@ -182,7 +187,6 @@ class StatusEngine:
             if source != "claude_file":
                 return []
             target = "working"
-        changed = False
         if source in ("hook", "rollout"):
             turn = self._turn(session_id)
             # An explicit boundary supersedes the state a prompt interrupted.
@@ -192,9 +196,8 @@ class StatusEngine:
                 if source == "hook" or s.state != "working":
                     turn.spun = False
                 if source == "rollout":
-                    changed = self.reg.set_stopped_on(session_id, None)
                     changed = self.reg.set_background(session_id, ()) or changed
-        return [session_id] if self.reg.set_state(session_id, target) or changed else []
+        return [session_id] if self.reg.set_state(session_id, target, preserve_stop=child_file) or changed else []
 
     def apply_metadata(self, session_id: str, *, model: str | None = None, reasoning: str | None = None,
                        context: int | None = None, cwd: str | None = None,
@@ -454,6 +457,17 @@ class StatusEngine:
         if s is None or s.agent != "codex" or state not in ("working", "done"):
             return []
         return self._apply_state(session_id, state, reported_at, source="rollout")
+
+    def apply_claude_progress(self, session_id: str, at: float) -> list[str]:
+        """A parent prompt or successful response newer than its failure proves it carried on.
+        A child's file activity cannot do this; the reader checks only the parent's transcript."""
+        session, turn = self.reg.get(session_id), self._turns.get(session_id)
+        if (session is None or session.agent != "claude" or session.stopped_on is None
+                or at <= max(session.stopped_on.at, turn.hook_at if turn is not None else float("-inf"))):
+            return []
+        if turn is not None:
+            turn.deferred_done = False
+        return [session_id] if self.reg.set_stopped_on(session_id, None) else []
 
     def apply_codex_title(self, session_id: str, title: str) -> list[str]:
         s = self.reg.get(session_id)

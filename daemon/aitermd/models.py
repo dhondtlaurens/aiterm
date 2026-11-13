@@ -100,6 +100,7 @@ TERMINAL_TAG = "aiterm_terminal"
 # The key of an Operator's extra worker tab (open_tab), on that one tab beside its task tag: it tells
 # the tab apart from its task's first worker and from the task's other extra tabs. Never inherited.
 TAB_TAG = "aiterm_tab"
+CODEX_THREAD_TAG = "aiterm_codex_thread"
 # The tab's user variable an AiTerm branch title is kept in; the tab's title interpolates it.
 TITLE_TAG = "aiterm_title"
 
@@ -249,7 +250,7 @@ class StoppedOn:
     StopFailure hook). `error` is Claude Code's name for it: `rate_limit` for a usage or rate limit, which Claude Code
     may carry on from by itself once it resets; `billing_error`, `authentication_failed` and the like for one that
     blocks the session until someone acts. `resets_at`, a limit's reset in epoch seconds, only as the transcript's own
-    record of the limit gives it (stop_failures.limit_resets_at); None while nothing has. `at`, the wall clock when
+    record of the limit gives it (stop_failures.StopTranscripts); None while nothing has. `at`, the wall clock when
     the hook came, is neither sent nor compared."""
     error: str
     resets_at: int | None = None

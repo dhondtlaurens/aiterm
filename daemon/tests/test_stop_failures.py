@@ -8,8 +8,8 @@ from aitermd.hook_events import parse_claude_hook
 from aitermd.models import Frame, RawSession, StoppedOn
 from aitermd.sessions import SessionRegistry
 from aitermd.status import StatusEngine
-from aitermd.stop_failures import limit_resets_at
-from tests.test_slash_commands import IDLE, Clock, iso, write
+from aitermd.stop_failures import StopReading, StopTranscripts
+from tests.test_slash_commands import IDLE, Clock, caveat, iso, output, ran, write
 
 T0 = 1_793_000_000.0
 # When the limit in the records below resets: 26 Oct 2026, 13:20 in Brussels.
@@ -130,6 +130,17 @@ def test_the_session_file_saying_it_works_again_clears_it(tab):
     assert (tab.session.state, tab.session.stopped_on) == ("working", None)
 
 
+def test_a_busy_file_cannot_distinguish_a_stopped_parent_from_its_running_child(tab):
+    tab.post({**BASE, "hook_event_name": "SubagentStart", "agent_id": "child"})
+    tab.post(stop_failure("server_error"))
+    assert (tab.session.state, tab.session.stopped_on) == ("working", StoppedOn("server_error"))
+    # Neither idle nor busy proves parent recovery while a child runs past its StopFailure.
+    tab.status.apply_claude_file_status("s1", "idle", T0 + 1)
+    assert tab.session.stopped_on == StoppedOn("server_error")
+    assert tab.status.apply_claude_file_status("s1", "busy", T0 + 2) == []
+    assert (tab.session.state, tab.session.stopped_on) == ("working", StoppedOn("server_error"))
+
+
 def test_seeing_the_stopped_turn_keeps_what_stopped_it(tab):
     tab.post(stop_failure("billing_error"))
     tab.status.mark_seen("t1")
@@ -161,7 +172,7 @@ def test_a_limit_resets_when_the_turns_last_record_says(tmp_path):
     path = tmp_path / "c.jsonl"
     write(path, assistant("Working on it.", T0 - 60), limit_reached(T0),
           notice("Usage limit reached · continuing automatically at 1:20pm · esc to cancel", T0), turn_duration(T0))
-    assert limit_resets_at(str(path)) == RESETS_AT
+    assert StopTranscripts().read_all({str(path)})[str(path)].resets_at == RESETS_AT
 
 
 @pytest.mark.parametrize("records", [
@@ -177,11 +188,11 @@ def test_a_limit_resets_when_the_turns_last_record_says(tmp_path):
 def test_no_reset_is_read_where_the_turns_last_record_names_none(tmp_path, records):
     path = tmp_path / "c.jsonl"
     write(path, *records)
-    assert limit_resets_at(str(path)) is None
+    assert StopTranscripts().read_all({str(path)})[str(path)].resets_at is None
 
 
 def test_a_transcript_not_there_names_no_reset(tmp_path):
-    assert limit_resets_at(str(tmp_path / "missing.jsonl")) is None
+    assert StopTranscripts().read_all({str(tmp_path / "missing.jsonl")}) == {}
 
 
 def test_a_record_still_being_written_is_passed_over(tmp_path):
@@ -189,7 +200,45 @@ def test_a_record_still_being_written_is_passed_over(tmp_path):
     write(path, limit_reached(T0))
     with open(path, "a") as f:
         f.write('{"type": "system", "subtype": "turn_dur')
-    assert limit_resets_at(str(path)) == RESETS_AT
+    assert StopTranscripts().read_all({str(path)})[str(path)].resets_at == RESETS_AT
+
+
+@pytest.mark.parametrize("latest", [
+    notice("Child wrote something", T0 + 5),
+    {**assistant("Child report", T0 + 5), "isSidechain": True},
+    {"type": "user", "timestamp": iso(T0 + 5), "message": {"content": [{"type": "tool_result", "content": "done"}]}},
+    {"type": "user", "timestamp": iso(T0 + 5), "message": {"content": "<task-notification>Child finished</task-notification>"}},
+    caveat(T0 + 5), ran("usage", "", T0 + 5), output("Usage", T0 + 5),
+])
+def test_child_and_tool_activity_cannot_clear_a_parents_failure(tmp_path, latest):
+    path = tmp_path / "parent.jsonl"
+    write(path, limit_reached(T0), latest)
+    reading = StopTranscripts().read_all({str(path)})[str(path)]
+    assert reading.progress_at is None and reading.resets_at == RESETS_AT
+
+
+@pytest.mark.parametrize("progress", [auto_continuation(T0 + 5), assistant("Carried on", T0 + 5),
+    {"type": "user", "timestamp": iso(T0 + 5), "message": {"content": "Carry on with the next task"}},
+])
+def test_parent_progress_is_read_once_per_file_change_and_a_later_failure_stays(tmp_path, monkeypatch, progress):
+    from aitermd import stop_failures as module
+
+    path = tmp_path / "parent.jsonl"
+    write(path, limit_reached(T0), progress)
+    calls, read = [], module.records_newest_first
+
+    def counted(*args, **kwargs):
+        calls.append(args[0])
+        return read(*args, **kwargs)
+
+    monkeypatch.setattr(module, "records_newest_first", counted)
+    reader = StopTranscripts()
+    for _ in range(2):
+        assert reader.read_all({str(path)})[str(path)].progress_at == T0 + 5
+    assert calls == [path]
+    write(path, progress, limit_reached(T0 + 6))
+    reading = reader.read_all({str(path)})[str(path)]
+    assert reading.progress_at is None and reading.resets_at == RESETS_AT
 
 
 # -- the service ---------------------------------------------------------------------------------
@@ -238,6 +287,38 @@ async def test_a_billing_failure_has_no_reset_to_read(stopped):
     assert svc.registry.get(sid).stopped_on == StoppedOn("billing_error")
 
 
+async def test_resumed_activity_is_published_after_a_failure_with_a_child_still_running(stopped):
+    import os
+
+    svc, sid, transcript, clock = stopped
+    await svc.hook_router.handle_hook("/hook/claude", {
+        **BASE, "hook_event_name": "SubagentStart", "agent_id": "child", "transcript_path": str(transcript)})
+    await svc.hook_router.handle_hook("/hook/claude", stop_failure("server_error", transcript_path=str(transcript)))
+    assert svc.registry.get(sid).stopped_on == StoppedOn("server_error")
+    published = []
+
+    async def capture(name, payload):
+        published.append((name, payload))
+
+    svc.publisher.broadcast = capture
+    file = svc.claude_files.root / "4242.json"
+    file.write_text(json.dumps({"pid": 4242, "sessionId": "c-4242", "cwd": "/wt", "status": "busy", "version": "2.1.310"}))
+    clock.now = T0 + 3
+    os.utime(file, (clock.now, clock.now))
+    await svc.tick()
+    assert svc.registry.get(sid).stopped_on == StoppedOn("server_error"), "a busy child does not recover its parent"
+    write(transcript, assistant("The earlier report.", T0 - 1))
+    clock.now = T0 + 4
+    await svc.tick()
+    assert svc.registry.get(sid).stopped_on == StoppedOn("server_error"), "an older successful response is not recovery"
+    write(transcript, assistant("The earlier report.", T0 - 1), assistant("Carrying on with your next message.", T0 + 4))
+    clock.now = T0 + 5
+    await svc.tick()
+    assert (svc.registry.get(sid).state, svc.registry.get(sid).stopped_on) == ("working", None)
+    assert any(name == "session.changed" and data["sessionId"] == sid and data["stoppedOn"] is None
+               for name, data in published)
+
+
 async def test_a_reset_not_written_soon_after_the_stop_is_not_looked_for_again(stopped):
     from aitermd.stop_failures import RESET_READ_SECONDS
 
@@ -247,3 +328,18 @@ async def test_a_reset_not_written_soon_after_the_stop_is_not_looked_for_again(s
     clock.now = T0 + RESET_READ_SECONDS + 1
     await svc.tick()
     assert svc.registry.get(sid).stopped_on == StoppedOn("rate_limit")
+
+
+@pytest.mark.parametrize("overtaken_by", ["failure", "transcript"])
+async def test_a_recovery_read_overtaken_by_new_evidence_cannot_clear_the_stop(stopped, overtaken_by):
+    svc, sid, transcript, clock = stopped
+    await svc.hook_router.handle_hook("/hook/claude", stop_failure("server_error", transcript_path=str(transcript)))
+    plan = svc.readers.stops(svc.stop_transcripts)
+    if overtaken_by == "failure":
+        # The same error compares equal, but the latest parent hook is still newer than the read.
+        clock.now = T0 + 10
+        await svc.hook_router.handle_hook("/hook/claude", stop_failure("server_error", transcript_path=str(transcript)))
+    else:
+        svc.registry.set_transcript(sid, str(transcript.with_name("other.jsonl")))
+    assert plan.apply({str(transcript): StopReading(progress_at=T0 + 5)}) == []
+    assert svc.registry.get(sid).stopped_on == StoppedOn("server_error")

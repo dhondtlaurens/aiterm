@@ -506,6 +506,18 @@ async def test_tick_reads_codex_context_after_a_hook_identifies_the_thread(stack
     assert svc.registry.get(sid).context_percent == 26
 
 
+async def test_a_codex_hook_placed_only_by_directory_cannot_supply_a_saved_thread(stack):
+    svc, it, files, r, w = stack
+    _, sid = await task_tab(svc, r, w)
+    await it.user_runs(sid, "codex", job_pid=104, title="Codex")
+    await svc.tick()
+    await svc.hook_router.handle_hook("/hook/codex", {
+        "hook_event_name": "SessionStart", "session_id": "headless-thread", "cwd": "/wt"})
+    await svc.tick()
+    assert svc.resolver.codex_thread(sid) is None
+    assert svc.registry.get(sid).conversation_id is None
+
+
 async def test_new_codex_process_cannot_reuse_the_previous_threads_context(stack):
     svc, it, files, r, w = stack
     wid, sid = await task_tab(svc, r, w)

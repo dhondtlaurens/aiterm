@@ -168,5 +168,5 @@ class HookRouter:
                       iterm_session_id: str | None = None, hook_event: str | None = None) -> tuple[str | None, str | None]:
         sid, direct = await self.resolver.resolve_with_evidence(agent, session_id, cwd, iterm_session_id)
         if sid is not None:
-            self.resolver.bind(sid, agent, session_id, hook_event)
+            self.resolver.bind(sid, agent, session_id, hook_event, authoritative=sid == direct)
         return sid, direct
