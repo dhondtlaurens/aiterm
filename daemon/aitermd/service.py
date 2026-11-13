@@ -1,6 +1,7 @@
 # daemon/aitermd/service.py
 from __future__ import annotations
 import asyncio
+import json
 import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping
@@ -25,10 +26,11 @@ from .publisher import Publisher
 from .resolver import SessionResolver
 from .rpc_params import frame_param, guard, optional_param, param, require_iterm
 from .rpc_server import RpcError, RpcServer
-from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
+from .models import CODEX_THREAD_TAG, HARNESS_BY_AGENT, AgentKind, SessionInfo
 from .sessions import SessionRegistry, SnapshotDiff
 from .slash_commands import SlashCommands
 from .status import StatusEngine
+from .stop_failures import StopTranscripts
 from .test_activity import TestActivityReader
 from .usage import UsageReadFailure, UsageStore, parse_codex_rate_limits
 from .windows import WindowManager
@@ -100,10 +102,12 @@ class Service:
         self._last_good_tick = 0
         self.subagent_transcripts = SubagentTranscripts()
         self.background_transcripts = BackgroundTranscripts(clock=clock)
+        self.stop_transcripts = StopTranscripts()
         self.test_activity = test_activity or TestActivityReader(clock=clock)
         # Each off-loop check's latest run, by name, while its worker thread may still be running: a
         # thread stuck on a hung mount cannot be cancelled, so no second one is started beside it.
         self._checks: dict[str, asyncio.Future[Any]] = {}
+        self._saved_codex_threads: dict[str, tuple[int, str]] = {}
         self._register_handlers()
 
     # -- lifecycle ---------------------------------------------------------
@@ -357,12 +361,31 @@ class Service:
             ("releasing dead subagents", lambda: self.observe(self.readers.subagents(self.subagent_transcripts))),
             ("reading Claude background shells", lambda: self.observe_background(sessions)),
             ("reading what became of the slash commands", lambda: self.observe(self.readers.slash())),
-            ("reading when the limits that stopped sessions reset", lambda: self.observe(self.readers.limits())),
+            ("reading stopped workers' recovery and usage resets", lambda: self.observe(self.readers.stops(self.stop_transcripts))),
             ("reading worktree test activity", lambda: self.observe(self.readers.tests(self.test_activity, sessions))),
         )
         for name, observe in observations:
             with _logged(name):
                 changed += await observe()
+        await self._remember_codex_threads(sessions)
+
+    async def _remember_codex_threads(self, sessions: list[SessionInfo]) -> None:
+        """Keep each hook-proven thread on its iTerm tab so reconnect/restart needs no new hook.
+        The pid must match on recovery; a reused tab cannot inherit the previous worker's rollout."""
+        live = {s.session_id for s in sessions}
+        self._saved_codex_threads = {sid: value for sid, value in self._saved_codex_threads.items() if sid in live}
+        for captured in sessions:
+            if (session := self.registry.get(captured.session_id)) is None:
+                continue
+            sid, pid = session.session_id, session.job_pid
+            if session.agent != "codex" or pid is None or (thread := self.resolver.codex_thread(sid)) is None:
+                continue
+            identity = (pid, thread)
+            if self._saved_codex_threads.get(sid) == identity:
+                continue
+            with _logged(f"remembering the Codex thread of session {sid}"):
+                await self.iterm.set_session_tags(sid, {CODEX_THREAD_TAG: json.dumps({"pid": pid, "thread": thread})})
+                self._saved_codex_threads[sid] = identity
 
     async def observe(self, plan: ReadPlan[T]) -> list[str]:
         reading = plan.nothing if plan.read is None else await self.run_check(plan.name, plan.read, plan.nothing)

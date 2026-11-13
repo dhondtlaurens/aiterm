@@ -78,6 +78,14 @@ async def test_a_stop_binds_the_thread_to_the_process_it_came_from(world):
     assert resolver.codex_thread("x") is None
 
 
+@pytest.mark.parametrize("event", ["SubagentStart", "SubagentStop"])
+async def test_a_codex_child_does_not_replace_its_parents_thread(world, event):
+    resolver, _, _ = world
+    resolver.bind("x", "codex", "parent", "Stop")
+    resolver.bind("x", "codex", "child", event)
+    assert resolver.codex_thread("x") == "parent"
+
+
 async def test_pi_resolves_directly_by_iterm_session(tmp_path):
     reg = SessionRegistry()
     reg.apply_snapshot([RawSession("tab-1", "w1", 0, "pi", 41, "", "/wt", {"aiterm_task": "t1"})])
