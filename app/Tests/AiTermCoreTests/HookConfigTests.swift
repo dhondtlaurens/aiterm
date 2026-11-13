@@ -129,6 +129,48 @@ import Foundation
         #expect(ClaudeDriver(home: home, daemonPort: 47821, shimPath: shim).state == .current)
     }
 
+    /// Claude Code runs a `SessionStart` command hook but never posts a `SessionStart` http hook
+    /// (2.1.323, found by the compatibility check): AiTerm's is a command that posts its stdin with
+    /// curl to the same endpoint, as Codex's hooks do, and every other event stays http.
+    @Test func claudesSessionStartIsACurlCommandAndEveryOtherEventStaysHTTP() throws {
+        let url = "http://127.0.0.1:47821/hook/claude"
+        let (data, _) = try ClaudeSettings.merge(nil, hookURL: url, shimPath: "s")
+        let hooks = (try JSONSerialization.jsonObject(with: data) as! [String: Any])["hooks"] as! [String: [[String: Any]]]
+        let start = try #require((hooks["SessionStart"]?.first?["hooks"] as? [[String: Any]])?.first)
+        #expect(start["type"] as? String == "command")
+        let command = try #require(start["command"] as? String)
+        #expect(command.hasPrefix("curl ") && command.hasSuffix(" --data-binary @- \(url)"))
+        #expect(command.contains("-H 'X-AiTerm-Hook: 1'") && command.contains("-m 2"))
+        #expect(start["async"] as? Bool == true && start["_aiterm"] as? Bool == true)
+        for (event, entries) in hooks where event != "SessionStart" {
+            let hook = try #require((entries.first?["hooks"] as? [[String: Any]])?.first)
+            #expect(hook["type"] as? String == "http" && hook["url"] as? String == url, "\(event)")
+        }
+    }
+
+    /// An install from before, its `SessionStart` an http hook Claude never posts, is outdated until
+    /// Repair writes the command in its place, once, beside a foreign hook that stays.
+    @Test func anHTTPSessionStartFromBeforeIsRepairedIntoTheCommand() throws {
+        let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let settings = home.appendingPathComponent(".claude/settings.json")
+        try ClaudeDriver(home: home, daemonPort: 47821, shimPath: "s").install()
+        var obj = try JSONSerialization.jsonObject(with: Data(contentsOf: settings)) as! [String: Any]
+        var hooks = obj["hooks"] as! [String: [[String: Any]]]
+        let old: [String: Any] = ["_aiterm": true, "type": "http", "url": "http://127.0.0.1:47821/hook/claude",
+                                  "headers": ["X-AiTerm-Hook": "1"], "timeout": 3, "async": true]
+        let foreign: [String: Any] = ["type": "command", "command": "emdash-start"]
+        hooks["SessionStart"] = [["matcher": "", "hooks": [old]], ["matcher": "", "hooks": [foreign]]]
+        obj["hooks"] = hooks
+        try JSONSerialization.data(withJSONObject: obj).write(to: settings)
+        #expect(ClaudeDriver(home: home, daemonPort: 47821, shimPath: "s").state == .outdated)
+        try ClaudeDriver(home: home, daemonPort: 47821, shimPath: "s").install()
+        let repaired = try JSONSerialization.jsonObject(with: Data(contentsOf: settings)) as! [String: Any]
+        let starts = ((repaired["hooks"] as! [String: [[String: Any]]])["SessionStart"]!).flatMap { $0["hooks"] as! [[String: Any]] }
+        #expect(starts.filter { $0["_aiterm"] as? Bool == true }.map { $0["type"] as? String } == ["command"])
+        #expect(starts.contains { $0["command"] as? String == "emdash-start" })
+        #expect(ClaudeDriver(home: home, daemonPort: 47821, shimPath: "s").state == .current)
+    }
+
     @Test func testLegacyOwnedHeaderIsRenamedWithoutDuplicatingHooks() throws {
         let old = Data(#"{"hooks":{"Stop":[{"hooks":[{"_aiterm":true,"type":"http","headers":{"X-AIterm-Hook":"1"}}]},{"hooks":[{"type":"http","headers":{"X-AIterm-Hook":"foreign"}}]}]}}"#.utf8)
         let (merged, _) = try ClaudeSettings.merge(old, hookURL: "u", shimPath: "s")

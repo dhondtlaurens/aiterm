@@ -32,6 +32,10 @@ daemon/tests/fixtures/wake-lines.json	daemon suite:AiTermTests.OperatorWakerTest
 daemon/aitermd/delivery.py	daemon suite:AiTermCoreTests.OperatorTimingTests
 daemon/aitermd/operator_mcp.py	daemon suite:AiTermCoreTests.OperatorToolTests suite:AiTermTests.OperatorCurrentContractTests
 hooks/*	daemon suite:AiTermCoreTests.StatusLineShimTests
+# The compatibility check: the captures (read by both contract suites) and the app's templates and
+# verified list (CompatContractTests keeps the templates; the bundle check reads the list).
+daemon/tests/fixtures/compat/*	daemon suite:AiTermCoreTests.CompatContractTests suite:AiTermTests.CompatTranscriptTests
+compat/*	suite:AiTermCoreTests.CompatContractTests toolchain
 
 # Swift sources: each target is built into the ones above it, and the test support is shared.
 # The manifest is the toolchain guard's too: it loads it with the pinned Swift and fails on a warning.
@@ -84,6 +88,8 @@ scripts/make-dmg.sh	none
 scripts/dmg-settings.py	none
 scripts/readme-picture.sh	none
 scripts/run-dev.sh	none
+# The compatibility check, which only a person runs: it opens windows and spends quota.
+scripts/compat-check.sh	none
 # The agents' skills (.claude/skills is a link to .agents/skills).
 .claude/skills	none
 .agents/*	none

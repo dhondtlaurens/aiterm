@@ -1,0 +1,9 @@
+{
+  "additionalModelOptionsCache": [
+    {
+      "description": "Fable 5.1 \u00b7 Most capable for your hardest and longest-running tasks",
+      "label": "Fable",
+      "value": "claude-fable-5-1[1m]"
+    }
+  ]
+}

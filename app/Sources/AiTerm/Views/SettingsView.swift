@@ -83,6 +83,8 @@ struct SettingsView: View {
     let backpack: BackpackController
     /// Claude Code's and Codex's Messaging, read for as long as Settings is open.
     let messaging: MessagingChecks
+    /// The CLI versions this build was checked with (`compat/verified.json`), a line on each agent's card.
+    let verified: CompatVerified
     /// The agent card it opened at, scrolled to on Agents (`SheetCoordinator.presentSettings(tab:agent:)`).
     let initialAgent: AgentKind?
 
@@ -90,6 +92,7 @@ struct SettingsView: View {
          // The default is for previews and tests only: the app must pass its own integrations.
          agents: AgentIntegrations = .inert(),
          messaging: MessagingChecks = .inert(),
+         verified: CompatVerified = .bundled(),
          itermConnection: @escaping () -> ItermConnection,
          checkIterm: @escaping () async -> ItermEnvironment,
          preferences: InterfacePreferences,
@@ -106,6 +109,7 @@ struct SettingsView: View {
         self.harnessModel = harnessModel
         self.agents = agents
         self.messaging = messaging
+        self.verified = verified
         self.initialAgent = initialAgent
         _operatorSettings = State(initialValue: operatorSettings)
         _integrations = State(initialValue: IntegrationSettingsModel(jira: jiraConfig, gitLab: gitLabConfig, gitHub: gitHubConfig,
@@ -171,7 +175,8 @@ struct SettingsView: View {
     private func settingsContent(_ scroll: ScrollViewProxy) -> some View {
         Group {
             switch tab {
-            case .agents: HarnessSettingsPane(model: harnessModel, agents: agents, messaging: messaging, focus: initialAgent, scroll: scroll)
+            case .agents: HarnessSettingsPane(model: harnessModel, agents: agents, messaging: messaging, verified: verified,
+                                                 focus: initialAgent, scroll: scroll)
             case .operator: if let operatorSettings { OperatorSettingsPane(model: operatorSettings) }
             case .integrations: integrationSettings
             case .interface:

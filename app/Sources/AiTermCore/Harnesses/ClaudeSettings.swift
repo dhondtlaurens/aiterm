@@ -1,7 +1,8 @@
 import Foundation
 
-/// What AiTerm merges into Claude Code's `settings.json` — HTTP hooks for its lifecycle events and
-/// the status-line shim — and how it recognises its own entries there. `ClaudeDriver` reads and
+/// What AiTerm merges into Claude Code's `settings.json` — HTTP hooks for its lifecycle events (a
+/// curl command for `SessionStart`, `commandEvents`) and the status-line shim — and how it recognises
+/// its own entries there. `ClaudeDriver` reads and
 /// writes the file; launch asks only whether Claude Code still runs the usage shim.
 public enum ClaudeSettings {
     /// `StopFailure` fires in place of `Stop` when an API error ended the turn: a usage limit, a billing or sign-in failure.
@@ -19,13 +20,24 @@ public enum ClaudeSettings {
         (entry["hooks"] as? [[String: Any]])?.contains(where: isOurHook) == true
     }
 
-    private static func hook(hookURL: String) -> [String: Any] {
-        ["type": "http", "url": hookURL, "headers": ["X-AiTerm-Hook": "1"],
-         "timeout": 3, "async": true, marker: true]
+    /// Events Claude Code runs only as a command hook: it never posts an http hook for them (2.1.323,
+    /// found by the compatibility check, `scripts/compat-check.sh`). AiTerm's posts its stdin with curl
+    /// to the same endpoint, as Codex's command hooks do, async and capped at two seconds, so it never
+    /// holds a session's start up.
+    static let commandEvents: Set<String> = ["SessionStart"]
+
+    private static func hook(_ event: String, hookURL: String) -> [String: Any] {
+        guard commandEvents.contains(event) else {
+            return ["type": "http", "url": hookURL, "headers": ["X-AiTerm-Hook": "1"],
+                    "timeout": 3, "async": true, marker: true]
+        }
+        let command = "curl -s -m 2 -X POST -H 'Content-Type: application/json' -H 'X-AiTerm-Hook: 1' -H 'Expect:' --data-binary @- "
+            + hookURL
+        return ["type": "command", "command": command, "timeout": 3, "async": true, marker: true]
     }
 
-    private static func entry(hookURL: String) -> [String: Any] {
-        ["matcher": "", "hooks": [hook(hookURL: hookURL)]]
+    private static func entry(_ event: String, hookURL: String) -> [String: Any] {
+        ["matcher": "", "hooks": [hook(event, hookURL: hookURL)]]
     }
 
     /// Our shim, recognised by filename as well as by exact path: a moved app bundle
@@ -102,7 +114,7 @@ public enum ClaudeSettings {
                 }
                 // Replace our first occurrence in place; keep foreign hooks and their matcher.
                 if !inserted {
-                    entries.append(entry(hookURL: hookURL))
+                    entries.append(entry(event, hookURL: hookURL))
                     inserted = true
                 }
                 let foreign = installed.filter { !isOurHook($0) }
@@ -110,7 +122,7 @@ public enum ClaudeSettings {
                     var kept = existing; kept["hooks"] = foreign; entries.append(kept)
                 }
             }
-            if !inserted { entries.append(entry(hookURL: hookURL)) }
+            if !inserted { entries.append(entry(event, hookURL: hookURL)) }
             hooks[event] = entries
         }
         obj["hooks"] = hooks
@@ -183,7 +195,7 @@ public enum ClaudeSettings {
                   entry["matcher"] as? String == "" else { return false }
             let owned = (entry["hooks"] as? [[String: Any]] ?? []).filter(isOurHook)
             guard owned.count == 1, let hook = owned.first else { return false }
-            return (hook as NSDictionary) == (Self.hook(hookURL: hookURL) as NSDictionary)
+            return (hook as NSDictionary) == (Self.hook(event, hookURL: hookURL) as NSDictionary)
         }
     }
 

@@ -21,6 +21,9 @@ Settings tests each agent when it opens. On the agent's card:
 - Messaging's **Run check** opens isolated agent sessions in iTerm2 to verify that AiTerm can
   deliver messages to the installed version. It takes a few minutes. **Why it failed** expands the
   details of a failed check.
+- A muted line says whether the installed version's major and minor is one this AiTerm was checked
+  with ("2.1 verified with this AiTerm"), or not yet. Nothing waits on it: a newer version usually
+  works, and Messaging stays what decides whether AiTerm types into the agent.
 - Choose a default model and reasoning level from the available catalogue. Each new task can
   choose its own agent, model and reasoning.
 

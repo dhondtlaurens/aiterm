@@ -1,0 +1,159 @@
+{
+  "hooks" : {
+    "Notification" : [
+      {
+        "hooks" : [
+          {
+            "_aiterm" : true,
+            "async" : true,
+            "headers" : {
+              "X-AiTerm-Hook" : "1"
+            },
+            "timeout" : 3,
+            "type" : "http",
+            "url" : "http://127.0.0.1:__AITERM_HOOK_PORT__/hook/claude"
+          }
+        ],
+        "matcher" : ""
+      }
+    ],
+    "PermissionRequest" : [
+      {
+        "hooks" : [
+          {
+            "_aiterm" : true,
+            "async" : true,
+            "headers" : {
+              "X-AiTerm-Hook" : "1"
+            },
+            "timeout" : 3,
+            "type" : "http",
+            "url" : "http://127.0.0.1:__AITERM_HOOK_PORT__/hook/claude"
+          }
+        ],
+        "matcher" : ""
+      }
+    ],
+    "PostModelSwitch" : [
+      {
+        "hooks" : [
+          {
+            "_aiterm" : true,
+            "async" : true,
+            "headers" : {
+              "X-AiTerm-Hook" : "1"
+            },
+            "timeout" : 3,
+            "type" : "http",
+            "url" : "http://127.0.0.1:__AITERM_HOOK_PORT__/hook/claude"
+          }
+        ],
+        "matcher" : ""
+      }
+    ],
+    "SessionStart" : [
+      {
+        "hooks" : [
+          {
+            "_aiterm" : true,
+            "async" : true,
+            "command" : "curl -s -m 2 -X POST -H 'Content-Type: application/json' -H 'X-AiTerm-Hook: 1' -H 'Expect:' --data-binary @- http://127.0.0.1:__AITERM_HOOK_PORT__/hook/claude",
+            "timeout" : 3,
+            "type" : "command"
+          }
+        ],
+        "matcher" : ""
+      }
+    ],
+    "Stop" : [
+      {
+        "hooks" : [
+          {
+            "_aiterm" : true,
+            "async" : true,
+            "headers" : {
+              "X-AiTerm-Hook" : "1"
+            },
+            "timeout" : 3,
+            "type" : "http",
+            "url" : "http://127.0.0.1:__AITERM_HOOK_PORT__/hook/claude"
+          }
+        ],
+        "matcher" : ""
+      }
+    ],
+    "StopFailure" : [
+      {
+        "hooks" : [
+          {
+            "_aiterm" : true,
+            "async" : true,
+            "headers" : {
+              "X-AiTerm-Hook" : "1"
+            },
+            "timeout" : 3,
+            "type" : "http",
+            "url" : "http://127.0.0.1:__AITERM_HOOK_PORT__/hook/claude"
+          }
+        ],
+        "matcher" : ""
+      }
+    ],
+    "SubagentStart" : [
+      {
+        "hooks" : [
+          {
+            "_aiterm" : true,
+            "async" : true,
+            "headers" : {
+              "X-AiTerm-Hook" : "1"
+            },
+            "timeout" : 3,
+            "type" : "http",
+            "url" : "http://127.0.0.1:__AITERM_HOOK_PORT__/hook/claude"
+          }
+        ],
+        "matcher" : ""
+      }
+    ],
+    "SubagentStop" : [
+      {
+        "hooks" : [
+          {
+            "_aiterm" : true,
+            "async" : true,
+            "headers" : {
+              "X-AiTerm-Hook" : "1"
+            },
+            "timeout" : 3,
+            "type" : "http",
+            "url" : "http://127.0.0.1:__AITERM_HOOK_PORT__/hook/claude"
+          }
+        ],
+        "matcher" : ""
+      }
+    ],
+    "UserPromptSubmit" : [
+      {
+        "hooks" : [
+          {
+            "_aiterm" : true,
+            "async" : true,
+            "headers" : {
+              "X-AiTerm-Hook" : "1"
+            },
+            "timeout" : 3,
+            "type" : "http",
+            "url" : "http://127.0.0.1:__AITERM_HOOK_PORT__/hook/claude"
+          }
+        ],
+        "matcher" : ""
+      }
+    ]
+  },
+  "statusLine" : {
+    "command" : "__AITERM_SHIM__",
+    "padding" : 0,
+    "type" : "command"
+  }
+}

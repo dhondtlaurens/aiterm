@@ -26,7 +26,8 @@ final class MessagingChecks {
 
     /// The file as last read; nil until it is.
     private(set) var file: DeliveryCheckFile?
-    /// Each covered agent's version, as last read; an agent whose version couldn't be read is missing.
+    /// Each installed agent's version, as last read, PI's included for its card's verified line
+    /// (`CompatVerified`); an agent whose version couldn't be read is missing.
     private(set) var versions: [AgentKind: String] = [:]
     /// Why the last Run check could not open its window, by agent: the card's status until the next.
     private(set) var failures: [AgentKind: String] = [:]
@@ -92,7 +93,7 @@ final class MessagingChecks {
         let watcher = self.watcher, versions = readVersions
         let fresh = await BackgroundWork.run { () -> (DeliveryCheckFile, [AgentKind: String])? in
             if force { watcher.forget() }
-            return watcher.changed().map { ($0, versions(DeliveryCheck.agents)) }
+            return watcher.changed().map { ($0, versions(AgentKind.allCases)) }
         }
         guard let (file, found) = fresh else { return }
         self.file = file

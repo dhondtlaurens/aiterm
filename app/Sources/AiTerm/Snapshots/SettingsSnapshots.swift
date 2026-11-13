@@ -67,12 +67,17 @@ enum SettingsSnapshots {
         return DeliveryCheckFile(data: Data(json.utf8))
     }()
 
+    /// This build checked with Claude Code 2.1 and Codex 0.150: Claude's card says it is verified, Codex's
+    /// and PI's that their installed lines are not yet.
+    static let verified = CompatVerified(lines: [.claude: "2.1", .codex: "0.150"])
+
     /// Settings on `tab`, its Agents tab on the fixture harnesses.
     private static func settings(jira: JiraConfig?, iterm: ItermConnection, environment: ItermEnvironment,
                                  tab: SettingsTab) -> SettingsView {
         SettingsView(jiraConfig: jira, gitLabConfig: nil, harnessModel: .preview(),
                      agents: .inert(claudeConfigPath: "/Users/you/.config/claude"),
-                     messaging: .preview(file: messaging, versions: [.claude: "2.1.305", .codex: "0.161.0"]),
+                     messaging: .preview(file: messaging, versions: [.claude: "2.1.305", .codex: "0.161.0", .pi: "1.4.0"]),
+                     verified: verified,
                      itermConnection: { iterm }, checkIterm: { environment },
                      preferences: Fixture.preferences, setMatchItermBackground: { _ in }, setInterfaceSize: { _ in },
                      initialTab: tab)

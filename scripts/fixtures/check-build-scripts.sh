@@ -5,12 +5,13 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 fixture_dir="$(mktemp -d -t aiterm-build-fixture)"
 trap 'rm -rf "$fixture_dir"' EXIT
 repo="$fixture_dir/repo"
-mkdir -p "$repo/app/.build/"{debug,release} "$repo/app/Sources/AiTerm/Resources" "$repo/daemon/tools" "$repo/hooks"
+mkdir -p "$repo/app/.build/"{debug,release} "$repo/app/Sources/AiTerm/Resources" "$repo/daemon/tools" "$repo/hooks" "$repo/compat"
 cp -R "$ROOT/scripts" "$repo/"
 cp "$ROOT/app/Sources/AiTerm/Resources/Info.plist" "$repo/app/Sources/AiTerm/Resources/"
 touch "$repo/app/Sources/AiTerm/Resources/AiTerm.icns" "$repo/LICENSE"
 for file in __init__.py delivery_check.py wire_frames.py; do touch "$repo/daemon/tools/$file"; done
 for file in claude-statusline-shim.sh pi-aiterm-status.ts; do touch "$repo/hooks/$file"; done
+touch "$repo/compat/verified.json"
 cat >"$repo/scripts/swift.sh" <<'SWIFT'
 #!/bin/zsh
 print -r -- "$*" >>"$AITERM_FIXTURE_BUILD_CALLS"

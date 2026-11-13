@@ -1,0 +1,32 @@
+{
+  "agent": "codex",
+  "approvalLaunch": [
+    "codex",
+    "-s",
+    "workspace-write",
+    "-a",
+    "on-request",
+    "-m",
+    "gpt-6-luna",
+    "-c",
+    "model_reasoning_effort=low"
+  ],
+  "capturedAt": "2026-11-13",
+  "launch": [
+    "codex",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "-m",
+    "gpt-6-luna",
+    "-c",
+    "model_reasoning_effort=low"
+  ],
+  "model": "gpt-6-luna",
+  "reasoning": "low",
+  "turns": [
+    "plain",
+    "shellCommand",
+    "subagent",
+    "approval"
+  ],
+  "version": "0.167.0"
+}
