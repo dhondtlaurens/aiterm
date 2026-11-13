@@ -2,8 +2,9 @@ import SwiftUI
 
 // The scales every AiTerm surface is drawn from.
 //
-// Where macOS publishes a scale, these are *its* numbers rather than a house set: the system text
-// styles, AppKit's control sizes and AppKit's corner radii. That is the whole argument for them —
+// Where macOS publishes a scale, these are mostly *its* numbers rather than a house set: the system
+// text styles and AppKit's control sizes; the radii are AppKit's one step rounder. That is the whole
+// argument for them —
 // a new control takes its height, radius and text size from here instead of from whatever looked
 // right beside its neighbour.
 //
@@ -41,23 +42,23 @@ public enum Space {
     public static let margin: CGFloat = 24
 }
 
-/// AppKit's control radii: 4 at the small control size, 6 at regular, 8 at large — and 10, which is
-/// what a macOS popover uses, for anything that floats.
+/// The house radii, a step rounder than AppKit's (4, 6, 8 and a popover's 10): the layered
+/// foundation picked on 13 Nov 2026 draws every shape one step softer.
 public enum Radius {
     /// Badges, the `+n` chip, a menu row's highlight, the provider tile.
-    public static let chip: CGFloat = 4
+    public static let chip: CGFloat = 5
     /// Fields, buttons, sidebar rows, the command block.
-    public static let control: CGFloat = 6
-    /// Segmented tracks and the boxed groups in Settings.
-    public static let group: CGFloat = 8
+    public static let control: CGFloat = 7
+    /// Segmented tracks, cards and the boxed groups in Settings.
+    public static let group: CGFloat = 10
     /// Menus, dropdowns, the completion popup.
-    public static let panel: CGFloat = 10
+    public static let panel: CGFloat = 12
 }
 
 /// Heights, widths and diameters: the sidebar's own widths, every control and row height, and the
 /// marks drawn inside them.
 public enum Size {
-    /// A ticket key of up to eight characters in the pickers' mono code face.
+    /// A ticket key of up to eight characters in the pickers' key face (`Typography.caption`, tabular).
     public static let pickerTicketKey: CGFloat = 74
     /// A Jira project key without the ticket number, shared by both project pickers.
     public static let pickerProjectKey: CGFloat = 64
@@ -84,11 +85,12 @@ public enum Size {
     public static let chip: CGFloat = 16
     /// The click target the sidebar's trailing column is built from.
     public static let slot: CGFloat = 20
-    /// A row in a menu, a dropdown or the completion popup; the sidebar's `PROJECTS` header and a
-    /// `DividerRow`; and a sidebar footer row and its SYSTEM and USAGE headings. Also the width a
+    /// A row in a menu, a dropdown or the completion popup; the sidebar's Projects header and a
+    /// `DividerRow`; and a sidebar footer row and its System and Usage headings. Also the width a
     /// picker's list toggle answers to clicks in (`SearchPicker`).
     public static let menuRow: CGFloat = 24
-    /// A field, a pop-up button, a segmented track, a footer button — `.controlSize(.large)`.
+    /// A field, a pop-up button (`.controlSize(.large)`), a segmented track, a push button
+    /// (`PushButtonStyle`).
     public static let control: CGFloat = 28
     /// A project header.
     public static let projectRow: CGFloat = 28
@@ -125,6 +127,10 @@ public enum Size {
     /// A vendor mark in a picker's result row — smaller than ``pickerLogo``, to sit inside a
     /// ``menuRow``.
     public static let pickerRowLogo: CGFloat = 11
+    /// The bar under a `TabBar`'s selected tab, drawn over the sheet header's rule: twice a
+    /// hairline, so it reads as the selection rather than as a second rule. A stroke, so it does
+    /// not scale.
+    public static let tabIndicator: CGFloat = 2
 }
 
 /// A text style's parts, kept separate so `Typography` can declare size, weight and design
@@ -134,20 +140,32 @@ public struct TypeStyle: Sendable, Equatable {
     public let size: CGFloat
     public let weight: Font.Weight
     public let design: Font.Design
+    /// Whether every digit takes one width (`.monospacedDigit()`), so a count, a time or a percentage
+    /// does not shift as it changes and a column of them lines up — in the system face, which is for
+    /// words; the monospaced face is for code alone.
+    public let tabularFigures: Bool
 
-    public init(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) {
+    public init(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default, tabularFigures: Bool = false) {
         self.size = size
         self.weight = weight
         self.design = design
+        self.tabularFigures = tabularFigures
     }
+
+    /// The same style with tabular figures: `Typography.chip.tabular` for a count on a chip.
+    public var tabular: TypeStyle { TypeStyle(size: size, weight: weight, design: design, tabularFigures: true) }
 
     /// The same style at `scale`. Not rounded: text that grew faster than the whole-point layout
     /// around it would clip, and the system face sets cleanly at fractional sizes.
     public func scaled(by scale: InterfaceScale) -> TypeStyle {
-        scale.factor == 1 ? self : TypeStyle(size: size * scale.factor, weight: weight, design: design)
+        scale.factor == 1 ? self
+            : TypeStyle(size: size * scale.factor, weight: weight, design: design, tabularFigures: tabularFigures)
     }
 
-    public var font: Font { .system(size: size, weight: weight, design: design) }
+    public var font: Font {
+        let font = Font.system(size: size, weight: weight, design: design)
+        return tabularFigures ? font.monospacedDigit() : font
+    }
 
     /// The same style, for the handful of AppKit views (`NSPopUpButton`, `NSTextView`) that take an
     /// `NSFont` rather than a SwiftUI `Font`. Consults size and weight rather than narrowing to just
@@ -166,9 +184,8 @@ public struct TypeStyle: Sendable, Equatable {
         case .black: nsWeight = .black
         default: nsWeight = .regular
         }
-        return design == .monospaced
-            ? .monospacedSystemFont(ofSize: size, weight: nsWeight)
-            : .systemFont(ofSize: size, weight: nsWeight)
+        if design == .monospaced { return .monospacedSystemFont(ofSize: size, weight: nsWeight) }
+        return tabularFigures ? .monospacedDigitSystemFont(ofSize: size, weight: nsWeight) : .systemFont(ofSize: size, weight: nsWeight)
     }
 }
 
@@ -186,12 +203,15 @@ private struct ScaledFont: ViewModifier {
 }
 
 /// The macOS system text scale. AiTerm draws with `.system(size:)` rather than a text style, so the
-/// comment on each line is the style it is the size of.
+/// comment on each line is the style it is the size of, where it is one.
 public enum Typography {
-    /// `.title3` — a sheet's own title.
-    public static let title = TypeStyle(size: 15, weight: .semibold)
-    /// `.callout` — a heading inside a boxed group.
-    public static let card = TypeStyle(size: 12, weight: .semibold)
+    /// A sheet's own title: 17 semibold, between `.title3` and `.title2`, so it heads the sheet
+    /// rather than sitting level with the groups under it.
+    public static let title = TypeStyle(size: 17, weight: .semibold)
+    /// `.body`, semibold — a group's heading: a Settings card's title.
+    public static let card = TypeStyle(size: 13, weight: .semibold)
+    /// `.subheadline`, semibold — a sidebar section's heading.
+    public static let section = TypeStyle(size: 11, weight: .semibold)
     /// `.body` — row titles, field values, buttons, menu rows.
     public static let body = TypeStyle(size: 13)
     /// `.body` at medium weight — more presence than plain body text, short of semibold: a project
@@ -203,17 +223,25 @@ public enum Typography {
     public static let caption = TypeStyle(size: 12)
     /// `.subheadline` — help text, banners, a completion's detail and source.
     public static let help = TypeStyle(size: 11)
-    /// `.footnote`, semibold — "Projects", a row's disclosure chevron, the `+n` overflow, a step
-    /// number, and a ticket row's small icon buttons (clear, toggle).
+    /// `.footnote`, semibold — a row's disclosure chevron, a step number, and a ticket row's small
+    /// icon buttons (clear, toggle).
     public static let micro = TypeStyle(size: 10, weight: .semibold)
-    /// A branch name, a usage line.
+    /// `.footnote` at medium weight — the words on a chip: a `Badge`'s ticket key, `+n` and diff, a
+    /// status count, the Operator's status words and progress, a board tab's key and a question's
+    /// age. Words, so the system face; a count among them takes `.tabular`.
+    public static let chip = TypeStyle(size: 10, weight: .medium)
+
+    // The monospaced face is for code alone: what is typed into a terminal or read back from one.
+    // Words, counts, times and keys are the system face, `.tabular` where digits change or line up.
+
+    /// A branch name, a shell job's command, a tool call and its JSON, a check's failure output.
     public static let mono = TypeStyle(size: 11, design: .monospaced)
-    /// The command block, a ticket key in a sheet.
+    /// The command block, a branch in a picker or its field, a completion's name.
     public static let monoCode = TypeStyle(size: 12, design: .monospaced)
     /// The first-prompt editor's own size, monospaced — has to match `PromptEditor`'s real
     /// `NSTextView` font exactly, or its placeholder sits where typed text will not.
     public static let promptMono = TypeStyle(size: 13, design: .monospaced)
-    /// A ticket key on a sidebar row, the `+n` chip.
+    /// The terminal-background swatch's `#17`: a colour's hex digits, code.
     public static let monoChip = TypeStyle(size: 10, weight: .medium, design: .monospaced)
 }
 
@@ -233,7 +261,15 @@ public enum Sheet {
     /// the Dock.
     private static let screenMargin: CGFloat = 100
     public static let width: CGFloat = 560
+    /// The sheets whose content runs past any one height and scrolls: New Broadcast, the board, the
+    /// Shelf and Jira projects; and the most a sheet that fits its content (`NameSheet`, Unplugged) grows to.
     public static let height: CGFloat = 560
+    /// New Task's and New Review's every step, so the sheet does not jump from one to the next: their
+    /// tallest ordinary step — the prompt, New Task's ticket checkbox, the command and where it opens,
+    /// 380 pt with its margins — under the title row and over the footer's Back and create, 117 pt
+    /// between them, and a few points spare. A notice or a fix proposal in the footer is taller and
+    /// scrolls the step instead (`SheetHeaderTests.everyCreationStepIsOneHeightAndFits`).
+    public static let creationHeight: CGFloat = 500
     /// Settings has a slightly taller preferred viewport for its forms.
     public static let settingsHeight: CGFloat = 580
     /// One column of the broadcast's board, which sits in a `width` sheet: two and a bit of them
@@ -241,7 +277,7 @@ public enum Sheet {
     public static let boardColumn: CGFloat = 236
 }
 
-/// How far a control fades while it can't be used: a segment `SegmentedControl`'s `isSelectable` rejects, Settings ›
+/// How far a control fades while it can't be used: a segment `SegmentedControl`'s or a tab `TabBar`'s `isSelectable` rejects, Settings ›
 /// Operator's Oracle fields while it is off, and New Broadcast's goal editor, Goal rounds and Worker questions while the Oracle is.
 public enum Opacity {
     public static let disabled: Double = 0.4

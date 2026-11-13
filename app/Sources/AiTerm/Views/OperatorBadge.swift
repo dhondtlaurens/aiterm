@@ -4,7 +4,7 @@ import AiTermUI
 import AiTermCore
 
 /// Everything the Operator says on a status line (spec §7, §13, §14): the words of an `OperatorLine` in
-/// `Typography.monoChip`, no mark: where the line sits says whose it is. Always one `Size.chip` line: the
+/// `Typography.chip` (words, so the system face), no mark: where the line sits says whose it is. Always one `Size.chip` line: the
 /// words cut with an ellipsis rather than wrap, the whole of them in the tooltip and VoiceOver's label. The
 /// last line of a driven task's row and of the Operator's row, a card's last line on the board, the band
 /// under the board's title.
@@ -18,8 +18,9 @@ import AiTermCore
 ///   (28 Oct 2026: the OPERATOR heading's decode, everywhere); the row's spinner carries the ongoing motion (`DecodeWordsView`, its own view, so the row is not redrawn per
 ///   frame). At once under Reduce Motion and in the snapshots;
 /// - needs you: the attention chip's pair (`Palette.statusChipAttentionFill` and `Stroke`) with the words
-///   in `Palette.text`, never amber; on `Surface.accent` the surface's `badgeWash` and ink, the amber left
-///   to the row's `StatusMark`, since an amber wash on the selection's blue reads as mud.
+///   in `Palette.text`, never amber, on a selected row too (the neutral selection holds the amber pair);
+///   on `Surface.accent` the surface's `badgeWash` and ink, since an amber wash on the accent's blue reads
+///   as mud.
 struct OperatorBadge: View {
     let line: OperatorLine
     @Environment(\.surface) private var surface
@@ -71,11 +72,11 @@ struct OperatorBadge: View {
 
     @ViewBuilder
     private func words(decoding: Bool) -> some View {
-        let text = Text(line.text).font(Typography.monoChip).lineLimit(1).truncationMode(.tail)
+        let text = Text(line.text).font(Typography.chip).lineLimit(1).truncationMode(.tail)
         if decoding {
             // Laid out by the final words, drawn by the decode's own view: a frame is never a SwiftUI update.
             text.opacity(0).overlay {
-                DecodeWords(text: line.text, font: Typography.monoChip.scaled(by: scale).nsFont,
+                DecodeWords(text: line.text, font: Typography.chip.scaled(by: scale).nsFont,
                             ink: Self.ink(.acting, surface: surface), duration: Self.decodeDuration)
             }
         } else {
@@ -85,7 +86,7 @@ struct OperatorBadge: View {
 }
 
 /// A broadcast's status line as its row and its board's band say it: the `OperatorBadge`, then
-/// `· 2 of 8 done` in `Typography.monoChip` and the surface's secondary ink, outside the needs-you box.
+/// `· 2 of 8 done` in `Typography.chip.tabular` and the surface's secondary ink, outside the needs-you box.
 /// The progress keeps its width; the badge's words are what is cut.
 struct BroadcastStatusLine: View {
     let line: OperatorLine
@@ -97,7 +98,7 @@ struct BroadcastStatusLine: View {
         HStack(spacing: 0) {
             OperatorBadge(line: line)
             if let progress {
-                Text(verbatim: " · " + progress).font(Typography.monoChip).foregroundStyle(surface.secondaryInk)
+                Text(verbatim: " · " + progress).font(Typography.chip.tabular).foregroundStyle(surface.secondaryInk)
                     .lineLimit(1).fixedSize()
             }
         }
@@ -114,8 +115,8 @@ extension OperatorBadge {
 #endif
 
 /// The decoding words: drawn by `DecodeWordsView`, which runs its frames itself. `kerning` is the words' own
-/// tracking (the OPERATOR heading's); `decodesFirst` false shows the first words as they are, so a heading that
-/// appears does not decode its own name.
+/// tracking, none in the app's faces today; `decodesFirst` false shows the first words as they are, so a heading
+/// that appears does not decode its own name.
 struct DecodeWords: NSViewRepresentable {
     let text: String
     let font: NSFont
@@ -138,7 +139,7 @@ struct DecodeWords: NSViewRepresentable {
 /// in its own case, so a capital stays a capital and a number a number, in the words' own ink, and the words settle
 /// from the left over `duration`, a frame every `1 / frameRate` s, then stand still; spaces and separators stay put.
 /// The words layer always draws the real characters, clear where a glyph stands, so the words never change their
-/// width, in the mono face or the heading's; each glyph is kerned to stand where its character does (`painted`).
+/// width, in the chip face or the heading's; each glyph is kerned to stand where its character does (`painted`).
 /// Two `CATextLayer`s, layer-hosting, so AppKit leaves its layer to it: the words, and over them the unsettled
 /// glyphs alone, so no pair of glyphs ever kerns the words' line wider or narrower than its own letters. It passes
 /// every click through to its row. Its clock is `now`, Core Animation's media time unless a test drives it, each

@@ -25,30 +25,48 @@ Every colour comes from `Palette`. Views never write literal colours or derive a
 `.opacity(...)`: name the derived colour in `Palette`, even for one caller. `Brand.wash` is the one
 shared vendor derivation. Use `onAccent`/the surface's ink for accent content, `markPaper`/`markInk`
 for vendor artwork, and `Icon` for marks. GitHub is white on dark ground and tinted `markInk` on
-its `markPaper` integration disc. Vendor colours identify vendors, not general status or controls.
+its `markPaper` integration disc. Vendor colours identify vendors, not general status or controls. The sidebar's badge line inks its
+marks with its words (`Badge(markInk: .label)`), so a row's colour is its status, unless Settings ›
+Interface › Sidebar badges turns Brand colours on (`BadgeDetails.markInk`); avatars, the provider
+tile, pickers and the board keep the brand's.
 
-Distinctly written Palette tokens must resolve differently. When roles deliberately share a value,
-declare an alias (`sidebar = surface`). `PaletteDistinctionTests` checks the source aliases and
-rendered colours, including washes against their grounds. Add derived tokens to its manifest.
+Distinctly written Palette tokens must resolve differently, in the dark appearance or under Increase
+Contrast. When roles deliberately share a value, declare an alias (`codeBackground = well`).
+`PaletteDistinctionTests` checks the source aliases and rendered colours, including washes against
+their grounds. Add derived tokens to its manifest.
+
+The greys are literal: grounds rise from `well`, `sidebarFooter` (the sidebar's telemetry), `field`,
+`sidebar` (the window), `surface` (the sheet), `surfaceRaised` (cards), `menu` (popovers) and `button`
+to `controlActive`; fields are darker than their ground, buttons lighter. Inks are `text`, `muted` and `tertiary`; hairlines are the soft
+`border` (separators, card edges) and the firm `borderStrong` (a field's outline, a popover's edge).
+Inks and hairlines take a stronger value of their own under Increase Contrast; grounds do not.
 
 A component reads `@Environment(\.surface)` for the ground beneath it, rather than taking a
-`selected` flag to derive colours. `Surface.sidebar`, `.hover`, `.washed`, `.washedHover`, `.accent`
-and `.sheet` supply ink, secondary ink, badge washes and occluding background. The container drawing
-the ground declares it: `RowPill`, `menuRowHighlight`, `SegmentedControl` or a primary button's
-label. The label does not
-repeat the selection decision.
+`selected` flag to derive colours. `Surface.sidebar`, `.hover`, `.washed`, `.washedHover`,
+`.selected`, `.selectedOnSheet`, `.accent` and `.sheet` supply ink, secondary ink, badge washes and
+occluding background. The container drawing the ground declares it: `RowPill`, `menuRowHighlight` or
+`PushButtonStyle`'s primary. The label does not repeat the selection decision.
+Selection is neutral: a selected row lifts its title to white and keeps every mark's colour; only the
+accent (a primary button) turns its content white. Tabs and steps are neutral too: the selected tab is
+its label in `text` over an underline in `text`, the current step a `text` disc. A dropdown's highlighted row is
+a neutral wash on the popup's resting ground.
 
 AiTerm is dark-only. AppKit/SwiftUI hosts, sheets and alerts inherit the same dark appearance.
 
 ## Measurements
 
 Every height, width, radius, spacing and text size comes from `Metrics`: `Space`, `Radius`, `Size`,
-`Typography`, `Sheet`, `Opacity` and `Motion`. Zero is allowed directly. System text styles, AppKit control
-sizes and AppKit corner radii supply the native scales; Space supplies the house rhythm. Equal
+`Typography`, `Sheet`, `Opacity` and `Motion`. Zero is allowed directly. System text styles and AppKit control
+sizes supply the native scales, the radii AppKit's one step rounder; Space supplies the house rhythm. Equal
 numbers across measurement roles are fine: their names let those roles change independently.
 
+The monospaced face (`mono`, `monoCode`, `promptMono`, `monoChip`) is for code alone: branch names,
+commands, hashes, paths, tool calls and their JSON, check output, the prompt editor and a hex value.
+Words, counts, times, keys and keycaps are the system face; where digits change or line up, give the
+style `.tabular` (`Typography.chip.tabular`), which sets tabular figures.
+
 `Opacity.disabled` is the shared disabled fade. Apply it to the part actually disabled: a rejected
-segment, the Oracle-off goal editor, Goal rounds field and Worker questions menu (not their
+segment or tab, the Oracle-off goal editor, Goal rounds field and Worker questions menu (not their
 labels/help), or the entire switched-off
 Oracle group as its pattern specifies.
 
@@ -73,15 +91,19 @@ sizes. Settings' `InterfaceSize` maps to this UI environment.
   `scale(Space.base)`. Geometry rounds to whole points; standard is identity.
 - A `size:` argument already means screen points. The caller scales its token; the callee does not
   scale that argument again. Components scale their own token reads.
+- `PushButtonStyle` scales its own height, radius and padding, so the sidebar's empty state reads
+  `.push(.secondary)` like any sheet does.
 - Borders, hairlines, outline rings and focus rings do not scale. A mark's proportional ring stroke
-  scales with its diameter. `Select` remains a native unscaled bezel.
+  scales with its diameter. `Select` is house chrome over an unscaled native pop-up, and switches
+  and checkboxes are AppKit's own, so sheets stay at standard scale.
 - A sheet-only primitive moved to the sidebar must first scale its own tokens.
 
 Round status marks are rings, never discs: `RingGeometry` supplies the stroke, 15% of their size,
 and the half-stroke inset that keeps a trimmed or centred stroke inside the box (`strokeBorder`
 insets by itself). `StatusMark`, `UsageRing` and `ToneRing` all read it.
 `StatusMark` draws idle, working arc/track, amber input, done and an eight-dash background-work ring
-rotating once per six seconds. Accent-ground marks use the surface's accent ink. Reduce Motion
+rotating once per six seconds. Accent-ground marks use the surface's accent ink; marks on a selected
+row keep their own colours. Reduce Motion
 keeps the shapes and removes rotation.
 
 ## Interaction and accessibility
@@ -100,19 +122,21 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 
 | Type | Responsibility |
 | --- | --- |
-| `Badge` | Shared chip, boxed/quiet styles, icon (optional tint)/diff/suffix, action/menu and accessibility label (words for a count). |
+| `Badge` | Shared chip, boxed/quiet styles, icon (optional tint; brand or label mark ink)/diff/suffix, action/menu and accessibility label (words for a count). |
 | `Icon` / `IconSource` | SF Symbol, branded glyph or full-colour artwork with a fallback; caller supplies size. |
 | `FormField` | Label/control stack with dropdown overhang above following content. |
 | `FrontToBackStack` | Earlier children draw above later ones, including nested overhangs. |
 | `HelpText` | String or composed Text in surface-aware secondary or warning ink; paragraph or inline sizing. |
 | `Input` | Native plain/secure text field in shared chrome; optional caret-at-end on focus, optional `onFocus`, monospaced option. |
 | `SearchField` | Native single-line field that delegates navigation to an open popup first. |
-| `Select` | Native full-column popup button; optional per-value tooltip and selectable predicate, with disabled items retained in the menu; monospaced option. |
-| `SegmentedControl` | Neutral/focus or accent styles, selectable predicate, per-segment tooltip, labels inked for their grounds. |
+| `Select` | `fieldBox` chrome over a borderless native pop-up: AppKit keeps the menu, click and keyboard, the house draws the title and chevrons. Fills its column, or fits its widest title when left to itself. Optional per-value tooltip and selectable predicate, with disabled items retained in the menu; monospaced option. It does not dim itself: whoever disables it fades it. |
+| `SegmentedControl` | A choice among a few values: neutral selected fill, house focus ring, selectable predicate, per-segment tooltip, labels inked for their ground. Not for tabs. |
+| `TabBar` | Underline tabs at the foot of a sheet's header: selected/unselected/rejected per its matrix, one focusable control answering ← →, the focus ring only for keyboard focus, `.isSelected` trait; the command-number keys are the sheet's (`TabShortcuts`). |
 | `Kbd` | Shortcut keycaps using the current surface's ink/wash. |
-| `SidebarHeading` | Micro uppercase tracked heading. |
+| `PushButtonStyle` | The house push button, `.push(.primary)` (accent, declares `.surface(.accent)`) or `.push(.secondary)` (`button` ground, `border` edge); field-shaped, pressed/disabled/focus per its matrix; a native `Button` underneath. |
+| `SidebarHeading` | Sentence-case section heading: `Typography.section` in `Palette.tertiary`, words as given. |
 | `SymbolMark` | SF Symbol on the standard paper/ink disc. |
-| `Hairline` | Shared unscaled border/separator; use instead of a bare Divider. |
+| `Hairline` | Shared unscaled border/separator, soft (`border`) or `.firm` (`borderStrong`, a stepper's connectors); use instead of a bare Divider. |
 
 Foundations are `Palette`/`Brand`, Metrics (`Motion.settle` shares the toast/fold ease-out),
 `TypeStyle`, `Surface`, `InterfaceScale`, `IconSource`, `RingGeometry` (the shared proportional ring

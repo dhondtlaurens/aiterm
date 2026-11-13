@@ -56,6 +56,8 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         initialFrame.size.width = max(initialFrame.width, minimum)
         window = NSWindow(contentRect: initialFrame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "AiTerm"; window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden
+        // The sidebar's ground behind the SwiftUI content too, so a live resize never shows AppKit's.
+        window.backgroundColor = NSColor(Palette.sidebar)
         window.minSize = NSSize(width: minimum, height: 400)
         window.contentView = NSHostingView(rootView: SidebarView(controller: controller))
         window.isReleasedWhenClosed = false

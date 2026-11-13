@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from bisect import insort
 from dataclasses import dataclass, field, fields
 
-from .models import (PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, DisplayWork, RawSession,
+from .models import (CODEX_THREAD_TAG, PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, DisplayWork, RawSession,
                      SessionInfo, SlashCommand, State, StoppedOn, classify_agent)
 
 
@@ -57,7 +58,9 @@ class SessionRegistry:
             if info.agent == old.agent and info.job_pid == old.job_pid:
                 for process_field in fields(SessionInfo):
                     if process_field.metadata.get("process"):
-                        setattr(info, process_field.name, getattr(old, process_field.name))
+                        value = getattr(old, process_field.name)
+                        if process_field.name != "conversation_id" or value is not None:
+                            setattr(info, process_field.name, value)
             if info != old:
                 self._sessions[r.session_id] = info
                 diff.changed.append(r.session_id)
@@ -98,10 +101,11 @@ class SessionRegistry:
             # marks nothing current leaves the last known answer standing instead of
             # un-marking every tab (and broadcasting the churn).
             active=self._window_active.get(r.window_id) == r.session_id,
+            conversation_id=_codex_conversation(r),
         )
 
     # -- mutation owned by the status engine -----------------------------
-    def set_state(self, session_id: str, state: State) -> bool:
+    def set_state(self, session_id: str, state: State, *, preserve_stop: bool = False) -> bool:
         s = self._sessions.get(session_id)
         if s is None or s.state == state:
             return False
@@ -110,7 +114,7 @@ class SessionRegistry:
         if state in ("done", "idle"):
             s.your_prompt = None
         # At work again, or asking: whatever stopped its last turn is over.
-        if state in ("working", "needsInput"):
+        if state in ("working", "needsInput") and not preserve_stop:
             s.stopped_on = None
         return True
 
@@ -217,3 +221,18 @@ class SessionRegistry:
             return None
         order = {sid: index for index, sid in enumerate(self._sessions)}
         return max(sessions, key=lambda s: order[s.session_id])
+
+
+def _codex_conversation(raw: RawSession) -> str | None:
+    """A hook-proven identity kept on this tab, valid only for the same foreground Codex process.
+    This recovers a thread after helper restart without guessing from a shared directory."""
+    if classify_agent(raw.command_line) != "codex" or not raw.job_pid:
+        return None
+    try:
+        saved = json.loads(raw.user_vars.get(CODEX_THREAD_TAG, ""))
+    except (ValueError, TypeError):
+        return None
+    if (isinstance(saved, dict) and type(saved.get("pid")) is int and saved["pid"] == raw.job_pid
+            and isinstance(thread := saved.get("thread"), str) and thread.strip()):
+        return thread
+    return None

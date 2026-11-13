@@ -56,7 +56,7 @@ private struct StatusCountChip: View {
         HStack(spacing: scale(Space.tight)) {
             StatusMark(status: count.status, size: scale(Size.statusMarkSmall))
             Text("\(count.count)")
-                .font(Typography.monoChip)
+                .font(Typography.chip.tabular)
                 .foregroundStyle(ink)
         }
         .padding(.horizontal, scale(Space.tight))

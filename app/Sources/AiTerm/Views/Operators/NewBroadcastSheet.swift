@@ -3,7 +3,7 @@ import AiTermUI
 import AiTermCore
 
 /// New Broadcast… (spec §3.1, the design page's `p-op-new` and `p-bs2-*`): Broadcast · Prompt · Agents · Task · Done on
-/// the shipped `StepBar`, drawn from the creation frame's parts as New Task is (`CreationSteps.broadcast`): Continue on
+/// the shipped `SheetStepper`, at `Sheet.height`, drawn from the creation frame's parts as New Task is (`CreationSteps.broadcast`): Continue on
 /// ⌘↩ through step 4, Back from step 2, Cancel on step 1, and Start Broadcast on step 5, whose failure is the footer's
 /// `Notice` (`CreationFooter`). Step 1 is an optional name, the Jira projects and the projects, which it needs one of;
 /// Prompt is a `PromptStep` editor, whose `/` lists both agents' skills; then `AgentsStep`, `TaskStep` and `DoneStep`.
@@ -23,7 +23,7 @@ struct NewBroadcastSheet: View {
     private var pickers: [Binding<Bool>] { [$jiraOpen, $projectsOpen] }
 
     var body: some View {
-        SteppedSheetFrame(title: NewBroadcastModel.title, step: step, stepNames: NewBroadcastModel.stepNames,
+        SteppedSheetFrame(title: NewBroadcastModel.title, height: Sheet.height, step: step, stepNames: NewBroadcastModel.stepNames,
                           onBackgroundTap: closeLists) {
             content
             if Self.steps.showsDestination(onStep: step) { DestinationLine(NewBroadcastModel.destination) }

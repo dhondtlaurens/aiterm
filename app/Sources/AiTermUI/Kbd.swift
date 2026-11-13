@@ -4,7 +4,7 @@ import SwiftUI
 ///
 /// Pass the glyphs macOS menus use: `⌘`, `↩` (U+21A9, not U+23CE — which reads heavier at this
 /// size), `⎋`, `⇧`. The caps ink for the ground they sit on, read from `@Environment(\.surface)`:
-/// on the accent — a primary button's label declares `.surface(.accent)` — `Palette.onAccent` on
+/// on the accent — `PushButtonStyle`'s primary declares `.surface(.accent)` — `Palette.onAccent` on
 /// the keycap washes, which only hold against the accent; anywhere else the surface's ink on its
 /// badge wash, edged in the hairline, as the Keyboard settings list has them.
 public struct Kbd: View {
@@ -41,6 +41,7 @@ public struct Kbd: View {
             // Keep the cap native-sized and its stroke above the glyph. The outer font modifier
             // still reads the caller's scale, before this cap's geometry resets to standard.
             .interfaceScale(.standard)
-            .font(Typography.mono)
+            // Keycaps are glyphs, not code: the system face, in the help size.
+            .font(Typography.help)
     }
 }

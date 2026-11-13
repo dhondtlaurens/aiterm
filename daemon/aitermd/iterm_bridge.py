@@ -20,7 +20,7 @@ from .iterm_port import (ItermApiIncompatible as ItermApiIncompatible, ItermAuth
                          ItermUnavailable as ItermUnavailable, KeystrokeCallback, TypedScreen as TypedScreen)
 from .screens import screen_string as screen_string, typed_line as typed_line
 from .iterm_port import SessionNotFound
-from .models import PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, TITLE_TAG, Frame, RawSession
+from .models import CODEX_THREAD_TAG, PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, TITLE_TAG, Frame, RawSession
 from .offload import run_detached
 from .process_agents import resolve_agents
 
@@ -29,11 +29,14 @@ log = logging.getLogger(__name__)
 _MODIFIER_NAMES = {iterm2.api_pb2.Modifiers.CONTROL: "control", iterm2.api_pb2.Modifiers.OPTION: "option",
                    iterm2.api_pb2.Modifiers.COMMAND: "command", iterm2.api_pb2.Modifiers.SHIFT: "shift"}
 VARIABLES = ("commandLine", "jobPid", "autoName", "path", f"user.{TASK_TAG}", f"user.{PROJECT_TAG}", f"user.{TERMINAL_TAG}",
-             f"user.{TAB_TAG}")
+             f"user.{TAB_TAG}", f"user.{CODEX_THREAD_TAG}")
 # How long one bridge call may wait on iTerm2. The library resolves a request only when its reply
 # arrives, and pings nothing, so an iTerm2 that hangs would hold the caller -- and a tick holds
 # the service's tick lock -- for good.
 ITERM_CALL_SECONDS = 10.0
+# What "Use dark terminal background" paints AiTerm's windows, as 8-bit RGB: #17181B, the app's
+# sidebar ground (`Palette.sidebar`), so the terminal and the sidebar read as one surface.
+AITERM_BACKGROUND = (0x17, 0x18, 0x1B)
 P = ParamSpec("P")
 T = TypeVar("T")
 
@@ -678,9 +681,9 @@ class ItermBridge:
                     if session_id not in self._background_restore_profiles:
                         self._background_restore_profiles[session_id] = await session.async_get_profile()
                     change = iterm2.LocalWriteOnlyProfile()
-                    color = iterm2.Color(30, 30, 30)
-                    # Populate every iTerm2 profile slot so the requested #1E1E1E background
-                    # stays fixed regardless of iTerm2's own appearance settings.
+                    color = iterm2.Color(*AITERM_BACKGROUND)
+                    # Populate every iTerm2 profile slot so the requested background stays fixed
+                    # regardless of iTerm2's own appearance settings.
                     change.set_background_color(color)
                     change.set_background_color_light(color)
                     change.set_background_color_dark(color)
@@ -729,8 +732,9 @@ class ItermBridge:
     @staticmethod
     def _raw_session(placement: _Placement, values: list[Any]) -> RawSession:
         s, window_id, tab_index, active = placement
-        cmd, pid, title, path, task, project, terminal, tab = values
-        user_vars = {k: v for k, v in ((TASK_TAG, task), (PROJECT_TAG, project), (TERMINAL_TAG, terminal), (TAB_TAG, tab)) if v}
+        cmd, pid, title, path, task, project, terminal, tab, thread = values
+        user_vars = {k: v for k, v in ((TASK_TAG, task), (PROJECT_TAG, project), (TERMINAL_TAG, terminal), (TAB_TAG, tab),
+                                     (CODEX_THREAD_TAG, thread)) if v}
         return RawSession(s.session_id, window_id, tab_index, cmd, int(pid) if pid else None, title or "", path or "", user_vars,
                           active=active)
 

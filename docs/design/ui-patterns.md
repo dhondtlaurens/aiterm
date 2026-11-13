@@ -31,8 +31,8 @@ vocabulary. `SidebarBannerText`, `ToastView`, `Notice` and `FixOfferLabel` reuse
 for messages. Amber means the person needs to act, not that the Operator is busy accepting work.
 
 `DecodeWordsView` uses the words' own ink without a glow. Unsettled characters cycle through
-letters/digits of their own case, keeping the settled text's width. `OperatorTitle` decodes OPERATOR
-into the Operator row's actual line, uppercased: immediately for a new act (`OperatorLine.isAct`),
+letters/digits of their own case, keeping the settled text's width. `OperatorTitle` decodes "Operator"
+into the Operator row's actual line, in that line's own case (headings are sentence case): immediately for a new act (`OperatorLine.isAct`),
 and after an unchanged quiet interval for the line then shown. It returns home under the pointer
 and remains still while paused, ended, needing input, with the Operator window closed, under
 Reduce Motion and in snapshots. Keep this shared line as the source of the heading's words.
@@ -45,11 +45,17 @@ Mac readings stay neutral unless platform warning signals warrant amber.
 ## Sheets and creation
 
 `SidebarSheet` fixes native scale. `SheetLayout`, `SheetSubtitle`, `SheetFooter` and
-`SheetPrimaryButton` own the title/band/content/actions anatomy. A primary button shows ⌘Return;
+`SheetPrimaryButton` own the header/content/actions anatomy. The header is the title row (the title,
+cut in its middle, and an optional trailing accessory) and optional lines under it: a subtitle, the
+Shelf's search, the board's status and brief, a `TabBar` standing on the header's rule. A sheet of a few
+fields is as tall as its content up to `Sheet.height` (`SheetHeight.fitting`: `NameSheet`, Unplugged);
+a stepped flow and a sheet whose content scrolls take one fixed height (`SheetHeight.fixed`). A primary button shows ⌘Return;
 plain Return remains with its field. `DestinationLine` states the real target window/worktree.
 `CreationSheet` and `CreationFooter` share steps, destination, command preview, recovery and Fix
-presentation for task/review creation. `SteppedSheetFrame` is the step bar, front-to-back content and
-footer frame of `CreationSheet` and `NewBroadcastSheet`, and knows nothing of their models. `StepBar` names the current step; it is not arbitrary step
+presentation for task/review creation. `SteppedSheetFrame` is the stepper, front-to-back content and
+footer frame of `CreationSheet` (`Sheet.creationHeight` on every step) and `NewBroadcastSheet`
+(`Sheet.height`), and knows nothing of their models. `SheetStepper` sits in the title row: earlier
+steps ticked, the current one named, later ones numbered, all neutral; it is not arbitrary step
 navigation. `AgentSegmented`, `AgentSegmentLabel`, `ModelReasoningFields`, `CommandPreview` and
 `CommandBlock` are the existing agent/command building blocks.
 
@@ -106,8 +112,8 @@ summary/goal outcome. Pause/Resume, End and Close share the sheet footer across 
 
 ## Settings and native seams
 
-The Settings tab bar is the accent `SegmentedControl`; `TabShortcuts` gives it, and the board's tabs,
-their ⌘-number keys. Fields/cards use the shared chrome and
+Settings' tabs and the board's are the underline `TabBar` on the header's rule; `TabShortcuts` gives
+them their ⌘-number keys. Fields/cards use the shared chrome and
 native text/popup controls. Credentials remain secure Input fields; changes wait for Save except
 explicit immediate actions and interface-size preview. Use existing integration card/check patterns
 for new settings. AppKit bridges retain weak coordinator links and native focus/editing semantics.

@@ -3,14 +3,16 @@ import AiTermCore
 
 /// Watches that each worker commits on its task branch (`BranchDrift`), on every reconcile tick: the
 /// worktree's HEAD is read, and once a worker tab (`WorkerTab`) is idle at its prompt or done, the SHAs its
-/// last message names are looked up in the repository. A transcript is read again only once it was written
+/// last message names are looked up in the repository. An earlier message warning's commit is rechecked even while the worker works,
+/// so a merge bringing it onto the task branch clears it. References held by another task's branch in
+/// the same broadcast and project are not attributed to this worker. A transcript is read again only once it was written
 /// since it was last read, by this watch or the turn reader (`TranscriptLocator.reply`): an idle tab's is the same
 /// 512 KB tail every tick otherwise. What it finds is kept on the task, shown in `run_status`, and a newly found drift wakes the
 /// Operator once: `[AiTerm] PAY-2 committed off its task branch, call run_status`. A task taken over, not
 /// at work, or in a broadcast paused or ended, is not read. A changed task-branch head resets its
 /// no-commit clock. The checked callback decides limits after each read, including one with no progress. What a message
-/// names is looked up once for its words, the worktree's head and the repository's refs as they were then (`Lookup`):
-/// a pass that finds all three as they were asks git only for the head and the refs.
+/// names is looked up once for its words, the worktree's head, the repository's refs and sibling branch ownership (`Lookup`):
+/// a pass that finds them unchanged asks git only for the head and the refs.
 @MainActor
 final class BranchWatch {
     private let workspace: WorkspaceStore
@@ -21,8 +23,8 @@ final class BranchWatch {
     private let pass: TickPass
     /// What each watched task's messages named, as last looked up, by task: only the last pass's are kept.
     private var lookups: [UUID: [Lookup: [BranchDrift.Named]]] = [:]
-    /// A message's lookup holds while its words, the head and the refs are the same.
-    private struct Lookup: Hashable, Sendable { let message: String, head: String?, refs: String }
+    /// A message's lookup holds while its words, the head, refs and sibling branch ownership are the same.
+    private struct Lookup: Hashable, Sendable { let message: String, head: String?, refs: String, taskBranches: Set<String> }
     /// A fresh read finished, including one with no progress or an unreadable head.
     var checked: @MainActor (UUID) -> Void = { _ in }
 
@@ -66,25 +68,35 @@ final class BranchWatch {
         }
         let git = ports.git, transcripts = self.transcripts, worktree = task.worktreePath
         let branch = task.branch, base = task.baseBranch, known = lookups[id] ?? [:]
+        let taskBranches = Set(state.tasks(inRun: operated.runId).filter { $0.projectId == task.projectId && $0.id != id }.map(\.branch)
+            + (state.run(id: operated.runId)?.finished.filter { $0.project == task.projectId && $0.task != id }.map(\.branch) ?? []))
+            .subtracting([branch])
+        let previous = operated.branchDrift
+        let rechecking = conversations.isEmpty && previous?.source == .lastMessage ? previous?.sha : nil
+        // Keep all the last ended messages' evidence while the worker carries on. Resolving the
+        // first warned commit must not drop another off-branch commit from the same report.
+        let priorMessages = Array(Set(known.keys.map(\.message))).sorted()
         let reading = await BackgroundWork.run {
             let head = Self.head(in: worktree, git: git)
-            let messages = conversations.compactMap { transcripts.reply(agent: $0.agent, conversation: $0.id).reply?.text }
+            let messages = rechecking.map { priorMessages.isEmpty ? [$0] : priorMessages }
+                ?? conversations.compactMap { transcripts.reply(agent: $0.agent, conversation: $0.id).reply?.text }
             // The refs are read only for a message that names something to look up, and only once.
             let refs = messages.contains { !BranchDrift.shaCandidates(in: $0).isEmpty } ? Self.refs(in: worktree, git: git) : nil
             var looked: [Lookup: [BranchDrift.Named]] = [:]
-            let named: [BranchDrift.Named]? = conversations.isEmpty ? nil : messages.flatMap { message -> [BranchDrift.Named] in
-                guard let refs else { return Self.named(in: message, branch: branch, base: base, worktree: worktree, git: git) }
-                let key = Lookup(message: message, head: head?.sha, refs: refs)
-                if let kept = looked[key] ?? known[key] {
+            var complete = true
+            let named: [BranchDrift.Named]? = conversations.isEmpty && rechecking == nil ? nil : messages.flatMap { message -> [BranchDrift.Named] in
+                let key = refs.map { Lookup(message: message, head: head?.sha, refs: $0, taskBranches: taskBranches) }
+                if let key, let kept = looked[key] ?? known[key] {
                     looked[key] = kept
                     return kept
                 }
                 // Kept only when git answered every question: a lookup it could not finish is asked again next pass.
-                let found = Self.lookUp(in: message, branch: branch, base: base, worktree: worktree, git: git)
-                if found.complete { looked[key] = found.named }
+                let found = Self.lookUp(in: message, branch: branch, base: base, worktree: worktree, git: git, taskBranches: taskBranches)
+                complete = complete && found.complete
+                if found.complete, let key { looked[key] = found.named }
                 return found.named
             }
-            return (head: head, named: named, looked: looked)
+            return (head: head, named: rechecking != nil && !complete ? nil : named, looked: looked)
         }
         guard !Task.isCancelled else { return }
         lookups[id] = reading.looked
@@ -145,7 +157,7 @@ final class BranchWatch {
     /// (`Repository.detectDefaultBranch`): git failing there is read as the fallback default for this pass, and kept as
     /// nothing.
     nonisolated static func lookUp(in message: String, branch: String, base: String, worktree: String,
-                                   git: any GitRunning) -> (named: [BranchDrift.Named], complete: Bool) {
+                                   git: any GitRunning, taskBranches: Set<String> = []) -> (named: [BranchDrift.Named], complete: Bool) {
         var complete = true
         func ask(_ args: [String], none: Set<Int32>) -> Answer {
             let answer = Self.ask(args, in: worktree, none: none, git: git)
@@ -181,6 +193,9 @@ final class BranchWatch {
             let refs = listed.split(separator: "\n").map(String.init)
             let branches = refs.compactMap { $0.hasPrefix("refs/heads/") ? String($0.dropFirst("refs/heads/".count)) : nil }.filter { $0 != branch }
             guard held == nil else { return BranchDrift.Named(text: text, commit: commit, onTaskBranch: true, branches: branches) }
+            if !Set(branches).isDisjoint(with: taskBranches) {
+                return BranchDrift.Named(text: text, commit: commit, onTaskBranch: false, branches: branches, onOtherTaskBranch: true)
+            }
             // Rewrites leave the old object readable. A previous head of this exact task branch is
             // history when no live branch retains it. Work retained on another branch still needs
             // attention unless its patch is already present. Reflogs can expire, so also ask git whether the

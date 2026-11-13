@@ -53,9 +53,10 @@ struct InterfaceSettingsPane: View {
 
     private var backgroundToggle: some View {
         HStack(alignment: .top, spacing: Space.gap) {
+            // The colour the switch paints AiTerm's terminals: the sidebar's own ground.
             Color.clear.frame(width: Self.swatch, height: Self.swatch)
-                .groupChrome()
-                .overlay(Text("#1E").font(Typography.monoChip).foregroundStyle(Palette.muted))
+                .groupChrome(fill: Palette.sidebar)
+                .overlay(Text("#17").font(Typography.monoChip).foregroundStyle(Palette.muted))
             VStack(alignment: .leading, spacing: Space.tight) {
                 Text("Use dark terminal background")
                     .font(Typography.bodyEmphasis).foregroundStyle(Palette.text)
@@ -79,31 +80,45 @@ struct InterfaceSettingsPane: View {
     }
 
     /// A `Grid` rather than stacked rows so every title starts after the widest preview, `+12 −3`,
-    /// without a measured column width.
+    /// without a measured column width. The brand colours come last: the one switch about the marks
+    /// themselves, which every preview above it follows.
     private var badgeGroup: some View {
         SettingsGroup(title: "Sidebar badges",
-                      help: "Turn one off to show only its mark. Clicking it and its tooltip still work.") {
+                      help: "Turn a detail off to show only its mark. Clicking it and its tooltip still work.") {
             Grid(alignment: .leading, horizontalSpacing: Space.gap, verticalSpacing: Space.gap) {
-                ForEach(Array(BadgeDetailSwitch.all.enumerated()), id: \.element.id) { index, item in
-                    if index > 0 { Hairline() }
-                    badgeRow(item)
+                ForEach(BadgeDetailSwitch.all) { item in
+                    let on = badgeDetails[dynamicMember: item.detail]
+                    badgeRow(title: item.title, help: item.help, isOn: on) {
+                        Badge(on.wrappedValue ? item.label : nil, icon: .brand(item.brand),
+                              diff: on.wrappedValue ? item.diff : nil, style: .quiet, markInk: markInk)
+                    }
+                    Hairline()
+                }
+                badgeRow(title: "Brand colours", help: "Draws each mark in its own colours instead of the ink of its row",
+                         isOn: badgeDetails.brandColours) {
+                    Badge(icon: .brand(Palette.jira), style: .quiet, markInk: markInk)
                 }
             }
         }
     }
 
+    private var markInk: Badge.MarkInk { badgeDetails.wrappedValue.markInk }
+
     /// The preview is the sidebar's own `Badge`, following its switch before Save.
-    private func badgeRow(_ item: BadgeDetailSwitch) -> some View {
-        let on = badgeDetails[dynamicMember: item.detail]
-        return GridRow(alignment: .top) {
-            Badge(on.wrappedValue ? item.label : nil, icon: .brand(item.brand),
-                  diff: on.wrappedValue ? item.diff : nil, style: .quiet)
+    private func badgeRow(title: String, help: String, isOn: Binding<Bool>, @ViewBuilder preview: () -> some View) -> some View {
+        GridRow(alignment: .top) {
+            preview()
             VStack(alignment: .leading, spacing: Space.tight) {
-                Text(item.title).font(Typography.bodyEmphasis).foregroundStyle(Palette.text)
-                HelpText(item.help)
+                Text(title).font(Typography.bodyEmphasis).foregroundStyle(Palette.text)
+                HelpText(help)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            SettingsSwitch(title: item.title, isOn: on)
+            SettingsSwitch(title: title, isOn: isOn)
         }
     }
+}
+
+extension BadgeDetails {
+    /// How the sidebar's badges ink their marks: with their words unless the brand colours are on.
+    var markInk: Badge.MarkInk { brandColours ? .own : .label }
 }

@@ -30,8 +30,6 @@ struct SettingsCard<Mark: View, Chips: View, Actions: View, Content: View>: View
 
     /// The mark matches the actions beside it, so the header's two ends share one height.
     static var markSize: CGFloat { Size.control }
-    /// Every button in a sheet is a `Size.control` control — the footer's Cancel and Save included.
-    static var actionControlSize: ControlSize { .large }
 
     init(title: String, status: SettingsStatus,
          @ViewBuilder mark: () -> Mark,
@@ -73,8 +71,9 @@ struct SettingsCard<Mark: View, Chips: View, Actions: View, Content: View>: View
                 }
             }
             Spacer(minLength: Space.base)
+            // Every action is the house secondary button, `Size.control` tall like the footer's Cancel and Save.
             HStack(spacing: Space.base) { actions }
-                .controlSize(Self.actionControlSize)
+                .buttonStyle(.push(.secondary))
         }
     }
 }
@@ -180,8 +179,8 @@ struct IntegrationMark: View {
     }
 }
 
-/// Numbered steps below a card's rule, or on a sheet: a `Typography.mono` number in
-/// `Palette.muted` beside a `Typography.caption` step, `Space.snug` apart. The iTerm2 card's mending
+/// Numbered steps below a card's rule, or on a sheet: a `Typography.help.tabular` number in
+/// `Palette.muted` beside a `Typography.caption` step, `Space.base` apart. The iTerm2 card's mending
 /// steps, the Mac card's missing permissions and the Backpack sheet's phone steps.
 struct NumberedSteps: View {
     let steps: [String]
@@ -197,7 +196,7 @@ struct NumberedSteps: View {
         VStack(alignment: .leading, spacing: Space.snug) {
             ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                 HStack(alignment: .firstTextBaseline, spacing: Space.base) {
-                    Text("\(index + 1)").font(Typography.mono).foregroundStyle(Palette.muted)
+                    Text("\(index + 1)").font(Typography.help.tabular).foregroundStyle(Palette.muted)
                     Text(step).font(Typography.caption).foregroundStyle(receded ? Palette.muted : Palette.text)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)

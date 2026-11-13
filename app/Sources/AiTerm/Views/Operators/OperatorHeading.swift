@@ -2,9 +2,9 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// `OPERATOR`, above `PROJECTS` (spec §3, §13; 28 Oct 2026). With no broadcast it is a `SidebarHeading` and its "+",
+/// Operator, above Projects (spec §3, §13; 28 Oct 2026). With no broadcast it is a `SidebarHeading` and its "+",
 /// an `AddMenu` with New Broadcast…, also in File on ⌘B. Once one exists, one at a time, the heading carries
-/// what the broadcast's header row did: its progress `Space.gap` after the word in `Typography.monoChip`
+/// what the broadcast's header row did: its progress `Space.gap` after the word in `Typography.chip.tabular`
 /// (`paused · 2 of 8` while paused), and the board button in the "+"'s slot. The word decodes into what the
 /// Operator does (`OperatorTitle`). The broadcast's menu (Open Board, Rename…, Pause or Resume, End Broadcast…) is its
 /// context menu, and its lead row's (`OperatorRowView`); its tooltip is the broadcast's projects and status line.
@@ -114,7 +114,7 @@ struct OperatorHeading: View {
     }
 }
 
-/// The broadcast's menu, the OPERATOR heading's and its lead row's: Open Board, Rename…, Pause or Resume Broadcast,
+/// The broadcast's menu, the Operator heading's and its lead row's: Open Board, Rename…, Pause or Resume Broadcast,
 /// End Broadcast…, greyed but Open Board while the workspace is locked. It reads the broadcast itself, so the lead
 /// row it is the menu of is not redrawn when its progress moves.
 struct BroadcastMenu: View {
@@ -131,13 +131,13 @@ struct BroadcastMenu: View {
     }
 }
 
-/// OPERATOR's word (28 Oct 2026), saying what the Operator does (29 Oct 2026): while `decodes`, it decodes into the
-/// Operator row's `line`, uppercased, over `decodeDuration`, holds it `hold` and decodes back. It does so as soon as
+/// The Operator heading's word (28 Oct 2026), saying what the Operator does (29 Oct 2026): while `decodes`, it decodes
+/// into the Operator row's `line`, in that line's own case (sentence-case headings, 13 Nov 2026), over `decodeDuration`, holds it `hold` and decodes back. It does so as soon as
 /// the line turns to a new act (`OperatorLine.isAct`: `answering Claude · PAY-231`, `consulting the Oracle`), a
 /// newer act during the hold decoding straight into it; and once the line has stood unchanged for `rest` (20–60 s),
 /// into the line as it stands (`watching 3 tasks`, `working`), again after every such quiet stretch. Under the
-/// pointer (`hovering`, the heading's) it decodes straight back to OPERATOR, over `hoverDuration`, and changes no
-/// more until the pointer leaves. Drawn by `DecodeWordsView` in the heading's micro face, tracking and muted ink,
+/// pointer (`hovering`, the heading's) it decodes straight back to "Operator", over `hoverDuration`, and changes no
+/// more until the pointer leaves. Drawn by `DecodeWordsView` in the heading's face (`SidebarHeading.style`) and ink,
 /// laid out by the word it decodes into and cut with an ellipsis; still under Reduce Motion and in the snapshots.
 /// VoiceOver always reads "Operator".
 struct OperatorTitle: View {
@@ -155,11 +155,11 @@ struct OperatorTitle: View {
     /// How long a decode takes each way, in seconds: slower than a line's (`OperatorBadge.decodeDuration`), since a
     /// whole new word arrives.
     static let decodeDuration = 0.9
-    /// How long it takes back to OPERATOR under the pointer, in seconds.
+    /// How long it takes back to "Operator" under the pointer, in seconds.
     static let hoverDuration = 0.35
     /// How long a word stands before it decodes back, in seconds.
     static let hold = 3.0
-    /// How long the line stands unchanged, and OPERATOR with it, before the word says it anyway, in seconds:
+    /// How long the line stands unchanged, and "Operator" with it, before the word says it anyway, in seconds:
     /// irregular, so it never reads as a loop.
     static let rest: ClosedRange<Double> = 20...60
 
@@ -172,17 +172,16 @@ struct OperatorTitle: View {
     var body: some View {
         let animates = motionStill == nil
         let running = decodes && animates && !hovering
-        let text = Text(word).font(Typography.micro).kerning(SidebarHeading.tracking).textCase(.uppercase)
-            .lineLimit(1).truncationMode(.tail)
+        let text = Text(word).font(SidebarHeading.style).lineLimit(1).truncationMode(.tail)
         Group {
             if animates {
                 // Laid out by the word, drawn by the decode's own view: a frame is never a SwiftUI update.
                 text.opacity(0).overlay {
-                    DecodeWords(text: word.uppercased(), font: Typography.micro.scaled(by: scale).nsFont, ink: Palette.muted,
-                                duration: duration, kerning: SidebarHeading.tracking, decodesFirst: false)
+                    DecodeWords(text: word, font: SidebarHeading.style.scaled(by: scale).nsFont, ink: SidebarHeading.ink,
+                                duration: duration, decodesFirst: false)
                 }
             } else {
-                text.foregroundStyle(Palette.muted)
+                text.foregroundStyle(SidebarHeading.ink)
             }
         }
         .onChange(of: hovering) { _, hovering in
@@ -196,7 +195,7 @@ struct OperatorTitle: View {
     static func says(_ line: OperatorLine, said: OperatorLine?) -> Bool { line.isAct && line != said }
 
     /// The line's act at once, then the line after every quiet stretch, until it is cancelled by a new line or by
-    /// stopping; OPERATOR again once it stops, or once the line is no longer the act it says.
+    /// stopping; "Operator" again once it stops, or once the line is no longer the act it says.
     private func cycle(running: Bool, line: OperatorLine) async {
         guard running else {
             if word != Self.home { duration = Self.hoverDuration; word = Self.home }
@@ -218,7 +217,7 @@ struct OperatorTitle: View {
         }
     }
 
-    /// The line, held, then OPERATOR.
+    /// The line, held, then "Operator".
     private func say(_ line: OperatorLine) async {
         duration = Self.decodeDuration
         word = line.text
@@ -245,13 +244,13 @@ struct SectionFoldChevron: View {
     }
 }
 
-/// The heading's progress, in `Typography.monoChip` and its surface's secondary ink: it keeps its width.
+/// The heading's progress, in `Typography.chip.tabular` and its surface's secondary ink: it keeps its width.
 struct HeaderProgress: View {
     let text: String
     @Environment(\.surface) private var surface
 
     var body: some View {
-        Text(verbatim: text).font(Typography.monoChip).foregroundStyle(surface.secondaryInk).lineLimit(1).fixedSize()
+        Text(verbatim: text).font(Typography.chip.tabular).foregroundStyle(surface.secondaryInk).lineLimit(1).fixedSize()
     }
 }
 

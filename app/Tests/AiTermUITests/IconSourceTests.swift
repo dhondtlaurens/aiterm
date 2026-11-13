@@ -42,12 +42,12 @@ struct IconSourceTests {
         }
     }
 
-    /// An untinted symbol inks for the surface it sits on: full white on the accent, the label ink
-    /// (≈85 % white) anywhere else.
+    /// An untinted symbol inks for the surface it sits on: full white on the accent, the text ink
+    /// (`#ECEDEF`, just short of white) anywhere else.
     @Test func anUntintedSymbolTakesTheSurfaceInk() throws {
         let onAccent = try #require(brightestPixel(of: Icon(.symbol("circle.fill"), size: 12).surface(.accent)))
         let onSheet = try #require(brightestPixel(of: Icon(.symbol("circle.fill"), size: 12).surface(.sheet)))
         #expect(onAccent.redComponent > 0.97)
-        #expect(onSheet.redComponent < 0.9)
+        #expect(abs(onSheet.redComponent - 0xEC / 255.0) < 0.01, "\(onSheet.redComponent)")
     }
 }

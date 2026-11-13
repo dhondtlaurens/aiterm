@@ -132,8 +132,8 @@ struct SettingsView: View {
     }
 
     private func sheet(_ scroll: ScrollViewProxy) -> some View {
-        SheetLayout(title: "Settings", height: Sheet.settingsHeight) {
-            tabBar
+        SheetLayout(title: "Settings", height: .fixed(Sheet.settingsHeight), headerEndsInTabs: true) {
+            tabBar.padding(.top, Space.base)
         } content: {
             settingsContent(scroll)
         } footer: {
@@ -142,7 +142,7 @@ struct SettingsView: View {
                 if let result { Text(result).font(Typography.caption).foregroundStyle(Palette.muted).lineLimit(2) }
             }
         }
-        // ⌘1–⌘4, on hidden buttons: a view carries one shortcut, and the tab bar's segments are
+        // ⌘1–⌘4, on hidden buttons: a view carries one shortcut, and the tab bar's tabs are
         // not buttons of their own.
         .modifier(TabShortcuts(items: SettingsTab.allCases, title: \.rawValue, key: \.key, select: select))
 
@@ -187,16 +187,11 @@ struct SettingsView: View {
         }
     }
 
-    /// The same `SegmentedControl` the agent picker uses, in its accent style — which keeps keyboard
-    /// focus without the outer ring — and clears the result when the selected tab changes.
+    /// Underline tabs on the header's rule (`TabBar`), ← and → among them while it has the keyboard; a
+    /// pick clears the result, as ⌘1–⌘4 do.
     private var tabBar: some View {
-        SegmentedControl(values: SettingsTab.allCases,
-                       selection: Binding(get: { tab }, set: { select($0) }),
-                       style: .accent) { item, _ in
-            // Weight never changes with the selection: it is already communicated by the blue fill,
-            // and changing weight too would make the tab label heavier than the primary action
-            // beside it. The control inks the label: white on the accent, secondary off it.
-            Text(item.rawValue).font(Typography.body)
+        TabBar(values: SettingsTab.allCases, selection: Binding(get: { tab }, set: { select($0) })) { item in
+            Text(item.rawValue)
         }
     }
 

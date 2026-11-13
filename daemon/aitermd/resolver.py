@@ -101,12 +101,13 @@ class SessionResolver:
                 return s.session_id
         return None
 
-    def bind(self, iterm_session_id: str, agent: AgentKind, session_id: str | None, hook_event: str | None = None) -> None:
+    def bind(self, iterm_session_id: str, agent: AgentKind, session_id: str | None, hook_event: str | None = None, *,
+             authoritative: bool = True) -> None:
         """Records what a resolved post says about its tab: the pin, and for Codex the thread."""
         if not session_id:
             return
         self._pins[(agent, session_id)] = iterm_session_id
-        if agent != "codex":
+        if agent != "codex" or not authoritative or hook_event in ("SubagentStart", "SubagentStop"):
             return
         session = self.registry.get(iterm_session_id)
         pid = session.job_pid if session else None
@@ -129,9 +130,12 @@ class SessionResolver:
 
     def codex_thread(self, iterm_session_id: str) -> str | None:
         binding = self._codex.get(iterm_session_id)
+        session = self.registry.get(iterm_session_id)
+        if binding is None and session is not None and session.agent == "codex" and session.conversation_id:
+            # SessionRegistry restored the tab's hook-proven, process-bound identity.
+            binding = self._codex[iterm_session_id] = CodexBinding(session.conversation_id, session.job_pid, None)
         if binding is None:
             return None
-        session = self.registry.get(iterm_session_id)
         if session is None or session.agent != "codex":
             del self._codex[iterm_session_id]
             return None

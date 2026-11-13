@@ -12,8 +12,9 @@ struct ToastView: View {
             .foregroundStyle(Palette.text)
             .padding(.horizontal, scale(Space.gap))
             .padding(.vertical, scale(Space.base))
-            .background(Palette.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(Palette.border, lineWidth: 1))
+            // It floats over the sidebar, so it is a popover's ground and edge, as `menuChrome` draws them.
+            .background(Palette.menu, in: Capsule())
+            .overlay(Capsule().strokeBorder(Palette.borderStrong, lineWidth: 1))
             .shadow(color: .black.opacity(0.28), radius: 8, y: 3)
             .accessibilityAddTraits(.isStaticText)
     }

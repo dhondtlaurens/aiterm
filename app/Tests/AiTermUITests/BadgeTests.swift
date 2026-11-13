@@ -9,35 +9,58 @@ struct BadgeTests {
         // Resting on the sidebar and resting on a selected row are different washes; the badge
         // reads that from the environment rather than taking a flag.
         #expect(Badge.fill(surface: .sidebar, hovered: false) == Palette.badge)
+        #expect(Badge.fill(surface: .selected, hovered: false) == Palette.badgeSelected)
+        #expect(Badge.fill(surface: .selectedOnSheet, hovered: false) == Palette.badgeSelected)
         #expect(Badge.fill(surface: .accent, hovered: false) == Palette.badgeSelected)
     }
 
     @Test func theFillStrengthensOnHover() {
         // Both buttons on a subtitle line answer to the pointer, on either surface.
         #expect(Badge.fill(surface: .sidebar, hovered: true) == Palette.badgeHovered)
+        #expect(Badge.fill(surface: .selected, hovered: true) == Palette.badgeSelectedHovered)
         #expect(Badge.fill(surface: .accent, hovered: true) == Palette.badgeSelectedHovered)
     }
 
     @Test func aBoxedLabelTakesTheSurfaceInk() {
         #expect(Badge.labelInk(surface: .sidebar) == Surface.sidebar.ink)
+        #expect(Badge.labelInk(surface: .selected) == Surface.selected.ink)
         #expect(Badge.labelInk(surface: .accent) == Surface.accent.ink)
     }
 
     @Test func theIconTintTurnsWhiteOnlyOnTheAccent() {
         // A brand mark keeps its own vendor colour off the accent (nil tint, `Icon` falls back to
-        // `brand.hex`) and turns plain white on a selected row, exactly like the label above.
+        // `brand.hex`) — a selected row included, which is neutral — and turns plain white on the
+        // accent, exactly like the label above.
         #expect(Badge.iconTint(surface: .sidebar) == nil)
         #expect(Badge.iconTint(surface: .hover) == nil)
+        #expect(Badge.iconTint(surface: .selected) == nil)
+        #expect(Badge.iconTint(surface: .selectedOnSheet) == nil)
         #expect(Badge.iconTint(surface: .sheet) == nil)
         #expect(Badge.iconTint(surface: .accent) == Palette.onAccent)
     }
 
     @Test func aStatusTintColoursTheIconOffTheAccentOnly() {
-        // A Settings check chip inks its checkmark green or its warning amber. On a selected row
-        // everything still turns white, so the override yields to the accent like the label does.
+        // A Settings check chip inks its checkmark green or its warning amber, a selected row's
+        // too. On the accent everything still turns white, so the override yields like the label does.
         #expect(Badge.iconTint(surface: .sheet, override: Palette.green) == Palette.green)
         #expect(Badge.iconTint(surface: .sidebar, override: Palette.amber) == Palette.amber)
+        #expect(Badge.iconTint(surface: .selected, override: Palette.amber) == Palette.amber)
         #expect(Badge.iconTint(surface: .accent, override: Palette.green) == Palette.onAccent)
+    }
+
+    /// The sidebar's badge line inks its vendor marks with its words (`markInk: .label`): a quiet badge's
+    /// secondary ink on every ground off the accent, a selected row's included, and white on the accent.
+    /// Everywhere else the default `.own` keeps the brand's colour, and a check chip's override still wins.
+    @Test func aMarkInkedWithItsLabelTakesTheQuietInk() {
+        for surface in [Surface.sidebar, .hover, .selected, .washed] {
+            #expect(Badge.iconTint(surface: surface, markInk: .label, style: .quiet) == surface.secondaryInk)
+            #expect(Badge.iconTint(surface: surface, markInk: .own, style: .quiet) == nil, "brand colour by default")
+        }
+        #expect(Badge.iconTint(surface: .accent, markInk: .label, style: .quiet) == Palette.onAccent)
+        #expect(Badge.iconTint(surface: .sidebar, override: Palette.green, markInk: .label, style: .quiet) == Palette.green)
+        // The diff keeps its green and red beside a mark inked with its words.
+        #expect(Badge.diffInk(surface: .sidebar, side: .added) == Palette.diffAdded)
+        #expect(Badge.diffInk(surface: .sidebar, side: .removed) == Palette.diffRemoved)
     }
 
     @Test func aDiffReadsAsSignedCountsWithAnEmptySideLeftOut() {
@@ -52,10 +75,12 @@ struct BadgeTests {
     }
 
     @Test func diffCountsAreGreenAndRedOffTheAccentOnly() {
-        // Additions green, removals red, on every ground but a selected row — where, like the icon
-        // and the label, both turn the surface's own white.
+        // Additions green, removals red, on every ground but the accent — a selected row included —
+        // where, like the icon and the label, both turn the surface's own white.
         #expect(Badge.diffInk(surface: .sidebar, side: .added) == Palette.diffAdded)
         #expect(Badge.diffInk(surface: .hover, side: .removed) == Palette.diffRemoved)
+        #expect(Badge.diffInk(surface: .selected, side: .added) == Palette.diffAdded)
+        #expect(Badge.diffInk(surface: .selected, side: .removed) == Palette.diffRemoved)
         #expect(Badge.diffInk(surface: .accent, side: .added) == Surface.accent.ink)
         #expect(Badge.diffInk(surface: .accent, side: .removed) == Surface.accent.ink)
     }
@@ -70,9 +95,10 @@ struct BadgeTests {
     }
 
     @Test func aQuietLabelTakesTheSecondaryInk() {
-        // With no box behind it, the label sits back from the row title in secondary ink, on the
-        // accent too.
+        // With no box behind it, the label sits back from the row title in secondary ink, on a
+        // selected row and on the accent too.
         #expect(Badge.labelInk(surface: .sidebar, style: .quiet) == Surface.sidebar.secondaryInk)
+        #expect(Badge.labelInk(surface: .selected, style: .quiet) == Palette.muted)
         #expect(Badge.labelInk(surface: .accent, style: .quiet) == Surface.accent.secondaryInk)
     }
 

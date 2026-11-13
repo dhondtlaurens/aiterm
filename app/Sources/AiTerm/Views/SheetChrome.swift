@@ -11,13 +11,31 @@ extension DismissAction {
     @MainActor func afterThisEvent() { Task { self() } }
 }
 
-/// Shared modal chrome: navigation stays above the scrolling content and actions stay below it.
-struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
+/// How tall a sheet is: a fixed height — a flow whose steps must not jump, a sheet whose content scrolls
+/// — or as tall as its content up to a most, a sheet of a few fields that would otherwise stand in empty
+/// space. Either way never taller than the screen allows (`Sheet.fittingHeight`).
+enum SheetHeight: Equatable {
+    case fixed(CGFloat)
+    /// The content's own height, scrolling only past `upTo`. The sheet follows its content as it
+    /// changes, so a fixed content keeps one height for as long as it is open.
+    case fitting(upTo: CGFloat)
+}
+
+/// Shared modal chrome: a header over the scrolling content and the actions below it. The whole sheet,
+/// footer included, is on the sheet's own ground (`Palette.surface`); a hairline under the header and one
+/// over the footer set the content off.
+///
+/// The header is the title row — the title in `Typography.title`, cut in the middle, and an optional
+/// trailing `accessory` (a stepped sheet's `SheetStepper`) that never gives way to it — then the optional
+/// `header` content `Space.tight` under it: a `SheetSubtitle`, the Shelf's search field, the board's
+/// lines and tabs, Settings' tabs. It is `Space.section` from the top and `Space.margin` from the sides,
+/// and `Space.block` from its rule, except when its last line is a `TabBar` (`headerEndsInTabs`): then the
+/// tabs stand on the rule and the selected one's underline covers it.
+struct SheetLayout<Accessory: View, Header: View, Content: View, Footer: View>: View {
     let title: String
-    let height: CGFloat
-    /// The band's height: `Size.control` for a step bar, a tab bar or a subtitle; nil for a band of lines
-    /// that sizes itself (the board's status and header lines over its tab bar), `Space.base` under the title.
-    let bandHeight: CGFloat?
+    let height: SheetHeight
+    /// The header ends in a `TabBar`, whose selected underline lies on the header's rule.
+    let headerEndsInTabs: Bool
     /// The axes the content scrolls on, as one, between the rules and from edge to edge, its margins inside the
     /// scroll: down for a form, down and sideways for the board's row of columns.
     let scrolls: Axis.Set
@@ -30,35 +48,32 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
     #else
     private let isSnapshot = false
     #endif
-    let navigation: Navigation
+    let accessory: Accessory
+    let header: Header
     let content: Content
     let footer: Footer
 
-    init(title: String, height: CGFloat, bandHeight: CGFloat? = Size.control, scrolls: Axis.Set = .vertical,
+    init(title: String, height: SheetHeight, headerEndsInTabs: Bool = false, scrolls: Axis.Set = .vertical,
          contentVerticalPadding: CGFloat = Space.margin, onBackgroundTap: (() -> Void)? = nil,
-         @ViewBuilder navigation: () -> Navigation,
+         @ViewBuilder accessory: () -> Accessory,
+         @ViewBuilder header: () -> Header,
          @ViewBuilder content: () -> Content,
          @ViewBuilder footer: () -> Footer) {
         self.title = title
         self.height = height
-        self.bandHeight = bandHeight
+        self.headerEndsInTabs = headerEndsInTabs
         self.scrolls = scrolls
         self.contentVerticalPadding = contentVerticalPadding
         self.onBackgroundTap = onBackgroundTap
-        self.navigation = navigation()
+        self.accessory = accessory()
+        self.header = header()
         self.content = content()
         self.footer = footer()
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: bandHeight == nil ? Space.base : Space.block) {
-                Text(title).font(Typography.title).foregroundStyle(Palette.text)
-                    .lineLimit(1).truncationMode(.middle).help(title)
-                if let bandHeight { navigation.frame(height: bandHeight) } else { navigation }
-            }
-            .padding(.horizontal, Space.margin).padding(.top, Space.section).padding(.bottom, Space.block)
-            Hairline()
+        SheetStack(width: Sheet.width, height: resolvedHeight) {
+            headerBlock
             Group {
                 if isSnapshot {
                     // ImageRenderer cannot materialise a ScrollView’s contents: what lies past the edges is cut. A sideways
@@ -72,13 +87,14 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            Hairline()
-            footer
-                .padding(.horizontal, Space.margin).padding(.vertical, Space.block)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Palette.surfaceRaised)
+            VStack(spacing: 0) {
+                Hairline()
+                footer
+                    .padding(.horizontal, Space.margin).padding(.vertical, Space.block)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .background(Palette.surface)
         }
-        .frame(width: Sheet.width, height: Sheet.fittingHeight(height))
         .background {
             if let onBackgroundTap {
                 Color.clear.contentShape(Rectangle()).onTapGesture(perform: onBackgroundTap)
@@ -87,13 +103,91 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
         .background(Palette.surface)
     }
 
+    /// The height `SheetStack` lays the sheet out at, the screen's limit applied here, on the main actor.
+    private var resolvedHeight: SheetHeight {
+        switch height {
+        case .fixed(let preferred): .fixed(Sheet.fittingHeight(preferred))
+        case .fitting(let most): .fitting(upTo: Sheet.fittingHeight(most))
+        }
+    }
+
+    private var headerBlock: some View {
+        VStack(alignment: .leading, spacing: Space.tight) {
+            HStack(spacing: Space.gap) {
+                Text(title).font(Typography.title).foregroundStyle(Palette.text)
+                    .lineLimit(1).truncationMode(.middle).help(title)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                accessory.fixedSize().layoutPriority(1)
+            }
+            header
+        }
+        .padding(.horizontal, Space.margin).padding(.top, Space.section)
+        .padding(.bottom, headerEndsInTabs ? 0 : Space.block)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // Behind the header, so a tab's underline is drawn over it.
+        .background(alignment: .bottom) { Hairline() }
+    }
+
     private var paddedContent: some View {
         content.frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(.horizontal, Space.margin).padding(.vertical, contentVerticalPadding)
     }
 }
 
-/// The band under a sheet's title, on a sheet with no steps and no tabs: one sentence saying what
+extension SheetLayout where Accessory == EmptyView {
+    /// A sheet with no steps: its title, and what its header shows under it.
+    init(title: String, height: SheetHeight, headerEndsInTabs: Bool = false, scrolls: Axis.Set = .vertical,
+         contentVerticalPadding: CGFloat = Space.margin, onBackgroundTap: (() -> Void)? = nil,
+         @ViewBuilder header: () -> Header,
+         @ViewBuilder content: () -> Content,
+         @ViewBuilder footer: () -> Footer) {
+        self.init(title: title, height: height, headerEndsInTabs: headerEndsInTabs, scrolls: scrolls,
+                  contentVerticalPadding: contentVerticalPadding, onBackgroundTap: onBackgroundTap,
+                  accessory: { EmptyView() }, header: header, content: content, footer: footer)
+    }
+}
+
+/// A sheet's three parts top to bottom — header, content, footer — the header and footer at their own
+/// heights and the content in what is left. Fixed, the sheet is that tall whatever it holds. Fitting, it is
+/// the three parts' own heights added up, the content's measured as it would lie unscrolled, but never more
+/// than the most: past that the content scrolls in the room left to it.
+struct SheetStack: Layout {
+    let width: CGFloat
+    /// Already fitted to the screen.
+    let height: SheetHeight
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        CGSize(width: width, height: sheetHeight(subviews))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 3 else { return }
+        let header = ownHeight(subviews[0]), footer = ownHeight(subviews[2])
+        let content = max(0, bounds.height - header - footer)
+        subviews[0].place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: header))
+        subviews[1].place(at: CGPoint(x: bounds.minX, y: bounds.minY + header),
+                          proposal: ProposedViewSize(width: bounds.width, height: content))
+        subviews[2].place(at: CGPoint(x: bounds.minX, y: bounds.maxY - footer),
+                          proposal: ProposedViewSize(width: bounds.width, height: footer))
+    }
+
+    /// The sheet's height for these parts.
+    func sheetHeight(_ subviews: Subviews) -> CGFloat {
+        switch height {
+        case .fixed(let fixed): return fixed
+        case .fitting(let most):
+            guard subviews.count == 3 else { return most }
+            return min(most, subviews.reduce(0) { $0 + ownHeight($1) })
+        }
+    }
+
+    /// A part's height at the sheet's width, as it would lie with no limit on it.
+    private func ownHeight(_ subview: LayoutSubview) -> CGFloat {
+        subview.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+    }
+}
+
+/// The line under a sheet's title, on a sheet with no steps and no tabs: one sentence saying what
 /// the sheet does. Never a path — where a sheet opens is its `DestinationLine`, at the foot of its
 /// content.
 struct SheetSubtitle: View {
@@ -107,7 +201,7 @@ struct SheetSubtitle: View {
     }
 }
 
-/// A sheet's primary action: the prominent button, answering ⌘↩ and only ⌘↩ — the keycaps it shows.
+/// A sheet's primary action: the house primary button (`PushButtonStyle`), answering ⌘↩ and only ⌘↩ — the keycaps it shows.
 /// A plain ⏎ stays with the focused control: a newline in the prompt editor, a pick in a dropdown.
 /// `busy` leads its title with a working `StatusMark` while what it started runs — New Review's
 /// Apply; the caller's action guards itself meanwhile, as Back does while a create runs.
@@ -123,7 +217,7 @@ struct SheetPrimaryButton: View {
     }
 
     private var button: some View {
-        // The label sits on the accent fill, and says so: the keycaps and the mark read it.
+        // The style draws the label on the accent and declares it, so the keycaps and the mark ink for it.
         Button(action: action) {
             HStack(spacing: Space.base) {
                 HStack(spacing: Space.snug) {
@@ -132,9 +226,8 @@ struct SheetPrimaryButton: View {
                 }
                 Kbd("⌘", "↩")
             }
-            .surface(.accent)
         }
-        .keyboardShortcut(.return, modifiers: .command).buttonStyle(.borderedProminent)
+        .keyboardShortcut(.return, modifiers: .command).buttonStyle(.push(.primary))
         .disabled(!enabled)
     }
 }
@@ -151,6 +244,9 @@ struct SheetPrimaryButton: View {
 /// prompt editor's completion popup, whose own ⎋ the hidden button hears first; a sheet with no
 /// lists needs nothing, and ⎋ is Cancel. `cancel` guards itself when it must, as Back does while a create runs.
 /// With no `secondary` there is nothing for ⎋ to do, and it does nothing.
+///
+/// Every button in it is the house push button: Cancel or Back, and whatever `status` carries (a failure's
+/// recovery, Find a Fix, the board's leading actions), secondary; the primary, primary.
 ///
 /// A pattern, not a primitive: it encodes where *this app* puts a sheet's actions.
 struct SheetFooter<Status: View>: View {
@@ -184,7 +280,7 @@ struct SheetFooter<Status: View>: View {
                 SheetPrimaryButton(title: primary, enabled: canSubmit, busy: primaryBusy, help: primaryHelp, action: submit)
             }
         }
-        .controlSize(.large)
+        .buttonStyle(.push(.secondary))
         .overlay {
             if secondary != nil { Button("Close") { if !closeList() { cancel() } }.keyboardShortcut(.cancelAction).hidden() }
         }
@@ -195,7 +291,7 @@ struct SheetFooter<Status: View>: View {
 /// why no agent can run, and a `SheetFooter` — Back, or Cancel on the first step, and Continue or
 /// the create button on the last (`CreationSteps`). A failure
 /// with a fix (`CreationFailure.recovery`) offers it at the leading edge, in the footer's `status`
-/// slot: a plain button with no key, since it moves a branch — ⌘↩ stays the create.
+/// slot: a secondary push button with no key, since it moves a branch — ⌘↩ stays the create.
 ///
 /// A failure is a `Notice` with no actions — the footer's buttons are its actions — and shows its
 /// reason, never the head of git's output: that is the command line and git's narration, and three
@@ -305,41 +401,78 @@ struct CreationFooter: View {
     }
 }
 
-/// 1 Task —— 2 Agent —— 3 Prompt, spread across the full width of the header: the connectors
-/// stretch, so the steps sit evenly from the left edge to the right rather than bunching up. New
-/// Broadcast's four (Broadcast · Prompt · Review · Done) are drawn the same; no step name is a button.
-struct StepBar: View {
+/// A stepped sheet's steps, at the trailing edge of its title row: ✓ —— **2 Agent** —— 3. Each step a
+/// `Size.chip` circle; the current one filled in `Palette.text` with its number in the sheet's own ground,
+/// its name after it in `Typography.label`; an earlier one a `Palette.borderStrong` ring round a check in
+/// `Palette.muted`; a later one the ring round its number in `Palette.tertiary`. A firm `Hairline`
+/// `Space.gap` long joins them, `Space.base` clear either side. No accent: it says where you are, and is
+/// not navigation, so no step is a button. VoiceOver reads it as one element, "Step 2 of 3, Agent".
+/// New Task's and New Review's three and New Broadcast's five are drawn the same.
+struct SheetStepper: View {
     let step: Int
-    /// New Task's first step names a ticket; New Review's names a branch; New Broadcast has four.
-    /// Everything else about the bar is identical, so the names are the only thing that varies.
+    /// New Task's first step names a ticket; New Review's names a branch; New Broadcast has five.
     let names: [String]
 
-    var body: some View {
-        HStack(spacing: Space.base) {
-            ForEach(Array(names.enumerated()), id: \.offset) { index, name in
-                let number = index + 1
-                HStack(spacing: Space.snug) {
-                    ZStack {
-                        Circle().fill(fill(number))
-                        Text("\(number)").font(Typography.micro)
-                            .foregroundStyle(number == step ? Surface.accent.ink : (number < step ? Palette.text : Palette.muted))
-                    }
-                    .frame(width: Size.avatar, height: Size.avatar)
-                    .overlay(Circle().strokeBorder(number > step ? Palette.border : .clear, lineWidth: 1))
-                    Text(name).font(Typography.caption).foregroundStyle(number == step ? Palette.text : Palette.muted)
-                }
-                .fixedSize()
-                if number < names.count {
-                    Hairline().frame(maxWidth: .infinity)
-                }
-            }
+    /// How a step is drawn.
+    enum Mark: Equatable {
+        /// Behind the current step: a check.
+        case done
+        /// The step you are on, with its name.
+        case current(String)
+        /// Still to come: its number.
+        case ahead(Int)
+    }
+
+    static func marks(step: Int, names: [String]) -> [Mark] {
+        names.enumerated().map { index, name in
+            let number = index + 1
+            if number < step { return .done }
+            if number == step { return .current(name) }
+            return .ahead(number)
         }
     }
 
-    private func fill(_ number: Int) -> Color {
-        if number == step { return Palette.accent }
-        if number < step { return Palette.controlActive }
-        return Palette.surface
+    static func accessibilityLabel(step: Int, names: [String]) -> String {
+        let name = names.indices.contains(step - 1) ? ", \(names[step - 1])" : ""
+        return "Step \(step) of \(names.count)\(name)"
+    }
+
+    var body: some View {
+        let marks = Self.marks(step: step, names: names)
+        HStack(spacing: Space.base) {
+            ForEach(Array(marks.enumerated()), id: \.offset) { index, mark in
+                if index > 0 { Hairline(.firm).frame(width: Space.gap) }
+                Self.draw(mark, number: index + 1)
+            }
+        }
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Self.accessibilityLabel(step: step, names: names))
+    }
+
+    @ViewBuilder
+    private static func draw(_ mark: Mark, number: Int) -> some View {
+        switch mark {
+        case .done:
+            Image(systemName: "checkmark").font(Typography.micro).foregroundStyle(Palette.muted).ring()
+        case .current(let name):
+            HStack(spacing: Space.snug) {
+                Text("\(number)").font(Typography.micro.tabular).foregroundStyle(Palette.surface)
+                    .frame(width: Size.chip, height: Size.chip)
+                    .background(Circle().fill(Palette.text))
+                Text(name).font(Typography.label).foregroundStyle(Palette.text).lineLimit(1)
+            }
+        case .ahead(let number):
+            Text("\(number)").font(Typography.micro.tabular).foregroundStyle(Palette.tertiary).ring()
+        }
+    }
+}
+
+private extension View {
+    /// A step's `Size.chip` circle drawn as a 1 pt `Palette.borderStrong` ring round its mark.
+    func ring() -> some View {
+        frame(width: Size.chip, height: Size.chip)
+            .overlay(Circle().strokeBorder(Palette.borderStrong, lineWidth: 1))
     }
 }
 

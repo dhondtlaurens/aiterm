@@ -270,6 +270,12 @@ end of the turn, and it names no child. Only Claude children are checked. PI rel
 child's `:failed`, and no Codex child has yet been
 seen to die without its `SubagentStop`.
 
+The same ambiguity applies after a parent `StopFailure`: a busy file and an alive child alone do
+not clear `stoppedOn`. The daemon reads the parent's transcript tail while it is stopped, caching
+unchanged files. A new parent prompt or successful assistant response, timestamped after the failure
+and the latest hook, proves the parent carried on and clears the marker. Child records, system
+notices, pure tool results, older reports and a later API error do not count as recovery.
+
 What an agent reported belongs to its process, not the tab. A tab keeps its model, reasoning,
 agent directory, context fill and conversation id only while the same agent runs under the same process id, from
 one snapshot to the next. A Claude that exits to the shell, or a new Claude in the same tab,
@@ -279,7 +285,11 @@ once (`StatusEngine.agent_exited`), an exited agent's unseen done included. An
 agent that hands the terminal to another program and gets it back under its own pid comes back
 blank too — Claude's Ctrl+G opening `$EDITOR`. Claude's session file restores its directory and
 conversation in the tick that sees it back; the model and context return with the next hook or
-status-line post.
+status-line post. Codex's hook-proven thread is also kept on its iTerm tab with the foreground
+process ID. When that same Codex process returns, or the helper restarts, the thread is recovered
+from the tag, and its rollout supplies the CLI version for the usual delivery check. Another agent
+or another process cannot inherit it. `SubagentStart` and `SubagentStop` never replace that binding;
+a directory-based placement pin does not establish one.
 
 ## What a Claude worker runs, and what became of a slash command
 

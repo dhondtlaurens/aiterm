@@ -3,12 +3,13 @@ import AiTermUI
 import AiTermCore
 
 /// The Operator sheet's Activity (option 2A, 21 Oct 2026): every call the Operator made, newest first, under a
-/// `SidebarHeading` for each day (`Today`, then the day). A row is the time in `Typography.mono` in a leading
+/// `SidebarHeading` for each day (`Today`, then the day). A row is the time in `Typography.help.tabular` in a leading
 /// column, the line in `Typography.caption` with the task's name in medium weight (muted for a call that only
-/// read), and the task's key trailing in `Typography.monoChip`; a call that did not go through leads with its
+/// read), and the task's key trailing in `Typography.chip.tabular`; a call that did not go through leads with its
 /// `label`, and a reason sits under the line in `Typography.help`. A click opens the row in place, on
-/// `Palette.rowHoverSolid`: the call itself, its tool, arguments and outcome in `Typography.mono` on
-/// `Palette.surfaceRaised`, selectable. One row is open at a time; a second click closes it.
+/// the selection's wash (`Palette.selected`): the call itself, its tool, arguments and outcome in
+/// `Typography.mono` in the well (`Palette.well`), as a command is, selectable. One row is open at a
+/// time; a second click closes it.
 struct BroadcastActivityView: View {
     /// Newest first.
     let entries: [ActivityEntry]
@@ -119,7 +120,7 @@ private struct ActivityRow: View {
         let _ = bodyCounter?.count(entry.id)
         #endif
         HStack(alignment: .firstTextBaseline, spacing: Space.gap) {
-            Text(verbatim: time).font(Typography.mono).foregroundStyle(Palette.muted).fixedSize()
+            Text(verbatim: time).font(Typography.help.tabular).foregroundStyle(Palette.muted).fixedSize()
             VStack(alignment: .leading, spacing: Space.tight) {
                 Button(action: toggle) { head }
                     .buttonStyle(.plain)
@@ -130,7 +131,7 @@ private struct ActivityRow: View {
         .padding(.vertical, Space.snug).padding(.horizontal, Space.base)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
-            if isOpen { RoundedRectangle(cornerRadius: Radius.control).fill(Palette.rowHoverSolid) }
+            if isOpen { RoundedRectangle(cornerRadius: Radius.control).fill(Palette.selected) }
         }
     }
 
@@ -141,7 +142,7 @@ private struct ActivityRow: View {
                 line.font(Typography.caption).fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let key = entry.taskLabel {
-                    Text(verbatim: key).font(Typography.monoChip).foregroundStyle(Palette.muted).fixedSize()
+                    Text(verbatim: key).font(Typography.chip.tabular).foregroundStyle(Palette.muted).fixedSize()
                 }
             }
             if let reason = entry.reason {
@@ -177,6 +178,6 @@ private struct ActivityRow: View {
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, Space.base).padding(.horizontal, Space.inset)
-            .background(RoundedRectangle(cornerRadius: Radius.control).fill(Palette.surfaceRaised))
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(Palette.well))
     }
 }

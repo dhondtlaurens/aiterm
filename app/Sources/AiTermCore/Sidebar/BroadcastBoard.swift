@@ -17,7 +17,7 @@ public struct BroadcastBoard: Equatable, Sendable {
     public enum Column: String, CaseIterable, Sendable {
         case todo, inProgress, review, done
 
-        /// Its head, a `SidebarHeading` (which sets it in capitals).
+        /// Its head, a `SidebarHeading`, which draws it as written: sentence case.
         public var title: String {
             switch self {
             case .todo: "Todo"

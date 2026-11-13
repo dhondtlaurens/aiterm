@@ -2,13 +2,15 @@ import SwiftUI
 import AiTermUI
 
 /// One quiet badge's existing words, artwork and optional link. Callers choose their
-/// surface's mark: board and question ticket marks deliberately remain their own.
+/// surface's mark: a sidebar row inks it with its words (`markInk: .label`); board and question
+/// ticket marks deliberately remain their own.
 struct QuietBadgeValue {
     var label: String?
     var icon: IconSource?
     var help: String?
     var suffix: Badge.Suffix? = nil
     var accessibilityLabel: String? = nil
+    var markInk: Badge.MarkInk = .own
     var action: (() -> Void)? = nil
 }
 
@@ -27,13 +29,14 @@ struct QuietBadgeLine: View {
                 badge(QuietBadgeValue(icon: ticket.icon,
                                       help: "\(ticket.help ?? "") · \(request.help ?? "")",
                                       suffix: request.suffix, accessibilityLabel: request.accessibilityLabel,
-                                      action: request.action))
+                                      markInk: ticket.markInk, action: request.action))
             } else {
                 HStack(spacing: scale(Space.snug)) {
                     badge(ticket)
                     if request.label != nil || request.suffix != nil {
                         badge(QuietBadgeValue(label: request.label, help: request.help, suffix: request.suffix,
-                                              accessibilityLabel: request.accessibilityLabel, action: request.action))
+                                              accessibilityLabel: request.accessibilityLabel, markInk: request.markInk,
+                                              action: request.action))
                     }
                 }
             }
@@ -45,7 +48,8 @@ struct QuietBadgeLine: View {
 
     @ViewBuilder private func badge(_ value: QuietBadgeValue) -> some View {
         let badge = Badge(value.label, icon: value.icon, help: value.help, suffix: value.suffix,
-                          style: .quiet, accessibilityLabel: value.accessibilityLabel, action: value.action)
+                          style: .quiet, markInk: value.markInk, accessibilityLabel: value.accessibilityLabel,
+                          action: value.action)
         if fixed { badge.fixedSize() } else { badge }
     }
 }

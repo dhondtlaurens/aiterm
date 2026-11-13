@@ -5,6 +5,13 @@ import AppKit
 /// instead of pushing the sheet around, and it fills the column it is given — which neither
 /// SwiftUI's menu-style `Picker` nor `Menu` will do: both hug their widest title and centre
 /// themselves in the space left over.
+///
+/// The button is borderless and sits in the same `fieldBox` as an `Input`, so a select and a field
+/// side by side are one shape. AppKit still owns the menu, the keyboard and the click; the house
+/// draws the chrome, the picked title and the chevrons. The title is the house's because a
+/// borderless pop-up sets its own 5 pt in, short of an `Input`'s `Space.inset`, and takes no other
+/// inset from its cell. So a disabled `Select` does not dim on its own: whoever disables it fades it
+/// with `Opacity.disabled`, as the README asks of every disabled part.
 public struct Select<Value: Hashable>: View {
     let values: [Value]
     @Binding var selection: Value
@@ -35,6 +42,20 @@ public struct Select<Value: Hashable>: View {
         .controlSize(.large)
         .frame(maxWidth: .infinity)
         .frame(height: Size.control)
+        .overlay {
+            // Drawn over the button, which keeps the click: the whole field opens the menu.
+            HStack(spacing: 0) {
+                Text(values.contains(selection) ? label(selection) : (values.first.map(label) ?? ""))
+                    .font(monospaced ? Typography.monoCode : Typography.body).foregroundStyle(Palette.text)
+                    .lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.up.chevron.down").font(Typography.micro).foregroundStyle(Palette.muted)
+                    .frame(width: Size.menuRow)
+            }
+            .padding(.leading, Space.inset)
+            .allowsHitTesting(false).accessibilityHidden(true)
+        }
+        .fieldBox()
     }
 }
 
@@ -50,6 +71,14 @@ struct NativePopUp: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = NSPopUpButton(frame: .zero, pullsDown: false)
+        // No bezel, no arrows and no title of its own: `Select` draws those. The button shows an
+        // empty item instead of the picked one, which stays picked in the menu.
+        button.isBordered = false
+        if let cell = button.cell as? NSPopUpButtonCell {
+            cell.arrowPosition = .noArrow
+            cell.usesItemFromMenu = false
+            cell.menuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        }
         button.target = context.coordinator
         button.action = #selector(Coordinator.changed(_:))
         button.menu?.autoenablesItems = false
@@ -90,9 +119,17 @@ struct NativePopUp: NSViewRepresentable {
     }
 
     /// Take the width offered rather than the intrinsic one: this is what makes the popup fill its
-    /// column instead of hugging its title.
+    /// column instead of hugging its title. With none offered (`.fixedSize()`), the width its widest
+    /// title needs inside the house chrome: the button's own is that of the empty item it shows.
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSPopUpButton, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? nsView.intrinsicContentSize.width, height: Size.control)
+        CGSize(width: proposal.width ?? Self.naturalWidth(titles: titles, monospaced: monospaced), height: Size.control)
+    }
+
+    /// The leading inset, the widest title and the chevrons' slot.
+    static func naturalWidth(titles: [String], monospaced: Bool) -> CGFloat {
+        let font = (monospaced ? Typography.monoCode : Typography.body).nsFont
+        let widest = titles.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+        return Space.inset + ceil(widest) + Size.menuRow
     }
 
     @MainActor

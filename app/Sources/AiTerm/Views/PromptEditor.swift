@@ -381,9 +381,10 @@ struct CompletionPopup: View {
                      onPick: { completions.accept?($0) }) { Row(item: $0) }
     }
 
-    /// One command, skill, file or folder, inked for the ground its row declares: white while
-    /// highlighted, and a command's or skill's source, faint at rest, rises to the secondary ink
-    /// there with the rest. A path names no source: every one is the project's.
+    /// One command, skill, file or folder, inked for the ground its row declares — the popup's
+    /// resting ground, highlighted or not, since the highlight is a neutral wash — with a command's
+    /// or skill's source faint; on the accent it would rise to the secondary ink with the rest. A
+    /// path names no source: every one is the project's.
     private struct Row: View {
         let item: AgentCompletion
         @Environment(\.surface) private var surface

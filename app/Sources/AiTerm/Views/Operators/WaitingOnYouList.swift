@@ -37,9 +37,9 @@ struct WaitingOnYouList: View {
 
 /// One question under Waiting on you: a `groupChrome` box edged in `Palette.statusChipAttentionStroke`, as a card that
 /// needs you, `Space.block` inside and its lines `Space.base` apart. Its task's quiet Jira `Badge` and title in
-/// `Typography.help`, its age trailing in `Typography.monoChip`, on a `Size.chip` line; who asks, or where it waits, in
+/// `Typography.help`, its age trailing in `Typography.chip.tabular`, on a `Size.chip` line; who asks, or where it waits, in
 /// a `HelpText`; the question in `Typography.body`; then how it is answered. **Here**: its choices as links in
-/// `Typography.help`, then the kit's `Input` with Send, enabled once the field holds text, ⌘↩ sending it while this is
+/// `Typography.help`, then the kit's `Input` with Send, a secondary push button enabled once the field holds text, ⌘↩ sending it while this is
 /// the block focused or typed in last (fix rounds have no field). A choice or Send records the answer once (`OperatorController.answer(question:in:with:)`). **There**: one
 /// link, Open its window or Open the Operator's chat. Answered, the edge is `Palette.border` and the block says what you
 /// answered, until the Operator resolves the question and it leaves the list.
@@ -75,7 +75,7 @@ struct QuestionBlock: View {
             }
             .padding(Space.block)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .groupChrome(fill: Palette.surface,
+            .groupChrome(fill: Palette.surfaceRaised,
                          edge: question.answered == nil ? Palette.statusChipAttentionStroke : Palette.border)
         }
         .accessibilityElement(children: .contain)
@@ -108,7 +108,8 @@ struct QuestionBlock: View {
             }
             Text(question.title).font(Typography.help).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.tail)
             Spacer(minLength: Space.gap)
-            Text(verbatim: BroadcastBoard.age(since: question.askedAt, now: now)).font(Typography.monoChip).foregroundStyle(Palette.muted)
+            Text(verbatim: BroadcastBoard.age(since: question.askedAt, now: now)).font(Typography.chip.tabular)
+                .foregroundStyle(Palette.muted)
         }
         .frame(height: Size.chip)
     }
@@ -138,6 +139,7 @@ struct QuestionBlock: View {
                         Button("Send") {}.disabled(true)
                     }
                 }
+                .buttonStyle(.push(.secondary))
             }
         case .window(let task, let tab):
             Button("Open its window") { choose(.prompt(task: task, tab: tab)) }.buttonStyle(.link).font(Typography.help)

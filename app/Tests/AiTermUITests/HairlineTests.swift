@@ -29,11 +29,15 @@ struct HairlineTests {
     private final class Box { var size = CGSize.zero }
 
     /// A sheet's section break and the sidebar's rule are one weight: the hairline draws exactly
-    /// the border every field is outlined in, not a brighter `Divider` under it.
+    /// the soft `border` a card is edged in, not a brighter `Divider` under it, and not the firm
+    /// `borderStrong` a field is outlined in.
     @Test func itDrawsTheBorder() throws {
         let hairline = try #require(brightestPixel(of: VStack { Hairline() }.frame(width: 20)))
         let border = try #require(brightestPixel(of: Rectangle().fill(Palette.border).frame(width: 20, height: 1)))
+        let strong = try #require(brightestPixel(of: Rectangle().fill(Palette.borderStrong).frame(width: 20, height: 1)))
         #expect(abs(hairline.redComponent - border.redComponent) < 0.005,
                 "hairline \(hairline.redComponent), border \(border.redComponent)")
+        #expect(strong.redComponent - hairline.redComponent > 0.01,
+                "hairline \(hairline.redComponent) is as firm as a field's edge \(strong.redComponent)")
     }
 }

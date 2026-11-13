@@ -284,6 +284,65 @@ import Testing
         #expect(world.task(task.id)?.operated?.branchDrift == nil)
     }
 
+    @Test func anotherWorkersBranchHeadMentionedWhileWaitingIsNotDrift() async throws {
+        let (world, run, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-waiting")
+        let elsewhere = try GitFixture.folder("op-drift-tmp-") + "/views"
+        try git.run(["worktree", "add", "-q", "-b", "chore/views", elsewhere], in: worktree)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "Views finished"], in: elsewhere)
+        let sha = try git.run(["rev-parse", "HEAD"], in: elsewhere)
+        let project = try #require(world.state.project(id: task.projectId))
+        var views = OperatorServiceFixtures.task(in: run, project: project, key: "views", state: .published, worktree: elsewhere)
+        views.branch = "chore/views"
+        world.workspace.mutate { $0.tasks.append(views) }
+        try saveReply("The views branch ended at \(sha).\n\nQuestion: Should I wait for its merge?",
+                      conversation: "conv-waiting", in: world)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift == nil)
+        let current = try #require(world.run(run.id))
+        #expect(try #require(world.controller.status(of: current)).obligations.branchDrift.isEmpty)
+        // Ownership changes invalidate the lookup even when the message, head and refs stand still.
+        world.workspace.mutate { $0.tasks.removeAll { $0.id == views.id } }
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift?.sha == sha)
+        world.workspace.mutate { state in
+            state.updateRun(id: run.id) { $0.finished.append(OperatorUIFixtures.finished(views, result: "Done")) }
+        }
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift == nil)
+        // A commit already merged into the task branch is no drift even when claimed as work.
+        try git.run(["merge", "--no-ff", "-q", "-m", "Merge views", "chore/views"], in: worktree)
+        try saveReply("Committed \(sha).", conversation: "conv-waiting", in: world)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift == nil)
+    }
+
+    @Test func mergingTheNamedCommitClearsAnOldWarningWhileTheWorkerIsActive() async throws {
+        let (world, run, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-progress")
+        let elsewhere = try GitFixture.folder("op-drift-tmp-") + "/other"
+        try git.run(["worktree", "add", "-q", "-b", "feat/elsewhere", elsewhere], in: worktree)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "Work elsewhere"], in: elsewhere)
+        let sha = try git.run(["rev-parse", "HEAD"], in: elsewhere)
+        let secondWorktree = try GitFixture.folder("op-drift-tmp-") + "/second"
+        try git.run(["worktree", "add", "-q", "-b", "feat/second", secondWorktree], in: worktree)
+        try "More work elsewhere\n".write(toFile: secondWorktree + "/second.txt", atomically: true, encoding: .utf8)
+        try git.run(["add", "second.txt"], in: secondWorktree)
+        try git.run(["commit", "-q", "-m", "More work elsewhere"], in: secondWorktree)
+        let second = try git.run(["rev-parse", "HEAD"], in: secondWorktree)
+        try saveReply("Committed \(sha) and \(second).", conversation: "conv-progress", in: world)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift?.sha == sha)
+        world.show([OperatorServiceFixtures.session("op", window: "wo", tag: run.id),
+                    OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .working, conversation: "conv-progress")])
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift?.sha == sha, "activity alone does not resolve off-branch work")
+        try git.run(["merge", "--no-ff", "-q", "-m", "Bring work onto the task", "feat/elsewhere"], in: worktree)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift?.sha == second, "the other commit still needs bringing onto the task")
+        try git.run(["merge", "--no-ff", "-q", "-m", "Bring the remaining work onto the task", "feat/second"], in: worktree)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift == nil)
+    }
+
     /// A review tab's case: its last message says `main has moved on to <main's head>`. A commit its base branch holds is
     /// no work done off the task branch.
     @Test func aCommitOnTheBaseBranchTheLastMessageNamesIsNotFlagged() async throws {

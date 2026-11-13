@@ -27,6 +27,20 @@ import Foundation
         #expect(InterfaceSettings.badgeDetails(defaults: defaults) == flipped)
     }
 
+    /// The marks take the row's ink until someone asks for the vendors' colours: a key never written
+    /// reads as off, unlike the details beside it.
+    @Test func brandColoursDefaultOffAndRoundTripWithoutTouchingTheDetails() {
+        let defaults = ScratchDefaults.make()
+        #expect(!InterfaceSettings.badgeDetails(defaults: defaults).brandColours)
+
+        let coloured = BadgeDetails(jiraTicket: false, brandColours: true)
+        InterfaceSettings.saveBadgeDetails(coloured, defaults: defaults)
+        #expect(InterfaceSettings.badgeDetails(defaults: defaults) == coloured)
+
+        InterfaceSettings.saveBadgeDetails(BadgeDetails(jiraTicket: false), defaults: defaults)
+        #expect(InterfaceSettings.badgeDetails(defaults: defaults) == BadgeDetails(jiraTicket: false))
+    }
+
     @Test func interfaceSizeDefaultsToStandardAndRoundTrips() {
         let defaults = ScratchDefaults.make()
         #expect(InterfaceSettings.interfaceSize(defaults: defaults) == .standard)
